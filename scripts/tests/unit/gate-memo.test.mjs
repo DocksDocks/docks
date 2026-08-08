@@ -17,8 +17,9 @@ import {
 
 const TOOLS = ['cargo=absent'];
 
-function fixtureRepo(label) {
+function fixtureRepo(label, t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `gate-memo-${label}-`)));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'gate@example.test');
@@ -32,28 +33,29 @@ function fixtureRepo(label) {
   return { root, git, key: () => computeGateKey({ repo: root, scope: { plugin: null, lane: null }, tools: TOOLS }) };
 }
 
-test('gate key is stable when nothing changes', () => {
-  const repo = fixtureRepo('stable');
+test('gate key is stable when nothing changes', (t) => {
+  const repo = fixtureRepo('stable', t);
   const first = repo.key();
   assert.equal(typeof first.key, 'string');
   assert.equal(repo.key().key, first.key);
 });
 
-test('a changed byte in a tracked file misses the memo', () => {
-  const repo = fixtureRepo('changed-byte');
+test('a changed byte in a tracked file misses the memo', (t) => {
+  const repo = fixtureRepo('changed-byte', t);
   const before = repo.key().key;
   fs.writeFileSync(path.join(repo.root, 'src', 'b.mjs'), 'export const b = 2;\n');
   const after = repo.key().key;
   assert.notEqual(after, before, 'an uncommitted one-byte edit must change the key');
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-memo-store-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   recordMemo(before, { scope: { plugin: null, lane: null } }, root);
   assert.equal(lookupMemo(after, root), null, 'the changed tree must MISS');
   assert.ok(lookupMemo(before, root), 'the recorded tree still HITS');
 });
 
-test('the key follows the working tree, not HEAD', () => {
-  const repo = fixtureRepo('worktree');
+test('the key follows the working tree, not HEAD', (t) => {
+  const repo = fixtureRepo('worktree', t);
   const dirty = path.join(repo.root, 'a.txt');
   fs.writeFileSync(dirty, 'alpha modified\n');
   const dirtyKey = repo.key().key;
@@ -69,8 +71,8 @@ test('the key follows the working tree, not HEAD', () => {
   assert.notEqual(repo.key().key, committedKey, 'reverting the worktree changes the key again');
 });
 
-test('a new untracked file changes the key; an ignored one does not', () => {
-  const repo = fixtureRepo('untracked');
+test('a new untracked file changes the key; an ignored one does not', (t) => {
+  const repo = fixtureRepo('untracked', t);
   const base = repo.key().key;
   fs.mkdirSync(path.join(repo.root, 'ignored'));
   fs.writeFileSync(path.join(repo.root, 'ignored', 'noise.txt'), 'noise\n');
@@ -80,15 +82,15 @@ test('a new untracked file changes the key; an ignored one does not', () => {
   assert.notEqual(repo.key().key, base, 'an untracked source file is a gate input');
 });
 
-test('a deleted file changes the key', () => {
-  const repo = fixtureRepo('deleted');
+test('a deleted file changes the key', (t) => {
+  const repo = fixtureRepo('deleted', t);
   const base = repo.key().key;
   fs.rmSync(path.join(repo.root, 'a.txt'));
   assert.notEqual(repo.key().key, base);
 });
 
-test('scope and tool availability are part of the key', () => {
-  const repo = fixtureRepo('scope');
+test('scope and tool availability are part of the key', (t) => {
+  const repo = fixtureRepo('scope', t);
   const full = computeGateKey({ repo: repo.root, scope: { plugin: null, lane: null }, tools: TOOLS }).key;
   const scoped = computeGateKey({ repo: repo.root, scope: { plugin: 'docks', lane: null }, tools: TOOLS }).key;
   const withCargo = computeGateKey({ repo: repo.root, scope: { plugin: null, lane: null }, tools: ['cargo=abc'] }).key;
@@ -96,8 +98,8 @@ test('scope and tool availability are part of the key', () => {
   assert.notEqual(withCargo, full, 'installing a tool changes which checks run');
 });
 
-test('an undescribable working tree misses instead of guessing', () => {
-  const repo = fixtureRepo('undescribable');
+test('an undescribable working tree misses instead of guessing', (t) => {
+  const repo = fixtureRepo('undescribable', t);
   const unmerged = computeGateKey({
     repo: repo.root,
     scope: {},
@@ -140,8 +142,8 @@ test('an undescribable working tree misses instead of guessing', () => {
   assert.equal(lookupMemo(null, memoRoot()), null, 'a null key can never hit');
 });
 
-test('a real merge conflict misses instead of guessing', () => {
-  const repo = fixtureRepo('conflict');
+test('a real merge conflict misses instead of guessing', (t) => {
+  const repo = fixtureRepo('conflict', t);
   assert.equal(typeof repo.key().key, 'string');
   repo.git('checkout', '-q', '-b', 'other');
   fs.writeFileSync(path.join(repo.root, 'a.txt'), 'other\n');
@@ -159,8 +161,9 @@ test('a real merge conflict misses instead of guessing', () => {
   assert.match(conflicted.reason, /unmerged|undescribable/);
 });
 
-test('memo store lives under XDG_STATE_HOME/docks with mode 0700', () => {
+test('memo store lives under XDG_STATE_HOME/docks with mode 0700', (t) => {
   const state = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-memo-xdg-'));
+  t.after(() => fs.rmSync(state, { recursive: true, force: true }));
   const root = memoRoot({ XDG_STATE_HOME: state });
   assert.equal(root, path.join(state, 'docks', 'ci-memo'));
 
@@ -173,8 +176,9 @@ test('memo store lives under XDG_STATE_HOME/docks with mode 0700', () => {
   assert.ok(Date.parse(record.recorded_at) > 0);
 });
 
-test('a record that is not a recorded pass never hits', () => {
+test('a record that is not a recorded pass never hits', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-memo-bad-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.writeFileSync(path.join(root, 'k1.json'), JSON.stringify({ schema: 1, key: 'k1', status: 'failed' }));
   fs.writeFileSync(path.join(root, 'k2.json'), JSON.stringify({ schema: 99, key: 'k2', status: 'passed' }));
   fs.writeFileSync(path.join(root, 'k3.json'), 'not json');
@@ -184,8 +188,9 @@ test('a record that is not a recorded pass never hits', () => {
   assert.equal(lookupMemo('absent', root), null);
 });
 
-test('the memo store is bounded', () => {
+test('the memo store is bounded', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-memo-prune-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   for (let index = 0; index < 8; index += 1) {
     fs.writeFileSync(path.join(root, `k${index}.json`), '{}');
     fs.utimesSync(path.join(root, `k${index}.json`), 1000 + index, 1000 + index);
@@ -197,9 +202,10 @@ test('the memo store is bounded', () => {
 // A memo recorded by `--plugin X` describes a run that gated a fraction of the
 // checks. Handing it back to a full run would be a false green - the worst outcome
 // this module can produce - so the scope is mixed into the key in both directions.
-test('a scoped pass never satisfies a full run, and a full pass never satisfies a scoped one', () => {
-  const repo = fixtureRepo('cross-scope');
+test('a scoped pass never satisfies a full run, and a full pass never satisfies a scoped one', (t) => {
+  const repo = fixtureRepo('cross-scope', t);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-memo-cross-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const keyFor = (scope) => computeGateKey({ repo: repo.root, scope, tools: TOOLS }).key;
   const full = keyFor({ plugin: null, lane: null });
   const scoped = keyFor({ plugin: 'docks', lane: null });

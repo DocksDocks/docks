@@ -26,7 +26,10 @@ const LAYERS = new Set(['unit', 'integration', 'contract', 'smoke']);
 const SELECTION_KINDS = new Set(['node-test-file', 'node-script']);
 const RELEASE_ROLES = new Set(['gate', 'release-evidence', 'none']);
 const PLATFORMS = new Set(['linux', 'macos']);
-const TODAY = new Date().toISOString().slice(0, 10);
+// A `skip.expires` waiver is invalidated by the passage of time, so the real clock is the input here:
+// pinning this to a constant would let an expired waiver pass forever. Override it only to test this
+// validator itself, never to silence the alarm.
+const TODAY = process.env.DOCKS_TEST_TODAY ?? new Date().toISOString().slice(0, 10);
 
 function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(REPO, relativePath), 'utf8'));
