@@ -338,7 +338,7 @@ if (targets.length > 0) {
       ['shellcheck', '-S', 'warning', ...bashFiles],
       { encoding: 'utf8' },
     );
-    if (shellcheck.error) warn('shellcheck not installed — skipped locally (CI enforces)');
+    if (shellcheck.error) fail('shellcheck could not run — shell lint not validated');
     else if ((shellcheck.status ?? 1) === 0) ok(`shellcheck -S warning clean (${bashFiles.length} hook(s))`);
     else fail(`shellcheck warnings (run: shellcheck -S warning ${bashFiles.join(' ')})`);
   }
@@ -406,7 +406,7 @@ function gatePlugin(p) {
   const v = runCommand(`claude plugin validate ./${p.root}`, ['claude', 'plugin', 'validate', `./${p.root}`], {
     encoding: 'utf8',
   });
-  if (v.error) (p.name === 'docks' ? fail : warn)(`claude CLI not found — ${p.name} plugin validate skipped`);
+  if (v.error) fail(`claude CLI could not run — ${p.name} plugin not validated`);
   else if (`${v.stdout}${v.stderr}`.includes('Validation passed')) ok(`claude plugin validate ./${p.root}`);
   else fail(`claude plugin validate ./${p.root} (run manually for details)`);
 

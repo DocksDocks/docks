@@ -416,7 +416,8 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
       return capture('git', ['status', '--porcelain']).stdout.trim() === '';
     },
     ensureTool(tool) {
-      return !spawnSync(tool, ['--version'], { stdio: 'ignore' }).error;
+      const result = spawnSync(tool, ['--version'], { stdio: 'ignore' });
+      return result.error === undefined && result.status === 0;
     },
     fileExists(file) {
       return fs.existsSync(file);

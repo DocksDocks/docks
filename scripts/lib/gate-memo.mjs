@@ -64,9 +64,9 @@ function blobId(bytes) {
   return crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
 }
 
-// Tool availability decides which checks the gate runs at all (a rust lane self-skips
-// without cargo, shell lint self-skips without shellcheck). Installing one of those
-// between runs changes the gate's meaning, so it changes the key.
+// A memo may be reused only when every executable the gate invokes has the same
+// identity. Availability alone is a proxy: changing the executable can change the
+// result while leaving the working tree untouched.
 export function toolFingerprint(
   names,
   // stderr is discarded: a misconfigured toolchain (`rustup` with no default) writes a
@@ -82,11 +82,30 @@ export function toolFingerprint(
   });
 }
 
+// Git ignores node_modules, so the worktree digest is only a proxy for dependency
+// availability. pnpm's small install record captures that state without walking or
+// hashing dependency contents.
+function installFingerprint(repo) {
+  const installRecord = 'node_modules/.modules.yaml';
+  try {
+    return sha256(fs.readFileSync(path.join(repo, installRecord)));
+  } catch (error) {
+    if (error.code === 'ENOENT') return 'absent';
+    throw new Error(`cannot digest ${installRecord}: ${error.message}`);
+  }
+}
+
 /**
  * Digest of everything that decides the gate's outcome.
  * @returns {{key: string, entries: number}|{key: null, reason: string}}
  */
 export function computeGateKey({ repo, scope, git = gitReader(repo), entry = (rel) => treeEntry(repo, rel), tools }) {
+  let install;
+  try {
+    install = installFingerprint(repo);
+  } catch (error) {
+    return { key: null, reason: error.message };
+  }
   let indexListing;
   let status;
   try {
@@ -139,7 +158,8 @@ export function computeGateKey({ repo, scope, git = gitReader(repo), entry = (re
     `scope=${JSON.stringify(scope)}`,
     `node=${process.version}`,
     `platform=${process.platform}/${process.arch}`,
-    `tools=${(tools ?? toolFingerprint(['cargo', 'shellcheck', 'pnpm'])).join(',')}`,
+    `tools=${(tools ?? toolFingerprint(['cargo', 'claude', 'git', 'node', 'pnpm', 'shellcheck'])).join(',')}`,
+    `install=${install}`,
     `worktree=${sha256(listing.join('\n'))}`,
   ];
   return { key: sha256(parts.join('\n')), entries: listing.length };
