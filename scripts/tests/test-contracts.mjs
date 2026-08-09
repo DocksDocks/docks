@@ -168,11 +168,49 @@ function unitDescriptors(packageJson) {
     });
   });
 }
+function executableCodePositions(source) {
+  const positions = new Uint8Array(source.length);
+  let state = 'code';
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index];
+    const next = source[index + 1];
+    if (state === 'code') {
+      if (current === '/' && next === '/') {
+        state = 'line-comment';
+        index += 1;
+      } else if (current === '/' && next === '*') {
+        state = 'block-comment';
+        index += 1;
+      } else if (current === "'" || current === '"' || current === '`') {
+        state = current;
+      } else {
+        positions[index] = 1;
+      }
+    } else if (state === 'line-comment') {
+      if (current === '\n') {
+        state = 'code';
+        positions[index] = 1;
+      }
+    } else if (state === 'block-comment') {
+      if (current === '*' && next === '/') {
+        state = 'code';
+        index += 1;
+      }
+    } else if (current === '\\') {
+      index += 1;
+    } else if (current === state) {
+      state = 'code';
+    }
+  }
+  return positions;
+}
 
 function gateInvocationArguments(ciSource) {
   const bySuite = new Map();
+  const codePositions = executableCodePositions(ciSource);
   const invocationPattern = /\bnode(?:Ok)?\(\[\s*['"](?<suite>[^'"]+\.mjs)['"](?<args>[^[]*?)\]\)/gu;
   for (const match of ciSource.matchAll(invocationPattern)) {
+    if (codePositions[match.index] !== 1) continue;
     const args = [...match.groups.args.matchAll(/,\s*(['"])([^'"]*)\1/gu)].map((argument) => argument[2]);
     const invocations = bySuite.get(match.groups.suite) ?? [];
     invocations.push(args);
@@ -201,13 +239,15 @@ function gateSelection(suite, invocations = []) {
 }
 
 function repoSuiteDescriptors(ciSource) {
-  const paths = [...ciSource.matchAll(/['"]((?:scripts\/tests|tests)\/[^'"]+\.mjs)['"]/gu)]
-    .map((match) => match[1])
-    .filter((suite) => !suite.startsWith('scripts/tests/unit/'));
+  const invocations = gateInvocationArguments(ciSource);
+  // The registry certifies commands the gate executes; a path in prose or diagnostics only names a suite.
+  const paths = [...invocations.keys()].filter(
+    (suite) =>
+      (suite.startsWith('scripts/tests/') || suite.startsWith('tests/')) && !suite.startsWith('scripts/tests/unit/'),
+  );
   const selectors = new Map([
     ['scripts/tests/ci-plugin-targeting.mjs', 'scripts/tests/ci-plugin-targeting.mjs --unit'],
   ]);
-  const invocations = gateInvocationArguments(ciSource);
   return [...new Set(paths)].sort().map((suite) => {
     const selection = gateSelection(suite, invocations.get(suite));
     return descriptor({

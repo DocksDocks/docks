@@ -27,9 +27,13 @@ import {
   selectedAuthorChecks,
   workflowCiSelection,
 } from '../lib/ci-targeting.mjs';
+import { createGenericPluginReleaseIo } from '../lib/plugin-release.mjs';
 import { PLUGINS, REPO_WIDE_JAVASCRIPT_QUALITY } from '../lib/plugins.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const GENERIC_RELEASE_IO_KEYS = Object.freeze(
+  Object.keys(createGenericPluginReleaseIo({ repo: ROOT, plugins: PLUGINS })).sort(),
+);
 const args = process.argv.slice(2);
 const mode = args[0] ?? null;
 const validInvocation =
@@ -730,23 +734,6 @@ async function testFocusedCiCommandSelection() {
   }
 }
 
-const GENERIC_RELEASE_IO_KEYS = Object.freeze([
-  'commit',
-  'createRelease',
-  'createTag',
-  'ensureCleanTree',
-  'ensureTool',
-  'fileExists',
-  'log',
-  'push',
-  'readJson',
-  'readReleaseNotes',
-  'resolveTagCommit',
-  'runSelectedCi',
-  'waitForTagCi',
-  'writeJson',
-]);
-
 function genericReleaseIo(repo, options = {}) {
   const calls = [];
   const output = [];
@@ -823,7 +810,11 @@ function genericReleaseIo(repo, options = {}) {
       record('writeJson', [relativePath(file), value]);
     },
   };
-  assert.deepEqual(Object.keys(io).sort(), [...GENERIC_RELEASE_IO_KEYS].sort());
+  assert.deepEqual(
+    Object.keys(io).sort(),
+    GENERIC_RELEASE_IO_KEYS,
+    'generic release fixture IO must match the production adapter',
+  );
   return { calls, io: Object.freeze(io), output };
 }
 
