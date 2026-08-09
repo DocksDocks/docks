@@ -48,9 +48,16 @@ for (const file of files) {
     continue;
   }
 
+  // Claude Code and Codex read agent metadata only from YAML frontmatter; a
+  // body line that looks like a field must not satisfy this structural guard.
+  const frontmatterEnd = lines.indexOf('---', 1);
   const getField = (key) => {
-    const l = lines.find((x) => new RegExp(`^${key}:`).test(x));
-    return l ? l.replace(new RegExp(`^${key}:\\s*`), '') : '';
+    const prefix = `${key}:`;
+    for (let index = 1; index < frontmatterEnd; index += 1) {
+      const line = lines[index];
+      if (line.startsWith(prefix)) return line.slice(prefix.length).trimStart();
+    }
+    return '';
   };
 
   const nameField = getField('name');

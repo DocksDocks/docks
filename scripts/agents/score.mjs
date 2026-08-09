@@ -40,18 +40,23 @@ const RESEARCH_DISCIPLINE = new RegExp(`${RESEARCH_VERB}[^.\\n]*${SOURCE_OF_TRUT
 const RESEARCH_TOOL = /\b(?:resolve-library-id|query-docs|context7)\b/i;
 const RESEARCH_GATE = { test: (text) => RESEARCH_DISCIPLINE.test(text) || RESEARCH_TOOL.test(text) };
 
-// frontmatter (between the first two `---`) contains a top-level `key:`
-function hasFmField(lines, key) {
-  let c = 0;
-  for (const l of lines) {
-    if (l === '---') {
-      c += 1;
-      if (c >= 2) break;
-      continue;
-    }
-    if (c === 1 && new RegExp(`^${key}:`).test(l)) return true;
+// Claude Code and Codex read agent metadata only from YAML frontmatter, so
+// body lines that resemble fields must neither earn nor lose score points.
+function findFmFieldLine(lines, key) {
+  const start = lines.indexOf('---');
+  if (start === -1) return undefined;
+  const end = lines.indexOf('---', start + 1);
+  if (end === -1) return undefined;
+
+  const prefix = `${key}:`;
+  for (let index = start + 1; index < end; index += 1) {
+    if (lines[index].startsWith(prefix)) return lines[index];
   }
-  return false;
+  return undefined;
+}
+
+function hasFmField(lines, key) {
+  return findFmFieldLine(lines, key) !== undefined;
 }
 
 const mdFiles = fs.existsSync(DIR)
@@ -73,8 +78,8 @@ for (const fname of mdFiles) {
   const lines = splitLines(content);
   let score = 0;
 
-  const descLine = lines.find((l) => /^description:/.test(l)) || '';
-  const desc = descLine.replace(/^description:\s*/, '');
+  const descLine = findFmFieldLine(lines, 'description') ?? '';
+  const desc = descLine.slice('description:'.length).trimStart();
   // 1. starts "Use when" (2)
   if (/^use when/i.test(desc)) score += 2;
   // 2. "Not" exclusion clause (1)
@@ -95,7 +100,7 @@ for (const fname of mdFiles) {
   // 8. portable model resolution: no `model:` key (1) — Claude Code defaults to
   // `inherit` and omp falls back to the parent session model, so omitting it is the
   // only spelling both runtimes resolve. Any literal kills the spawn under omp.
-  if (!anyLine(lines, /^model:/)) score += 1;
+  if (!hasFmField(lines, 'model')) score += 1;
   // 9. tools/disallowedTools declared (1)
   if (hasFmField(lines, 'tools') || hasFmField(lines, 'disallowedTools')) score += 1;
   // 10. slop (max −2)
