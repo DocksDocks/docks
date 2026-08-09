@@ -25,16 +25,33 @@ const fail = (m) => {
 const CODEX_MODELS =
   'gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna gpt-5.5 gpt-5.4 gpt-5.4-mini gpt-5.3-codex gpt-5.3-codex-spark gpt-5.2';
 const allowed = new Set(CODEX_MODELS.split(' '));
-const toks = [...new Set(doc.match(/gpt-5\.[0-9]+(-[a-z]+)*/g) || [])].sort();
+const toks = [...new Set(doc.match(/\bgpt-5\.[A-Za-z0-9_-]+/g) || [])].sort();
 for (const tok of toks) {
   if (!allowed.has(tok))
     fail(`codex-agents-builder.md references unknown Codex model id '${tok}' (allowed: ${CODEX_MODELS})`);
 }
 
-// 2. model_reasoning_effort canonical set; `none` left the set and is valid
-//    only on plan_mode_reasoning_effort
+function declaredValues(key) {
+  const rows = doc.split('\n').filter((line) => {
+    const cells = line
+      .split('|')
+      .slice(1, -1)
+      .map((cell) => cell.trim());
+    return cells[0] === `\`${key}\``;
+  });
+  if (rows.length !== 1) {
+    fail(`codex-agents-builder.md must contain exactly one schema declaration for ${key}`);
+    return new Set();
+  }
+  const allowedValues = rows[0].split('|')[4] ?? '';
+  return new Set([...allowedValues.matchAll(/"([^"]+)"/g)].map((match) => match[1]));
+}
+
+// Required values belong to their schema declarations. A quoted echo elsewhere
+// in prose or an example does not document the allowed set.
+const reasoningEfforts = declaredValues('model_reasoning_effort');
 for (const v of ['minimal', 'low', 'medium', 'high', 'xhigh']) {
-  if (!doc.includes(`"${v}"`))
+  if (!reasoningEfforts.has(v))
     fail(`codex-agents-builder.md missing model_reasoning_effort value "${v}" (set: minimal/low/medium/high/xhigh)`);
 }
 for (const line of doc.split('\n')) {
@@ -49,9 +66,9 @@ for (const line of doc.split('\n')) {
   }
 }
 
-// 3. sandbox_mode values
+const sandboxModes = declaredValues('sandbox_mode');
 for (const v of ['read-only', 'workspace-write', 'danger-full-access']) {
-  if (!doc.includes(v)) fail(`codex-agents-builder.md missing sandbox_mode value '${v}'`);
+  if (!sandboxModes.has(v)) fail(`codex-agents-builder.md missing sandbox_mode value '${v}'`);
 }
 
 // 4. nesting fact + discredited claim must not return

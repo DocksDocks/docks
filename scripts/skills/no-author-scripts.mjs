@@ -21,7 +21,7 @@ const AGENTS_DIR = argSkills
 const ALLOWLIST = ['scaffold', 'write-skill'];
 
 const PATTERN =
-  /scripts\/(ci|release)\.(sh|mjs)|scripts\/(skills|agents|tree|scaffold|config|lib)\/|tree\/guard\.sh|content-hash\.sh|transform-guard\.sh|no-author-scripts\.sh|codex-facts\.sh|guard-spec\.sh/;
+  /(?<![/A-Za-z0-9_.-])scripts\/[^\s`]+\.mjs\b|tree\/guard\.sh|content-hash\.sh|transform-guard\.sh|no-author-scripts\.sh|codex-facts\.sh|guard-spec\.sh/;
 
 function walk(dir, filter, out = []) {
   let entries;

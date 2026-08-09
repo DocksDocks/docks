@@ -41,14 +41,21 @@ const skillDocs = walk(path.join(REPO_DIR, 'plugins'), (f) =>
 );
 const nodeDocs = walk(REPO_DIR, (f) => f.endsWith('/AGENTS.md') || f === path.join(REPO_DIR, 'AGENTS.md'));
 
-const ANCHOR = /[A-Za-z0-9_./-]+\.[a-z]{1,5}:\d+/g;
+const ANCHOR = /[A-Za-z0-9_./-]+\.[a-z]{1,5}:\d+/gi;
+const isInRepository = (candidate) => {
+  const relative = path.relative(REPO_DIR, candidate);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+};
 const report = [];
 for (const f of [...new Set([...skillDocs, ...nodeDocs])]) {
   const lines = fs.readFileSync(f, 'utf8').split('\n');
   lines.forEach((line, i) => {
     for (const hit of line.match(ANCHOR) ?? []) {
       const p = hit.slice(0, hit.lastIndexOf(':'));
-      if (fs.existsSync(path.resolve(REPO_DIR, p))) {
+      const resolved = path.resolve(REPO_DIR, p);
+      // Only anchors into this checkout rot when repository lines move; existing
+      // absolute paths outside it are external references, not live repository anchors.
+      if (isInRepository(resolved) && fs.existsSync(resolved)) {
         report.push(`${path.relative(REPO_DIR, f)}:${i + 1}: live line anchor \`${hit}\``);
       }
     }

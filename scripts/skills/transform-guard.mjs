@@ -33,7 +33,12 @@ const PENDING = [];
 
 const PRES_RE =
   /content loss|no content|preserv|verbatim|net.?shrink|byte.?delta|section presence|drop a section|relocate.{0,12}verbatim/i;
-const VERIFY_RE = /^#{2,3} *verification|verify (before|every|each)|verification block/im;
+// A heading, not prose. The block must be a section a reader can find and an edit cannot strip
+// unnoticed; a stray "verify before deleting" sentence in the body satisfied the old alternates
+// while the "## Verification block" this guard reports was absent. Heading TEXT is free -- five
+// curated skills spell it "## Verification" and multi-tool-bridge spells it "### Step 6 - Verify",
+// and both are real executable blocks.
+const VERIFY_RE = /^#{2,3}[^\n]*\bverif(y|ication)\b/im;
 
 const body = (file) => bodyAfterFrontmatter(splitLines(fs.readFileSync(file, 'utf8'))).join('\n');
 

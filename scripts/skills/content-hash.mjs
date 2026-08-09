@@ -36,8 +36,14 @@ function normalize(text) {
 }
 
 const isUpstream = (dir) => {
-  const f = path.join(dir, 'SKILL.md');
-  return fs.existsSync(f) && /^upstream:/m.test(fs.readFileSync(f, 'utf8'));
+  const file = path.join(dir, 'SKILL.md');
+  if (!fs.existsSync(file)) return false;
+  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+  const start = lines.indexOf('---');
+  if (start === -1) return false;
+  const end = lines.indexOf('---', start + 1);
+  if (end === -1) return false;
+  return lines.slice(start + 1, end).some((line) => /^upstream:/.test(line));
 };
 
 // awk: keep frontmatter line 1 `---`, drop `^\s*updated:` / `^\s*content_hash:`
