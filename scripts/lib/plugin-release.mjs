@@ -191,9 +191,21 @@ function parseGenericArgs(argv, plugins) {
 }
 
 function releaseTagExists(tag, repo) {
-  return (
+  if (
     spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`], { cwd: repo, stdio: 'ignore' }).status === 0
-  );
+  )
+    return true;
+  // Local tags are themselves only a proxy: nothing in this flow fetches, so a clone with stale
+  // refs would let an already-published version through. origin holds the fact. An unreachable
+  // origin must not read as "never released" — this flow pushes, tags, and creates a GitHub
+  // release, so it cannot proceed offline anyway, and refusing to guess costs nothing.
+  const remote = spawnSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], {
+    cwd: repo,
+    encoding: 'utf8',
+  });
+  if ((remote.status ?? 1) !== 0)
+    throw new Error(`cannot reach origin to check whether ${tag} is already released — refusing to guess`);
+  return (remote.stdout ?? '').trim() !== '';
 }
 
 function nextVersion(current, requested) {
