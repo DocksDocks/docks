@@ -125,11 +125,13 @@ export function checkPlan(planText, planPath) {
   const { body, entries, values } = parsed;
   const expectedKeys = values.status === 'blocked' ? BASE_KEYS.toSpliced(4, 0, 'blocked_reason') : BASE_KEYS;
   const actualKeys = entries.map(({ key }) => key);
-  const actualKeySet = new Set(actualKeys);
-  const keysMatch =
-    actualKeys.length === expectedKeys.length && expectedKeys.every((key) => actualKeySet.has(key));
+  const firstMisplacedKey = actualKeys.find((key, index) => key !== expectedKeys[index]);
+  const keysMatch = actualKeys.length === expectedKeys.length && firstMisplacedKey === undefined;
   if (!keysMatch || values.plan_contract !== 'v2' || values.assignee !== null) {
-    failures.push('check 1: frontmatter keys and plan_contract must match the closed v2 map');
+    const positionFailure = firstMisplacedKey
+      ? `; frontmatter key ${firstMisplacedKey} is out of position (expected ${expectedKeys[actualKeys.indexOf(firstMisplacedKey)] ?? 'no additional key'})`
+      : '';
+    failures.push(`check 1: frontmatter keys and plan_contract must match the closed v2 map${positionFailure}`);
   }
   if (!PLAN_STATUSES.has(values.status)) failures.push('check 2: status is not recognized');
   if (values.status === 'blocked' && !String(values.blocked_reason ?? '').trim()) {
@@ -410,9 +412,12 @@ function parseQueue(queueText) {
   const headerIndex = lines.indexOf('| Stage | Plan | Depends on | Why |');
   if (headerIndex === -1 || lines[headerIndex + 1] !== '|---:|---|---|---|') fail('queue table header is invalid');
   const rows = [];
+  const planSlugs = new Set();
   for (let index = headerIndex + 2; index < lines.length && lines[index].startsWith('|'); index += 1) {
     const cells = lines[index].slice(1, -1).split('|').map((cell) => cell.trim());
     if (cells.length !== 4 || !/^\d+$/.test(cells[0]) || !cells[1] || !cells[3]) fail(`queue row ${index + 1} is invalid`);
+    if (planSlugs.has(cells[1])) fail(`duplicate queue plan ${cells[1]}`);
+    planSlugs.add(cells[1]);
     rows.push({ stage: Number(cells[0]), plan: cells[1], dependencies: cells[2] === '—' ? [] : cells[2].split(',').map((item) => item.trim()), order: rows.length });
   }
   return rows.sort((left, right) => left.stage - right.stage || left.order - right.order);

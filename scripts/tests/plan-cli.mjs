@@ -94,18 +94,13 @@ try {
   ];
   for (const [checkNumber, mutate] of mutations) mutateAndRestore(validPath, checkNumber, mutate);
 
-  const reorderedFrontmatter = fs
-    .readFileSync(validPath, 'utf8')
-    .replace(/^plan_contract: v2\ntitle: (.+)\ngoal: (.+)$/m, 'title: $1\ngoal: $2\nplan_contract: v2');
-  fs.writeFileSync(validPath, reorderedFrontmatter);
+  const beforeReorderedFrontmatter = fs.readFileSync(validPath, 'utf8');
+  fs.writeFileSync(validPath, beforeReorderedFrontmatter.replace(/^(created: .+)\n(updated: .+)$/m, '$2\n$1'));
+  const reorderedFrontmatter = run('check', validPath);
+  assert.equal(reorderedFrontmatter.status, 1);
+  assert.match(reorderedFrontmatter.stderr, /check 1: .*frontmatter key updated is out of position/);
+  fs.writeFileSync(validPath, beforeReorderedFrontmatter);
   expectCheckPass(validPath);
-  fs.writeFileSync(
-    validPath,
-    reorderedFrontmatter.replace(
-      /^title: (.+)\ngoal: (.+)\nplan_contract: v2$/m,
-      'plan_contract: v2\ntitle: $1\ngoal: $2',
-    ),
-  );
 
   const beforeWrongStepsHeader = fs.readFileSync(validPath, 'utf8');
   fs.writeFileSync(validPath, beforeWrongStepsHeader.replace('| # | Id |', '| Number | Id |'));
@@ -359,6 +354,16 @@ try {
   const startable = run('next');
   expectSuccess(startable, 'next');
   assert.equal(startable.stdout.trim(), 'queued');
+  assert.equal(startable.stderr, '');
+
+  fs.writeFileSync(
+    path.join(scratch, 'docs/plans/QUEUE.md'),
+    '| Stage | Plan | Depends on | Why |\n|---:|---|---|---|\n| 1 | queued | missing | First declaration. |\n| 2 | queued | - | Duplicate declaration. |\n',
+  );
+  const duplicateQueue = run('next');
+  expectSuccess(duplicateQueue, 'next falls back past duplicate queue rows');
+  assert.match(duplicateQueue.stderr, /malformed .*QUEUE\.md: duplicate queue plan queued/);
+  assert.equal(duplicateQueue.stdout.trim(), 'queued');
 
   fs.writeFileSync(path.join(scratch, 'docs/plans/QUEUE.md'), '| Stage | Plan |\n');
   const malformed = run('next');

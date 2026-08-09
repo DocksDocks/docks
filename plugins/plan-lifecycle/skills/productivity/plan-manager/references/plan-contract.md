@@ -6,16 +6,17 @@ skills, the workspace template, both reviewer wrappers, and each project's
 
 ## Contents
 
-- [Frontmatter](#frontmatter--closed-map-exactly-these-keys)
+- [Frontmatter](#frontmatter--closed-map-exactly-these-keys-in-this-order)
 - [Body sections](#body--exactly-these-eight--sections-in-this-order-each-present-once)
 - [Steps table](#steps-table--exact-header-and-cell-grammar)
 - [Acceptance table](#acceptance-table--exact-header)
 - [Review records](#review-records--readable-markdown-no-hashes)
 - [Lifecycle transitions](#lifecycle-transitions--closed)
+- [Enforcement boundary](#enforcement-boundary)
 - [What the lifecycle never does](#what-the-lifecycle-never-does)
 - [Classifying an older record](#classifying-an-older-record)
 
-## Frontmatter — closed map, exactly these keys
+## Frontmatter — closed map, exactly these keys in this order
 
 ```yaml
 ---
@@ -29,13 +30,14 @@ assignee: null
 ---
 ```
 
-`status: blocked` adds exactly one key, `blocked_reason: <non-empty text>`. No
-other status may carry it.
+`status: blocked` adds exactly one key, `blocked_reason: <non-empty text>`,
+immediately after `status`. No other status may carry it.
 
 `created` and `updated` are double-quoted ISO timestamps that carry an explicit
 offset. `updated` never precedes `created`.
 
-The CLI reports `check 1: frontmatter keys and plan_contract must match the closed v2 map` when this closed-map contract fails.
+Check 1 enforces both key membership and displayed order. When the order is
+wrong, its error names the first key found out of position.
 
 Removed and not replaced: `plan_hash_mode`, `started_at`, `finished_at`, `tags`,
 `related_plans`, `scheduled`/`trigger`/`scheduled_date`/`auto_execute`,
@@ -154,11 +156,28 @@ non-`finished` status. It is the abandonment exit, it always writes a
 `## Retirement` section carrying the reason, and it is the only way to reach
 `finished` without a passed code review. Everything else follows the table.
 
+## Enforcement boundary
+
+`plan.mjs check` enforces only record-shape and content predicates it can derive
+from the plan bytes and supplied path. Mutating CLI commands additionally
+enforce preconditions visible to them, such as lifecycle, step-transition, and
+dependency state. CLI silence certifies only the checks that command performed;
+it never grants permission to perform an external effect.
+
+The agent, not the CLI, enforces the execution boundary. A step whose `Effect`
+is not `local` requires an in-session `ask` confirmation immediately before it
+runs; when `ask` is unavailable the step is set `blocked` with `blocked_reason`
+naming the unconfirmed effect. The CLI cannot observe that confirmation, so
+moving such a step to `in-flight` does not certify permission, and there is
+deliberately no self-certifying `--confirmed` flag: an agent asserting its own
+compliance is the proxy this contract exists to avoid.
+
 ## What the lifecycle never does
 
 No hashes, no permits, no run identity, no lock files, no bundle sealing, no
 automatic commits, no automatic push, no external-authority object, and no
-`v2`/`vN` plan files. A step whose `Effect` is not `local` requires an in-session `ask` confirmation immediately before it runs; when `ask` is unavailable the step is set `blocked` with `blocked_reason` naming the unconfirmed effect.
+`v2`/`vN` plan files. The lifecycle does not weaken the agent-enforced boundary
+above.
 
 ## Classifying an older record
 
