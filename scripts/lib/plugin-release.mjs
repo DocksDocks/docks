@@ -382,6 +382,13 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
   return Object.freeze({
     commit(files, message) {
       run('git', ['add', ...files]);
+      // Re-cutting a version whose manifests already carry the number stages nothing. That is the
+      // recovery path after a run that bumped, pushed, and then failed tag-CI — not an error, so
+      // tag the existing HEAD rather than failing on an empty commit.
+      if (capture('git', ['diff', '--cached', '--quiet', '--', ...files]).status === 0) {
+        process.stdout.write('  manifests already at this version — tagging existing HEAD\n');
+        return;
+      }
       run('git', ['commit', '-m', message]);
     },
     createRelease({ tag, title, notes }) {
