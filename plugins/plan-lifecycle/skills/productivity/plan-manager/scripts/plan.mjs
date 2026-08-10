@@ -105,8 +105,19 @@ function unquoteScalar(value) {
 function pathsInFilesCell(value) {
   return value.split(',').map((entry) => unquoteCode(entry.trim())).filter(Boolean);
 }
+function realPathOrSelf(target) {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return target;
+  }
+}
 function comparablePlanPath(planPath) {
-  const relative = path.isAbsolute(planPath) ? path.relative(process.cwd(), planPath) : planPath;
+  // Resolve both sides: a macOS temp root or any symlinked checkout otherwise
+  // relativizes to a `../..` path that never matches a Steps `Files` entry.
+  const relative = path.isAbsolute(planPath)
+    ? path.relative(realPathOrSelf(process.cwd()), realPathOrSelf(planPath))
+    : planPath;
   return relative.replaceAll(path.sep, '/').replace(/^\.\//, '');
 }
 export function machinePathCitations(planText) {

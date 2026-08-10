@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PLAN_CLI = path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs');
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-cli-'));
+// realpath: on macOS os.tmpdir() is a symlink, so a child process cwd would not
+// match these paths and both self-reference and concurrency probes would misfire.
+const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plan-cli-')));
 const activeDir = path.join(scratch, 'docs/plans/active');
 const finishedDir = path.join(scratch, 'docs/plans/finished');
 fs.mkdirSync(activeDir, { recursive: true });
@@ -370,6 +372,28 @@ try {
   expectSuccess(malformed, 'next falls back past a malformed queue');
   assert.match(malformed.stderr, /malformed .*QUEUE\.md/);
   assert.equal(malformed.stdout.trim(), 'queued');
+
+  // Symlinked-root regression: the cwd a child process reports is the resolved
+  // path, so an unresolved comparison makes check 12 silently never fire.
+  const linkedRoot = path.join(os.tmpdir(), `plan-cli-link-${process.pid}`);
+  fs.rmSync(linkedRoot, { recursive: true, force: true });
+  fs.symlinkSync(scratch, linkedRoot, 'dir');
+  try {
+    const selfPath = createPlan('selfref');
+    fs.writeFileSync(
+      selfPath,
+      fs.readFileSync(selfPath, 'utf8').replace('src/example.mjs', 'docs/plans/active/selfref.md'),
+    );
+    const selfReference = spawnSync(
+      process.execPath,
+      [PLAN_CLI, 'check', path.join(linkedRoot, 'docs/plans/active/selfref.md')],
+      { cwd: linkedRoot, encoding: 'utf8' },
+    );
+    assert.equal(selfReference.status, 1, 'a symlinked root must still detect the self-reference');
+    assert.match(selfReference.stderr, /check 12\b/);
+  } finally {
+    fs.rmSync(linkedRoot, { recursive: true, force: true });
+  }
 
   console.log(
     'plan CLI contract: 13 checks, lifecycle repairs, fenced content, dependencies, archive/retire guards, list/next filters, temp cleanup, and concurrent writes passed',
