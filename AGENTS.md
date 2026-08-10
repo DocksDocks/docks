@@ -89,7 +89,8 @@ The record is markdown only: `plan_contract: v2` frontmatter plus eight `##`
 sections — `## Goal`, `## Research`, `## Steps`, `## Acceptance`,
 `## Do not touch`, `## Open questions`, `## Review`, `## Verification Results`.
 There are no hashes, permits, run identities, lock files, sealed review bundles,
-or `v2`/`vN` plan files, and the shipped `plan.mjs` is the only lifecycle tool. This lifecycle
+or `v2`/`vN` plan files, and the `plan.mjs` shipped inside the installed
+`plan-lifecycle` plugin is the only lifecycle tool. This lifecycle
 creates zero commits and never pushes; commit when the user asks, under
 `docks:commit-discipline`.
 

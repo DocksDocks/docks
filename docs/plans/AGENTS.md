@@ -104,6 +104,8 @@ The single exemption is `plan.mjs retire`: it sets `finished` from any non-`fini
 
 ## Lifecycle commands
 
+`plan.mjs` is plugin payload, not project payload. It ships inside the installed `plan-lifecycle` plugin at `skills/productivity/plan-manager/scripts/plan.mjs`. A project never vendors, copies, or re-creates it, and an unresolvable tool means the plugin is not installed. Never report it as a file missing from the repository. Resolve it from the loaded `plan-manager` skill directory, or from the runtime plugin cache. Run it with the repository root as the working directory, because it resolves `docs/plans/` relative to the current directory.
+
 | Command | Semantics |
 |---|---|
 | `plan.mjs new <slug> --title <t> --goal <g> [--mode plan-and-implement\|plan-only]` | Create `docs/plans/active/<slug>.md` from the v2 template with `status: drafting`. |

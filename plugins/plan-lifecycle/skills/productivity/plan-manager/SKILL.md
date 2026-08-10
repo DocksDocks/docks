@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-09"
-  content_hash: "c623f9baa4e6a20fcb0a55766fd74233b052fe8fe668995d042dd91e905ad03c"
+  updated: "2026-08-10"
+  content_hash: "be4b0d6c116377b5eb64e156769368364e32121096262c4089df7de7cea35ab3"
 ---
 
 # Plan Manager
@@ -128,7 +128,24 @@ Keep paths repository-relative; acceptance rows run from the repository root.
 
 ## Lifecycle CLI
 
-Run the shipped `plan.mjs` from the repository root.
+`plan.mjs` is plugin payload, not project payload. It ships inside the installed
+`plan-lifecycle` plugin at
+`skills/productivity/plan-manager/scripts/plan.mjs`. A project never vendors,
+copies, or re-creates it, and an unresolvable tool means the plugin is not
+installed. Never report it as a file missing from the repository.
+
+Resolve it in the `scripts/` directory beside this skill file. When that
+directory is unknown, search the runtime plugin cache and take the highest
+version directory:
+
+```sh
+ls -d "$HOME"/.claude/plugins/cache/*/plan-lifecycle/*/skills/productivity/plan-manager/scripts/plan.mjs
+ls -d "$HOME"/.codex/plugins/cache/*/plan-lifecycle/*/skills/productivity/plan-manager/scripts/plan.mjs
+```
+
+Run every subcommand with the project root as the working directory. The tool
+resolves `docs/plans/` relative to the current directory, not to its own
+location.
 
 | Subcommand | Result |
 |---|---|

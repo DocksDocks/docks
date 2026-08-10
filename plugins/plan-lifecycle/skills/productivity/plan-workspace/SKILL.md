@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-08"
-  content_hash: "316e967f51a20db5b6c3f0db83c75571aaaff64f62174cea5dba86ee8b324f1a"
+  updated: "2026-08-10"
+  content_hash: "595e88ee6760471f3b96456fbd0c78bb63b5017ab4c813bca6bec211c0e1fe0a"
 ---
 
 # Plans Workspace
@@ -42,6 +42,29 @@ workspace maintenance has crossed into plan ownership.
 Two read-only reviewer roles exist: `plan-reviewer` and `code-reviewer`. Main
 context invokes `plan-manager` directly. Do not seed manager, workspace,
 creator, repairer, or improver wrappers.
+
+## Lifecycle tool
+
+`plan.mjs` is plugin payload, not project payload. It ships inside the installed
+`plan-lifecycle` plugin at
+`skills/productivity/plan-manager/scripts/plan.mjs`. A project never vendors,
+copies, or re-creates it, and an unresolvable tool means the plugin is not
+installed. Never report it as a file missing from the repository.
+
+The tool is never a workspace marker. It lives in the plugin, so its absence is
+never workspace drift and never a bootstrap, migration, or refresh action.
+
+Resolve it from the loaded `plan-manager` skill directory. When that directory is
+unknown, search the runtime plugin cache and take the highest version directory:
+
+```sh
+ls -d "$HOME"/.claude/plugins/cache/*/plan-lifecycle/*/skills/productivity/plan-manager/scripts/plan.mjs
+ls -d "$HOME"/.codex/plugins/cache/*/plan-lifecycle/*/skills/productivity/plan-manager/scripts/plan.mjs
+```
+
+Every bootstrap, migration, refresh, and audit report states the resolved
+absolute path of the tool, or states that the `plan-lifecycle` plugin is not
+installed.
 
 ## Resolve operation and root
 
@@ -183,9 +206,9 @@ The record is markdown only: `plan_contract: v2` frontmatter plus eight `##`
 sections — `## Goal`, `## Research`, `## Steps`, `## Acceptance`,
 `## Do not touch`, `## Open questions`, `## Review`, `## Verification Results`.
 There are no hashes, permits, run identities, locks, bundles, or `v2`/`vN` plan
-files, and the shipped `plan.mjs` is the only lifecycle tool. This lifecycle
-creates zero commits and never pushes; commit when the user asks, under
-`docks:commit-discipline`.
+files, and the `plan.mjs` shipped inside the installed `plan-lifecycle` plugin
+is the only lifecycle tool. This lifecycle creates zero commits and never
+pushes; commit when the user asks, under `docks:commit-discipline`.
 
 Every Steps row carries an `Effect` of exactly
 `local|probe|production_access|publish|push|release|deploy`. A step whose
@@ -212,6 +235,9 @@ After migration moves and before deleting any legacy path:
 - **Archive preservation:** the sorted path and digest inventory under
   `finished/` is byte-identical.
 - **Removal safety:** no selected removal path contains a plan.
+- **Lifecycle tool:** the report states the resolved absolute `plan.mjs` path, or
+  states that the `plan-lifecycle` plugin is not installed. The tool is never
+  proposed as a project file.
 
 After bootstrap, migration, or refresh, verify both folders, nested contract,
 exact shim and ignore rules, root routing, and reviewer-only wrapper topology.
@@ -230,6 +256,9 @@ GOOD: Preserve the plan bytes and carry a wanted goal into a fresh v2 plan.
 
 BAD: Overwrite an existing reviewer wrapper during bootstrap.
 GOOD: Seed both reviewer wrappers only when their files are missing.
+
+BAD: Report `plan.mjs` as missing from the repository and call the lifecycle manual.
+GOOD: Resolve the tool inside the installed plugin and report its absolute path.
 ```
 
 ## References

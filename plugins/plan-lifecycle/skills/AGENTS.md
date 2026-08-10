@@ -57,7 +57,8 @@ deliberately carries no context-tree node (`claude plugin validate` lints every
 
 The synchronized surface is the v2 frontmatter, the eight sections, both table
 headers, the three plan-review kinds (`goal_fit`, `research_gap`,
-`security_risk`), the two review-record shapes, and the zero-commit rule.
+`security_risk`), the two review-record shapes, the zero-commit rule, and the
+lifecycle-tool ownership clause.
 
 When any part changes, synchronize the three skills,
 `plan-manager/references/plan-contract.md`, the workspace template, this

@@ -12,6 +12,7 @@ const LIVE_PLAN_SKILLS = ['plan-manager', 'plan-reviewer', 'plan-workspace'];
 const REMOVED_PLAN_SKILLS = ['plan-creator', 'plan-repairer', 'plan-init', 'plan-review', 'plan-improver'];
 const MANAGER_SKILL = 'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md';
 const REVIEWER_SKILL = 'plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md';
+const WORKSPACE_SKILL = 'plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md';
 const WORKSPACE_TEMPLATE =
   'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md';
 const PLAN_CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
@@ -59,6 +60,11 @@ const V2_PINNED_CLAUSES = [
     name: 'three-option-ask',
     text: 'Phase 1 asks exactly one question with exactly three options, in this order and wording: `Plan and implement now`, `Plan only, stop at planned`, `Implement directly` — and skips the question only when the request already settles the mode.',
     files: [MANAGER_SKILL, PLAN_AGENTS, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'lifecycle-tool-ownership',
+    text: '`plan.mjs` is plugin payload, not project payload. It ships inside the installed `plan-lifecycle` plugin at `skills/productivity/plan-manager/scripts/plan.mjs`. A project never vendors, copies, or re-creates it, and an unresolvable tool means the plugin is not installed. Never report it as a file missing from the repository.',
+    files: [MANAGER_SKILL, WORKSPACE_SKILL, WORKSPACE_TEMPLATE, PLAN_AGENTS],
   },
 ];
 
