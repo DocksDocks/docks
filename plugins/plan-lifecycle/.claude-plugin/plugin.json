@@ -1,7 +1,7 @@
 {
   "name": "plan-lifecycle",
   "description": "Cross-tool plan lifecycle for the docs/plans workspace: a markdown-only v2 plan record, six phases (decide, draft, research, one plan review, implement, code review), and two read-only reviewer wrappers, plan-reviewer and code-reviewer.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "author": {
     "name": "Eduardo Marquez"
   },
