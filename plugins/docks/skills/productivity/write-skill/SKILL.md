@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-08-08"
-  content_hash: "3925a186101828983542fc0cbe9d5356c64f93a681cac5c9ff969f8ada3f0151"
+  updated: "2026-08-20"
+  content_hash: "9d8a8f5b28b59e4524206fae705d9f4f434cebf0067ca6ddfa398c3006cc1b97"
 ---
 
 # Write a Skill (docks conventions)
@@ -15,7 +15,7 @@ The description is the only thing your agent sees when deciding which skill to l
 This skill encodes docks' specific authoring conventions — the 16-point scorer rubric in the bundled `scripts/skill-guard.mjs` (the single source the kit CI also scores with), the structural guards in `scripts/skills/guard.mjs`, the body sweet spot, the `<constraint>` block reward, the references/ extraction rule. Anthropic's `skill-creator` and Matt Pocock's `write-a-skill` (MIT, framing inspiration) are both generic; this one is docks-shaped.
 
 <constraint>
-Description-first. The description is surfaced in the skill listing every session — it loads always, the body loads only on invocation. Spend disproportionate effort here. CSO rules: (1) starts with `Use when …` (2 pts), (2) ≤500 chars (2 pts; > 1000 = 0 pts; the guard hard-caps at 1024), (3) contains concrete trigger keywords ("Use when running pnpm audit, …") rather than abstract capability prose, (4) zero slop words (`comprehensive`, `robust`, `elegant`, `seamless` — each occurrence costs 1 pt, max −2). Verify with `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also uses — before considering the description done.
+Description-first. The description is surfaced in the skill listing every session — it loads always, the body loads only on invocation. Spend disproportionate effort here. CSO rules: (1) starts with `Use when …` (2 pts), (2) ≤500 chars (2 pts; > 1000 = 0 pts; the guard hard-caps at 1024), (3) contains concrete trigger keywords ("Use when running bun audit, pnpm audit, …") rather than abstract capability prose, (4) zero slop words (`comprehensive`, `robust`, `elegant`, `seamless` — each occurrence costs 1 pt, max −2). Verify with `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also uses — before considering the description done.
 </constraint>
 
 <constraint>
@@ -94,7 +94,7 @@ The author of a skill (or plan) can't see its own gaps — they fill them from m
 description: A comprehensive, robust solution for working with dependencies in your project.
 
 # GOOD — triggers + concrete keywords + "Not for" exclusion
-description: "Use when running pnpm/npm/yarn audit, pip-audit, cargo audit, or govulncheck; responding to a CVE/GHSA advisory; bumping framework majors (next/react/typescript/django/fastapi); handling peer-dep conflicts after an upgrade. Not for general lint suppressions (use lint-no-suppressions)."
+description: "Use when running bun/pnpm/npm/yarn audit, pip-audit, cargo audit, or govulncheck; responding to a CVE/GHSA advisory; bumping framework majors (next/react/typescript/django/fastapi/tokio/axum); handling peer-dep or version-resolution conflicts after an upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; setting dependency-update cadence. Not for fixing the vulnerable code path itself (use fix-workflow) or full security audits (use security)."
 ```
 
 The good example fires reliably because every italicized phrase pattern-matches an actual moment the user will hit. The bad example matches nothing specific — Claude can't disambiguate it from any other dep-related skill.
@@ -105,6 +105,7 @@ The only valuable negative test is the near-miss: a prompt that shares keywords 
 
 | Near-miss prompt | Must route to | Via |
 |---|---|---|
+| "bun audit flags lodash, fix it" | dep-vuln-workflow, not fix-workflow | "Not for fixing the vulnerable code path itself" |
 | "pnpm audit flags lodash, fix it" | dep-vuln-workflow, not fix-workflow | "Not for fixing the vulnerable code path itself" |
 | "add tests for the existing parser" | test-coverage, not tdd-workflow | "Not for test-first development" |
 | "review this diff for SQLi" | code-review, not security | "Not for full security audits" |

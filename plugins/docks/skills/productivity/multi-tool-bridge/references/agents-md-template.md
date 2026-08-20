@@ -19,7 +19,7 @@ tool.
 ## Environment
 
 - **Stack**: <!-- TODO: language(s), framework(s), runtime version(s) -->
-- **Package manager**: <!-- TODO: pnpm / npm / yarn / pip / cargo / go -->
+- **Package manager**: <!-- TODO: bun / pnpm / npm / yarn / pip / cargo / go -->
 - **Install**: `<!-- TODO: install command -->`
 - **Dev server**: `<!-- TODO: dev command -->`
 - **Lint**: `<!-- TODO: lint command -->`

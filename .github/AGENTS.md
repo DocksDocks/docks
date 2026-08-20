@@ -35,7 +35,7 @@ collectively cover the full contract through plugin ownership. They do not split
 a mutation catalog, pass validation artifacts, or carry regression partition or
 jobs-cap arguments.
 
-Every gate-running PR shard performs the frozen pnpm install and materializes the
+Every gate-running PR shard performs the frozen Bun install and materializes the
 lockfile-pinned `@anthropic-ai/claude-code` binary. Manual and tag runs
 materialize Node dependencies in `validate`. The PR `validate` aggregator only
 checks prerequisite job results and performs no checkout, install, artifact
@@ -82,12 +82,12 @@ the job, and the join accepts that expected skip.
 
 ## Cache behavior
 
-The workflow pins the Corepack-provided pnpm version from `package.json`, configures a deterministic `~/.pnpm-store`, and caches that store with official `actions/cache`; the exact key binds runner identity, `pnpm-lock.yaml`, and `package.json`, with a same-pnpm-major restore prefix. Caches are hints only: frozen installs and `ci.mjs` gates decide correctness. `resolve-shards` restores no cache and installs no dependencies; it needs only a checkout and Node.
+The workflow installs Bun with `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0`. The action reads Bun 1.4.0 from `packageManager`, needs no version input, and caches only the Bun executable. A separate official `actions/cache` step caches `~/.bun/install/cache`; its exact key binds runner identity, `bun.lock`, and `package.json`. Caches are hints only: frozen installs and `ci.mjs` gates decide correctness. `resolve-shards` restores no cache and installs no dependencies; it needs only a checkout and Node.
 
 ## Hosted cost capture
 
 `workflows/ci.yml` — hosted timing stamps — `start hosted step timing` establishes the baseline and
-`mark hosted cache restore` records pnpm cache outcomes. The frozen install, registry-signature audit, Claude binary
+`mark hosted cache restore` records Bun dependency-cache outcomes. The frozen install, registry-signature audit, Claude binary
 materialization, PATH update, `run validation lane`,
 `run non-unit plugin-targeting contracts`, and `run the authoritative gate (scripts/ci.mjs)` append stamps. A stamped
 step's duration is its stamp minus the preceding stamp.
@@ -99,13 +99,14 @@ read-only; never add `contents: write`.
 
 ## Supply-chain hardening
 
-Mitigations against npm / GitHub Actions supply-chain attacks (per the Supabase + pnpm Dec-2025 guidance). Each is load-bearing — don't undo one to simplify a diff:
+Mitigations against npm and GitHub Actions supply-chain attacks. Each is load-bearing — don't undo one to simplify a diff:
 
 <constraint>
 - **Pin every `uses:` to a 40-char commit SHA**, never a tag, with the version as a trailing comment (`actions/checkout@<sha> # v6.0.2`). A `@vN` tag is a moving target an attacker can republish; the tag-push run executes with `GITHUB_TOKEN`. SHA bumps are MANUAL — no update automation is configured (verify: `ls .github/dependabot.yml renovate.json` → neither exists); update the SHA + version comment together when bumping an action.
 - **`permissions: contents: read`** at workflow scope — least privilege for validators and artifact builders.
-- **Dependency caches use official `actions/cache` pinned to a 40-character SHA**, with its release version in the trailing comment. The pnpm key binds `pnpm-lock.yaml`.
-- **`claude-code` is pinned**, not `npm install -g`'d: it's an exact-version devDependency in `package.json`, hash-locked in `pnpm-lock.yaml` (incl. its 8 platform-binary optional deps). `pnpm-workspace.yaml` sets `allowBuilds: { '@anthropic-ai/claude-code': false }` (deny-by-default lifecycle scripts) and `minimumReleaseAge` (quarantine fresh publishes). Bump it only to a version aged past the quarantine.
-- **The PR Core lane and every non-PR `validate` execution** does a full `pnpm install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the ~230MB CLI binary (the `allowBuilds: false` build it skips), and puts `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. The PR `validate` job is only the authoritative lane-result join.
-- **`npm audit signatures`** runs (non-blocking) after every install.
+- **Dependency caches use official `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0`**, with the Bun key bound to `bun.lock` and `package.json`. Bun itself comes from `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0`, which reads the `packageManager` pin and caches only the executable.
+- **`claude-code` is pinned rather than installed globally**: it is an exact-version devDependency in `package.json` and hash-locked in `bun.lock`, including its eight platform-binary optional dependencies. `bunfig.toml` sets `minimumReleaseAge = 259200` seconds to quarantine fresh publishes; bump the dependency only to a version older than that quarantine.
+- **Lifecycle scripts are denied in `package.json` with `"trustedDependencies": []`.** The empty array is the only spelling that denies every lifecycle script. Omitting the field instead trusts Bun's built-in list, which includes `@anthropic-ai/claude-code`.
+- **The PR `core` lane and every non-PR `validate` execution** run `bun install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the approximately 230 MB CLI binary whose lifecycle script was denied, and put `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. The PR `validate` job is only the authoritative lane-result join. Node 24 remains the validator runtime; Bun is the package manager and script runner.
+- **`npm audit signatures`** remains the non-blocking signature check after every install because Bun has no signature-verification equivalent.
 </constraint>

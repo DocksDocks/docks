@@ -225,9 +225,9 @@ const planAuthorChecks = authorChecks.has('plan-reviewer');
 const javascriptQualityTasks = [];
 const javascriptQualityCommands = [];
 const scheduleJavaScriptQuality = (name, args) => {
-  javascriptQualityCommands.push(['pnpm', ...args]);
+  javascriptQualityCommands.push(['bun', ...args]);
   javascriptQualityTasks.push(
-    startTask(name, 'pnpm', args, { cwd: REPO, tasks, commands, phase: activePhase?.name ?? null }),
+    startTask(name, 'bun', args, { cwd: REPO, tasks, commands, phase: activePhase?.name ?? null }),
   );
 };
 if (onlyPlugin === null && onlyLane === null) {
@@ -245,9 +245,9 @@ if (onlyPlugin === null && onlyLane === null) {
   ];
   const ciPaths = pathsFor('ci');
   const lintPaths = pathsFor('lint');
-  if (ciPaths.length > 0) scheduleJavaScriptQuality('javascript quality', ['exec', 'biome', 'ci', ...ciPaths]);
+  if (ciPaths.length > 0) scheduleJavaScriptQuality('javascript quality', ['run', 'biome', 'ci', ...ciPaths]);
   if (lintPaths.length > 0)
-    scheduleJavaScriptQuality('javascript quality lint', ['exec', 'biome', 'lint', ...lintPaths]);
+    scheduleJavaScriptQuality('javascript quality lint', ['run', 'biome', 'lint', ...lintPaths]);
 }
 
 // Catalogs are shared; read once (used by the per-plugin version checks too). The
@@ -299,9 +299,9 @@ if (repoWide) {
   nodeOk(['scripts/tests/test-contracts.mjs'])
     ? ok('test-contract registry passed')
     : fail('test-contract registry failed (run: node scripts/tests/test-contracts.mjs)');
-  (runCommand('pnpm run test:unit', ['pnpm', 'run', 'test:unit'], { encoding: 'utf8' }).status ?? 1) === 0
+  (runCommand('bun run test:unit', ['bun', 'run', 'test:unit'], { encoding: 'utf8' }).status ?? 1) === 0
     ? ok('unit tests passed')
-    : fail('unit tests failed (run: pnpm run test:unit)');
+    : fail('unit tests failed (run: bun run test:unit)');
 
   section('CI targeting contract');
   const ciTargeting = node(['scripts/tests/ci-plugin-targeting.mjs', '--unit']);

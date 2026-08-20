@@ -71,7 +71,7 @@ process.exit(0);
 }
 
 const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-skill-score-vacuity-'));
-for (const tool of ['node', 'pnpm', 'claude', 'shellcheck', 'cargo']) writeShim(shimDir, tool);
+for (const tool of ['node', 'bun', 'claude', 'shellcheck', 'cargo']) writeShim(shimDir, tool);
 
 const baseEnv = { ...process.env };
 delete baseEnv.CARGO_TARGET_DIR;

@@ -4,8 +4,8 @@ description: Use when writing tests for code that ALREADY EXISTS — adding cove
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "18909c0760754e31b02673d15827d0bd3df21ca75a0598e61b6ce8f94bc19c1b"
+  updated: "2026-08-20"
+  content_hash: "99057f59ad0d400835f2160d10f48f5106e0d2677552f6ba5f94b9337d5eb579"
 ---
 
 # Test Coverage Generation
@@ -123,7 +123,7 @@ Reject any test that fails these checks before running the suite.
 
 ### Step 6 — Run, then post-verify
 
-Use the runner the project actually uses — never invent one. Per-framework command surface lives in the matching reference file (`pnpm test`, `pytest`, `cargo test`, `go test`, `mvn test` / `gradle test`).
+Use the runner the project actually uses — never invent one. Per-framework command surface lives in the matching reference file (`bun run test`, `pnpm test`, `pytest`, `cargo test`, `go test`, `mvn test` / `gradle test`).
 
 After the suite passes, do NOT report "tests added" yet. Run the post-verification:
 

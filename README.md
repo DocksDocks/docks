@@ -135,13 +135,14 @@ When a `--plugin-dir` plugin shares a name with an installed marketplace plugin,
 Four validators mirror the kit-side conventions:
 
 ```bash
-corepack enable
-pnpm install --frozen-lockfile
+bun install --frozen-lockfile
 node scripts/skills/guard.mjs    # Codex + Claude skill compatibility + reference hygiene
 node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file   # skill quality score (max 16)
 node scripts/agents/guard.mjs    # frontmatter, "Use when…" / "Not…" CSO, model declared
 node scripts/agents/score.mjs    # quality score (max 15) — model, tools, Workflow + Success Criteria
 ```
+
+Node 24 remains the validator runtime and matches CI's `node-version`; Bun 1.4.0 is the package manager pinned through `packageManager`.
 
 `--per-file` on a scorer prints one `<name> <score>` line per item — useful for spotting drift after an edit. `node scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
 

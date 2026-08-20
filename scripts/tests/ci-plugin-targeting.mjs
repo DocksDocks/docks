@@ -198,7 +198,7 @@ async function testBackgroundTaskContracts() {
   const artifactRoot = path.join(fixtureRoot, 'artifacts');
   const callLog = path.join(fixtureRoot, 'calls.jsonl');
   const nodeChild = path.join(fixtureRoot, 'node-child.mjs');
-  const pnpmShim = path.join(fixtureRoot, 'pnpm');
+  const bunShim = path.join(fixtureRoot, 'bun');
   const tasks = [];
   const errorStream = new PassThrough();
   let diagnostic = '';
@@ -216,10 +216,10 @@ async function testBackgroundTaskContracts() {
         'setTimeout(() => {}, 150);\n',
     );
     fs.writeFileSync(
-      pnpmShim,
+      bunShim,
       `#!${process.execPath}
 import fs from 'node:fs';
-fs.appendFileSync(process.env.DOCKS_BACKGROUND_TASK_LOG, JSON.stringify({ command: 'pnpm', args: process.argv.slice(2) }) + '\\n');
+fs.appendFileSync(process.env.DOCKS_BACKGROUND_TASK_LOG, JSON.stringify({ command: 'bun', args: process.argv.slice(2) }) + '\\n');
 `,
       { mode: 0o755 },
     );
@@ -231,10 +231,10 @@ fs.appendFileSync(process.env.DOCKS_BACKGROUND_TASK_LOG, JSON.stringify({ comman
       env: { ...process.env, DOCKS_BACKGROUND_TASK_LOG: callLog },
     };
     const nodeTask = startTask('node-shaped task', process.execPath, [nodeChild, 'alpha', 'beta'], options);
-    const pnpmTask = startTask('pnpm-shaped task', pnpmShim, ['run', 'check:js'], options);
+    const bunTask = startTask('bun-shaped task', bunShim, ['run', 'check:js'], options);
     assert.deepEqual(
       tasks.map((task) => task.name),
-      ['node-shaped task', 'pnpm-shaped task'],
+      ['node-shaped task', 'bun-shaped task'],
     );
     const artifactCount = fs.readdirSync(artifactRoot).length;
     assert.throws(
@@ -242,12 +242,12 @@ fs.appendFileSync(process.env.DOCKS_BACKGROUND_TASK_LOG, JSON.stringify({ comman
       /duplicate task name: node-shaped task/,
     );
     assert.equal(fs.readdirSync(artifactRoot).length, artifactCount, 'duplicate rejection must happen before spawn');
-    assert.deepEqual(await Promise.all([nodeTask, pnpmTask]), [true, true]);
+    assert.deepEqual(await Promise.all([nodeTask, bunTask]), [true, true]);
     assert.deepEqual(
       tasks.map(({ name, status }) => ({ name, status })),
       [
         { name: 'node-shaped task', status: 'passed' },
-        { name: 'pnpm-shaped task', status: 'passed' },
+        { name: 'bun-shaped task', status: 'passed' },
       ],
     );
     assert.ok(tasks[0].duration_ms > tasks[1].duration_ms, 'inverted child durations must not reorder task rows');
@@ -261,7 +261,7 @@ fs.appendFileSync(process.env.DOCKS_BACKGROUND_TASK_LOG, JSON.stringify({ comman
       calls.sort((left, right) => left.command.localeCompare(right.command)),
       [
         { command: 'node', args: ['alpha', 'beta'] },
-        { command: 'pnpm', args: ['run', 'check:js'] },
+        { command: 'bun', args: ['run', 'check:js'] },
       ],
     );
 
@@ -274,7 +274,7 @@ fs.appendFileSync(process.env.DOCKS_BACKGROUND_TASK_LOG, JSON.stringify({ comman
     assert.equal(missing, false);
     assert.deepEqual(
       tasks.map((task) => task.name),
-      ['node-shaped task', 'pnpm-shaped task', 'missing command task'],
+      ['node-shaped task', 'bun-shaped task', 'missing command task'],
     );
     assert.equal(tasks[2].status, 'failed');
     assert.match(diagnostic, /ENOENT/);
@@ -393,7 +393,7 @@ function laneBiomeInvocations(callsByLane) {
   const invocations = new Map();
   for (const calls of callsByLane.values()) {
     for (const { tool, args: callArgs } of calls) {
-      if (tool !== 'pnpm' || callArgs[0] !== 'exec' || callArgs[1] !== 'biome') continue;
+      if (tool !== 'bun' || callArgs[0] !== 'run' || callArgs[1] !== 'biome') continue;
       const [, , subcommand, ...paths] = callArgs;
       const existing = invocations.get(subcommand) ?? new Set();
       for (const value of paths) existing.add(value);
@@ -415,7 +415,7 @@ async function testFocusedCiCommandSelection() {
     const timingPath = timings ? path.join(scenarioRoot, 'timings.json') : null;
     fs.mkdirSync(shimDir, { mode: 0o700 });
     fs.writeFileSync(callLog, '', { mode: 0o600 });
-    for (const tool of ['node', 'pnpm', 'claude', 'shellcheck']) writeCiProbeShim(shimDir, tool);
+    for (const tool of ['node', 'bun', 'claude', 'shellcheck']) writeCiProbeShim(shimDir, tool);
 
     const result = await execFileResult(
       process.execPath,
@@ -458,9 +458,9 @@ async function testFocusedCiCommandSelection() {
     'scripts/tests/ci-observability.mjs',
     'scripts/tests/test-contracts.mjs',
   ];
-  const effectKitBiomeCiArgv = ['exec', 'biome', 'ci', 'plugins/effect-kit/test'];
+  const effectKitBiomeCiArgv = ['run', 'biome', 'ci', 'plugins/effect-kit/test'];
   const coreBiomeCiArgv = [
-    'exec',
+    'run',
     'biome',
     'ci',
     'scripts',
@@ -468,9 +468,9 @@ async function testFocusedCiCommandSelection() {
     'plugins/effect-kit/test',
     'plugins/plan-lifecycle/test',
   ];
-  const docksBiomeLintArgv = ['exec', 'biome', 'lint', 'plugins/docks/skills/productivity/write-skill/scripts'];
+  const docksBiomeLintArgv = ['run', 'biome', 'lint', 'plugins/docks/skills/productivity/write-skill/scripts'];
   const coreBiomeLintArgv = [
-    'exec',
+    'run',
     'biome',
     'lint',
     'plugins/docks/skills/productivity/write-skill/scripts',
@@ -478,7 +478,7 @@ async function testFocusedCiCommandSelection() {
   ];
   // The repo lane owns exactly the paths no plugin claims. Derived from the registry so
   // this stays a statement about ownership rather than about a pasted argv.
-  const repoBiomeCiArgv = ['exec', 'biome', 'ci', ...REPO_WIDE_JAVASCRIPT_QUALITY.ci];
+  const repoBiomeCiArgv = ['run', 'biome', 'ci', ...REPO_WIDE_JAVASCRIPT_QUALITY.ci];
 
   try {
     const [targeted, untargeted, docksTargeted, core, timedCore, repoWide, full] = await Promise.all([
@@ -498,7 +498,7 @@ async function testFocusedCiCommandSelection() {
         `targeted CI must not invoke repo-wide command ${script}`,
       );
     }
-    assert.equal(countToolInvocation(targeted.calls, 'pnpm', effectKitBiomeCiArgv), 1);
+    assert.equal(countToolInvocation(targeted.calls, 'bun', effectKitBiomeCiArgv), 1);
     assert.match(targeted.result.stdout, /javascript quality/);
     assert.doesNotMatch(
       targeted.result.stdout,
@@ -509,7 +509,7 @@ async function testFocusedCiCommandSelection() {
       true,
       'targeted CI must retain the selected plugin gate',
     );
-    assert.equal(countToolInvocation(targeted.calls, 'pnpm', ['run', 'check:js']), 0);
+    assert.equal(countToolInvocation(targeted.calls, 'bun', ['run', 'check:js']), 0);
 
     const planCliArgv = ['scripts/tests/plan-cli.mjs'];
     const boundedWorkflowArgv = ['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows'];
@@ -549,22 +549,22 @@ async function testFocusedCiCommandSelection() {
         `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must audit Docks and Effect Kit together once`,
       );
       if (ciArgs.length === 0) {
-        assert.equal(countToolInvocation(selected.calls, 'pnpm', ['run', 'check:js']), 1);
+        assert.equal(countToolInvocation(selected.calls, 'bun', ['run', 'check:js']), 1);
       } else {
-        assert.equal(countToolInvocation(selected.calls, 'pnpm', ['run', 'check:js']), 0);
+        assert.equal(countToolInvocation(selected.calls, 'bun', ['run', 'check:js']), 0);
         assert.equal(
-          countToolInvocation(selected.calls, 'pnpm', ['exec', 'biome', 'ci', 'scripts', 'plugins/docks/hooks']),
+          countToolInvocation(selected.calls, 'bun', ['run', 'biome', 'ci', 'scripts', 'plugins/docks/hooks']),
           1,
         );
-        assert.equal(countToolInvocation(selected.calls, 'pnpm', docksBiomeLintArgv), 1);
+        assert.equal(countToolInvocation(selected.calls, 'bun', docksBiomeLintArgv), 1);
         assert.match(selected.result.stdout, /javascript quality/);
       }
     }
 
     assert.equal(core.result.status, 0, `${core.result.stdout}\n${core.result.stderr}`);
-    assert.equal(countToolInvocation(core.calls, 'pnpm', ['run', 'check:js']), 0);
-    assert.equal(countToolInvocation(core.calls, 'pnpm', coreBiomeCiArgv), 1);
-    assert.equal(countToolInvocation(core.calls, 'pnpm', coreBiomeLintArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'bun', ['run', 'check:js']), 0);
+    assert.equal(countToolInvocation(core.calls, 'bun', coreBiomeCiArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'bun', coreBiomeLintArgv), 1);
     assert.match(core.result.stdout, /javascript quality/);
     // `core` is now a pure plugin shard: the repo-wide checks moved to the always-on
     // `repo` shard so a pull request that skips `core` does not lose them.
@@ -588,9 +588,9 @@ async function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(core.calls, 'node', ['plugins/plan-lifecycle/test/selftest.mjs']), 1);
 
     assert.equal(timedCore.result.status, 0, `${timedCore.result.stdout}\n${timedCore.result.stderr}`);
-    assert.equal(countToolInvocation(timedCore.calls, 'pnpm', ['run', 'check:js']), 0);
-    assert.equal(countToolInvocation(timedCore.calls, 'pnpm', coreBiomeCiArgv), 1);
-    assert.equal(countToolInvocation(timedCore.calls, 'pnpm', coreBiomeLintArgv), 1);
+    assert.equal(countToolInvocation(timedCore.calls, 'bun', ['run', 'check:js']), 0);
+    assert.equal(countToolInvocation(timedCore.calls, 'bun', coreBiomeCiArgv), 1);
+    assert.equal(countToolInvocation(timedCore.calls, 'bun', coreBiomeLintArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', planCliArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', boundedWorkflowArgv), 1);
     const timing = JSON.parse(fs.readFileSync(timedCore.timingPath, 'utf8'));
@@ -667,20 +667,20 @@ async function testFocusedCiCommandSelection() {
       assert.equal(invokesNode(repoWide.calls, script), true, `repo CI must invoke repo-wide command ${script}`);
     }
     assert.equal(countToolInvocation(repoWide.calls, 'node', ['scripts/plans/no-bespoke-gates.mjs']), 1);
-    assert.equal(countToolInvocation(repoWide.calls, 'pnpm', ['run', 'test:unit']), 1);
+    assert.equal(countToolInvocation(repoWide.calls, 'bun', ['run', 'test:unit']), 1);
     assert.doesNotMatch(repoWide.result.stdout, /plugin: docks|plugin: effect-kit|plugin: plan-lifecycle/);
-    assert.equal(countToolInvocation(repoWide.calls, 'pnpm', ['run', 'check:js']), 0);
-    assert.equal(countToolInvocation(repoWide.calls, 'pnpm', coreBiomeCiArgv), 0);
+    assert.equal(countToolInvocation(repoWide.calls, 'bun', ['run', 'check:js']), 0);
+    assert.equal(countToolInvocation(repoWide.calls, 'bun', coreBiomeCiArgv), 0);
     // The repo shard used to schedule no biome at all: it selects zero plugins, so the
     // union of plugin-scoped paths was empty and `tests/`, `package.json` and `biome.json`
     // went unchecked on every pull request. It now owns exactly the unowned residue.
     assert.equal(
-      countToolInvocation(repoWide.calls, 'pnpm', repoBiomeCiArgv),
+      countToolInvocation(repoWide.calls, 'bun', repoBiomeCiArgv),
       1,
       `the always-on shard must biome-check the paths no plugin owns (${repoBiomeCiArgv.join(' ')})`,
     );
     const repoLintCalls = repoWide.calls.filter(
-      ({ tool, args: callArgs }) => tool === 'pnpm' && callArgs[1] === 'biome' && callArgs[2] === 'lint',
+      ({ tool, args: callArgs }) => tool === 'bun' && callArgs[1] === 'biome' && callArgs[2] === 'lint',
     );
     assert.equal(
       repoLintCalls.length,
@@ -1458,8 +1458,8 @@ assert.deepEqual(shardsFor(['plugins/docks/skills/a.md', 'plugins/effect-kit/tes
 // Every fail-open path selects everything.
 for (const [label, selection] of [
   ['a path outside every plugin root', shardsFor(['scripts/ci.mjs'])],
-  ['the plugin root itself with a sibling outside it', shardsFor(['plugins/docks', 'pnpm-lock.yaml'])],
-  ['a lockfile-only diff', shardsFor(['pnpm-lock.yaml'])],
+  ['the plugin root itself with a sibling outside it', shardsFor(['plugins/docks', 'bun.lock'])],
+  ['a lockfile-only diff', shardsFor(['bun.lock'])],
   ['a workflow-only diff', shardsFor(['.github/workflows/ci.yml'])],
   ['a quoted or otherwise undecodable path', shardsFor(['"plugins/docks/\\303\\251.md"'])],
   ['an empty diff', shardsFor([])],
@@ -1774,6 +1774,21 @@ for (const [relativePath, parsed] of [
 ]) {
   assertPinnedActions(parsed.value, relativePath);
 }
+// Both retired manager names appear literally, because a deny-list assertion has
+// to name what it denies. The migration's acceptance grep excludes this one line
+// by matching on the identifier below rather than by line number.
+const retiredPackageManagerNames = ['pnpm', 'corepack'];
+for (const { value: workflow } of [validateWorkflow, integrityWorkflow]) {
+  for (const job of Object.values(workflow.jobs)) {
+    for (const workflowStep of job.steps) {
+      const stepName = workflowStep.name?.toLowerCase() ?? '';
+      assert.ok(
+        retiredPackageManagerNames.every((retiredName) => !stepName.includes(retiredName)),
+        `workflow step name still names a retired package manager: ${workflowStep.name}`,
+      );
+    }
+  }
+}
 
 const validation = validateWorkflow.value;
 assert.deepEqual(Object.keys(validation.jobs), [
@@ -1805,8 +1820,8 @@ for (const [jobName, job] of Object.entries(validation.jobs)) {
   );
 }
 for (const job of Object.values(validation.jobs)) {
-  for (const cacheStep of job.steps.filter(({ name }) => name === 'cache pnpm store')) {
-    assert.equal(cacheStep.id, 'pnpm-cache');
+  for (const cacheStep of job.steps.filter(({ name }) => name === 'cache Bun install cache')) {
+    assert.equal(cacheStep.id, 'bun-cache');
   }
 }
 
@@ -1874,26 +1889,24 @@ assert.deepEqual(
   [
     'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
     'setup Node 24',
+    'setup Bun',
     'start hosted step timing',
-    'enable corepack',
-    'configure deterministic pnpm store',
-    'cache pnpm store',
+    'cache Bun install cache',
     'mark hosted cache restore',
-    'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+    'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
     'verify registry signatures (non-blocking)',
-    'materialize claude-code binary (allowBuilds denies it by default)',
+    'materialize claude-code binary (trustedDependencies denies it by default)',
     'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
     'run validation lane',
     'publish hosted timing artifact',
   ],
 );
 for (const name of [
-  'enable corepack',
+  'setup Bun',
   'start hosted step timing',
-  'configure deterministic pnpm store',
-  'cache pnpm store',
+  'cache Bun install cache',
   'mark hosted cache restore',
-  'install pnpm dependencies',
+  'install Bun dependencies',
   'verify registry signatures',
   'materialize claude-code binary',
   'add node_modules/.bin to PATH',
@@ -1919,14 +1932,13 @@ assert.deepEqual(
   [
     'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
     'setup Node 24',
+    'setup Bun',
     'start hosted step timing',
-    'enable corepack',
-    'configure deterministic pnpm store',
-    'cache pnpm store',
+    'cache Bun install cache',
     'mark hosted cache restore',
-    'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+    'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
     'verify registry signatures (non-blocking)',
-    'materialize claude-code binary (allowBuilds denies it by default)',
+    'materialize claude-code binary (trustedDependencies denies it by default)',
     'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
     'run non-unit plugin-targeting contracts',
     'publish hosted timing artifact',
@@ -1934,11 +1946,10 @@ assert.deepEqual(
 );
 for (const name of [
   'setup Node 24',
-  'enable corepack',
-  'configure deterministic pnpm store',
-  'cache pnpm store',
+  'setup Bun',
+  'cache Bun install cache',
   'mark hosted cache restore',
-  'install pnpm dependencies',
+  'install Bun dependencies',
   'verify registry signatures',
   'materialize claude-code binary',
   'add node_modules/.bin to PATH',
@@ -1970,15 +1981,14 @@ assert.deepEqual(
   [
     'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
     'setup Node 24',
+    'setup Bun',
     'resolve CI target',
     'start hosted step timing',
-    'enable corepack',
-    'configure deterministic pnpm store',
-    'cache pnpm store',
+    'cache Bun install cache',
     'mark hosted cache restore',
-    'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+    'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
     'verify registry signatures (non-blocking)',
-    'materialize claude-code binary (allowBuilds denies it by default)',
+    'materialize claude-code binary (trustedDependencies denies it by default)',
     'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
     'run the authoritative gate (scripts/ci.mjs)',
     'publish hosted timing artifact',
@@ -1993,15 +2003,14 @@ const validateStepLabel = (row) => row.name ?? 'checkout';
 assert.deepEqual(Object.fromEntries(steps.map((row) => [validateStepLabel(row), row.if])), {
   checkout: nonPullRequestCondition,
   'setup Node 24': nonPullRequestCondition,
+  'setup Bun': nonPullRequestCondition,
   'resolve CI target': pushCondition,
   'start hosted step timing': nonPullRequestCondition,
-  'enable corepack': nonPullRequestCondition,
-  'configure deterministic pnpm store': nonPullRequestCondition,
-  'cache pnpm store': nonPullRequestCondition,
+  'cache Bun install cache': nonPullRequestCondition,
   'mark hosted cache restore': nonPullRequestCondition,
-  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)': nonPullRequestCondition,
+  'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)': nonPullRequestCondition,
   'verify registry signatures (non-blocking)': nonPullRequestCondition,
-  'materialize claude-code binary (allowBuilds denies it by default)': nonPullRequestCondition,
+  'materialize claude-code binary (trustedDependencies denies it by default)': nonPullRequestCondition,
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)': nonPullRequestCondition,
   'run the authoritative gate (scripts/ci.mjs)': nonPullRequestCondition,
   'assert successful prerequisite jobs': undefined,
@@ -2030,14 +2039,13 @@ function effectiveValidateInventory(eventName) {
 const fullValidateInventory = [
   'checkout',
   'setup Node 24',
+  'setup Bun',
   'start hosted step timing',
-  'enable corepack',
-  'configure deterministic pnpm store',
-  'cache pnpm store',
+  'cache Bun install cache',
   'mark hosted cache restore',
-  'install pnpm dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+  'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
   'verify registry signatures (non-blocking)',
-  'materialize claude-code binary (allowBuilds denies it by default)',
+  'materialize claude-code binary (trustedDependencies denies it by default)',
   'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
   'run the authoritative gate (scripts/ci.mjs)',
   'publish hosted timing artifact',
@@ -2046,10 +2054,9 @@ const fullValidateInventory = [
 assert.deepEqual(effectiveValidateInventory('pull_request'), ['assert successful prerequisite jobs']);
 assert.deepEqual(effectiveValidateInventory('workflow_dispatch'), fullValidateInventory);
 assert.deepEqual(effectiveValidateInventory('push'), [
-  'checkout',
-  'setup Node 24',
+  ...fullValidateInventory.slice(0, 3),
   'resolve CI target',
-  ...fullValidateInventory.slice(2),
+  ...fullValidateInventory.slice(3),
 ]);
 assert.equal(step('resolve CI target').if, "github.event_name == 'push'");
 assert.match(step('resolve CI target').run, /scripts\/ci-target\.mjs release-tag/);
@@ -2127,21 +2134,32 @@ assert.equal(signatureAudit['continue-on-error'], true);
 const setupNode = steps.find((row) => typeof row.uses === 'string' && row.uses.startsWith('actions/setup-node@'));
 assert.ok(setupNode);
 assert.equal(setupNode.with['node-version'], '24');
-assert.ok(steps.indexOf(step('resolve CI target')) < steps.indexOf(step('cache pnpm store')));
-const pnpmCache = step('cache pnpm store');
-assert.equal(pnpmCache.id, 'pnpm-cache');
-assert.equal(pnpmCache.with.path, '~/.pnpm-store');
-assert.match(pnpmCache.with.key, /runner\.os.*runner\.arch.*hashFiles\('pnpm-lock\.yaml', 'package\.json'\)/);
-assert.match(pnpmCache.with['restore-keys'], /pnpm-v11-.*runner\.os.*runner\.arch/);
+const setupBun = step('setup Bun');
+assert.equal(setupBun.uses, 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6');
+assert.equal(setupBun.with, undefined);
+assert.ok(steps.indexOf(step('resolve CI target')) < steps.indexOf(step('cache Bun install cache')));
+const bunCache = step('cache Bun install cache');
+assert.equal(bunCache.id, 'bun-cache');
+assert.equal(bunCache.with.path, '~/.bun/install/cache');
+assert.equal(
+  bunCache.with.key,
+  `bun-v1-\${{ runner.os }}-\${{ runner.arch }}-\${{ hashFiles('bun.lock', 'package.json') }}`,
+);
+assert.equal(bunCache.with['restore-keys'], `bun-v1-\${{ runner.os }}-\${{ runner.arch }}-`);
+assert.match(
+  step('mark hosted cache restore').run,
+  /"bun_cache_hit".*"bun_cache_key".*steps\.bun-cache\.outputs\.cache-hit.*steps\.bun-cache\.outputs\.cache-primary-key/u,
+);
+assert.match(step('install Bun dependencies').run, /^bun install --frozen-lockfile\n/u);
 const withoutIf = (row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'if'));
 assert.deepEqual(withoutIf(shardSteps[0]), withoutIf(steps[0]));
 assert.deepEqual(withoutIf(shardStep('setup Node 24')), withoutIf(setupNode));
+assert.deepEqual(withoutIf(shardStep('setup Bun')), withoutIf(setupBun));
 for (const name of [
-  'enable corepack',
-  'configure deterministic pnpm store',
-  'cache pnpm store',
+  'setup Bun',
+  'cache Bun install cache',
   'mark hosted cache restore',
-  'install pnpm dependencies',
+  'install Bun dependencies',
   'verify registry signatures',
   'materialize claude-code binary',
   'add node_modules/.bin to PATH',
@@ -2246,9 +2264,11 @@ assert.deepEqual(integrity.permissions, { contents: 'read' });
 const integritySteps = integrity.jobs.audit.steps;
 const integrityStep = (name) => integritySteps.find((row) => row.name?.startsWith(name));
 assert.equal(integrityStep('setup Node 24').with['node-version'], '24');
-assert.equal(integrityStep('cache pnpm store').uses, pnpmCache.uses);
-assert.equal(integrityStep('cache pnpm store').with.key, pnpmCache.with.key);
-assert.match(integrityStep('install pnpm dependencies').run, /pnpm install --frozen-lockfile/);
+assert.equal(integrityStep('setup Bun').uses, setupBun.uses);
+assert.equal(integrityStep('setup Bun').with, undefined);
+assert.equal(integrityStep('cache Bun install cache').uses, bunCache.uses);
+assert.equal(integrityStep('cache Bun install cache').with.key, bunCache.with.key);
+assert.equal(integrityStep('install Bun dependencies').run, 'bun install --frozen-lockfile');
 assert.equal(integrityStep('verify registry signatures').run, 'npm audit signatures');
 assert.equal(integrityStep('verify registry signatures')['continue-on-error'], undefined);
 

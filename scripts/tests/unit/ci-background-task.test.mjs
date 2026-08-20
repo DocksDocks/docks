@@ -96,7 +96,7 @@ test('background duration follows the child lifetime while the main thread is bl
 // A chatty child must not be throttled by the orchestrator's blocked event loop. When the parent
 // relayed the child's output, one pipe buffer of backpressure suspended the child until the join
 // point, and the recorded lifetime became the blocking window. The full gate reproduced exactly
-// that: `pnpm run check:js` runs in about one second and was recorded at 356 s.
+// that: `bun run check:js` runs in about one second and was recorded at 356 s.
 //
 // Best-of-N on purpose, and the reason is a property of what is being measured. "The parent does
 // not FORCE serialization" is disproved by a single clean observation, whereas one slow

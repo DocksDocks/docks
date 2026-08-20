@@ -9,7 +9,7 @@ Per-finding reproduction before reporting. New SOLID violation: read the `file:l
 ## Steps
 
 1. **Applied-change verification** (per diff hunk): dead-code removals leave no dangling refs (search the removed symbol); consolidations updated all call sites; extractions are called from the original location; SOLID refactors actually resolve the stated violation; each change matches the approved plan.
-2. **Test suite**: `npm test` / `pnpm test` / `pytest` / `cargo test` / `go test ./...` — capture full output.
+2. **Test suite**: `bun run test` / `npm test` / `pnpm test` / `pytest` / `cargo test` / `go test ./...` — capture full output.
 3. **Linter + type-checker**: `npx eslint` / `ruff check` / `golangci-lint`; `npx tsc --noEmit` / `mypy`.
 4. **New SOLID violation check** (the differentiator): re-analyze every refactored file against all 5 principles. Did Extract Class create a new god module? Did Strategy introduce a new enum dispatch? Did composition break a parent contract? Did interface splits create inconsistent impls? Did DI changes add new concrete coupling?
 5. **Compliance delta**: by identity `(file:line, principle)` — `surviving` = in both pre and post; `resolved` = pre not surviving; `new` = post not surviving.

@@ -19,7 +19,7 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 1. **Lead with "Use when …"** — the guard enforces this prefix (verify: temporarily reword one description to drop the prefix → `node scripts/skills/guard.mjs` must fail on it; revert).
 2. **Key use case first** — the combined description is truncated at 1,536 chars in the listing; the first ~100 chars matter most.
 3. **≤500 chars** for full scorer credit (≤500 = 2 pts, ≤1,000 = 1, else 0; hard cap 1,024).
-4. **Concrete trigger keywords**, not capability prose. "Use when running pnpm audit, pip-audit…" beats "Use when working with dependency security." Move "Covers X, Y, Z" enumerations into the body.
+4. **Concrete trigger keywords**, not capability prose. "Use when running bun audit, pnpm audit, pip-audit…" beats "Use when working with dependency security." Move "Covers X, Y, Z" enumerations into the body.
 5. **No slop words** (`comprehensive`, `robust`, `elegant`, `seamless`) — −1 pt each (max −2).
 6. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. `tests/skill-trigger-collision.mjs` fails a pair sharing ≥5 positive-surface trigger tokens with no routing, but the subtle collisions still need the manual near-miss pass; `write-skill`'s near-miss table is the procedure.
 
