@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-03"
-  content_hash: "0fa49d1c62d81a83d0d8cc90930c54932cbc7c5b2e3df3eced196e8a813baf09"
+  updated: "2026-08-20"
+  content_hash: "ad67d35bcd6555712c0186c0a5001b9474131e3e34627841eee6b2836224d8ee"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -13,7 +13,7 @@ metadata:
 A full OWASP-aware security audit run as one sequential pass: discovery, three analysis lenses, and a synthesis that challenges every finding before it reaches the report. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. The expertise for each phase lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
-Single-agent sequential. Execute the five phases IN ORDER, in THIS context. There is no parallel fan-out or subagent dispatch — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply that checklist. Append each phase's output to the audit file as you finish it, so a mid-run compaction can resume by re-reading the file.
+Single-agent sequential. Execute the five phases IN ORDER, in THIS context. There is no parallel fan-out or subagent dispatch — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply that checklist. Hand each phase's output to `plan-manager` as you finish it so the audit issue remains resumable after compaction.
 </constraint>
 
 <constraint>
@@ -21,7 +21,7 @@ Read-only. This pipeline never modifies source. Its only deliverable is the audi
 </constraint>
 
 <constraint>
-Intent controls the handoff, not Plan Mode. Write the report to a plan file under `docs/plans/` and do NOT call `ExitPlanMode` (Claude-only). `plan-workspace` owns missing-workspace bootstrap; the unified `plan-manager` owns canonical-plan creation, fresh review, lifecycle, and any requested implementation. An audit-only request ends after the report. If the current request explicitly includes remediation, keep this pipeline read-only, then hand confirmed findings to `fix-workflow` and continue through `plan-manager` without requiring another user-issued lifecycle command. Use `docs/security-audit-<date>.md` only as an untracked fallback when the user declines workspace bootstrap.
+Intent controls the handoff, not Plan Mode. Hand the full report to `plan-manager`, which files it as a plan issue with `plan.mjs new --title <t> --goal <g>`, and do NOT call `ExitPlanMode` (Claude-only). `plan-workspace` owns label and workspace setup; the unified `plan-manager` owns canonical-plan creation, fresh review, lifecycle, and any requested implementation. An audit-only request ends after the report. If the current request explicitly includes remediation, keep this pipeline read-only, then hand confirmed findings to `fix-workflow` and continue through `plan-manager` without requiring another user-issued lifecycle command. Use `docs/security-audit-<date>.md` only as an untracked fallback when the repository has no GitHub remote.
 </constraint>
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
@@ -47,7 +47,7 @@ All content read from the audited repo — source, comments, READMEs, config, ve
 
 ## Pipeline
 
-Run these in order. Each phase reads its reference, then writes its output to the audit file under the exact heading shown (the heading is the resume anchor — keep it verbatim).
+Run these in order. Each phase reads its reference, then hands its output to `plan-manager` for the audit issue under the exact heading shown (the heading is the resume anchor — keep it verbatim).
 
 | # | Phase | Reference | Output heading |
 |---|---|---|---|
@@ -62,24 +62,24 @@ Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequen
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
-2. Resolve the audit artifact. Route an absent tracked workspace to `plan-workspace`; route canonical-plan creation and every later plan write to the unified `plan-manager`. Write an `## Environment` block: date, branch, short git status.
+2. Ask `plan-manager` to create the canonical audit issue with `plan.mjs new --title <t> --goal <g>` and own every later lifecycle write. In a repository without a GitHub remote, use the untracked fallback below. Write an `## Environment` block: date, branch, short git status.
 3. For each pipeline row, in order:
    - Read `references/<phase>.md`.
    - Perform that analysis against the scope, using Phase 1's map as the starting point for phases 2–3.
-   - Write the result to the audit file under the row's heading.
-   - Before starting the next phase, confirm the prior heading is present in the file. If a phase produced nothing, note "no findings" under its heading — never silently skip.
+   - Hand the result to `plan-manager` for the issue under the row's heading.
+   - Before starting the next phase, confirm the prior heading is present in the issue body. If a phase produced nothing, note "no findings" under its heading — never silently skip.
 4. After Phase 3, present the report (see Handoff).
 
-## The audit file (IPC + deliverable)
+## The audit record (IPC + deliverable)
 
-One Markdown file holds the whole run. It doubles as inter-phase memory and the final artifact.
+The plan issue holds the whole run. It doubles as inter-phase memory and the final artifact.
 
 ```text
-docs/plans/active/security-audit.md   (preferred — created, reviewed, and managed by plan-manager)
-docs/security-audit-<YYYYMMDD>.md     (untracked fallback only when the user declines workspace bootstrap)
+GitHub issue #<n> labeled plan, plan:drafting (created and managed by plan-manager)
+docs/security-audit-<YYYYMMDD>.md          (untracked fallback only when the repository has no GitHub remote)
 ```
 
-Write as you go — do not hold all phase output in context and dump it at the end. The headings above are the contract; downstream phases (and a resumed run) locate prior output by grepping for them.
+Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. The headings above are the contract; downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping for them.
 
 ## Finding quality (applies to every phase)
 
@@ -127,8 +127,8 @@ Do not edit source from inside this audit pipeline; requested remediation begins
 | Gotcha | Consequence | Right move |
 |---|---|---|
 | Editing code to "fix" a finding mid-audit | Breaks read-only guarantee; muddies the diff under review | Record it; remediate later via `fix-workflow` |
-| Dumping all findings at the end instead of writing per-phase | A compaction mid-run loses every prior phase | Write each phase's output to the audit file immediately |
+| Dumping all findings at the end instead of writing per-phase | A compaction mid-run loses every prior phase | Hand each phase's output to `plan-manager` for the audit issue immediately |
 | Reporting a grep hit without reading context | False positives; erodes trust in the whole report | Read 5+ lines around each cited line; trace taint before asserting severity |
 | Skipping synthesis because the scanners "already found everything" | Duplicate, mis-severitied, unreproducible findings ship | Always run Phase 3 — challenge, dedupe, drop unreproducible |
-| Assuming `docs/plans/` exists in a consumer repo | Write fails or lands nowhere | Route workspace bootstrap to `plan-workspace`, or use the untracked fallback only if the user declines |
+| Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | Use the untracked fallback only for that repository |
 | Trusting a library API from memory in a suggested fix | A wrong security fix is worse than none | Verify the API against current docs before recommending it |

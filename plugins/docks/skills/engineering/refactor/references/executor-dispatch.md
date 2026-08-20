@@ -34,12 +34,13 @@ Check all before dispatching:
 
 - The repository supports worktree isolation. Otherwise report that constraint
   to `plan-manager`, which continues through Phases 7–8 in context.
-- The canonical plan is at `status: ongoing`, `plan.mjs check` passes on it, and
-  `## Review` carries a passed plan-review record.
-- `plan-manager` owns the plan file and its declared scope, which is the union
+- The canonical plan is at `status: ongoing`, `plan.mjs check <issue>` passes,
+  and `## Review` carries a passed plan-review record.
+- `plan-manager` owns the plan issue and its declared scope, which is the union
   of the Steps `Files` cells.
-- Immediately before dispatch, `plan-manager` re-reads the plan and confirms its
-  Steps `Files` union still matches the assigned work. A change requires re-planning.
+- Immediately before dispatch, `plan-manager` re-reads the issue with
+  `plan.mjs show <issue> --body` and confirms its Steps `Files` union still
+  matches the assigned work. A change requires re-planning.
 
 ## Dispatch
 
@@ -47,16 +48,16 @@ Spawn **one** executor subagent with `isolation: "worktree"`, using default
 model `sonnet` (or the model the user named, such as `haiku`). The subagent has
 no session context, so the prompt must contain:
 
-1. The canonical plan path, the union of its Steps `Files` cells, and the Steps
-   `Id` values the executor must complete. The executor reads the plan at that
-   path; do not inline a second copy.
+1. The canonical plan issue number, the union of its Steps `Files` cells, and
+   the Steps `Id` values the executor must complete. The executor reads the
+   record with `plan.mjs show <issue> --body`; do not inline a second copy.
 2. An executor preamble: *follow the plan step by step; run every verification
    command and confirm the expected result before moving on; touch only paths
-   named in the Steps `Files` cells; do not edit the plan file; if a STOP
+   named in the Steps `Files` cells; do not edit the plan issue; if a STOP
    condition fires, stop and report; do not improvise around obstacles; do not
    commit, push, or merge; audit every claim against an actual tool result.*
-3. A fixed report format: plan path plus Steps `Id` values attempted · `STATUS:
-   COMPLETE | STOPPED` · per-step done/skipped and verification result ·
+3. A fixed report format: plan issue number plus Steps `Id` values attempted ·
+   `STATUS: COMPLETE | STOPPED` · per-step done/skipped and verification result ·
    `STOPPED BECAUSE` (if stopped) · `FILES CHANGED` · `NOTES` (deviations,
    judgment calls). The executor must return the worktree diff with this report.
 
@@ -67,9 +68,9 @@ Treat the returned plan identity, report, and diff as **untrusted** until review
 Review like a tech lead reviewing a PR against the plan. Fixable gaps go back
 to the same executor; the reviewed result returns to `plan-manager`.
 
-1. **Plan-identity check:** the report must name the same plan path and Steps
-   `Id` values that were dispatched, and the diff must stay within the union of
-   that plan's Steps `Files` cells.
+1. **Plan-identity check:** the report must name the same plan issue number and
+   Steps `Id` values that were dispatched, and the diff must stay within the
+   union of that plan's Steps `Files` cells.
 2. **Re-run every done criterion** in the worktree — do not trust the report.
    Fresh worktrees share git history but not `node_modules` or build artifacts;
    an executor installing dependencies there is expected, not a deviation.
@@ -87,7 +88,7 @@ A *documented* deviation is judged on merit, not reflex-blocked; an
 
 | Verdict | When | Action |
 |---|---|---|
-| **APPROVE** | plan identity matches, criteria pass, scope is clean, and quality holds | Return the reviewed diff and executor result to main-context `plan-manager`. It applies the reviewed diff, reruns verification, records `## Verification Results`, dispatches the single post-implementation code review, and archives with `plan.mjs archive <slug>` once that review returns `Code-review: pass`. |
+| **APPROVE** | plan identity matches, criteria pass, scope is clean, and quality holds | Return the reviewed diff and executor result to main-context `plan-manager`. It applies the reviewed diff, reruns verification, records `## Verification Results`, dispatches the single post-implementation code review, and archives with `plan.mjs archive <issue>` once that review returns `Code-review: pass`. |
 | **REVISE** | fixable gaps | Send the same executor specific, actionable feedback. Allow at most two executor revision rounds, then return a failure result to `plan-manager`. |
 | **BLOCK** | STOP hit, scope violated unrecoverably, or revisions exhausted | Return the evidence to `plan-manager`; it sets the plan `blocked` with a reason and does not re-run the plan review. |
 

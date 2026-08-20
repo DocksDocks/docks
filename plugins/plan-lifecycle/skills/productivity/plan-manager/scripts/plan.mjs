@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+
 const PLAN_STATUSES = new Set(['drafting', 'planned', 'ongoing', 'blocked', 'finished']);
 const STEP_STATUSES = new Set(['planned', 'in-flight', 'done', 'blocked', 'skipped']);
 const STEP_EFFECTS = new Set(['local', 'probe', 'production_access', 'publish', 'push', 'release', 'deploy']);
@@ -11,6 +15,7 @@ const STEPS_HEADER = '| # | Id | Task | Files | Depends | Effect | Status | Done
 const STEPS_SEPARATOR = '|---:|---|---|---|---|---|---|---|';
 const ACCEPTANCE_HEADER = '| ID | Command | Expected |';
 const ACCEPTANCE_SEPARATOR = '|---|---|---|';
+const PLAN_LABELS = ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked', 'plan:finished', 'plan-scheduled'];
 const STATUS_TRANSITIONS = {
   drafting: new Set(['planned', 'ongoing', 'blocked']),
   planned: new Set(['drafting', 'ongoing', 'blocked']),
@@ -25,13 +30,34 @@ const STEP_TRANSITIONS = {
   done: new Set(),
   skipped: new Set(),
 };
-const SKIPPED_PLAN_FILES = new Set(['AGENTS.md', 'CLAUDE.md', 'QUEUE.md', '.gitkeep']);
+const ISSUE_FIELDS = 'number,title,body,state,stateReason,labels,assignees,url,createdAt,updatedAt';
+const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (gh api user --jq .login returned nothing)';
+const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String,$afterUser:String){
+  repository(owner:$owner,name:$name){
+    issue(number:$number){
+      closing: closedByPullRequestsReferences(first:100, after:$after){
+        nodes{ number mergedAt baseRefName repository{ nameWithOwner defaultBranchRef{ name } } }
+        pageInfo{ hasNextPage endCursor }
+      }
+      userLinked: closedByPullRequestsReferences(first:100, after:$afterUser, userLinkedOnly:true){
+        nodes{ number repository{ nameWithOwner } }
+        pageInfo{ hasNextPage endCursor }
+      }
+    }
+  }
+}`;
+let repository;
+let actingLogin;
+ 
+
 function fail(message) {
   throw new Error(message);
 }
+
 function utcTimestamp() {
   return new Date().toISOString().replace('Z', '+00:00');
 }
+
 function parseFrontmatter(planText) {
   if (!planText.startsWith('---\n')) fail('frontmatter must open with ---');
   const end = planText.indexOf('\n---\n', 4);
@@ -60,6 +86,7 @@ function parseFrontmatter(planText) {
   }
   return { body: planText.slice(end + 5), entries, values };
 }
+
 function blankFencedRegions(text) {
   let fence;
   return text
@@ -73,6 +100,7 @@ function blankFencedRegions(text) {
     })
     .join('\n');
 }
+
 function parseRows(sectionText, header, separator, width) {
   const lines = blankFencedRegions(sectionText).split('\n');
   const headerIndex = lines.indexOf(header);
@@ -86,6 +114,7 @@ function parseRows(sectionText, header, separator, width) {
   }
   return { headerMatches: true, rowCount: rows.length, rows: rows.filter((row) => row.cells.length === width) };
 }
+
 function sectionMap(body) {
   const headings = [...blankFencedRegions(body).matchAll(/^## (.+)$/gm)];
   const sections = new Map();
@@ -96,36 +125,42 @@ function sectionMap(body) {
   }
   return { headings: headings.map((match) => match[1]), sections };
 }
+
 function unquoteCode(value) {
   return /^`[^`]+`$/.test(value) ? value.slice(1, -1) : value;
 }
-function unquoteScalar(value) {
-  return /^".*"$/.test(value) ? value.slice(1, -1) : value;
-}
+
 function pathsInFilesCell(value) {
   return value.split(',').map((entry) => unquoteCode(entry.trim())).filter(Boolean);
 }
-function realPathOrSelf(target) {
-  try {
-    return fs.realpathSync(target);
-  } catch {
-    return target;
+
+function labelNames(labels) {
+  return (labels ?? []).map((label) => typeof label === 'string' ? label : label.name);
+}
+
+function issueIdentity(planRef) {
+  if (planRef === undefined || planRef === null) return undefined;
+  if (typeof planRef === 'object') {
+    const number = Number(planRef.number);
+    return {
+      number: Number.isInteger(number) && number > 0 ? number : undefined,
+      url: planRef.url,
+      labels: Object.hasOwn(planRef, 'labels') ? labelNames(planRef.labels) : undefined,
+    };
   }
+  const value = String(planRef).trim();
+  const match = /(?:^#?|\/issues\/)([1-9]\d*)$/.exec(value);
+  if (!match) return undefined;
+  return { number: Number(match[1]), url: value.includes('/issues/') ? value : undefined, labels: undefined };
 }
-function comparablePlanPath(planPath) {
-  // Resolve both sides: a macOS temp root or any symlinked checkout otherwise
-  // relativizes to a `../..` path that never matches a Steps `Files` entry.
-  const relative = path.isAbsolute(planPath)
-    ? path.relative(realPathOrSelf(process.cwd()), realPathOrSelf(planPath))
-    : planPath;
-  return relative.replaceAll(path.sep, '/').replace(/^\.\//, '');
-}
+
 export function machinePathCitations(planText) {
   return planText
     .split('\n')
     .filter((line) => !/^[A-Z][A-Za-z0-9-]*: *\{/.test(line) && /\/home\/[a-z]|\/Users\/[A-Za-z]/.test(line));
 }
-export function checkPlan(planText, planPath) {
+
+export function checkPlan(planText, planRef) {
   const failures = [];
   let parsed;
   try {
@@ -150,6 +185,13 @@ export function checkPlan(planText, planPath) {
   }
   if (values.status !== 'blocked' && Object.hasOwn(values, 'blocked_reason')) {
     failures.push('check 2: blocked_reason is allowed only for blocked status');
+  }
+  const identity = issueIdentity(planRef);
+  if (identity?.labels !== undefined) {
+    const statusLabels = identity.labels.filter((label) => label.startsWith('plan:'));
+    if (statusLabels.length !== 1 || statusLabels[0] !== `plan:${values.status}`) {
+      failures.push('check 2: plan label must mirror the frontmatter status');
+    }
   }
   if (typeof values.title !== 'string' || !values.title.trim() || values.title.length > 70) {
     failures.push('check 3: title must contain 1 to 70 characters');
@@ -225,23 +267,21 @@ export function checkPlan(planText, planPath) {
   if (researchIsPlaceholder && values.status !== 'drafting') {
     failures.push('check 11: Research must be filled once the plan leaves drafting');
   }
-  if (stepFiles.has(comparablePlanPath(planPath))) failures.push('check 12: Steps Files contains the plan file itself');
+  if (identity?.number !== undefined) {
+    const references = new Set([String(identity.number), `#${identity.number}`]);
+    if (identity.url) references.add(identity.url);
+    if ([...stepFiles].some((file) => references.has(file))) failures.push('check 12: Steps Files contains the plan issue itself');
+  }
   const modes = [...(sections.get('Goal') ?? '').matchAll(/^Mode: (plan-and-implement|plan-only)$/gm)];
   if (modes.length !== 1) failures.push('check 13: Goal must contain exactly one valid Mode line');
   return failures;
 }
+
 function planTemplate(title, goal, mode) {
   const now = utcTimestamp();
   return `---\nplan_contract: v2\ntitle: ${title}\ngoal: ${goal}\nstatus: drafting\ncreated: "${now}"\nupdated: "${now}"\nassignee: null\n---\n\n## Goal\n\n${goal}\n\nMode: ${mode}\n\n## Research\n\n_Not researched yet._\n\n## Steps\n\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n\n## Acceptance\n\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}\n\n## Do not touch\n\nNone\n\n## Open questions\n\nNone\n\n## Review\n\n_No review yet._\n\n## Verification Results\n\n_Not implemented yet._\n`;
 }
-function activePlanPath(slug) {
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) fail(`invalid plan slug: ${slug}`);
-  return path.join('docs/plans/active', `${slug}.md`);
-}
-function resolveCheckPath(value) {
-  if (value.includes('/') || value.includes('\\') || value.endsWith('.md')) return value;
-  return activePlanPath(value);
-}
+
 function replaceFrontmatterFields(planText, fields) {
   let updated = planText;
   for (const [key, value] of Object.entries(fields)) {
@@ -253,99 +293,362 @@ function replaceFrontmatterFields(planText, fields) {
   if (fields.blocked_reason === undefined) updated = updated.replace(/^blocked_reason:.*\n/m, '');
   return updated;
 }
-function writePlanIfUnchanged(file, before, after) {
-  if (fs.readFileSync(file, 'utf8') !== before) fail('plan file changed on disk; re-read and retry');
-  const temporary = `${file}.tmp-${process.pid}`;
+
+function runGh(argv) {
+  const result = spawnSync('gh', argv, { encoding: 'utf8' });
+  if (result.error?.code === 'ENOENT') fail('gh is not installed or not on PATH');
+  if (result.error) fail(`gh ${argv.slice(0, 2).join(' ')} failed: ${result.error.message}`);
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || `exit ${result.status}`;
+    fail(`gh ${argv.slice(0, 2).join(' ')} failed: ${detail}`);
+  }
+  return result.stdout;
+}
+
+function resolveActingLogin() {
+  if (actingLogin !== undefined) return actingLogin;
+  const login = runGh(['api', 'user', '--jq', '.login']).trim();
+  if (!login) fail(ACTING_LOGIN_ERROR);
+  actingLogin = login;
+  return actingLogin;
+}
+
+function resolveRepository() {
+  try {
+    const output = runGh(['repo', 'view', '--json', 'nameWithOwner,visibility,defaultBranchRef']);
+    return JSON.parse(output);
+  } catch (error) {
+    if (error.message === 'gh is not installed or not on PATH') throw error;
+    fail(`no GitHub remote: ${error.message}`);
+  }
+}
+
+
+function parseJson(output, command) {
+  try {
+    return JSON.parse(output);
+  } catch {
+    fail(`${command} returned invalid JSON`);
+  }
+}
+
+function archivePullRequestReferences(issueNumber) {
+  const [owner, name, ...extra] = repository.nameWithOwner.split('/');
+  if (!owner || !name || extra.length > 0) fail(`invalid repository name: ${repository.nameWithOwner}`);
+  const closing = [];
+  const userLinked = [];
+  let after;
+  let afterUser;
+  let hasNextPage;
+  let hasNextUserPage;
+  do {
+    const argv = [
+      'api',
+      'graphql',
+      '-f',
+      `query=${CLOSING_PULL_REQUESTS_QUERY}`,
+      '-F',
+      `owner=${owner}`,
+      '-F',
+      `name=${name}`,
+      '-F',
+      `number=${issueNumber}`,
+    ];
+    if (after !== undefined) argv.push('-F', `after=${after}`);
+    if (afterUser !== undefined) argv.push('-F', `afterUser=${afterUser}`);
+    const response = parseJson(runGh(argv), 'gh api graphql');
+    const issue = response.data?.repository?.issue;
+    if (!issue || !Array.isArray(issue.closing?.nodes) || !Array.isArray(issue.userLinked?.nodes)) {
+      fail('gh api graphql returned malformed closing pull request references');
+    }
+    closing.push(...issue.closing.nodes);
+    userLinked.push(...issue.userLinked.nodes);
+    hasNextPage = issue.closing.pageInfo?.hasNextPage === true;
+    hasNextUserPage = issue.userLinked.pageInfo?.hasNextPage === true;
+    if (issue.closing.pageInfo?.endCursor != null) after = issue.closing.pageInfo.endCursor;
+    if (issue.userLinked.pageInfo?.endCursor != null) afterUser = issue.userLinked.pageInfo.endCursor;
+  } while (hasNextPage || hasNextUserPage);
+  return { closing, userLinked };
+}
+
+function parseIssueNumber(value) {
+  const match = /^#?([1-9]\d*)$/.exec(String(value ?? ''));
+  if (!match) fail(`invalid plan issue: ${value ?? '(missing)'}`);
+  return Number(match[1]);
+}
+
+function issueView(number, fields = ISSUE_FIELDS, repo = repository.nameWithOwner) {
+  return parseJson(runGh(['issue', 'view', String(number), '--json', fields, '--repo', repo]), 'gh issue view');
+}
+
+function readPlanIssue(value, forWrite = false) {
+  const number = parseIssueNumber(value);
+  const issue = issueView(number);
+  if (!/^plan_contract: v2$/m.test(issue.body.slice(0, issue.body.indexOf('\n---\n', 4)))) {
+    fail(`not a v2 plan: #${number} (no plan_contract: v2)`);
+  }
+  if (forWrite) {
+    const login = resolveActingLogin();
+    const owners = (issue.assignees ?? []).map((assignee) => assignee.login).filter(Boolean);
+    const foreignOwner = owners.find((owner) => owner !== login);
+    if (foreignOwner) fail(`plan #${issue.number} is owned by ${foreignOwner}`);
+    if (owners.length === 0) issue.claimLogin = login;
+  }
+  return { issue, parsed: parseFrontmatter(issue.body) };
+}
+
+function stateDirectory() {
+  const base = process.env.XDG_STATE_HOME || path.join(process.env.HOME || os.homedir(), '.local', 'state');
+  const directory = path.join(base, 'docks', 'plan');
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(directory, 0o700);
+  return directory;
+}
+
+function withBodyFile(body, callback) {
+  const temporary = path.join(stateDirectory(), `body-${process.pid}-${randomUUID()}.md`);
   let descriptor;
   try {
-    descriptor = fs.openSync(temporary, 'wx');
-    fs.writeFileSync(descriptor, after, 'utf8');
-    fs.fsyncSync(descriptor);
+    descriptor = fs.openSync(temporary, 'wx', 0o600);
+    fs.writeFileSync(descriptor, body, 'utf8');
     fs.closeSync(descriptor);
     descriptor = undefined;
-    fs.renameSync(temporary, file);
+    return callback(temporary);
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
-    if (fs.existsSync(temporary)) fs.rmSync(temporary);
+    fs.rmSync(temporary, { force: true });
   }
 }
-function readActivePlan(slug) {
-  const file = activePlanPath(slug);
-  const before = fs.readFileSync(file, 'utf8');
-  if (!/^plan_contract: v2$/m.test(before.slice(0, before.indexOf('\n---\n', 4)))) {
-    fail(`not a v2 plan: ${file} (no plan_contract: v2)`);
-  }
-  return { before, file, parsed: parseFrontmatter(before) };
+
+function editIssueBodyIfUnchanged(issue, after, labels = {}) {
+  const current = issueView(issue.number, 'body,updatedAt');
+  if (current.body !== issue.body) fail('plan issue changed remotely; re-read and retry');
+  withBodyFile(after, (bodyFile) => {
+    const argv = ['issue', 'edit', String(issue.number), '--body-file', bodyFile];
+    if (Object.hasOwn(issue, 'claimLogin')) {
+      if (!issue.claimLogin) fail(ACTING_LOGIN_ERROR);
+      argv.push('--add-assignee', '@me');
+    }
+    if (labels.add) argv.push('--add-label', labels.add);
+    for (const label of labels.remove ?? []) argv.push('--remove-label', label);
+    argv.push('--repo', repository.nameWithOwner);
+    runGh(argv);
+  });
+  const stored = issueView(issue.number, 'body,updatedAt');
+  if (stored.body !== after) fail('plan issue body differs after edit');
 }
-function createPlan(args) {
-  const [slug, ...flags] = args;
-  if (!slug) fail('new requires a slug');
-  const file = activePlanPath(slug);
-  const options = parseOptions(flags, new Set(['--title', '--goal', '--mode']));
-  if (!options['--title'] || !options['--goal']) fail('new requires --title and --goal');
-  const mode = options['--mode'] ?? 'plan-and-implement';
-  if (!new Set(['plan-and-implement', 'plan-only']).has(mode)) fail(`invalid plan mode: ${mode}`);
-  if (!fs.existsSync(path.dirname(file))) fail('docs/plans/active/ is absent');
-  if (fs.existsSync(file)) fail(`plan already exists: ${file}`);
-  if ([options['--title'], options['--goal']].some((value) => /[\r\n]/.test(value))) fail('title and goal must be single-line text');
-  const temporary = `${file}.tmp-${process.pid}`;
-  let descriptor;
-  try {
-    descriptor = fs.openSync(temporary, 'wx');
-    fs.writeFileSync(descriptor, planTemplate(options['--title'], options['--goal'], mode), 'utf8');
-    fs.fsyncSync(descriptor);
-    fs.closeSync(descriptor);
-    descriptor = undefined;
-    if (fs.existsSync(file)) fail(`plan already exists: ${file}`);
-    fs.renameSync(temporary, file);
-  } finally {
-    if (descriptor !== undefined) fs.closeSync(descriptor);
-    if (fs.existsSync(temporary)) fs.rmSync(temporary);
-  }
-  console.log(`plan created: ${file}`);
-}
-function parseOptions(args, allowed) {
+
+function parseOptions(args, allowed, repeatable = new Set()) {
   const options = {};
   for (let index = 0; index < args.length; index += 2) {
     const flag = args[index];
-    if (!allowed.has(flag) || args[index + 1] === undefined || Object.hasOwn(options, flag)) fail(`invalid option: ${flag ?? '(missing)'}`);
-    options[flag] = args[index + 1];
+    if (!allowed.has(flag) || args[index + 1] === undefined || (!repeatable.has(flag) && Object.hasOwn(options, flag))) {
+      fail(`invalid option: ${flag ?? '(missing)'}`);
+    }
+    if (repeatable.has(flag)) {
+      options[flag] ??= [];
+      options[flag].push(args[index + 1]);
+    } else options[flag] = args[index + 1];
   }
   return options;
 }
-function checkCommand(args) {
-  if (args.length !== 1) fail('check requires one slug or path');
-  const file = resolveCheckPath(args[0]);
-  const planText = fs.readFileSync(file, 'utf8');
-  if (!/^plan_contract: v2$/m.test(planText.slice(0, planText.indexOf('\n---\n', 4)))) {
-    fail(`not a v2 plan: ${file} (no plan_contract: v2)`);
-  }
-  const failures = checkPlan(planText, file);
-  if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
-  console.log(`plan check passed: ${file}`);
+
+function statusFromLabels(labels) {
+  const statuses = labelNames(labels)
+    .filter((label) => label.startsWith('plan:') && PLAN_STATUSES.has(label.slice(5)))
+    .map((label) => label.slice(5));
+  return statuses.length === 1 ? statuses[0] : 'unreadable';
 }
+
+function labelsToRemove(issue, target) {
+  return labelNames(issue.labels).filter((label) => label.startsWith('plan:') && label !== `plan:${target}`);
+}
+
+function headerStrip(issue, status) {
+  return `#${issue.number} · ${status} · ${issue.title} · ${issue.url}`;
+}
+
+function labelsCommand(args) {
+  const options = parseOptions(args, new Set(['--extra']), new Set(['--extra']));
+  const extras = options['--extra'] ?? [];
+  const labels = [...PLAN_LABELS, ...extras];
+  for (const label of labels) {
+    if (!label.trim() || /[\r\n]/.test(label)) fail('label names must be non-empty single-line text');
+  }
+  const reserved = extras.find((label) => /^plan(?::|$)/.test(label));
+  if (reserved) fail(`reserved label namespace: ${reserved}`);
+  for (const label of labels) {
+    runGh(['label', 'create', label, '--force', '--repo', repository.nameWithOwner]);
+    console.log(`label ready: ${label}`);
+  }
+}
+
+function createPlan(args) {
+  const options = parseOptions(args, new Set(['--title', '--goal', '--mode', '--label']), new Set(['--label']));
+  if (!options['--title'] || !options['--goal']) fail('new requires --title and --goal');
+  const mode = options['--mode'] ?? 'plan-and-implement';
+  if (!new Set(['plan-and-implement', 'plan-only']).has(mode)) fail(`invalid plan mode: ${mode}`);
+  if ([options['--title'], options['--goal']].some((value) => /[\r\n]/.test(value))) fail('title and goal must be single-line text');
+  for (const label of options['--label'] ?? []) {
+    if (!label.trim() || /[\r\n]/.test(label)) fail('label names must be non-empty single-line text');
+    if (/^plan(?::|$)/.test(label)) fail(`reserved label namespace: ${label}`);
+  }
+  const body = planTemplate(options['--title'], options['--goal'], mode);
+  const output = withBodyFile(body, (bodyFile) => {
+    const argv = [
+      'issue',
+      'create',
+      '--title',
+      options['--title'],
+      '--body-file',
+      bodyFile,
+      '--label',
+      'plan',
+      '--label',
+      'plan:drafting',
+      '--assignee',
+      '@me',
+    ];
+    for (const label of options['--label'] ?? []) argv.push('--label', label);
+    argv.push('--repo', repository.nameWithOwner);
+    return runGh(argv).trim();
+  });
+  const match = /\/issues\/([1-9]\d*)\/?$/.exec(output);
+  if (!match) fail('gh issue create returned an invalid issue URL');
+  console.log(`plan created: #${match[1]} ${output}`);
+}
+
+function claimPlan(args) {
+  if (args.length !== 1) fail('claim requires one issue');
+  const { issue } = readPlanIssue(args[0]);
+  const login = resolveActingLogin();
+  const owners = (issue.assignees ?? []).map((assignee) => assignee.login);
+  const foreignOwner = owners.find((owner) => owner !== login);
+  if (foreignOwner) fail(`plan #${issue.number} is owned by ${foreignOwner}`);
+  if (owners.includes(login)) {
+    console.log(`plan #${issue.number} already claimed: ${login}`);
+    return;
+  }
+  runGh(['issue', 'edit', String(issue.number), '--add-assignee', '@me', '--repo', repository.nameWithOwner]);
+  console.log(`plan #${issue.number} claimed: ${login}`);
+}
+
+function showPlan(args) {
+  const [value, ...flags] = args;
+  if (!value || flags.some((flag) => flag !== '--body') || flags.length > 1) fail('show requires an issue and optional --body');
+  const { issue, parsed } = readPlanIssue(value);
+  const header = headerStrip(issue, parsed.values.status);
+  if (flags[0] === '--body') {
+    console.error(header);
+    process.stdout.write(issue.body);
+    return;
+  }
+  console.log(header);
+}
+
+function exportPlan(args) {
+  if (args.length !== 1) fail('export requires one issue');
+  const { issue } = readPlanIssue(args[0]);
+  const result = spawnSync('git', ['rev-parse', '--git-path', 'docks-review'], { encoding: 'utf8' });
+  if (result.error?.code === 'ENOENT') fail('git is not installed or not on PATH');
+  if (result.error) fail(`git rev-parse failed: ${result.error.message}`);
+  if (result.status !== 0) fail(`git rev-parse failed: ${result.stderr.trim() || `exit ${result.status}`}`);
+  const gitPath = result.stdout.trim();
+  if (!gitPath) fail('git rev-parse failed: empty git path');
+  const directory = path.resolve(process.cwd(), gitPath);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(directory, 0o700);
+  const destination = path.join(directory, `plan-${issue.number}.md`);
+  fs.writeFileSync(destination, issue.body, { encoding: 'utf8', mode: 0o600 });
+  console.log(destination);
+}
+
+function changedLines(before, after) {
+  const left = before.split('\n');
+  const right = after.split('\n');
+  const lengths = Array.from({ length: left.length + 1 }, () => new Uint32Array(right.length + 1));
+  for (let i = left.length - 1; i >= 0; i -= 1) {
+    for (let j = right.length - 1; j >= 0; j -= 1) {
+      lengths[i][j] = left[i] === right[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+    }
+  }
+  const changes = [];
+  let i = 0;
+  let j = 0;
+  while (i < left.length || j < right.length) {
+    if (i < left.length && j < right.length && left[i] === right[j]) {
+      i += 1;
+      j += 1;
+    } else if (i < left.length && (j === right.length || lengths[i + 1][j] >= lengths[i][j + 1])) {
+      changes.push(`-${left[i]}`);
+      i += 1;
+    } else {
+      changes.push(`+${right[j]}`);
+      j += 1;
+    }
+  }
+  return changes;
+}
+
+function editPlan(args) {
+  const [value, ...flags] = args;
+  if (!value) fail('edit requires an issue and --file');
+  const options = parseOptions(flags, new Set(['--file']));
+  if (!options['--file']) fail('edit requires an issue and --file');
+  const { issue } = readPlanIssue(value, true);
+  const after = fs.readFileSync(options['--file'], 'utf8');
+  const failures = checkPlan(after, issue);
+  if (failures.length > 0) fail(failures.map((message) => `${options['--file']}: ${message}`).join('\n'));
+  const changes = changedLines(issue.body, after);
+  editIssueBodyIfUnchanged(issue, after);
+  const status = parseFrontmatter(after).values.status;
+  console.log(headerStrip(issue, status));
+  console.log(`changed: ${changes.length} line(s)`);
+  for (const line of changes) console.log(line);
+}
+
+function checkCommand(args) {
+  if (args.length === 2 && args[0] === '--file') {
+    const file = args[1];
+    const planText = fs.readFileSync(file, 'utf8');
+    if (!/^plan_contract: v2$/m.test(planText.slice(0, planText.indexOf('\n---\n', 4)))) {
+      fail(`not a v2 plan: ${file} (no plan_contract: v2)`);
+    }
+    const failures = checkPlan(planText, undefined);
+    if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
+    console.log(`plan check passed: ${file}`);
+    return;
+  }
+  if (args.length !== 1) fail('check requires one issue or --file path');
+  const { issue } = readPlanIssue(args[0]);
+  const failures = checkPlan(issue.body, issue);
+  if (failures.length > 0) fail(failures.map((message) => `#${issue.number}: ${message}`).join('\n'));
+  console.log(`plan check passed: #${issue.number}`);
+}
+
 function setPlanStatus(args) {
-  const [slug, target, ...flags] = args;
-  if (!slug || !target) fail('status requires a slug and status');
+  const [value, target, ...flags] = args;
+  if (!value || !target) fail('status requires an issue and status');
   const options = parseOptions(flags, new Set(['--reason']));
   if (target === 'blocked' && (!String(options['--reason'] ?? '').trim() || /[\r\n]/.test(options['--reason']))) fail('blocked status requires --reason as single-line text');
   if (target !== 'blocked' && options['--reason'] !== undefined) fail('--reason is allowed only for blocked status');
-  const { before, file, parsed } = readActivePlan(slug);
+  const { issue, parsed } = readPlanIssue(value, true);
   const current = parsed.values.status;
   if (!STATUS_TRANSITIONS[current]?.has(target)) fail(`illegal plan status transition: ${current} -> ${target}`);
-  const after = replaceFrontmatterFields(before, {
+  const after = replaceFrontmatterFields(issue.body, {
     status: target,
     blocked_reason: target === 'blocked' ? options['--reason'] : undefined,
     updated: `"${utcTimestamp()}"`,
   });
-  writePlanIfUnchanged(file, before, after);
-  console.log(`${slug}: ${current} -> ${target}`);
+  editIssueBodyIfUnchanged(issue, after, { add: `plan:${target}`, remove: labelsToRemove(issue, target) });
+  console.log(`plan #${issue.number} status: ${current} -> ${target}`);
 }
+
 function setStepStatus(args) {
-  const [slug, stepId, target] = args;
-  if (!slug || !stepId || !target || args.length !== 3) fail('step requires a slug, step id, and status');
+  const [value, stepId, target] = args;
+  if (!value || !stepId || !target || args.length !== 3) fail('step requires an issue, step id, and status');
   if (!STEP_STATUSES.has(target)) fail(`unknown step status: ${target}`);
-  const { before, file, parsed } = readActivePlan(slug);
+  const { issue, parsed } = readPlanIssue(value, true);
   if (parsed.values.status !== 'ongoing') fail(`plan status is ${parsed.values.status}; expected ongoing`);
   const { sections } = sectionMap(parsed.body);
   const table = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
@@ -355,10 +658,7 @@ function setStepStatus(args) {
   if (!STEP_TRANSITIONS[current]?.has(target)) fail(`illegal step status transition: ${current} -> ${target}`);
   if (new Set(['in-flight', 'done']).has(target) && row.cells[4] !== '—') {
     const byNumber = new Map(table.rows.map((entry) => [entry.cells[0], unquoteCode(entry.cells[6])]));
-    const unfinished = row.cells[4]
-      .split(',')
-      .map((value) => value.trim())
-      .filter((number) => !new Set(['done', 'skipped']).has(byNumber.get(number)));
+    const unfinished = row.cells[4].split(',').map((dependency) => dependency.trim()).filter((number) => !new Set(['done', 'skipped']).has(byNumber.get(number)));
     if (unfinished.length > 0) fail(`step:${stepId} has unfinished dependency ${unfinished.join(', ')}`);
   }
   const bodyLines = parsed.body.split('\n');
@@ -367,132 +667,167 @@ function setStepStatus(args) {
   const parts = bodyLines[rowIndex].split('|');
   parts[7] = parts[7].replace(current, target);
   bodyLines[rowIndex] = parts.join('|');
-  let after = `${before.slice(0, before.length - parsed.body.length)}${bodyLines.join('\n')}`;
+  let after = `${issue.body.slice(0, issue.body.length - parsed.body.length)}${bodyLines.join('\n')}`;
   after = replaceFrontmatterFields(after, { updated: `"${utcTimestamp()}"` });
-  writePlanIfUnchanged(file, before, after);
-  console.log(`${slug} step:${stepId}: ${current} -> ${target}`);
+  editIssueBodyIfUnchanged(issue, after);
+  console.log(`plan #${issue.number} step ${stepId}: ${current} -> ${target}`);
 }
-function planFiles(directory) {
-  if (!fs.existsSync(directory)) return [];
-  return fs
-    .readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.md') && !SKIPPED_PLAN_FILES.has(entry.name))
-    .map((entry) => path.join(directory, entry.name));
+
+function issueListings() {
+  const issues = parseJson(
+    runGh(['issue', 'list', '--label', 'plan', '--state', 'all', '--limit', '500', '--json', 'number,title,state,labels', '--repo', repository.nameWithOwner]),
+    'gh issue list',
+  );
+  return issues
+    .map((issue) => ({ ...issue, status: statusFromLabels(issue.labels) }))
+    .sort((left, right) => {
+      const leftClosed = String(left.state).toUpperCase() === 'CLOSED' ? 1 : 0;
+      const rightClosed = String(right.state).toUpperCase() === 'CLOSED' ? 1 : 0;
+      return leftClosed - rightClosed || left.number - right.number;
+    });
 }
-function planSlug(file) {
-  return path.basename(file, '.md').replace(/^\d{4}-\d{2}-\d{2}-/, '');
-}
-// Pre-v2 records are history, not corruption. Never parse them; reserve `unreadable` for malformed v2 plans.
-function planListing(file) {
-  const slug = planSlug(file);
-  const planText = fs.readFileSync(file, 'utf8');
-  if (!/^plan_contract: v2$/m.test(planText)) {
-    const title = /^title: (.+)$/m.exec(planText.split('\n---')[0] ?? '')?.[1]?.trim();
-    return { slug, status: 'v1', title: title ? unquoteScalar(title) : slug };
-  }
-  try {
-    const { values } = parseFrontmatter(planText);
-    return { slug, status: values.status, title: values.title };
-  } catch (error) {
-    return { slug, status: 'unreadable', title: error.message };
-  }
-}
-function planListings(directory) {
-  return planFiles(directory).map(planListing).sort((left, right) => left.slug.localeCompare(right.slug));
-}
+
 function listPlans(args) {
-  if (!fs.existsSync('docs/plans')) fail('docs/plans/ is absent');
   const options = parseOptions(args, new Set(['--status']));
-  const selectableStatuses = new Set([...PLAN_STATUSES, 'v1', 'unreadable']);
-  if (options['--status'] && !selectableStatuses.has(options['--status'])) {
-    fail(`unknown plan status: ${options['--status']}`);
-  }
-  for (const directory of ['docs/plans/active', 'docs/plans/finished']) {
-    for (const plan of planListings(directory)) {
-      if (!options['--status'] || plan.status === options['--status']) {
-        console.log(`${plan.status}\t${plan.slug}\t${plan.title}`);
-      }
-    }
+  const selectableStatuses = new Set([...PLAN_STATUSES, 'unreadable']);
+  if (options['--status'] && !selectableStatuses.has(options['--status'])) fail(`unknown plan status: ${options['--status']}`);
+  for (const issue of issueListings()) {
+    if (!options['--status'] || issue.status === options['--status']) console.log(`${issue.status}\t#${issue.number}\t${issue.title}`);
   }
 }
-function plannedSlugs() {
-  return planListings('docs/plans/active').filter(({ status }) => status === 'planned').map(({ slug }) => slug);
-}
+
 function parseQueue(queueText) {
   const lines = queueText.split('\n');
   const headerIndex = lines.indexOf('| Stage | Plan | Depends on | Why |');
   if (headerIndex === -1 || lines[headerIndex + 1] !== '|---:|---|---|---|') fail('queue table header is invalid');
   const rows = [];
-  const planSlugs = new Set();
+  const planValues = new Set();
   for (let index = headerIndex + 2; index < lines.length && lines[index].startsWith('|'); index += 1) {
     const cells = lines[index].slice(1, -1).split('|').map((cell) => cell.trim());
     if (cells.length !== 4 || !/^\d+$/.test(cells[0]) || !cells[1] || !cells[3]) fail(`queue row ${index + 1} is invalid`);
-    if (planSlugs.has(cells[1])) fail(`duplicate queue plan ${cells[1]}`);
-    planSlugs.add(cells[1]);
-    rows.push({ stage: Number(cells[0]), plan: cells[1], dependencies: cells[2] === '—' ? [] : cells[2].split(',').map((item) => item.trim()), order: rows.length });
+    if (planValues.has(cells[1])) fail(`duplicate queue plan ${cells[1]}`);
+    planValues.add(cells[1]);
+    const numeric = /^#?([1-9]\d*)$/.exec(cells[1]);
+    rows.push({
+      stage: Number(cells[0]),
+      plan: cells[1],
+      number: numeric ? Number(numeric[1]) : undefined,
+      dependencies: cells[2] === '—' ? [] : cells[2].split(',').map((item) => item.trim()),
+      order: rows.length,
+    });
   }
   return rows.sort((left, right) => left.stage - right.stage || left.order - right.order);
 }
+
 function nextPlans(args) {
   if (args.length > 0) fail('next takes no arguments');
-  if (!fs.existsSync('docs/plans')) fail('docs/plans/ is absent');
-  const queueFile = 'docs/plans/QUEUE.md';
+  const listings = issueListings();
+  const planned = new Set(listings.filter(({ status }) => status === 'planned').map(({ number }) => number));
+  const finished = new Set(listings.filter((issue) => String(issue.state).toUpperCase() === 'CLOSED' || labelNames(issue.labels).includes('plan:finished')).map(({ number }) => number));
+  const queueFile = 'docs/PLAN-QUEUE.md';
   if (fs.existsSync(queueFile)) {
     try {
       const rows = parseQueue(fs.readFileSync(queueFile, 'utf8'));
       if (rows.length > 0) {
-        const planned = new Set(plannedSlugs());
-        // Presence in `finished/` settles legacy dependencies because v1 history has no v2 status.
-        const finished = new Set(planFiles('docs/plans/finished').map(planSlug));
-        const byPlan = new Map(rows.map((row) => [row.plan, row]));
-        const finishedClosure = (slug, seen = new Set()) => {
-          if (!finished.has(slug) || seen.has(slug)) return false;
-          return (byPlan.get(slug)?.dependencies ?? []).every((dependency) => finishedClosure(dependency, new Set(seen).add(slug)));
+        const byReference = new Map(rows.map((row) => [row.plan.replace(/^#/, ''), row]));
+        const dependencyClosureIsFinished = (reference, seen = new Set()) => {
+          const key = reference.replace(/^#/, '');
+          if (seen.has(key) || !/^[1-9]\d*$/.test(key)) return false;
+          const number = Number(key);
+          if (!finished.has(number)) return false;
+          const dependencyRow = byReference.get(key);
+          if (!dependencyRow || dependencyRow.number === undefined) return dependencyRow === undefined;
+          const nextSeen = new Set(seen).add(key);
+          return dependencyRow.dependencies.every((dependency) => dependencyClosureIsFinished(dependency, nextSeen));
         };
-        for (const row of rows) if (planned.has(row.plan) && row.dependencies.every((slug) => finishedClosure(slug))) console.log(row.plan);
+        for (const row of rows) {
+          if (row.number !== undefined && planned.has(row.number) && row.dependencies.every((dependency) => dependencyClosureIsFinished(dependency))) console.log(`#${row.number}`);
+        }
         return;
       }
     } catch (error) {
-      console.error(`warning: malformed docs/plans/QUEUE.md: ${error.message}; falling back to planned plans`);
+      console.error(`warning: malformed ${queueFile}: ${error.message}; falling back to planned plans`);
     }
+  } else {
+    console.error(`warning: missing ${queueFile}; falling back to planned plans`);
   }
-  for (const slug of plannedSlugs()) console.log(slug);
+  for (const number of [...planned].sort((left, right) => left - right)) console.log(`#${number}`);
 }
+
 function archivePlan(args, retired = false) {
-  const [slug, ...flags] = args;
-  if (!slug) fail(`${retired ? 'retire' : 'archive'} requires a slug`);
+  const [value, ...flags] = args;
+  if (!value) fail(`${retired ? 'retire' : 'archive'} requires an issue`);
   const options = parseOptions(flags, retired ? new Set(['--reason']) : new Set());
   if (retired && (!String(options['--reason'] ?? '').trim() || /[\r\n]/.test(options['--reason']))) fail('retire requires a single-line --reason');
-  const { before, file, parsed } = readActivePlan(slug);
+  const { issue, parsed } = readPlanIssue(value, true);
   if (retired && parsed.values.status === 'finished') fail('cannot retire a finished plan');
   if (!retired && parsed.values.status !== 'ongoing') fail(`archive requires ongoing status, found ${parsed.values.status}`);
+  let closingPullRequest;
   if (!retired) {
     const { sections } = sectionMap(parsed.body);
     const steps = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8).rows;
     const unfinished = steps.length === 0 ? { cells: ['', '(missing)'] } : steps.find(({ cells }) => !new Set(['done', 'skipped']).has(unquoteCode(cells[6])));
     if (unfinished) fail(`archive refused: non-terminal step ${unfinished.cells[1]}`);
     if (!/^Code-review: pass$/m.test(sections.get('Review') ?? '')) fail('archive requires Code-review: pass');
+    const { closing, userLinked } = archivePullRequestReferences(issue.number);
+    const userLinkedPairs = new Set(
+      userLinked.map((reference) => `${reference.repository?.nameWithOwner}#${reference.number}`),
+    );
+    let wrongBranch;
+    let manuallyLinked;
+    for (const reference of closing) {
+      if (!reference.mergedAt) continue;
+      const repo = reference.repository?.nameWithOwner;
+      const defaultBranch = reference.repository?.defaultBranchRef?.name;
+      if (!repo || !defaultBranch) fail('gh api graphql returned malformed closing pull request references');
+      if (reference.baseRefName !== defaultBranch) {
+        wrongBranch ??= { defaultBranch, found: reference.baseRefName };
+        continue;
+      }
+      if (userLinkedPairs.has(`${repo}#${reference.number}`)) {
+        manuallyLinked ??= reference;
+        continue;
+      }
+      closingPullRequest = {
+        url: `https://github.com/${repo}/pull/${reference.number}`,
+      };
+      break;
+    }
+    if (!closingPullRequest) {
+      if (manuallyLinked) {
+        fail(`archive requires a keyword-linked pull request; #${manuallyLinked.number} is manually linked`);
+      }
+      if (wrongBranch) {
+        fail(`archive requires a pull request merged into ${wrongBranch.defaultBranch}, found ${wrongBranch.found}`);
+      }
+      fail('archive requires a merged linked pull request');
+    }
   }
-  let after = replaceFrontmatterFields(before, { status: 'finished', blocked_reason: undefined, updated: `"${utcTimestamp()}"` });
+  let after = replaceFrontmatterFields(issue.body, { status: 'finished', blocked_reason: undefined, updated: `"${utcTimestamp()}"` });
   if (retired) {
     if (/^## Retirement$/m.test(parsed.body)) fail('plan already has a Retirement section');
     after = `${after.trimEnd()}\n\n## Retirement\n\n${options['--reason']}\n`;
   }
-  const destination = path.join('docs/plans/finished', `${utcTimestamp().slice(0, 10)}-${slug}.md`);
-  if (fs.existsSync(destination)) fail(`archive destination exists: ${destination}`);
-  if (!fs.existsSync(path.dirname(destination))) fail('docs/plans/finished/ is absent');
-  writePlanIfUnchanged(file, before, after);
-  fs.renameSync(file, destination);
-  console.log(destination);
+  editIssueBodyIfUnchanged(issue, after, { add: 'plan:finished', remove: labelsToRemove(issue, 'finished') });
+  runGh(['issue', 'close', String(issue.number), '--reason', retired ? 'not planned' : 'completed', '--repo', repository.nameWithOwner]);
+  if (retired) console.log(`plan #${issue.number} retired`);
+  else console.log(`plan #${issue.number} finished (closed by ${closingPullRequest.url})`);
 }
+
 function usage() {
-  return 'usage: plan.mjs <new|check|status|step|list|next|archive|retire> ...';
+  return 'usage: plan.mjs <labels|new|claim|show|export|edit|check|status|step|list|next|archive|retire> ...';
 }
+
 function main(argv) {
   const [command, ...args] = argv;
   if (!command) fail(usage());
   const commands = {
+    labels: labelsCommand,
     new: createPlan,
+    claim: claimPlan,
+    show: showPlan,
+    export: exportPlan,
+    edit: editPlan,
     check: checkCommand,
     status: setPlanStatus,
     step: setStepStatus,
@@ -502,6 +837,7 @@ function main(argv) {
     retire: (values) => archivePlan(values, true),
   };
   if (!commands[command]) fail(usage());
+  repository = resolveRepository();
   commands[command](args);
 }
 

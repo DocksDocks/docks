@@ -5,20 +5,20 @@ only a missing reviewer wrapper. Seed `.codex/agents/plan-reviewer.toml` and
 `.codex/agents/code-reviewer.toml` independently. Overwrite neither existing
 file. Existing agent files are project-owned. Main context owns `plan-manager`
 directly. Do not create a manager wrapper or any other plan wrapper.
+Keep both templates free of a `model` key; model selection belongs to the consumer.
 
 ## `.codex/agents/plan-reviewer.toml`
 
 ```toml
 name = "plan-reviewer"
 description = "Use when plan-manager needs one read-only pre-implementation review of a canonical plan against repository facts and official documentation. Not for code review, plan edits, implementation, user decisions, lifecycle changes, or direct user invocation."
-model = "gpt-5.6-sol"
 sandbox_mode = "read-only"
 developer_instructions = """
 # Plan Reviewer
 
 Load the project-local bundled `plan-reviewer` skill when present; otherwise
 load the installed runtime skill.
-Acknowledge the supplied plan path before analysis.
+Acknowledge the supplied plan issue number before analysis.
 
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
 
@@ -33,14 +33,13 @@ canonical skill owns the review workflow and output contract.
 ```toml
 name = "code-reviewer"
 description = "Use when plan-manager needs a read-only post-implementation review of a scoped diff against code standards and the canonical plan. Not for plan review, applying fixes, broad security audits, lifecycle control, or direct user invocation."
-model = "gpt-5.6-sol"
 sandbox_mode = "read-only"
 developer_instructions = """
 # Code Reviewer
 
 Load the project-local bundled `code-review` and `code-clarity` skills when
 present; otherwise load the installed runtime skills.
-Acknowledge the supplied diff path and plan path before analysis.
+Acknowledge the supplied diff path and plan issue number before analysis.
 
 Run two separate analysis axes. Do not let a pass on one axis hide a failure on
 the other.

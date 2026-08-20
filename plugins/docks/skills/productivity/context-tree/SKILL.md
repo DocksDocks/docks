@@ -1,16 +1,16 @@
 ---
 name: context-tree
-description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-area conventions should load lazily — scaffolding, auditing, or refreshing nested AGENTS.md + one-line CLAUDE.md pairs per major folder (skills/, scripts/, .github/). Ops: init / audit / refresh folder / refresh all. Not for single-root-context repos, CLAUDE.md↔AGENTS.md canonicalization/multi-tool setup (use multi-tool-bridge), generic doc generation, or docs/plans/ workspace setup/refresh (use plan-workspace)."
+description: "Use when a repo's root CLAUDE.md/AGENTS.md grew too large and per-area conventions should load lazily — scaffolding, auditing, or refreshing nested AGENTS.md + one-line CLAUDE.md pairs per major folder (skills/, scripts/, .github/). Ops: init / audit / refresh folder / refresh all. Not for single-root-context repos, CLAUDE.md↔AGENTS.md canonicalization/multi-tool setup (use multi-tool-bridge), generic doc generation, or plan workspace setup/refresh (use plan-workspace)."
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-08-07"
-  content_hash: "0409848af3d383240cad440967ca712f2445945be6163153901d6abb50113d80"
+  updated: "2026-08-20"
+  content_hash: "bb974165ae5cf79189297cd40b61580607e34956d1e9a5f12092ae28a8a5bbc7"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md + CLAUDE.md
 
-A *context tree* is a repo where each major folder carries its own `AGENTS.md` (conventions for that area) plus a one-line `CLAUDE.md` that imports it. Both Codex (walks every `AGENTS.md` root→cwd) and Claude Code (descendant-loads `CLAUDE.md` when files in the subtree are read) load these lazily, so the **root context file stays sparse** and per-area rules attach only when you work in that area. This skill scaffolds, audits, and refreshes that structure. The pattern is canon, not invention — `docs/plans/` already runs it, and it converges with Google's Open Knowledge Format (OKF: markdown + YAML-frontmatter knowledge directories) and Karpathy's LLM-Wiki (schema layer + a Lint maintenance op, which the `audit` graph Lint adapts).
+A *context tree* is a repo where each major folder carries its own `AGENTS.md` (conventions for that area) plus a one-line `CLAUDE.md` that imports it. Both Codex (walks every `AGENTS.md` root→cwd) and Claude Code (descendant-loads `CLAUDE.md` when files in the subtree are read) load these lazily, so the **root context file stays sparse** and per-area rules attach only when you work in that area. This skill scaffolds, audits, and refreshes that structure. The pattern is canon, not invention — `docs/` already runs it as the plan-record routing node, and it converges with Google's Open Knowledge Format (OKF: markdown + YAML-frontmatter knowledge directories) and Karpathy's LLM-Wiki (schema layer + a Lint maintenance op, which the `audit` graph Lint adapts).
 
 <constraint>
 **Every node is a PAIR.** A node is `<folder>/AGENTS.md` (canonical content, both tools) + `<folder>/CLAUDE.md` containing exactly one line: `@AGENTS.md`. Claude Code's descendant discovery walks for `CLAUDE.md`, NOT `AGENTS.md` — without the pair, the nested AGENTS.md is invisible to Claude (Codex still walks it). Never write an AGENTS.md without its CLAUDE.md sibling. The `@AGENTS.md` import resolves relative to the CLAUDE.md's own directory.
@@ -100,7 +100,7 @@ scripts/CLAUDE.md          (contains only: @AGENTS.md)
 
 ## Workflow — `context-tree init`
 
-1. **Acknowledge state.** Note whether a root `AGENTS.md`/`CLAUDE.md` exists and whether any nested pairs already exist (e.g. `docs/plans/`). Never clobber an existing node — detect and preserve it.
+1. **Acknowledge state.** Note whether a root `AGENTS.md`/`CLAUDE.md` exists and whether any nested pairs already exist (e.g. `docs/`). Never clobber an existing node — detect and preserve it.
 2. **Detect candidates.** Apply the heuristics (`references/major-folder-heuristics.md`) to enumerate major folders. Exclude already-existing nodes from the write set.
 3. **Inventory + propose (per-section).** Snapshot every source `^#{1,3}` section of the root context file (`cp` it aside — e.g. `/tmp/root.before` — for the Verification step). Render TWO tables: (a) node list — `folder | new? | sources | one-line summary`; (b) **relocation table — `Section | Destination | Reason`** covering EVERY root section; unclassified → `KEEP in root` (only an explicit user instruction may mark a row `DROP`). A `--dry-run` or preview-only request stops here after also printing the post-prune root preview + each node preview. For an implementation request, resolve only genuine open decisions, route the complete proposal through `plan-manager` when canonical, and continue after its reviewed start checkpoint.
 4. **Phase A — write nodes (root untouched).** For each reviewed folder: write `<folder>/AGENTS.md` (self-sufficient, sections relocated **verbatim** per the table) + `<folder>/CLAUDE.md` (`@AGENTS.md` only). Confirm every pair is well-formed (each `CLAUDE.md` is exactly `@AGENTS.md`; each `AGENTS.md` is non-empty and ≤500 lines). Root is still fully intact — a halt here leaves duplication (recoverable), never loss.
@@ -138,7 +138,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 | Wrote `AGENTS.md` but no `CLAUDE.md` | Claude Code can't see it. Always write the pair; CLAUDE.md = `@AGENTS.md`. |
 | CLAUDE.md has extra content beyond `@AGENTS.md` | Move it into AGENTS.md. CLAUDE.md is a one-line import only — anything else breaks the pair. |
 | Node says "see root for the full rules" | Self-sufficiency violation. Inline the rules; the node must stand alone when loaded via `--continue`. |
-| `init` tried to clobber `docs/plans/AGENTS.md` | Detect existing pairs first and exclude them; route plans-workspace setup or refresh to `plan-workspace`. |
+| `init` tried to clobber `docs/AGENTS.md` | Detect existing pairs first and exclude them; route setup or refresh of `docs/AGENTS.md` + `docs/PLAN.md` to `plan-workspace`. |
 | Fixed a multi-node audit directly without a reviewed handoff | Risks unbound relocation and root pruning | Route the implementation request through unified `plan-manager`; continue automatically after its reviewed checkpoint |
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
 | Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + the pair check, prune root LAST (Phase B). |
@@ -151,7 +151,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `/tmp/root.before`,
 ## When NOT to use
 
 - A small repo with one root context file that fits comfortably — a tree adds indirection with no payoff.
-- `docs/plans/` workspace setup or refresh — use `plan-workspace`; context-tree `init` detects an existing plans node and leaves it.
+- Plan workspace setup or refresh for `docs/AGENTS.md` + `docs/PLAN.md` — use `plan-workspace`; context-tree `init` detects the existing `docs/` node and leaves it.
 - Generating generic docs/READMEs — this skill only manages the AGENTS.md+CLAUDE.md pair convention.
 - Rewriting a consumer project's non-conforming AGENTS.md — `audit` surfaces them; it does not auto-rewrite.
 

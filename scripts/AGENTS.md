@@ -50,15 +50,16 @@ for multi-commit work, scheduling, cold handoff, unresolved approaches,
 cross-subsystem or public-contract changes, destructive or security-sensitive
 work, external effects, or an explicit plan request.
 
-The live plan author suite exercises the markdown-only v2 lifecycle.
+The live plan author suite exercises the GitHub-issue-backed v2 lifecycle.
 `scripts/tests/plan-cli.mjs` tests the shipped
 `plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs`.
 `scripts/tests/plan-skill-phases.mjs` runs the `bounded-workflows` and
-`plan-workspace-template` cases.
+`plan-workspace-template` cases; the latter compares `docs/PLAN.md` with
+`plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md`.
 
-The optional plan queue keeps its data in `docs/plans/QUEUE.md`. It is an input
-to `plan.mjs next`, not a separate validator. The queue is only a discovery and
-prioritization view and grants no lifecycle or execution authority. These
+The optional plan queue keeps issue numbers in `docs/PLAN-QUEUE.md`. It is an
+input to `plan.mjs next`, not a separate validator. The queue is only a discovery
+and prioritization view and grants no lifecycle or execution authority. These
 contracts run inside the existing plan orchestration section, so the timing
 phase census is unchanged.
 

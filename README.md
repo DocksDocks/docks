@@ -1,6 +1,6 @@
 # docks
 
-Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, human-docs, design tokens, SOLID, type-safety, and React patterns; and a `docs/plans/` lifecycle tracks multi-commit work.
+Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, human-docs, design tokens, SOLID, type-safety, and React patterns; and a GitHub-issue lifecycle tracks multi-commit work.
 
 ## Install
 
@@ -33,7 +33,7 @@ After install, the pipeline skills are user-invocable — ask "run a security au
 
 ### Pipeline skills (sequential, cross-tool)
 
-Each runs as one sequential pass in a single context and gates approval through the `docs/plans/` lifecycle (the `plan-manager` skill), not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`.
+Each runs as one sequential pass in a single context and gates approval through GitHub plan issues managed by the `plan-manager` skill, not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`.
 
 | Skill | Pipeline |
 |---|---|
@@ -65,7 +65,7 @@ Plus `write-skill`, `multi-tool-bridge` (CLAUDE.md ↔ AGENTS.md ↔ skills brid
 ### Plan lifecycle (the `plan-lifecycle` plugin)
 
 Directly implement one clear, reversible, low-risk local diff with one bounded
-acceptance path; it creates no tracked plan, reviewer, or automatic commit. Use
+acceptance path; it creates no plan issue, reviewer, or automatic commit. Use
 a canonical plan for explicit planning, multi-commit/cross-repository work,
 scheduling, cold handoff, unresolved decisions, cross-subsystem/public-contract
 changes, security-sensitive/destructive work, or an external effect.
@@ -73,12 +73,12 @@ changes, security-sensitive/destructive work, or an external effect.
 The three lifecycle skills, shipped `plan.mjs`, markdown-only v2 contract
 reference, and two read-only reviewer wrappers ship as the self-versioned
 `plan-lifecycle` plugin (`plugins/plan-lifecycle/`), installable from this same
-marketplace.
+marketplace. Plan records live in GitHub issue bodies.
 
 | Owner | Skill | Invocation | Responsibility |
 |---|---|---|---|
-| Workspace | `plan-workspace` | Public | Bootstrap, migrate, audit, or explicitly refresh `docs/plans/`; never mutate an individual plan |
-| Orchestration | `plan-manager` | Public, main context | Decide → draft → research → one plan review → implement → code review; archive after a passing review and publish issues only with confirmation |
+| Workspace | `plan-workspace` | Public | Create the plan label set and maintain `docs/PLAN.md` plus the `docs/AGENTS.md`/`docs/CLAUDE.md` pair; never mutate an individual plan issue |
+| Orchestration | `plan-manager` | Public, main context | Decide → draft → research → one plan review → implement → code review; archive after a passing review and a merged pull request closes the issue |
 | Plan review | `plan-reviewer` | Internal, read-only | Check only `goal_fit`, `research_gap`, and `security_risk` before implementation |
 | Code review | `code-reviewer` | Internal, read-only | Review the implemented diff against code standards and the plan |
 
@@ -96,7 +96,7 @@ Every Steps row has `Effect` exactly
 `local|probe|production_access|publish|push|release|deploy`. Each non-`local`
 effect requires an in-session confirmation immediately before it runs.
 
-The complete contract lives in `docs/plans/AGENTS.md`.
+The complete contract lives in `docs/PLAN.md`.
 
 ## Repository layout
 
@@ -109,7 +109,7 @@ The complete contract lives in `docs/plans/AGENTS.md`.
 │   │   ├── .claude-plugin/plugin.json
 │   │   ├── skills/                    ← cross-tool skills
 │   │   └── README.md                  ← plugin-facing docs
-│   ├── plan-lifecycle/                ← docs/plans lifecycle plugin (three skills + plan.mjs + v2 contract + two read-only reviewer wrappers)
+│   ├── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (three skills + plan.mjs + v2 contract + two read-only reviewer wrappers)
 │   └── effect-kit/                    ← Effect-TS skill kit plugin
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)

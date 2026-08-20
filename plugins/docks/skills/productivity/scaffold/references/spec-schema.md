@@ -60,7 +60,7 @@ Each entry is `{ path, <one seed source> }`. `path` may contain `{{ var }}` toke
 
 | Seed source | Meaning |
 |---|---|
-| `seed_from_skill: <skill-name>` | Run that bundled skill's bootstrap to populate the folder (for `docs/plans`, use `plan-workspace`). |
+| `seed_from_skill: <skill-name>` | Run that bundled skill's bootstrap to populate the node (for `docs`, use `plan-workspace` to seed the plan label set plus `docs/AGENTS.md`, `docs/CLAUDE.md`, and `docs/PLAN.md`). |
 | `template: <file>` | Render `templates/<file>` into the node's `AGENTS.md`, then add the one-line `CLAUDE.md` (`@AGENTS.md`). |
 | `seed: { type: self-reference }` | The folder documents the scaffold itself (e.g. `docs/scaffold`). |
 
@@ -68,7 +68,7 @@ Every node is written as the **pair** `AGENTS.md` + `CLAUDE.md` (see the `contex
 
 ```yaml
 tree_nodes:
-  - { path: "docs/plans", seed_from_skill: plan-workspace }
+  - { path: "docs", seed_from_skill: plan-workspace }
   - { path: "docs/scaffold", seed: { type: self-reference } }
   - { path: "plugins/{{ plugin_name }}/skills", template: "node-templates/skills-AGENTS.md" }
   - { path: "scripts", template: "node-templates/scripts-AGENTS.md" }
@@ -85,7 +85,7 @@ bundled_skills:
   - { source: plugins/docks/skills/productivity/write-skill }
 ```
 
-The three exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context adaptive orchestration, and repository-grounded plan review. Scaffold generation does not automatically create or review a plan. Both `plan-reviewer` and `code-reviewer` receive read-only Codex wrappers; main context invokes `plan-manager` directly. Plans are markdown with `plan_contract: v2` frontmatter and eight `##` sections; no record line exists.
+The three exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context adaptive orchestration, and repository-grounded plan review. Scaffold generation does not automatically create or review a plan. Both `plan-reviewer` and `code-reviewer` receive read-only Codex wrappers; main context invokes `plan-manager` directly. The plan record is a GitHub issue: its body carries the `plan_contract: v2` frontmatter and the eight `##` sections, its `plan:<status>` label mirrors the frontmatter `status`, and no plan markdown is tracked in the repository.
 
 - `source` — path in the source repo. Setup must read these from the live repo rather than copying a stale example.
 - `destination` — optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.
@@ -95,16 +95,13 @@ The three exact plan skills are copied verbatim and keep separate ownership: wor
 
 ```yaml
 scripts:
-  - { source: scripts/lib/skills-walk.mjs }
-  - { source: scripts/lib/validate-skills.mjs }
-  - { source: scripts/skills/guard.mjs }
-  - { source: scripts/skills/refs-guard.mjs }
-  - { source: scripts/skills/codex-facts.mjs }
-  - { source: scripts/skills/content-hash.mjs }
-  - { source: scripts/config/read-floor.mjs }
-  - { source: scripts/config/scoring.json }
-  - { source: scripts/tree/guard.mjs }
+  - { source: scripts/check-project.mjs }
+  - { source: scripts/release.mjs }
 ```
+
+Each entry is a project-owned script copied verbatim to the same relative path.
+Setup discovers the live list instead of assuming the examples above. Seed
+verification runs the project's CI / validators, if present.
 
 This block shows the script-entry shape, not a complete inventory. Setup mode should copy the live spec's script list after verifying each source exists.
 

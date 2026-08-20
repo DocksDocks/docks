@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-08"
-  content_hash: "a3ad4d513510549906397933e1f99072481c19dddc2b5427847edc7babe99f33"
+  updated: "2026-08-20"
+  content_hash: "00f8a9fc404c475adbc497d8b2b3e127de0633163302d8ef54d413756660e68d"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -13,7 +13,7 @@ metadata:
 Detect and fix structural issues — dead code, duplication, evidenced SOLID violations, modernization — as one sequential pass with a tiered plan, an intent-aware review handoff, and test-guarded implementation. Single-agent and cross-tool by default — no slash command, no Plan Mode; the only subagent dispatch is the optional Claude-only executor mode (see constraint 1). Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
-Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS context; the analysis phases (1–5) never fan out or dispatch subagents — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply it. Append each phase's output to the plan file as you finish it, so a mid-run compaction can resume by re-reading it. Implementation has ONE optional, explicitly Claude-only exception — the dispatched-executor mode in `references/executor-dispatch.md`; it is opt-in, never the default, and off-Claude you always fall back to the in-context path (Phases 7–8).
+Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS context; the analysis phases (1–5) never fan out or dispatch subagents — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply it. Hand each phase's output to `plan-manager` as you finish it so the plan issue remains resumable after compaction. Implementation has ONE optional, explicitly Claude-only exception — the dispatched-executor mode in `references/executor-dispatch.md`; it is opt-in, never the default, and off-Claude you always fall back to the in-context path (Phases 7–8).
 </constraint>
 
 <constraint>
@@ -48,7 +48,7 @@ Reuse before abstraction. In Phase 1, inventory existing modules, exports, regis
 
 ## Pipeline
 
-Run in order. Each phase reads its reference, then writes output to the plan file under the exact heading (the heading is the resume anchor — keep it verbatim).
+Run in order. Each phase reads its reference, then hands its output to `plan-manager` for the plan issue under the exact heading (the heading is the resume anchor — keep it verbatim).
 
 | # | Phase | Reference | Output heading |
 |---|---|---|---|
@@ -67,31 +67,31 @@ Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 mer
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`), record scope (a path, or the whole project).
-2. Resolve the artifact path. Route an absent tracked workspace to `plan-workspace`; route canonical-plan creation and all lifecycle work to the unified `plan-manager`. Write an `## Environment` block (date, branch, short git status).
+2. Ask `plan-manager` to create the canonical plan issue with `plan.mjs new --title <t> --goal <g>` and own every lifecycle write. In a repository without a GitHub remote, use the untracked fallback below. Write an `## Environment` block (date, branch, short git status).
 3. For each read-only row (1 → 5), in order: read `references/<phase>.md`, perform it, write under the row's heading, confirm the heading landed before the next phase. If a phase finds nothing, write "no findings" — never silently skip.
 4. At the HANDOFF, follow the request intent below. Resume at Phase 7 after the manager sets the plan `ongoing`; no user lifecycle command is required.
 
-## The plan file (IPC + deliverable)
+## The plan record (IPC + deliverable)
 
 ```text
-docs/plans/active/refactor-<scope>.md   (preferred — created, reviewed, and managed by plan-manager)
-docs/refactor-plan-<YYYYMMDD>.md        (untracked fallback only when the user declines workspace bootstrap)
+GitHub issue #<n> labeled plan, plan:drafting (created and managed by plan-manager)
+docs/refactor-plan-<YYYYMMDD>.md          (untracked fallback only when the repository has no GitHub remote)
 ```
 
-Write as you go — do not hold all phase output in context and dump it at the end. Downstream phases and a resumed run locate prior output by grepping the headings.
+Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. Downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping the headings.
 
 ## Review handoff (replaces Plan Mode)
 
-After Phase 5, write `## Phase 6: Plan Presentation` to the plan file:
+After Phase 5, write `## Phase 6: Plan Presentation` in the report handed to `plan-manager`:
 
 1. Refactorings by tier (1 Quick Wins / 2 Consolidation / 3 Structural) — each with `file:line`, what-changes, Pattern (SOLID entries), risk.
 2. Estimated impact: files modified, lines removed, duplicates eliminated, SOLID resolved by principle.
 3. Skipped findings (including over-engineering and unreproducible drops).
 4. Any MUST FIX from the pre-verifier requiring plan adjustment first.
 
-For an assessment-only or plan-only request, report the reviewed plan path and summary, then stop. For an implementation request, hand the complete artifact to the unified `plan-manager`; it performs the single pre-implementation plan review and sets the plan `ongoing`, then this orchestration continues directly into Phases 7–8 without a manual lifecycle prompt. Ask only when the manager identifies a genuine unresolved decision.
+For an assessment-only or plan-only request, report the reviewed plan issue and summary, then stop. For an implementation request, hand the complete report to the unified `plan-manager`; it files the report in the plan issue, performs the single pre-implementation plan review, and sets the plan `ongoing`, then this orchestration continues directly into Phases 7–8 without a manual lifecycle prompt. Ask only when the manager identifies a genuine unresolved decision.
 
-After the plan reaches `status: ongoing`, implement via **Phases 7–8 in-context (the default)** — or, on Claude only, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): a cheaper executor runs the plan in an isolated worktree and you review its diff like a tech lead. Same plan, same `docs/plans/` verdict; just who does the edits.
+After the plan reaches `status: ongoing`, implement via **Phases 7–8 in-context (the default)** — or, on Claude only, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): a cheaper executor runs the plan in an isolated worktree and you review its diff like a tech lead. Same plan, same issue verdict; just who does the edits.
 
 ## Implementation (Phases 7–8, while the plan is ongoing)
 
@@ -149,4 +149,4 @@ No content loss outside the planned diff: every deletion must be a planned dead-
 | Raw `rm` to delete dead code | Unstaged, harder to recover | `git rm` only; revert via `git restore` |
 | Flagging modernization from memory | Ships a backwards "fix" (e.g. Next.js `proxy.ts`) | Verify against current docs for the installed version |
 | Resolving one SOLID violation but adding another | Net-negative refactor ships | Phase 8 re-checks all 5 principles; revert on any new violation |
-| Assuming `docs/plans/` exists in a consumer repo | Write fails or lands nowhere | Route workspace bootstrap to `plan-workspace`, or use the untracked fallback only if the user declines |
+| Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | Use the untracked fallback only for that repository |

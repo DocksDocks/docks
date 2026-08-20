@@ -4,10 +4,11 @@
 Pull requests run the `validation-shards` matrix lanes their changed paths
 resolve to plus the independent `targeting-contracts` job; `validate` joins both
 prerequisites without rerunning the gate. Core owns `scripts/tests/plan-cli.mjs`
-plus the `bounded-workflows` and `plan-workspace-template` cases in
+plus the `bounded-workflows` case and the `plan-workspace-template` comparison
+between `docs/PLAN.md` and the plugin plan template in
 `scripts/tests/plan-skill-phases.mjs`, the joint Docks/Effect Kit
-trigger-collision audit, the plugin gates, and JavaScript
-quality. Manual dispatches run one full gate alongside the targeting contract
+trigger-collision audit, the plugin gates, and JavaScript quality. Manual
+dispatches run one full gate alongside the targeting contract
 before the same join. Tag pushes run one registry-resolved plugin gate; the join
 requires the targeting contract to be skipped there.
 
@@ -53,8 +54,9 @@ lane list is duplicated in YAML.
   test-contract registry, unit tests), and the CI targeting contract. Cross-plugin
   by nature and cheap (~10 s), so it is never skipped.
 - `core`: Docks, effect-kit and plan-lifecycle — their plugin gates, the plan CLI
-  contract, the bounded-workflow and plan-workspace-template cases for three
-  skills and two reviewer wrappers, collision audits, and JavaScript quality.
+  contract, the bounded-workflows case, the plan-workspace-template comparison
+  between `docs/PLAN.md` and the plugin plan template for three skills and two
+  reviewer wrappers, collision audits, and JavaScript quality.
 
 <constraint>
 Resolution fails **open**. A missing or unresolvable base SHA, an empty diff, a

@@ -13,16 +13,15 @@ const REMOVED_PLAN_SKILLS = ['plan-creator', 'plan-repairer', 'plan-init', 'plan
 const MANAGER_SKILL = 'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md';
 const REVIEWER_SKILL = 'plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md';
 const WORKSPACE_SKILL = 'plugins/plan-lifecycle/skills/productivity/plan-workspace/SKILL.md';
-const WORKSPACE_TEMPLATE =
-  'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md';
+const WORKSPACE_TEMPLATE = 'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md';
 const PLAN_CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
-const PLAN_AGENTS = 'docs/plans/AGENTS.md';
+const PLAN_MD = 'docs/PLAN.md';
 
 const V2_PINNED_CLAUSES = [
   {
     name: 'contract-v2-sections',
     text: 'Every v2 plan declares `plan_contract: v2` in a closed frontmatter map and carries exactly these eight `##` sections, in this order, each present once: `## Goal`, `## Research`, `## Steps`, `## Acceptance`, `## Do not touch`, `## Open questions`, `## Review`, `## Verification Results`.',
-    files: [PLAN_AGENTS, WORKSPACE_TEMPLATE, PLAN_CONTRACT],
+    files: [PLAN_MD, WORKSPACE_TEMPLATE, PLAN_CONTRACT],
   },
   {
     name: 'review-kinds-sufficient',
@@ -31,40 +30,82 @@ const V2_PINNED_CLAUSES = [
       REVIEWER_SKILL,
       'plugins/plan-lifecycle/agents/plan-reviewer.md',
       '.codex/agents/plan-reviewer.toml',
-      PLAN_AGENTS,
+      PLAN_MD,
       WORKSPACE_TEMPLATE,
       PLAN_CONTRACT,
     ],
   },
   {
+    name: 'review-export-handoff',
+    text: 'the export path the manager supplies',
+    files: [
+      REVIEWER_SKILL,
+      'plugins/plan-lifecycle/agents/plan-reviewer.md',
+      'plugins/plan-lifecycle/agents/code-reviewer.md',
+      '.codex/agents/plan-reviewer.toml',
+      '.codex/agents/code-reviewer.toml',
+      PLAN_CONTRACT,
+    ],
+  },
+  {
+    name: 'review-export-dispatch',
+    text: 'Run `plan.mjs export <issue>` first and dispatch the reviewer with the issue number and the printed export path',
+    files: [MANAGER_SKILL],
+  },
+  {
     name: 'zero-commits',
     text: 'This lifecycle creates zero commits and never pushes.',
-    files: [MANAGER_SKILL, PLAN_AGENTS, WORKSPACE_TEMPLATE],
+    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
     name: 'code-review-progress-guard',
     text: 'If a code-review round returns the same finding-id set as the previous round and no file changed between the two rounds, stop, append `Code-review: blocked` naming that set, and set the plan `blocked`.',
-    files: [MANAGER_SKILL, PLAN_AGENTS],
+    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
     name: 'review-scope-guard',
     text: 'Build the review diff from what actually changed: `git status --porcelain` names the paths and the diff covers exactly those. Name every changed path that no Steps `Files` cell mentions in the review request, so the reviewer judges undeclared scope instead of the manager blocking on bookkeeping.',
-    files: [MANAGER_SKILL, PLAN_AGENTS],
+    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
     name: 'nonlocal-effect-confirmation',
     text: 'A step whose `Effect` is not `local` requires an in-session `ask` confirmation immediately before it runs; when `ask` is unavailable the step is set `blocked` with `blocked_reason` naming the unconfirmed effect.',
-    files: [MANAGER_SKILL, PLAN_AGENTS, WORKSPACE_TEMPLATE, PLAN_CONTRACT],
+    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE, PLAN_CONTRACT],
   },
   {
     name: 'three-option-ask',
     text: 'Phase 1 asks exactly one question with exactly three options, in this order and wording: `Plan and implement now`, `Plan only, stop at planned`, `Implement directly` — and skips the question only when the request already settles the mode.',
-    files: [MANAGER_SKILL, PLAN_AGENTS, WORKSPACE_TEMPLATE],
+    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
     name: 'lifecycle-tool-ownership',
     text: '`plan.mjs` is plugin payload, not project payload. It ships inside the installed `plan-lifecycle` plugin at `skills/productivity/plan-manager/scripts/plan.mjs`. A project never vendors, copies, or re-creates it, and an unresolvable tool means the plugin is not installed. Never report it as a file missing from the repository.',
-    files: [MANAGER_SKILL, WORKSPACE_SKILL, WORKSPACE_TEMPLATE, PLAN_AGENTS],
+    files: [MANAGER_SKILL, WORKSPACE_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'record-backend',
+    text: 'The plan record is a GitHub issue: its body carries the `plan_contract: v2` frontmatter and the eight `##` sections, its `plan:<status>` label mirrors the frontmatter `status`, and no plan markdown is tracked in the repository.',
+    files: [MANAGER_SKILL, WORKSPACE_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'output-discipline',
+    text: 'Render a plan body verbatim only when the user names that plan and asks to see it. After a write, report the one-line header strip and the changed lines only; a write never re-renders the body.',
+    files: [MANAGER_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'landing-linkage',
+    text: 'Work lands through a pull request whose body carries `Closes #<issue>` and whose base is the repository default branch, because GitHub interprets a closing keyword only in a pull request that targets the default branch. `plan.mjs archive` verifies that merged pull request rather than performing the merge.',
+    files: [MANAGER_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'label-mirror',
+    text: 'The label set is created idempotently with `gh label create --force`: `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, `plan:blocked`, `plan:finished`, plus the triage label `plan-scheduled`. Exactly one `plan:<status>` label is present at a time, and it mirrors the frontmatter `status`.',
+    files: [WORKSPACE_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'issue-write-precondition',
+    text: 'A plan-issue write is a read-modify-write, and the GitHub API offers no precondition for it. Every mutating command re-reads the issue body immediately before the edit, refuses when it differs from the body it read, and re-reads after the edit to confirm the pushed bytes.',
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
 ];
 
@@ -110,7 +151,7 @@ function assertV2ClausesAndMutations() {
 }
 
 function assertPhaseOneOptionLabels() {
-  for (const relative of [MANAGER_SKILL, PLAN_AGENTS, WORKSPACE_TEMPLATE]) {
+  for (const relative of [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE]) {
     const text = read(relative);
     for (const option of PHASE_ONE_OPTIONS) {
       const occurrences = text.split(option).length - 1;
@@ -213,6 +254,15 @@ function assertReviewerWrappersOnly() {
     const sandboxModes = wrapper.match(/^sandbox_mode = ".+"$/gm) ?? [];
     assert.deepEqual(sandboxModes, ['sandbox_mode = "read-only"']);
     assert.doesNotMatch(wrapper, /workspace-write|danger-full-access/);
+    if (contract.name === 'plan-reviewer') {
+      for (const [relative, text] of [
+        ['plugins/plan-lifecycle/agents/plan-reviewer.md', claude.body],
+        ['.codex/agents/plan-reviewer.toml', wrapper],
+      ]) {
+        assert.ok(/issue number|<issue>/i.test(text), `${relative} must take an issue number`);
+        assert.ok(!/plan path/i.test(text), `${relative} must not take a plan path`);
+      }
+    }
   }
 }
 
@@ -268,23 +318,17 @@ function assertBoundedWorkflows() {
 }
 
 function assertWorkspaceTemplateSynchronized() {
-  const template = read(
-    'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plans-agents-md-template.md',
-  );
+  const template = read(WORKSPACE_TEMPLATE);
   const opening = '````markdown\n';
   const closing = '\n````\n';
-  const start = template.indexOf(opening);
+  const start = template.lastIndexOf(opening);
   assert.ok(start >= 0 && template.endsWith(closing), 'workspace template must contain one terminal fence');
   const generated = `${template.slice(start + opening.length, -closing.length)}\n`;
-  assert.equal(
-    read('docs/plans/AGENTS.md'),
-    generated,
-    'docs/plans/AGENTS.md must match the workspace template verbatim',
-  );
+  assert.equal(read(PLAN_MD), generated, `${PLAN_MD} must match the workspace template verbatim`);
   const generatedLineCount = generated.endsWith('\n')
     ? generated.slice(0, -1).split('\n').length
     : generated.split('\n').length;
-  assert.ok(generatedLineCount <= 500, `generated docs/plans/AGENTS.md exceeds 500 lines: ${generatedLineCount}`);
+  assert.ok(generatedLineCount <= 500, `${PLAN_MD} exceeds 500 lines: ${generatedLineCount}`);
   const templateLineCount = template.endsWith('\n')
     ? template.slice(0, -1).split('\n').length
     : template.split('\n').length;
@@ -293,7 +337,7 @@ function assertWorkspaceTemplateSynchronized() {
 
 function assertPortablePlanTextRule() {
   const clauses = ['repository-relative', 'acceptance rows run from the repository root'];
-  for (const relative of [PLAN_AGENTS, WORKSPACE_TEMPLATE, MANAGER_SKILL]) {
+  for (const relative of [PLAN_MD, WORKSPACE_TEMPLATE, MANAGER_SKILL]) {
     const text = normalizeContract(read(relative));
     for (const clause of clauses) {
       assert.ok(text.includes(clause), `${relative} is missing the portable-plan-text clause: ${clause}`);
@@ -305,10 +349,8 @@ function assertPortablePlanTextRule() {
   const frozen = 'Key: {"cwd":"/home/vagrant/projects/docks"}';
   assert.equal(machinePathCitations(frozen).length, 0, 'a machine path inside a Key: {json} record must stay exempt');
 
-  const activeDir = path.join(ROOT, 'docs/plans/active');
-  for (const name of fs.readdirSync(activeDir).filter((entry) => entry.endsWith('.md'))) {
-    const relative = `docs/plans/active/${name}`;
-    const hits = machinePathCitations(fs.readFileSync(path.join(activeDir, name), 'utf8'));
+  for (const relative of [PLAN_MD, WORKSPACE_TEMPLATE]) {
+    const hits = machinePathCitations(read(relative));
     assert.equal(hits.length, 0, `${relative} cites a machine path in plan text: ${hits[0]}`);
   }
 }

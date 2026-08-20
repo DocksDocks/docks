@@ -15,7 +15,7 @@ Before writing anything, find folders that already have the pair:
 test -f <folder>/AGENTS.md && test -f <folder>/CLAUDE.md
 ```
 
-Existing nodes are PRESERVED by `init` — never clobbered. `docs/plans/` is the canonical example: `init` detects it and excludes it from the write set. Only an explicit `refresh <folder>` touches an existing node.
+Existing nodes are PRESERVED by `init` — never clobbered. `docs/` is the canonical subsystem example: `init` detects it and excludes it from the write set. Only an explicit `refresh <folder>` touches an existing node; route setup or refresh of `docs/AGENTS.md` + `docs/PLAN.md` to `plan-workspace`.
 
 ## Half-pairs (drift to fix)
 

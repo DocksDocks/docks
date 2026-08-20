@@ -9,7 +9,7 @@ A folder earns an `AGENTS.md`+`CLAUDE.md` node when a reader needs local rules *
 | Distinct authoring convention | `plugins/docks/skills/` — frontmatter + scoring rules unique to skills |
 | Distinct change axis / stakeholder | `.github/` — CI config; changes for different reasons than source |
 | Local tooling a reader must know | `scripts/` — validators with their own invocation contract |
-| A subsystem with its own contract | `docs/plans/` — lifecycle, frontmatter schema, pretty-print rules |
+| A subsystem with its own contract | `docs/` — plan-record routing and issue-body contract |
 | ≥ ~5 files sharing a non-obvious rule | a module dir whose files must all follow one pattern |
 
 ## Hard skips (never a node)
@@ -22,6 +22,7 @@ A folder earns an `AGENTS.md`+`CLAUDE.md` node when a reader needs local rules *
 | A dir that only re-exports / barrels | No conventions of its own |
 | `_assets/`, fixture/data dirs | Data, not rules |
 | A folder whose only rule is "see parent" | If it can't be self-sufficient, it isn't a node |
+| A subtree already governed by a self-sufficient parent node | Prefer one node per major folder; keep child routing in the parent |
 
 ## Depth rule
 
@@ -37,6 +38,6 @@ Prefer ONE node per major folder, not one per subfolder. Roll child conventions 
 
 ## This repo's nodes (dogfood reference)
 
-`docs/plans/` · `plugins/docks/skills/` · `plugins/effect-kit/skills/` · `plugins/plan-lifecycle/skills/` · `scripts/` · `.github/`. The set drifts as plugins land — re-derive it with `find . -name CLAUDE.md -not -path "*/node_modules/*"` (every hit except the root file is a node).
+`docs/` · `plugins/docks/skills/` · `plugins/effect-kit/skills/` · `plugins/plan-lifecycle/skills/` · `scripts/` · `.github/`. The set drifts as plugins land — re-derive it with `find . -name CLAUDE.md -not -path "*/node_modules/*"` (every hit except the root file is a node).
 
 Not a node: `plugins/docks/agents/` — `claude plugin validate --strict` lints every `*.md` under a plugin's `agents/` as a subagent, so an AGENTS.md pair there fails validation; its authoring rules live in the repo root file instead. A tool that lints every markdown file in a folder makes that folder node-ineligible — check before scaffolding.
