@@ -5,6 +5,7 @@ Status: project-owned discovery and prioritization view.
 This file records selection order only. It grants no review, lifecycle, mutation,
 or external-effect authority. Canonical plan records, current user intent, and
 observed acceptance remain authoritative.
+The `Plan` cell now holds a plan issue number; any existing non-numeric cell names a frozen pre-GitHub record.
 
 | Stage | Plan | Depends on | Why |
 |---:|---|---|---|

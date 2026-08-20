@@ -1,0 +1,344 @@
+#!/usr/bin/env node
+const fs = require('node:fs');
+
+const statePath = process.env.GH_STUB_STATE;
+if (!statePath) {
+  console.error('GH_STUB_STATE is required');
+  process.exit(2);
+}
+
+const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+state.calls ??= [];
+state.calls.push(process.argv.slice(2));
+const args = process.argv.slice(2);
+
+function save() {
+  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+function die(message) {
+  save();
+  console.error(message);
+  process.exit(1);
+}
+
+function values(flag) {
+  const found = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === flag && args[index + 1] !== undefined) found.push(args[index + 1]);
+  }
+  return found;
+}
+
+function value(flag) {
+  return values(flag).at(-1);
+}
+
+function issueNumber(position = 2) {
+  const number = Number(String(args[position] ?? '').replace(/^#/, ''));
+  if (!Number.isInteger(number) || number < 1) die(`invalid issue number: ${args[position] ?? ''}`);
+  return number;
+}
+
+function issueByNumber(number) {
+  const issue = state.issues.find((entry) => entry.number === number);
+  if (!issue) die(`issue not found: ${number}`);
+  return issue;
+}
+
+function labels(labels) {
+  return labels.map((name) => ({ name }));
+}
+
+function assignees(logins) {
+  return (logins ?? []).map((login) => ({ login }));
+}
+
+function select(object, fields) {
+  if (!fields) return object;
+  const selected = {};
+  for (const field of fields.split(',')) selected[field] = object[field];
+  return selected;
+}
+
+function validateJsonFields(fields, allowed) {
+  for (const field of (fields ?? '').split(',').filter(Boolean)) {
+    if (!allowed.has(field)) die(`Unknown JSON field: "${field}"`);
+  }
+}
+
+function formFields(flag) {
+  const fields = {};
+  for (const entry of values(flag)) {
+    const separator = entry.indexOf('=');
+    if (separator === -1) die(`${flag} requires name=value`);
+    fields[entry.slice(0, separator)] = entry.slice(separator + 1);
+  }
+  return fields;
+}
+
+function connectionPage(nodes, cursor, prefix) {
+  let start = 0;
+  if (cursor !== undefined) {
+    const match = new RegExp(`^${prefix}:(\\d+)$`).exec(cursor);
+    if (!match) die(`invalid GraphQL cursor: ${cursor}`);
+    start = Number(match[1]);
+  }
+  const pageNodes = nodes.slice(start, start + 100);
+  const end = start + pageNodes.length;
+  return {
+    nodes: pageNodes,
+    pageInfo: {
+      hasNextPage: end < nodes.length,
+      endCursor: pageNodes.length > 0 ? `${prefix}:${end}` : cursor ?? null,
+    },
+  };
+}
+
+function issueJson(issue) {
+  return {
+    ...issue,
+    labels: labels(issue.labels),
+    assignees: assignees(issue.assignees),
+    closedByPullRequestsReferences: issue.closedByPullRequestsReferences ?? [],
+  };
+}
+
+function touch(issue) {
+  state.clock = (state.clock ?? 0) + 1;
+  issue.updatedAt = new Date(Date.parse('2026-08-20T20:00:00Z') + state.clock * 1000).toISOString();
+}
+
+const [group, command] = args;
+const ISSUE_JSON_FIELDS = new Set([
+  'number',
+  'title',
+  'body',
+  'state',
+  'stateReason',
+  'labels',
+  'assignees',
+  'url',
+  'createdAt',
+  'updatedAt',
+  'closedByPullRequestsReferences',
+]);
+const PR_JSON_FIELDS = new Set([
+  'number',
+  'title',
+  'body',
+  'state',
+  'url',
+  'mergedAt',
+  'mergedBy',
+  'mergeStateStatus',
+  'baseRefName',
+  'headRefName',
+]);
+
+if (group === 'api' && command === 'graphql') {
+  const query = formFields('-f').query;
+  if (!query) die('graphql requires -f query=<query>');
+  const allowedArguments = new Set(['first', 'after', 'userLinkedOnly', 'includeClosedPrs', 'orderByState']);
+  const selections = [];
+  for (const match of query.matchAll(/(\w+)\s*:\s*closedByPullRequestsReferences\s*\(([^)]*)\)/g)) {
+    const args = new Map();
+    for (const argument of match[2].split(',').map((entry) => entry.trim()).filter(Boolean)) {
+      const name = argument.split(':', 1)[0].trim();
+      if (!allowedArguments.has(name)) die(`Unknown GraphQL argument: "${name}"`);
+      args.set(name, argument.slice(argument.indexOf(':') + 1).trim());
+    }
+    selections.push({ alias: match[1], args });
+  }
+  if (selections.length === 0) die('graphql query selects no closedByPullRequestsReferences field');
+  const variables = formFields('-F');
+  const issue = state.issues.find((entry) => entry.number === Number(variables.number));
+  if (!issue) die(`issue not found: ${variables.number}`);
+  const referenceRepo = (reference) =>
+    (typeof reference.repository === 'string' ? reference.repository : reference.repository?.nameWithOwner) ??
+    (reference.repository?.owner?.login && reference.repository?.name
+      ? `${reference.repository.owner.login}/${reference.repository.name}`
+      : state.repo.nameWithOwner);
+  const fullNode = (reference) => {
+    const repo = referenceRepo(reference);
+    const pullRequest = state.prs.find((entry) => entry.number === reference.number && entry.repository === repo);
+    return {
+      number: reference.number,
+      mergedAt: pullRequest?.mergedAt ?? reference.mergedAt ?? null,
+      baseRefName: pullRequest?.baseRefName ?? reference.baseRefName ?? null,
+      repository: {
+        nameWithOwner: repo,
+        defaultBranchRef: { name: state.repositoryDefaults?.[repo] ?? state.repo.defaultBranchRef?.name },
+      },
+    };
+  };
+  const pairNode = (reference) => ({
+    number: reference.number,
+    repository: { nameWithOwner: referenceRepo(reference) },
+  });
+  // GitHub returns keyword-linked and hand-linked references from the plain
+  // connection; only `userLinkedOnly: true` narrows it to the hand-linked ones.
+  const declared = issue.closedByPullRequestsReferences ?? [];
+  const userLinked = issue.userLinkedPullRequests ?? [];
+  const closing = [
+    ...declared,
+    ...userLinked.filter(
+      (reference) =>
+        !declared.some(
+          (entry) => entry.number === reference.number && referenceRepo(entry) === referenceRepo(reference),
+        ),
+    ),
+  ];
+  const payload = {};
+  for (const { alias, args } of selections) {
+    const onlyUserLinked = args.get('userLinkedOnly') === 'true';
+    const cursorVariable = (args.get('after') ?? '').replace(/^\$/, '');
+    payload[alias] = connectionPage(
+      onlyUserLinked ? userLinked.map(pairNode) : closing.map(fullNode),
+      cursorVariable ? variables[cursorVariable] : undefined,
+      alias,
+    );
+  }
+  console.log(JSON.stringify({ data: { repository: { issue: payload } } }));
+  save();
+  process.exit(0);
+}
+
+if (group === 'api' && command === 'user') {
+  if (state.viewerError) die(state.viewerError);
+  if (value('--jq') !== '.login') die('api user requires --jq .login');
+  process.stdout.write(`${state.viewerLogin ?? ''}\n`);
+  save();
+  process.exit(0);
+}
+
+if (group === 'repo' && command === 'view') {
+  if (state.repoError) die(state.repoError);
+  const repo = value('--repo') ?? state.repo.nameWithOwner;
+  const defaultBranch = state.repositoryDefaults?.[repo] ?? state.repo.defaultBranchRef?.name;
+  const details = repo === state.repo.nameWithOwner
+    ? state.repo
+    : {
+        nameWithOwner: repo,
+        visibility: 'PUBLIC',
+        defaultBranchRef: defaultBranch ? { name: defaultBranch } : null,
+      };
+  console.log(JSON.stringify(select(details, value('--json'))));
+  save();
+  process.exit(0);
+}
+
+if (group === 'label' && command === 'create') {
+  const name = args[2];
+  if (!name || !args.includes('--force')) die('label create requires a name and --force');
+  state.labels[name] = state.labels[name] ?? {};
+  save();
+  process.exit(0);
+}
+
+if (group === 'label' && command === 'list') {
+  const entries = Object.keys(state.labels).sort().map((name) => ({ name }));
+  console.log(JSON.stringify(entries.map((entry) => select(entry, value('--json')))));
+  save();
+  process.exit(0);
+}
+
+if (group === 'issue' && command === 'create') {
+  const title = value('--title');
+  const bodyFile = value('--body-file');
+  if (!title || !bodyFile) die('issue create requires --title and --body-file');
+  const number = state.nextIssue++;
+  const now = new Date(Date.parse('2026-08-20T20:00:00Z') + (state.clock ?? 0) * 1000).toISOString();
+  const issue = {
+    number,
+    title,
+    body: fs.readFileSync(bodyFile, 'utf8'),
+    state: 'OPEN',
+    stateReason: null,
+    labels: values('--label'),
+    assignees: values('--assignee').map((login) => login === '@me' ? state.viewerLogin : login),
+    url: `https://github.com/${state.repo.nameWithOwner}/issues/${number}`,
+    createdAt: now,
+    updatedAt: now,
+    closedByPullRequestsReferences: [],
+  };
+  state.issues.push(issue);
+  console.log(issue.url);
+  save();
+  process.exit(0);
+}
+
+if (group === 'issue' && command === 'view') {
+  const number = issueNumber();
+  const issue = issueByNumber(number);
+  validateJsonFields(value('--json'), ISSUE_JSON_FIELDS);
+  if (state.remoteChange?.issue === number) {
+    if (state.remoteChange.viewsBeforeChange > 0) {
+      state.remoteChange.viewsBeforeChange -= 1;
+    } else {
+      issue.body = state.remoteChange.body ?? `${issue.body}\n`;
+      touch(issue);
+      delete state.remoteChange;
+    }
+  }
+  console.log(JSON.stringify(select(issueJson(issue), value('--json'))));
+  save();
+  process.exit(0);
+}
+
+if (group === 'issue' && command === 'edit') {
+  const issue = issueByNumber(issueNumber());
+  const bodyFile = value('--body-file');
+  const addedAssignees = values('--add-assignee');
+  if (!bodyFile && addedAssignees.length === 0) die('issue edit requires a body or assignee change');
+  if (bodyFile) issue.body = fs.readFileSync(bodyFile, 'utf8');
+  for (const name of values('--remove-label')) issue.labels = issue.labels.filter((label) => label !== name);
+  for (const name of values('--add-label')) if (!issue.labels.includes(name)) issue.labels.push(name);
+  issue.assignees ??= [];
+  for (const login of addedAssignees.map((name) => name === '@me' ? state.viewerLogin : name)) {
+    if (!issue.assignees.includes(login)) issue.assignees.push(login);
+  }
+  touch(issue);
+  save();
+  process.exit(0);
+}
+
+if (group === 'issue' && command === 'list') {
+  if (!value('--state') || !value('--limit')) die('issue list requires explicit --state and --limit');
+  const requiredLabel = value('--label');
+  const requestedState = value('--state');
+  const limit = Number(value('--limit'));
+  const fields = value('--json');
+  const issues = state.issues
+    .filter((issue) => !requiredLabel || issue.labels.includes(requiredLabel))
+    .filter((issue) => requestedState === 'all' || issue.state.toLowerCase() === requestedState)
+    .slice(0, limit)
+    .map((issue) => select(issueJson(issue), fields));
+  console.log(JSON.stringify(issues));
+  save();
+  process.exit(0);
+}
+
+if (group === 'issue' && command === 'close') {
+  const issue = issueByNumber(issueNumber());
+  const reason = value('--reason');
+  if (!new Set(['completed', 'not planned']).has(reason)) die('issue close requires a supported --reason');
+  issue.state = 'CLOSED';
+  issue.stateReason = reason === 'completed' ? 'COMPLETED' : 'NOT_PLANNED';
+  touch(issue);
+  save();
+  process.exit(0);
+}
+
+if (group === 'pr' && command === 'view') {
+  const number = Number(args[2]);
+  const repo = value('--repo') ?? state.repo.nameWithOwner;
+  validateJsonFields(value('--json'), PR_JSON_FIELDS);
+  const pullRequest = state.prs.find((entry) => entry.number === number && entry.repository === repo);
+  if (!pullRequest) die(`pull request not found: ${repo}#${number}`);
+  console.log(JSON.stringify(select(pullRequest, value('--json'))));
+  save();
+  process.exit(0);
+}
+
+die(`unsupported gh command: ${args.join(' ')}`);

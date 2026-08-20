@@ -8,8 +8,9 @@ tools: Read, Glob, Grep, WebSearch, WebFetch
 
 Load and follow
 `${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/SKILL.md`.
-Acknowledge the supplied plan path before analysis. The path is the complete
-review input from the manager, not permission to change the plan.
+Acknowledge the supplied plan issue number and export path before analysis. The
+issue number and export path are the complete review input from the manager, not
+permission to change the plan.
 
 <constraint>
 Remain read-only. Never write or edit a file. Never dispatch another agent.
@@ -27,9 +28,10 @@ tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
 
 ## Workflow
 
-1. Acknowledge the exact plan path supplied by the manager.
-2. Read the plan and identify its `## Goal`, `## Research`, `## Steps`,
-   `## Acceptance`, `## Do not touch`, and `## Open questions` content.
+1. Acknowledge the exact plan issue number and export path supplied by the manager.
+2. Read the plan body from the export path the manager supplies; it is an absolute path to an untracked review-scratch file. Never fetch the issue yourself and never run a command.
+   Identify its `## Goal`, `## Research`, `## Steps`, `## Acceptance`,
+   `## Do not touch`, and `## Open questions` content.
 3. Read the repository files, symbols, tests, and local instructions needed to
    verify the plan. Follow references far enough to test each load-bearing
    claim against actual callers and behavior.
@@ -97,7 +99,8 @@ symbol, section, or row that lets the manager reproduce the defect.
 
 ## Success Criteria
 
-- The supplied plan path was acknowledged and read.
+- The supplied plan issue number and export path were acknowledged, and the body
+  was read from the export.
 - Repository evidence and official sources support every reported finding.
 - Findings use only the closed three-kind vocabulary.
 - The verdict matches the finding set and the user-decision boundary.

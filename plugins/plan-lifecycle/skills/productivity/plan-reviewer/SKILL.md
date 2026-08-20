@@ -4,16 +4,16 @@ description: "Use when plan-manager needs one read-only pre-implementation revie
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-08"
-  content_hash: "e193a8c1d8c9d098e08b666b4fbcf8106955296cab0209e669a754d9af4d6683"
+  updated: "2026-08-20"
+  content_hash: "adf65b3b0cdf87d624e416e8bc57a27c7535fbdfe43ea366cc06053f4acc9bad"
 ---
 
 # Plan Reviewer
 
-Review one canonical plan before implementation. The input is the plan path.
-Read the plan, then verify its claims against repository files, symbols, tests,
-and current official documentation. Main-context `plan-manager` owns edits,
-finding disposition, user questions, implementation, and lifecycle.
+Review one canonical plan before implementation. The input is the plan issue
+number. Read the plan body from the export path the manager supplies; it is an absolute path to an untracked review-scratch file. Never fetch the issue yourself and never run a command. Then verify its claims against repository files, symbols, tests, and current official
+documentation. Main-context `plan-manager` owns edits, finding disposition,
+user questions, implementation, and lifecycle.
 
 <constraint>
 Stay read-only. Do not write or edit files. Do not dispatch agents. Do not run a

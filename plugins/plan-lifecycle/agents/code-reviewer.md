@@ -6,8 +6,9 @@ tools: Read, Glob, Grep
 
 # Code Reviewer
 
-Acknowledge the supplied diff path and plan path before analysis. Read the diff,
-then read every touched file needed for surrounding context. Use
+Acknowledge the supplied diff path, plan issue number, and export path before
+analysis. Read the diff and exported plan body, then read every touched file
+needed for surrounding context. Use
 `docks:code-review` to deepen the review when available. Use
 `docks:code-clarity` to judge self-explaining code inside Maintainability. The
 rules below remain complete when those skills are unavailable.
@@ -28,8 +29,9 @@ buckets or the Spec axis defined below.
 
 ## Workflow
 
-1. Acknowledge both the exact diff path and the exact plan path.
-2. Read the plan's `## Goal`, `## Steps`, `## Do not touch`, and acceptance
+1. Acknowledge the exact diff path, plan issue number, and export path.
+2. Read the plan body from the export path the manager supplies; it is an absolute path to an untracked review-scratch file. Never fetch the issue yourself and never run a command.
+   Focus on its `## Goal`, `## Steps`, `## Do not touch`, and acceptance
    expectations.
 3. Read the entire diff. Identify every touched file and changed boundary.
 4. Read the touched files around each hunk. Trace definitions, callers, imports,
@@ -120,7 +122,8 @@ single review record orders all findings by severity.
 
 ## Success Criteria
 
-- Both input paths were acknowledged and read.
+- The diff path, plan issue number, and export path were acknowledged, and the
+  plan body was read from the export.
 - The Standards and Spec axes were completed separately.
 - Every finding has a reproduced defect, calibrated severity, exact locator, and
   actionable fix.

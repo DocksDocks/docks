@@ -1,7 +1,7 @@
 {
   "name": "plan-lifecycle",
   "version": "0.4.1",
-  "description": "Cross-tool plan lifecycle for the docs/plans workspace: a markdown-only v2 plan record, six phases (decide, draft, research, one plan review, implement, code review), and two read-only reviewer wrappers, plan-reviewer and code-reviewer.",
+  "description": "Cross-tool GitHub-issue plan lifecycle: a markdown-only v2 issue-body record, six phases (decide, draft, research, one plan review, implement, code review), and two read-only reviewer wrappers, plan-reviewer and code-reviewer.",
   "author": {
     "name": "Eduardo Marquez"
   },
@@ -20,7 +20,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "plan-lifecycle",
-    "shortDescription": "docs/plans lifecycle skills: workspace, manager orchestration, read-only reviewer.",
+    "shortDescription": "GitHub-issue lifecycle skills: workspace, manager orchestration, read-only reviewer.",
     "category": "Productivity"
   }
 }

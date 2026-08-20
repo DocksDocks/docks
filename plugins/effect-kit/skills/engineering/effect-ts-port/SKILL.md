@@ -4,8 +4,8 @@ description: "Use when porting existing Fastify, Next.js App Router, or React co
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-08"
-  content_hash: "4ad49201a716fd885b11ed473e50f2b8ce295810bdf3f5e790cf329724195f05"
+  updated: "2026-08-20"
+  content_hash: "7a713a5b1d3c48c5e1bf28716a9ccb1f67dd4d9d1896308da88db5cb4388bdb6"
 ---
 
 # Effect-TS Port (cross-tool pipeline)
@@ -13,7 +13,7 @@ metadata:
 Migrate an existing Fastify / Next.js / React codebase to Effect 3.x as one sequential pass: detect the framework, map the surface, resolve scope, write a tiered plan, then either report it or continue through manager review and port one boundary at a time with tests as the ratchet. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. Framework specifics live in `references/`; this body is the orchestration. Pattern mirrors the `security` / `refactor` pipelines.
 
 <constraint>
-Single-agent sequential, gated on the plan lifecycle — NOT Plan Mode. Run the phases IN ORDER, in THIS context. Phases 0–3 are read-only analysis. Route missing-workspace bootstrap to `plan-workspace`; the unified `plan-manager` owns canonical-plan creation, fresh review, lifecycle, implementation/delegation, verification, and finish/archive. A plan-only or assessment-only request stops after the reviewed migration plan. An implementation request continues into Phase 4 after the manager records the reviewed start checkpoint; no additional user lifecycle command is required. Append each phase under its exact heading so a mid-run compaction resumes from the artifact.
+Single-agent sequential, gated on the plan lifecycle — NOT Plan Mode. Run the phases IN ORDER, in THIS context. Phases 0–3 are read-only analysis. Route label and workspace setup to `plan-workspace`; the unified `plan-manager` owns canonical-plan creation, fresh review, lifecycle, implementation/delegation, verification, and finish/archive. A plan-only or assessment-only request stops after the reviewed migration plan. An implementation request continues into Phase 4 after the manager records the reviewed start checkpoint; no additional user lifecycle command is required. Hand each phase to `plan-manager` under its exact heading so a mid-run compaction resumes from the issue body.
 </constraint>
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
@@ -42,7 +42,7 @@ Don't guess Effect APIs. First inspect `package.json` plus the lockfile or insta
 
 ## Pipeline
 
-Run in order. Each phase reads its reference (where listed), then writes output to the plan file under the exact heading (the resume anchor — keep it verbatim).
+Run in order. Each phase reads its reference (where listed), then hands its output to `plan-manager` for the plan issue under the exact heading (the resume anchor — keep it verbatim).
 
 | # | Phase | Reference | Output heading |
 |---|---|---|---|
@@ -57,19 +57,19 @@ Run in order. Each phase reads its reference (where listed), then writes output 
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`); record scope (a path arg, or the whole project).
-2. Resolve the artifact path. Route an absent tracked workspace to `plan-workspace`; route canonical-plan creation and lifecycle to the unified `plan-manager`. Run Phases 0→3, writing each under its heading; confirm the prior heading landed before the next. A phase with nothing to report writes "none" — never silently skip.
+2. Ask `plan-manager` to create the canonical issue with `plan.mjs new --title <t> --goal <g>` and own every lifecycle write. In a repository without a GitHub remote, use the untracked fallback below. Run Phases 0→3, handing each to the manager under its heading; confirm the prior heading landed before the next. A phase with nothing to report writes "none" — never silently skip.
 3. At the HANDOFF, follow the request intent. An implementation request resumes at Phase 4 after the manager's reviewed start checkpoint; no user lifecycle command is required.
 
-## The plan file (IPC + deliverable)
+## The plan record (IPC + deliverable)
 
 ```text
-docs/plans/active/effect-port-<scope>.md   (preferred — created, reviewed, and managed by
-                                            unified plan-manager; status lives in frontmatter;
-                                            confirm the layout against docs/plans/AGENTS.md)
-docs/effect-port-<YYYYMMDD>.md             (untracked fallback only when the user declines workspace bootstrap)
+GitHub issue #<n> labeled plan, plan:drafting (created and managed by unified plan-manager)
+docs/effect-port-<YYYYMMDD>.md             (untracked fallback only when the repository has no GitHub remote)
 ```
 
-Write as you go — never hold all phase output in context and dump at the end. The plan's `## Steps` table is the slice list; `## Mistakes & Dead Ends` records every `REVERTED:` slice so a resumed run skips known dead ends.
+Hand phase output to `plan-manager` as you go — never hold all of it in context and dump it at the end.
+
+The plan's `## Steps` table is the slice list. A `Mistakes & Dead Ends` subsection in `## Verification Results` records every `REVERTED:` slice so a resumed run skips known dead ends.
 
 ## Phase 0 — Detection (inline)
 
@@ -102,13 +102,13 @@ Ask one bounded question only when unresolved surface or wrap-vs-replace choices
 
 ## Phase 3 — Migration plan → HANDOFF
 
-Read the relevant framework reference(s). Write `## Phase 3: Migration Plan` and populate the plan's `## Steps` table with ordered slices (each: file:line, wrap-or-replace, the Effect shape it becomes, test command, risk). Tier them: **(1)** shared boundary (the `ManagedRuntime` + base layers), **(2)** leaf slices (one handler/component), **(3)** structural (replace a router, lift state to atoms). For plan-only intent, report the reviewed plan and stop. For implementation intent, give it to unified `plan-manager` and continue automatically after its reviewed start checkpoint.
+Read the relevant framework reference(s). Write `## Phase 3: Migration Plan` in the report and populate the plan issue's `## Steps` table with ordered slices (each: file:line, wrap-or-replace, the Effect shape it becomes, test command, risk). Tier them: **(1)** shared boundary (the `ManagedRuntime` + base layers), **(2)** leaf slices (one handler/component), **(3)** structural (replace a router, lift state to atoms). For plan-only intent, report the reviewed plan issue and stop. For implementation intent, give the report to unified `plan-manager`; it files it in the issue, then continue automatically after its reviewed start checkpoint.
 
 ## Phase 4 — Implementation (after the reviewed start checkpoint)
 
 1. Establish a baseline: run the type-checker + test suite. Note any pre-existing failures.
 2. Build the **shared boundary first** (Tier 1): the `ManagedRuntime` from your `MainLive` layer, and the base services. Verify it compiles before touching any handler.
-3. For each slice in tier order: read the framework reference, apply the boundary pattern, then run the type-checker + tests. On green, log `APPLIED: <slice>`; on failure, `git restore` the slice and log `REVERTED: <reason>` in `## Mistakes & Dead Ends`, then continue. ONE slice per test cycle — never batch.
+3. For each slice in tier order: read the framework reference, apply the boundary pattern, then run the type-checker + tests. On green, log `APPLIED: <slice>`; on failure, `git restore` the slice and log `REVERTED: <reason>` in the `Mistakes & Dead Ends` subsection of `## Verification Results`, then continue. ONE slice per test cycle — never batch.
 4. Keep ephemeral UI-local state in `useState`; lift shared/async/server state into Effect/atoms (React). Wrap, don't rewrite, until a slice is fully green.
 
 ## Phase 5 — Verification (inline)
@@ -152,7 +152,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 | Using `@effect-rx/rx-react` for React | Renamed/superseded | `@effect-atom/atom-react` |
 | Editing code during Phases 0–3 | Invalidates the input before review | Keep analysis read-only; implementation begins after the manager's reviewed start checkpoint |
 | Module-scope runtime on edge/serverless without a caveat | Cold-start surprises | Note the deploy target in Phase 2; see the references |
-| `docs/plans/` assumed to exist in a consumer repo | Plan write lands nowhere | Route workspace bootstrap to `plan-workspace`, or use the untracked fallback only if the user declines |
+| Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | Use the untracked fallback only for that repository |
 
 ## When this skill does NOT apply
 

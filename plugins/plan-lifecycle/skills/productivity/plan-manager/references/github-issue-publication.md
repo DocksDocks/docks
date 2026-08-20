@@ -1,25 +1,26 @@
-# GitHub issue publication
+# GitHub issue creation
 
-Publishing a canonical plan as a GitHub issue is a `publish` effect, so it obeys
-the same rule as every non-`local` step: ask first, in this session, naming the
-exact repository.
+Every canonical plan begins as a GitHub issue. Creating it is a
+repository-visible write, so complete this preflight before `plan.mjs new`.
+A failure creates no issue and writes nothing:
 
-Preflight, in order. A failure at any point creates no issue and writes nothing:
+1. `gh auth status` succeeds.
+2. The checkout has a GitHub remote.
+3. From that checkout,
+   `gh repo view --json nameWithOwner,visibility,defaultBranchRef` resolves the
+   exact repository, its visibility, and its default branch.
+4. An in-session `ask` confirmation names that exact repository and confirms
+   creation of the plan issue there.
+5. When the repository is public and the proposed plan names a vulnerability, a
+   credential location, or another sensitive finding, a second explicit
+   confirmation states that the issue body is public.
 
-1. The plan exists as a canonical v2 plan and `plan.mjs check` passes on it.
-2. `gh auth status` succeeds.
-3. The repository has a GitHub remote.
-4. `gh repo view --json visibility` returns the visibility.
-5. An in-session `ask` confirmation names the exact repository.
-6. For a public repository whose plan names a vulnerability, a credential
-   location, or another sensitive finding, a second explicit confirmation states
-   that the issue body becomes public.
+When `ask` is unavailable in a subagent, headless run, or `-p` run, do not run
+`plan.mjs new`. Report that issue creation is blocked because the exact
+repository confirmation could not be obtained. Never substitute a tracked plan
+file or create the issue speculatively.
 
-Create the issue from the plan's title and body. Record the returned URL in
-`## Review` as one line. Publication changes no status, dispatches no review,
-creates no commit, and never makes the issue the source of truth: the markdown
-plan under `docs/plans/` stays authoritative.
-
-When `ask` is unavailable — a subagent, headless, or `-p` run — do not publish.
-Set the owning step `blocked` with `blocked_reason` naming the unconfirmed
-`publish` effect, and report the blocker.
+The pull request that lands the work must carry `Closes #<issue>` in its body
+and target the repository default branch. Landing is not a lifecycle action or
+a Steps row; the user runs it on request, and `plan.mjs archive` only verifies
+the resulting merged pull request.

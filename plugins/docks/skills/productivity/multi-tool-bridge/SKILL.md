@@ -1,11 +1,11 @@
 ---
 name: multi-tool-bridge
-description: Use when setting up multi-tool agent compatibility in a project (Codex + Claude Code) — creates canonical AGENTS.md, migrates .claude/skills/ to .agents/skills/, symlinks Claude skill entries back, and rewrites the project CLAUDE.md to @AGENTS.md preserving Claude-specific content (content-classified). Idempotent. Not for docs/plans/ workspace setup or refresh (use plan-workspace), splitting per-area rules into AGENTS.md nodes (use context-tree), or porting Claude subagents to Codex TOML (use skill-agent-pipeline).
+description: Use when setting up multi-tool agent compatibility in a project (Codex + Claude Code) — creates canonical AGENTS.md, migrates .claude/skills/ to .agents/skills/, symlinks Claude skill entries back, and rewrites the project CLAUDE.md to @AGENTS.md preserving Claude-specific content (content-classified). Idempotent. Not for plan workspace setup or refresh (use plan-workspace), splitting per-area rules into AGENTS.md nodes (use context-tree), or porting Claude subagents to Codex TOML (use skill-agent-pipeline).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-18"
-  content_hash: "34fe0fd579b7b7224e2db995c310e5ce864b516269a156a88361beb73c6d9b40"
+  updated: "2026-08-20"
+  content_hash: "423ff9ea022eeebe1aaa674fdebdc13d1bd91b584689836339c840e129ac0035"
 ---
 
 # Multi-Tool Agent Bridge

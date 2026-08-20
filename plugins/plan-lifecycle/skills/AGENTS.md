@@ -43,7 +43,8 @@ present". `scripts/skills/no-author-scripts.mjs` enforces this.
 
 ## Roles (closed set)
 
-`plan-workspace` maintains the `docs/plans/` workspace; main-context
+`plan-workspace` maintains the repository `plan*` labels, the `docs/PLAN.md`
+standard, and its `docs/AGENTS.md`/`docs/CLAUDE.md` routing pair; main-context
 `plan-manager` runs decide → draft → research → one plan review → implement →
 code review; internal `plan-reviewer` returns a read-only pre-implementation
 verdict. Two read-only reviewer wrappers ship: the plugin wrappers at
@@ -57,12 +58,15 @@ deliberately carries no context-tree node (`claude plugin validate` lints every
 
 The synchronized surface is the v2 frontmatter, the eight sections, both table
 headers, the three plan-review kinds (`goal_fit`, `research_gap`,
-`security_risk`), the two review-record shapes, the zero-commit rule, and the
-lifecycle-tool ownership clause.
+`security_risk`), the two review-record shapes, the zero-commit rule, the
+lifecycle-tool ownership clause, and the five issue-backend clauses:
+record-backend, output-discipline, landing-linkage, label-mirror, and
+issue-write-precondition.
 
 When any part changes, synchronize the three skills,
-`plan-manager/references/plan-contract.md`, the workspace template, this
-repository's `docs/plans/AGENTS.md`, both plugin and Codex wrapper pairs, and
+`plan-manager/references/plan-contract.md`,
+`productivity/plan-workspace/references/plan-md-template.md`, this repository's
+`docs/PLAN.md`, both plugin and Codex wrapper pairs, and
 `scripts/tests/plan-skill-phases.mjs`. Main owns one content-hash backfill after
 a coordinated multi-file cutover. The skill bodies are asserted verbatim by
 `scripts/tests/plan-skill-phases.mjs`; the CLI is exercised by
