@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-08-20"
-  content_hash: "00f8a9fc404c475adbc497d8b2b3e127de0633163302d8ef54d413756660e68d"
+  content_hash: "c496105fbaf3735e9dd2c189e5a011970ce02516c4cc10087a28739c123b85b9"
 ---
 
 # Refactor (cross-tool pipeline)

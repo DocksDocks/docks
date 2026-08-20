@@ -82,16 +82,59 @@ export function toolFingerprint(
   });
 }
 
-// Git ignores node_modules, so the worktree digest is only a proxy for dependency
-// availability. pnpm's small install record captures that state without walking or
-// hashing dependency contents.
+// Git ignores node_modules, so digest every path a validator resolves without hashing contents:
+// isolated-store package names and dependency links capture versions and internal routing; root
+// and scoped links capture imports; binary names and targets capture command availability.
 function installFingerprint(repo) {
-  const installRecord = 'node_modules/.modules.yaml';
+  const nodeModules = 'node_modules';
+  const isolatedStore = path.join(nodeModules, '.bun');
+  const binDirectory = path.join(nodeModules, '.bin');
+  const compareNames = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const recordEntry = (directory, entry, name = entry.name) => [
+    name,
+    ...(entry.isSymbolicLink() ? [fs.readlinkSync(path.join(directory, entry.name))] : []),
+  ];
+  const recordInstallEntries = (directory, entries) => {
+    const records = [];
+    for (const entry of entries) {
+      records.push(recordEntry(directory, entry));
+      if (!entry.name.startsWith('@') || !entry.isDirectory()) continue;
+      const scopeDirectory = path.join(directory, entry.name);
+      for (const child of fs.readdirSync(scopeDirectory, { withFileTypes: true })) {
+        records.push(recordEntry(scopeDirectory, child, `${entry.name}/${child.name}`));
+      }
+    }
+    return records.sort(([a], [b]) => compareNames(a, b));
+  };
+  let rootRead = false;
   try {
-    return sha256(fs.readFileSync(path.join(repo, installRecord)));
+    const rootDirectory = path.join(repo, nodeModules);
+    const topLevel = fs.readdirSync(rootDirectory, { withFileTypes: true });
+    rootRead = true;
+    const rootEntries = recordInstallEntries(rootDirectory, topLevel);
+    const storeDirectory = path.join(repo, isolatedStore);
+    const storePackages = fs
+      .readdirSync(storeDirectory, { withFileTypes: true })
+      .sort((a, b) => compareNames(a.name, b.name));
+    const storeEntries = storePackages.map((entry) => {
+      const identity = recordEntry(storeDirectory, entry);
+      if (!entry.isDirectory()) return [identity, []];
+      const dependencyDirectory = path.join(storeDirectory, entry.name, 'node_modules');
+      const dependencies = fs.readdirSync(dependencyDirectory, { withFileTypes: true });
+      return [identity, recordInstallEntries(dependencyDirectory, dependencies)];
+    });
+    let binNames;
+    try {
+      binNames = fs.readdirSync(path.join(repo, binDirectory)).sort();
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      binNames = [];
+    }
+    const binEntries = binNames.map((name) => [name, fs.readlinkSync(path.join(repo, binDirectory, name))]);
+    return sha256(JSON.stringify([storeEntries, rootEntries, binEntries]));
   } catch (error) {
-    if (error.code === 'ENOENT') return 'absent';
-    throw new Error(`cannot digest ${installRecord}: ${error.message}`);
+    if (error.code === 'ENOENT' && !rootRead) return 'absent';
+    throw new Error(`cannot digest ${nodeModules}: ${error.message}`);
   }
 }
 
@@ -158,7 +201,7 @@ export function computeGateKey({ repo, scope, git = gitReader(repo), entry = (re
     `scope=${JSON.stringify(scope)}`,
     `node=${process.version}`,
     `platform=${process.platform}/${process.arch}`,
-    `tools=${(tools ?? toolFingerprint(['cargo', 'claude', 'git', 'node', 'pnpm', 'shellcheck'])).join(',')}`,
+    `tools=${(tools ?? toolFingerprint(['cargo', 'claude', 'git', 'node', 'bun', 'shellcheck'])).join(',')}`,
     `install=${install}`,
     `worktree=${sha256(listing.join('\n'))}`,
   ];

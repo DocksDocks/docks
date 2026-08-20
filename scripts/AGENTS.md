@@ -37,7 +37,7 @@ It owns the focused Docks plan CLI and plan skill phase contracts, the Docks,
 effect-kit, and plan-lifecycle plugin gates, their joint trigger-collision
 audit, and JavaScript quality. The always-on `repo` shard owns the repo-wide checks.
 
-The lane performs the frozen pnpm install and materializes the pinned
+The lane performs the frozen Bun install and materializes the pinned
 `claude-code` binary. Its result feeds the single authoritative
 `validate (scripts/ci.mjs)` join; manual dispatch remains one untargeted full
 gate, and a release tag remains one strictly resolved `--plugin <name>` gate.
@@ -98,7 +98,7 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh`, via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |
 
-`--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package (`corepack enable && pnpm install --frozen-lockfile`).
+`--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package installed by `bun install --frozen-lockfile`.
 
 The `test:coverage` package command measures test coverage on demand. `scripts/ci.mjs` deliberately does not run it because coverage is a diagnostic, not a gate.
 
@@ -186,7 +186,7 @@ final implementation tree → node scripts/ci.mjs --plugin <name>   (LAYER 1 —
 
 The positional flow above is preserved for docks/effect-kit/plan-lifecycle, including its existing bump resolution, local and tag CI gates, commit/push/tag behavior, release notes, and read-only dry run.
 
-GitHub pull requests resolve their diff into a shard set and run `node scripts/ci.mjs --lane <shard>` for each, then require the unchanged `validate` join status. `resolve-shards` maps changed paths onto plugin roots from `lib/plugins.mjs` and emits the matrix; the `repo` shard always runs, `core` runs when the diff implicates a plugin it owns, and every resolution failure — unresolvable base, empty diff, non-pull-request event, or a path outside every plugin root — falls open to both shards. `workflow_dispatch` runs one untargeted `node scripts/ci.mjs` full invocation. A release-tag push strictly resolves the tag's plugin identity, rejects malformed or unknown targets, and runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate; PR sharding never touches that path. The `repo` shard owns the repo-wide workflow, standalone catalog, tree/durable-anchor, and CI-targeting sections, so a plugin shard runs only the selected plugins' owned author checks, shell-hook lint, and plugin gates, including marketplace/version coherence. Targeted `--plugin` CI skips the repo-wide sections entirely. The pnpm cache only reduces repeated download work. Its contents are never validation evidence: the frozen lockfile, release preflight, and `ci.mjs` result remain authoritative.
+GitHub pull requests resolve their diff into a shard set and run `node scripts/ci.mjs --lane <shard>` for each, then require the unchanged `validate` join status. `resolve-shards` maps changed paths onto plugin roots from `lib/plugins.mjs` and emits the matrix; the `repo` shard always runs, `core` runs when the diff implicates a plugin it owns, and every resolution failure — unresolvable base, empty diff, non-pull-request event, or a path outside every plugin root — falls open to both shards. `workflow_dispatch` runs one untargeted `node scripts/ci.mjs` full invocation. A release-tag push strictly resolves the tag's plugin identity, rejects malformed or unknown targets, and runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate; PR sharding never touches that path. The `repo` shard owns the repo-wide workflow, standalone catalog, tree/durable-anchor, and CI-targeting sections, so a plugin shard runs only the selected plugins' owned author checks, shell-hook lint, and plugin gates, including marketplace/version coherence. Targeted `--plugin` CI skips the repo-wide sections entirely. The Bun dependency cache only reduces repeated download work. Its contents are never validation evidence: the frozen lockfile, release preflight, and `ci.mjs` result remain authoritative.
 
 <constraint>
 Before `node scripts/release.mjs`, run the smallest authoritative gate for the final implementation tree: `node scripts/ci.mjs --plugin <name>` for one plugin and its descriptor-owned tooling, otherwise full `node scripts/ci.mjs`. The selected release path reruns the same plugin gate before mutation, and tag CI reruns it authoritatively after push.

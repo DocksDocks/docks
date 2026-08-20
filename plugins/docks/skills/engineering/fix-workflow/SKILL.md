@@ -4,8 +4,8 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "2054bd0ec86d0c9eb5b456127512ebb350477b5bc02b44cdcb0783bb0c7b94d8"
+  updated: "2026-08-20"
+  content_hash: "4f92bd65d07cf1fe79dc6f103f6f78bfd03b2101b4c4d86786abdeb113216de7"
 ---
 
 # Fix Workflow
@@ -30,7 +30,7 @@ Tier fixes by blast radius. Tier 1 = local change, single file, has a test (low 
 
 - A bug is reported — user describes a failure mode, you want to find and fix root cause
 - A security finding (from `/security`, `code-review` skill, dependency advisory) needs a fix
-- Dependency audit (`pnpm audit` / `npm audit` / `pip-audit`) returns vulnerable packages
+- Dependency audit (`bun audit` / `pnpm audit` / `npm audit` / `pip-audit`) returns vulnerable packages
 - A linter / type-checker reports issues across a path and the user wants them resolved
 - Dead-code report (`knip` / `depcheck` / `ts-prune` / `vulture`) needs cleanup
 
@@ -59,7 +59,7 @@ Establish what runs and what's in scope:
 - Test runner: `package.json` `scripts.test` / `pytest.ini` / `cargo test` / `go test ./...`
 - Type-checker: `npx tsc --noEmit` / `mypy` / `ruff check`
 - Linter: `npx eslint` / `ruff` / `golangci-lint`
-- Audit tool: `pnpm audit` / `npm audit` / `pip-audit` / `cargo audit`
+- Audit tool: `bun audit` / `pnpm audit` / `npm audit` / `pip-audit` / `cargo audit`
 
 Run `git status --short` and `git log --oneline -5` for context. If the working tree isn't clean, ask the user whether to stash, commit, or proceed — fixing on a dirty tree pollutes the diff.
 
@@ -93,6 +93,7 @@ go vet ./... && staticcheck ./...           # go equivalent
 **Dependency pass** — vulnerabilities, outdated, unused, missing peers:
 
 ```bash
+bun audit --audit-level=high                # high-and-critical JS CVEs
 pnpm audit --prod                           # runtime CVEs
 pip-audit                                   # python CVEs
 cargo audit                                 # rust CVEs

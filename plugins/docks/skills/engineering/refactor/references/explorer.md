@@ -10,7 +10,7 @@ Enumerate, don't judge. Record facts ("file X uses pattern Y at line Z"), never 
 
 - Stack: languages, frameworks (check `package.json`, `requirements.txt`, `go.mod`, `Cargo.toml`, `pyproject.toml`).
 - Monorepo: check `package.json` workspaces, `pnpm-workspace.yaml`, `lerna.json`, `nx.json`, Cargo `[workspace]`. List packages with their stacks.
-- Package manager, test runner (per-package if monorepo), linter.
+- Package manager and lockfile (`bun.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`), test runner (per-package if monorepo), linter.
 - Scope: a path argument, or the whole project.
 
 ## Available analysis tools

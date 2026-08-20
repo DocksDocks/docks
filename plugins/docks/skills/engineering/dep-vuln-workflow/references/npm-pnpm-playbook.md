@@ -1,10 +1,28 @@
-# JS/TS Dependency Workflow — pnpm / npm / yarn
+# JS/TS Dependency Workflow — Bun / pnpm / npm / yarn
 
 Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers severity triage, exposure filter, the 3 pre-flight checks, split strategy, and cadence — they apply unchanged. Load this file when the project ships JavaScript or TypeScript.
+
+## Contents
+
+- [Audit & Upgrade Commands](#audit--upgrade-commands)
+- [JS Major Upgrade Surprises](#js-major-upgrade-surprises)
+- [Peer-Dep Trap (Concrete Example)](#peer-dep-trap-concrete-example)
+- [Exposure Filter — JS Specifics](#exposure-filter--js-specifics)
+- [Suppression Trap — BAD / GOOD](#suppression-trap--bad--good)
+- [JS Gotchas](#js-gotchas)
+- [See Also](#see-also)
 
 ## Audit & Upgrade Commands
 
 ```bash
+# Bun
+bun audit                                   # See findings
+bun audit --audit-level=high                # High-and-critical findings
+bun outdated                                # What's available
+bun update <a>@latest <b>@latest            # Batch upgrade (single commit)
+bun why <pkg>                               # Why it is installed; labels each path dev/optional
+bun pm ls                                   # Top-level installed deps (--all for the whole tree)
+
 # pnpm (preferred for monorepos / disk efficiency)
 pnpm audit                                  # See findings
 pnpm audit --prod                           # Runtime-only view
@@ -31,9 +49,13 @@ yarn npm audit
 yarn up <pkg>
 ```
 
-Full check suite after every upgrade:
+Full check suite after every upgrade (use the project's package manager):
 
 ```bash
+# Bun
+bun run lint && bun run typecheck && bun run build && bun audit
+
+# pnpm
 pnpm lint && pnpm typecheck && pnpm build && pnpm audit
 ```
 
@@ -55,11 +77,18 @@ Commit once: `chore(deps): bump X/Y/Z + patch CVE-XXXX-YYYY` with the advisory l
 
 `eslint-config-next@16.2.4` declares `peer: "eslint": ">=9.0.0"` — satisfies ESLint 10 on paper. But the bundled `eslint-plugin-react@7.37.5` calls a removed ESLint API (`context.getFilename`). **The peer declaration lied.**
 
-Always verify by upgrading and running `pnpm lint` — don't trust the declared range.
+Always verify by upgrading and running the project's lint script (`bun run lint`, `pnpm lint`, or its actual equivalent) — don't trust the declared range.
 
 ## Exposure Filter — JS Specifics
 
-`pnpm why <pkg>` traces transitive paths:
+`bun why <pkg>` and `pnpm why <pkg>` both trace transitive paths. Bun labels each
+edge, so a dev-only path is visible without reading the manifest:
+
+```text
+@biomejs/cli-linux-x64@2.5.4
+  └─ optional @biomejs/biome@2.5.4 (requires 2.5.4)
+     └─ dev docks-plugin-tooling (requires 2.5.4)
+```
 
 - Every path goes through `devDependencies` only → not in the production bundle.
 - A path goes through a `dependencies` chain → in the bundle. Read the advisory to confirm you touch the vulnerable API.
@@ -94,4 +123,5 @@ The upgrade exposed a real anti-pattern; the lint rule did its job.
 - `../SKILL.md` — universal playbook (severity, exposure filter, split strategy, cadence)
 - `lint-no-suppressions` skill — never silence new lint rules surfaced by an upgrade
 - pnpm audit docs: https://pnpm.io/cli/audit
+- Bun audit docs: https://bun.com/docs/install/audit
 - Next.js upgrade guides: https://nextjs.org/docs/app/guides/upgrading

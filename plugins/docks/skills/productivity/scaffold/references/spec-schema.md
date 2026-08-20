@@ -46,7 +46,7 @@ templated_files:
   - { template: codex-plan-reviewer.toml.template, dest: ".codex/agents/plan-reviewer.toml" }
   - { template: codex-code-reviewer.toml.template, dest: ".codex/agents/code-reviewer.toml" }
   - { template: package.json.template,           dest: "package.json" }
-  - { template: pnpm-lock.yaml.template,         dest: "pnpm-lock.yaml" }
+  - { template: bun.lock.template,               dest: "bun.lock" }
   - { template: root-AGENTS.md.template,         dest: "AGENTS.md" }
 ```
 
@@ -105,7 +105,7 @@ verification runs the project's CI / validators, if present.
 
 This block shows the script-entry shape, not a complete inventory. Setup mode should copy the live spec's script list after verifying each source exists.
 
-Copied verbatim into the new project's `scripts/`. Each validator accepts a path argument, so the seeded project invokes them against its own `plugins/<name>/skills` (see the seeded `scripts/AGENTS.md`). The generated `package.json` and `pnpm-lock.yaml` provide the Node `yaml` dependency for parser-backed skill validation.
+Copied verbatim into the new project's `scripts/`. Each validator accepts a path argument, so the seeded project invokes them against its own `plugins/<name>/skills` (see the seeded `scripts/AGENTS.md`). The generated `package.json` and `bun.lock` provide the Node `yaml` dependency for parser-backed skill validation.
 
 ## `variables`
 

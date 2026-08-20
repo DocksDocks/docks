@@ -35,8 +35,8 @@ If a unit test can't trigger the attacker path (e.g., the vuln is in a binary's 
 The universal "if test X fails, revert" rule isn't enough for security. Add these:
 
 - **Authentication regression** — any test in `auth.*test.ts` / `test_auth.py` / `auth_test.go` flips → revert immediately. Auth regressions are silent; you don't want to ship an auth bypass.
-- **Audit-tool re-flag** — `pnpm audit` / `pip-audit` / `cargo audit` / `govulncheck` reports the same or a NEW finding after the fix → revert, the bump introduced a different vuln.
-- **Dependency-tree explosion** — `pnpm why` / `cargo tree` shows the lockfile gained a new vulnerable transitive → revert.
+- **Audit-tool re-flag** — `bun audit` / `pnpm audit` / `pip-audit` / `cargo audit` / `govulncheck` reports the same or a NEW finding after the fix → revert, the bump introduced a different vuln.
+- **Dependency-tree explosion** — `bun why` / `pnpm why` / `cargo tree` shows the lockfile gained a new vulnerable transitive → revert.
 - **TLS / crypto API change** — type-check passes but the new dep version uses a different cipher / kdf / handshake → manual review required; don't auto-merge.
 
 ## Common Security-Fix Anti-Patterns

@@ -1,11 +1,11 @@
 ---
 name: dep-vuln-workflow
-description: Use when running pnpm/npm/yarn audit, pip-audit, cargo audit, or govulncheck; responding to a CVE/GHSA advisory; bumping framework majors (next/react/typescript/django/fastapi/tokio/axum); handling peer-dep or version-resolution conflicts after an upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; setting dependency-update cadence. Not for fixing the vulnerable code path itself (use fix-workflow) or full security audits (use security).
+description: Use when running bun/pnpm/npm/yarn audit, pip-audit, cargo audit, or govulncheck; responding to a CVE/GHSA advisory; bumping framework majors (next/react/typescript/django/fastapi/tokio/axum); handling peer-dep or version-resolution conflicts after an upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; setting dependency-update cadence. Not for fixing the vulnerable code path itself (use fix-workflow) or full security audits (use security).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "0514073862e01230a88f3c0c0013e51766f828a461f02d03cb921255ab1bf313"
+  updated: "2026-08-20"
+  content_hash: "5c5d8cc137ca9ab04ced232c915cab1dd1597c2d03222e331661694f56760e26"
 ---
 
 # Dependency Vulnerability & Upgrade Workflow
@@ -16,7 +16,7 @@ Security patches ship first, always. Hygiene/feature bumps ship separately so a 
 
 ## When to Use
 
-- Running an audit tool (`pnpm/npm/yarn audit`, `pip-audit`, `cargo audit`, `govulncheck`) and seeing findings.
+- Running an audit tool (`bun/pnpm/npm/yarn audit`, `pip-audit`, `cargo audit`, `govulncheck`) and seeing findings.
 - A CVE / GHSA / RUSTSEC advisory lands for a package the project depends on.
 - Bumping a framework / runtime / language toolchain across a major version.
 - Resolving peer-dep or version-resolution conflicts after an upgrade.
@@ -27,7 +27,7 @@ Security patches ship first, always. Hygiene/feature bumps ship separately so a 
 
 | Triggered by | Reference file |
 |---|---|
-| JS/TS project — pnpm/npm/yarn audit; Next/React/TS/ESLint majors | `references/npm-pnpm-playbook.md` |
+| JS/TS project — bun/pnpm/npm/yarn audit; Next/React/TS/ESLint majors | `references/npm-pnpm-playbook.md` |
 | Python project — pip-audit, poetry, pipenv, uv; Django/FastAPI/Pydantic majors | `references/pip-playbook.md` |
 | Rust project — `cargo audit`, `cargo outdated`; tokio/axum majors, edition or MSRV bumps | `references/cargo-playbook.md` |
 | Go project — `govulncheck`, `go list -m -u`; module path `/vN` majors | `references/go-mod-playbook.md` |
@@ -45,7 +45,7 @@ Security patches ship first, always. Hygiene/feature bumps ship separately so a 
 
 Not every vulnerability affects you. Before panicking:
 
-1. **Is the vulnerable code in the runtime bundle / binary?** Use your ecosystem's "why" tool (`pnpm why`, `pip show` / `poetry show --tree`, `cargo tree -i`, `go mod why`) — if every dep-path goes through dev/test/build-only sections, it's not in the shipped artifact.
+1. **Is the vulnerable code in the runtime bundle / binary?** Use your ecosystem's "why" tool (`bun why`, `pnpm why`, `pip show` / `poetry show --tree`, `cargo tree -i`, `go mod why`) — if every dep-path goes through dev/test/build-only sections, it's not in the shipped artifact. `bun why <pkg>` prints each dependency path and labels it `dev` or `optional`, which answers this question directly.
 2. **Is the vulnerable API the one you call?** Read the advisory. Many CVEs affect a specific function — if you don't call it, you're not exposed. `govulncheck` does this reachability check automatically; for other ecosystems it's manual.
 3. **Does an upgrade fix it?** Check the advisory's `patched_versions`. If the fix is in a patch release, auto-upgrade. If it's in a major, see the Major Version Playbook below.
 
@@ -115,7 +115,7 @@ Audit must report zero known vulnerabilities at the chosen severity floor. Ecosy
 Set this as a calendar item. Dep security is a habit, not a reaction.
 
 <constraint>
-The lockfile (`pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` / `poetry.lock` / `Pipfile.lock` / `uv.lock` / `Cargo.lock` / `go.sum`) must be committed — never `.gitignore` it. A vuln in the lockfile is a real vuln. Advisory tools (GitHub Dependabot, Snyk, RustSec) flag everything; their report is a starting point, not a verdict — apply the runtime-vs-build-time exposure filter before patching.
+The lockfile (`bun.lock` / `pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` / `poetry.lock` / `Pipfile.lock` / `uv.lock` / `Cargo.lock` / `go.sum`) must be committed — never `.gitignore` it. A vuln in the lockfile is a real vuln. Advisory tools (GitHub Dependabot, Snyk, RustSec) flag everything; their report is a starting point, not a verdict — apply the runtime-vs-build-time exposure filter before patching.
 </constraint>
 
 ## Gotchas — Universal

@@ -17,7 +17,7 @@ import {
 
 const TOOLS = ['cargo=absent'];
 
-function fixtureRepo(label, t) {
+function fixtureRepo(label, t, { installEntries = [], storeLinks = [], rootLinks = [], binLinks = [] } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `gate-memo-${label}-`)));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -27,9 +27,26 @@ function fixtureRepo(label, t) {
   fs.writeFileSync(path.join(root, 'a.txt'), 'alpha\n');
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'src', 'b.mjs'), 'export const b = 1;\n');
-  fs.writeFileSync(path.join(root, '.gitignore'), 'ignored/\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), 'ignored/\nnode_modules/\n');
   git('add', '-A');
   git('commit', '-qm', 'seed');
+  const installStore = path.join(root, 'node_modules', '.bun');
+  for (const entry of installEntries) fs.mkdirSync(path.join(installStore, entry, 'node_modules'), { recursive: true });
+  for (const [entry, name, target] of storeLinks) {
+    const link = path.join(installStore, entry, 'node_modules', name);
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(target, link);
+  }
+  for (const [name, target] of rootLinks) {
+    const link = path.join(root, 'node_modules', name);
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(target, link);
+  }
+  for (const [name, target] of binLinks) {
+    const bin = path.join(root, 'node_modules', '.bin');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.symlinkSync(target, path.join(bin, name));
+  }
   return { root, git, key: () => computeGateKey({ repo: root, scope: { plugin: null, lane: null }, tools: TOOLS }) };
 }
 
@@ -38,6 +55,118 @@ test('gate key is stable when nothing changes', (t) => {
   const first = repo.key();
   assert.equal(typeof first.key, 'string');
   assert.equal(repo.key().key, first.key);
+});
+
+test('isolated Bun install entries are part of the gate key', (t) => {
+  const repo = fixtureRepo('install-fingerprint', t, {
+    installEntries: ['@biomejs+biome@2.5.4', 'yaml@2.9.0'],
+  });
+  const installed = repo.key().key;
+  assert.equal(typeof installed, 'string');
+
+  const installStore = path.join(repo.root, 'node_modules', '.bun');
+  fs.renameSync(path.join(installStore, 'yaml@2.9.0'), path.join(installStore, 'yaml@2.10.0'));
+  const versionChanged = repo.key().key;
+  assert.notEqual(versionChanged, installed, 'changing an installed package version must change the key');
+
+  fs.rmSync(path.join(repo.root, 'node_modules'), { recursive: true });
+  const absent = repo.key().key;
+  assert.notEqual(absent, installed, 'removing node_modules must change the installed key');
+  assert.notEqual(absent, versionChanged, 'an absent install must have its own key');
+});
+
+test('nested isolated-store dependency links are part of the gate key', (t) => {
+  const dependency = 'node_modules/.bun/@biomejs+biome@2.5.4/node_modules/@biomejs/cli-linux-x64';
+  const repo = fixtureRepo('store-link-fingerprint', t, {
+    installEntries: ['@biomejs+biome@2.5.4', '@biomejs+cli-linux-x64@2.5.4'],
+    storeLinks: [
+      [
+        '@biomejs+biome@2.5.4',
+        '@biomejs/cli-linux-x64',
+        '../../../@biomejs+cli-linux-x64@2.5.4/node_modules/@biomejs/cli-linux-x64',
+      ],
+    ],
+  });
+  const installed = repo.key().key;
+  fs.unlinkSync(path.join(repo.root, dependency));
+  assert.notEqual(repo.key().key, installed, 'removing a nested store dependency link must change the key');
+});
+
+test('nested isolated-store dependency targets are part of the gate key', (t) => {
+  const dependency = 'node_modules/.bun/@biomejs+biome@2.5.4/node_modules/@biomejs/cli-linux-x64';
+  const repo = fixtureRepo('store-target-fingerprint', t, {
+    installEntries: ['@biomejs+biome@2.5.4', '@biomejs+cli-linux-x64@2.5.4'],
+    storeLinks: [
+      [
+        '@biomejs+biome@2.5.4',
+        '@biomejs/cli-linux-x64',
+        '../../../@biomejs+cli-linux-x64@2.5.4/node_modules/@biomejs/cli-linux-x64',
+      ],
+    ],
+  });
+  const installed = repo.key().key;
+  fs.unlinkSync(path.join(repo.root, dependency));
+  fs.symlinkSync('../../../different/cli-linux-x64', path.join(repo.root, dependency));
+  assert.notEqual(repo.key().key, installed, 'repointing a nested store dependency link must change the key');
+});
+
+test('root dependency links are part of the gate key', (t) => {
+  const repo = fixtureRepo('root-link-fingerprint', t, {
+    installEntries: ['yaml@2.9.0'],
+    rootLinks: [['yaml', '.bun/yaml@2.9.0/node_modules/yaml']],
+  });
+  const installed = repo.key().key;
+  fs.unlinkSync(path.join(repo.root, 'node_modules', 'yaml'));
+  assert.notEqual(repo.key().key, installed, 'removing a root dependency link must change the key');
+});
+
+test('scoped dependency links are part of the gate key', (t) => {
+  const dependency = 'node_modules/@anthropic-ai/claude-code';
+  const repo = fixtureRepo('scoped-link-fingerprint', t, {
+    installEntries: ['@anthropic-ai+claude-code@1.0.0'],
+    rootLinks: [
+      ['@anthropic-ai/claude-code', '../.bun/@anthropic-ai+claude-code@1.0.0/node_modules/@anthropic-ai/claude-code'],
+    ],
+  });
+  const installed = repo.key().key;
+  fs.unlinkSync(path.join(repo.root, dependency));
+  assert.notEqual(repo.key().key, installed, 'removing a scoped dependency link must change the key');
+});
+
+test('scoped dependency link targets are part of the gate key', (t) => {
+  const dependency = 'node_modules/@anthropic-ai/claude-code';
+  const repo = fixtureRepo('scoped-target-fingerprint', t, {
+    installEntries: ['@anthropic-ai+claude-code@1.0.0'],
+    rootLinks: [
+      ['@anthropic-ai/claude-code', '../.bun/@anthropic-ai+claude-code@1.0.0/node_modules/@anthropic-ai/claude-code'],
+    ],
+  });
+  const installed = repo.key().key;
+  fs.unlinkSync(path.join(repo.root, dependency));
+  fs.symlinkSync('../different/claude-code', path.join(repo.root, dependency));
+  assert.notEqual(repo.key().key, installed, 'repointing a scoped dependency link must change the key');
+});
+
+test('Bun binary links are part of the gate key', (t) => {
+  const repo = fixtureRepo('bin-link-fingerprint', t, {
+    installEntries: ['@biomejs+biome@2.5.4'],
+    binLinks: [['biome', '../.bun/@biomejs+biome@2.5.4/node_modules/@biomejs/biome/bin/biome']],
+  });
+  const installed = repo.key().key;
+  fs.unlinkSync(path.join(repo.root, 'node_modules', '.bin', 'biome'));
+  assert.notEqual(repo.key().key, installed, 'removing a binary link must change the key');
+});
+
+test('Bun binary link targets are part of the gate key', (t) => {
+  const bin = 'node_modules/.bin/biome';
+  const repo = fixtureRepo('bin-target-fingerprint', t, {
+    installEntries: ['@biomejs+biome@2.5.4'],
+    binLinks: [['biome', '../.bun/@biomejs+biome@2.5.4/node_modules/@biomejs/biome/bin/biome']],
+  });
+  const installed = repo.key().key;
+  fs.unlinkSync(path.join(repo.root, bin));
+  fs.symlinkSync('../different/biome', path.join(repo.root, bin));
+  assert.notEqual(repo.key().key, installed, 'repointing a binary link must change the key');
 });
 
 test('a changed byte in a tracked file misses the memo', (t) => {

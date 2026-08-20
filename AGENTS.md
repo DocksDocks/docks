@@ -7,10 +7,12 @@ This root file stays **repo-wide**. Per-area authoring details — skill/agent f
 ## Commands
 
 ```bash
-corepack enable && pnpm install --frozen-lockfile   # one-time setup (Node 24, matching CI's node-version; pnpm via corepack)
+bun install --frozen-lockfile                         # one-time setup
 node scripts/ci.mjs --plugin <name>                  # authoritative gate for one plugin and its owned release tooling
 node scripts/ci.mjs                                  # full gate for repo-wide, shared, or multi-plugin changes
 ```
+
+Node 24 remains the validator runtime and matches CI's `node-version`; Bun 1.4.0 is the package manager pinned through `packageManager`.
 
 ## Repository scope
 
@@ -115,7 +117,7 @@ Claude Code sees these via the symlinks under `.claude/skills/`. Codex sees them
 
 A pull request resolves its changed paths into a shard set and runs `node scripts/ci.mjs --lane <shard>` per lane (`repo` always, plus `core` when the diff touches a plugin it owns), alongside an independent targeting-contracts job; the `validate` job joins those prerequisites and does not rerun the gate. Manual workflow dispatches run the full `node scripts/ci.mjs` gate. A release-tag push strictly resolves `<plugin>--v<version>` to a known registry plugin, then runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate. That targeted invocation skips repo-wide workflow, standalone catalog, tree/durable-anchor, and CI-targeting checks; it runs only the named plugin's owned author checks, shell-hook lint, and plugin gate, including that plugin's marketplace/version coherence. The release command's local preflight targets that same selected plugin before creating and waiting on the tag.
 
-CI caches pnpm data by `pnpm-lock.yaml`. Caches improve speed but carry no authority: frozen dependency resolution, pinned toolchains, and the gate result define correctness.
+CI uses an explicit `actions/cache` step over `~/.bun/install/cache`, with the key bound to `bun.lock` and `package.json`. `oven-sh/setup-bun` caches only the Bun executable, not dependencies. Caches improve speed but carry no authority: frozen dependency resolution, pinned toolchains, and the gate result define correctness.
 
 ## Tool-agnostic rules
 

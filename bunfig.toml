@@ -1,0 +1,22 @@
+# Supply-chain hardening, ported from pnpm-workspace.yaml (Supabase / pnpm Dec-2025 guidance).
+[install]
+
+# Quarantine freshly-published versions. pnpm stated 4320 minutes; Bun states seconds.
+# Both are three days.
+minimumReleaseAge = 259200
+
+# pnpm's store layout was the isolated kind. Bun defaults an existing project to
+# "hoisted", so the strategy has to be stated to keep it.
+linker = "isolated"
+
+# The isolated linker otherwise creates node_modules/.bun/node_modules, which sits on
+# the upward resolution path of every package in the store, so a package can resolve a
+# dependency it never declared. false skips that directory and makes the import fail.
+hoist = false
+
+# Lifecycle scripts stay denied by default. `trustedDependencies: []` in package.json
+# trusts nothing, replacing pnpm's `allowBuilds: {'@anthropic-ai/claude-code': false}`.
+# An empty array is the only spelling that denies everything: omitting the field trusts
+# every package on Bun's built-in list, which includes @anthropic-ai/claude-code.
+# Its postinstall materializes a ~230MB CLI binary that only the plugin-validate CI job
+# needs, and that job runs `node install.cjs` itself.

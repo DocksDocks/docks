@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: generative-skill
   updated: "2026-08-20"
-  content_hash: "1c90ced881d18879f35ce737571c37d32246d19d70c9b70c0a43f8228830c3ef"
+  content_hash: "3604452bb5ce76c20527f2573cd8518bd3265e0d439b58bbeefabd48f09a2a6d"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -90,7 +90,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 3. **Interview.** Prompt for each `variable`; pull `default_from` via `git config` where set. (Use `AskUserQuestion` on Claude; plain prompts elsewhere.)
 4. **Resolve + manifest.** Compute every output path and substitute variables into a preview. Show the full file manifest + resolved variable values. **STOP for confirmation** (constraint 2).
 5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree-node pairs; use the bundled `plan-workspace` to seed the plan label set plus `docs/AGENTS.md`, `docs/CLAUDE.md`, and `docs/PLAN.md`; bundle the three exact plan skills (`plan-workspace`, `plan-manager`, `plan-reviewer`); render `.codex/agents/plan-reviewer.toml` and `.codex/agents/code-reviewer.toml` as the two project-local read-only reviewer wrappers. Main context owns `plan-manager` directly; do not invent wrappers for manager, workspace, creator, repairer, or improver. The seeded entrypoints are `.mjs` (`scripts/ci.mjs`, `scripts/release.mjs`), run via `node` — no exec bit to set.
-6. **Init + verify.** `git init` if needed. Run `corepack enable && pnpm install --frozen-lockfile`, then the generated validators such as `node <target>/scripts/skills/guard.mjs <target>/plugins/<name>/skills` and `node <target>/scripts/tree/guard.mjs <target>`. Then grep for stray `{{` (constraint 3).
+6. **Init + verify.** `git init` if needed. Run `bun install --frozen-lockfile`, then the generated validators such as `node <target>/scripts/skills/guard.mjs <target>/plugins/<name>/skills` and `node <target>/scripts/tree/guard.mjs <target>`. Then grep for stray `{{` (constraint 3).
 
 ## Gotchas
 
