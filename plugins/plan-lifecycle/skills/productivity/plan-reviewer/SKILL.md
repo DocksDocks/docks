@@ -4,8 +4,8 @@ description: "Use when plan-manager needs one read-only pre-implementation revie
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-20"
-  content_hash: "adf65b3b0cdf87d624e416e8bc57a27c7535fbdfe43ea366cc06053f4acc9bad"
+  updated: "2026-08-21"
+  content_hash: "39561aa764f1216fff9ddfcea0ff94dab8e53459de29fe4e4419588b8bb6fb92"
 ---
 
 # Plan Reviewer
@@ -57,7 +57,7 @@ Coalesce duplicate symptoms into one root-cause finding.
 
 ## Output contract
 
-Return the readable `Plan-review:` block defined by the v2 contract in the
+Return the readable `Plan-review:` block defined by the v3 contract in the
 `plan-manager` skill's `references/plan-contract.md`. Do not return JSON. A pass
 has no finding lines. A repair or blocked verdict has at least one finding line.
 Use a precise plan locator, defect, and actionable fix.

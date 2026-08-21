@@ -56,12 +56,15 @@ deliberately carries no context-tree node (`claude plugin validate` lints every
 
 ## Plan-skill contract sync
 
-The synchronized surface is the v2 frontmatter, the eight sections, both table
-headers, the three plan-review kinds (`goal_fit`, `research_gap`,
-`security_risk`), the two review-record shapes, the zero-commit rule, the
-lifecycle-tool ownership clause, and the five issue-backend clauses:
-record-backend, output-discipline, landing-linkage, label-mirror, and
-issue-write-precondition.
+The synchronized surface is the v3 first-line marker, no-frontmatter rule,
+eight sections, both table headers, four open-work phases (`drafting`, `planned`,
+`ongoing`, `blocked`), the GitHub `state` + `stateReason` derivation truth table,
+the three plan-review kinds (`goal_fit`, `research_gap`, `security_risk`), the
+two review-record shapes, the zero-commit rule, lifecycle-tool ownership, issue
+write preconditions, archive-as-verifier landing proof, and marker-only
+classification: any body without the exact v3 opening is unreadable and no
+parser is attempted. Legacy workspace migration leaves old files unopened and
+creates fresh records only for user-restated goals.
 
 When any part changes, synchronize the three skills,
 `plan-manager/references/plan-contract.md`,

@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-20"
-  content_hash: "5bb1957c88d0eaf4e7bffe5f65dc1be86f33942b002c0d124f57c6e32573783d"
+  updated: "2026-08-21"
+  content_hash: "343de0f326f6a923217298985839b82cbcca492c895502ccb8438587342598d4"
 ---
 
 # Plans Workspace
@@ -18,18 +18,18 @@ individual plan or its implementation.
 <constraint>
 Resolve the repository and classify the operation before writing. Audit is
 read-only. Bootstrap applies only to `GREENFIELD`; migration applies only to
-`MARKDOWN_V2`; refresh must be explicit and applies only to a recognizable
+`LEGACY_MARKDOWN`; refresh must be explicit and applies only to a recognizable
 generated contract. `CURRENT` is a no-op. `AMBIGUOUS_CUSTOM` stops. Never
 replace project-owned agent content or turn an audit finding into an implicit
 refresh.
 </constraint>
 
 <constraint>
-Migration preserves every active-plan byte. Inventory sorted source paths,
-byte counts, and SHA-256 digests first; reject collisions; verify a unique issue
-destination for every source and the equal-count tripwire before deleting any
-source. Any source/destination byte delta stops. `docs/plans/finished/` is frozen
-pre-GitHub history: never read, inventory, parse, migrate, delete, or rewrite it.
+Migration preserves every legacy plan file by leaving it exactly where it is,
+unmodified. Never open, parse, hash, copy, upload, delete, or rewrite one. Only
+goals the user explicitly restates as a title and goal enter the lifecycle,
+through fresh v3 issues. `docs/plans/finished/` is frozen pre-GitHub history:
+never read, inventory, parse, migrate, delete, or rewrite it.
 </constraint>
 
 ## Ownership and operations
@@ -74,16 +74,16 @@ naming `OWNER/REPO` and the effect. A missing confirmation makes the step
 
 Inspect `docs/PLAN.md`, `docs/AGENTS.md`, `docs/CLAUDE.md`, the root `## Plans`
 section, `docs/PLAN-QUEUE.md`, the repository's `plan*` labels, and the two Codex
-reviewer wrappers. Detect a recognizable old workspace from generated markers
-and paths, but do not inspect anything under `docs/plans/finished/`.
+reviewer wrappers. Detect a recognizable legacy markdown workspace only from
+generated scaffolding and paths; never open a legacy plan file or inspect
+anything under `docs/plans/finished/`.
 
-Apply the table in order; `MARKDOWN_V2` and `STALE_V1` take precedence over
-`GREENFIELD` when an old generated workspace is recognizable.
+Apply the table in order; `LEGACY_MARKDOWN` takes precedence over `GREENFIELD`
+while its old generated scaffolding is recognizable.
 
 | Class | Required evidence | Allowed result |
 |---|---|---|
-| `MARKDOWN_V2` | A recognizable generated `docs/plans/` v2 workspace with `docs/plans/active/` | migrate to issues |
-| `STALE_V1` | A recognizable generated PlanRunV1 workspace naming `Plan-run: PlanRunV1`, `plan_sha256`, or a review permit | audit report; explicit refresh of generated support only |
+| `LEGACY_MARKDOWN` | Recognizable generated scaffolding for a tracked-markdown plan workspace | preserve every plan file; migrate only user-restated goals into fresh issues |
 | `GREENFIELD` | No `docs/PLAN.md` and no repository label whose name is `plan` or starts `plan:` | bootstrap |
 | `CURRENT` | Every current marker below matches | no-op or audit report |
 | `STALE` | A recognizable issue-backed workspace misses or drifts from a current marker | audit report; explicit refresh only |
@@ -100,7 +100,7 @@ Current markers are exactly:
 - the two reviewer wrappers and no other plan-prefixed wrapper;
 - an optional, classification-neutral `docs/PLAN-QUEUE.md`.
 
-The label set is created idempotently with `gh label create --force`: `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, `plan:blocked`, `plan:finished`, plus the triage label `plan-scheduled`. Exactly one `plan:<status>` label is present at a time, and it mirrors the frontmatter `status`.
+The label set is created idempotently with `gh label create --force`: `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, and `plan:blocked`. An open plan carries exactly one phase label. Closed-plan completion derives from GitHub `state` and `stateReason`; phase labels describe open work only.
 
 A missing marker makes a recognizable issue-backed workspace `STALE`. Audit
 reports malformed queue bytes but does not repair them. Existing wrapper files
@@ -116,7 +116,7 @@ Before mutation, report every target, proposed action, and observed reason:
 |---|---|---|
 | OWNER/REPO labels | CREATE/UPDATE | GREENFIELD bootstrap after confirmation |
 | docs/PLAN.md | OFFER REFRESH | recognizable STALE standard |
-| docs/plans/active/example.md | MIGRATE | MARKDOWN_V2 source; bytes preserved |
+| docs/plans/active/example.md | PRESERVE | LEGACY_MARKDOWN history; bytes untouched |
 | docs/plans/finished/ | FREEZE | pre-GitHub history; contents not read |
 | .codex/agents/code-reviewer.toml | CREATE | missing wrapper during bootstrap |
 ```
@@ -145,41 +145,40 @@ For `GREENFIELD` with an explicit bootstrap request:
    Overwrite neither existing file.
 6. Create `docs/PLAN-QUEUE.md` only when the user asks for a queue.
 
-## Migrate a recognized markdown-v2 workspace
+## Migrate a recognized legacy markdown workspace
 
-For `MARKDOWN_V2` with an explicit migration request:
+For `LEGACY_MARKDOWN` with an explicit migration request, preserve the old plan
+files as inert history and create current records only for goals the user still
+wants:
 
-1. Inventory every regular file directly under `docs/plans/active/` by sorted
-   path, byte count, and SHA-256 digest. Run `plan.mjs check --file <path>` for
-   each; a file that is not a valid v2 record stops migration. Do not list or
-   hash `docs/plans/finished/`.
-2. List existing plan-labeled issues before creating anything. Reject a body
-   already matching a source, duplicate destination mapping, repeated issue
-   number, or any other non-one-to-one collision.
-3. Resolve and name `OWNER/REPO`. After confirmation, create the closed plan
-   labels with `plan.mjs labels`.
-4. After the issue-write confirmation, create exactly one issue per source with
-   `gh issue create --repo OWNER/REPO --title <frontmatter-title> --body-file
-   <source> --label plan --label plan:<frontmatter-status>`. Record the returned
-   issue number and URL; never use `plan.mjs new`, because it renders a new body.
-5. Read each new issue body back without adding or removing a byte. Verify its
-   byte count and SHA-256 digest equal its source, then run
-   `plan.mjs check <issue>`. Stop on any byte or check failure.
-6. Prove that source count equals new destination count, every issue number is
-   unique, and every source has exactly one verified destination. Do not delete
-   a source yet.
-7. Copy the embedded standard to `docs/PLAN.md`; write the `docs/AGENTS.md`
-   routing node and exact `docs/CLAUDE.md` shim; replace the recognizable root
-   section; and seed only missing reviewer wrappers.
-8. Only after steps 5–7 succeed, delete the migrated active files. Remove
-   generated `docs/plans/AGENTS.md`, `docs/plans/CLAUDE.md`, and
-   `docs/plans/.gitignore`; remove `docs/plans/active/` only when empty. Leave
-   `docs/plans/finished/` in place and untouched. Create `docs/PLAN-QUEUE.md`
-   only when requested; translate an authorized old queue's `Plan` cells to the
-   recorded issue numbers without changing lifecycle authority.
+1. Identify the recognizable generated standard, routing, shim, root section,
+   queue, and `docs/plans/` support paths without opening a legacy plan file.
+   Customized or ambiguous scaffolding stops migration.
+2. Report every legacy plan path as `PRESERVE`. Do not read, hash, copy, upload,
+   delete, rewrite, or derive metadata from any of those files.
+3. Ask the user to name each goal that should remain live, supplying its exact
+   title and goal. A goal the user does not restate stays only in inert history.
+4. Resolve and name `OWNER/REPO`. After the repository-metadata confirmation,
+   create the reserved plan labels with `plan.mjs labels`.
+5. After the issue-write confirmation, run
+   `plan.mjs new --title <user-title> --goal <user-goal>` once per restated
+   goal. Every new record starts at `plan:drafting` with the normal v3 body and
+   the template Research section. Never derive its title, goal, phase, or
+   body from a legacy file.
+6. Read each new issue back, run `plan.mjs check <issue>`, and verify its first
+   line marker and `plan:drafting` label. Record the returned issue number and
+   URL for the user.
+7. Replace only the recognizable generated standard, routing, shim, and root
+   surfaces with the current issue-backed versions; seed only missing reviewer
+   wrappers. Remove only recognizable generated `docs/plans/AGENTS.md`,
+   `docs/plans/CLAUDE.md`, and `docs/plans/.gitignore` scaffolding that advertised
+   the tracked-plan contract. Leave all plan files and their directories in
+   place.
+8. Create a current `docs/PLAN-QUEUE.md` only when requested, using the fresh
+   issue numbers. Never read or translate a legacy queue.
 
-The issue number is the plan identity. No migrated slug or plan path survives as
-lifecycle identity, and no command reads frozen history.
+The issue number is the plan identity. Legacy files remain inert history, no
+command reads them, and their paths never become lifecycle identity.
 
 ## Explicit refresh
 
@@ -189,11 +188,9 @@ markers: confirmed label creation/update, the embedded standard, routing node,
 exact shim, recognizable root section, optional requested queue, and missing
 reviewer wrappers. It never edits an issue body.
 
-`STALE_V1` preserves all plan records and permits only replacement of a
-recognizable generated standard/routing/shim/root surface plus missing wrappers.
-It does not parse v1 records, create replacement issues, or relabel them. Use
-`MARKDOWN_V2` migration only for valid v2 active records. Every other class
-stops. Never delete an obsolete project-owned wrapper automatically.
+`LEGACY_MARKDOWN` uses only the migration route above. It never makes an old file
+readable or eligible for issue upload. Every other class stops. Never delete an
+obsolete project-owned wrapper automatically.
 
 ## Generated root Plans section
 
@@ -208,25 +205,41 @@ public-contract change, security-sensitive or destructive work, or any
 non-`local` effect.
 
 <constraint>
-The plan record is a GitHub issue: its body carries the `plan_contract: v2` frontmatter and the eight `##` sections, its `plan:<status>` label mirrors the frontmatter `status`, and no plan markdown is tracked in the repository. Exactly three skills own the workflow: `plan-workspace` maintains the workspace; main-context `plan-manager` runs six phases — decide, draft, research, one plan review, implement, code review — and archives; internal `plan-reviewer` returns a readable pre-implementation verdict. Two read-only reviewer wrappers ship, `plan-reviewer` and `code-reviewer`, and nothing else in the lifecycle has a wrapper.
+The plan record is a GitHub issue. Its body starts with
+`<!-- plan-contract: v3 -->`, then a blank line and the exact eight `##`
+sections; it has no frontmatter. GitHub owns title, open-work phase, owner,
+timestamps, and completion, and no plan markdown is tracked in the repository.
+Exactly three skills own the workflow: `plan-workspace` maintains the workspace;
+main-context `plan-manager` runs six phases — decide, draft, research, one plan
+review, implement, code review — and archives; internal `plan-reviewer` returns
+a readable pre-implementation verdict. Two read-only reviewer wrappers ship,
+`plan-reviewer` and `code-reviewer`, and nothing else in the lifecycle has a
+wrapper.
 </constraint>
 
-The record is markdown inside the issue body: `plan_contract: v2` frontmatter
-plus eight `##` sections — `## Goal`, `## Research`, `## Steps`,
-`## Acceptance`, `## Do not touch`, `## Open questions`, `## Review`,
-`## Verification Results`. There are no hashes, permits, run identities, locks,
-or bundles, and the `plan.mjs` shipped inside the installed `plan-lifecycle`
-plugin is the only lifecycle tool. This lifecycle creates zero commits and never pushes.
-Commit when the user asks, under `docks:commit-discipline`.
+After the marker and blank line, the record carries exactly `## Goal`,
+`## Research`, `## Steps`, `## Acceptance`, `## Do not touch`,
+`## Open questions`, `## Review`, and `## Verification Results`, in that order
+and once each. `## Goal` carries exactly one mode line. Open-work phase is one
+of `drafting`, `planned`, `ongoing`, or `blocked` in a `plan:<phase>` label; a
+blocked plan starts `## Open questions` with `Blocked: <one-line reason>`.
+Closed completion derives from GitHub `state` and `stateReason`. There are no
+hashes, permits, run identities, locks, or bundles, and the `plan.mjs` shipped
+inside the installed `plan-lifecycle` plugin is the only lifecycle tool. This
+lifecycle creates zero commits and never pushes. Commit when the user asks,
+under `docks:commit-discipline`.
 
 Every Steps row carries an `Effect` of exactly
 `local|probe|production_access|publish|push|release|deploy`. A step whose
 `Effect` is not `local` requires an in-session `ask` confirmation immediately
-before it runs; when `ask` is unavailable the step is set `blocked` with
-`blocked_reason` naming the unconfirmed effect. Persisted effects record intent
-only.
+before it runs; when `ask` is unavailable the step is set `blocked` and the plan
+reason becomes the first `## Open questions` line, `Blocked: <reason>`.
+Persisted effects record intent only.
 
-Work lands through a pull request whose body carries `Closes #<issue>` and whose base is the repository default branch, because GitHub interprets a closing keyword only in a pull request that targets the default branch. `plan.mjs archive` verifies that merged pull request rather than performing the merge.
+Work lands through a pull request whose body carries `Closes #<issue>` and whose
+base is the repository default branch. `plan.mjs archive` is a verifier: it
+requires completed closure, terminal steps, an exact `Code-review: pass` line,
+and a merged closing pull request into that branch; it writes no status.
 
 Render a plan body verbatim only when the user names that plan and asks to see it. After a write, report the one-line header strip and the changed lines only; a write never re-renders the body.
 
@@ -238,16 +251,17 @@ a source of truth, and never parse or migrate it. The complete contract lives in
 
 ## Verification
 
-After migration issue creation and before deleting any active source:
+After migration issue creation and before changing generated scaffolding:
 
-- **Per-plan round-trip:** each inventoried source has exactly one issue body
-  with the same byte count and SHA-256 digest, and `plan.mjs check <issue>` passes.
-- **Equal-count tripwire:** verified destination count equals inventoried source
-  count; every issue number is unique. A lower or higher count stops.
+- **Legacy-file preservation:** no command opened, parsed, hashed, copied,
+  uploaded, deleted, or rewrote a legacy plan file; every file remains at its
+  original path.
+- **Goal provenance:** every created issue has one exact user-supplied title and
+  goal; no field came from a legacy file.
+- **Fresh-record check:** every created issue starts with the v3 marker, carries
+  `plan:drafting`, and passes `plan.mjs check <issue>`.
 - **Frozen history:** no command listed, read, hashed, parsed, moved, or rewrote
   anything under `docs/plans/finished/`.
-- **Removal safety:** only verified active sources and recognizable generated
-  support files are selected for removal.
 
 After bootstrap, migration, or refresh, verify the repository label set,
 byte-identical `docs/PLAN.md`, routing node, exact Claude shim, exact root
@@ -261,8 +275,8 @@ not claim a wrapper ran only because its file exists.
 BAD: Audit finds drift, so refresh labels and generated files immediately.
 GOOD: Audit reports drift; only an explicit refresh changes current markers.
 
-BAD: Re-render an active v2 file with plan.mjs new and delete the source.
-GOOD: Create an issue from the source bytes, prove the round-trip, then delete.
+BAD: Parse or upload a legacy plan file, then delete or rewrite the source.
+GOOD: Leave every old file unopened and create only user-restated goals through plan.mjs new.
 
 BAD: Hash docs/plans/finished/ to prove that frozen history was preserved.
 GOOD: Never read frozen history; preserve the directory by leaving it untouched.

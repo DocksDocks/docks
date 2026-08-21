@@ -85,7 +85,7 @@ bundled_skills:
   - { source: plugins/docks/skills/productivity/write-skill }
 ```
 
-The three exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context adaptive orchestration, and repository-grounded plan review. Scaffold generation does not automatically create or review a plan. Both `plan-reviewer` and `code-reviewer` receive read-only Codex wrappers; main context invokes `plan-manager` directly. The plan record is a GitHub issue: its body carries the `plan_contract: v2` frontmatter and the eight `##` sections, its `plan:<status>` label mirrors the frontmatter `status`, and no plan markdown is tracked in the repository.
+The three exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context adaptive orchestration, and repository-grounded plan review. Scaffold generation does not automatically create or review a plan. Both `plan-reviewer` and `code-reviewer` receive read-only Codex wrappers; main context invokes `plan-manager` directly. The plan record is a GitHub issue: its body starts with `<!-- plan-contract: v3 -->`, followed by one blank line and the eight `##` sections, and carries no frontmatter; its `plan:<status>` label owns the open-work phase, and no plan markdown is tracked in the repository.
 
 - `source` — path in the source repo. Setup must read these from the live repo rather than copying a stale example.
 - `destination` — optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.

@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-20"
-  content_hash: "9925e479ad988ca1981cefbe9262aa2d1686708397ed0884581dc77f2e779eec"
+  updated: "2026-08-21"
+  content_hash: "9550770091f476f0fa250ba23618e79c2736d3d7b08cc9cdf80af6b7b7440c1c"
 ---
 
 # Plan Manager
@@ -23,15 +23,17 @@ owns user questions, finding disposition, edits, verification, and lifecycle.
 </constraint>
 
 <constraint>
-The plan record is a GitHub issue: its body carries the `plan_contract: v2` frontmatter and the eight `##` sections, its `plan:<status>` label mirrors the frontmatter `status`, and no plan markdown is tracked in the repository.
-Use the v2 contract in
-[`references/plan-contract.md`](references/plan-contract.md) for the exact eight
-sections, both table headers, record shapes, and lifecycle transitions. Do not
-restate or extend those shapes here.
+The plan record is a GitHub issue. Its body starts with
+`<!-- plan-contract: v3 -->`, then a blank line and the exact eight `##`
+sections; it has no frontmatter. GitHub owns title, phase, owner, timestamps,
+and completion. Use the v3 contract in
+[`references/plan-contract.md`](references/plan-contract.md) for the exact body,
+table headers, record shapes, status derivation, and archive verification. Do
+not restate or extend those shapes here.
 </constraint>
 
 <constraint>
-A step whose `Effect` is not `local` requires an in-session `ask` confirmation immediately before it runs; when `ask` is unavailable the step is set `blocked` with `blocked_reason` naming the unconfirmed effect.
+A step whose `Effect` is not `local` requires an in-session `ask` confirmation immediately before it runs; when `ask` is unavailable the step is set `blocked` and the first line of `## Open questions` becomes `Blocked: <one-line reason>` naming the unconfirmed effect.
 </constraint>
 
 ## Six-phase flow
@@ -100,7 +102,7 @@ A step whose `Effect` is not `local` requires an in-session `ask` confirmation i
    subagent. Give it the same three-kind contract by naming the `plan-reviewer`
    skill. A missing wrapper never creates another role and never skips review.
 
-   **Plan-only runs stop here.** Deliver the reviewed issue at `status: planned`.
+   **Plan-only runs stop here.** Deliver the reviewed issue carrying `plan:planned`.
    Report the verdict and issue number. Do not enter phase 5 without a new user
    instruction. A later session resumes at phase 5 by reading the issue body.
 
@@ -145,9 +147,10 @@ A step whose `Effect` is not `local` requires an in-session `ask` confirmation i
 ## Plan contract
 
 Read [`references/plan-contract.md`](references/plan-contract.md) before creating
-or changing a canonical plan. It owns the exact frontmatter, eight sections,
-Steps and Acceptance table headers, review records, and closed transitions.
-The record has no hashes or permits.
+or changing a canonical plan. It owns the exact v3 marker, eight sections,
+Steps and Acceptance table headers, review records, GitHub-field ownership,
+derived status truth table, and archive verification. The record has no
+frontmatter, hashes, permits, or alternate readable shape.
 Keep paths repository-relative; acceptance rows run from the repository root.
 
 ## Lifecycle CLI
@@ -159,27 +162,27 @@ value that is `plan` or begins `plan:`, so an extra cannot plant a second status
 label. Every mutating command refuses a plan owned by another login and claims an
 unassigned one in the same write; read-only commands never check ownership.
 
-`archive` verifies the landing pull request with one `gh api graphql` query. A
-reference counts only when `mergedAt` is set, `baseRefName` equals the default
-branch of that reference's own repository, and the reference is absent from the
-`userLinkedOnly: true` set, because a hand-linked merge is not the contract's
-`Closes #<issue>`.
+`archive` verifies landing through either the issue's
+`closedByPullRequestsReferences` (without `userLinkedOnly`) or, when that is
+empty, the closing commit's `associatedPullRequests`. A reference counts only
+when it is merged into the target repository's default branch. A commit pushed
+straight to that branch has no associated merged pull request and is refused.
 
 | command | behaviour | stdout on success |
 |---|---|---|
-| `labels [--extra <name>]…` | `gh label create <name> --force` for `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, `plan:blocked`, `plan:finished`, and `plan-scheduled`, then each `--extra` | one line per label: `label ready: <name>` |
-| `new --title <t> --goal <g> [--mode plan-and-implement\|plan-only] [--label <name>]…` | render the unchanged v2 template body, `gh issue create --title --body-file --label plan --label plan:drafting --assignee @me` (+ extras) | `plan created: #<n> <url>` |
+| `labels [--extra <name>]…` | `gh label create <name> --force` for `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, and `plan:blocked`, then each `--extra` | one line per label: `label ready: <name>` |
+| `new --title <t> --goal <g> [--mode plan-and-implement\|plan-only] [--label <name>]…` | render the v3 marker-based body, `gh issue create --title --body-file --label plan --label plan:drafting --assignee @me` (+ extras) | `plan created: #<n> <url>` |
 | `claim <issue>` | resolve the acting login, `gh issue edit <n> --add-assignee @me` when unassigned; idempotent for the owner, refuses a foreign owner without writing | `plan #<n> claimed: <login>` |
 | `show <issue> [--body]` | header strip on stdout; `--body` puts the record alone on stdout and the header strip on stderr | `#<n> · <status> · <title> · <url>` |
 | `export <issue>` | read the issue, resolve the scratch dir with `git rev-parse --git-path docks-review` (so a linked worktree works), create it mode 0700 when missing, write the body verbatim to `plan-<issue>.md` inside it | the absolute export path |
 | `edit <issue> --file <path>` | run the 13 checks on the file, refuse on any failure, then replace the body | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
 | `check <issue \| --file <path>>` | 13 checks | `plan check passed: #<n>` or `plan check passed: <path>` |
-| `status <issue> <status> [--reason <text>]` | validate the transition against the body frontmatter, write body, swap label in the same `gh issue edit` call | `plan #<n> status: <old> -> <new>` |
+| `status <issue> <status> [--reason <text>]` | require an open issue, validate the phase transition from its label, swap phase labels, and maintain the leading `Blocked:` line in `## Open questions` | `plan #<n> status: <old> -> <new>` |
 | `step <issue> <step-id> <status>` | rewrite one Steps `Status` cell | `plan #<n> step <id>: <old> -> <new>` |
-| `list [--status <s>]` | `gh issue list --label plan --state all --limit 500 --json number,title,state,labels`; status from the `plan:<status>` label; open issues first, then closed; each group sorted by ascending number | `<status>\t#<n>\t<title>` per line |
+| `list [--status <s>]` | list plan issues and derive status from phase label for open work or from `state` + `stateReason` when closed; open issues first, then closed; each group sorted by ascending number | `<status>\t#<n>\t<title>` per line |
 | `next` | queue-aware startable plans from `docs/PLAN-QUEUE.md` (`Plan` cell holds the issue number); falls back to every `planned` plan on a missing or malformed queue, warning on stderr | `#<n>` per line |
-| `archive <issue>` | require `ongoing`, terminal steps, `Code-review: pass`, and a keyword-linked pull request merged into its repository's default branch; set `finished`, apply `plan:finished`, close the issue | `plan #<n> finished (closed by <pr-url>)` |
-| `retire <issue> --reason <text>` | append `## Retirement`, set `finished`, apply `plan:finished`, close as not planned | `plan #<n> retired` |
+| `archive <issue>` | require completed closure, terminal steps, an exact `Code-review: pass` line, and a merged closing pull request into the target repository's default branch; remove any stale phase label without writing status | `plan #<n> finished (closed by <pr-url>)` |
+| `retire <issue> --reason <text>` | close as not planned and remove every phase label; completion derives as `retired` from GitHub | `plan #<n> retired` |
 
 Every command exits 0 on success and 1 on a usage or validation failure. Failure
 messages keep their current wording wherever the check is unchanged.
@@ -201,7 +204,7 @@ Work lands through a pull request whose body carries `Closes #<issue>` and whose
 
 Only the pull request that lands the completed work carries `Closes #<issue>`. A partial pull request carries a plain `Refs #<issue>` instead, because GitHub closes the issue as soon as the first pull request carrying a closing keyword merges into the default branch.
 
-One writer owns a plan issue at a time, recorded in the issue's own GitHub assignee field, never the frontmatter `assignee` key, which stays `null`. `plan.mjs new` claims ownership at creation and `plan.mjs claim <issue>` claims an existing plan. Ownership is a precondition, not advice: every mutating command refuses a plan owned by another login, writes nothing when it refuses, and claims an unassigned plan in the same write. Read-only commands never check ownership. Taking a plan from another owner is a deliberate manual GitHub action; no lifecycle command transfers ownership.
+One writer owns a plan issue at a time, recorded in the issue's own GitHub assignee field. `plan.mjs new` claims ownership at creation and `plan.mjs claim <issue>` claims an existing plan. Ownership is a precondition, not advice: every mutating command refuses a plan owned by another login, writes nothing when it refuses, and claims an unassigned plan in the same write. Read-only commands never check ownership. Taking a plan from another owner is a deliberate manual GitHub action; no lifecycle command transfers ownership.
 
 Landing sits outside the six phases. The branch, commits, push, pull request,
 and merge are the user's to run, on request, under `docks:commit-discipline`.
