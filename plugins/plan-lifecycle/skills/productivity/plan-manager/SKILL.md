@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-21"
-  content_hash: "cae1f4289cd368270eb9cb21138bc81a001ed0d689c8792fdd1ce0f84c744d34"
+  content_hash: "44df74ed5d00700a9d68679062e6e57f406549fabe5f509ebc0d277a1db090f3"
 ---
 
 # Plan Manager
@@ -141,13 +141,17 @@ with `Blocked:`.
    Dispatch `code-reviewer` with the absolute diff path, the absolute export
    path, and the issue number. Append its
    report to `## Review` under
-   `### Code review round <n> — <UTC date>`. Fix every `CRITICAL` and `HIGH`
-   finding. Record each `MEDIUM` and `LOW` finding, then fix it at your judgment.
-   Re-review only after fixing a `CRITICAL` or `HIGH`.
+   `### Code review round <n> — <UTC date>`. A round that returns
+   `Code-review: pass` carries no unfixed `CRITICAL` or `HIGH` finding; it may
+   still carry advisory `MEDIUM` and `LOW` lines. Record each advisory line,
+   then fix it at your judgment; an advisory line never triggers a re-review.
+   A round that returns `Code-review: fixes-required` names at least one
+   evidenced `CRITICAL` or `HIGH` defect: fix every one of them, then dispatch
+   exactly one repair re-review. If that repair re-review again returns
+   `fixes-required`, stop: append `Code-review: blocked` naming the surviving
+   findings, and set the plan `blocked`.
 
-   This is a progress guard, not a budget. If a code-review round returns the same finding-id set as the previous round and no file changed between the two rounds, stop, append `Code-review: blocked` naming that set, and set the plan `blocked`.
-
-   When a round returns `Code-review: pass`, report that the work is ready for
+   A `pass` round means the work is ready for
    the user's landing actions. Run `plan.mjs archive <issue>` only after the
    user has landed the closing pull request.
 

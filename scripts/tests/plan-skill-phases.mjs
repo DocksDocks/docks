@@ -16,6 +16,8 @@ const WORKSPACE_SKILL = 'plugins/plan-lifecycle/skills/productivity/plan-workspa
 const WORKSPACE_TEMPLATE = 'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md';
 const PLAN_CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
 const PLAN_MD = 'docs/PLAN.md';
+const CODE_REVIEWER_AGENT = 'plugins/plan-lifecycle/agents/code-reviewer.md';
+const CODE_REVIEWER_CODEX = '.codex/agents/code-reviewer.toml';
 
 const V3_PINNED_CLAUSES = [
   {
@@ -63,9 +65,19 @@ const V3_PINNED_CLAUSES = [
     files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
-    name: 'code-review-progress-guard',
-    text: 'If a code-review round returns the same finding-id set as the previous round and no file changed between the two rounds, stop, append `Code-review: blocked` naming that set, and set the plan `blocked`.',
+    name: 'code-review-repair-bound',
+    text: 'If that repair re-review again returns `fixes-required`, stop: append `Code-review: blocked` naming the surviving findings, and set the plan `blocked`.',
     files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'code-review-pass-verdict',
+    text: '- `pass`: No `CRITICAL` or `HIGH` finding stands unfixed. Advisory `MEDIUM` and `LOW` lines may ride along on a `pass`: the manager records them and fixes them at its judgment, and they never trigger a re-review.',
+    files: [CODE_REVIEWER_AGENT, CODE_REVIEWER_CODEX],
+  },
+  {
+    name: 'code-review-fixes-required-verdict',
+    text: '- `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The manager fixes it and dispatches exactly one repair re-review.',
+    files: [CODE_REVIEWER_AGENT, CODE_REVIEWER_CODEX],
   },
   {
     name: 'review-scope-guard',

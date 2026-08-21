@@ -168,8 +168,13 @@ Code-review: fixes-required
 ```
 
 `Plan-review:` is exactly `pass`, `repair`, or `blocked`. `Code-review:` is
-exactly `pass`, `fixes-required`, or `blocked`. `pass` has no finding lines; the
-others have at least one.
+exactly `pass`, `fixes-required`, or `blocked`. A code-review `pass` means no
+`CRITICAL` or `HIGH` finding stands unfixed; it carries only advisory `MEDIUM`
+and `LOW` lines, or none, and the manager fixes those at its judgment without a
+re-review. `fixes-required` names at least one evidenced `CRITICAL` or `HIGH`
+defect and forces exactly one repair re-review; if that re-review still returns
+`fixes-required`, the manager appends `Code-review: blocked` and sets the plan
+`blocked`. A `blocked` verdict has at least one finding line.
 
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or
 `security_risk`; nothing else is a finding. A sufficient plan passes.
@@ -267,7 +272,9 @@ ownership.
 
 `archive` is a verifier, not a status writer. It requires the issue already
 closed with `stateReason: COMPLETED`, every Steps row terminal (`done` or
-`skipped`), and a line exactly `Code-review: pass` in `## Review`.
+`skipped`), and a line exactly `Code-review: pass` in `## Review`. That pass
+line may carry advisory `MEDIUM` and `LOW` finding lines beneath it; only an
+unfixed `CRITICAL` or `HIGH` keeps a plan from archiving.
 
 `archive` also requires a merged closing pull request into the target
 repository's default branch. It reads `closedByPullRequestsReferences` with

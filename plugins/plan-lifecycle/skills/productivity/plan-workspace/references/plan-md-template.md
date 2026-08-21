@@ -210,7 +210,9 @@ Legal step transitions are `planned → in-flight | done | blocked | skipped`, `
 all Steps rows to be terminal (`done` or `skipped`), a line matching exactly
 `Code-review: pass` in `## Review`, and an issue already closed as completed by
 an eligible merged pull request. It writes no status. On success it removes any
-stale phase label and prints `plan #<n> finished (closed by <url>)`.
+stale phase label and prints `plan #<n> finished (closed by <url>)`. The pass
+line may carry advisory `MEDIUM` and `LOW` finding lines beneath it; only an
+unfixed `CRITICAL` or `HIGH` keeps a plan from archiving.
 
 The verifier reads the issue's `closedByPullRequestsReferences` with
 `excludeUserLinked: true`. It accepts only keyword-linked merged pull requests.
@@ -293,9 +295,15 @@ Code-review: pass|fixes-required|blocked
 - HIGH · Security · plugins/x/y.mjs:41 — user input reaches a shell command unquoted — pass an argument array
 ```
 
-A `pass` record has no finding lines. Every other verdict has at least one
-finding line. A plan-review finding is exactly one of `goal_fit`, `research_gap`,
-or `security_risk`; nothing else is a finding. A sufficient plan passes.
+A code-review `pass` means no `CRITICAL` or `HIGH` finding stands unfixed; it
+carries only advisory `MEDIUM` and `LOW` lines, or none, and the manager fixes
+those at its judgment without a re-review. `fixes-required` names at least one
+evidenced `CRITICAL` or `HIGH` defect and forces exactly one repair re-review;
+if that re-review still returns `fixes-required`, the manager appends
+`Code-review: blocked` and sets the plan `blocked`. A `blocked` verdict has at
+least one finding line. A plan-review finding is exactly one of `goal_fit`,
+`research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan
+passes.
 
 ## Phases
 
@@ -304,16 +312,16 @@ or `security_risk`; nothing else is a finding. A sufficient plan passes.
 3. **Research.** Verify repository facts and external claims, record their sources, choose the durable fix, bind the exact files, complete Acceptance, pass `plan.mjs check`, and set the plan `planned`.
 4. **Plan review.** Dispatch exactly one pre-implementation review. Append its verdict and findings. Fix reproduced findings before implementation. A user-only decision goes in `## Open questions`. A plan-only run stops at `planned` after this review.
 5. **Implement.** Set the plan `ongoing`, move each step through its legal states, and record real Acceptance output in `## Verification Results` before the closing merge.
-6. **Code review.** Review the declared change, fix every critical and high finding, and review again only after such a fix. Every step must be terminal and code review must pass before the closing merge; archive verifies those facts afterward.
+6. **Code review.** Review the declared change, fix every critical and high finding, and run exactly one repair re-review after such a fix; if that re-review still returns fixes-required, append `Code-review: blocked` and set the plan `blocked`. Every step must be terminal and code review must pass before the closing merge; archive verifies those facts afterward.
 
 Build the review diff from what actually changed: `git status --porcelain` names
 the paths and the diff covers exactly those. Name every changed path that no
 Steps `Files` cell mentions in the review request, so the reviewer judges
 undeclared scope instead of the manager blocking on bookkeeping.
 
-If a code-review round returns the same finding-id set as the previous round and
-no file changed between the two rounds, stop, append `Code-review: blocked`
-naming that set, and set the plan `blocked`.
+If that repair re-review again returns `fixes-required`, stop: append
+`Code-review: blocked` naming the surviving findings, and set the plan
+`blocked`.
 
 A step whose `Effect` is not `local` requires an in-session `ask` confirmation
 immediately before it runs; when `ask` is unavailable the step is set `blocked`
