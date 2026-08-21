@@ -472,8 +472,14 @@ try {
   makeValid(fileOnlyBlockedNumber);
   setIssueStatus(fileOnlyBlockedNumber, 'blocked', 'waiting for a durable dependency');
   const fileOnlyBlockedBody = issue(fileOnlyBlockedNumber).body;
-  const fileOnlyBlockedFile = path.join(scratch, 'file-only-blocked-plan.md');
-  fs.writeFileSync(fileOnlyBlockedFile, fileOnlyBlockedBody);
+  const fileOnlyBlockedExport = run('export', String(fileOnlyBlockedNumber));
+  expectSuccess(fileOnlyBlockedExport, 'export blocked plan');
+  const fileOnlyBlockedFile = fileOnlyBlockedExport.stdout.trim();
+  assert.equal(
+    fs.readFileSync(fileOnlyBlockedFile, 'utf8'),
+    fileOnlyBlockedBody,
+    'export must copy the blocked body verbatim',
+  );
   expectSuccess(run('check', '--file', fileOnlyBlockedFile), 'check --file without phase');
   expectSuccess(run('check', String(fileOnlyBlockedNumber)), 'check blocked issue with Blocked reason');
   updateIssue(fileOnlyBlockedNumber, (entry) => {
