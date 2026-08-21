@@ -78,6 +78,10 @@ When a plan is blocked, `## Open questions` starts with exactly
 `Blocked: <one-line text>`. Only a blocked plan may open that section with
 `Blocked:`.
 
+A body carries no phase. `check <issue>` enforces every rule; `check --file
+<path>` enforces only body-readable rules and skips the phase-label rule, both
+`Blocked:` rules, and the filled-Research rule rather than assuming a phase.
+
 ## Body — exactly these eight `##` sections, in this order, each present once
 
 Every v3 plan opens with `<!-- plan-contract: v3 -->`, then a blank line, then
@@ -270,9 +274,11 @@ repository's default branch. It reads `closedByPullRequestsReferences` with
 `excludeUserLinked: true`. Therefore, a manually linked pull request never
 proves a landing.
 
-When that connection is empty, `archive` examines only the latest closure.
-A commit closer supplies its `associatedPullRequests`.
-Any other latest closer supplies no commit fallback proof.
+Either proof suffices. `archive` first seeks an eligible keyword closer. Only
+when that connection holds none does it examine the latest closure. A commit
+closer supplies its `associatedPullRequests`. Any other latest closer supplies
+no commit fallback proof. An ineligible keyword reference, such as one still
+open, never hides a valid commit proof.
 An issue closed by a commit, reopened, then closed by hand has no commit proof.
 
 Every accepted pull request has `state: MERGED`.
