@@ -88,9 +88,12 @@ directly. The docks pipelines route to these skills and stop, naming the missing
 `plan-lifecycle` plugin, when they are unavailable.
 
 The lifecycle runs six phases: decide, draft, research, one plan review,
-implement, and one post-implementation code review. Plans use a markdown-only v2
-record with `plan_contract: v2` frontmatter and eight sections. The lifecycle
-creates zero automatic commits and never pushes.
+implement, and one post-implementation code review. After review passes, it
+commits and pushes the reviewed branch, opens the closing pull request, and
+waits for repository CI. It then asks `Merge now` or
+`Leave pull request open`. Without a fresh `Merge now` answer, it leaves the
+pull request and issue open. After an approved merge, `plan.mjs archive`
+verifies the merged closing pull request.
 
 Every Steps row has `Effect` exactly
 `local|probe|production_access|publish|push|release|deploy`. Each non-`local`

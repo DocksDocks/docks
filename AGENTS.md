@@ -101,20 +101,20 @@ carries no hash, permit, run identity, lock, or bundle, and the `plan.mjs`
 shipped inside the installed `plan-lifecycle` plugin is the only lifecycle tool.
 An `export` writes the sha256 of the body it copied beside the copy so a stale
 copy cannot revert the record; that digest detects staleness and authorizes
-nothing. This lifecycle creates zero commits and never pushes. Commit when the
-user asks, under `docks:commit-discipline`.
+nothing. Routine plan issue publication and post-review landing through a
+branch, commit, normal push, and closing pull request carry the settled mode's
+authorization and need no repeated prompt. After the checks policy passes, the
+manager asks immediately before merge. Without a fresh `Merge now` answer, it
+leaves the pull request and issue open. `plan.mjs archive` verifies the merged
+closing pull request after landing.
 
 Every Steps row carries an `Effect` of exactly
 `local|probe|production_access|publish|push|release|deploy`. A step whose
 `Effect` is not `local` requires an in-session `ask` confirmation immediately
 before it runs; when `ask` is unavailable the step is set `blocked` and the plan
 reason becomes the first `## Open questions` line, `Blocked: <reason>`.
-Persisted effects record intent only.
-
-Work lands through a pull request whose body carries `Closes #<issue>` and whose
-base is the repository default branch. `plan.mjs archive` is a verifier: it
-requires completed closure, terminal steps, an exact `Code-review: pass` line,
-and a merged closing pull request into that branch; it writes no status.
+Persisted effects record intent only. Routine issue publication and landing
+actions are outside the Steps table.
 
 Render a plan body verbatim only when the user names that plan and asks to see it. After a write, report the one-line header strip and the changed lines only; a write never re-renders the body.
 

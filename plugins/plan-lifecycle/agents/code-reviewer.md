@@ -80,8 +80,9 @@ buckets or the Spec axis defined below.
    without violating another plan step or invariant.
 9. Select one verdict:
    - `pass`: No `CRITICAL` or `HIGH` finding stands unfixed. Advisory `MEDIUM`
-     and `LOW` lines may ride along on a `pass`: the manager records them and
-     fixes them at its judgment, and they never trigger a re-review.
+     and `LOW` lines may ride along on a `pass`: the manager records them as
+     follow-ups and does not change reviewed bytes after the pass; they never
+     trigger a re-review.
    - `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The
      manager fixes it and dispatches exactly one repair re-review.
    - `blocked`: Required review input is unreadable or contradictory, so no safe

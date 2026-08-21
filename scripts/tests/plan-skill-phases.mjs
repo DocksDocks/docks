@@ -18,6 +18,15 @@ const PLAN_CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/r
 const PLAN_MD = 'docs/PLAN.md';
 const CODE_REVIEWER_AGENT = 'plugins/plan-lifecycle/agents/code-reviewer.md';
 const CODE_REVIEWER_CODEX = '.codex/agents/code-reviewer.toml';
+const CODE_REVIEWER_TEMPLATE =
+  'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/codex-agent-templates.md';
+const ISSUE_PUBLICATION =
+  'plugins/plan-lifecycle/skills/productivity/plan-manager/references/github-issue-publication.md';
+const ROOT_AGENTS = 'AGENTS.md';
+const README_MD = 'README.md';
+const EXECUTOR_DISPATCH = 'plugins/docks/skills/engineering/refactor/references/executor-dispatch.md';
+const LIFECYCLE_SKILLS_AGENTS = 'plugins/plan-lifecycle/skills/AGENTS.md';
+const DOCKS_README = 'plugins/docks/README.md';
 
 const V3_PINNED_CLAUSES = [
   {
@@ -60,9 +69,9 @@ const V3_PINNED_CLAUSES = [
     files: [MANAGER_SKILL],
   },
   {
-    name: 'zero-commits',
-    text: 'This lifecycle creates zero commits and never pushes.',
-    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
+    name: 'routine-issue-publication',
+    text: 'The settled plan mode authorizes routine creation and update of the plan issue in the repository that the preflight resolved. Do not ask again for that publication or show a repository picker that repeats a resolved fact.',
+    files: [MANAGER_SKILL, ISSUE_PUBLICATION],
   },
   {
     name: 'code-review-repair-bound',
@@ -71,17 +80,27 @@ const V3_PINNED_CLAUSES = [
   },
   {
     name: 'code-review-pass-verdict',
-    text: '- `pass`: No `CRITICAL` or `HIGH` finding stands unfixed. Advisory `MEDIUM` and `LOW` lines may ride along on a `pass`: the manager records them and fixes them at its judgment, and they never trigger a re-review.',
-    files: [CODE_REVIEWER_AGENT, CODE_REVIEWER_CODEX],
+    text: '- `pass`: No `CRITICAL` or `HIGH` finding stands unfixed. Advisory `MEDIUM` and `LOW` lines may ride along on a `pass`: the manager records them as follow-ups and does not change reviewed bytes after the pass; they never trigger a re-review.',
+    files: [CODE_REVIEWER_AGENT, CODE_REVIEWER_CODEX, CODE_REVIEWER_TEMPLATE],
   },
   {
     name: 'code-review-fixes-required-verdict',
     text: '- `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The manager fixes it and dispatches exactly one repair re-review.',
-    files: [CODE_REVIEWER_AGENT, CODE_REVIEWER_CODEX],
+    files: [CODE_REVIEWER_AGENT, CODE_REVIEWER_CODEX, CODE_REVIEWER_TEMPLATE],
+  },
+  {
+    name: 'advisory-pass-immutable',
+    text: 'Record each advisory as a follow-up and do not change reviewed bytes after a pass; an advisory never triggers a re-review.',
+    files: [MANAGER_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
     name: 'review-scope-guard',
-    text: 'Build the review diff from what actually changed: `git status --porcelain` names the paths and the diff covers exactly those. Name every changed path that no Steps `Files` cell mentions in the review request, so the reviewer judges undeclared scope instead of the manager blocking on bookkeeping.',
+    text: 'Build the review diff from the complete candidate pull request, not only the dirty worktree. Resolve and fetch the repository default branch, then compute `<merge-base>` with `git merge-base <default-remote-ref> HEAD`. Cover one net tracked candidate with `git diff <merge-base> -- <changed paths>`. Add one `git diff --no-index /dev/null <path>` hunk for each untracked path. `git status --porcelain` still names dirty paths. Name every changed path that no Steps `Files` cell mentions in the review request.',
+    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'reviewed-pr-diff-match',
+    text: 'After pull-request creation, record `headRefOid` and compare the changed paths and hunks from `gh pr diff` with the reviewed net candidate. Any mismatch invalidates the pass and blocks merge.',
     files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
@@ -115,9 +134,49 @@ const V3_PINNED_CLAUSES = [
     files: [MANAGER_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
-    name: 'landing-linkage',
-    text: 'Work lands through a pull request whose body carries `Closes #<issue>` and whose base is the repository default branch, because GitHub interprets a closing keyword only in a pull request that targets the default branch. `plan.mjs archive` verifies that merged pull request rather than performing the merge.',
-    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
+    name: 'default-pr-landing',
+    text: 'After `Code-review: pass`, the manager runs landing without another prompt: ensure a non-default branch, commit exactly the reviewed bytes under `docks:commit-discipline`, push normally, and create or update one pull request that carries `Closes #<issue>` and targets the repository default branch.',
+    files: [MANAGER_SKILL, ISSUE_PUBLICATION, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'ci-check-discovery',
+    text: 'Never treat an empty first checks result as success. Retry `gh pr checks --json name,bucket` at most 12 times with a 10-second delay until checks appear. If required checks exist, run `gh pr checks --watch --required`; if CI checks exist but none are required, run `gh pr checks --watch` to wait for all reported CI. Any failed check blocks merge. If no checks appear, continue only when repository inspection confirms that no pull-request CI is configured; otherwise leave the pull request open with a named no-checks blocker and do not show the merge prompt.',
+    files: [MANAGER_SKILL, ISSUE_PUBLICATION, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'merge-approval-boundary',
+    text: 'When the checks policy passes and GitHub reports the pull request mergeable, ask immediately with exactly two options: `Merge now` or `Leave pull request open`. Merge only on that fresh answer. If the user declines, or `ask` is unavailable, leave the pull request and the issue open and report the pull request URL. Never auto-merge, force-push, bypass branch protection, or merge on a stale or assumed answer.',
+    files: [MANAGER_SKILL, ISSUE_PUBLICATION, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'merge-head-revalidation',
+    text: "Immediately before merge, re-read `headRefOid` and `gh pr diff`. If the head SHA or diff changed, block merge. Invoke `gh pr merge` with `--match-head-commit <reviewed-head-sha>` and the repository's configured merge strategy only after the fresh `Merge now` answer.",
+    files: [MANAGER_SKILL, ISSUE_PUBLICATION, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'repository-landing-summary',
+    text: "Routine plan issue publication and post-review landing through a branch, commit, normal push, and closing pull request carry the settled mode's authorization and need no repeated prompt. After the checks policy passes, the manager asks immediately before merge. Without a fresh `Merge now` answer, it leaves the pull request and issue open. `plan.mjs archive` verifies the merged closing pull request after landing.",
+    files: [WORKSPACE_SKILL, ROOT_AGENTS],
+  },
+  {
+    name: 'readme-landing-summary',
+    text: 'The lifecycle runs six phases: decide, draft, research, one plan review, implement, and one post-implementation code review. After review passes, it commits and pushes the reviewed branch, opens the closing pull request, and waits for repository CI. It then asks `Merge now` or `Leave pull request open`. Without a fresh `Merge now` answer, it leaves the pull request and issue open. After an approved merge, `plan.mjs archive` verifies the merged closing pull request.',
+    files: [README_MD],
+  },
+  {
+    name: 'shipped-readme-landing-summary',
+    text: 'After review passes, the manager commits and pushes the reviewed branch, opens the closing pull request, waits for repository CI, and asks `Merge now` or `Leave pull request open`. Without a fresh `Merge now` answer, it leaves the pull request and issue open. After an approved merge, `plan.mjs archive` verifies the merged closing pull request.',
+    files: [DOCKS_README],
+  },
+  {
+    name: 'lifecycle-authoring-landing-boundary',
+    text: 'default issue and pull-request publication, explicit merge confirmation',
+    files: [LIFECYCLE_SKILLS_AGENTS],
+  },
+  {
+    name: 'executor-landing-handoff',
+    text: "follows the manager's full Landing flow. It archives only after an approved merge lands the closing pull request.",
+    files: [EXECUTOR_DISPATCH],
   },
   {
     name: 'label-set',
@@ -348,9 +407,29 @@ function assertBoundedWorkflows() {
     previousIndex = index;
   }
 
-  const zeroCommits = V3_PINNED_CLAUSES.find(({ name }) => name === 'zero-commits').text;
-  assert.ok(normalizeContract(manager).includes(zeroCommits), `${MANAGER_SKILL} is missing zero-commits`);
-  assert.ok(manager.includes('references/plan-contract.md'), `${MANAGER_SKILL} must link the v3 contract`);
+  const issuePublication = V3_PINNED_CLAUSES.find(({ name }) => name === 'routine-issue-publication').text;
+  assert.ok(
+    normalizeContract(manager).includes(issuePublication),
+    `${MANAGER_SKILL} is missing routine-issue-publication`,
+  );
+  for (const file of [
+    MANAGER_SKILL,
+    PLAN_CONTRACT,
+    WORKSPACE_SKILL,
+    WORKSPACE_TEMPLATE,
+    PLAN_MD,
+    ROOT_AGENTS,
+    README_MD,
+    EXECUTOR_DISPATCH,
+    DOCKS_README,
+  ]) {
+    const normalized = normalizeContract(read(file));
+    assert.doesNotMatch(
+      normalized,
+      /This lifecycle creates zero commits and never pushes\.|creates zero automatic commits and never pushes|branch, commits, push, pull request, and merge are the user's|no automatic commit, no automatic push/i,
+      `${file} retains the retired user-owned landing boundary`,
+    );
+  }
   // Ban only machinery identifiers. `permit` and `reserved` are ordinary words the
   // body needs in order to say the budget model is gone ("It has no hashes or
   // permits."), so banning them would make this lock fight the documentation.
