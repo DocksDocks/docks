@@ -2,6 +2,11 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Preview and execution share these reasons so a dry run cannot drift from the release
+// decision it forecasts.
+const RECUT_TAG_REASON = 'manifests already at this version — tagging existing HEAD';
+const DIRTY_TREE_REASON = 'working tree dirty — commit/stash first';
+
 const IO_KEYS = Object.freeze([
   'commit',
   'createRelease',
@@ -16,6 +21,7 @@ const IO_KEYS = Object.freeze([
   'resolveTagCommit',
   'runSelectedCi',
   'waitForTagCi',
+  'wouldStageChange',
   'writeJson',
 ]);
 
@@ -223,16 +229,27 @@ function formattedJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function previewJsonWrite({ original, after, file, repo, io }) {
-  const originalLines = original.split('\n');
-  const output = formattedJson(after);
-  const changed = output
-    .split('\n')
-    .filter((line, index) => line !== originalLines[index])
-    .map((line) => line.trim());
-  io.log(
-    `  [dry-run] would write ${path.relative(repo, file)} (changed: ${changed.join(' | ') || 'none — formatting drift!'})`,
-  );
+// Preview of the manifest writes a real run would make. A dirty tree is never compared:
+// the probe below is only meaningful against a clean index, and the executed release
+// refuses on a dirty tree, so no staging decision exists to forecast.
+function previewJsonWrites({ repo, io, version, versionChanged, cleanTree }) {
+  const staged = [];
+  const preview = (file, after) => {
+    const relative = path.relative(repo, file);
+    if (!cleanTree) {
+      io.log(`  [dry-run] ${relative}: not compared (working tree dirty)`);
+      return;
+    }
+    const wouldStage = io.wouldStageChange(file, formattedJson(after));
+    const action = !wouldStage
+      ? `unchanged (already at ${version})`
+      : versionChanged
+        ? `would write version → ${version}`
+        : `would rewrite formatting only (already at ${version})`;
+    io.log(`  [dry-run] ${relative}: ${action}`);
+    staged.push(wouldStage);
+  };
+  return { preview, staged };
 }
 
 function reportedFailure(message) {
@@ -268,7 +285,13 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
   if (!dryRun && !io.ensureTool('claude')) throw new Error('claude is required');
   if (!io.fileExists(pluginJson)) throw new Error(`plugin.json not found at ${pluginJson}`);
   if (!io.fileExists(marketplaceJson)) throw new Error(`marketplace.json not found at ${marketplaceJson}`);
-  if (!dryRun && !io.ensureCleanTree()) throw new Error('working tree dirty — commit/stash first');
+  const cleanTree = io.ensureCleanTree();
+  let dryRunBlocked = false;
+  if (!cleanTree) {
+    if (!dryRun) throw new Error(DIRTY_TREE_REASON);
+    io.log(`  [dry-run] refused: ${DIRTY_TREE_REASON}`);
+    dryRunBlocked = true;
+  }
 
   io.log(`Running local ci.mjs for ${plugin.name}...`);
   const ciResult = await io.runSelectedCi(plugin, ['-q', '--plugin', plugin.name]);
@@ -288,25 +311,30 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
     throw new Error(`already released: ${plugin.name} v${newVersion} (tag ${plugin.name}--v${newVersion} exists)`);
   }
   io.log(`Bumping ${plugin.name}: ${currentVersion} → ${newVersion}`);
+  const versionChanged = newVersion !== currentVersion;
+  const { preview, staged: wouldStageChanges } = previewJsonWrites({
+    repo,
+    io,
+    version: newVersion,
+    versionChanged,
+    cleanTree,
+  });
 
-  const pluginOriginal = dryRun ? formattedJson(pluginManifest) : null;
   pluginManifest.version = newVersion;
-  if (dryRun) previewJsonWrite({ original: pluginOriginal, after: pluginManifest, file: pluginJson, repo, io });
+  if (dryRun) preview(pluginJson, pluginManifest);
   else await io.writeJson(pluginJson, pluginManifest);
 
   const marketplace = await io.readJson(marketplaceJson);
-  const marketplaceOriginal = dryRun ? formattedJson(marketplace) : null;
   const marketplacePlugin = marketplace.plugins.find((candidate) => candidate.name === plugin.name);
   if (marketplacePlugin) marketplacePlugin.version = newVersion;
-  if (dryRun) previewJsonWrite({ original: marketplaceOriginal, after: marketplace, file: marketplaceJson, repo, io });
+  if (dryRun) preview(marketplaceJson, marketplace);
   else await io.writeJson(marketplaceJson, marketplace);
 
   const codexFiles = [];
   if (plugin.codex && io.fileExists(codexPluginJson)) {
     const codexManifest = await io.readJson(codexPluginJson);
-    const codexOriginal = dryRun ? formattedJson(codexManifest) : null;
     codexManifest.version = newVersion;
-    if (dryRun) previewJsonWrite({ original: codexOriginal, after: codexManifest, file: codexPluginJson, repo, io });
+    if (dryRun) preview(codexPluginJson, codexManifest);
     else await io.writeJson(codexPluginJson, codexManifest);
     codexFiles.push(path.relative(repo, codexPluginJson));
   }
@@ -314,8 +342,19 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
   const addFiles = [`${plugin.root}/.claude-plugin/plugin.json`, '.claude-plugin/marketplace.json', ...codexFiles];
   const tag = `${plugin.name}--v${newVersion}`;
   if (dryRun) {
+    // The executed release refuses before writing on a dirty tree, so there is no
+    // commit, push, tag, or release outcome to forecast.
+    if (dryRunBlocked) {
+      io.log('  [dry-run] no commit, push, tag, or release would run');
+      io.log('\n[dry-run] BLOCKED — the release would refuse; no changes written, no tag, no release.');
+      return true;
+    }
     io.log(`  [dry-run] git add ${addFiles.join(' ')}`);
-    io.log(`  [dry-run] git commit -m "chore(release): ${plugin.name} v${newVersion}"`);
+    if (wouldStageChanges.some(Boolean)) {
+      io.log(`  [dry-run] git commit -m "chore(release): ${plugin.name} v${newVersion}"`);
+    } else {
+      io.log(`  [dry-run] ${RECUT_TAG_REASON}`);
+    }
     io.log('  [dry-run] git push origin HEAD');
     io.log(`  [dry-run] claude plugin tag --push --message "${plugin.name} plugin %s" ${pluginPath}`);
     io.log(`  [dry-run] wait for tag-CI on ${tag}, then gh release create (gated on CI green)`);
@@ -398,7 +437,8 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
       // recovery path after a run that bumped, pushed, and then failed tag-CI — not an error, so
       // tag the existing HEAD rather than failing on an empty commit.
       if (capture('git', ['diff', '--cached', '--quiet', '--', ...files]).status === 0) {
-        process.stdout.write('  manifests already at this version — tagging existing HEAD\n');
+        // Keep the executed re-cut sentence byte-identical to the dry-run reason.
+        process.stdout.write(`  ${RECUT_TAG_REASON}\n`);
         return;
       }
       run('git', ['commit', '-m', message]);
@@ -413,7 +453,12 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
       return pushedAt;
     },
     ensureCleanTree() {
-      return capture('git', ['status', '--porcelain']).stdout.trim() === '';
+      // A failed `git status` says nothing about the tree; reporting it as clean would
+      // let a dry run forecast a landing the real release refuses.
+      const status = capture('git', ['status', '--porcelain']);
+      if ((status.status ?? 1) !== 0)
+        throw new Error(`git status --porcelain failed: ${status.stderr?.trim() || `exit ${status.status}`}`);
+      return status.stdout.trim() === '';
     },
     ensureTool(tool) {
       const result = spawnSync(tool, ['--version'], { stdio: 'ignore' });
@@ -520,6 +565,26 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
         event: identified.event,
         createdAt: identified.createdAt,
       };
+    },
+    wouldStageChange(file, content) {
+      const relative = path.relative(repo, file);
+      // `git add` compares the filter-normalized blob with HEAD, not the worktree
+      // bytes. Hash through the path without `-w` to reproduce that decision without
+      // writing either the index or the object database.
+      const staged = spawnSync('git', ['hash-object', '--path', file, '--stdin'], {
+        cwd: repo,
+        encoding: 'utf8',
+        input: content,
+      });
+      if ((staged.status ?? 1) !== 0) {
+        throw new Error(`git hash-object failed for ${relative}: ${staged.stderr?.trim() || `exit ${staged.status}`}`);
+      }
+      const committed = capture('git', ['rev-parse', '--quiet', '--verify', `HEAD:${relative}`]);
+      // Callers probe only on a clean tree, where every managed file is tracked. A path
+      // missing from HEAD is therefore an inconsistency, not a new file to guess about.
+      if ((committed.status ?? 1) !== 0)
+        throw new Error(`${relative} is missing from HEAD; refusing to guess whether a release would commit it`);
+      return (staged.stdout ?? '').trim() !== (committed.stdout ?? '').trim();
     },
     writeJson(file, value) {
       fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);

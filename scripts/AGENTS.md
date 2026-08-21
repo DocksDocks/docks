@@ -26,7 +26,7 @@ The repo hosts **multiple plugins** (`docks`, `plan-lifecycle`, `effect-kit`) un
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
 | `release` | Closed, data-only release policy. Every plugin declares exactly `{ kind: 'generic', install }`. No callbacks, commands, safety gates, or ordering belong in descriptors. |
 
-`lib/plugin-release.mjs` owns ordinary release ordering behind `runGenericPluginRelease({ argv, repo, plugins, io })`. Its IO value is an exact closed adapter of filesystem, Git, Claude, GitHub, selected-CI, and logging operations; production composes those operations in `release.mjs`, while descriptors remain inert policy data. The engine validates every policy before touching IO and enforces dry-run no-mutation itself rather than trusting an adapter.
+`lib/plugin-release.mjs` owns ordinary release ordering behind `runGenericPluginRelease({ argv, repo, plugins, io })`. Its IO value is an exact closed adapter that carries fifteen filesystem, Git, Claude, GitHub, selected-CI, and logging operations. `release.mjs` composes the production operations. Descriptors remain inert policy data. The fifteenth operation, `wouldStageChange`, answers whether `git add` of release bytes would stage anything different from HEAD. Production hashes the proposed bytes with `git hash-object --path <file> --stdin`. It compares that hash with `git rev-parse --quiet --verify HEAD:<path>`. `--path` applies the same clean filters that `git add` applies. The probe never passes `-w`, so it never writes an object. The engine validates every policy before touching IO. It enforces dry-run no-mutation itself rather than trusting an adapter.
 
 `ci.mjs` is **registry-driven**. A full invocation runs repo-wide checks once (workflow YAML, both marketplace catalogs, tree/guard, durable anchors, author tooling, unit tests, and CI targeting), then selects every present plugin's shell hooks, repository author suites, and capability-driven `gatePlugin` work. `--plugin <name>` skips repo-wide sections and runs only the named plugin's owned author checks, target-derived shell lint, and plugin validation. When Docks plan author checks apply, CI runs `scripts/tests/plan-cli.mjs` plus `scripts/tests/plan-skill-phases.mjs` with the `bounded-workflows` and `plan-workspace-template` cases. Trigger-collision checks audit Docks and Effect Kit together once.
 
@@ -183,6 +183,8 @@ final implementation tree → node scripts/ci.mjs --plugin <name>   (LAYER 1 —
         ├── tag-CI passes → gh release create
         └── tag-CI fails  → exits non-zero, prints recovery
 ```
+
+The release tag, not the manifest number, is the fact that a version was released. When manifests are already at this version, a re-cut stages nothing. The release tags existing HEAD instead of creating a commit. A dry run consults the clean-tree gate. On a dirty tree, it reports the refusal instead of forecasting a landing it cannot predict.
 
 The positional flow above is preserved for docks/effect-kit/plan-lifecycle, including its existing bump resolution, local and tag CI gates, commit/push/tag behavior, release notes, and read-only dry run.
 

@@ -308,8 +308,24 @@ import fs from 'node:fs';
 const tool = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.DOCKS_RELEASE_CALL_LOG, JSON.stringify({ tool, args }) + '\\n');
-if (tool === 'node') {
-  const child = spawnSync(process.env.DOCKS_RELEASE_REAL_NODE, args, {
+// Only the three read-only invocations the dry run is allowed to make reach real git, matched
+// argument for argument. A looser match keyed on the subcommand alone would let a mutating
+// form such as \`hash-object -w\` through the harness that exists to prove nothing mutates.
+const readOnlyGit = [
+  ['status', '--porcelain'],
+  ['hash-object', '--path', null, '--stdin'],
+  ['rev-parse', '--quiet', '--verify', null],
+];
+const passThroughGit =
+  tool === 'git' &&
+  readOnlyGit.some(
+    (shape) =>
+      shape.length === args.length && shape.every((token, index) => token === null || token === args[index]),
+  ) &&
+  !args.includes('-w');
+if (tool === 'node' || passThroughGit) {
+  const command = tool === 'node' ? process.env.DOCKS_RELEASE_REAL_NODE : tool;
+  const child = spawnSync(command, args, {
     stdio: 'inherit',
     env: { ...process.env, PATH: process.env.DOCKS_RELEASE_REAL_PATH },
   });
@@ -766,7 +782,8 @@ function genericReleaseIo(repo, options = {}) {
     },
     ensureCleanTree() {
       record('ensureCleanTree');
-      return true;
+      if (typeof options.cleanTree === 'function') return options.cleanTree();
+      return options.cleanTree ?? true;
     },
     ensureTool(tool) {
       record('ensureTool', [tool]);
@@ -805,6 +822,12 @@ function genericReleaseIo(repo, options = {}) {
     waitForTagCi(tag, commit, pushed) {
       record('waitForTagCi', [tag, commit, pushed]);
       return tagCiResult;
+    },
+    wouldStageChange(file, content) {
+      const relative = relativePath(file);
+      record('wouldStageChange', [relative, content]);
+      if (typeof options.wouldStageChange === 'function') return options.wouldStageChange(relative, content);
+      return options.wouldStageChange ?? true;
     },
     writeJson(file, value) {
       record('writeJson', [relativePath(file), value]);
@@ -862,6 +885,8 @@ async function testGenericReleaseModuleContract(
     const currentVersion = JSON.parse(
       fs.readFileSync(path.join(ROOT, plugin.root, '.claude-plugin/plugin.json'), 'utf8'),
     ).version;
+    const [major, minor, patchVersion] = currentVersion.split('.').map(Number);
+    const targetVersion = `${major}.${minor}.${patchVersion + 1}`;
     const fixture = genericReleaseIo(ROOT);
     await runGenericPluginRelease({
       argv: ['--dry-run', '--plugin', plugin.name, 'patch'],
@@ -889,6 +914,17 @@ async function testGenericReleaseModuleContract(
       fixture.output.join('\n'),
       new RegExp(`Bumping ${plugin.name}: ${currentVersion.replaceAll('.', '\\.')} →`),
     );
+    const dryRunOutput = fixture.output.join('\n');
+    assert.ok(
+      dryRunOutput.includes(
+        `  [dry-run] ${plugin.root}/.claude-plugin/plugin.json: would write version → ${targetVersion}`,
+      ),
+      `${plugin.name} real bump preview must name the target version`,
+    );
+    assert.ok(
+      dryRunOutput.includes(`  [dry-run] git commit -m "chore(release): ${plugin.name} v${targetVersion}"`),
+      `${plugin.name} real bump preview must predict the release commit`,
+    );
     assert.equal(
       fixture.calls.some(({ tool }) =>
         ['writeJson', 'commit', 'push', 'createTag', 'waitForTagCi', 'createRelease'].includes(tool),
@@ -899,6 +935,169 @@ async function testGenericReleaseModuleContract(
   }
 
   const generic = ordinaryPlugins[0];
+  const recutPlugin = ordinaryPlugins[2];
+  const recutVersion = JSON.parse(
+    fs.readFileSync(path.join(ROOT, recutPlugin.root, '.claude-plugin/plugin.json'), 'utf8'),
+  ).version;
+  const recutManifest = `${recutPlugin.root}/.claude-plugin/plugin.json`;
+
+  const unchangedRecut = genericReleaseIo(ROOT, { wouldStageChange: false });
+  await runGenericPluginRelease({
+    argv: ['--dry-run', '--plugin', recutPlugin.name, recutVersion],
+    repo: ROOT,
+    plugins: PLUGINS,
+    io: unchangedRecut.io,
+  });
+  const unchangedRecutOutput = unchangedRecut.output.join('\n');
+  assert.ok(
+    unchangedRecutOutput.includes(`  [dry-run] ${recutManifest}: unchanged (already at ${recutVersion})`),
+    'unchanged re-cut preview must identify a manifest that would not stage',
+  );
+  assert.ok(
+    unchangedRecutOutput.includes('  [dry-run] manifests already at this version — tagging existing HEAD'),
+    'unchanged re-cut preview must predict tagging existing HEAD',
+  );
+  assert.equal(
+    unchangedRecut.output.some((line) => line.includes('git commit')),
+    false,
+    'unchanged re-cut preview must not predict a release commit',
+  );
+
+  const formattingOnlyRecut = genericReleaseIo(ROOT, { wouldStageChange: true });
+  await runGenericPluginRelease({
+    argv: ['--dry-run', '--plugin', recutPlugin.name, recutVersion],
+    repo: ROOT,
+    plugins: PLUGINS,
+    io: formattingOnlyRecut.io,
+  });
+  const formattingOnlyOutput = formattingOnlyRecut.output.join('\n');
+  assert.ok(
+    formattingOnlyOutput.includes(
+      `  [dry-run] ${recutManifest}: would rewrite formatting only (already at ${recutVersion})`,
+    ),
+    'formatting-only re-cut preview must distinguish canonicalization from a version bump',
+  );
+  assert.ok(
+    formattingOnlyOutput.includes(`  [dry-run] git commit -m "chore(release): ${recutPlugin.name} v${recutVersion}"`),
+    'formatting-only re-cut preview must predict the release commit',
+  );
+  assert.ok(
+    formattingOnlyRecut.calls.some(
+      ({ tool, args: callArgs }) =>
+        tool === 'wouldStageChange' &&
+        callArgs[0] === recutManifest &&
+        typeof callArgs[1] === 'string' &&
+        callArgs[1].includes(`"version": "${recutVersion}"`),
+    ),
+    'formatting-only re-cut fixture must record the staged path and candidate content',
+  );
+
+  const dirtyTree = genericReleaseIo(ROOT, { cleanTree: false });
+  await runGenericPluginRelease({
+    argv: ['--dry-run', '--plugin', recutPlugin.name, 'patch'],
+    repo: ROOT,
+    plugins: PLUGINS,
+    io: dirtyTree.io,
+  });
+  const dirtyTreeOutput = dirtyTree.output.join('\n');
+  for (const relative of [
+    recutManifest,
+    '.claude-plugin/marketplace.json',
+    `${recutPlugin.root}/.codex-plugin/plugin.json`,
+  ]) {
+    assert.ok(
+      dirtyTreeOutput.includes(`  [dry-run] ${relative}: not compared (working tree dirty)`),
+      `dirty-tree dry-run refusal must decline the per-manifest comparison for ${relative}`,
+    );
+  }
+  assert.equal(
+    dirtyTree.calls.some(({ tool }) => tool === 'wouldStageChange'),
+    false,
+    'dirty-tree dry run must not run a stage comparison it cannot trust',
+  );
+  assert.ok(
+    dirtyTreeOutput.includes('  [dry-run] refused: working tree dirty — commit/stash first'),
+    'dirty-tree dry-run refusal must name the clean-tree gate',
+  );
+  assert.ok(
+    dirtyTreeOutput.includes('  [dry-run] no commit, push, tag, or release would run'),
+    'dirty-tree dry-run refusal must suppress every landing action',
+  );
+  assert.ok(
+    dirtyTreeOutput.includes('[dry-run] BLOCKED — the release would refuse; no changes written, no tag, no release.'),
+    'dirty-tree dry-run refusal must end with the blocked closer',
+  );
+  for (const forbidden of ['git add', 'git commit', 'git push', 'plugin tag']) {
+    assert.equal(
+      dirtyTree.output.some((line) => line.includes(forbidden)),
+      false,
+      `dirty-tree dry-run refusal must not print ${forbidden}`,
+    );
+  }
+
+  const landingForecastFragments = ['git add', 'git commit', 'git push', 'plugin tag'];
+  const cleanTreeFailureMessage = 'fixture clean-tree check failed';
+  const cleanTreeFailure = genericReleaseIo(ROOT, {
+    cleanTree() {
+      throw new Error(cleanTreeFailureMessage);
+    },
+  });
+  await assert.rejects(
+    runGenericPluginRelease({
+      argv: ['--dry-run', '--plugin', generic.name, 'patch'],
+      repo: ROOT,
+      plugins: PLUGINS,
+      io: cleanTreeFailure.io,
+    }),
+    { message: cleanTreeFailureMessage },
+    'clean-tree check failure must surface unchanged',
+  );
+  assert.equal(
+    cleanTreeFailure.output.some((line) => landingForecastFragments.some((fragment) => line.includes(fragment))),
+    false,
+    'clean-tree check failure must not print a landing forecast',
+  );
+
+  const stageProbeFailureMessage = 'fixture staged-content check failed';
+  const stageProbeFailure = genericReleaseIo(ROOT, {
+    wouldStageChange() {
+      throw new Error(stageProbeFailureMessage);
+    },
+  });
+  await assert.rejects(
+    runGenericPluginRelease({
+      argv: ['--dry-run', '--plugin', generic.name, 'patch'],
+      repo: ROOT,
+      plugins: PLUGINS,
+      io: stageProbeFailure.io,
+    }),
+    { message: stageProbeFailureMessage },
+    'staged-content check failure must surface unchanged',
+  );
+  assert.ok(
+    stageProbeFailure.calls.some(({ tool }) => tool === 'wouldStageChange'),
+    'staged-content check failure must reach the stage probe',
+  );
+  assert.equal(
+    stageProbeFailure.output.some((line) => landingForecastFragments.some((fragment) => line.includes(fragment))),
+    false,
+    'staged-content check failure must not print a landing forecast',
+  );
+
+  const missingStageProbe = genericReleaseIo(ROOT);
+  const missingStageProbeIo = { ...missingStageProbe.io };
+  delete missingStageProbeIo.wouldStageChange;
+  await assert.rejects(
+    runGenericPluginRelease({
+      argv: ['--dry-run', '--plugin', generic.name, 'patch'],
+      repo: ROOT,
+      plugins: PLUGINS,
+      io: missingStageProbeIo,
+    }),
+    /generic release IO must be the exact closed adapter/i,
+    'missing stage probe must fail closed-adapter validation',
+  );
+  assert.deepEqual(missingStageProbe.calls, [], 'missing stage probe validation must fail before IO');
   await expectReleasePolicyRefusal(
     runGenericPluginRelease,
     generic,
@@ -1123,7 +1322,6 @@ async function testDryRunReleaseSafety() {
       /fixture and report environment variables must both be non-empty/i,
     );
   }
-  await testGenericReleaseModuleContract(dispatchPluginRelease, runGenericPluginRelease, resolveGenericReleaseIo);
   const before = gitSnapshot();
   assert.equal(before.status, '', 'dry-run safety requires a clean checkout');
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-dry-run-'));
@@ -1165,6 +1363,14 @@ async function testDryRunReleaseSafety() {
       ),
       'fixture must intercept and preserve the targeted Docks preflight',
     );
+    assert.ok(
+      calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs[0] === 'hash-object'),
+      'dry-run fixture must pass the staged-content hash probe through to real git',
+    );
+    assert.ok(
+      calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs[0] === 'rev-parse'),
+      'dry-run fixture must pass the HEAD comparison through to real git',
+    );
     assert.equal(
       calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs[0] === 'push'),
       false,
@@ -1179,6 +1385,19 @@ async function testDryRunReleaseSafety() {
       calls.some(({ tool, args: callArgs }) => tool === 'gh' && callArgs[0] === 'release' && callArgs[1] === 'create'),
       false,
       'dry-run must not invoke gh release create',
+    );
+    assert.equal(
+      calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs.includes('-w')),
+      false,
+      'dry-run must never ask git to write an object',
+    );
+    assert.equal(
+      calls.some(
+        ({ tool, args: callArgs }) =>
+          tool === 'git' && ['update-index', 'write-tree', 'update-ref'].includes(callArgs[0]),
+      ),
+      false,
+      'dry-run must never write the index or a ref',
     );
     assert.equal(
       calls.some(
@@ -2273,3 +2492,110 @@ assert.equal(integrityStep('verify registry signatures').run, 'npm audit signatu
 assert.equal(integrityStep('verify registry signatures')['continue-on-error'], undefined);
 
 console.log('workflow targeting and integrity separation contracts passed');
+
+// The fake-adapter release contracts need neither real git nor a clean checkout, so they
+// belong in the default run. Only the shim scenario above requires the gated clean tree.
+const releaseModule = await import('../lib/plugin-release.mjs');
+await testGenericReleaseModuleContract(
+  releaseModule.dispatchPluginRelease,
+  releaseModule.runGenericPluginRelease,
+  releaseModule.resolveGenericReleaseIo,
+);
+console.log('generic release module contract and dry-run manifest previews passed');
+
+async function testReleaseAdapterGitContracts(createReleaseIo) {
+  const runGit = (repo, gitArgs) => {
+    const result = spawnSync('git', gitArgs, { cwd: repo, encoding: 'utf8' });
+    if ((result.status ?? 1) !== 0) {
+      throw new Error(
+        `git ${gitArgs.join(' ')} fixture setup failed: ${result.stderr?.trim() || `exit ${result.status}`}`,
+      );
+    }
+  };
+
+  const notRepository = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-no-git-'));
+  try {
+    const io = createReleaseIo({ repo: notRepository, plugins: PLUGINS });
+    assert.throws(
+      () => io.ensureCleanTree(),
+      /git status --porcelain failed/,
+      'a failed status probe must never be reported as a clean release tree',
+    );
+  } finally {
+    fs.rmSync(notRepository, { recursive: true, force: true });
+  }
+
+  const cleanComparison = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-compare-'));
+  try {
+    const manifest = path.join(cleanComparison, 'manifest.json');
+    const committedBytes = '{"version":"1.0.0"}\n';
+    runGit(cleanComparison, ['init', '-q']);
+    fs.writeFileSync(manifest, committedBytes);
+    runGit(cleanComparison, ['add', 'manifest.json']);
+    runGit(cleanComparison, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'x']);
+
+    const io = createReleaseIo({ repo: cleanComparison, plugins: PLUGINS });
+    assert.equal(
+      io.wouldStageChange(manifest, committedBytes),
+      false,
+      'the exact committed bytes must predict no release commit',
+    );
+    assert.equal(
+      io.wouldStageChange(manifest, '{"version":"1.0.1"}\n'),
+      true,
+      'changed manifest data must predict a release commit',
+    );
+    assert.equal(
+      io.wouldStageChange(manifest, `${JSON.stringify({ version: '1.0.0' }, null, 2)}\n`),
+      true,
+      'different serialization bytes must predict a release commit',
+    );
+  } finally {
+    fs.rmSync(cleanComparison, { recursive: true, force: true });
+  }
+
+  const missingFromHead = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-missing-'));
+  try {
+    const committed = path.join(missingFromHead, 'manifest.json');
+    const absent = path.join(missingFromHead, 'never-committed.json');
+    runGit(missingFromHead, ['init', '-q']);
+    fs.writeFileSync(committed, '{"version":"1.0.0"}\n');
+    runGit(missingFromHead, ['add', 'manifest.json']);
+    runGit(missingFromHead, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'x']);
+
+    const io = createReleaseIo({ repo: missingFromHead, plugins: PLUGINS });
+    assert.throws(
+      () => io.wouldStageChange(absent, '{}\n'),
+      /missing from HEAD/,
+      'an uncommitted path must make the release prediction refuse',
+    );
+  } finally {
+    fs.rmSync(missingFromHead, { recursive: true, force: true });
+  }
+
+  const brokenFilter = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-filter-'));
+  try {
+    const manifest = path.join(brokenFilter, 'manifest.json');
+    const committedBytes = '{"version":"1.0.0"}\n';
+    runGit(brokenFilter, ['init', '-q']);
+    fs.writeFileSync(manifest, committedBytes);
+    runGit(brokenFilter, ['add', 'manifest.json']);
+    runGit(brokenFilter, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'x']);
+    fs.writeFileSync(path.join(brokenFilter, '.gitattributes'), '*.json filter=broken\n');
+    runGit(brokenFilter, ['config', 'filter.broken.clean', 'exit 3']);
+    runGit(brokenFilter, ['config', 'filter.broken.required', 'true']);
+
+    const io = createReleaseIo({ repo: brokenFilter, plugins: PLUGINS });
+    // Hashing through --path applies its clean filter; if that fails, the dry run must refuse rather than guess.
+    assert.throws(
+      () => io.wouldStageChange(manifest, committedBytes),
+      /git hash-object failed for /,
+      'a required clean-filter failure must make the release prediction refuse',
+    );
+  } finally {
+    fs.rmSync(brokenFilter, { recursive: true, force: true });
+  }
+}
+
+await testReleaseAdapterGitContracts(releaseModule.createGenericPluginReleaseIo);
+console.log('release adapter git predicates refuse to guess');
