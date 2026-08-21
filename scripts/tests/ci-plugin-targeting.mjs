@@ -297,6 +297,10 @@ function gitSnapshot() {
   return {
     status: run(['status', '--porcelain=v1', '--untracked-files=all']),
     refs: run(['show-ref']),
+    // The shim passes nested `node` argv through with the real PATH, so a Node child can reach
+    // real git outside the call log. Objects are the one write such a child could make that
+    // neither status nor refs would show, so the safety claim has to count them too.
+    objects: run(['count-objects', '-v']),
     manifests: manifests.map((file) => fs.readFileSync(path.join(ROOT, file), 'base64')),
   };
 }
@@ -1027,7 +1031,18 @@ async function testGenericReleaseModuleContract(
     dirtyTreeOutput.includes('[dry-run] BLOCKED — the release would refuse; no changes written, no tag, no release.'),
     'dirty-tree dry-run refusal must end with the blocked closer',
   );
-  for (const forbidden of ['git add', 'git commit', 'git push', 'plugin tag']) {
+  // Every line the unblocked tail can print, so moving one above the blocked return is caught
+  // rather than passing because the list stopped at the first four.
+  const landingForecastFragments = [
+    'git add',
+    'git commit',
+    'git push',
+    'plugin tag',
+    'wait for tag-CI',
+    'gh release create',
+    'already at this version',
+  ];
+  for (const forbidden of landingForecastFragments) {
     assert.equal(
       dirtyTree.output.some((line) => line.includes(forbidden)),
       false,
@@ -1035,7 +1050,6 @@ async function testGenericReleaseModuleContract(
     );
   }
 
-  const landingForecastFragments = ['git add', 'git commit', 'git push', 'plugin tag'];
   const cleanTreeFailureMessage = 'fixture clean-tree check failed';
   const cleanTreeFailure = genericReleaseIo(ROOT, {
     cleanTree() {
@@ -2504,13 +2518,27 @@ await testGenericReleaseModuleContract(
 console.log('generic release module contract and dry-run manifest previews passed');
 
 async function testReleaseAdapterGitContracts(createReleaseIo) {
+  const gitEnv = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: os.devNull,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_TERMINAL_PROMPT: '0',
+  };
   const runGit = (repo, gitArgs) => {
-    const result = spawnSync('git', gitArgs, { cwd: repo, encoding: 'utf8' });
+    const result = spawnSync('git', ['-c', 'commit.gpgSign=false', '-c', `core.hooksPath=${os.devNull}`, ...gitArgs], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: gitEnv,
+    });
     if ((result.status ?? 1) !== 0) {
       throw new Error(
         `git ${gitArgs.join(' ')} fixture setup failed: ${result.stderr?.trim() || `exit ${result.status}`}`,
       );
     }
+  };
+  const configureFixtureRepo = (repo) => {
+    runGit(repo, ['config', '--local', 'core.hooksPath', os.devNull]);
+    runGit(repo, ['config', '--local', 'core.attributesFile', os.devNull]);
   };
 
   const notRepository = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-no-git-'));
@@ -2530,6 +2558,7 @@ async function testReleaseAdapterGitContracts(createReleaseIo) {
     const manifest = path.join(cleanComparison, 'manifest.json');
     const committedBytes = '{"version":"1.0.0"}\n';
     runGit(cleanComparison, ['init', '-q']);
+    configureFixtureRepo(cleanComparison);
     fs.writeFileSync(manifest, committedBytes);
     runGit(cleanComparison, ['add', 'manifest.json']);
     runGit(cleanComparison, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'x']);
@@ -2559,6 +2588,7 @@ async function testReleaseAdapterGitContracts(createReleaseIo) {
     const committed = path.join(missingFromHead, 'manifest.json');
     const absent = path.join(missingFromHead, 'never-committed.json');
     runGit(missingFromHead, ['init', '-q']);
+    configureFixtureRepo(missingFromHead);
     fs.writeFileSync(committed, '{"version":"1.0.0"}\n');
     runGit(missingFromHead, ['add', 'manifest.json']);
     runGit(missingFromHead, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'x']);
@@ -2578,6 +2608,7 @@ async function testReleaseAdapterGitContracts(createReleaseIo) {
     const manifest = path.join(brokenFilter, 'manifest.json');
     const committedBytes = '{"version":"1.0.0"}\n';
     runGit(brokenFilter, ['init', '-q']);
+    configureFixtureRepo(brokenFilter);
     fs.writeFileSync(manifest, committedBytes);
     runGit(brokenFilter, ['add', 'manifest.json']);
     runGit(brokenFilter, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'x']);
