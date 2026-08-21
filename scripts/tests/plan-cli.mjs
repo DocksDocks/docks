@@ -468,6 +468,41 @@ try {
   expectSuccess(fileCheck, 'check --file v3');
   assert.equal(fileCheck.stdout.trim(), `plan check passed: ${validFile}`);
 
+  const fileOnlyBlockedNumber = createPlan('file-only-blocked');
+  makeValid(fileOnlyBlockedNumber);
+  setIssueStatus(fileOnlyBlockedNumber, 'blocked', 'waiting for a durable dependency');
+  const fileOnlyBlockedBody = issue(fileOnlyBlockedNumber).body;
+  const fileOnlyBlockedFile = path.join(scratch, 'file-only-blocked-plan.md');
+  fs.writeFileSync(fileOnlyBlockedFile, fileOnlyBlockedBody);
+  expectSuccess(run('check', '--file', fileOnlyBlockedFile), 'check --file without phase');
+  expectSuccess(run('check', String(fileOnlyBlockedNumber)), 'check blocked issue with Blocked reason');
+  updateIssue(fileOnlyBlockedNumber, (entry) => {
+    entry.labels = entry.labels.filter((label) => !label.startsWith('plan:'));
+    entry.labels.push('plan:ongoing');
+  });
+  const ongoingBlockedCheck = run('check', String(fileOnlyBlockedNumber));
+  assert.equal(ongoingBlockedCheck.status, 1, 'issue-bound checks must still apply phase rules');
+  assert.equal(
+    ongoingBlockedCheck.stderr.trim(),
+    `#${fileOnlyBlockedNumber}: check 2: only blocked status may open Open questions with \`Blocked:\`; status is ongoing`,
+  );
+
+  const fileOnlyPlaceholderNumber = createPlan('file-only-placeholder');
+  const fileOnlyPlaceholderBody = makeValid(fileOnlyPlaceholderNumber);
+  const fileOnlyPlaceholderFile = path.join(scratch, 'file-only-placeholder-plan.md');
+  fs.writeFileSync(fileOnlyPlaceholderFile, fileOnlyPlaceholderBody);
+  expectSuccess(run('check', '--file', fileOnlyPlaceholderFile), 'check --file with placeholder Research');
+  setIssueStatus(fileOnlyPlaceholderNumber, 'ongoing');
+  updateIssue(fileOnlyPlaceholderNumber, (entry) => {
+    entry.body = fileOnlyPlaceholderBody;
+  });
+  const ongoingPlaceholderCheck = run('check', String(fileOnlyPlaceholderNumber));
+  assert.equal(ongoingPlaceholderCheck.status, 1, 'issue-bound checks must reject placeholder Research after drafting');
+  assert.equal(
+    ongoingPlaceholderCheck.stderr.trim(),
+    `#${fileOnlyPlaceholderNumber}: check 11: Research must be filled once the plan leaves drafting`,
+  );
+
   // A plan about this contract must be able to quote the marker inline; only a second standalone marker line is a defect.
   const quotingFile = path.join(scratch, 'quotes-marker-plan.md');
   fs.writeFileSync(
@@ -1300,6 +1335,39 @@ try {
     'archive is a verifier and must not close an already landed issue',
   );
 
+  const paginatedArchiveNumber = createPlan('paginated-keyword-archive');
+  makeValid(paginatedArchiveNumber);
+  setIssueStatus(paginatedArchiveNumber, 'ongoing');
+  updateIssue(paginatedArchiveNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = Array.from({ length: 101 }, (_, index) => ({
+      number: 1_000 + index,
+      url: `https://github.com/DocksDocks/fixture/pull/${1_000 + index}`,
+      repository: 'DocksDocks/fixture',
+      userLinked: false,
+      state: index === 100 ? 'MERGED' : 'OPEN',
+      mergedAt: index === 100 ? '2026-08-20T22:00:00Z' : null,
+      baseRefName: 'main',
+    }));
+  });
+  const paginatedCallsBefore = loadState().calls.length;
+  const paginatedArchive = run('archive', String(paginatedArchiveNumber));
+  expectSuccess(paginatedArchive, 'archive through a later closing-reference page');
+  assert.equal(
+    paginatedArchive.stdout.trim(),
+    `plan #${paginatedArchiveNumber} finished (closed by https://github.com/DocksDocks/fixture/pull/1100)`,
+  );
+  const paginatedGraphqlCalls = loadState()
+    .calls.slice(paginatedCallsBefore)
+    .filter((call) => call[0] === 'api' && call[1] === 'graphql');
+  assert.equal(paginatedGraphqlCalls.length, 2, 'stopping after the first closing-reference page must fail');
+  assert.ok(
+    paginatedGraphqlCalls[1].includes('after=closing:100'),
+    'the second closing-reference query must carry the first page endCursor',
+  );
+
   const closedReferenceNumber = createPlan('closed-reference-archive');
   makeValid(closedReferenceNumber);
   setIssueStatus(closedReferenceNumber, 'ongoing');
@@ -1383,6 +1451,97 @@ try {
     commitGraphqlCalls.some((call) => call.join(' ').includes('associatedPullRequests')),
     'removing associatedPullRequests from the fallback query must fail',
   );
+
+  const ineligibleReferenceCommitNumber = createPlan('ineligible-reference-commit-archive');
+  makeValid(ineligibleReferenceCommitNumber);
+  setIssueStatus(ineligibleReferenceCommitNumber, 'ongoing');
+  updateIssue(ineligibleReferenceCommitNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [
+      {
+        number: 49,
+        url: 'https://github.com/DocksDocks/fixture/pull/49',
+        repository: 'DocksDocks/fixture',
+        userLinked: false,
+        state: 'OPEN',
+        mergedAt: null,
+        baseRefName: 'main',
+      },
+    ];
+    entry.timelineItems = [{ closer: { __typename: 'Commit', oid: 'commit-behind-open-reference' } }];
+  });
+  updateState((state) => {
+    state.commits.push({
+      oid: 'commit-behind-open-reference',
+      repository: 'DocksDocks/fixture',
+      associatedPullRequests: [{ number: 48, repository: 'DocksDocks/fixture' }],
+    });
+    state.prs.push({
+      number: 48,
+      repository: 'DocksDocks/fixture',
+      mergedAt: '2026-08-20T22:15:00Z',
+      state: 'MERGED',
+      baseRefName: 'main',
+      url: 'https://github.com/DocksDocks/fixture/pull/48',
+    });
+  });
+  const ineligibleReferenceCallsBefore = loadState().calls.length;
+  const ineligibleReferenceArchive = run('archive', String(ineligibleReferenceCommitNumber));
+  expectSuccess(ineligibleReferenceArchive, 'archive through commit proof behind an ineligible reference');
+  assert.equal(
+    ineligibleReferenceArchive.stdout.trim(),
+    `plan #${ineligibleReferenceCommitNumber} finished (closed by https://github.com/DocksDocks/fixture/pull/48)`,
+  );
+  const ineligibleReferenceCalls = loadState().calls.slice(ineligibleReferenceCallsBefore);
+  assert.ok(
+    ineligibleReferenceCalls.some(
+      (call) => call[0] === 'api' && call[1] === 'graphql' && call.join(' ').includes('associatedPullRequests'),
+    ),
+    'a non-empty but ineligible closing-reference connection must still query the closing commit association',
+  );
+
+  const pullRequestLatestCloserNumber = createPlan('pull-request-latest-closer-archive');
+  makeValid(pullRequestLatestCloserNumber);
+  setIssueStatus(pullRequestLatestCloserNumber, 'ongoing');
+  updateIssue(pullRequestLatestCloserNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [];
+    entry.timelineItems = [
+      { closer: { __typename: 'Commit', oid: 'superseded-by-pull-request-closer' } },
+      { closer: { __typename: 'PullRequest', number: 51 } },
+    ];
+  });
+  updateState((state) => {
+    state.commits.push({
+      oid: 'superseded-by-pull-request-closer',
+      repository: 'DocksDocks/fixture',
+      associatedPullRequests: [{ number: 50, repository: 'DocksDocks/fixture' }],
+    });
+    state.prs.push({
+      number: 50,
+      repository: 'DocksDocks/fixture',
+      mergedAt: '2026-08-20T22:30:00Z',
+      state: 'MERGED',
+      baseRefName: 'main',
+      url: 'https://github.com/DocksDocks/fixture/pull/50',
+    });
+  });
+  const beforePullRequestLatestCloserArchive = issue(pullRequestLatestCloserNumber);
+  const pullRequestLatestCloserArchive = run('archive', String(pullRequestLatestCloserNumber));
+  assert.equal(
+    pullRequestLatestCloserArchive.status,
+    1,
+    'a PullRequest latest closer must not reuse an earlier commit',
+  );
+  assert.equal(
+    pullRequestLatestCloserArchive.stderr.trim(),
+    'archive requires a merged closing pull request; issue has no closing commit',
+  );
+  assert.deepEqual(issue(pullRequestLatestCloserNumber), beforePullRequestLatestCloserArchive);
 
   const directPushNumber = createPlan('direct-push-archive');
   makeValid(directPushNumber);

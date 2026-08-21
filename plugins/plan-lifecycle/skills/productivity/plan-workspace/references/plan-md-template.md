@@ -156,6 +156,11 @@ A closed issue's phase labels are absent for derivation even when GitHub still
 returns them. Reopening returns the issue to `OPEN`; its status is again derived
 only from the phase labels then present.
 
+Phase lives in the labels, so a body alone carries no phase. `check <issue>`
+enforces every rule. `check --file <path>` enforces only the rules that read the
+body: it skips the phase-label rule, both `Blocked:` rules, and the filled-Research
+rule instead of assuming a phase.
+
 The legal open-status transitions are:
 
 ```text
@@ -211,9 +216,11 @@ The verifier reads the issue's `closedByPullRequestsReferences` with
 `excludeUserLinked: true`. It accepts only keyword-linked merged pull requests.
 A manually linked pull request never proves a landing.
 
-When that connection is empty, the verifier examines only the latest closure.
-A commit closer supplies its `associatedPullRequests`.
-Any other latest closer supplies no commit fallback proof.
+Either proof suffices, and the verifier tries them in one order. It first looks
+for an eligible keyword closer. Only when that connection holds none does it
+examine the latest closure. A commit closer supplies its `associatedPullRequests`.
+Any other latest closer supplies no commit fallback proof. An ineligible keyword
+reference, such as one still open, therefore never hides a valid commit proof.
 The verifier accepts only merged pull requests whose base matches that
 repository's default branch.
 

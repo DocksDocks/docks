@@ -165,17 +165,21 @@ export function checkPlan(planText, planRef) {
     failures.push('check 1: v3 marker must be the first line, followed by one blank line, with no frontmatter fence');
   }
 
-  const status = planRef && typeof planRef === 'object' ? statusFromIssue(planRef) : 'drafting';
+  // Phase lives in the issue labels, never in the body: a file has no phase, so every
+  // phase-dependent rule below is skipped rather than guessed.
+  const status = planRef && typeof planRef === 'object' ? statusFromIssue(planRef) : undefined;
   const { headings, sections } = sectionMap(planText);
-  if (status === 'unreadable' || status === 'unlabelled') {
-    failures.push('check 2: an open plan requires exactly one recognized phase label');
-  }
-  const openQuestionsFirstLine = (sections.get('Open questions') ?? '').trimStart().split('\n')[0] ?? '';
-  if (status === 'blocked' && !/^Blocked: [^\r\n]+$/.test(openQuestionsFirstLine)) {
-    failures.push('check 2: blocked status requires `Blocked: <one-line text>` as the first line of Open questions');
-  }
-  if (status !== 'blocked' && /^Blocked:/.test(openQuestionsFirstLine)) {
-    failures.push(`check 2: only blocked status may open Open questions with \`Blocked:\`; status is ${status}`);
+  if (status !== undefined) {
+    if (status === 'unreadable' || status === 'unlabelled') {
+      failures.push('check 2: an open plan requires exactly one recognized phase label');
+    }
+    const openQuestionsFirstLine = (sections.get('Open questions') ?? '').trimStart().split('\n')[0] ?? '';
+    if (status === 'blocked' && !/^Blocked: [^\r\n]+$/.test(openQuestionsFirstLine)) {
+      failures.push('check 2: blocked status requires `Blocked: <one-line text>` as the first line of Open questions');
+    }
+    if (status !== 'blocked' && /^Blocked:/.test(openQuestionsFirstLine)) {
+      failures.push(`check 2: only blocked status may open Open questions with \`Blocked:\`; status is ${status}`);
+    }
   }
 
   if (
@@ -243,7 +247,7 @@ export function checkPlan(planText, planRef) {
   }
   if (machinePathCitations(planText).length > 0) failures.push('check 10: body contains an absolute machine path');
   const researchIsPlaceholder = (sections.get('Research') ?? '').includes('_Not researched yet._');
-  if (researchIsPlaceholder && status !== 'drafting') {
+  if (researchIsPlaceholder && status !== undefined && status !== 'drafting') {
     failures.push('check 11: Research must be filled once the plan leaves drafting');
   }
   const identity = issueIdentity(planRef);
@@ -894,32 +898,31 @@ function archivePlan(args, retired = false) {
     if (!/^Code-review: pass$/m.test(sections.get('Review') ?? '')) fail('archive requires Code-review: pass');
 
     const { closing, closingCommitOid, defaultBranch } = archivePullRequestReferences(issue.number);
-    if (closing.length > 0) {
-      closingPullRequest = closing.find((reference) => (
-        reference.state === 'MERGED' &&
-        reference.mergedAt &&
-        reference.repository?.nameWithOwner === repository.nameWithOwner &&
-        reference.baseRefName === defaultBranch
-      ));
-      if (!closingPullRequest) {
-        const wrongBranch = closing.find((reference) => reference.state === 'MERGED' && reference.mergedAt)?.baseRefName;
-        if (wrongBranch) fail(`archive requires a pull request merged into ${defaultBranch}, found ${wrongBranch}`);
-        fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
-      }
-    } else {
-      if (!closingCommitOid) fail('archive requires a merged closing pull request; issue has no closing commit');
-      const associated = associatedPullRequests(closingCommitOid);
-      closingPullRequest = associated.pullRequests.find((reference) => (
-        reference.state === 'MERGED' &&
-        reference.mergedAt &&
-        reference.repository?.nameWithOwner === repository.nameWithOwner &&
-        reference.baseRefName === associated.defaultBranch
-      ));
-      if (!closingPullRequest) {
-        const wrongBranch = associated.pullRequests.find((reference) => reference.state === 'MERGED' && reference.mergedAt)?.baseRefName;
-        if (wrongBranch) fail(`archive requires a pull request merged into ${associated.defaultBranch}, found ${wrongBranch}`);
+    const landedInto = (references, branch) => references.find((reference) => (
+      reference.state === 'MERGED' &&
+      reference.mergedAt &&
+      reference.repository?.nameWithOwner === repository.nameWithOwner &&
+      reference.baseRefName === branch
+    ));
+    const mergedElsewhere = (references) => references.find((reference) => reference.state === 'MERGED' && reference.mergedAt)?.baseRefName;
+
+    // Either proof suffices, so an ineligible keyword reference must not hide a valid commit closure.
+    closingPullRequest = landedInto(closing, defaultBranch);
+    let associated;
+    if (!closingPullRequest && closingCommitOid) {
+      associated = associatedPullRequests(closingCommitOid);
+      closingPullRequest = landedInto(associated.pullRequests, associated.defaultBranch);
+    }
+    if (!closingPullRequest) {
+      const wrongClosingBranch = mergedElsewhere(closing);
+      if (wrongClosingBranch) fail(`archive requires a pull request merged into ${defaultBranch}, found ${wrongClosingBranch}`);
+      if (associated) {
+        const wrongCommitBranch = mergedElsewhere(associated.pullRequests);
+        if (wrongCommitBranch) fail(`archive requires a pull request merged into ${associated.defaultBranch}, found ${wrongCommitBranch}`);
         fail(`archive requires a merged closing pull request; closing commit ${closingCommitOid} has no associated merged pull request into ${associated.defaultBranch}`);
       }
+      if (closing.length > 0) fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
+      fail('archive requires a merged closing pull request; issue has no closing commit');
     }
   }
 
