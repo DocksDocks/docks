@@ -78,7 +78,9 @@ retired and never live fields in a v3 record: `plan_contract`, `title`, `goal`,
 
 `## Goal` still contains exactly one `Mode: plan-and-implement` or `Mode: plan-only` line. Mode stays in the body because GitHub has no field that owns this plan-specific choice. Once an open plan leaves `drafting`, `## Research` must no longer carry the template placeholder `_Not researched yet._`.
 
-A blocked plan carries its reason as the first content line of `## Open questions`, spelled `Blocked: <one-line text>`. No other body field stores the reason.
+A blocked plan carries its reason as the first content line of `## Open questions`.
+Spell it `Blocked: <one-line text>`. Only a blocked plan may open that section
+with `Blocked:`. No other body field stores the reason.
 
 The body contains no absolute machine path. A plan is a cold handoff, and a path
 from one machine is not portable.
@@ -201,18 +203,20 @@ all Steps rows to be terminal (`done` or `skipped`), a line matching exactly
 an eligible merged pull request. It writes no status. On success it removes any
 stale phase label and prints `plan #<n> finished (closed by <url>)`.
 
-The verifier first reads the issue's `closedByPullRequestsReferences` connection without passing `userLinkedOnly` and accepts an eligible keyword-linked merged closing pull request from that connection. When the connection is empty and the issue's
-closer is a commit, it reads that closing commit's `associatedPullRequests` and
-filters to pull requests whose `state` is `MERGED` and whose `baseRefName`
-equals the target repository's `defaultBranchRef.name`. In either route, the
-accepted pull request must be merged into the default branch of the repository
-it targets.
+The verifier reads the issue's `closedByPullRequestsReferences` with
+`excludeUserLinked: true`. It accepts only keyword-linked merged pull requests.
+A manually linked pull request never proves a landing.
 
-The commit-association fallback proves that a pull request introduced the
-closing commit. A commit pushed straight to the default branch has no associated
-merged pull request and archive refuses it. A manually linked pull request is
-not a substitute for closure evidence, and archive never performs the merge or
-closes the issue itself.
+When that connection is empty, the verifier examines only the latest closure.
+A commit closer supplies its `associatedPullRequests`.
+Any other latest closer supplies no commit fallback proof.
+The verifier accepts only merged pull requests whose base matches that
+repository's default branch.
+
+Earlier closure events do not count. An issue closed by a commit, reopened, then
+closed by hand has no commit proof. A commit pushed straight to the default
+branch has no associated merged pull request. Archive refuses both cases.
+It never performs the merge or closes the issue.
 
 ## Writing the record
 
@@ -228,15 +232,23 @@ record, re-apply the intent, and run `plan.mjs check <issue>` before continuing.
 
 An export copy is a snapshot of one body revision, not a live view. The `step`
 and `edit` commands rewrite body bytes. A status change also rewrites body bytes
-when it adds or clears the blocked reason. These body writes make an existing
-export stale. `plan.mjs edit` refuses a stale export and names both body
-revisions. This refusal prevents the stale copy from reverting recorded state.
-The `claim`, `archive`, and `retire` commands do not rewrite body bytes. A
-phase-only status change writes labels only and leaves the export usable. The
-guard compares body bytes, not the issue timestamp. An export with no provenance
-file is applied without the guard, but an unreadable provenance file causes
-refusal. Re-export immediately before
-every body edit. Never carry an edit across an intervening body write.
+when it adds or clears the blocked reason. These body writes supersede every
+existing export.
+
+`plan.mjs edit` requires the export digest in `<file>.origin` for every body
+edit. It refuses a missing digest, an unreadable digest, or a digest for a
+superseded body. These refusals prevent stale or unverified copies from
+replacing recorded state.
+
+After validation, `edit` refreshes the digest before it writes the remote body.
+A local digest failure fails closed before the remote write and requires one
+re-export. The `claim`, `archive`, and `retire` commands do not rewrite body
+bytes. A successful phase-only status change writes labels only and leaves the
+body and digest valid. The guard compares body bytes, not the issue timestamp.
+
+Re-export immediately before every body edit. Edit the export. Run
+`plan.mjs check <issue>`. Delete the export and its `.origin` sidecar. Never
+carry an edit across an intervening body write.
 
 ## Reading the record
 

@@ -31,11 +31,17 @@ const STEP_TRANSITIONS = {
 };
 const ISSUE_FIELDS = 'number,title,body,state,stateReason,labels,assignees,url,createdAt,updatedAt';
 const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (gh api user --jq .login returned nothing)';
+// `closedByPullRequestsReferences` returns manually linked pull requests alongside keyword closers, so a
+// collaborator could link any merged pull request and pass this verifier; `excludeUserLinked` drops them and
+// keeps keyword closers (verified live: microsoft/vscode#331368 returns its link in the plain connection,
+// cli/cli#14073 keeps its keyword closer under exclusion). `includeClosedPrs` stays at its `false` default
+// because a merged pull request is returned regardless (cli/cli#14073) while that default also hides the
+// closed-unmerged references this verifier must never accept (cli/cli#14156).
 const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){
   repository(owner:$owner,name:$name){
     defaultBranchRef{ name }
     issue(number:$number){
-      closing: closedByPullRequestsReferences(first:100, after:$after){
+      closing: closedByPullRequestsReferences(first:100, after:$after, excludeUserLinked:true){
         nodes{ number url state mergedAt baseRefName repository{ nameWithOwner } }
         pageInfo{ hasNextPage endCursor }
       }
@@ -167,6 +173,9 @@ export function checkPlan(planText, planRef) {
   const openQuestionsFirstLine = (sections.get('Open questions') ?? '').trimStart().split('\n')[0] ?? '';
   if (status === 'blocked' && !/^Blocked: [^\r\n]+$/.test(openQuestionsFirstLine)) {
     failures.push('check 2: blocked status requires `Blocked: <one-line text>` as the first line of Open questions');
+  }
+  if (status !== 'blocked' && /^Blocked:/.test(openQuestionsFirstLine)) {
+    failures.push(`check 2: only blocked status may open Open questions with \`Blocked:\`; status is ${status}`);
   }
 
   if (
@@ -349,10 +358,10 @@ function archivePullRequestReferences(issueNumber) {
     }
     defaultBranch = repo.defaultBranchRef.name;
     closing.push(...issue.closing.nodes);
-    const commitClosers = issue.timelineItems.nodes
-      .map((event) => event?.closer)
-      .filter((closer) => closer?.__typename === 'Commit' && closer.oid);
-    closingCommitOid = commitClosers.at(-1)?.oid ?? closingCommitOid;
+    // The current closure is the only one that proves anything: an issue closed by a commit, reopened, then
+    // closed by hand must not keep the earlier commit as proof, so read the latest event and require it.
+    const latestClosure = issue.timelineItems.nodes.at(-1)?.closer;
+    closingCommitOid = latestClosure?.__typename === 'Commit' ? latestClosure.oid : undefined;
     hasNextPage = issue.closing.pageInfo?.hasNextPage === true;
     if (issue.closing.pageInfo?.endCursor != null) after = issue.closing.pageInfo.endCursor;
   } while (hasNextPage);
@@ -606,16 +615,20 @@ function showPlan(args) {
   console.log(header);
 }
 
-function exportPlan(args) {
-  if (args.length !== 1) fail('export requires one issue');
-  const { issue } = readPlanIssue(args[0]);
+function reviewDirectory() {
   const result = spawnSync('git', ['rev-parse', '--git-path', 'docks-review'], { encoding: 'utf8' });
   if (result.error?.code === 'ENOENT') fail('git is not installed or not on PATH');
   if (result.error) fail(`git rev-parse failed: ${result.error.message}`);
   if (result.status !== 0) fail(`git rev-parse failed: ${result.stderr.trim() || `exit ${result.status}`}`);
   const gitPath = result.stdout.trim();
   if (!gitPath) fail('git rev-parse failed: empty git path');
-  const directory = path.resolve(process.cwd(), gitPath);
+  return path.resolve(process.cwd(), gitPath);
+}
+
+function exportPlan(args) {
+  if (args.length !== 1) fail('export requires one issue');
+  const { issue } = readPlanIssue(args[0]);
+  const directory = reviewDirectory();
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   fs.chmodSync(directory, 0o700);
   const destination = path.join(directory, `plan-${issue.number}.md`);
@@ -684,9 +697,14 @@ function editPlan(args) {
   const { issue, record } = readPlanIssue(value, true);
   const file = options['--file'];
   const after = fs.readFileSync(file, 'utf8');
+  // Every body edit runs export, edit, check, delete, so a file with no sidecar was derived from bytes this
+  // tool never recorded. Accepting it would let a copy or a deleted sidecar disable the guard silently.
   const origin = readOrigin(file);
+  if (!origin) {
+    fail(`missing export provenance: ${originFile(file)} does not exist; run \`plan.mjs export ${issue.number}\` and re-apply the edit`);
+  }
   const current = bodyDigest(issue.body);
-  if (origin && origin !== current) {
+  if (origin !== current) {
     fail(
       `stale export: ${file} was exported from body ${origin.slice(0, 12)}, but #${issue.number} now holds ${current.slice(0, 12)}; re-export and re-apply the edit`,
     );
@@ -694,8 +712,10 @@ function editPlan(args) {
   const failures = checkPlan(after, issue);
   if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
   const changes = changedLines(issue.body, after);
+  // Stage provenance before the remote write. A failed sidecar write then costs one re-export; the reverse
+  // order would leave a local digest naming a body GitHub already replaced, which reads as a valid export.
+  fs.writeFileSync(originFile(file), `${bodyDigest(after)}\n`, { encoding: 'utf8', mode: 0o600 });
   editIssueBodyIfUnchanged(issue, after);
-  if (origin) fs.writeFileSync(originFile(file), `${bodyDigest(after)}\n`, { encoding: 'utf8', mode: 0o600 });
   console.log(headerStrip(issue, record.status));
   console.log(`changed: ${changes.length} line(s)`);
   for (const line of changes) console.log(line);

@@ -77,14 +77,14 @@ function formFields(flag) {
   return fields;
 }
 
-function connectionPage(nodes, cursor, prefix) {
+function connectionPage(nodes, cursor, prefix, first = 100) {
   let start = 0;
   if (cursor !== undefined) {
     const match = new RegExp(`^${prefix}:(\\d+)$`).exec(cursor);
     if (!match) die(`invalid GraphQL cursor: ${cursor}`);
     start = Number(match[1]);
   }
-  const pageNodes = nodes.slice(start, start + 100);
+  const pageNodes = nodes.slice(start, start + first);
   const end = start + pageNodes.length;
   return {
     nodes: pageNodes,
@@ -93,6 +93,14 @@ function connectionPage(nodes, cursor, prefix) {
       endCursor: pageNodes.length > 0 ? `${prefix}:${end}` : cursor ?? null,
     },
   };
+}
+
+function graphqlValue(expression, variables) {
+  if (expression.startsWith('$')) return variables[expression.slice(1)];
+  if (expression === 'true') return true;
+  if (expression === 'false') return false;
+  if (/^\d+$/.test(expression)) return Number(expression);
+  return expression;
 }
 
 function issueJson(issue) {
@@ -190,7 +198,7 @@ if (group === 'api' && command === 'graphql') {
     process.exit(0);
   }
 
-  const allowedArguments = new Set(['first', 'after', 'userLinkedOnly', 'includeClosedPrs', 'orderByState']);
+  const allowedArguments = new Set(['first', 'after', 'includeClosedPrs', 'excludeUserLinked', 'userLinkedOnly']);
   const selections = [];
   for (const match of query.matchAll(/(\w+)\s*:\s*closedByPullRequestsReferences\s*\(([^)]*)\)/g)) {
     const selectionArgs = new Map();
@@ -205,32 +213,41 @@ if (group === 'api' && command === 'graphql') {
   const issue = state.issues.find((entry) => entry.number === Number(variables.number));
   if (!issue) die(`issue not found: ${variables.number}`);
   const declared = issue.closedByPullRequestsReferences ?? [];
-  const userLinked = issue.userLinkedPullRequests ?? [];
-  const closing = [
-    ...declared,
-    ...userLinked.filter(
-      (reference) =>
-        !declared.some(
-          (entry) => entry.number === reference.number && referenceRepo(entry) === referenceRepo(reference),
-        ),
-    ),
-  ];
   const pairNode = (reference) => ({
     number: reference.number,
     repository: { nameWithOwner: referenceRepo(reference) },
   });
   const payload = {};
   for (const { alias, args: selectionArgs } of selections) {
-    const onlyUserLinked = selectionArgs.get('userLinkedOnly') === 'true';
-    const cursorVariable = (selectionArgs.get('after') ?? '').replace(/^\$/, '');
+    const onlyUserLinked = graphqlValue(selectionArgs.get('userLinkedOnly') ?? 'false', variables) === true;
+    const excludeUserLinked = graphqlValue(selectionArgs.get('excludeUserLinked') ?? 'false', variables) === true;
+    const includeClosedPrs = graphqlValue(selectionArgs.get('includeClosedPrs') ?? 'false', variables) === true;
+    const first = graphqlValue(selectionArgs.get('first') ?? '100', variables);
+    const after = graphqlValue(selectionArgs.get('after') ?? '', variables) || undefined;
+    const references = declared
+      .filter((reference) => !onlyUserLinked || reference.userLinked === true)
+      .filter((reference) => !excludeUserLinked || reference.userLinked !== true)
+      .map((reference) => ({ reference, node: pullRequestNode(reference) }))
+      .filter(({ node }) => includeClosedPrs || node.state !== 'CLOSED');
     payload[alias] = connectionPage(
-      onlyUserLinked ? userLinked.map(pairNode) : closing.map(pullRequestNode),
-      cursorVariable ? variables[cursorVariable] : undefined,
+      references.map(({ reference, node }) => onlyUserLinked ? pairNode(reference) : node),
+      after,
       alias,
+      first,
     );
   }
+
+  const timeline = /timelineItems\s*\(([^)]*)\)/.exec(query);
+  if (!timeline) die('graphql query selects no timelineItems field');
+  const timelineArgs = new Map();
+  for (const argument of timeline[1].split(',').map((entry) => entry.trim()).filter(Boolean)) {
+    const name = argument.split(':', 1)[0].trim();
+    if (!new Set(['last', 'itemTypes']).has(name)) die(`Unknown GraphQL argument: "${name}"`);
+    timelineArgs.set(name, argument.slice(argument.indexOf(':') + 1).trim());
+  }
+  const last = graphqlValue(timelineArgs.get('last') ?? '100', variables);
+  const timelineNodes = (issue.timelineItems ?? []).slice(-last);
   const repo = `${variables.owner}/${variables.name}`;
-  const closer = issue.closingCommitOid ? { __typename: 'Commit', oid: issue.closingCommitOid } : null;
   console.log(
     JSON.stringify({
       data: {
@@ -238,7 +255,7 @@ if (group === 'api' && command === 'graphql') {
           defaultBranchRef: { name: state.repositoryDefaults?.[repo] ?? state.repo.defaultBranchRef?.name },
           issue: {
             ...payload,
-            timelineItems: { nodes: closer ? [{ closer }] : [] },
+            timelineItems: { nodes: timelineNodes },
           },
         },
       },
@@ -332,6 +349,7 @@ if (group === 'issue' && command === 'view') {
 
 if (group === 'issue' && command === 'edit') {
   const issue = issueByNumber(issueNumber());
+  if (state.issueEditError) die(state.issueEditError);
   const bodyFile = value('--body-file');
   const addedAssignees = values('--add-assignee');
   const addedLabels = values('--add-label');

@@ -135,8 +135,11 @@ const V3_PINNED_CLAUSES = [
 ];
 const CONTRACT_CLASSIFICATION_PINS = [
   { name: 'v3 marker', text: '<!-- plan-contract: v3 -->' },
-  { name: 'unreadable outcome', text: 'unreadable' },
-  { name: 'byte-preserving migration rule', text: 'byte' },
+  { name: 'unreadable outcome', text: '| Anything else | unreadable | Refused; no parser is attempted |' },
+  {
+    name: 'byte-preserving migration rule',
+    text: '`docs/plans/finished/` holds records written before the lifecycle moved to issues; it is history, never a source of truth, and no command reads it.',
+  },
 ];
 
 const PHASE_ONE_OPTIONS = ['Plan and implement now', 'Plan only, stop at planned', 'Implement directly'];
