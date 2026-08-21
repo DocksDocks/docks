@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-21"
-  content_hash: "3fa87dc8e2df7b30e34ced2845add9fecaaa06a94e45bf86d44750ff4e1efdc7"
+  content_hash: "058bae523b375bd11fcb5281726628c9a3186745b8781f3ecc1013523203469d"
 ---
 
 # Plan Manager
@@ -33,7 +33,11 @@ not restate or extend those shapes here.
 </constraint>
 
 <constraint>
-A step whose `Effect` is not `local` requires an in-session `ask` confirmation immediately before it runs; when `ask` is unavailable the step is set `blocked` and the first line of `## Open questions` becomes `Blocked: <one-line reason>` naming the unconfirmed effect.
+A step whose `Effect` is not `local` requires an in-session `ask` confirmation
+immediately before it runs; when `ask` is unavailable the step is set `blocked`
+and the first line of `## Open questions` becomes `Blocked: <one-line reason>`
+naming the unconfirmed effect. Only a blocked plan may open `## Open questions`
+with `Blocked:`.
 </constraint>
 
 ## Six-phase flow
@@ -63,12 +67,14 @@ A step whose `Effect` is not `local` requires an in-session `ask` confirmation i
    outcome and one Mode line in `## Goal`, the hypothesis in `## Research`, and
    provisional `## Steps` and `## Acceptance` tables. Keep status `drafting`.
 
-3. **Research.** Read the record with `plan.mjs export <issue>` into the
-   repository's sanctioned, untracked review scratch. The command resolves that
-   directory with `git rev-parse --git-path docks-review`, so it is
-   `.git/docks-review/` in a plain clone and the worktree-private equivalent in a
-   linked worktree, creates it with mode `0700` when missing, writes
-   `plan-<issue>.md` there verbatim, and prints the absolute local-file path. Confirm or refute the hypothesis
+3. **Research.** Run `plan.mjs export <issue>`. The command writes into the
+   repository's sanctioned, untracked review scratch. It resolves that directory
+   with `git rev-parse --git-path docks-review`. A plain clone uses
+   `.git/docks-review/`. A linked worktree gets a worktree-private directory.
+   The command creates a missing scratch directory with mode `0700`. It writes the
+   body verbatim to `plan-<issue>.md`. It writes the body digest as one lowercase
+   SHA-256 line in `plan-<issue>.md.origin`. The sidecar mode is `0600`. The
+   command prints the absolute export path. Confirm or refute the hypothesis
    against the repository. Read the target files and the nearest `AGENTS.md` or
    `CLAUDE.md`. Use the language server for definitions and references before
    changing an exported symbol. Verify every library, framework, runtime, or
@@ -82,9 +88,10 @@ A step whose `Effect` is not `local` requires an in-session `ask` confirmation i
    fix that it replaces in one line. A patch-over is not ready when a root-cause
    fix is reachable. Bind the exact `Files` cells; their union is the plan's
    declared scope. Fill `## Acceptance`. Run `plan.mjs edit <issue> --file
-   <local-file>`, then `plan.mjs check <issue>`. Set the plan with
-   `plan.mjs status <issue> planned`. Delete the temporary file. Every later
-   body edit uses the same export-to-local-file, edit, check, and delete flow.
+   <local-file>`. Run `plan.mjs check <issue>`. Set the plan with
+   `plan.mjs status <issue> planned`. Delete the temporary file and its `.origin`
+   sidecar. Every later body edit uses the same export, edit, check, and delete
+   flow.
 
 4. **Plan review.** Dispatch the `plan-reviewer` agent exactly once for every
    canonical plan. Run `plan.mjs export <issue>` first and dispatch the reviewer with the issue number and the printed export path, because a read-only reviewer cannot fetch an issue body itself. Append the verdict and
@@ -162,11 +169,23 @@ value that is `plan` or begins `plan:`, so an extra cannot plant a second status
 label. Every mutating command refuses a plan owned by another login and claims an
 unassigned one in the same write; read-only commands never check ownership.
 
-`archive` verifies landing through either the issue's
-`closedByPullRequestsReferences` (without `userLinkedOnly`) or, when that is
-empty, the closing commit's `associatedPullRequests`. A reference counts only
-when it is merged into the target repository's default branch. A commit pushed
-straight to that branch has no associated merged pull request and is refused.
+`edit` requires export provenance for every body change. It refuses a missing
+sidecar, an unreadable digest, or a digest from a superseded body revision.
+After validation, `edit` refreshes the digest before the remote body write.
+A local sidecar failure fails closed and requires one re-export.
+A phase-only status change leaves the body and sidecar valid.
+
+`archive` reads `closedByPullRequestsReferences` with `excludeUserLinked: true`.
+A manually linked pull request never proves a landing.
+
+When that connection is empty, `archive` examines only the latest closure.
+A commit closer supplies its `associatedPullRequests`.
+Any other latest closer supplies no commit fallback proof.
+An issue closed by a commit, reopened, then closed by hand has no commit proof.
+
+Every accepted pull request merges into the target repository's default branch.
+A commit pushed straight to that branch has no associated merged pull request
+and is refused.
 
 | command | behaviour | stdout on success |
 |---|---|---|
@@ -174,10 +193,10 @@ straight to that branch has no associated merged pull request and is refused.
 | `new --title <t> --goal <g> [--mode plan-and-implement\|plan-only] [--label <name>]…` | render the v3 marker-based body, `gh issue create --title --body-file --label plan --label plan:drafting --assignee @me` (+ extras) | `plan created: #<n> <url>` |
 | `claim <issue>` | resolve the acting login, `gh issue edit <n> --add-assignee @me` when unassigned; idempotent for the owner, refuses a foreign owner without writing | `plan #<n> claimed: <login>` |
 | `show <issue> [--body]` | header strip on stdout; `--body` puts the record alone on stdout and the header strip on stderr | `#<n> · <status> · <title> · <url>` |
-| `export <issue>` | read the issue, resolve the scratch dir with `git rev-parse --git-path docks-review` (so a linked worktree works), create it mode 0700 when missing, write the body verbatim to `plan-<issue>.md` inside it | the absolute export path |
-| `edit <issue> --file <path>` | run the 13 checks on the file, refuse on any failure, then replace the body | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
+| `export <issue>` | `export` writes the body to the worktree-aware `docks-review` directory. It writes its SHA-256 digest to `<file>.origin` with mode `0600`. | the absolute export path |
+| `edit <issue> --file <path>` | `edit` runs 13 checks. It requires provenance for the current body. It refreshes the digest before the remote body write. It then replaces the body. | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
 | `check <issue \| --file <path>>` | 13 checks | `plan check passed: #<n>` or `plan check passed: <path>` |
-| `status <issue> <status> [--reason <text>]` | require an open issue, validate the phase transition from its label, swap phase labels, and maintain the leading `Blocked:` line in `## Open questions` | `plan #<n> status: <old> -> <new>` |
+| `status <issue> <status> [--reason <text>]` | `status` requires an open issue. It validates and updates its phase label. It keeps a leading `Blocked:` line only for blocked status. | `plan #<n> status: <old> -> <new>` |
 | `step <issue> <step-id> <status>` | rewrite one Steps `Status` cell | `plan #<n> step <id>: <old> -> <new>` |
 | `list [--status <s>]` | list plan issues and derive status from phase label for open work or from `state` + `stateReason` when closed; open issues first, then closed; each group sorted by ascending number | `<status>\t#<n>\t<title>` per line |
 | `next` | queue-aware startable plans from `docs/PLAN-QUEUE.md` (`Plan` cell holds the issue number); falls back to every `planned` plan on a missing or malformed queue, warning on stderr | `#<n>` per line |

@@ -281,8 +281,13 @@ try {
       entry.assignees = ['other-agent'];
     });
     const before = issue(number);
-    const editFile = path.join(scratch, `foreign-${command}.md`);
-    fs.writeFileSync(editFile, before.body);
+    let editFile = '';
+    if (command === 'edit') {
+      const editExport = run('export', String(number));
+      expectSuccess(editExport, 'export before foreign-owner edit refusal');
+      editFile = editExport.stdout.trim();
+      fs.writeFileSync(editFile, before.body);
+    }
     const commandArgs = {
       edit: ['edit', String(number), '--file', editFile],
       status: ['status', String(number), 'planned'],
@@ -324,8 +329,13 @@ try {
     makeValid(number);
     if (command === 'step' || command === 'archive') setIssueStatus(number, 'ongoing');
     const before = issue(number);
-    const editFile = path.join(scratch, `empty-login-${command}.md`);
-    fs.writeFileSync(editFile, before.body);
+    let editFile = '';
+    if (command === 'edit') {
+      const editExport = run('export', String(number));
+      expectSuccess(editExport, 'export before missing-login edit refusal');
+      editFile = editExport.stdout.trim();
+      fs.writeFileSync(editFile, before.body);
+    }
     emptyLoginCases.push({
       command,
       number,
@@ -544,14 +554,16 @@ try {
   const editNumber = createPlan('edit');
   makeValid(editNumber);
   const beforeRejectedEdit = issue(editNumber).body;
-  const invalidEdit = path.join(scratch, 'invalid-edit.md');
+  const editExport = run('export', String(editNumber));
+  expectSuccess(editExport, 'export before edit validation');
+  const invalidEdit = editExport.stdout.trim();
   fs.writeFileSync(invalidEdit, beforeRejectedEdit.replace('Mode: plan-and-implement', 'Mode: direct'));
   const rejectedEdit = run('edit', String(editNumber), '--file', invalidEdit);
   assert.equal(rejectedEdit.status, 1);
   assert.match(rejectedEdit.stderr, /check 13:/);
   assert.equal(issue(editNumber).body, beforeRejectedEdit, 'failed edit must leave issue unchanged');
 
-  const acceptedEdit = path.join(scratch, 'accepted-edit.md');
+  const acceptedEdit = invalidEdit;
   fs.writeFileSync(
     acceptedEdit,
     beforeRejectedEdit.replace('None\n\n## Open questions', 'src/generated.mjs\n\n## Open questions'),
@@ -620,6 +632,91 @@ try {
     'export must write the body digest to its sibling origin file',
   );
 
+  const deletedOriginNumber = createPlan('deleted-origin-edit');
+  const beforeDeletedOriginEdit = makeValid(deletedOriginNumber);
+  const deletedOriginExport = run('export', String(deletedOriginNumber));
+  expectSuccess(deletedOriginExport, 'deleted origin export');
+  const deletedOriginExportPath = deletedOriginExport.stdout.trim();
+  fs.writeFileSync(
+    deletedOriginExportPath,
+    fs.readFileSync(deletedOriginExportPath, 'utf8').replace('src/example.mjs', 'src/deleted-origin.mjs'),
+  );
+  fs.unlinkSync(`${deletedOriginExportPath}.origin`);
+  const deletedOriginEdit = run('edit', String(deletedOriginNumber), '--file', deletedOriginExportPath);
+  assert.equal(deletedOriginEdit.status, 1, 'deleting an export sidecar must fail closed');
+  assert.equal(
+    deletedOriginEdit.stderr.trim(),
+    `missing export provenance: ${deletedOriginExportPath}.origin does not exist; run \`plan.mjs export ${deletedOriginNumber}\` and re-apply the edit`,
+  );
+  assert.equal(
+    issue(deletedOriginNumber).body,
+    beforeDeletedOriginEdit,
+    'an edit whose export sidecar was deleted must not mutate the issue',
+  );
+
+  const copiedExportNumber = createPlan('copied-export-edit');
+  const beforeCopiedExportEdit = makeValid(copiedExportNumber);
+  const copiedExport = run('export', String(copiedExportNumber));
+  expectSuccess(copiedExport, 'copied file export');
+  const copiedExportPath = path.join(scratch, 'copied-export-edit.md');
+  fs.copyFileSync(copiedExport.stdout.trim(), copiedExportPath);
+  fs.writeFileSync(
+    copiedExportPath,
+    fs.readFileSync(copiedExportPath, 'utf8').replace('src/example.mjs', 'src/copied-export.mjs'),
+  );
+  assert.equal(fs.existsSync(`${copiedExportPath}.origin`), false, 'copy fixture must omit the origin sidecar');
+  const copiedExportEdit = run('edit', String(copiedExportNumber), '--file', copiedExportPath);
+  assert.equal(copiedExportEdit.status, 1, 'copying an export without its sidecar must fail closed');
+  assert.equal(
+    copiedExportEdit.stderr.trim(),
+    `missing export provenance: ${copiedExportPath}.origin does not exist; run \`plan.mjs export ${copiedExportNumber}\` and re-apply the edit`,
+  );
+  assert.equal(
+    issue(copiedExportNumber).body,
+    beforeCopiedExportEdit,
+    'renaming an exported body without its sidecar must not bypass provenance',
+  );
+
+  const failedRemoteNumber = createPlan('failed-remote-edit');
+  const beforeFailedRemoteEdit = makeValid(failedRemoteNumber);
+  const failedRemoteExport = run('export', String(failedRemoteNumber));
+  expectSuccess(failedRemoteExport, 'failed remote edit export');
+  const failedRemoteExportPath = failedRemoteExport.stdout.trim();
+  const failedRemoteBody = fs
+    .readFileSync(failedRemoteExportPath, 'utf8')
+    .replace('src/example.mjs', 'src/failed-remote.mjs');
+  fs.writeFileSync(failedRemoteExportPath, failedRemoteBody);
+  updateState((state) => {
+    state.issueEditError = 'stubbed issue edit failure';
+  });
+  const failedRemoteEdit = run('edit', String(failedRemoteNumber), '--file', failedRemoteExportPath);
+  assert.equal(failedRemoteEdit.status, 1, 'a remote issue edit failure must remain visible');
+  assert.equal(failedRemoteEdit.stderr.trim(), 'gh issue edit failed: stubbed issue edit failure');
+  assert.equal(
+    fs.readFileSync(`${failedRemoteExportPath}.origin`, 'utf8'),
+    `${bodyDigest(failedRemoteBody)}\n`,
+    'the refreshed digest must be durable before the remote mutation starts',
+  );
+  assert.equal(
+    issue(failedRemoteNumber).body,
+    beforeFailedRemoteEdit,
+    'a failed remote issue edit must leave the live body unchanged',
+  );
+  updateState((state) => {
+    delete state.issueEditError;
+  });
+  const failedRemoteRetry = run('edit', String(failedRemoteNumber), '--file', failedRemoteExportPath);
+  assert.equal(failedRemoteRetry.status, 1, 'retrying the failed remote edit without re-exporting must fail closed');
+  assert.equal(
+    failedRemoteRetry.stderr.trim(),
+    `stale export: ${failedRemoteExportPath} was exported from body ${bodyDigest(failedRemoteBody).slice(0, 12)}, but #${failedRemoteNumber} now holds ${bodyDigest(beforeFailedRemoteEdit).slice(0, 12)}; re-export and re-apply the edit`,
+  );
+  assert.equal(
+    issue(failedRemoteNumber).body,
+    beforeFailedRemoteEdit,
+    'the stale retry after a remote failure must not silently apply',
+  );
+
   const freshExportNumber = createPlan('fresh-export-edit');
   makeValid(freshExportNumber);
   const freshExport = run('export', String(freshExportNumber));
@@ -637,6 +734,20 @@ try {
   assert.notEqual(freshOriginAfter, freshOriginBefore, 'successful edit must refresh the export origin');
   assert.equal(freshOriginAfter, bodyDigest(freshAppliedBody), 'refreshed origin must describe the applied file');
   assert.equal(issue(freshExportNumber).body, freshAppliedBody, 'fresh exported edit must update the issue body');
+  fs.writeFileSync(freshExportPath, freshAppliedBody.replace('src/fresh.mjs', 'src/fresher.mjs'));
+  const secondFreshEdit = run('edit', String(freshExportNumber), '--file', freshExportPath);
+  expectSuccess(secondFreshEdit, 'second consecutive fresh exported edit');
+  const secondFreshAppliedBody = fs.readFileSync(freshExportPath, 'utf8');
+  assert.equal(
+    fs.readFileSync(`${freshExportPath}.origin`, 'utf8'),
+    `${bodyDigest(secondFreshAppliedBody)}\n`,
+    'a successful edit must leave provenance valid for the next edit',
+  );
+  assert.equal(
+    issue(freshExportNumber).body,
+    secondFreshAppliedBody,
+    'a second consecutive edit of the same exported file must update the issue',
+  );
 
   const staleExportNumber = createPlan('stale-export-edit');
   makeValid(staleExportNumber);
@@ -839,6 +950,7 @@ try {
   expectSuccess(labelOnlyExport, 'label-only edit export');
   const labelOnlyExportPath = labelOnlyExport.stdout.trim();
   const beforeLabelOnlyStatus = issue(labelOnlyNumber);
+  const labelOnlyOrigin = fs.readFileSync(`${labelOnlyExportPath}.origin`, 'utf8');
   expectSuccess(run('status', String(labelOnlyNumber), 'planned'), 'label-only status change');
   const afterLabelOnlyStatus = issue(labelOnlyNumber);
   assert.equal(
@@ -850,6 +962,16 @@ try {
     afterLabelOnlyStatus.updatedAt,
     beforeLabelOnlyStatus.updatedAt,
     'label-only fixture write must advance the issue timestamp',
+  );
+  assert.equal(
+    fs.readFileSync(`${labelOnlyExportPath}.origin`, 'utf8'),
+    labelOnlyOrigin,
+    'a phase-only status write must not invalidate digest provenance',
+  );
+  assert.equal(
+    labelOnlyOrigin,
+    `${bodyDigest(afterLabelOnlyStatus.body)}\n`,
+    'phase-only provenance must describe body bytes rather than the issue timestamp',
   );
   fs.writeFileSync(
     labelOnlyExportPath,
@@ -864,7 +986,8 @@ try {
   );
 
   const handwrittenNumber = createPlan('handwritten-edit');
-  const handwrittenBody = makeValid(handwrittenNumber).replace('src/example.mjs', 'src/handwritten.mjs');
+  const beforeHandwrittenEdit = makeValid(handwrittenNumber);
+  const handwrittenBody = beforeHandwrittenEdit.replace('src/example.mjs', 'src/handwritten.mjs');
   const handwrittenPath = path.join(scratch, 'handwritten-edit.md');
   fs.writeFileSync(handwrittenPath, handwrittenBody);
   assert.equal(
@@ -872,11 +995,16 @@ try {
     false,
     'hand-written edit fixture must have no origin sidecar',
   );
-  expectSuccess(run('edit', String(handwrittenNumber), '--file', handwrittenPath), 'hand-written edit without sidecar');
+  const handwrittenEdit = run('edit', String(handwrittenNumber), '--file', handwrittenPath);
+  assert.equal(handwrittenEdit.status, 1, 'a hand-written edit without provenance must fail closed');
+  assert.equal(
+    handwrittenEdit.stderr.trim(),
+    `missing export provenance: ${handwrittenPath}.origin does not exist; run \`plan.mjs export ${handwrittenNumber}\` and re-apply the edit`,
+  );
   assert.equal(
     issue(handwrittenNumber).body,
-    handwrittenBody,
-    'hand-written file must apply without provenance metadata',
+    beforeHandwrittenEdit,
+    'a hand-written file without provenance metadata must not apply',
   );
 
   const planTransitions = {
@@ -932,6 +1060,23 @@ try {
     },
     /check 2:/,
   );
+
+  const inverseBlockedNumber = createPlan('blocked-line-on-drafting-plan');
+  makeValid(inverseBlockedNumber);
+  updateIssue(inverseBlockedNumber, (entry) => {
+    entry.body = entry.body.replace(
+      '## Open questions\n\nNone',
+      '## Open questions\n\nBlocked: waiting on a decision\nNone',
+    );
+  });
+  const inverseBlockedCheck = run('check', String(inverseBlockedNumber));
+  assert.equal(inverseBlockedCheck.status, 1, 'a non-blocked plan must reject a leading Blocked line');
+  assert.equal(
+    inverseBlockedCheck.stderr.trim(),
+    `#${inverseBlockedNumber}: check 2: only blocked status may open Open questions with \`Blocked:\`; status is drafting`,
+  );
+  setIssueStatus(inverseBlockedNumber, 'blocked', 'waiting on a decision');
+  expectCheckPass(inverseBlockedNumber);
 
   const finishedStatus = run('status', String(transitionNumber), 'finished');
   assert.equal(finishedStatus.status, 1, 're-adding finished to the writable status enum must fail');
@@ -1066,6 +1211,57 @@ try {
   assert.equal(unsupportedGraphqlArgument.status, 1);
   assert.equal(unsupportedGraphqlArgument.stderr.trim(), 'Unknown GraphQL argument: "invented"');
 
+  const manualLinkArchiveNumber = createPlan('manual-link-archive');
+  makeValid(manualLinkArchiveNumber);
+  setIssueStatus(manualLinkArchiveNumber, 'ongoing');
+  updateIssue(manualLinkArchiveNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [
+      {
+        number: 41,
+        url: 'https://github.com/DocksDocks/fixture/pull/41',
+        repository: 'DocksDocks/fixture',
+        userLinked: true,
+      },
+      {
+        number: 40,
+        url: 'https://github.com/DocksDocks/fixture/pull/40',
+        repository: 'DocksDocks/fixture',
+        userLinked: false,
+      },
+    ];
+  });
+  updateState((state) => {
+    state.prs.push(
+      {
+        number: 41,
+        repository: 'DocksDocks/fixture',
+        mergedAt: '2026-08-20T21:00:00Z',
+        state: 'MERGED',
+        baseRefName: 'main',
+        url: 'https://github.com/DocksDocks/fixture/pull/41',
+      },
+      {
+        number: 40,
+        repository: 'DocksDocks/fixture',
+        mergedAt: null,
+        state: 'OPEN',
+        baseRefName: 'main',
+        url: 'https://github.com/DocksDocks/fixture/pull/40',
+      },
+    );
+  });
+  const beforeManualLinkArchive = issue(manualLinkArchiveNumber);
+  const manualLinkArchive = run('archive', String(manualLinkArchiveNumber));
+  assert.equal(manualLinkArchive.status, 1, 'accepting a manually linked merged pull request must fail');
+  assert.equal(
+    manualLinkArchive.stderr.trim(),
+    'archive requires a closing pull request merged into DocksDocks/fixture:main',
+  );
+  assert.deepEqual(issue(manualLinkArchiveNumber), beforeManualLinkArchive);
+
   const keywordArchiveNumber = createPlan('keyword-archive');
   makeValid(keywordArchiveNumber);
   setIssueStatus(keywordArchiveNumber, 'ongoing');
@@ -1078,18 +1274,9 @@ try {
         number: 41,
         url: 'https://github.com/DocksDocks/fixture/pull/41',
         repository: 'DocksDocks/fixture',
+        userLinked: false,
       },
     ];
-  });
-  updateState((state) => {
-    state.prs.push({
-      number: 41,
-      repository: 'DocksDocks/fixture',
-      mergedAt: '2026-08-20T21:00:00Z',
-      state: 'MERGED',
-      baseRefName: 'main',
-      url: 'https://github.com/DocksDocks/fixture/pull/41',
-    });
   });
   const keywordBodyBefore = issue(keywordArchiveNumber).body;
   const keywordCallsBefore = loadState().calls.length;
@@ -1103,16 +1290,50 @@ try {
   assert.deepEqual(issue(keywordArchiveNumber).labels, ['plan'], 'archive must strip the leftover phase label');
   const keywordArchiveCalls = loadState().calls.slice(keywordCallsBefore);
   assert.ok(keywordArchiveCalls.some((call) => call[0] === 'api' && call[1] === 'graphql'));
-  assert.equal(
-    keywordArchiveCalls.some((call) => call.join(' ').includes('userLinkedOnly')),
-    false,
-    'adding userLinkedOnly to the closing-reference query must fail',
+  assert.ok(
+    keywordArchiveCalls.some((call) => call.join(' ').includes('excludeUserLinked:true')),
+    'removing excludeUserLinked:true from the closing-reference query must fail',
   );
   assert.equal(
     keywordArchiveCalls.some((call) => call[0] === 'issue' && call[1] === 'close'),
     false,
     'archive is a verifier and must not close an already landed issue',
   );
+
+  const closedReferenceNumber = createPlan('closed-reference-archive');
+  makeValid(closedReferenceNumber);
+  setIssueStatus(closedReferenceNumber, 'ongoing');
+  updateIssue(closedReferenceNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [
+      {
+        number: 46,
+        url: 'https://github.com/DocksDocks/fixture/pull/46',
+        repository: 'DocksDocks/fixture',
+        userLinked: false,
+      },
+    ];
+  });
+  updateState((state) => {
+    state.prs.push({
+      number: 46,
+      repository: 'DocksDocks/fixture',
+      mergedAt: null,
+      state: 'CLOSED',
+      baseRefName: 'main',
+      url: 'https://github.com/DocksDocks/fixture/pull/46',
+    });
+  });
+  const beforeClosedReferenceArchive = issue(closedReferenceNumber);
+  const closedReferenceArchive = run('archive', String(closedReferenceNumber));
+  assert.equal(closedReferenceArchive.status, 1, 'accepting a closed-unmerged reference must fail');
+  assert.equal(
+    closedReferenceArchive.stderr.trim(),
+    'archive requires a merged closing pull request; issue has no closing commit',
+  );
+  assert.deepEqual(issue(closedReferenceNumber), beforeClosedReferenceArchive);
 
   const commitArchiveNumber = createPlan('commit-archive');
   makeValid(commitArchiveNumber);
@@ -1122,7 +1343,7 @@ try {
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [];
-    entry.closingCommitOid = 'commit-lands-through-pr';
+    entry.timelineItems = [{ closer: { __typename: 'Commit', oid: 'commit-lands-through-pr' } }];
   });
   updateState((state) => {
     state.commits = [
@@ -1171,7 +1392,7 @@ try {
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [];
-    entry.closingCommitOid = 'direct-push-commit';
+    entry.timelineItems = [{ closer: { __typename: 'Commit', oid: 'direct-push-commit' } }];
   });
   updateState((state) => {
     state.commits.push({
@@ -1194,7 +1415,7 @@ try {
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [];
-    entry.closingCommitOid = 'wrong-branch-commit';
+    entry.timelineItems = [{ closer: { __typename: 'Commit', oid: 'wrong-branch-commit' } }];
   });
   updateState((state) => {
     state.commits.push({
@@ -1214,6 +1435,40 @@ try {
   const commitWrongBranchArchive = run('archive', String(commitWrongBranchNumber));
   assert.equal(commitWrongBranchArchive.status, 1, 'changing an associated pull request base from main must fail');
   assert.match(commitWrongBranchArchive.stderr, /merged into main|release\/2\.x/);
+
+  const staleCommitNumber = createPlan('stale-commit-archive');
+  makeValid(staleCommitNumber);
+  setIssueStatus(staleCommitNumber, 'ongoing');
+  updateIssue(staleCommitNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [];
+    entry.timelineItems = [{ closer: { __typename: 'Commit', oid: 'superseded-closing-commit' } }, { closer: null }];
+  });
+  updateState((state) => {
+    state.commits.push({
+      oid: 'superseded-closing-commit',
+      repository: 'DocksDocks/fixture',
+      associatedPullRequests: [{ number: 47, repository: 'DocksDocks/fixture' }],
+    });
+    state.prs.push({
+      number: 47,
+      repository: 'DocksDocks/fixture',
+      mergedAt: '2026-08-20T21:45:00Z',
+      state: 'MERGED',
+      baseRefName: 'main',
+      url: 'https://github.com/DocksDocks/fixture/pull/47',
+    });
+  });
+  const beforeStaleCommitArchive = issue(staleCommitNumber);
+  const staleCommitArchive = run('archive', String(staleCommitNumber));
+  assert.equal(staleCommitArchive.status, 1, 'reusing an earlier superseded commit closure must fail');
+  assert.equal(
+    staleCommitArchive.stderr.trim(),
+    'archive requires a merged closing pull request; issue has no closing commit',
+  );
+  assert.deepEqual(issue(staleCommitNumber), beforeStaleCommitArchive);
 
   const retiredNumber = createPlan('retired');
   makeValid(retiredNumber);

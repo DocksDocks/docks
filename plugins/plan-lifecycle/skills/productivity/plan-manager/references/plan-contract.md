@@ -74,8 +74,9 @@ Every open plan issue carries `plan` and exactly one phase label:
 are project-owned. Phase labels describe open work only. Every read of a closed
 issue treats all phase labels as absent, even if a closing merge left one behind.
 
-When a plan is blocked, the first line of `## Open questions` is exactly
-`Blocked: <one-line text>`. No other phase may carry a `Blocked:` line there.
+When a plan is blocked, `## Open questions` starts with exactly
+`Blocked: <one-line text>`. Only a blocked plan may open that section with
+`Blocked:`.
 
 ## Body — exactly these eight `##` sections, in this order, each present once
 
@@ -91,7 +92,7 @@ exactly these eight `##` sections, in this order, each present once: `## Goal`,
 | `## Steps` | The Steps table below. |
 | `## Acceptance` | The Acceptance table below. |
 | `## Do not touch` | Paths and behaviors the change must leave alone. `None` when nothing applies. |
-| `## Open questions` | Decisions only the user can make. `None` when there are none; a blocked plan starts with its `Blocked:` line. |
+| `## Open questions` | Decisions only the user can make. `None` when there are none. Only a blocked plan starts with `Blocked:`. |
 | `## Review` | Plan-review and code-review records, appended by the manager. |
 | `## Verification Results` | Observed commands and their real output, written during implementation. |
 
@@ -218,6 +219,20 @@ after the edit to confirm the pushed bytes.
 A conflict is not permission to retry blindly. Re-read the issue, re-apply the
 intended change, and run `plan.mjs check <issue>` before continuing.
 
+`export` writes the body to `<git-dir>/docks-review/plan-<n>.md`. It writes the
+body digest to `plan-<n>.md.origin` as one lowercase SHA-256 line. The sidecar
+uses mode `0600`.
+
+`edit` requires this provenance for every body change. It refuses a missing
+sidecar, an unreadable digest, or a digest from a superseded body revision.
+After validation, `edit` refreshes the digest before the remote body write.
+A local sidecar failure fails closed and requires one re-export.
+A phase-only status change leaves the body and sidecar valid.
+
+For every body edit, export the record. Edit the export. Run
+`plan.mjs check <issue>`. Delete the export and its `.origin` sidecar.
+Never carry an edit across an intervening body write.
+
 ## Reading and output
 
 Render a plan body verbatim only when the user names that plan and asks to see
@@ -250,13 +265,20 @@ ownership.
 closed with `stateReason: COMPLETED`, every Steps row terminal (`done` or
 `skipped`), and a line exactly `Code-review: pass` in `## Review`.
 
-It also requires a merged closing pull request into the target repository's
-default branch. It first reads the issue's
-`closedByPullRequestsReferences` without `userLinkedOnly`. When that is empty,
-it resolves the closing commit's `associatedPullRequests` and accepts only a
-pull request whose `state` is `MERGED` and whose `baseRefName` equals that
-repository's `defaultBranchRef.name`. A commit pushed straight to the default
-branch has no associated merged pull request and is refused.
+`archive` also requires a merged closing pull request into the target
+repository's default branch. It reads `closedByPullRequestsReferences` with
+`excludeUserLinked: true`. Therefore, a manually linked pull request never
+proves a landing.
+
+When that connection is empty, `archive` examines only the latest closure.
+A commit closer supplies its `associatedPullRequests`.
+Any other latest closer supplies no commit fallback proof.
+An issue closed by a commit, reopened, then closed by hand has no commit proof.
+
+Every accepted pull request has `state: MERGED`.
+Its `baseRefName` matches that repository's `defaultBranchRef.name`.
+A commit pushed straight to the default branch has no associated merged pull
+request and is refused.
 
 On success, `archive` removes any `plan:<phase>` label left by the closing merge
 and prints `plan #<n> finished (closed by <url>)`. It writes no status and does
@@ -272,10 +294,12 @@ phase, step-transition, dependency state, and ownership. CLI silence certifies
 only the checks that command performed; it never grants permission to perform
 an external effect.
 
-A step whose `Effect` is not `local` requires an in-session `ask` confirmation
-immediately before it runs. When `ask` is unavailable, set the step `blocked`
-and set the plan phase with a single-line reason; the CLI writes that reason as
-the first `## Open questions` line, `Blocked: <reason>`.
+A step with a non-`local` `Effect` requires in-session `ask` confirmation
+immediately before execution. When `ask` is unavailable, set the step and plan
+to `blocked`. Give `status` a single-line reason. The CLI opens
+`## Open questions` with `Blocked: <reason>`. Only a blocked plan may open that
+section with `Blocked:`.
+
 The CLI cannot observe that confirmation, so moving such a step to `in-flight`
 does not certify permission. There is deliberately no self-certifying
 `--confirmed` flag.
