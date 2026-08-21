@@ -20,6 +20,7 @@ const IO_KEYS = Object.freeze([
   'readReleaseNotes',
   'resolveTagCommit',
   'runSelectedCi',
+  'tagPublished',
   'waitForTagCi',
   'wouldStageChange',
   'writeJson',
@@ -196,24 +197,6 @@ function parseGenericArgs(argv, plugins) {
   return { dryRun, plugin, versionArgument };
 }
 
-function releaseTagExists(tag, repo) {
-  if (
-    spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`], { cwd: repo, stdio: 'ignore' }).status === 0
-  )
-    return true;
-  // Local tags are themselves only a proxy: nothing in this flow fetches, so a clone with stale
-  // refs would let an already-published version through. origin holds the fact. An unreachable
-  // origin must not read as "never released" — this flow pushes, tags, and creates a GitHub
-  // release, so it cannot proceed offline anyway, and refusing to guess costs nothing.
-  const remote = spawnSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], {
-    cwd: repo,
-    encoding: 'utf8',
-  });
-  if ((remote.status ?? 1) !== 0)
-    throw new Error(`cannot reach origin to check whether ${tag} is already released — refusing to guess`);
-  return (remote.stdout ?? '').trim() !== '';
-}
-
 function nextVersion(current, requested) {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(current || '');
   if (!match) throw new Error(`current version not semver: ${current}`);
@@ -307,7 +290,7 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
   // tagged. The manifest is a proxy for "already released", not the fact: a run that bumps the
   // manifest and then fails CI leaves the number written but unpublished, and the recovery this
   // tool itself prints is to re-cut exactly that number.
-  if (newVersion === currentVersion && releaseTagExists(`${plugin.name}--v${newVersion}`, repo)) {
+  if (newVersion === currentVersion && io.tagPublished(`${plugin.name}--v${newVersion}`)) {
     throw new Error(`already released: ${plugin.name} v${newVersion} (tag ${plugin.name}--v${newVersion} exists)`);
   }
   io.log(`Bumping ${plugin.name}: ${currentVersion} → ${newVersion}`);
@@ -491,6 +474,27 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
     },
     runSelectedCi(_plugin, ciArgs) {
       return spawnSync('node', [path.join(repo, 'scripts/ci.mjs'), ...ciArgs], { stdio: 'inherit' });
+    },
+    // Reaching origin is IO, so it belongs in the closed set: a caller that cannot stub it
+    // drags the network into every test of the surrounding decision. Behaviour is unchanged.
+    tagPublished(tag) {
+      if (
+        spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`], { cwd: repo, stdio: 'ignore' }).status ===
+        0
+      )
+        return true;
+      // Local tags are themselves only a proxy: nothing in this flow fetches, so a clone with
+      // stale refs would let an already-published version through. origin holds the fact. An
+      // unreachable origin must not read as "never released" — this flow pushes, tags, and
+      // creates a GitHub release, so it cannot proceed offline anyway, and refusing to guess
+      // costs nothing.
+      const remote = spawnSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], {
+        cwd: repo,
+        encoding: 'utf8',
+      });
+      if ((remote.status ?? 1) !== 0)
+        throw new Error(`cannot reach origin to check whether ${tag} is already released — refusing to guess`);
+      return (remote.stdout ?? '').trim() !== '';
     },
     // `headBranch` carries the pushed ref's short name, so for a tag push it is the tag
     // itself (verified against `gh run list --json headBranch` on this repository: every
