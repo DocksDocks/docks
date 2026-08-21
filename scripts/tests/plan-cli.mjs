@@ -1201,6 +1201,53 @@ try {
   assert.equal(inexactReviewArchive.status, 1, 'changing the exact Code-review pass line must be refused');
   assert.match(inexactReviewArchive.stderr, /Code-review: pass/);
 
+  const advisoryPassNumber = createPlan('advisory-pass-archive');
+  makeValid(advisoryPassNumber);
+  setIssueStatus(advisoryPassNumber, 'ongoing');
+  updateIssue(advisoryPassNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_No review yet._',
+      'Code-review: pass\n- MEDIUM · Maintainability · src/example.mjs:9 — duplicated guard clause — extract a named predicate',
+    );
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [
+      {
+        number: 43,
+        url: 'https://github.com/DocksDocks/fixture/pull/43',
+        repository: 'DocksDocks/fixture',
+        userLinked: false,
+      },
+    ];
+  });
+  updateState((state) => {
+    state.prs.push({
+      number: 43,
+      repository: 'DocksDocks/fixture',
+      mergedAt: '2026-08-20T21:30:00Z',
+      state: 'MERGED',
+      baseRefName: 'main',
+      url: 'https://github.com/DocksDocks/fixture/pull/43',
+    });
+  });
+  const advisoryPassArchive = run('archive', String(advisoryPassNumber));
+  expectSuccess(advisoryPassArchive, 'archive accepts a pass carrying only an advisory line');
+
+  const mediumOnlyRequiredNumber = createPlan('medium-only-fixes-required');
+  makeValid(mediumOnlyRequiredNumber);
+  setIssueStatus(mediumOnlyRequiredNumber, 'ongoing');
+  updateIssue(mediumOnlyRequiredNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_No review yet._',
+      'Code-review: fixes-required\n- MEDIUM · Maintainability · src/example.mjs:9 — duplicated guard clause — extract a named predicate',
+    );
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+  });
+  const mediumOnlyRequiredArchive = run('archive', String(mediumOnlyRequiredNumber));
+  assert.equal(mediumOnlyRequiredArchive.status, 1, 'a fixes-required verdict must refuse archive');
+  assert.match(mediumOnlyRequiredArchive.stderr, /Code-review: pass/);
+
   const wrongBranchNumber = createPlan('wrong-branch-archive');
   makeValid(wrongBranchNumber);
   setIssueStatus(wrongBranchNumber, 'ongoing');

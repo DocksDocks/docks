@@ -88,7 +88,7 @@ A *documented* deviation is judged on merit, not reflex-blocked; an
 
 | Verdict | When | Action |
 |---|---|---|
-| **APPROVE** | plan identity matches, criteria pass, scope is clean, and quality holds | Return the reviewed diff and executor result to main-context `plan-manager`. It applies the reviewed diff, reruns verification, records `## Verification Results`, dispatches the single post-implementation code review, and archives with `plan.mjs archive <issue>` once that review returns `Code-review: pass`. |
+| **APPROVE** | plan identity matches, criteria pass, scope is clean, and quality holds | Return the reviewed diff and executor result to main-context `plan-manager`. It applies the reviewed diff, reruns verification, records `## Verification Results`, dispatches the single post-implementation code review, and follows the manager's full Landing flow. It archives only after an approved merge lands the closing pull request. |
 | **REVISE** | fixable gaps | Send the same executor specific, actionable feedback. Allow at most two executor revision rounds, then return a failure result to `plan-manager`. |
 | **BLOCK** | STOP hit, scope violated unrecoverably, or revisions exhausted | Return the evidence to `plan-manager`; it sets the plan `blocked` with a reason and does not re-run the plan review. |
 
@@ -100,8 +100,8 @@ approved diff to the main working tree.
 
 - The executor never writes lifecycle state, `## Review`, or
   `## Verification Results`; main-context `plan-manager` owns them.
-- The executor creates no commit. This lifecycle creates zero commits and never
-  pushes, merges, or applies directly to the main working tree. Its only handoff
-  is the reviewed diff and result.
+- The executor creates no commit, pushes nothing, and never merges or applies
+  directly to the main working tree. Its only handoff is the reviewed diff and
+  result; main-context `plan-manager` owns landing.
 - Off Claude, or when worktree isolation is unavailable, this mode is skipped;
   `plan-manager` runs Phases 7–8 in context.

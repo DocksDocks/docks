@@ -60,11 +60,12 @@ The synchronized surface is the v3 first-line marker, no-frontmatter rule,
 eight sections, both table headers, four open-work phases (`drafting`, `planned`,
 `ongoing`, `blocked`), the GitHub `state` + `stateReason` derivation truth table,
 the three plan-review kinds (`goal_fit`, `research_gap`, `security_risk`), the
-two review-record shapes, the zero-commit rule, lifecycle-tool ownership, issue
-write preconditions, archive-as-verifier landing proof, and marker-only
-classification: any body without the exact v3 opening is unreadable and no
-parser is attempted. Legacy workspace migration leaves old files unopened and
-creates fresh records only for user-restated goals.
+two review-record shapes, default issue and pull-request publication, explicit
+merge confirmation, lifecycle-tool ownership, issue write preconditions,
+archive-as-verifier landing proof, and marker-only classification: any body
+without the exact v3 opening is unreadable and no parser is attempted. Legacy
+workspace migration leaves old files unopened and creates fresh records only
+for user-restated goals.
 
 When any part changes, synchronize the three skills,
 `plan-manager/references/plan-contract.md`,

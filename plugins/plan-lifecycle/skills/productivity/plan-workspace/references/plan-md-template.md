@@ -210,7 +210,9 @@ Legal step transitions are `planned → in-flight | done | blocked | skipped`, `
 all Steps rows to be terminal (`done` or `skipped`), a line matching exactly
 `Code-review: pass` in `## Review`, and an issue already closed as completed by
 an eligible merged pull request. It writes no status. On success it removes any
-stale phase label and prints `plan #<n> finished (closed by <url>)`.
+stale phase label and prints `plan #<n> finished (closed by <url>)`. The pass
+line may carry advisory `MEDIUM` and `LOW` finding lines beneath it; only an
+unfixed `CRITICAL` or `HIGH` keeps a plan from archiving.
 
 The verifier reads the issue's `closedByPullRequestsReferences` with
 `excludeUserLinked: true`. It accepts only keyword-linked merged pull requests.
@@ -293,9 +295,17 @@ Code-review: pass|fixes-required|blocked
 - HIGH · Security · plugins/x/y.mjs:41 — user input reaches a shell command unquoted — pass an argument array
 ```
 
-A `pass` record has no finding lines. Every other verdict has at least one
-finding line. A plan-review finding is exactly one of `goal_fit`, `research_gap`,
-or `security_risk`; nothing else is a finding. A sufficient plan passes.
+A code-review `pass` means no `CRITICAL` or `HIGH` finding stands unfixed; it
+carries only advisory `MEDIUM` and `LOW` lines, or none. Record each advisory as
+a follow-up and do not change reviewed bytes after a pass; an advisory never
+triggers a re-review.
+`fixes-required` names at least one evidenced `CRITICAL` or `HIGH` defect and
+forces exactly one repair re-review;
+if that re-review still returns `fixes-required`, the manager appends
+`Code-review: blocked` and sets the plan `blocked`. A `blocked` verdict has at
+least one finding line. A plan-review finding is exactly one of `goal_fit`,
+`research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan
+passes.
 
 ## Phases
 
@@ -304,37 +314,66 @@ or `security_risk`; nothing else is a finding. A sufficient plan passes.
 3. **Research.** Verify repository facts and external claims, record their sources, choose the durable fix, bind the exact files, complete Acceptance, pass `plan.mjs check`, and set the plan `planned`.
 4. **Plan review.** Dispatch exactly one pre-implementation review. Append its verdict and findings. Fix reproduced findings before implementation. A user-only decision goes in `## Open questions`. A plan-only run stops at `planned` after this review.
 5. **Implement.** Set the plan `ongoing`, move each step through its legal states, and record real Acceptance output in `## Verification Results` before the closing merge.
-6. **Code review.** Review the declared change, fix every critical and high finding, and review again only after such a fix. Every step must be terminal and code review must pass before the closing merge; archive verifies those facts afterward.
+6. **Code review.** Review the declared change, fix every critical and high finding, and run exactly one repair re-review after such a fix; if that re-review still returns fixes-required, append `Code-review: blocked` and set the plan `blocked`. Every step must be terminal and code review must pass before the closing merge; archive verifies those facts afterward.
 
-Build the review diff from what actually changed: `git status --porcelain` names
-the paths and the diff covers exactly those. Name every changed path that no
-Steps `Files` cell mentions in the review request, so the reviewer judges
-undeclared scope instead of the manager blocking on bookkeeping.
+Build the review diff from the complete candidate pull request, not only the
+dirty worktree. Resolve and fetch the repository default branch, then compute
+`<merge-base>` with `git merge-base <default-remote-ref> HEAD`. Cover one net
+tracked candidate with `git diff <merge-base> -- <changed paths>`. Add one
+`git diff --no-index /dev/null <path>` hunk for each untracked path.
+`git status --porcelain` still names dirty paths. Name every changed path that
+no Steps `Files` cell mentions in the review request.
 
-If a code-review round returns the same finding-id set as the previous round and
-no file changed between the two rounds, stop, append `Code-review: blocked`
-naming that set, and set the plan `blocked`.
+After pull-request creation, record `headRefOid` and compare the changed paths
+and hunks from `gh pr diff` with the reviewed net candidate. Any mismatch
+invalidates the pass and blocks merge.
+
+If that repair re-review again returns `fixes-required`, stop: append
+`Code-review: blocked` naming the surviving findings, and set the plan
+`blocked`.
 
 A step whose `Effect` is not `local` requires an in-session `ask` confirmation
 immediately before it runs; when `ask` is unavailable the step is set `blocked`
 and `Blocked: <unconfirmed effect>` is recorded first in `## Open questions`.
 
-This lifecycle creates zero commits and never pushes.
+Routine plan issue publication is authorized by the settled mode and needs no
+repeated repository picker.
 
 ## Landing
 
-Work lands through a pull request whose body carries `Closes #<issue>` and whose base is the repository default branch, because GitHub interprets a closing keyword only in a pull request that targets the default branch. `plan.mjs archive` verifies that merged pull request rather than performing the merge.
+Work lands through a pull request whose body carries `Closes #<issue>` and whose
+base is the repository default branch.
 
-Only the pull request that lands the completed work carries `Closes #<issue>`. A
-partial pull request carries a plain `Refs #<issue>` instead, because GitHub
-closes the issue as soon as the first pull request carrying a closing keyword
-merges into the default branch.
+After `Code-review: pass`, the manager runs landing without another prompt:
+ensure a non-default branch, commit exactly the reviewed bytes under
+`docks:commit-discipline`, push normally, and create or update one pull request
+that carries `Closes #<issue>` and targets the repository default branch.
 
-Landing sits outside the six phases. This lifecycle creates zero commits and
-never pushes, so the branch, the commits, the push, the pull request, and the
-merge are the user's to run, on request, under `docks:commit-discipline`. No
-Steps row exists for them, and `archive` reads the result rather than causing
-it. A plan that never lands is retired, not archived.
+Never treat an empty first checks result as success. Retry
+`gh pr checks --json name,bucket` at most 12 times with a 10-second delay until
+checks appear. If required checks exist, run
+`gh pr checks --watch --required`; if CI checks exist but none are required,
+run `gh pr checks --watch` to wait for all reported CI. Any failed check blocks
+merge. If no checks appear, continue only when repository inspection confirms
+that no pull-request CI is configured; otherwise leave the pull request open
+with a named no-checks blocker and do not show the merge prompt.
+
+When the checks policy passes and GitHub reports the pull request mergeable,
+ask immediately with exactly two options: `Merge now` or
+`Leave pull request open`. Merge only on that fresh answer. If the user
+declines, or `ask` is unavailable, leave the pull request and the issue open
+and report the pull request URL. Never auto-merge, force-push, bypass branch
+protection, or merge on a stale or assumed answer.
+
+Immediately before merge, re-read `headRefOid` and `gh pr diff`. If the head SHA
+or diff changed, block merge. Invoke `gh pr merge` with
+`--match-head-commit <reviewed-head-sha>` and the repository's configured merge
+strategy only after the fresh `Merge now` answer.
+
+Only the pull request that lands the completed work carries `Closes #<issue>`.
+A partial pull request carries plain `Refs #<issue>`. `archive` verifies the
+merged result rather than causing it. A plan that never lands is retired, not
+archived.
 
 ## Portability
 

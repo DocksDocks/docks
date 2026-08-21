@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-21"
-  content_hash: "cae1f4289cd368270eb9cb21138bc81a001ed0d689c8792fdd1ce0f84c744d34"
+  content_hash: "0f0f3ca545c47bbd5314402248b3047d6a3e50e3604d4e6fd0da4d7862844d4b"
 ---
 
 # Plan Manager
@@ -38,6 +38,9 @@ immediately before it runs; when `ask` is unavailable the step is set `blocked`
 and the first line of `## Open questions` becomes `Blocked: <one-line reason>`
 naming the unconfirmed effect. Only a blocked plan may open `## Open questions`
 with `Blocked:`.
+Routine plan issue publication and the landing actions in `## Landing` carry
+the settled mode's authorization; they are not Steps rows and never need this
+confirmation.
 </constraint>
 
 ## Six-phase flow
@@ -54,14 +57,15 @@ with `Blocked:`.
    unresolved decision, a cross-subsystem or public-contract change,
    security-sensitive or destructive work, or any non-`local` effect. When
    `ask` is unavailable in a subagent, headless run, or `-p` run, take the direct
-   path only for a clear reversible local diff. Otherwise the issue-creation
-   preflight blocks canonical planning; do not silently substitute a tracked
-   file. State a direct-path assumption in the final report. A direct run
-   creates no plan issue.
+   path only for a clear reversible local diff. Otherwise canonical planning
+   continues unless an issue-publication safeguard needs an answer; do not
+   silently substitute a tracked file. State a direct-path assumption in the
+   final report. A direct run creates no plan issue.
 
 2. **Draft.** Complete the preflight in
-   [`references/github-issue-publication.md`](references/github-issue-publication.md),
-   then run
+   [`references/github-issue-publication.md`](references/github-issue-publication.md).
+   The settled mode authorizes the issue write, so ask again only for an
+   ambiguous repository or a sensitive public disclosure. Then run
    `plan.mjs new --title <title> --goal <goal> --mode <plan-and-implement|plan-only>`.
    Report the returned issue number. Use the edit flow below to write the full
    outcome and one Mode line in `## Goal`, the hypothesis in `## Research`, and
@@ -125,15 +129,24 @@ with `Blocked:`.
    and write its real output into `## Verification Results` through the edit
    flow.
 
-6. **Code review.** Build the review diff from what actually changed: `git status --porcelain` names the paths and the diff covers exactly those. Name every changed path that no Steps `Files` cell mentions in the review request, so the reviewer judges undeclared scope instead of the manager blocking on bookkeeping.
-
-   Resolve the scratch directory with `git rev-parse --git-path docks-review` and
-   create it with mode `0700`. Write the review input to
-   `<that directory>/<issue>-<round>.diff`. Resolving through git keeps a linked
-   worktree working, where `.git` is a file and a literal `.git/` path does not
-   exist. The directory is untracked and discarded with the clone. Cover exactly the changed paths with
-   `git diff -- <those paths>` and `git diff --cached -- <those paths>`. Add one
+6. **Code review.** Build the review diff from the complete candidate pull
+   request, not only the dirty worktree. Resolve and fetch the repository
+   default branch, then compute `<merge-base>` with
+   `git merge-base <default-remote-ref> HEAD`. Cover one net tracked candidate
+   with `git diff <merge-base> -- <changed paths>`. Add one
    `git diff --no-index /dev/null <path>` hunk for each untracked path.
+   `git status --porcelain` still names dirty paths. Name every changed path
+   that no Steps `Files` cell mentions in the review request.
+
+   Resolve the scratch directory with `git rev-parse --git-path docks-review`
+   and create it with mode `0700`. Write the review input to
+   `<that directory>/<issue>-<round>.diff`. Resolving through git keeps linked
+   worktrees valid, where `.git` is a file and a literal `.git/` path does not
+   exist. The directory is untracked and discarded with the clone.
+
+   After pull-request creation, record `headRefOid` and compare the changed paths
+   and hunks from `gh pr diff` with the reviewed net candidate. Any mismatch
+   invalidates the pass and blocks merge.
 
    Re-export the record before this dispatch too, exactly as in phase 4, so the
    reviewer reads current bytes rather than a stale export.
@@ -141,15 +154,19 @@ with `Blocked:`.
    Dispatch `code-reviewer` with the absolute diff path, the absolute export
    path, and the issue number. Append its
    report to `## Review` under
-   `### Code review round <n> — <UTC date>`. Fix every `CRITICAL` and `HIGH`
-   finding. Record each `MEDIUM` and `LOW` finding, then fix it at your judgment.
-   Re-review only after fixing a `CRITICAL` or `HIGH`.
+   `### Code review round <n> — <UTC date>`. A round that returns
+   `Code-review: pass` carries no unfixed `CRITICAL` or `HIGH` finding; it may
+   still carry advisory `MEDIUM` and `LOW` lines. Record each advisory as a
+   follow-up and do not change reviewed bytes after a pass; an advisory never
+   triggers a re-review. A round that returns `Code-review: fixes-required`
+   names at least one evidenced `CRITICAL` or `HIGH` defect: fix every one of
+   them, then dispatch exactly one repair re-review. If that repair re-review
+   again returns `fixes-required`, stop: append `Code-review: blocked` naming
+   the surviving findings, and set the plan `blocked`.
 
-   This is a progress guard, not a budget. If a code-review round returns the same finding-id set as the previous round and no file changed between the two rounds, stop, append `Code-review: blocked` naming that set, and set the plan `blocked`.
-
-   When a round returns `Code-review: pass`, report that the work is ready for
-   the user's landing actions. Run `plan.mjs archive <issue>` only after the
-   user has landed the closing pull request.
+   A `pass` round ends review and starts landing. Follow `## Landing`. Run
+   `plan.mjs archive <issue>` only after an approved merge lands the closing
+   pull request.
 
 ## Plan contract
 
@@ -206,12 +223,16 @@ and is refused.
 Every command exits 0 on success and 1 on a usage or validation failure. Failure
 messages keep their current wording wherever the check is unchanged.
 
-## Issue creation
+## Issue publication
 
 Every canonical plan crosses the GitHub issue boundary. Before `plan.mjs new`,
-follow
+run the preflight in
 [`references/github-issue-publication.md`](references/github-issue-publication.md).
-When its confirmation cannot be obtained, report the blocker and create nothing.
+The settled plan mode authorizes routine creation and update of the plan issue
+in the repository that the preflight resolved. Do not ask again for that
+publication or show a repository picker that repeats a resolved fact. Ask only
+for an ambiguous repository or a sensitive public disclosure. When such an ask
+cannot be obtained, report the blocker and create nothing.
 
 ## Reading and writing
 
@@ -219,16 +240,38 @@ Render a plan body verbatim only when the user names that plan and asks to see i
 
 ## Landing
 
-Work lands through a pull request whose body carries `Closes #<issue>` and whose base is the repository default branch, because GitHub interprets a closing keyword only in a pull request that targets the default branch. `plan.mjs archive` verifies that merged pull request rather than performing the merge.
-
-Only the pull request that lands the completed work carries `Closes #<issue>`. A partial pull request carries a plain `Refs #<issue>` instead, because GitHub closes the issue as soon as the first pull request carrying a closing keyword merges into the default branch.
-
 One writer owns a plan issue at a time, recorded in the issue's own GitHub assignee field. `plan.mjs new` claims ownership at creation and `plan.mjs claim <issue>` claims an existing plan. Ownership is a precondition, not advice: every mutating command refuses a plan owned by another login, writes nothing when it refuses, and claims an unassigned plan in the same write. Read-only commands never check ownership. Taking a plan from another owner is a deliberate manual GitHub action; no lifecycle command transfers ownership.
 
-Landing sits outside the six phases. The branch, commits, push, pull request,
-and merge are the user's to run, on request, under `docks:commit-discipline`.
-No Steps row exists for them; `archive` reads the result rather than causing it.
-A plan that never lands is retired, not archived.
+After `Code-review: pass`, the manager runs landing without another prompt:
+ensure a non-default branch, commit exactly the reviewed bytes under
+`docks:commit-discipline`, push normally, and create or update one pull request
+that carries `Closes #<issue>` and targets the repository default branch.
+
+Never treat an empty first checks result as success. Retry
+`gh pr checks --json name,bucket` at most 12 times with a 10-second delay until
+checks appear. If required checks exist, run
+`gh pr checks --watch --required`; if CI checks exist but none are required,
+run `gh pr checks --watch` to wait for all reported CI. Any failed check blocks
+merge. If no checks appear, continue only when repository inspection confirms
+that no pull-request CI is configured; otherwise leave the pull request open
+with a named no-checks blocker and do not show the merge prompt.
+
+When the checks policy passes and GitHub reports the pull request mergeable,
+ask immediately with exactly two options: `Merge now` or
+`Leave pull request open`. Merge only on that fresh answer. If the user
+declines, or `ask` is unavailable, leave the pull request and the issue open
+and report the pull request URL. Never auto-merge, force-push, bypass branch
+protection, or merge on a stale or assumed answer.
+
+Immediately before merge, re-read `headRefOid` and `gh pr diff`. If the head SHA
+or diff changed, block merge. Invoke `gh pr merge` with
+`--match-head-commit <reviewed-head-sha>` and the repository's configured merge
+strategy only after the fresh `Merge now` answer.
+
+Only the pull request that lands the completed work carries `Closes #<issue>`.
+A partial pull request carries plain `Refs #<issue>`. `archive` reads the
+merged result rather than causing it. A plan that never lands is retired, not
+archived.
 
 ## Frozen history
 
@@ -237,8 +280,11 @@ or migrate it through this lifecycle. It is not a plan source of truth.
 
 ## Git boundary
 
-This lifecycle creates zero commits and never pushes.
-Commit when the user asks, under `docks:commit-discipline`.
+Routine landing Git work is in scope: branch, commit, push, and pull request
+after `Code-review: pass`, under `docks:commit-discipline`. The merge itself
+needs the fresh `Merge now` answer. Force-push, history rewrite, branch
+deletion, and every other destructive Git action stay out of scope without an
+explicit user request.
 
 ## BAD / GOOD
 
@@ -249,6 +295,17 @@ GOOD: Confirm the hypothesis, cite the source, and choose the durable fix.
 BAD: Run implementation after a plan-only delivery without a new instruction.
 GOOD: Stop at the reviewed planned issue and report its number and verdict.
 
-BAD: Treat repeated review output as permission to loop forever.
-GOOD: Stop on identical findings with no changed files and record the block.
+BAD: Treat a failed repair re-review as permission to dispatch another round.
+GOOD: After one repair re-review still returns `fixes-required`, record the
+      block and stop.
+
+BAD: Ask a second time which repository receives the plan issue.
+GOOD: Publish to the repository the preflight resolved and report it.
+
+BAD: Merge the pull request because the required checks turned green.
+GOOD: Ask `Merge now` or `Leave pull request open`, then act on that answer.
+
+BAD: Stop at a passed review and hand the user an uncommitted tree.
+GOOD: Commit, push, open the closing pull request, watch the required checks,
+      then stop at the merge question.
 ```

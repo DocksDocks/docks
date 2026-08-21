@@ -168,8 +168,14 @@ Code-review: fixes-required
 ```
 
 `Plan-review:` is exactly `pass`, `repair`, or `blocked`. `Code-review:` is
-exactly `pass`, `fixes-required`, or `blocked`. `pass` has no finding lines; the
-others have at least one.
+exactly `pass`, `fixes-required`, or `blocked`. A code-review `pass` means no
+`CRITICAL` or `HIGH` finding stands unfixed; it carries only advisory `MEDIUM`
+and `LOW` lines, or none. Record each advisory as a follow-up and do not change
+reviewed bytes after a pass; an advisory never triggers a re-review.
+`fixes-required` names at least one evidenced `CRITICAL` or `HIGH` defect and
+forces exactly one repair re-review; if that re-review still returns
+`fixes-required`, the manager appends `Code-review: blocked` and sets the plan
+`blocked`. A `blocked` verdict has at least one finding line.
 
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or
 `security_risk`; nothing else is a finding. A sufficient plan passes.
@@ -248,13 +254,37 @@ The header strip is `#<issue> · <status> · <title> · <url>`.
 ## Landing
 
 Work lands through a pull request whose body carries `Closes #<issue>` and whose
-base is the target repository's default branch. `plan.mjs archive` verifies that
-merged pull request rather than performing the merge or closing the issue.
+base is the target repository's default branch.
+
+After `Code-review: pass`, the manager runs landing without another prompt:
+ensure a non-default branch, commit exactly the reviewed bytes under
+`docks:commit-discipline`, push normally, and create or update one pull request
+that carries `Closes #<issue>` and targets the repository default branch.
+
+Never treat an empty first checks result as success. Retry
+`gh pr checks --json name,bucket` at most 12 times with a 10-second delay until
+checks appear. If required checks exist, run
+`gh pr checks --watch --required`; if CI checks exist but none are required,
+run `gh pr checks --watch` to wait for all reported CI. Any failed check blocks
+merge. If no checks appear, continue only when repository inspection confirms
+that no pull-request CI is configured; otherwise leave the pull request open
+with a named no-checks blocker and do not show the merge prompt.
+
+When the checks policy passes and GitHub reports the pull request mergeable,
+ask immediately with exactly two options: `Merge now` or
+`Leave pull request open`. Merge only on that fresh answer. If the user
+declines, or `ask` is unavailable, leave the pull request and the issue open
+and report the pull request URL. Never auto-merge, force-push, bypass branch
+protection, or merge on a stale or assumed answer.
+
+Immediately before merge, re-read `headRefOid` and `gh pr diff`. If the head SHA
+or diff changed, block merge. Invoke `gh pr merge` with
+`--match-head-commit <reviewed-head-sha>` and the repository's configured merge
+strategy only after the fresh `Merge now` answer.
 
 Only the pull request that lands the completed work carries `Closes #<issue>`.
-A partial pull request carries a plain `Refs #<issue>` instead. Landing sits
-outside the six phases: branch, commits, push, pull request, and merge are the
-user's to run, on request, under `docks:commit-discipline`.
+A partial pull request carries plain `Refs #<issue>`. `archive` verifies the
+merged result rather than causing it.
 
 One writer owns a plan issue at a time, recorded in the issue's GitHub assignee
 field. `plan.mjs new` claims ownership at creation and `plan.mjs claim <issue>`
@@ -267,7 +297,9 @@ ownership.
 
 `archive` is a verifier, not a status writer. It requires the issue already
 closed with `stateReason: COMPLETED`, every Steps row terminal (`done` or
-`skipped`), and a line exactly `Code-review: pass` in `## Review`.
+`skipped`), and a line exactly `Code-review: pass` in `## Review`. That pass
+line may carry advisory `MEDIUM` and `LOW` finding lines beneath it; only an
+unfixed `CRITICAL` or `HIGH` keeps a plan from archiving.
 
 `archive` also requires a merged closing pull request into the target
 repository's default branch. It reads `closedByPullRequestsReferences` with
@@ -313,9 +345,9 @@ does not certify permission. There is deliberately no self-certifying
 ## What the lifecycle never does
 
 The record carries no hash, no permit, no run identity, no lock file, no sealed
-review bundle, no automatic commit, no automatic push, no external-authority
-object, and no tracked plan file. The lifecycle does not weaken the
-agent-enforced boundary above.
+review bundle, no external-authority object, and no tracked plan file. The
+lifecycle never auto-merges, force-pushes, or bypasses branch protection. It
+does not weaken the agent-enforced boundary above.
 
 One digest exists, and it grants nothing. `export` writes the sha256 of the body
 it copied beside the copy, and `edit` refuses a file derived from a superseded

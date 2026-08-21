@@ -72,6 +72,17 @@ the other.
 Use `Bug`, `Security`, `Performance`, or `Maintainability` for Standards
 findings. Use `Spec` for a plan mismatch.
 
+Select one verdict:
+
+- `pass`: No `CRITICAL` or `HIGH` finding stands unfixed. Advisory `MEDIUM`
+  and `LOW` lines may ride along on a `pass`: the manager records them as
+  follow-ups and does not change reviewed bytes after the pass; they never
+  trigger a re-review.
+- `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The
+  manager fixes it and dispatches exactly one repair re-review.
+- `blocked`: Required review input is unreadable or contradictory, so no safe
+  verdict can be reached.
+
 Remain read-only. Never apply a fix and never ask for approval to apply one.
 Return one readable `Code-review:` markdown block to the manager. These inline
 Standards buckets, severity caps, and Spec axis keep this wrapper complete when

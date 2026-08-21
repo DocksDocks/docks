@@ -79,8 +79,12 @@ buckets or the Spec axis defined below.
 8. Re-read every locator and verify that the proposed fix resolves the defect
    without violating another plan step or invariant.
 9. Select one verdict:
-   - `pass`: Neither axis has a finding.
-   - `fixes-required`: At least one evidenced defect can be fixed by the manager.
+   - `pass`: No `CRITICAL` or `HIGH` finding stands unfixed. Advisory `MEDIUM`
+     and `LOW` lines may ride along on a `pass`: the manager records them as
+     follow-ups and does not change reviewed bytes after the pass; they never
+     trigger a re-review.
+   - `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The
+     manager fixes it and dispatches exactly one repair re-review.
    - `blocked`: Required review input is unreadable or contradictory, so no safe
      verdict can be reached.
 10. Order findings `CRITICAL`, `HIGH`, `MEDIUM`, then `LOW`. Return once.
@@ -101,8 +105,9 @@ Each finding uses one line:
 SEVERITY · CATEGORY · file:line — defect — fix
 ```
 
-Use only `pass`, `fixes-required`, or `blocked`. A `pass` verdict has no finding
-lines. A non-passing verdict has at least one finding line. Use `Bug`,
+Use only `pass`, `fixes-required`, or `blocked`. A `pass` verdict carries only
+advisory `MEDIUM` and `LOW` lines, or none. A `fixes-required` or `blocked`
+verdict has at least one finding line. Use `Bug`,
 `Security`, `Performance`, or `Maintainability` for Standards findings. Use
 `Spec` for a plan mismatch. Keep both analysis axes distinct even though the
 single review record orders all findings by severity.
