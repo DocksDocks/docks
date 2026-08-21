@@ -4,9 +4,12 @@ Read `docs/PLAN.md` before filing or updating a plan issue.
 
 ## Plan records
 
-Plan records are GitHub issues. Every plan issue carries the `plan` label and
-exactly one `plan:<status>` label matching the record frontmatter. The issue
-number is the plan identity; do not create a tracked markdown plan record.
+Plan records are GitHub issues whose bodies start with
+`<!-- plan-contract: v3 -->` and carry no frontmatter. Every plan issue carries
+`plan`; an open plan carries exactly one of `plan:drafting`, `plan:planned`,
+`plan:ongoing`, or `plan:blocked`. Closed completion derives from GitHub
+`state` and `stateReason`, and every closed read ignores stale phase labels. The
+issue number is the plan identity; do not create a tracked markdown plan record.
 
 `docs/PLAN-QUEUE.md` is an optional, authority-free discovery and priority view.
 Its `Plan` cells hold issue numbers. The complete record standard and lifecycle

@@ -1,84 +1,88 @@
-# The v2 plan contract (exact)
+# The v3 plan contract (exact)
 
-This file is the single source of truth for the v2 plan record. The three plan
+This file is the single source of truth for the v3 plan record. The three plan
 skills, the workspace template, both reviewer wrappers, and each project's
 `docs/PLAN.md` defer to it rather than restating the shapes.
 
 ## Contents
 
 - [Record backend](#record-backend)
-- [Frontmatter](#frontmatter--closed-map-exactly-these-keys-in-this-order)
+- [Body marker and GitHub-owned fields](#body-marker-and-github-owned-fields)
 - [Labels](#labels)
 - [Body sections](#body--exactly-these-eight--sections-in-this-order-each-present-once)
 - [Steps table](#steps-table--exact-header-and-cell-grammar)
 - [Acceptance table](#acceptance-table--exact-header)
 - [Review records](#review-records--readable-markdown-no-hashes)
-- [Lifecycle transitions](#lifecycle-transitions--closed)
+- [Lifecycle state](#lifecycle-state--derived-from-github)
+- [Contract classification](#contract-classification)
 - [Issue writes](#issue-writes)
 - [Reading and output](#reading-and-output)
 - [Landing](#landing)
+- [Archive verification](#archive-verification)
 - [Enforcement boundary](#enforcement-boundary)
 - [What the lifecycle never does](#what-the-lifecycle-never-does)
 - [Frozen pre-GitHub history](#frozen-pre-github-history)
 
 ## Record backend
 
-The plan record is a GitHub issue: its body carries the `plan_contract: v2` frontmatter and the eight `##` sections, its `plan:<status>` label mirrors the frontmatter `status`, and no plan markdown is tracked in the repository.
+The plan record is a GitHub issue. Its body opens with the v3 marker and carries
+the eight `##` sections. GitHub owns the title, open-work phase, owner,
+timestamps, and completion state. No plan markdown is tracked in the repository.
 
 The issue number is the plan identity. Commands accept a bare positive number or
-the same number prefixed with `#`. The issue title, body, labels, and state are
-one record; there is no slug or plan path.
+the same number prefixed with `#`. The issue title, body, labels, assignee,
+timestamps, state, and state reason are one record; there is no slug or plan
+path.
 
-## Frontmatter — closed map, exactly these keys in this order
+## Body marker and GitHub-owned fields
 
-```yaml
----
-plan_contract: v2
-title: Short imperative title, at most 70 characters
-goal: One observable sentence, at most 200 characters
-status: drafting | planned | ongoing | blocked | finished
-created: "2026-08-08T12:00:00+00:00"
-updated: "2026-08-08T12:00:00+00:00"
-assignee: null
----
+The body starts with exactly:
+
+```markdown
+<!-- plan-contract: v3 -->
+
+## Goal
 ```
 
-`status: blocked` adds exactly one key, `blocked_reason: <non-empty text>`,
-immediately after `status`. No other status may carry it.
+The marker is the first line and a blank line follows it. A v3 body has no YAML
+frontmatter and no `---` fence anywhere.
 
-`created` and `updated` are double-quoted ISO timestamps that carry an explicit
-offset. `updated` never precedes `created`.
+| Machine field | Canonical GitHub field |
+|---|---|
+| Title | issue `title` |
+| Open-work phase | the single `plan:<phase>` label |
+| Owner | issue `assignees` |
+| Created timestamp | issue `createdAt` |
+| Updated timestamp | issue `updatedAt` |
+| Completion | issue `state` plus `stateReason` |
 
-Check 1 enforces both key membership and displayed order. When the order is
-wrong, its error names the first key found out of position.
+The retired body keys are `plan_contract`, `title`, `goal`, `status`, `created`,
+`updated`, `assignee`, and `blocked_reason`. They are not allowed in a v3
+record. The format identity is the marker, not a frontmatter key or label.
 
-Removed and not replaced: `plan_hash_mode`, `started_at`, `finished_at`, `tags`,
-`related_plans`, `scheduled`/`trigger`/`scheduled_date`/`auto_execute`,
-`blocked_since`, and every hash, UUID, `repository_id`, `plan_path`, `run_id`,
-`goal_id`, `risk`, and review-phase field.
-
-`risk` is deleted deliberately: it existed to decide whether a draft review was
-required, and the plan review is now unconditional for every canonical plan. The
-`scheduled` status is deleted because nothing consumed its trigger fields;
-deferred work stays `planned` and may be ordered by `docs/PLAN-QUEUE.md`.
+`## Goal` still carries exactly one line `Mode: plan-and-implement` or
+`Mode: plan-only`, because mode is not a GitHub field.
 
 ## Labels
 
-The label set is created idempotently with `gh label create --force`: `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, `plan:blocked`, `plan:finished`, plus the triage label `plan-scheduled`. Exactly one `plan:<status>` label is present at a time, and it mirrors the frontmatter `status`.
+The label set is created idempotently with `gh label create --force`: `plan`,
+`plan:drafting`, `plan:planned`, `plan:ongoing`, and `plan:blocked`. These are
+the complete reserved set; no completion or scheduling label exists.
 
-Every plan issue also carries `plan`. Topic labels are project-owned and do not
-belong in the closed frontmatter map. `plan-scheduled` sits outside the reserved
-`plan:` namespace precisely so it is never parsed as a status: no lifecycle
-transition applies it, and a status write leaves it in place.
+Every open plan issue carries `plan` and exactly one phase label:
+`plan:drafting`, `plan:planned`, `plan:ongoing`, or `plan:blocked`. Topic labels
+are project-owned. Phase labels describe open work only. Every read of a closed
+issue treats all phase labels as absent, even if a closing merge left one behind.
 
-Check 2 additionally enforces the label mirror when issue labels are available.
-It reports `check 2: plan label must mirror the frontmatter status` unless
-exactly one `plan:<status>` label matches the body status. A
-`plan.mjs check --file <path>` run has no labels and skips this predicate.
+When a plan is blocked, the first line of `## Open questions` is exactly
+`Blocked: <one-line text>`. No other phase may carry a `Blocked:` line there.
 
 ## Body — exactly these eight `##` sections, in this order, each present once
 
-Every v2 plan declares `plan_contract: v2` in a closed frontmatter map and carries exactly these eight `##` sections, in this order, each present once: `## Goal`, `## Research`, `## Steps`, `## Acceptance`, `## Do not touch`, `## Open questions`, `## Review`, `## Verification Results`.
+Every v3 plan opens with `<!-- plan-contract: v3 -->`, then a blank line, then
+exactly these eight `##` sections, in this order, each present once: `## Goal`,
+`## Research`, `## Steps`, `## Acceptance`, `## Do not touch`,
+`## Open questions`, `## Review`, `## Verification Results`.
 
 | Section | Contents |
 |---|---|
@@ -87,20 +91,15 @@ Every v2 plan declares `plan_contract: v2` in a closed frontmatter map and carri
 | `## Steps` | The Steps table below. |
 | `## Acceptance` | The Acceptance table below. |
 | `## Do not touch` | Paths and behaviors the change must leave alone. `None` when nothing applies. |
-| `## Open questions` | Decisions only the user can make. `None` when there are none. |
+| `## Open questions` | Decisions only the user can make. `None` when there are none; a blocked plan starts with its `Blocked:` line. |
 | `## Review` | Plan-review and code-review records, appended by the manager. |
 | `## Verification Results` | Observed commands and their real output, written during implementation. |
-
-One optional ninth section, `## Retirement`, is allowed only as the last section.
-It is what the abandonment exit appends, and a retired plan must still validate.
 
 The body contains no absolute machine path. A plan is a cold handoff, and a path
 from one machine is not portable.
 
-Once the plan leaves `drafting`, `## Research` must no longer carry the template
-placeholder `_Not researched yet._`.
-
-The CLI reports `check 11: Research must be filled once the plan leaves drafting` when this research rule fails.
+Once an open plan leaves `drafting`, `## Research` must no longer carry the
+template placeholder `_Not researched yet._`.
 
 ## Steps table — exact header and cell grammar
 
@@ -115,7 +114,7 @@ The CLI reports `check 11: Research must be filled once the plan leaves drafting
 - The union of the `Files` cells is the plan's declared scope, and the review
   diff and any subset scope check read it from there.
 - No `Files` cell names the plan's own issue reference. Writing lifecycle state
-  into the record is the CLI's job, not an implementation step.
+  into GitHub is the CLI's job, not an implementation step.
 - `Depends` is `—` or a comma-separated list of lower display numbers from the
   same table.
 - `Effect` is exactly one of `local`, `probe`, `production_access`, `publish`,
@@ -126,14 +125,12 @@ The CLI reports `check 11: Research must be filled once the plan leaves drafting
   a step cannot complete, first run
   `plan.mjs step <issue> <step-id> blocked`, then record the reason with
   `plan.mjs status <issue> blocked --reason <text>`.
-- Step citations anywhere in the body are written `step:<id>` and must resolve to
-  a declared id. A bare `step 3` is invalid.
+- Step citations anywhere in the body are written `step:<id>` and must resolve
+  to a declared id. A bare `step 3` is invalid.
 
-Check 12 rejects a Steps `Files` entry equal to `#<issue>`, the bare issue
-number, or the issue URL. It reports
-`check 12: Steps Files contains the plan issue itself`. With
-`plan.mjs check --file <path>` and no bound issue, this predicate passes by
-construction.
+Every Steps row must be terminal before the pull request carrying
+`Closes #<issue>` merges. Once that merge closes the issue, step mutation is no
+longer available. Post-merge work belongs to a named follow-up plan.
 
 ## Acceptance table — exact header
 
@@ -150,7 +147,8 @@ Ids are unique. Commands run from the repository root and carry no
 
 The manager appends to `## Review`. Two record shapes, exactly:
 
-Before dispatch, the manager runs `plan.mjs export <issue>` and passes the printed absolute path; the reviewer reads the export path the manager supplies.
+Before dispatch, the manager runs `plan.mjs export <issue>` and passes the
+printed absolute path; the reviewer reads the export path the manager supplies.
 
 ```markdown
 ### Plan review — 2026-08-08
@@ -168,80 +166,129 @@ Code-review: fixes-required
 exactly `pass`, `fixes-required`, or `blocked`. `pass` has no finding lines; the
 others have at least one.
 
-A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
+A plan-review finding is exactly one of `goal_fit`, `research_gap`, or
+`security_risk`; nothing else is a finding. A sufficient plan passes.
 
-## Lifecycle transitions — closed
+## Lifecycle state — derived from GitHub
+
+The open-work phase enum is exactly `drafting`, `planned`, `ongoing`, and
+`blocked`. Open phase transitions are:
 
 ```text
-drafting  -> planned | ongoing | blocked
-planned   -> drafting | ongoing | blocked
-ongoing   -> finished | blocked
-blocked   -> drafting | planned | ongoing
-finished  -> (terminal, no transition)
+drafting -> planned | ongoing | blocked
+planned  -> drafting | ongoing | blocked
+ongoing  -> blocked
+blocked  -> drafting | planned | ongoing
 ```
 
-The `planned -> drafting` transition returns a plan to drafting after substantive
-review repair.
+The `planned -> drafting` transition returns a plan to drafting after
+substantive review repair. Completion is not a phase transition and never writes
+a completion label or body field.
 
-An absent plan starts at `drafting`. A finished plan is a closed issue carrying
-`plan:finished`.
+Status is derived with this closed truth table:
 
-One exemption, and only one: `plan.mjs retire` sets `finished` from any
-non-`finished` status. It is the abandonment exit, it always writes a
-`## Retirement` section carrying the reason, closes the issue as not planned,
-and is the only way to reach `finished` without a passed code review. Everything
-else follows the table.
+| GitHub state | State reason / phase label | Derived status |
+|---|---|---|
+| `OPEN` | exactly one phase label | that phase |
+| `OPEN` | no phase label | `unlabelled` |
+| `CLOSED` | `COMPLETED` | `finished` |
+| `CLOSED` | `NOT_PLANNED` | `retired` |
+| `CLOSED` | `DUPLICATE` | `duplicate` |
+
+Phase labels on closed issues are ignored. Reopening returns the issue to
+`OPEN`, where the phase-label rows apply again. `status` refuses a closed issue
+with an error containing `is closed; status applies to open plans`.
+
+## Contract classification
+
+Classification follows the body bytes without guessing:
+
+| Evidence | Classification |
+|---|---|
+| First line is exactly `<!-- plan-contract: v3 -->`, followed by one blank line | `record` |
+| Anything else | `unreadable`; no parser is attempted |
 
 ## Issue writes
 
-A plan-issue write is a read-modify-write, and the GitHub API offers no precondition for it. Every mutating command re-reads the issue body immediately before the edit, refuses when it differs from the body it read, and re-reads after the edit to confirm the pushed bytes.
+A plan-issue write is a read-modify-write, and the GitHub API offers no
+precondition for it. Every mutating command re-reads the issue body immediately
+before the edit, refuses when it differs from the body it read, and re-reads
+after the edit to confirm the pushed bytes.
 
 A conflict is not permission to retry blindly. Re-read the issue, re-apply the
 intended change, and run `plan.mjs check <issue>` before continuing.
 
 ## Reading and output
 
-Render a plan body verbatim only when the user names that plan and asks to see it. After a write, report the one-line header strip and the changed lines only; a write never re-renders the body.
+Render a plan body verbatim only when the user names that plan and asks to see
+it. After a write, report the one-line header strip and the changed lines only;
+a write never re-renders the body.
 
 The header strip is `#<issue> · <status> · <title> · <url>`.
 
 ## Landing
 
-Work lands through a pull request whose body carries `Closes #<issue>` and whose base is the repository default branch, because GitHub interprets a closing keyword only in a pull request that targets the default branch. `plan.mjs archive` verifies that merged pull request rather than performing the merge.
+Work lands through a pull request whose body carries `Closes #<issue>` and whose
+base is the target repository's default branch. `plan.mjs archive` verifies that
+merged pull request rather than performing the merge or closing the issue.
 
-Only the pull request that lands the completed work carries `Closes #<issue>`. A partial pull request carries a plain `Refs #<issue>` instead, because GitHub closes the issue as soon as the first pull request carrying a closing keyword merges into the default branch.
+Only the pull request that lands the completed work carries `Closes #<issue>`.
+A partial pull request carries a plain `Refs #<issue>` instead. Landing sits
+outside the six phases: branch, commits, push, pull request, and merge are the
+user's to run, on request, under `docks:commit-discipline`.
 
-One writer owns a plan issue at a time, recorded in the issue's own GitHub assignee field, never the frontmatter `assignee` key, which stays `null`. `plan.mjs new` claims ownership at creation and `plan.mjs claim <issue>` claims an existing plan. Ownership is a precondition, not advice: every mutating command refuses a plan owned by another login, writes nothing when it refuses, and claims an unassigned plan in the same write. Read-only commands never check ownership. Taking a plan from another owner is a deliberate manual GitHub action; no lifecycle command transfers ownership.
+One writer owns a plan issue at a time, recorded in the issue's GitHub assignee
+field. `plan.mjs new` claims ownership at creation and `plan.mjs claim <issue>`
+claims an existing plan. Ownership is a precondition, not advice: every mutating
+command refuses a plan owned by another login, writes nothing when it refuses,
+and claims an unassigned plan in the same write. Read-only commands never check
+ownership.
 
-Landing sits outside the six phases. The branch, commits, push, pull request,
-and merge are the user's to run, on request, under `docks:commit-discipline`.
-No Steps row exists for them; `archive` reads the result rather than causing it.
+## Archive verification
+
+`archive` is a verifier, not a status writer. It requires the issue already
+closed with `stateReason: COMPLETED`, every Steps row terminal (`done` or
+`skipped`), and a line exactly `Code-review: pass` in `## Review`.
+
+It also requires a merged closing pull request into the target repository's
+default branch. It first reads the issue's
+`closedByPullRequestsReferences` without `userLinkedOnly`. When that is empty,
+it resolves the closing commit's `associatedPullRequests` and accepts only a
+pull request whose `state` is `MERGED` and whose `baseRefName` equals that
+repository's `defaultBranchRef.name`. A commit pushed straight to the default
+branch has no associated merged pull request and is refused.
+
+On success, `archive` removes any `plan:<phase>` label left by the closing merge
+and prints `plan #<n> finished (closed by <url>)`. It writes no status and does
+not close or merge anything. `retire` closes with `NOT_PLANNED` and likewise
+removes every phase label.
 
 ## Enforcement boundary
 
 `plan.mjs check` enforces record-shape and content predicates it can derive from
-the body, plus the label mirror and own-issue-reference predicates when the
-issue is bound. Mutating CLI commands additionally enforce preconditions visible
-to them, such as lifecycle, step-transition, and dependency state. CLI silence
-certifies only the checks that command performed; it never grants permission to
-perform an external effect.
+the body, plus issue-bound predicates when the issue is available. Mutating CLI
+commands additionally enforce preconditions visible to them, such as open-work
+phase, step-transition, dependency state, and ownership. CLI silence certifies
+only the checks that command performed; it never grants permission to perform
+an external effect.
 
-A step whose `Effect` is not `local` requires an in-session `ask` confirmation immediately before it runs; when `ask` is unavailable the step is set `blocked` with `blocked_reason` naming the unconfirmed effect.
+A step whose `Effect` is not `local` requires an in-session `ask` confirmation
+immediately before it runs. When `ask` is unavailable, set the step `blocked`
+and set the plan phase with a single-line reason; the CLI writes that reason as
+the first `## Open questions` line, `Blocked: <reason>`.
 The CLI cannot observe that confirmation, so moving such a step to `in-flight`
 does not certify permission. There is deliberately no self-certifying
-`--confirmed` flag: an agent asserting its own compliance is the proxy this
-contract exists to avoid.
+`--confirmed` flag.
 
 ## What the lifecycle never does
 
 No hashes, no permits, no run identity, no lock files, no bundle sealing, no
 automatic commits, no automatic push, no external-authority object, and no
-`v2`/`vN` plan files. The lifecycle does not weaken the agent-enforced boundary
+tracked plan files. The lifecycle does not weaken the agent-enforced boundary
 above.
 
 ## Frozen pre-GitHub history
 
 `docs/plans/finished/` is frozen pre-GitHub history. It is read-only historical
 material, not a source of truth. No command reads, parses, classifies, lists, or
-migrates it. There is no v1 classification on the issue backend: an issue
-labeled `plan` whose body does not parse as v2 is `unreadable`.
+migrates it.

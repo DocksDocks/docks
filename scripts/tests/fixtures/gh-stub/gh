@@ -139,45 +139,71 @@ const PR_JSON_FIELDS = new Set([
 if (group === 'api' && command === 'graphql') {
   const query = formFields('-f').query;
   if (!query) die('graphql requires -f query=<query>');
-  const allowedArguments = new Set(['first', 'after', 'userLinkedOnly', 'includeClosedPrs', 'orderByState']);
-  const selections = [];
-  for (const match of query.matchAll(/(\w+)\s*:\s*closedByPullRequestsReferences\s*\(([^)]*)\)/g)) {
-    const args = new Map();
-    for (const argument of match[2].split(',').map((entry) => entry.trim()).filter(Boolean)) {
-      const name = argument.split(':', 1)[0].trim();
-      if (!allowedArguments.has(name)) die(`Unknown GraphQL argument: "${name}"`);
-      args.set(name, argument.slice(argument.indexOf(':') + 1).trim());
-    }
-    selections.push({ alias: match[1], args });
-  }
-  if (selections.length === 0) die('graphql query selects no closedByPullRequestsReferences field');
   const variables = formFields('-F');
-  const issue = state.issues.find((entry) => entry.number === Number(variables.number));
-  if (!issue) die(`issue not found: ${variables.number}`);
   const referenceRepo = (reference) =>
     (typeof reference.repository === 'string' ? reference.repository : reference.repository?.nameWithOwner) ??
     (reference.repository?.owner?.login && reference.repository?.name
       ? `${reference.repository.owner.login}/${reference.repository.name}`
       : state.repo.nameWithOwner);
-  const fullNode = (reference) => {
+  const pullRequestNode = (reference) => {
     const repo = referenceRepo(reference);
     const pullRequest = state.prs.find((entry) => entry.number === reference.number && entry.repository === repo);
     return {
       number: reference.number,
+      url: pullRequest?.url ?? reference.url ?? `https://github.com/${repo}/pull/${reference.number}`,
+      state: pullRequest?.state ?? reference.state ?? (pullRequest?.mergedAt || reference.mergedAt ? 'MERGED' : 'OPEN'),
       mergedAt: pullRequest?.mergedAt ?? reference.mergedAt ?? null,
       baseRefName: pullRequest?.baseRefName ?? reference.baseRefName ?? null,
-      repository: {
-        nameWithOwner: repo,
-        defaultBranchRef: { name: state.repositoryDefaults?.[repo] ?? state.repo.defaultBranchRef?.name },
-      },
+      repository: { nameWithOwner: repo },
     };
   };
-  const pairNode = (reference) => ({
-    number: reference.number,
-    repository: { nameWithOwner: referenceRepo(reference) },
-  });
-  // GitHub returns keyword-linked and hand-linked references from the plain
-  // connection; only `userLinkedOnly: true` narrows it to the hand-linked ones.
+
+  if (query.includes('associatedPullRequests')) {
+    const allowedArguments = new Set(['first', 'after']);
+    const association = /associatedPullRequests\s*\(([^)]*)\)/.exec(query);
+    if (!association) die('graphql query selects no associatedPullRequests field');
+    for (const argument of association[1].split(',').map((entry) => entry.trim()).filter(Boolean)) {
+      const name = argument.split(':', 1)[0].trim();
+      if (!allowedArguments.has(name)) die(`Unknown GraphQL argument: "${name}"`);
+    }
+    const repo = `${variables.owner}/${variables.name}`;
+    const commit = (state.commits ?? []).find(
+      (entry) => entry.oid === variables.oid && (entry.repository ?? repo) === repo,
+    );
+    if (!commit) die(`commit not found: ${repo}@${variables.oid}`);
+    const associatedPullRequests = connectionPage(
+      (commit.associatedPullRequests ?? []).map(pullRequestNode),
+      variables.after,
+      'associated',
+    );
+    console.log(
+      JSON.stringify({
+        data: {
+          repository: {
+            defaultBranchRef: { name: state.repositoryDefaults?.[repo] ?? state.repo.defaultBranchRef?.name },
+            commit: { associatedPullRequests },
+          },
+        },
+      }),
+    );
+    save();
+    process.exit(0);
+  }
+
+  const allowedArguments = new Set(['first', 'after', 'userLinkedOnly', 'includeClosedPrs', 'orderByState']);
+  const selections = [];
+  for (const match of query.matchAll(/(\w+)\s*:\s*closedByPullRequestsReferences\s*\(([^)]*)\)/g)) {
+    const selectionArgs = new Map();
+    for (const argument of match[2].split(',').map((entry) => entry.trim()).filter(Boolean)) {
+      const name = argument.split(':', 1)[0].trim();
+      if (!allowedArguments.has(name)) die(`Unknown GraphQL argument: "${name}"`);
+      selectionArgs.set(name, argument.slice(argument.indexOf(':') + 1).trim());
+    }
+    selections.push({ alias: match[1], args: selectionArgs });
+  }
+  if (selections.length === 0) die('graphql query selects no closedByPullRequestsReferences field');
+  const issue = state.issues.find((entry) => entry.number === Number(variables.number));
+  if (!issue) die(`issue not found: ${variables.number}`);
   const declared = issue.closedByPullRequestsReferences ?? [];
   const userLinked = issue.userLinkedPullRequests ?? [];
   const closing = [
@@ -189,17 +215,35 @@ if (group === 'api' && command === 'graphql') {
         ),
     ),
   ];
+  const pairNode = (reference) => ({
+    number: reference.number,
+    repository: { nameWithOwner: referenceRepo(reference) },
+  });
   const payload = {};
-  for (const { alias, args } of selections) {
-    const onlyUserLinked = args.get('userLinkedOnly') === 'true';
-    const cursorVariable = (args.get('after') ?? '').replace(/^\$/, '');
+  for (const { alias, args: selectionArgs } of selections) {
+    const onlyUserLinked = selectionArgs.get('userLinkedOnly') === 'true';
+    const cursorVariable = (selectionArgs.get('after') ?? '').replace(/^\$/, '');
     payload[alias] = connectionPage(
-      onlyUserLinked ? userLinked.map(pairNode) : closing.map(fullNode),
+      onlyUserLinked ? userLinked.map(pairNode) : closing.map(pullRequestNode),
       cursorVariable ? variables[cursorVariable] : undefined,
       alias,
     );
   }
-  console.log(JSON.stringify({ data: { repository: { issue: payload } } }));
+  const repo = `${variables.owner}/${variables.name}`;
+  const closer = issue.closingCommitOid ? { __typename: 'Commit', oid: issue.closingCommitOid } : null;
+  console.log(
+    JSON.stringify({
+      data: {
+        repository: {
+          defaultBranchRef: { name: state.repositoryDefaults?.[repo] ?? state.repo.defaultBranchRef?.name },
+          issue: {
+            ...payload,
+            timelineItems: { nodes: closer ? [{ closer }] : [] },
+          },
+        },
+      },
+    }),
+  );
   save();
   process.exit(0);
 }
@@ -290,10 +334,13 @@ if (group === 'issue' && command === 'edit') {
   const issue = issueByNumber(issueNumber());
   const bodyFile = value('--body-file');
   const addedAssignees = values('--add-assignee');
-  if (!bodyFile && addedAssignees.length === 0) die('issue edit requires a body or assignee change');
+  const addedLabels = values('--add-label');
+  const removedLabels = values('--remove-label');
+  if (!bodyFile && addedAssignees.length === 0 && addedLabels.length === 0 && removedLabels.length === 0)
+    die('issue edit requires a body, label, or assignee change');
   if (bodyFile) issue.body = fs.readFileSync(bodyFile, 'utf8');
-  for (const name of values('--remove-label')) issue.labels = issue.labels.filter((label) => label !== name);
-  for (const name of values('--add-label')) if (!issue.labels.includes(name)) issue.labels.push(name);
+  for (const name of removedLabels) issue.labels = issue.labels.filter((label) => label !== name);
+  for (const name of addedLabels) if (!issue.labels.includes(name)) issue.labels.push(name);
   issue.assignees ??= [];
   for (const login of addedAssignees.map((name) => name === '@me' ? state.viewerLogin : name)) {
     if (!issue.assignees.includes(login)) issue.assignees.push(login);
@@ -309,6 +356,7 @@ if (group === 'issue' && command === 'list') {
   const requestedState = value('--state');
   const limit = Number(value('--limit'));
   const fields = value('--json');
+  validateJsonFields(fields, ISSUE_JSON_FIELDS);
   const issues = state.issues
     .filter((issue) => !requiredLabel || issue.labels.includes(requiredLabel))
     .filter((issue) => requestedState === 'all' || issue.state.toLowerCase() === requestedState)

@@ -2,26 +2,25 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-const PLAN_STATUSES = new Set(['drafting', 'planned', 'ongoing', 'blocked', 'finished']);
+const PLAN_STATUSES = new Set(['drafting', 'planned', 'ongoing', 'blocked']);
 const STEP_STATUSES = new Set(['planned', 'in-flight', 'done', 'blocked', 'skipped']);
 const STEP_EFFECTS = new Set(['local', 'probe', 'production_access', 'publish', 'push', 'release', 'deploy']);
-const BASE_KEYS = ['plan_contract', 'title', 'goal', 'status', 'created', 'updated', 'assignee'];
 const SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch', 'Open questions', 'Review', 'Verification Results'];
+const V3_MARKER = '<!-- plan-contract: v3 -->';
 const STEPS_HEADER = '| # | Id | Task | Files | Depends | Effect | Status | Done when |';
 const STEPS_SEPARATOR = '|---:|---|---|---|---|---|---|---|';
 const ACCEPTANCE_HEADER = '| ID | Command | Expected |';
 const ACCEPTANCE_SEPARATOR = '|---|---|---|';
-const PLAN_LABELS = ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked', 'plan:finished', 'plan-scheduled'];
+const PLAN_LABELS = ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked'];
 const STATUS_TRANSITIONS = {
   drafting: new Set(['planned', 'ongoing', 'blocked']),
   planned: new Set(['drafting', 'ongoing', 'blocked']),
-  ongoing: new Set(['finished', 'blocked']),
+  ongoing: new Set(['blocked']),
   blocked: new Set(['drafting', 'planned', 'ongoing']),
-  finished: new Set(),
 };
 const STEP_TRANSITIONS = {
   planned: new Set(['in-flight', 'done', 'blocked', 'skipped']),
@@ -32,16 +31,29 @@ const STEP_TRANSITIONS = {
 };
 const ISSUE_FIELDS = 'number,title,body,state,stateReason,labels,assignees,url,createdAt,updatedAt';
 const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (gh api user --jq .login returned nothing)';
-const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String,$afterUser:String){
+const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){
   repository(owner:$owner,name:$name){
+    defaultBranchRef{ name }
     issue(number:$number){
       closing: closedByPullRequestsReferences(first:100, after:$after){
-        nodes{ number mergedAt baseRefName repository{ nameWithOwner defaultBranchRef{ name } } }
+        nodes{ number url state mergedAt baseRefName repository{ nameWithOwner } }
         pageInfo{ hasNextPage endCursor }
       }
-      userLinked: closedByPullRequestsReferences(first:100, after:$afterUser, userLinkedOnly:true){
-        nodes{ number repository{ nameWithOwner } }
-        pageInfo{ hasNextPage endCursor }
+      timelineItems(last:100, itemTypes:CLOSED_EVENT){
+        nodes{ ... on ClosedEvent{ closer{ __typename ... on Commit{ oid } } } }
+      }
+    }
+  }
+}`;
+const ASSOCIATED_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$oid:String!,$after:String){
+  repository(owner:$owner,name:$name){
+    defaultBranchRef{ name }
+    commit: object(expression:$oid){
+      ... on Commit{
+        associatedPullRequests(first:100, after:$after){
+          nodes{ number url state mergedAt baseRefName repository{ nameWithOwner } }
+          pageInfo{ hasNextPage endCursor }
+        }
       }
     }
   }
@@ -54,37 +66,14 @@ function fail(message) {
   throw new Error(message);
 }
 
-function utcTimestamp() {
-  return new Date().toISOString().replace('Z', '+00:00');
+function planContract(planText) {
+  return planText.startsWith(`${V3_MARKER}\n\n`) ? 'v3' : 'unreadable';
 }
 
-function parseFrontmatter(planText) {
-  if (!planText.startsWith('---\n')) fail('frontmatter must open with ---');
-  const end = planText.indexOf('\n---\n', 4);
-  if (end === -1) fail('frontmatter must close with ---');
-  const source = planText.slice(4, end);
-  const lines = source.split('\n');
-  const entries = [];
-  const values = {};
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = /^([a-z_]+):(?: (.*))?$/.exec(lines[index]);
-    if (!match) fail(`invalid frontmatter line ${index + 2}`);
-    const [, key, raw = ''] = match;
-    if (Object.hasOwn(values, key)) fail(`duplicate frontmatter key ${key}`);
-    let value = raw;
-    if (raw === 'null') {
-      value = null;
-    } else if (/^".*"$/.test(raw)) {
-      try {
-        value = JSON.parse(raw);
-      } catch {
-        fail(`invalid quoted scalar for ${key}`);
-      }
-    }
-    entries.push({ key, raw });
-    values[key] = value;
-  }
-  return { body: planText.slice(end + 5), entries, values };
+function parsePlanText(planText) {
+  const contract = planContract(planText);
+  if (contract !== 'v3') fail('unreadable plan record');
+  return { body: planText };
 }
 
 function blankFencedRegions(text) {
@@ -145,13 +134,12 @@ function issueIdentity(planRef) {
     return {
       number: Number.isInteger(number) && number > 0 ? number : undefined,
       url: planRef.url,
-      labels: Object.hasOwn(planRef, 'labels') ? labelNames(planRef.labels) : undefined,
     };
   }
   const value = String(planRef).trim();
   const match = /(?:^#?|\/issues\/)([1-9]\d*)$/.exec(value);
   if (!match) return undefined;
-  return { number: Number(match[1]), url: value.includes('/issues/') ? value : undefined, labels: undefined };
+  return { number: Number(match[1]), url: value.includes('/issues/') ? value : undefined };
 }
 
 export function machinePathCitations(planText) {
@@ -161,63 +149,45 @@ export function machinePathCitations(planText) {
 }
 
 export function checkPlan(planText, planRef) {
+  const contract = planContract(planText);
+  if (contract !== 'v3') return ['check 1: unreadable plan contract'];
+
   const failures = [];
-  let parsed;
-  try {
-    parsed = parseFrontmatter(planText);
-  } catch (error) {
-    return [`check 1: ${error.message}`];
+  // Count standalone marker lines only: a record about this contract legitimately quotes the marker in prose.
+  const markerLines = planText.split('\n').filter((line) => line.trim() === V3_MARKER).length;
+  if (!planText.startsWith(`${V3_MARKER}\n\n`) || markerLines !== 1 || /^---[ \t]*$/m.test(planText)) {
+    failures.push('check 1: v3 marker must be the first line, followed by one blank line, with no frontmatter fence');
   }
-  const { body, entries, values } = parsed;
-  const expectedKeys = values.status === 'blocked' ? BASE_KEYS.toSpliced(4, 0, 'blocked_reason') : BASE_KEYS;
-  const actualKeys = entries.map(({ key }) => key);
-  const firstMisplacedKey = actualKeys.find((key, index) => key !== expectedKeys[index]);
-  const keysMatch = actualKeys.length === expectedKeys.length && firstMisplacedKey === undefined;
-  if (!keysMatch || values.plan_contract !== 'v2' || values.assignee !== null) {
-    const positionFailure = firstMisplacedKey
-      ? `; frontmatter key ${firstMisplacedKey} is out of position (expected ${expectedKeys[actualKeys.indexOf(firstMisplacedKey)] ?? 'no additional key'})`
-      : '';
-    failures.push(`check 1: frontmatter keys and plan_contract must match the closed v2 map${positionFailure}`);
+
+  const status = planRef && typeof planRef === 'object' ? statusFromIssue(planRef) : 'drafting';
+  const { headings, sections } = sectionMap(planText);
+  if (status === 'unreadable' || status === 'unlabelled') {
+    failures.push('check 2: an open plan requires exactly one recognized phase label');
   }
-  if (!PLAN_STATUSES.has(values.status)) failures.push('check 2: status is not recognized');
-  if (values.status === 'blocked' && !String(values.blocked_reason ?? '').trim()) {
-    failures.push('check 2: blocked status requires blocked_reason');
+  const openQuestionsFirstLine = (sections.get('Open questions') ?? '').trimStart().split('\n')[0] ?? '';
+  if (status === 'blocked' && !/^Blocked: [^\r\n]+$/.test(openQuestionsFirstLine)) {
+    failures.push('check 2: blocked status requires `Blocked: <one-line text>` as the first line of Open questions');
   }
-  if (values.status !== 'blocked' && Object.hasOwn(values, 'blocked_reason')) {
-    failures.push('check 2: blocked_reason is allowed only for blocked status');
+
+  if (
+    planRef &&
+    typeof planRef === 'object' &&
+    Object.hasOwn(planRef, 'title') &&
+    (typeof planRef.title !== 'string' || !planRef.title.trim() || planRef.title.length > 70)
+  ) {
+    failures.push('check 3: issue title must contain 1 to 70 characters');
   }
-  const identity = issueIdentity(planRef);
-  if (identity?.labels !== undefined) {
-    const statusLabels = identity.labels.filter((label) => label.startsWith('plan:'));
-    if (statusLabels.length !== 1 || statusLabels[0] !== `plan:${values.status}`) {
-      failures.push('check 2: plan label must mirror the frontmatter status');
+  if (planRef && typeof planRef === 'object' && (Object.hasOwn(planRef, 'createdAt') || Object.hasOwn(planRef, 'updatedAt'))) {
+    const created = Date.parse(planRef.createdAt);
+    const updated = Date.parse(planRef.updatedAt);
+    if (!Number.isFinite(created) || !Number.isFinite(updated) || updated < created) {
+      failures.push('check 4: issue createdAt and updatedAt must be timestamps in chronological order');
     }
   }
-  if (typeof values.title !== 'string' || !values.title.trim() || values.title.length > 70) {
-    failures.push('check 3: title must contain 1 to 70 characters');
+  if (headings.join('\0') !== SECTIONS.join('\0')) {
+    failures.push('check 5: required sections must appear once in contract order');
   }
-  if (typeof values.goal !== 'string' || !values.goal.trim() || values.goal.length > 200) {
-    failures.push('check 3: goal must contain 1 to 200 characters');
-  }
-  const timestampPattern = /^"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"$/;
-  const createdRaw = entries.find(({ key }) => key === 'created')?.raw ?? '';
-  const updatedRaw = entries.find(({ key }) => key === 'updated')?.raw ?? '';
-  if (
-    !timestampPattern.test(createdRaw) ||
-    !timestampPattern.test(updatedRaw) ||
-    !Number.isFinite(Date.parse(values.created)) ||
-    !Number.isFinite(Date.parse(values.updated)) ||
-    Date.parse(values.updated) < Date.parse(values.created)
-  ) {
-    failures.push('check 4: created and updated must be quoted offset timestamps in chronological order');
-  }
-  const { headings, sections } = sectionMap(body);
-  const requiredHeadings = headings.filter((heading) => heading !== 'Retirement');
-  const retirementCount = headings.filter((heading) => heading === 'Retirement').length;
-  const retirementValid = retirementCount <= 1 && (retirementCount === 0 || headings.at(-1) === 'Retirement');
-  if (requiredHeadings.join('\0') !== SECTIONS.join('\0') || !retirementValid) {
-    failures.push('check 5: required sections must appear once in contract order and Retirement must be last');
-  }
+
   const stepsTable = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
   if (!stepsTable.headerMatches) failures.push('check 6: Steps table header must match the contract');
   if (stepsTable.headerMatches && stepsTable.rows.length === 0) failures.push('check 6: Steps table requires at least one row');
@@ -237,10 +207,10 @@ export function checkPlan(planText, planRef) {
     displayNumbers.add(display);
     for (const file of pathsInFilesCell(files)) stepFiles.add(file);
   }
-  for (const citation of body.matchAll(/\bstep:([A-Za-z0-9_-]+)\b/g)) {
+  for (const citation of planText.matchAll(/\bstep:([A-Za-z0-9_-]+)\b/g)) {
     if (!stepIds.has(citation[1])) failures.push(`check 7: unknown step citation step:${citation[1]}`);
   }
-  if (/\bstep \d+\b/.test(body)) failures.push('check 7: bare numeric step citation is not allowed');
+  if (/\bstep \d+\b/.test(planText)) failures.push('check 7: bare numeric step citation is not allowed');
   for (const row of stepsTable.rows) {
     const display = Number(row.cells[0]);
     const dependencies = row.cells[4] === '—' ? [] : row.cells[4].split(',').map((value) => value.trim());
@@ -262,11 +232,12 @@ export function checkPlan(planText, planRef) {
     else acceptanceIds.add(id);
     if (!command || !expected) failures.push(`check 9: acceptance ${id || '(empty)'} has an empty required cell`);
   }
-  if (machinePathCitations(body).length > 0) failures.push('check 10: body contains an absolute machine path');
+  if (machinePathCitations(planText).length > 0) failures.push('check 10: body contains an absolute machine path');
   const researchIsPlaceholder = (sections.get('Research') ?? '').includes('_Not researched yet._');
-  if (researchIsPlaceholder && values.status !== 'drafting') {
+  if (researchIsPlaceholder && status !== 'drafting') {
     failures.push('check 11: Research must be filled once the plan leaves drafting');
   }
+  const identity = issueIdentity(planRef);
   if (identity?.number !== undefined) {
     const references = new Set([String(identity.number), `#${identity.number}`]);
     if (identity.url) references.add(identity.url);
@@ -277,21 +248,27 @@ export function checkPlan(planText, planRef) {
   return failures;
 }
 
-function planTemplate(title, goal, mode) {
-  const now = utcTimestamp();
-  return `---\nplan_contract: v2\ntitle: ${title}\ngoal: ${goal}\nstatus: drafting\ncreated: "${now}"\nupdated: "${now}"\nassignee: null\n---\n\n## Goal\n\n${goal}\n\nMode: ${mode}\n\n## Research\n\n_Not researched yet._\n\n## Steps\n\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n\n## Acceptance\n\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}\n\n## Do not touch\n\nNone\n\n## Open questions\n\nNone\n\n## Review\n\n_No review yet._\n\n## Verification Results\n\n_Not implemented yet._\n`;
+function planTemplate(goal, mode) {
+  return `${V3_MARKER}\n\n## Goal\n\n${goal}\n\nMode: ${mode}\n\n## Research\n\n_Not researched yet._\n\n## Steps\n\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n\n## Acceptance\n\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}\n\n## Do not touch\n\nNone\n\n## Open questions\n\nNone\n\n## Review\n\n_No review yet._\n\n## Verification Results\n\n_Not implemented yet._\n`;
 }
 
-function replaceFrontmatterFields(planText, fields) {
-  let updated = planText;
-  for (const [key, value] of Object.entries(fields)) {
-    const line = `${key}: ${value}`;
-    const pattern = new RegExp(`^${key}:.*$`, 'm');
-    if (pattern.test(updated)) updated = updated.replace(pattern, line);
-    else if (key === 'blocked_reason') updated = updated.replace(/^status:.*$/m, (statusLine) => `${statusLine}\n${line}`);
-  }
-  if (fields.blocked_reason === undefined) updated = updated.replace(/^blocked_reason:.*\n/m, '');
-  return updated;
+function replaceBlockedReason(planText, reason) {
+  const lines = planText.split('\n');
+  const heading = lines.indexOf('## Open questions');
+  const nextHeading = lines.indexOf('## Review', heading + 1);
+  if (heading === -1 || nextHeading === -1) fail('Open questions section is missing or out of order');
+  const content = lines.slice(heading + 1, nextHeading);
+  const probe = [...content];
+  while (probe[0] === '') probe.shift();
+  // Nothing to write and nothing to clear: leave the bytes untouched instead of renormalizing whitespace.
+  if (reason === undefined && !/^Blocked: /.test(probe[0] ?? '')) return planText;
+  while (content[0] === '') content.shift();
+  if (/^Blocked: /.test(content[0] ?? '')) content.shift();
+  while (content[0] === '') content.shift();
+  if (reason !== undefined) content.unshift(`Blocked: ${reason}`);
+  if (content.length === 0) content.push('None');
+  lines.splice(heading + 1, nextHeading - heading - 1, '', ...content, '');
+  return lines.join('\n');
 }
 
 function runGh(argv) {
@@ -332,15 +309,19 @@ function parseJson(output, command) {
   }
 }
 
-function archivePullRequestReferences(issueNumber) {
+function repositoryCoordinates() {
   const [owner, name, ...extra] = repository.nameWithOwner.split('/');
   if (!owner || !name || extra.length > 0) fail(`invalid repository name: ${repository.nameWithOwner}`);
+  return { owner, name };
+}
+
+function archivePullRequestReferences(issueNumber) {
+  const { owner, name } = repositoryCoordinates();
   const closing = [];
-  const userLinked = [];
+  let closingCommitOid;
+  let defaultBranch;
   let after;
-  let afterUser;
   let hasNextPage;
-  let hasNextUserPage;
   do {
     const argv = [
       'api',
@@ -355,20 +336,61 @@ function archivePullRequestReferences(issueNumber) {
       `number=${issueNumber}`,
     ];
     if (after !== undefined) argv.push('-F', `after=${after}`);
-    if (afterUser !== undefined) argv.push('-F', `afterUser=${afterUser}`);
     const response = parseJson(runGh(argv), 'gh api graphql');
-    const issue = response.data?.repository?.issue;
-    if (!issue || !Array.isArray(issue.closing?.nodes) || !Array.isArray(issue.userLinked?.nodes)) {
+    const repo = response.data?.repository;
+    const issue = repo?.issue;
+    if (
+      !repo?.defaultBranchRef?.name ||
+      !issue ||
+      !Array.isArray(issue.closing?.nodes) ||
+      !Array.isArray(issue.timelineItems?.nodes)
+    ) {
       fail('gh api graphql returned malformed closing pull request references');
     }
+    defaultBranch = repo.defaultBranchRef.name;
     closing.push(...issue.closing.nodes);
-    userLinked.push(...issue.userLinked.nodes);
+    const commitClosers = issue.timelineItems.nodes
+      .map((event) => event?.closer)
+      .filter((closer) => closer?.__typename === 'Commit' && closer.oid);
+    closingCommitOid = commitClosers.at(-1)?.oid ?? closingCommitOid;
     hasNextPage = issue.closing.pageInfo?.hasNextPage === true;
-    hasNextUserPage = issue.userLinked.pageInfo?.hasNextPage === true;
     if (issue.closing.pageInfo?.endCursor != null) after = issue.closing.pageInfo.endCursor;
-    if (issue.userLinked.pageInfo?.endCursor != null) afterUser = issue.userLinked.pageInfo.endCursor;
-  } while (hasNextPage || hasNextUserPage);
-  return { closing, userLinked };
+  } while (hasNextPage);
+  return { closing, closingCommitOid, defaultBranch };
+}
+
+function associatedPullRequests(commitOid) {
+  const { owner, name } = repositoryCoordinates();
+  const pullRequests = [];
+  let defaultBranch;
+  let after;
+  let hasNextPage;
+  do {
+    const argv = [
+      'api',
+      'graphql',
+      '-f',
+      `query=${ASSOCIATED_PULL_REQUESTS_QUERY}`,
+      '-F',
+      `owner=${owner}`,
+      '-F',
+      `name=${name}`,
+      '-F',
+      `oid=${commitOid}`,
+    ];
+    if (after !== undefined) argv.push('-F', `after=${after}`);
+    const response = parseJson(runGh(argv), 'gh api graphql');
+    const repo = response.data?.repository;
+    const connection = repo?.commit?.associatedPullRequests;
+    if (!repo?.defaultBranchRef?.name || !connection || !Array.isArray(connection.nodes)) {
+      fail('gh api graphql returned malformed associated pull requests');
+    }
+    defaultBranch = repo.defaultBranchRef.name;
+    pullRequests.push(...connection.nodes);
+    hasNextPage = connection.pageInfo?.hasNextPage === true;
+    if (connection.pageInfo?.endCursor != null) after = connection.pageInfo.endCursor;
+  } while (hasNextPage);
+  return { pullRequests, defaultBranch };
 }
 
 function parseIssueNumber(value) {
@@ -384,9 +406,8 @@ function issueView(number, fields = ISSUE_FIELDS, repo = repository.nameWithOwne
 function readPlanIssue(value, forWrite = false) {
   const number = parseIssueNumber(value);
   const issue = issueView(number);
-  if (!/^plan_contract: v2$/m.test(issue.body.slice(0, issue.body.indexOf('\n---\n', 4)))) {
-    fail(`not a v2 plan: #${number} (no plan_contract: v2)`);
-  }
+  const contract = planContract(issue.body);
+  if (contract !== 'v3') fail(`unreadable plan contract: #${number}`);
   if (forWrite) {
     const login = resolveActingLogin();
     const owners = (issue.assignees ?? []).map((assignee) => assignee.login).filter(Boolean);
@@ -394,7 +415,17 @@ function readPlanIssue(value, forWrite = false) {
     if (foreignOwner) fail(`plan #${issue.number} is owned by ${foreignOwner}`);
     if (owners.length === 0) issue.claimLogin = login;
   }
-  return { issue, parsed: parseFrontmatter(issue.body) };
+  return {
+    issue,
+    parsed: parsePlanText(issue.body),
+    record: {
+      title: issue.title,
+      status: statusFromIssue(issue),
+      owner: (issue.assignees ?? []).map((assignee) => assignee.login).filter(Boolean)[0] ?? null,
+      created: issue.createdAt,
+      updated: issue.updatedAt,
+    },
+  };
 }
 
 function stateDirectory() {
@@ -438,6 +469,23 @@ function editIssueBodyIfUnchanged(issue, after, labels = {}) {
   if (stored.body !== after) fail('plan issue body differs after edit');
 }
 
+function editIssueLabelsIfBodyUnchanged(issue, labels) {
+  const remove = labels.remove ?? [];
+  const claims = Object.hasOwn(issue, 'claimLogin');
+  if (remove.length === 0 && !labels.add && !claims) return;
+  const current = issueView(issue.number, 'body,updatedAt');
+  if (current.body !== issue.body) fail('plan issue changed remotely; re-read and retry');
+  const argv = ['issue', 'edit', String(issue.number)];
+  if (claims) {
+    if (!issue.claimLogin) fail(ACTING_LOGIN_ERROR);
+    argv.push('--add-assignee', '@me');
+  }
+  if (labels.add) argv.push('--add-label', labels.add);
+  for (const label of remove) argv.push('--remove-label', label);
+  argv.push('--repo', repository.nameWithOwner);
+  runGh(argv);
+}
+
 function parseOptions(args, allowed, repeatable = new Set()) {
   const options = {};
   for (let index = 0; index < args.length; index += 2) {
@@ -457,11 +505,23 @@ function statusFromLabels(labels) {
   const statuses = labelNames(labels)
     .filter((label) => label.startsWith('plan:') && PLAN_STATUSES.has(label.slice(5)))
     .map((label) => label.slice(5));
+  if (statuses.length === 0) return 'unlabelled';
   return statuses.length === 1 ? statuses[0] : 'unreadable';
 }
 
+function statusFromIssue(issue) {
+  if (String(issue.state).toUpperCase() !== 'CLOSED') return statusFromLabels(issue.labels);
+  switch (String(issue.stateReason).toUpperCase()) {
+    case 'COMPLETED': return 'finished';
+    case 'NOT_PLANNED': return 'retired';
+    case 'DUPLICATE': return 'duplicate';
+    default: return 'unreadable';
+  }
+}
+
 function labelsToRemove(issue, target) {
-  return labelNames(issue.labels).filter((label) => label.startsWith('plan:') && label !== `plan:${target}`);
+  return labelNames(issue.labels)
+    .filter((label) => label.startsWith('plan:') && (!target || label !== `plan:${target}`));
 }
 
 function headerStrip(issue, status) {
@@ -493,7 +553,7 @@ function createPlan(args) {
     if (!label.trim() || /[\r\n]/.test(label)) fail('label names must be non-empty single-line text');
     if (/^plan(?::|$)/.test(label)) fail(`reserved label namespace: ${label}`);
   }
-  const body = planTemplate(options['--title'], options['--goal'], mode);
+  const body = planTemplate(options['--goal'], mode);
   const output = withBodyFile(body, (bodyFile) => {
     const argv = [
       'issue',
@@ -536,8 +596,8 @@ function claimPlan(args) {
 function showPlan(args) {
   const [value, ...flags] = args;
   if (!value || flags.some((flag) => flag !== '--body') || flags.length > 1) fail('show requires an issue and optional --body');
-  const { issue, parsed } = readPlanIssue(value);
-  const header = headerStrip(issue, parsed.values.status);
+  const { issue, record } = readPlanIssue(value);
+  const header = headerStrip(issue, record.status);
   if (flags[0] === '--body') {
     console.error(header);
     process.stdout.write(issue.body);
@@ -560,7 +620,33 @@ function exportPlan(args) {
   fs.chmodSync(directory, 0o700);
   const destination = path.join(directory, `plan-${issue.number}.md`);
   fs.writeFileSync(destination, issue.body, { encoding: 'utf8', mode: 0o600 });
+  // Record the body this copy came from. A label-only write moves the issue timestamp without touching the
+  // body, so the digest of the bytes is the only provenance that neither misses a revert nor invents one.
+  fs.writeFileSync(originFile(destination), `${bodyDigest(issue.body)}\n`, { encoding: 'utf8', mode: 0o600 });
   console.log(destination);
+}
+
+function bodyDigest(body) {
+  return createHash('sha256').update(body, 'utf8').digest('hex');
+}
+
+function originFile(planFile) {
+  return `${planFile}.origin`;
+}
+
+function readOrigin(planFile) {
+  const source = originFile(planFile);
+  let recorded;
+  try {
+    recorded = fs.readFileSync(source, 'utf8').trim();
+  } catch (error) {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  }
+  // A truncated or hand-edited sidecar must stop the edit. Treating it as absent would disable the guard
+  // exactly when provenance is least trustworthy.
+  if (!/^[0-9a-f]{64}$/.test(recorded)) fail(`unreadable export provenance: ${source} holds no sha256 digest; re-export the plan`);
+  return recorded;
 }
 
 function changedLines(before, after) {
@@ -595,14 +681,22 @@ function editPlan(args) {
   if (!value) fail('edit requires an issue and --file');
   const options = parseOptions(flags, new Set(['--file']));
   if (!options['--file']) fail('edit requires an issue and --file');
-  const { issue } = readPlanIssue(value, true);
-  const after = fs.readFileSync(options['--file'], 'utf8');
+  const { issue, record } = readPlanIssue(value, true);
+  const file = options['--file'];
+  const after = fs.readFileSync(file, 'utf8');
+  const origin = readOrigin(file);
+  const current = bodyDigest(issue.body);
+  if (origin && origin !== current) {
+    fail(
+      `stale export: ${file} was exported from body ${origin.slice(0, 12)}, but #${issue.number} now holds ${current.slice(0, 12)}; re-export and re-apply the edit`,
+    );
+  }
   const failures = checkPlan(after, issue);
-  if (failures.length > 0) fail(failures.map((message) => `${options['--file']}: ${message}`).join('\n'));
+  if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
   const changes = changedLines(issue.body, after);
   editIssueBodyIfUnchanged(issue, after);
-  const status = parseFrontmatter(after).values.status;
-  console.log(headerStrip(issue, status));
+  if (origin) fs.writeFileSync(originFile(file), `${bodyDigest(after)}\n`, { encoding: 'utf8', mode: 0o600 });
+  console.log(headerStrip(issue, record.status));
   console.log(`changed: ${changes.length} line(s)`);
   for (const line of changes) console.log(line);
 }
@@ -611,16 +705,14 @@ function checkCommand(args) {
   if (args.length === 2 && args[0] === '--file') {
     const file = args[1];
     const planText = fs.readFileSync(file, 'utf8');
-    if (!/^plan_contract: v2$/m.test(planText.slice(0, planText.indexOf('\n---\n', 4)))) {
-      fail(`not a v2 plan: ${file} (no plan_contract: v2)`);
-    }
     const failures = checkPlan(planText, undefined);
     if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
     console.log(`plan check passed: ${file}`);
     return;
   }
   if (args.length !== 1) fail('check requires one issue or --file path');
-  const { issue } = readPlanIssue(args[0]);
+  // check is the validator: an unclassifiable body must surface as a numbered failure, not as a read error.
+  const issue = issueView(parseIssueNumber(args[0]));
   const failures = checkPlan(issue.body, issue);
   if (failures.length > 0) fail(failures.map((message) => `#${issue.number}: ${message}`).join('\n'));
   console.log(`plan check passed: #${issue.number}`);
@@ -629,18 +721,23 @@ function checkCommand(args) {
 function setPlanStatus(args) {
   const [value, target, ...flags] = args;
   if (!value || !target) fail('status requires an issue and status');
+  if (!PLAN_STATUSES.has(target)) fail(`unknown plan status: ${target}`);
   const options = parseOptions(flags, new Set(['--reason']));
   if (target === 'blocked' && (!String(options['--reason'] ?? '').trim() || /[\r\n]/.test(options['--reason']))) fail('blocked status requires --reason as single-line text');
   if (target !== 'blocked' && options['--reason'] !== undefined) fail('--reason is allowed only for blocked status');
-  const { issue, parsed } = readPlanIssue(value, true);
-  const current = parsed.values.status;
-  if (!STATUS_TRANSITIONS[current]?.has(target)) fail(`illegal plan status transition: ${current} -> ${target}`);
-  const after = replaceFrontmatterFields(issue.body, {
-    status: target,
-    blocked_reason: target === 'blocked' ? options['--reason'] : undefined,
-    updated: `"${utcTimestamp()}"`,
-  });
-  editIssueBodyIfUnchanged(issue, after, { add: `plan:${target}`, remove: labelsToRemove(issue, target) });
+  const { issue, record } = readPlanIssue(value, true);
+  if (String(issue.state).toUpperCase() === 'CLOSED') {
+    fail(`plan #${issue.number} is closed; status applies to open plans`);
+  }
+  const current = record.status;
+  if (!new Set(['unreadable', 'unlabelled']).has(current) && !STATUS_TRANSITIONS[current]?.has(target)) {
+    fail(`illegal plan status transition: ${current} -> ${target}`);
+  }
+  const after = replaceBlockedReason(issue.body, target === 'blocked' ? options['--reason'] : undefined);
+  const labels = { add: `plan:${target}`, remove: labelsToRemove(issue, target) };
+  // A phase-only move changes no body bytes, so it stays a label write and cannot lose a concurrent body edit.
+  if (after === issue.body) editIssueLabelsIfBodyUnchanged(issue, labels);
+  else editIssueBodyIfUnchanged(issue, after, labels);
   console.log(`plan #${issue.number} status: ${current} -> ${target}`);
 }
 
@@ -648,8 +745,8 @@ function setStepStatus(args) {
   const [value, stepId, target] = args;
   if (!value || !stepId || !target || args.length !== 3) fail('step requires an issue, step id, and status');
   if (!STEP_STATUSES.has(target)) fail(`unknown step status: ${target}`);
-  const { issue, parsed } = readPlanIssue(value, true);
-  if (parsed.values.status !== 'ongoing') fail(`plan status is ${parsed.values.status}; expected ongoing`);
+  const { issue, parsed, record } = readPlanIssue(value, true);
+  if (record.status !== 'ongoing') fail(`plan status is ${record.status}; expected ongoing`);
   const { sections } = sectionMap(parsed.body);
   const table = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
   const row = table.rows.find(({ cells }) => cells[1] === stepId);
@@ -667,19 +764,24 @@ function setStepStatus(args) {
   const parts = bodyLines[rowIndex].split('|');
   parts[7] = parts[7].replace(current, target);
   bodyLines[rowIndex] = parts.join('|');
-  let after = `${issue.body.slice(0, issue.body.length - parsed.body.length)}${bodyLines.join('\n')}`;
-  after = replaceFrontmatterFields(after, { updated: `"${utcTimestamp()}"` });
+  const after = `${issue.body.slice(0, issue.body.length - parsed.body.length)}${bodyLines.join('\n')}`;
   editIssueBodyIfUnchanged(issue, after);
   console.log(`plan #${issue.number} step ${stepId}: ${current} -> ${target}`);
 }
 
 function issueListings() {
   const issues = parseJson(
-    runGh(['issue', 'list', '--label', 'plan', '--state', 'all', '--limit', '500', '--json', 'number,title,state,labels', '--repo', repository.nameWithOwner]),
+    runGh(['issue', 'list', '--label', 'plan', '--state', 'all', '--limit', '500', '--json', ISSUE_FIELDS.replace('body,', ''), '--repo', repository.nameWithOwner]),
     'gh issue list',
   );
   return issues
-    .map((issue) => ({ ...issue, status: statusFromLabels(issue.labels) }))
+    .map((issue) => ({
+      ...issue,
+      status: statusFromIssue(issue),
+      owner: (issue.assignees ?? []).map((assignee) => assignee.login).filter(Boolean)[0] ?? null,
+      created: issue.createdAt,
+      updated: issue.updatedAt,
+    }))
     .sort((left, right) => {
       const leftClosed = String(left.state).toUpperCase() === 'CLOSED' ? 1 : 0;
       const rightClosed = String(right.state).toUpperCase() === 'CLOSED' ? 1 : 0;
@@ -689,7 +791,7 @@ function issueListings() {
 
 function listPlans(args) {
   const options = parseOptions(args, new Set(['--status']));
-  const selectableStatuses = new Set([...PLAN_STATUSES, 'unreadable']);
+  const selectableStatuses = new Set([...PLAN_STATUSES, 'finished', 'retired', 'duplicate', 'unlabelled', 'unreadable']);
   if (options['--status'] && !selectableStatuses.has(options['--status'])) fail(`unknown plan status: ${options['--status']}`);
   for (const issue of issueListings()) {
     if (!options['--status'] || issue.status === options['--status']) console.log(`${issue.status}\t#${issue.number}\t${issue.title}`);
@@ -723,7 +825,7 @@ function nextPlans(args) {
   if (args.length > 0) fail('next takes no arguments');
   const listings = issueListings();
   const planned = new Set(listings.filter(({ status }) => status === 'planned').map(({ number }) => number));
-  const finished = new Set(listings.filter((issue) => String(issue.state).toUpperCase() === 'CLOSED' || labelNames(issue.labels).includes('plan:finished')).map(({ number }) => number));
+  const finished = new Set(listings.filter(({ status }) => status === 'finished').map(({ number }) => number));
   const queueFile = 'docs/PLAN-QUEUE.md';
   if (fs.existsSync(queueFile)) {
     try {
@@ -759,9 +861,10 @@ function archivePlan(args, retired = false) {
   if (!value) fail(`${retired ? 'retire' : 'archive'} requires an issue`);
   const options = parseOptions(flags, retired ? new Set(['--reason']) : new Set());
   if (retired && (!String(options['--reason'] ?? '').trim() || /[\r\n]/.test(options['--reason']))) fail('retire requires a single-line --reason');
-  const { issue, parsed } = readPlanIssue(value, true);
-  if (retired && parsed.values.status === 'finished') fail('cannot retire a finished plan');
-  if (!retired && parsed.values.status !== 'ongoing') fail(`archive requires ongoing status, found ${parsed.values.status}`);
+  const { issue, parsed, record } = readPlanIssue(value, true);
+  if (retired && String(issue.state).toUpperCase() === 'CLOSED') fail(`cannot retire a ${record.status} plan`);
+  if (!retired && record.status !== 'finished') fail(`archive requires finished status, found ${record.status}`);
+
   let closingPullRequest;
   if (!retired) {
     const { sections } = sectionMap(parsed.body);
@@ -769,49 +872,56 @@ function archivePlan(args, retired = false) {
     const unfinished = steps.length === 0 ? { cells: ['', '(missing)'] } : steps.find(({ cells }) => !new Set(['done', 'skipped']).has(unquoteCode(cells[6])));
     if (unfinished) fail(`archive refused: non-terminal step ${unfinished.cells[1]}`);
     if (!/^Code-review: pass$/m.test(sections.get('Review') ?? '')) fail('archive requires Code-review: pass');
-    const { closing, userLinked } = archivePullRequestReferences(issue.number);
-    const userLinkedPairs = new Set(
-      userLinked.map((reference) => `${reference.repository?.nameWithOwner}#${reference.number}`),
-    );
-    let wrongBranch;
-    let manuallyLinked;
-    for (const reference of closing) {
-      if (!reference.mergedAt) continue;
-      const repo = reference.repository?.nameWithOwner;
-      const defaultBranch = reference.repository?.defaultBranchRef?.name;
-      if (!repo || !defaultBranch) fail('gh api graphql returned malformed closing pull request references');
-      if (reference.baseRefName !== defaultBranch) {
-        wrongBranch ??= { defaultBranch, found: reference.baseRefName };
-        continue;
+
+    const { closing, closingCommitOid, defaultBranch } = archivePullRequestReferences(issue.number);
+    if (closing.length > 0) {
+      closingPullRequest = closing.find((reference) => (
+        reference.state === 'MERGED' &&
+        reference.mergedAt &&
+        reference.repository?.nameWithOwner === repository.nameWithOwner &&
+        reference.baseRefName === defaultBranch
+      ));
+      if (!closingPullRequest) {
+        const wrongBranch = closing.find((reference) => reference.state === 'MERGED' && reference.mergedAt)?.baseRefName;
+        if (wrongBranch) fail(`archive requires a pull request merged into ${defaultBranch}, found ${wrongBranch}`);
+        fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
       }
-      if (userLinkedPairs.has(`${repo}#${reference.number}`)) {
-        manuallyLinked ??= reference;
-        continue;
+    } else {
+      if (!closingCommitOid) fail('archive requires a merged closing pull request; issue has no closing commit');
+      const associated = associatedPullRequests(closingCommitOid);
+      closingPullRequest = associated.pullRequests.find((reference) => (
+        reference.state === 'MERGED' &&
+        reference.mergedAt &&
+        reference.repository?.nameWithOwner === repository.nameWithOwner &&
+        reference.baseRefName === associated.defaultBranch
+      ));
+      if (!closingPullRequest) {
+        const wrongBranch = associated.pullRequests.find((reference) => reference.state === 'MERGED' && reference.mergedAt)?.baseRefName;
+        if (wrongBranch) fail(`archive requires a pull request merged into ${associated.defaultBranch}, found ${wrongBranch}`);
+        fail(`archive requires a merged closing pull request; closing commit ${closingCommitOid} has no associated merged pull request into ${associated.defaultBranch}`);
       }
-      closingPullRequest = {
-        url: `https://github.com/${repo}/pull/${reference.number}`,
-      };
-      break;
-    }
-    if (!closingPullRequest) {
-      if (manuallyLinked) {
-        fail(`archive requires a keyword-linked pull request; #${manuallyLinked.number} is manually linked`);
-      }
-      if (wrongBranch) {
-        fail(`archive requires a pull request merged into ${wrongBranch.defaultBranch}, found ${wrongBranch.found}`);
-      }
-      fail('archive requires a merged linked pull request');
     }
   }
-  let after = replaceFrontmatterFields(issue.body, { status: 'finished', blocked_reason: undefined, updated: `"${utcTimestamp()}"` });
+
   if (retired) {
-    if (/^## Retirement$/m.test(parsed.body)) fail('plan already has a Retirement section');
-    after = `${after.trimEnd()}\n\n## Retirement\n\n${options['--reason']}\n`;
+    runGh([
+      'issue',
+      'close',
+      String(issue.number),
+      '--reason',
+      'not planned',
+      '--comment',
+      options['--reason'],
+      '--repo',
+      repository.nameWithOwner,
+    ]);
   }
-  editIssueBodyIfUnchanged(issue, after, { add: 'plan:finished', remove: labelsToRemove(issue, 'finished') });
-  runGh(['issue', 'close', String(issue.number), '--reason', retired ? 'not planned' : 'completed', '--repo', repository.nameWithOwner]);
+  editIssueLabelsIfBodyUnchanged(issue, { remove: labelsToRemove(issue) });
   if (retired) console.log(`plan #${issue.number} retired`);
-  else console.log(`plan #${issue.number} finished (closed by ${closingPullRequest.url})`);
+  else {
+    const url = closingPullRequest.url ?? `https://github.com/${repository.nameWithOwner}/pull/${closingPullRequest.number}`;
+    console.log(`plan #${issue.number} finished (closed by ${url})`);
+  }
 }
 
 function usage() {

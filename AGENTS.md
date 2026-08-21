@@ -23,7 +23,7 @@ Node 24 remains the validator runtime and matches CI's `node-version`; Bun 1.4.0
 │   ├── .codex-plugin/plugin.json     Codex plugin manifest (skills + hooks — near-parity with Claude)
 │   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/skill-agent-pipeline pipelines
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
-├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin (cross-tool): three skills, shipped plan.mjs, v2 contract reference, and two read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
+├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin (cross-tool): three skills, shipped plan.mjs, v3 contract reference, and two read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
 ├── plugins/effect-kit/               Effect-TS skill kit plugin (cross-tool): effect-ts-setup / effect-ts-specialist / effect-ts-port (skills-only; depends on docks for plan-lifecycle + authoring skills); self-versioned
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
@@ -78,25 +78,41 @@ public-contract change, security-sensitive or destructive work, or any
 non-`local` effect.
 
 <constraint>
-The plan record is a GitHub issue: its body carries the `plan_contract: v2` frontmatter and the eight `##` sections, its `plan:<status>` label mirrors the frontmatter `status`, and no plan markdown is tracked in the repository. Exactly three skills own the workflow: `plan-workspace` maintains the workspace; main-context `plan-manager` runs six phases — decide, draft, research, one plan review, implement, code review — and archives; internal `plan-reviewer` returns a readable pre-implementation verdict. Two read-only reviewer wrappers ship, `plan-reviewer` and `code-reviewer`, and nothing else in the lifecycle has a wrapper.
+The plan record is a GitHub issue. Its body starts with
+`<!-- plan-contract: v3 -->`, then a blank line and the exact eight `##`
+sections; it has no frontmatter. GitHub owns title, open-work phase, owner,
+timestamps, and completion, and no plan markdown is tracked in the repository.
+Exactly three skills own the workflow: `plan-workspace` maintains the workspace;
+main-context `plan-manager` runs six phases — decide, draft, research, one plan
+review, implement, code review — and archives; internal `plan-reviewer` returns
+a readable pre-implementation verdict. Two read-only reviewer wrappers ship,
+`plan-reviewer` and `code-reviewer`, and nothing else in the lifecycle has a
+wrapper.
 </constraint>
 
-The record is markdown inside the issue body: `plan_contract: v2` frontmatter
-plus eight `##` sections — `## Goal`, `## Research`, `## Steps`,
-`## Acceptance`, `## Do not touch`, `## Open questions`, `## Review`,
-`## Verification Results`. There are no hashes, permits, run identities, locks,
-or bundles, and the `plan.mjs` shipped inside the installed `plan-lifecycle`
-plugin is the only lifecycle tool. This lifecycle creates zero commits and never pushes.
-Commit when the user asks, under `docks:commit-discipline`.
+After the marker and blank line, the record carries exactly `## Goal`,
+`## Research`, `## Steps`, `## Acceptance`, `## Do not touch`,
+`## Open questions`, `## Review`, and `## Verification Results`, in that order
+and once each. `## Goal` carries exactly one mode line. Open-work phase is one
+of `drafting`, `planned`, `ongoing`, or `blocked` in a `plan:<phase>` label; a
+blocked plan starts `## Open questions` with `Blocked: <one-line reason>`.
+Closed completion derives from GitHub `state` and `stateReason`. There are no
+hashes, permits, run identities, locks, or bundles, and the `plan.mjs` shipped
+inside the installed `plan-lifecycle` plugin is the only lifecycle tool. This
+lifecycle creates zero commits and never pushes. Commit when the user asks,
+under `docks:commit-discipline`.
 
 Every Steps row carries an `Effect` of exactly
 `local|probe|production_access|publish|push|release|deploy`. A step whose
 `Effect` is not `local` requires an in-session `ask` confirmation immediately
-before it runs; when `ask` is unavailable the step is set `blocked` with
-`blocked_reason` naming the unconfirmed effect. Persisted effects record intent
-only.
+before it runs; when `ask` is unavailable the step is set `blocked` and the plan
+reason becomes the first `## Open questions` line, `Blocked: <reason>`.
+Persisted effects record intent only.
 
-Work lands through a pull request whose body carries `Closes #<issue>` and whose base is the repository default branch, because GitHub interprets a closing keyword only in a pull request that targets the default branch. `plan.mjs archive` verifies that merged pull request rather than performing the merge.
+Work lands through a pull request whose body carries `Closes #<issue>` and whose
+base is the repository default branch. `plan.mjs archive` is a verifier: it
+requires completed closure, terminal steps, an exact `Code-review: pass` line,
+and a merged closing pull request into that branch; it writes no status.
 
 Render a plan body verbatim only when the user names that plan and asks to see it. After a write, report the one-line header strip and the changed lines only; a write never re-renders the body.
 

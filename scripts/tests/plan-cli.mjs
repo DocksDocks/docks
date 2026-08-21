@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,6 +19,17 @@ const stateHome = fs.realpathSync(fs.mkdtempSync(path.join(testScratchRoot, 'pla
 const linkedParent = fs.realpathSync(fs.mkdtempSync(path.join(testScratchRoot, 'plan-cli-linked-')));
 const linkedScratch = path.join(linkedParent, 'worktree');
 const statePath = path.join(scratch, 'gh-state.json');
+const V3_MARKER = '<!-- plan-contract: v3 -->';
+const V3_SECTIONS = [
+  '## Goal',
+  '## Research',
+  '## Steps',
+  '## Acceptance',
+  '## Do not touch',
+  '## Open questions',
+  '## Review',
+  '## Verification Results',
+];
 fs.mkdirSync(path.join(scratch, 'docs'), { recursive: true });
 const initialized = spawnSync('git', ['init', '--quiet'], { cwd: scratch, encoding: 'utf8' });
 assert.equal(initialized.status, 0, initialized.stderr);
@@ -83,6 +95,10 @@ function run(...args) {
   return runIn(scratch, ...args);
 }
 
+function bodyDigest(body) {
+  return createHash('sha256').update(body, 'utf8').digest('hex');
+}
+
 function expectSuccess(result, label) {
   assert.equal(result.status, 0, `${label}: ${result.stderr}`);
 }
@@ -139,15 +155,16 @@ function makeValid(number, options = {}) {
   return issue(number).body;
 }
 
-function setIssueStatus(number, status) {
+function setIssueStatus(number, status, reason = 'fixture reason') {
   updateIssue(number, (entry) => {
-    entry.body = entry.body.replace(/^blocked_reason:.*\n/m, '').replace(/^status:.*$/m, `status: ${status}`);
-    if (status === 'blocked')
-      entry.body = entry.body.replace(/^status: blocked$/m, 'status: blocked\nblocked_reason: fixture reason');
-    if (status !== 'drafting')
-      entry.body = entry.body.replace('_Not researched yet._', 'Repository facts confirmed the durable fix.');
     entry.labels = entry.labels.filter((label) => !label.startsWith('plan:'));
     entry.labels.push(`plan:${status}`);
+    entry.body = entry.body.replace(/(## Open questions\n\n)([\s\S]*?)(?=\n## Review)/, (_, heading, contents) => {
+      const withoutBlockedReason = contents.replace(/^Blocked: .+\n?/, '');
+      return `${heading}${status === 'blocked' ? `Blocked: ${reason}\n` : ''}${withoutBlockedReason}`;
+    });
+    if (status !== 'drafting')
+      entry.body = entry.body.replace('_Not researched yet._', 'Repository facts confirmed the durable fix.');
   });
 }
 
@@ -157,14 +174,14 @@ function expectCheckPass(value) {
   assert.equal(result.stdout.trim(), `plan check passed: #${String(value).replace(/^#/, '')}`);
 }
 
-function mutateAndRestore(number, checkNumber, mutate) {
+function mutateAndRestore(number, mutationName, mutate, errorPattern) {
   const before = issue(number);
   const savedBody = before.body;
   const savedLabels = [...before.labels];
   updateIssue(number, mutate);
   const failed = run('check', String(number));
-  assert.equal(failed.status, 1, `check ${checkNumber} mutation unexpectedly passed`);
-  assert.match(failed.stderr, new RegExp(`check ${checkNumber}\\b`));
+  assert.equal(failed.status, 1, `${mutationName} mutation unexpectedly passed`);
+  if (errorPattern) assert.match(failed.stderr, errorPattern, `${mutationName} must report its contract failure`);
   updateIssue(number, (entry) => {
     entry.body = savedBody;
     entry.labels = savedLabels;
@@ -189,17 +206,9 @@ try {
   expectSuccess(labelsResult, 'labels');
   assert.deepEqual(
     labelsResult.stdout.trimEnd().split('\n'),
-    [
-      'plan',
-      'plan:drafting',
-      'plan:planned',
-      'plan:ongoing',
-      'plan:blocked',
-      'plan:finished',
-      'plan-scheduled',
-      'security',
-      'auth',
-    ].map((label) => `label ready: ${label}`),
+    ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked', 'security', 'auth'].map(
+      (label) => `label ready: ${label}`,
+    ),
   );
   const beforeReservedNew = loadState();
   const reservedNew = run(
@@ -220,8 +229,19 @@ try {
 
   const templateNumber = createPlan('template', { mode: 'plan-only' });
   const template = issue(templateNumber);
-  assert.match(template.body, /^---\nplan_contract: v2\n/);
-  assert.match(template.body, /^status: drafting$/m);
+  assert.equal(template.body.split('\n', 3).slice(0, 2).join('\n'), `${V3_MARKER}\n`);
+  assert.equal(/^---\s*$/m.test(template.body), false, 'v3 body must not contain a frontmatter fence line');
+  assert.equal(template.body.startsWith('---'), false, 'v3 body must not open with a frontmatter fence');
+  assert.deepEqual(
+    [...template.body.matchAll(/^## .+$/gm)].map(([heading]) => heading),
+    V3_SECTIONS,
+    'v3 body must contain the eight contract sections exactly once and in order',
+  );
+  assert.doesNotMatch(
+    template.body,
+    /^(?:plan_contract|title|goal|status|created|updated|assignee|blocked_reason):/m,
+    'GitHub-owned machine fields must not be stored in the body',
+  );
   assert.match(template.body, /^Mode: plan-only$/m);
   assert.deepEqual(template.labels, ['plan', 'plan:drafting']);
   assert.deepEqual(template.assignees, ['plan-agent']);
@@ -291,7 +311,9 @@ try {
   const ownershipEdit = loadState().calls.findLast(
     (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(unassignedWriteNumber),
   );
-  assert.ok(ownershipEdit.includes('--body-file'));
+  assert.equal(ownershipEdit.includes('--body-file'), false, 'phase-only status must not rewrite the v3 body');
+  assert.ok(ownershipEdit.includes('--remove-label'));
+  assert.ok(ownershipEdit.includes('--add-label'));
   assert.deepEqual(
     ownershipEdit.slice(ownershipEdit.indexOf('--add-assignee'), ownershipEdit.indexOf('--add-assignee') + 2),
     ['--add-assignee', '@me'],
@@ -342,108 +364,161 @@ try {
 
   const mutations = [
     [
-      1,
+      'removed v3 marker',
       (entry) => {
-        entry.body = entry.body.replace('assignee: null', 'unexpected: value\nassignee: null');
+        entry.body = entry.body.replace(`${V3_MARKER}\n\n`, '');
       },
+      /check 1: unreadable plan contract/,
     ],
     [
-      2,
+      'frontmatter fence inserted into a v3 body',
       (entry) => {
-        entry.body = entry.body.replace('status: drafting', 'status: unknown');
+        entry.body = entry.body.replace(`${V3_MARKER}\n\n`, `${V3_MARKER}\n\n---\nstatus: drafting\n---\n\n`);
       },
+      /check 1:/,
     ],
     [
-      3,
-      (entry) => {
-        entry.body = entry.body.replace('title: Exercise checks', 'title: ');
-      },
-    ],
-    [
-      4,
-      (entry) => {
-        entry.body = entry.body.replace(/^updated: "(.*)"$/m, 'updated: $1');
-      },
-    ],
-    [
-      5,
+      'Research section renamed',
       (entry) => {
         entry.body = entry.body.replace('## Research', '## Findings');
       },
+      /check 5:/,
     ],
     [
-      6,
+      'step id made non-portable',
       (entry) => {
         entry.body = entry.body.replace('| implement_contract |', '| Implement-contract |');
       },
+      /check 6:/,
     ],
     [
-      7,
+      'unknown step token introduced',
       (entry) => {
         entry.body = entry.body.replace('_Not researched yet._', '_Not researched yet._ step:missing');
       },
+      /check 7:/,
     ],
     [
-      8,
+      'unfinished dependency introduced',
       (entry) => {
         entry.body = entry.body.replace('| — | `local` |', '| 2 | `local` |');
       },
+      /check 8:/,
     ],
     [
-      9,
+      'duplicate Acceptance id introduced',
       (entry) => {
         entry.body = entry.body.replace(
           '| A1 | `node --version` | Exit 0 |',
           '| A1 | `node --version` | Exit 0 |\n| A1 | `node -v` | Exit 0 |',
         );
       },
+      /check 9:/,
     ],
     [
-      10,
+      'absolute path introduced',
       (entry) => {
         entry.body = entry.body.replace('_Not researched yet._', '_Not researched yet._ /home/alice/private');
       },
+      /check 10:/,
     ],
     [
-      11,
-      (entry) => {
-        entry.body = entry.body.replace('status: drafting', 'status: planned');
-        entry.labels = ['plan', 'plan:planned'];
-      },
-    ],
-    [
-      12,
+      'self-reference introduced',
       (entry) => {
         entry.body = entry.body.replace('src/example.mjs', `#${validNumber}`);
       },
+      /check 12:/,
     ],
     [
-      13,
+      'unsupported mode introduced',
       (entry) => {
         entry.body = entry.body.replace('Mode: plan-and-implement', 'Mode: direct');
       },
+      /check 13:/,
     ],
   ];
-  for (const [checkNumber, mutate] of mutations) mutateAndRestore(validNumber, checkNumber, mutate);
+  for (const [mutationName, mutate, errorPattern] of mutations)
+    mutateAndRestore(validNumber, mutationName, mutate, errorPattern);
 
-  mutateAndRestore(validNumber, 2, (entry) => entry.labels.push('plan:blocked'));
+  mutateAndRestore(validNumber, 'second phase label added', (entry) => entry.labels.push('plan:blocked'), /check 2:/);
   for (const ownReference of [String(validNumber), `#${validNumber}`, issue(validNumber).url]) {
-    mutateAndRestore(validNumber, 12, (entry) => {
-      entry.body = entry.body.replace('src/example.mjs', ownReference);
-    });
+    mutateAndRestore(
+      validNumber,
+      `self-reference ${ownReference} introduced`,
+      (entry) => {
+        entry.body = entry.body.replace('src/example.mjs', ownReference);
+      },
+      /check 12:/,
+    );
   }
 
   const validFile = path.join(scratch, 'valid-plan.md');
   fs.writeFileSync(validFile, issue(validNumber).body);
   const fileCheck = run('check', '--file', validFile);
-  expectSuccess(fileCheck, 'check --file');
+  expectSuccess(fileCheck, 'check --file v3');
   assert.equal(fileCheck.stdout.trim(), `plan check passed: ${validFile}`);
 
+  // A plan about this contract must be able to quote the marker inline; only a second standalone marker line is a defect.
+  const quotingFile = path.join(scratch, 'quotes-marker-plan.md');
+  fs.writeFileSync(
+    quotingFile,
+    issue(validNumber).body.replace(
+      '## Research\n',
+      `## Research\n\nA v3 body opens with \`${V3_MARKER}\` on its first line.\n`,
+    ),
+  );
+  expectSuccess(run('check', '--file', quotingFile), 'check --file marker quoted inline');
+  const duplicateMarkerFile = path.join(scratch, 'duplicate-marker-plan.md');
+  fs.writeFileSync(
+    duplicateMarkerFile,
+    issue(validNumber).body.replace('## Research\n', `## Research\n\n${V3_MARKER}\n`),
+  );
+  const duplicateMarker = run('check', '--file', duplicateMarkerFile);
+  assert.equal(duplicateMarker.status, 1, 'a second standalone marker line must fail');
+  assert.match(duplicateMarker.stderr, /check 1:/);
+
+  const frontmatterFile = path.join(scratch, 'frontmatter-plan.md');
+  const frontmatterBody = issue(validNumber).body.replace(
+    `${V3_MARKER}\n\n`,
+    [
+      '---',
+      'plan_contract: v2',
+      'title: Exercise checks',
+      'goal: The checks plan completes its observable contract',
+      'status: drafting',
+      'created: "2026-08-20T20:00:00.000Z"',
+      'updated: "2026-08-20T20:00:00.000Z"',
+      'assignee: null',
+      '---',
+      '',
+    ].join('\n'),
+  );
+  fs.writeFileSync(frontmatterFile, frontmatterBody);
+  const frontmatterCheck = run('check', '--file', frontmatterFile);
+  assert.equal(frontmatterCheck.status, 1, 'accepting frontmatter as a plan-contract mutation must fail');
+  assert.match(
+    frontmatterCheck.stderr,
+    /check 1: unreadable plan contract/,
+    'routing frontmatter to a parser instead of unreadable-contract refusal must fail',
+  );
+
+  const planRunFile = path.join(scratch, 'plan-run-plan.md');
+  fs.writeFileSync(planRunFile, issue(validNumber).body.replace(`${V3_MARKER}\n\n`, 'Plan-run: historical-run\n\n'));
+  const planRunCheck = run('check', '--file', planRunFile);
+  assert.equal(planRunCheck.status, 1, 'accepting an unmarked Plan-run body mutation must fail');
+  assert.match(
+    planRunCheck.stderr,
+    /check 1: unreadable plan contract/,
+    'classifying an unmarked Plan-run body as anything but unreadable must fail',
+  );
+
+  const unreadableFile = path.join(scratch, 'unreadable-plan.md');
+  fs.writeFileSync(unreadableFile, '# Unmarked plan\n');
+  const unreadableCheck = run('check', '--file', unreadableFile);
+  assert.equal(unreadableCheck.status, 1, 'removing every contract marker must classify the body as unreadable');
+  assert.match(unreadableCheck.stderr, /check 1: unreadable plan contract/);
+
   const beforeReordered = fs.readFileSync(validFile, 'utf8');
-  fs.writeFileSync(validFile, beforeReordered.replace(/^(created: .+)\n(updated: .+)$/m, '$2\n$1'));
-  const reordered = run('check', '--file', validFile);
-  assert.equal(reordered.status, 1);
-  assert.match(reordered.stderr, /check 1: .*frontmatter key updated is out of position/);
   fs.writeFileSync(validFile, beforeReordered.replace('| # | Id |', '| Number | Id |'));
   const wrongHeader = run('check', '--file', validFile);
   assert.equal(wrongHeader.status, 1);
@@ -527,17 +602,288 @@ try {
   assert.equal(fs.statSync(path.dirname(linkedExportPath)).mode & 0o777, 0o700);
   const badExportNumber = createPlan('bad-export');
   updateIssue(badExportNumber, (entry) => {
-    entry.body = 'not a v2 plan\n';
+    entry.body = 'unmarked plan\n';
   });
-  assert.match(run('export', String(badExportNumber)).stderr, /not a v2 plan/);
+  assert.match(run('export', String(badExportNumber)).stderr, /unreadable plan contract/);
   assert.match(run('export', 'not-a-number').stderr, /invalid plan issue/);
+
+  const sidecarExportNumber = createPlan('sidecar-export');
+  makeValid(sidecarExportNumber);
+  const sidecarExport = run('export', String(sidecarExportNumber));
+  expectSuccess(sidecarExport, 'sidecar export');
+  const sidecarExportPath = sidecarExport.stdout.trim();
+  const sidecarExportBody = fs.readFileSync(sidecarExportPath, 'utf8');
+  assert.equal(sidecarExportBody, issue(sidecarExportNumber).body, 'export must write the live plan body');
+  assert.equal(
+    fs.readFileSync(`${sidecarExportPath}.origin`, 'utf8'),
+    `${bodyDigest(sidecarExportBody)}\n`,
+    'export must write the body digest to its sibling origin file',
+  );
+
+  const freshExportNumber = createPlan('fresh-export-edit');
+  makeValid(freshExportNumber);
+  const freshExport = run('export', String(freshExportNumber));
+  expectSuccess(freshExport, 'fresh edit export');
+  const freshExportPath = freshExport.stdout.trim();
+  const freshOriginBefore = fs.readFileSync(`${freshExportPath}.origin`, 'utf8').trim();
+  fs.writeFileSync(
+    freshExportPath,
+    fs.readFileSync(freshExportPath, 'utf8').replace('src/example.mjs', 'src/fresh.mjs'),
+  );
+  const freshEdit = run('edit', String(freshExportNumber), '--file', freshExportPath);
+  expectSuccess(freshEdit, 'fresh exported edit');
+  const freshAppliedBody = fs.readFileSync(freshExportPath, 'utf8');
+  const freshOriginAfter = fs.readFileSync(`${freshExportPath}.origin`, 'utf8').trim();
+  assert.notEqual(freshOriginAfter, freshOriginBefore, 'successful edit must refresh the export origin');
+  assert.equal(freshOriginAfter, bodyDigest(freshAppliedBody), 'refreshed origin must describe the applied file');
+  assert.equal(issue(freshExportNumber).body, freshAppliedBody, 'fresh exported edit must update the issue body');
+
+  const staleExportNumber = createPlan('stale-export-edit');
+  makeValid(staleExportNumber);
+  setIssueStatus(staleExportNumber, 'ongoing');
+  const staleExport = run('export', String(staleExportNumber));
+  expectSuccess(staleExport, 'stale edit export');
+  const staleExportPath = staleExport.stdout.trim();
+  const staleExportBody = fs.readFileSync(staleExportPath, 'utf8');
+  const staleOrigin = bodyDigest(staleExportBody);
+  expectSuccess(
+    run('step', String(staleExportNumber), 'implement_contract', 'in-flight'),
+    'body-changing step before stale edit',
+  );
+  const steppedBody = issue(staleExportNumber).body;
+  const steppedDigest = bodyDigest(steppedBody);
+  assert.notEqual(steppedDigest, staleOrigin, 'step status change must make the exported body stale');
+  const staleEdit = run('edit', String(staleExportNumber), '--file', staleExportPath);
+  assert.equal(staleEdit.status, 1, 'stale exported edit must fail');
+  assert.equal(
+    staleEdit.stderr.trim(),
+    `stale export: ${staleExportPath} was exported from body ${staleOrigin.slice(0, 12)}, but #${staleExportNumber} now holds ${steppedDigest.slice(0, 12)}; re-export and re-apply the edit`,
+    'stale edit failure must identify both body digests',
+  );
+  assert.equal(issue(staleExportNumber).body, steppedBody, 'stale edit refusal must leave the stepped body unchanged');
+  assert.match(
+    issue(staleExportNumber).body,
+    /\| `in-flight` \| command exits 0 \|/,
+    'stale edit refusal must preserve the live step status',
+  );
+
+  const emptyOriginNumber = createPlan('empty-origin-edit');
+  makeValid(emptyOriginNumber);
+  const emptyOriginExport = run('export', String(emptyOriginNumber));
+  expectSuccess(emptyOriginExport, 'empty origin export');
+  const emptyOriginExportPath = emptyOriginExport.stdout.trim();
+  const emptyOriginPath = `${emptyOriginExportPath}.origin`;
+  const beforeEmptyOriginEdit = issue(emptyOriginNumber).body;
+  fs.writeFileSync(
+    emptyOriginExportPath,
+    fs.readFileSync(emptyOriginExportPath, 'utf8').replace('src/example.mjs', 'src/empty-origin.mjs'),
+  );
+  fs.truncateSync(emptyOriginPath, 0);
+  const emptyOriginEdit = run('edit', String(emptyOriginNumber), '--file', emptyOriginExportPath);
+  assert.equal(
+    emptyOriginEdit.status,
+    1,
+    'making readOrigin treat an empty sidecar as absent would let the edit succeed',
+  );
+  assert.equal(
+    emptyOriginEdit.stderr.trim(),
+    `unreadable export provenance: ${emptyOriginPath} holds no sha256 digest; re-export the plan`,
+    'removing the empty-digest validation from readOrigin would lose the unreadable-provenance diagnostic',
+  );
+  assert.equal(
+    issue(emptyOriginNumber).body,
+    beforeEmptyOriginEdit,
+    'letting an empty readOrigin result bypass the guard would overwrite the live body',
+  );
+
+  const whitespaceOriginNumber = createPlan('whitespace-origin-edit');
+  makeValid(whitespaceOriginNumber);
+  const whitespaceOriginExport = run('export', String(whitespaceOriginNumber));
+  expectSuccess(whitespaceOriginExport, 'whitespace origin export');
+  const whitespaceOriginExportPath = whitespaceOriginExport.stdout.trim();
+  const whitespaceOriginPath = `${whitespaceOriginExportPath}.origin`;
+  const beforeWhitespaceOriginEdit = issue(whitespaceOriginNumber).body;
+  fs.writeFileSync(
+    whitespaceOriginExportPath,
+    fs.readFileSync(whitespaceOriginExportPath, 'utf8').replace('src/example.mjs', 'src/whitespace-origin.mjs'),
+  );
+  fs.writeFileSync(whitespaceOriginPath, ' \t\n');
+  const whitespaceOriginEdit = run('edit', String(whitespaceOriginNumber), '--file', whitespaceOriginExportPath);
+  assert.equal(
+    whitespaceOriginEdit.status,
+    1,
+    'making readOrigin use a bare nonempty check would let a whitespace-only sidecar edit succeed',
+  );
+  assert.equal(
+    whitespaceOriginEdit.stderr.trim(),
+    `unreadable export provenance: ${whitespaceOriginPath} holds no sha256 digest; re-export the plan`,
+    'removing trimmed-digest validation from readOrigin would lose the whitespace provenance diagnostic',
+  );
+  assert.equal(
+    issue(whitespaceOriginNumber).body,
+    beforeWhitespaceOriginEdit,
+    'letting whitespace provenance bypass the guard would overwrite the live body',
+  );
+
+  const timestampOriginNumber = createPlan('timestamp-origin-edit');
+  makeValid(timestampOriginNumber);
+  const timestampOriginExport = run('export', String(timestampOriginNumber));
+  expectSuccess(timestampOriginExport, 'timestamp origin export');
+  const timestampOriginExportPath = timestampOriginExport.stdout.trim();
+  const timestampOriginPath = `${timestampOriginExportPath}.origin`;
+  const beforeTimestampOriginEdit = issue(timestampOriginNumber).body;
+  fs.writeFileSync(
+    timestampOriginExportPath,
+    fs.readFileSync(timestampOriginExportPath, 'utf8').replace('src/example.mjs', 'src/timestamp-origin.mjs'),
+  );
+  fs.writeFileSync(timestampOriginPath, '2026-08-21T10:00:00Z\n');
+  const timestampOriginEdit = run('edit', String(timestampOriginNumber), '--file', timestampOriginExportPath);
+  assert.equal(
+    timestampOriginEdit.status,
+    1,
+    'changing readOrigin to accept timestamp provenance would let the edit succeed',
+  );
+  assert.equal(
+    timestampOriginEdit.stderr.trim(),
+    `unreadable export provenance: ${timestampOriginPath} holds no sha256 digest; re-export the plan`,
+    'replacing digest provenance with timestamps in readOrigin would suppress the unreadable diagnostic',
+  );
+  assert.equal(
+    issue(timestampOriginNumber).body,
+    beforeTimestampOriginEdit,
+    'accepting timestamp provenance as a digest would overwrite the live body',
+  );
+
+  const wrongDigestNumber = createPlan('wrong-digest-edit');
+  makeValid(wrongDigestNumber);
+  const wrongDigestExport = run('export', String(wrongDigestNumber));
+  expectSuccess(wrongDigestExport, 'wrong digest export');
+  const wrongDigestExportPath = wrongDigestExport.stdout.trim();
+  const wrongDigestPath = `${wrongDigestExportPath}.origin`;
+  const beforeWrongDigestEdit = issue(wrongDigestNumber).body;
+  fs.writeFileSync(
+    wrongDigestExportPath,
+    fs.readFileSync(wrongDigestExportPath, 'utf8').replace('src/example.mjs', 'src/wrong-digest.mjs'),
+  );
+  fs.writeFileSync(wrongDigestPath, `${bodyDigest('a different exported body\n')}\n`);
+  const wrongDigestEdit = run('edit', String(wrongDigestNumber), '--file', wrongDigestExportPath);
+  assert.equal(
+    wrongDigestEdit.status,
+    1,
+    'removing the live-body digest comparison after readOrigin would let a wrong digest edit succeed',
+  );
+  assert.match(
+    wrongDigestEdit.stderr,
+    /stale export:/,
+    'routing every sidecar mismatch through readOrigin validation would lose the stale-export diagnostic',
+  );
+  assert.doesNotMatch(
+    wrongDigestEdit.stderr,
+    /unreadable export provenance/,
+    'rejecting a valid sha256 digest in readOrigin would misreport stale provenance as unreadable',
+  );
+  assert.equal(
+    issue(wrongDigestNumber).body,
+    beforeWrongDigestEdit,
+    'removing the stale-export refusal after a valid wrong digest would overwrite the live body',
+  );
+
+  const blockedStatusNumber = createPlan('blocked-status-export-edit');
+  makeValid(blockedStatusNumber);
+  const blockedStatusExport = run('export', String(blockedStatusNumber));
+  expectSuccess(blockedStatusExport, 'blocked status export');
+  const blockedStatusExportPath = blockedStatusExport.stdout.trim();
+  const beforeBlockedStatus = issue(blockedStatusNumber).body;
+  expectSuccess(
+    run('status', String(blockedStatusNumber), 'blocked', '--reason', 'waiting for provenance review'),
+    'body-changing blocked status',
+  );
+  const afterBlockedStatus = issue(blockedStatusNumber).body;
+  assert.notEqual(
+    afterBlockedStatus,
+    beforeBlockedStatus,
+    'removing the Blocked line body write from setPlanStatus would leave the export fresh',
+  );
+  assert.match(
+    afterBlockedStatus,
+    /## Open questions\n\nBlocked: waiting for provenance review\n/,
+    'moving the setPlanStatus Blocked line outside Open questions would break the body-write fixture',
+  );
+  fs.writeFileSync(
+    blockedStatusExportPath,
+    fs.readFileSync(blockedStatusExportPath, 'utf8').replace('src/example.mjs', 'src/blocked-stale.mjs'),
+  );
+  const blockedStatusEdit = run('edit', String(blockedStatusNumber), '--file', blockedStatusExportPath);
+  assert.equal(
+    blockedStatusEdit.status,
+    1,
+    'skipping provenance checks after setPlanStatus body writes would let a stale edit succeed',
+  );
+  assert.match(
+    blockedStatusEdit.stderr,
+    /stale export:/,
+    'failing to compare the pre-blocked export digest would suppress the stale-export diagnostic',
+  );
+  assert.equal(
+    issue(blockedStatusNumber).body,
+    afterBlockedStatus,
+    'letting an export predate the setPlanStatus Blocked line would overwrite the live body',
+  );
+
+  const labelOnlyNumber = createPlan('label-only-export-edit');
+  makeValid(labelOnlyNumber);
+  updateIssue(labelOnlyNumber, (entry) => {
+    entry.body = entry.body.replace('_Not researched yet._', 'Repository facts confirm the phase-only transition.');
+  });
+  const labelOnlyExport = run('export', String(labelOnlyNumber));
+  expectSuccess(labelOnlyExport, 'label-only edit export');
+  const labelOnlyExportPath = labelOnlyExport.stdout.trim();
+  const beforeLabelOnlyStatus = issue(labelOnlyNumber);
+  expectSuccess(run('status', String(labelOnlyNumber), 'planned'), 'label-only status change');
+  const afterLabelOnlyStatus = issue(labelOnlyNumber);
+  assert.equal(
+    afterLabelOnlyStatus.body,
+    beforeLabelOnlyStatus.body,
+    'phase-only status change must leave body provenance valid',
+  );
+  assert.notEqual(
+    afterLabelOnlyStatus.updatedAt,
+    beforeLabelOnlyStatus.updatedAt,
+    'label-only fixture write must advance the issue timestamp',
+  );
+  fs.writeFileSync(
+    labelOnlyExportPath,
+    fs.readFileSync(labelOnlyExportPath, 'utf8').replace('src/example.mjs', 'src/label-safe.mjs'),
+  );
+  const labelOnlyEdit = run('edit', String(labelOnlyNumber), '--file', labelOnlyExportPath);
+  expectSuccess(labelOnlyEdit, 'edit after label-only status change');
+  assert.equal(
+    issue(labelOnlyNumber).body,
+    fs.readFileSync(labelOnlyExportPath, 'utf8'),
+    'label-only write must not block a fresh exported edit',
+  );
+
+  const handwrittenNumber = createPlan('handwritten-edit');
+  const handwrittenBody = makeValid(handwrittenNumber).replace('src/example.mjs', 'src/handwritten.mjs');
+  const handwrittenPath = path.join(scratch, 'handwritten-edit.md');
+  fs.writeFileSync(handwrittenPath, handwrittenBody);
+  assert.equal(
+    fs.existsSync(`${handwrittenPath}.origin`),
+    false,
+    'hand-written edit fixture must have no origin sidecar',
+  );
+  expectSuccess(run('edit', String(handwrittenNumber), '--file', handwrittenPath), 'hand-written edit without sidecar');
+  assert.equal(
+    issue(handwrittenNumber).body,
+    handwrittenBody,
+    'hand-written file must apply without provenance metadata',
+  );
 
   const planTransitions = {
     drafting: new Set(['planned', 'ongoing', 'blocked']),
     planned: new Set(['drafting', 'ongoing', 'blocked']),
-    ongoing: new Set(['finished', 'blocked']),
+    ongoing: new Set(['blocked']),
     blocked: new Set(['drafting', 'planned', 'ongoing']),
-    finished: new Set(),
   };
   const transitionNumber = createPlan('transitions');
   makeValid(transitionNumber);
@@ -553,6 +899,13 @@ try {
       if (legalTargets.has(target)) {
         expectSuccess(result, `${source} -> ${target}`);
         assert.equal(result.stdout.trim(), `plan #${transitionNumber} status: ${source} -> ${target}`);
+        if (target === 'blocked') {
+          assert.match(
+            issue(transitionNumber).body,
+            /## Open questions\n\nBlocked: waiting for input\n/,
+            'moving Blocked below the first Open questions line must fail',
+          );
+        }
       } else {
         assert.equal(result.status, 1, `${source} -> ${target} must be illegal`);
         assert.match(result.stderr, /illegal plan status transition/);
@@ -564,15 +917,47 @@ try {
   assert.equal(missingReason.status, 1);
   assert.match(missingReason.stderr, /blocked status requires --reason/);
 
+  const blockedCheckNumber = createPlan('blocked-first-line');
+  makeValid(blockedCheckNumber);
+  setIssueStatus(blockedCheckNumber, 'blocked', 'waiting for a decision');
+  expectCheckPass(blockedCheckNumber);
+  mutateAndRestore(
+    blockedCheckNumber,
+    'Blocked reason moved below the first Open questions line',
+    (entry) => {
+      entry.body = entry.body.replace(
+        '## Open questions\n\nBlocked: waiting for a decision\nNone',
+        '## Open questions\n\nNone\nBlocked: waiting for a decision',
+      );
+    },
+    /check 2:/,
+  );
+
+  const finishedStatus = run('status', String(transitionNumber), 'finished');
+  assert.equal(finishedStatus.status, 1, 're-adding finished to the writable status enum must fail');
+  assert.match(finishedStatus.stderr, /unknown plan status: finished/);
+
+  const closedStatusNumber = createPlan('closed-status');
+  makeValid(closedStatusNumber);
+  setIssueStatus(closedStatusNumber, 'ongoing');
+  updateIssue(closedStatusNumber, (entry) => {
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+  });
+  const closedStatus = run('status', String(closedStatusNumber), 'blocked', '--reason', 'too late');
+  assert.equal(closedStatus.status, 1, 'changing CLOSED to OPEN must be refused');
+  assert.match(closedStatus.stderr, /is closed; status applies to open plans/);
+  assert.deepEqual(issue(closedStatusNumber).labels, ['plan', 'plan:ongoing']);
+
   setIssueStatus(transitionNumber, 'drafting');
-  updateIssue(transitionNumber, (entry) => entry.labels.push('plan:bogus', 'plan-scheduled'));
+  updateIssue(transitionNumber, (entry) => entry.labels.push('plan:bogus', 'security'));
   const bogusListing = run('list');
   expectSuccess(bogusListing, 'list ignores bogus status labels');
   assert.match(bogusListing.stdout, new RegExp(`^drafting\\t#${transitionNumber}\\t`, 'm'));
   assert.doesNotMatch(bogusListing.stdout, /plan:bogus/);
   updateIssue(transitionNumber, (entry) => entry.labels.push('plan:blocked'));
   expectSuccess(run('status', String(transitionNumber), 'planned'), 'conflicting labels repaired');
-  assert.deepEqual(issue(transitionNumber).labels.sort(), ['plan', 'plan-scheduled', 'plan:planned']);
+  assert.deepEqual(issue(transitionNumber).labels.sort(), ['plan', 'plan:planned', 'security']);
 
   const stepTransitions = {
     planned: new Set(['in-flight', 'done', 'blocked', 'skipped']),
@@ -612,21 +997,36 @@ try {
   assert.equal(dependencyBlocked.status, 1);
   assert.match(dependencyBlocked.stderr, /unfinished dependency/);
 
+  const unfinishedArchiveNumber = createPlan('unfinished-archive');
+  makeValid(unfinishedArchiveNumber);
+  setIssueStatus(unfinishedArchiveNumber, 'ongoing');
+  updateIssue(unfinishedArchiveNumber, (entry) => {
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+  });
+  const unfinishedArchive = run('archive', String(unfinishedArchiveNumber));
+  assert.equal(unfinishedArchive.status, 1, 'changing a non-terminal Steps row to done must be required');
+  assert.match(unfinishedArchive.stderr, /non-terminal step/);
+
+  updateIssue(unfinishedArchiveNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass with caveat');
+  });
+  const inexactReviewArchive = run('archive', String(unfinishedArchiveNumber));
+  assert.equal(inexactReviewArchive.status, 1, 'changing the exact Code-review pass line must be refused');
+  assert.match(inexactReviewArchive.stderr, /Code-review: pass/);
+
   const wrongBranchNumber = createPlan('wrong-branch-archive');
   makeValid(wrongBranchNumber);
   setIssueStatus(wrongBranchNumber, 'ongoing');
   updateIssue(wrongBranchNumber, (entry) => {
     entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [
       {
-        id: 'PR_fixture_42',
         number: 42,
         url: 'https://github.com/DocksDocks/fixture/pull/42',
-        repository: {
-          id: 'R_fixture',
-          name: 'fixture',
-          owner: { id: 'U_docks', login: 'DocksDocks' },
-        },
+        repository: 'DocksDocks/fixture',
       },
     ];
   });
@@ -642,101 +1042,13 @@ try {
   });
   const beforeWrongBranchArchive = issue(wrongBranchNumber);
   const wrongBranchArchive = run('archive', String(wrongBranchNumber));
-  assert.equal(wrongBranchArchive.status, 1);
-  assert.equal(wrongBranchArchive.stderr.trim(), 'archive requires a pull request merged into main, found release/1.x');
+  assert.equal(wrongBranchArchive.status, 1, 'changing baseRefName from main must be refused');
+  assert.match(wrongBranchArchive.stderr, /merged into main|found release\/1\.x/);
   assert.deepEqual(issue(wrongBranchNumber), beforeWrongBranchArchive);
 
-  const manuallyLinkedNumber = createPlan('manually-linked-archive');
-  makeValid(manuallyLinkedNumber);
-  setIssueStatus(manuallyLinkedNumber, 'ongoing');
-  updateIssue(manuallyLinkedNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
-    entry.closedByPullRequestsReferences = [
-      {
-        id: 'PR_manual_43',
-        number: 43,
-        repository: {
-          id: 'R_manual',
-          name: 'manual',
-          owner: { id: 'U_manual', login: 'ManualOrg' },
-        },
-        url: 'https://github.com/ManualOrg/manual/pull/43',
-      },
-    ];
-    entry.userLinkedPullRequests = [
-      ...Array.from({ length: 100 }, (_, index) => ({
-        number: 1000 + index,
-        repository: 'DummyOrg/repo',
-      })),
-      { number: 43, repository: 'ManualOrg/manual' },
-    ];
-  });
-  updateState((state) => {
-    state.prs.push({
-      number: 43,
-      repository: 'ManualOrg/manual',
-      mergedAt: '2026-08-20T20:45:00Z',
-      state: 'MERGED',
-      baseRefName: 'main',
-      url: 'https://github.com/ManualOrg/manual/pull/43',
-    });
-  });
-  const manualCallsBefore = loadState().calls.length;
-  const beforeManuallyLinkedArchive = issue(manuallyLinkedNumber);
-  const manuallyLinkedArchive = run('archive', String(manuallyLinkedNumber));
-  assert.equal(manuallyLinkedArchive.status, 1);
-  assert.equal(
-    manuallyLinkedArchive.stderr.trim(),
-    'archive requires a keyword-linked pull request; #43 is manually linked',
-  );
-  assert.deepEqual(issue(manuallyLinkedNumber), beforeManuallyLinkedArchive);
-  assert.equal(
-    loadState()
-      .calls.slice(manualCallsBefore)
-      .filter((call) => call[0] === 'api' && call[1] === 'graphql').length,
-    2,
-  );
-
-  const archiveNumber = createPlan('archive');
-  makeValid(archiveNumber);
-  setIssueStatus(archiveNumber, 'ongoing');
-  const unfinishedArchive = run('archive', String(archiveNumber));
-  assert.equal(unfinishedArchive.status, 1);
-  assert.match(unfinishedArchive.stderr, /non-terminal step/);
-  updateIssue(archiveNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done');
-  });
-  const unreviewedArchive = run('archive', String(archiveNumber));
-  assert.equal(unreviewedArchive.status, 1);
-  assert.match(unreviewedArchive.stderr, /Code-review: pass/);
-  updateIssue(archiveNumber, (entry) => {
-    entry.body = entry.body.replace('_No review yet._', 'Code-review: pass');
-    entry.closedByPullRequestsReferences = [
-      {
-        id: 'PR_fixture_41',
-        number: 41,
-        url: 'https://github.com/OtherOrg/landing/pull/41',
-        repository: {
-          id: 'R_other',
-          name: 'landing',
-          owner: { id: 'U_other', login: 'OtherOrg' },
-        },
-      },
-    ];
-  });
-  updateState((state) =>
-    state.prs.push({
-      number: 41,
-      repository: 'OtherOrg/landing',
-      mergedAt: null,
-      state: 'CLOSED',
-      baseRefName: 'trunk',
-      url: 'https://github.com/OtherOrg/landing/pull/41',
-    }),
-  );
   const unsupportedMergedField = spawnSync(
     'gh',
-    ['pr', 'view', '41', '--json', 'merged', '--repo', 'OtherOrg/landing'],
+    ['pr', 'view', '42', '--json', 'merged', '--repo', 'DocksDocks/fixture'],
     { cwd: scratch, encoding: 'utf8', env: childEnv },
   );
   assert.equal(unsupportedMergedField.status, 1);
@@ -747,73 +1059,181 @@ try {
       'api',
       'graphql',
       '-f',
-      'query=query{repository(owner:\"x\",name:\"y\"){issue(number:1){closing:closedByPullRequestsReferences(first:1,invented:true){nodes{number}}}}}',
+      'query=query{repository(owner:"x",name:"y"){issue(number:1){closing:closedByPullRequestsReferences(first:1,invented:true){nodes{number}}}}}',
     ],
     { cwd: scratch, encoding: 'utf8', env: childEnv },
   );
   assert.equal(unsupportedGraphqlArgument.status, 1);
   assert.equal(unsupportedGraphqlArgument.stderr.trim(), 'Unknown GraphQL argument: "invented"');
-  const beforeUnmergedArchive = issue(archiveNumber);
-  const unmergedArchive = run('archive', String(archiveNumber));
-  assert.equal(unmergedArchive.status, 1);
-  assert.match(unmergedArchive.stderr, /merged linked pull request/);
-  assert.deepEqual(issue(archiveNumber), beforeUnmergedArchive);
+
+  const keywordArchiveNumber = createPlan('keyword-archive');
+  makeValid(keywordArchiveNumber);
+  setIssueStatus(keywordArchiveNumber, 'ongoing');
+  updateIssue(keywordArchiveNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [
+      {
+        number: 41,
+        url: 'https://github.com/DocksDocks/fixture/pull/41',
+        repository: 'DocksDocks/fixture',
+      },
+    ];
+  });
   updateState((state) => {
-    state.prs.find((entry) => entry.number === 41 && entry.repository === 'OtherOrg/landing').mergedAt =
-      '2026-08-20T21:00:00Z';
     state.prs.push({
       number: 41,
-      repository: 'ManualOrg/manual',
-      mergedAt: '2026-08-20T20:55:00Z',
+      repository: 'DocksDocks/fixture',
+      mergedAt: '2026-08-20T21:00:00Z',
       state: 'MERGED',
       baseRefName: 'main',
-      url: 'https://github.com/ManualOrg/manual/pull/41',
+      url: 'https://github.com/DocksDocks/fixture/pull/41',
     });
-    const planIssue = state.issues.find((entry) => entry.number === archiveNumber);
-    planIssue.closedByPullRequestsReferences.unshift({
-      id: 'PR_manual_41',
-      number: 41,
-      repository: {
-        id: 'R_manual',
-        name: 'manual',
-        owner: { id: 'U_manual', login: 'ManualOrg' },
-      },
-      url: 'https://github.com/ManualOrg/manual/pull/41',
-    });
-    planIssue.userLinkedPullRequests = [{ number: 41, repository: 'ManualOrg/manual' }];
   });
-  const archiveCallsBefore = loadState().calls.length;
-  const archived = run('archive', String(archiveNumber));
-  expectSuccess(archived, 'archive');
+  const keywordBodyBefore = issue(keywordArchiveNumber).body;
+  const keywordCallsBefore = loadState().calls.length;
+  const keywordArchived = run('archive', String(keywordArchiveNumber));
+  expectSuccess(keywordArchived, 'archive through keyword reference');
   assert.equal(
-    archived.stdout.trim(),
-    `plan #${archiveNumber} finished (closed by https://github.com/OtherOrg/landing/pull/41)`,
+    keywordArchived.stdout.trim(),
+    `plan #${keywordArchiveNumber} finished (closed by https://github.com/DocksDocks/fixture/pull/41)`,
   );
-  const archiveCalls = loadState().calls.slice(archiveCallsBefore);
-  assert.ok(archiveCalls.some((call) => call[0] === 'api' && call[1] === 'graphql'));
+  assert.equal(issue(keywordArchiveNumber).body, keywordBodyBefore, 'archive must not rewrite the plan body');
+  assert.deepEqual(issue(keywordArchiveNumber).labels, ['plan'], 'archive must strip the leftover phase label');
+  const keywordArchiveCalls = loadState().calls.slice(keywordCallsBefore);
+  assert.ok(keywordArchiveCalls.some((call) => call[0] === 'api' && call[1] === 'graphql'));
   assert.equal(
-    archiveCalls.some((call) => call[0] === 'pr' && call[1] === 'view'),
+    keywordArchiveCalls.some((call) => call.join(' ').includes('userLinkedOnly')),
     false,
+    'adding userLinkedOnly to the closing-reference query must fail',
   );
   assert.equal(
-    archiveCalls.some((call) => call[0] === 'repo' && call[1] === 'view' && call.includes('--repo')),
+    keywordArchiveCalls.some((call) => call[0] === 'issue' && call[1] === 'close'),
     false,
+    'archive is a verifier and must not close an already landed issue',
   );
-  assert.equal(issue(archiveNumber).state, 'CLOSED');
-  assert.equal(issue(archiveNumber).stateReason, 'COMPLETED');
-  assert.deepEqual(issue(archiveNumber).labels.sort(), ['plan', 'plan:finished']);
+
+  const commitArchiveNumber = createPlan('commit-archive');
+  makeValid(commitArchiveNumber);
+  setIssueStatus(commitArchiveNumber, 'ongoing');
+  updateIssue(commitArchiveNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [];
+    entry.closingCommitOid = 'commit-lands-through-pr';
+  });
+  updateState((state) => {
+    state.commits = [
+      {
+        oid: 'commit-lands-through-pr',
+        repository: 'DocksDocks/fixture',
+        associatedPullRequests: [
+          {
+            number: 44,
+            repository: 'DocksDocks/fixture',
+          },
+        ],
+      },
+    ];
+    state.prs.push({
+      number: 44,
+      repository: 'DocksDocks/fixture',
+      mergedAt: '2026-08-20T21:15:00Z',
+      state: 'MERGED',
+      baseRefName: 'main',
+      url: 'https://github.com/DocksDocks/fixture/pull/44',
+    });
+  });
+  const commitCallsBefore = loadState().calls.length;
+  const commitArchived = run('archive', String(commitArchiveNumber));
+  expectSuccess(commitArchived, 'archive through closing commit association');
+  assert.equal(
+    commitArchived.stdout.trim(),
+    `plan #${commitArchiveNumber} finished (closed by https://github.com/DocksDocks/fixture/pull/44)`,
+  );
+  assert.deepEqual(issue(commitArchiveNumber).labels, ['plan']);
+  const commitGraphqlCalls = loadState()
+    .calls.slice(commitCallsBefore)
+    .filter((call) => call[0] === 'api' && call[1] === 'graphql');
+  assert.equal(commitGraphqlCalls.length, 2, 'removing the commit association fallback must fail');
+  assert.ok(
+    commitGraphqlCalls.some((call) => call.join(' ').includes('associatedPullRequests')),
+    'removing associatedPullRequests from the fallback query must fail',
+  );
+
+  const directPushNumber = createPlan('direct-push-archive');
+  makeValid(directPushNumber);
+  setIssueStatus(directPushNumber, 'ongoing');
+  updateIssue(directPushNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [];
+    entry.closingCommitOid = 'direct-push-commit';
+  });
+  updateState((state) => {
+    state.commits.push({
+      oid: 'direct-push-commit',
+      repository: 'DocksDocks/fixture',
+      associatedPullRequests: [],
+    });
+  });
+  const beforeDirectPushArchive = issue(directPushNumber);
+  const directPushArchive = run('archive', String(directPushNumber));
+  assert.equal(directPushArchive.status, 1, 'adding no merged associated pull request must remain insufficient');
+  assert.match(directPushArchive.stderr, /has no associated merged pull request into main/);
+  assert.deepEqual(issue(directPushNumber), beforeDirectPushArchive);
+
+  const commitWrongBranchNumber = createPlan('commit-wrong-branch-archive');
+  makeValid(commitWrongBranchNumber);
+  setIssueStatus(commitWrongBranchNumber, 'ongoing');
+  updateIssue(commitWrongBranchNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [];
+    entry.closingCommitOid = 'wrong-branch-commit';
+  });
+  updateState((state) => {
+    state.commits.push({
+      oid: 'wrong-branch-commit',
+      repository: 'DocksDocks/fixture',
+      associatedPullRequests: [{ number: 45, repository: 'DocksDocks/fixture' }],
+    });
+    state.prs.push({
+      number: 45,
+      repository: 'DocksDocks/fixture',
+      mergedAt: '2026-08-20T21:30:00Z',
+      state: 'MERGED',
+      baseRefName: 'release/2.x',
+      url: 'https://github.com/DocksDocks/fixture/pull/45',
+    });
+  });
+  const commitWrongBranchArchive = run('archive', String(commitWrongBranchNumber));
+  assert.equal(commitWrongBranchArchive.status, 1, 'changing an associated pull request base from main must fail');
+  assert.match(commitWrongBranchArchive.stderr, /merged into main|release\/2\.x/);
 
   const retiredNumber = createPlan('retired');
   makeValid(retiredNumber);
+  setIssueStatus(retiredNumber, 'planned');
+  const retiredBodyBefore = issue(retiredNumber).body;
   const retired = run('retire', String(retiredNumber), '--reason', 'The request was withdrawn');
   expectSuccess(retired, 'retire');
   assert.equal(retired.stdout.trim(), `plan #${retiredNumber} retired`);
-  assert.equal(issue(retiredNumber).body.match(/^## Retirement$/gm)?.length, 1);
-  assert.match(issue(retiredNumber).body, /## Retirement\n\nThe request was withdrawn\n$/);
+  assert.equal(issue(retiredNumber).body, retiredBodyBefore, 'retire must not add a ninth body section');
   assert.equal(issue(retiredNumber).stateReason, 'NOT_PLANNED');
+  assert.deepEqual(issue(retiredNumber).labels, ['plan'], 'retire must strip the leftover phase label');
+  const retireCall = loadState().calls.findLast(
+    (call) => call[0] === 'issue' && call[1] === 'close' && call[2] === String(retiredNumber),
+  );
+  assert.deepEqual(retireCall.slice(retireCall.indexOf('--comment'), retireCall.indexOf('--comment') + 2), [
+    '--comment',
+    'The request was withdrawn',
+  ]);
   const retireAgain = run('retire', String(retiredNumber), '--reason', 'A second reason');
   assert.equal(retireAgain.status, 1);
-  assert.equal(issue(retiredNumber).body.match(/^## Retirement$/gm)?.length, 1);
 
   const concurrentNumber = createPlan('concurrent');
   makeValid(concurrentNumber);
@@ -825,22 +1245,48 @@ try {
   assert.equal(concurrent.status, 1);
   assert.equal(concurrent.stderr.trim(), 'plan issue changed remotely; re-read and retry');
   assert.match(issue(concurrentNumber).body, /remote change\n$/);
-  assert.doesNotMatch(issue(concurrentNumber).body, /^status: planned$/m);
+  assert.deepEqual(issue(concurrentNumber).labels, ['plan', 'plan:drafting']);
 
   const openPlanned = createPlan('open-planned');
   makeValid(openPlanned);
   setIssueStatus(openPlanned, 'planned');
-  const closedPlanned = createPlan('closed-planned');
-  makeValid(closedPlanned);
-  setIssueStatus(closedPlanned, 'planned');
-  updateIssue(closedPlanned, (entry) => {
+  const unlabelledNumber = createPlan('open-unlabelled');
+  const openDrafting = createPlan('open-drafting');
+  makeValid(openDrafting);
+  const openOngoing = createPlan('open-ongoing');
+  makeValid(openOngoing);
+  setIssueStatus(openOngoing, 'ongoing');
+  const openBlocked = createPlan('open-blocked');
+  makeValid(openBlocked);
+  setIssueStatus(openBlocked, 'blocked');
+  makeValid(unlabelledNumber);
+  updateIssue(unlabelledNumber, (entry) => {
+    entry.labels = ['plan'];
+  });
+  const completedNumber = createPlan('closed-completed');
+  makeValid(completedNumber);
+  setIssueStatus(completedNumber, 'planned');
+  updateIssue(completedNumber, (entry) => {
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
+  });
+  const notPlannedNumber = createPlan('closed-not-planned');
+  makeValid(notPlannedNumber);
+  setIssueStatus(notPlannedNumber, 'ongoing');
+  updateIssue(notPlannedNumber, (entry) => {
+    entry.state = 'CLOSED';
+    entry.stateReason = 'NOT_PLANNED';
+  });
+  const duplicateNumber = createPlan('closed-duplicate');
+  makeValid(duplicateNumber);
+  setIssueStatus(duplicateNumber, 'blocked');
+  updateIssue(duplicateNumber, (entry) => {
+    entry.state = 'CLOSED';
+    entry.stateReason = 'DUPLICATE';
   });
   const unreadableNumber = createPlan('unreadable');
   makeValid(unreadableNumber);
   updateIssue(unreadableNumber, (entry) => entry.labels.push('plan:blocked'));
-
   const listed = run('list');
   expectSuccess(listed, 'list');
   const listedNumbers = listed.stdout
@@ -863,10 +1309,18 @@ try {
       previousOpen = number;
     }
   }
+  assert.match(listed.stdout, new RegExp(`^planned\\t#${openPlanned}\\tExercise open-planned$`, 'm'));
+  assert.match(listed.stdout, new RegExp(`^unlabelled\\t#${unlabelledNumber}\\tExercise open-unlabelled$`, 'm'));
+  assert.match(listed.stdout, new RegExp(`^drafting\\t#${openDrafting}\\tExercise open-drafting$`, 'm'));
+  assert.match(listed.stdout, new RegExp(`^ongoing\\t#${openOngoing}\\tExercise open-ongoing$`, 'm'));
+  assert.match(listed.stdout, new RegExp(`^blocked\\t#${openBlocked}\\tExercise open-blocked$`, 'm'));
+  assert.match(listed.stdout, new RegExp(`^finished\\t#${completedNumber}\\tExercise closed-completed$`, 'm'));
+  assert.match(listed.stdout, new RegExp(`^retired\\t#${notPlannedNumber}\\tExercise closed-not-planned$`, 'm'));
+  assert.match(listed.stdout, new RegExp(`^duplicate\\t#${duplicateNumber}\\tExercise closed-duplicate$`, 'm'));
   const plannedOnly = run('list', '--status', 'planned');
   expectSuccess(plannedOnly, 'list planned');
   assert.match(plannedOnly.stdout, new RegExp(`^planned\\t#${openPlanned}\\tExercise open-planned$`, 'm'));
-  assert.match(plannedOnly.stdout, new RegExp(`^planned\\t#${closedPlanned}\\tExercise closed-planned$`, 'm'));
+  assert.doesNotMatch(plannedOnly.stdout, new RegExp(`#${completedNumber}\\b`));
   const unreadableOnly = run('list', '--status', 'unreadable');
   expectSuccess(unreadableOnly, 'list unreadable');
   assert.match(unreadableOnly.stdout, new RegExp(`^unreadable\\t#${unreadableNumber}\\tExercise unreadable$`, 'm'));
@@ -876,15 +1330,15 @@ try {
 
   const dependencyOne = createPlan('queue-dependency-one');
   makeValid(dependencyOne);
-  setIssueStatus(dependencyOne, 'finished');
   updateIssue(dependencyOne, (entry) => {
     entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
   });
   const dependencyTwo = createPlan('queue-dependency-two');
   makeValid(dependencyTwo);
-  setIssueStatus(dependencyTwo, 'finished');
   updateIssue(dependencyTwo, (entry) => {
     entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
   });
   const queuedNumber = createPlan('queued');
   makeValid(queuedNumber);
@@ -905,7 +1359,8 @@ try {
   assert.equal(run('next').stdout.trim(), '', 'unfinished transitive dependency must block the plan');
   updateIssue(dependencyOne, (entry) => {
     entry.state = 'CLOSED';
-    entry.labels = ['plan', 'plan:finished'];
+    entry.stateReason = 'COMPLETED';
+    entry.labels = ['plan', 'plan:ongoing'];
   });
 
   fs.writeFileSync(
@@ -921,6 +1376,7 @@ try {
     loadState()
       .issues.filter(
         (entry) =>
+          entry.state === 'OPEN' &&
           entry.labels.filter((label) => label.startsWith('plan:')).length === 1 &&
           entry.labels.includes('plan:planned'),
       )

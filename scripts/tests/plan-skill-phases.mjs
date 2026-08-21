@@ -17,11 +17,16 @@ const WORKSPACE_TEMPLATE = 'plugins/plan-lifecycle/skills/productivity/plan-work
 const PLAN_CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
 const PLAN_MD = 'docs/PLAN.md';
 
-const V2_PINNED_CLAUSES = [
+const V3_PINNED_CLAUSES = [
   {
-    name: 'contract-v2-sections',
-    text: 'Every v2 plan declares `plan_contract: v2` in a closed frontmatter map and carries exactly these eight `##` sections, in this order, each present once: `## Goal`, `## Research`, `## Steps`, `## Acceptance`, `## Do not touch`, `## Open questions`, `## Review`, `## Verification Results`.',
-    files: [PLAN_MD, WORKSPACE_TEMPLATE, PLAN_CONTRACT],
+    name: 'standard-v3-sections',
+    text: 'After the marker, the body contains exactly these eight `##` sections, once each and in this order: `## Goal`, `## Research`, `## Steps`, `## Acceptance`, `## Do not touch`, `## Open questions`, `## Review`, `## Verification Results`.',
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'contract-v3-sections',
+    text: 'Every v3 plan opens with `<!-- plan-contract: v3 -->`, then a blank line, then exactly these eight `##` sections, in this order, each present once: `## Goal`, `## Research`, `## Steps`, `## Acceptance`, `## Do not touch`, `## Open questions`, `## Review`, `## Verification Results`.',
+    files: [PLAN_CONTRACT],
   },
   {
     name: 'review-kinds-sufficient',
@@ -69,8 +74,13 @@ const V2_PINNED_CLAUSES = [
   },
   {
     name: 'nonlocal-effect-confirmation',
-    text: 'A step whose `Effect` is not `local` requires an in-session `ask` confirmation immediately before it runs; when `ask` is unavailable the step is set `blocked` with `blocked_reason` naming the unconfirmed effect.',
-    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE, PLAN_CONTRACT],
+    text: 'A step whose `Effect` is not `local` requires an in-session `ask` confirmation immediately before it runs; when `ask` is unavailable the step is set `blocked` and `Blocked: <unconfirmed effect>` is recorded first in `## Open questions`.',
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'manager-nonlocal-blocked-reason',
+    text: 'A step whose `Effect` is not `local` requires an in-session `ask` confirmation immediately before it runs; when `ask` is unavailable the step is set `blocked` and the first line of `## Open questions` becomes `Blocked: <one-line reason>` naming the unconfirmed effect.',
+    files: [MANAGER_SKILL],
   },
   {
     name: 'three-option-ask',
@@ -84,8 +94,8 @@ const V2_PINNED_CLAUSES = [
   },
   {
     name: 'record-backend',
-    text: 'The plan record is a GitHub issue: its body carries the `plan_contract: v2` frontmatter and the eight `##` sections, its `plan:<status>` label mirrors the frontmatter `status`, and no plan markdown is tracked in the repository.',
-    files: [MANAGER_SKILL, WORKSPACE_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+    text: 'The plan record is a GitHub issue. Its body carries the v3 byte contract and the human-authored plan, while GitHub fields carry the machine state GitHub already owns. No plan markdown is tracked in the repository.',
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
     name: 'output-discipline',
@@ -95,18 +105,38 @@ const V2_PINNED_CLAUSES = [
   {
     name: 'landing-linkage',
     text: 'Work lands through a pull request whose body carries `Closes #<issue>` and whose base is the repository default branch, because GitHub interprets a closing keyword only in a pull request that targets the default branch. `plan.mjs archive` verifies that merged pull request rather than performing the merge.',
-    files: [MANAGER_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
-    name: 'label-mirror',
-    text: 'The label set is created idempotently with `gh label create --force`: `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, `plan:blocked`, `plan:finished`, plus the triage label `plan-scheduled`. Exactly one `plan:<status>` label is present at a time, and it mirrors the frontmatter `status`.',
-    files: [WORKSPACE_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+    name: 'label-set',
+    text: 'The exact closed lifecycle label set is created idempotently with `gh label create --force`: `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, and `plan:blocked`. The four open-work statuses are exactly `drafting`, `planned`, `ongoing`, and `blocked`; `finished` is not a writable status. The retired names `plan:finished` and `plan-scheduled` are deleted and are not created, parsed, or applied.',
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'closed-status-derivation',
+    text: 'Phase labels describe open work only. Every read of a closed issue ignores all phase labels and derives completion from `stateReason`. `plan.mjs status` refuses a closed issue with a message containing `is closed; status applies to open plans`. `plan.mjs archive` and `plan.mjs retire` strip every phase label that a closing merge or earlier edit left behind.',
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'contract-label-set',
+    text: 'The label set is created idempotently with `gh label create --force`: `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, and `plan:blocked`. These are the complete reserved set; no completion or scheduling label exists.',
+    files: [PLAN_CONTRACT],
+  },
+  {
+    name: 'archive-verifier',
+    text: '`plan.mjs archive` is a verifier, not a writer of lifecycle state. It requires all Steps rows to be terminal (`done` or `skipped`), a line matching exactly `Code-review: pass` in `## Review`, and an issue already closed as completed by an eligible merged pull request. It writes no status. On success it removes any stale phase label and prints `plan #<n> finished (closed by <url>)`.',
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
     name: 'issue-write-precondition',
     text: 'A plan-issue write is a read-modify-write, and the GitHub API offers no precondition for it. Every mutating command re-reads the issue body immediately before the edit, refuses when it differs from the body it read, and re-reads after the edit to confirm the pushed bytes.',
     files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
+];
+const CONTRACT_CLASSIFICATION_PINS = [
+  { name: 'v3 marker', text: '<!-- plan-contract: v3 -->' },
+  { name: 'unreadable outcome', text: 'unreadable' },
+  { name: 'byte-preserving migration rule', text: 'byte' },
 ];
 
 const PHASE_ONE_OPTIONS = ['Plan and implement now', 'Plan only, stop at planned', 'Implement directly'];
@@ -135,8 +165,8 @@ function assertPinnedClause(text, relative, clause) {
   assert.ok(text.includes(clause.text), `${relative} is missing the ${clause.name} clause`);
 }
 
-function assertV2ClausesAndMutations() {
-  for (const clause of V2_PINNED_CLAUSES) {
+function assertV3ClausesAndMutations() {
+  for (const clause of V3_PINNED_CLAUSES) {
     for (const relative of clause.files) {
       const text = normalizeContract(read(relative));
       const occurrences = text.split(clause.text).length - 1;
@@ -147,6 +177,24 @@ function assertV2ClausesAndMutations() {
         `${relative} must fail when its ${clause.name} clause is removed`,
       );
     }
+  }
+
+  for (const relative of [PLAN_MD, WORKSPACE_TEMPLATE]) {
+    const text = normalizeContract(read(relative));
+    for (const clause of CONTRACT_CLASSIFICATION_PINS) {
+      const occurrences = text.split(clause.text).length - 1;
+      assert.ok(occurrences > 0, `${relative} must fail when every ${clause.name} occurrence is removed`);
+      assert.throws(
+        () => assertPinnedClause(text.replaceAll(clause.text, ''), relative, clause),
+        new RegExp(`missing the ${clause.name} clause`),
+        `${relative} must fail when every ${clause.name} occurrence is removed`,
+      );
+    }
+    assert.equal(
+      text.includes('plan_contract:'),
+      false,
+      `${relative} must fail when a plan_contract: frontmatter key is inserted`,
+    );
   }
 }
 
@@ -285,9 +333,9 @@ function assertBoundedWorkflows() {
     previousIndex = index;
   }
 
-  const zeroCommits = V2_PINNED_CLAUSES.find(({ name }) => name === 'zero-commits').text;
+  const zeroCommits = V3_PINNED_CLAUSES.find(({ name }) => name === 'zero-commits').text;
   assert.ok(normalizeContract(manager).includes(zeroCommits), `${MANAGER_SKILL} is missing zero-commits`);
-  assert.ok(manager.includes('references/plan-contract.md'), `${MANAGER_SKILL} must link the v2 contract`);
+  assert.ok(manager.includes('references/plan-contract.md'), `${MANAGER_SKILL} must link the v3 contract`);
   // Ban only machinery identifiers. `permit` and `reserved` are ordinary words the
   // body needs in order to say the budget model is gone ("It has no hashes or
   // permits."), so banning them would make this lock fight the documentation.
@@ -374,10 +422,10 @@ if (caseName === 'plan-workspace-template') {
   assertLiveTopology();
   assertReviewerWrappersOnly();
   assertBoundedWorkflows();
-  assertV2ClausesAndMutations();
+  assertV3ClausesAndMutations();
   assertPhaseOneOptionLabels();
   assertPortablePlanTextRule();
   assertLifecycleRoutePrerequisite();
   assertWorkspaceTemplateSynchronized();
-  console.log('three-skill, two-wrapper v2 plan workflows passed');
+  console.log('three-skill, two-wrapper v3 plan workflows passed');
 }

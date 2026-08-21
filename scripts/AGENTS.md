@@ -50,7 +50,7 @@ for multi-commit work, scheduling, cold handoff, unresolved approaches,
 cross-subsystem or public-contract changes, destructive or security-sensitive
 work, external effects, or an explicit plan request.
 
-The live plan author suite exercises the GitHub-issue-backed v2 lifecycle.
+The live plan author suite exercises the GitHub-issue-backed v3 marker contract.
 `scripts/tests/plan-cli.mjs` tests the shipped
 `plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs`.
 `scripts/tests/plan-skill-phases.mjs` runs the `bounded-workflows` and
@@ -92,7 +92,7 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
-| `tests/plan-cli.mjs` | validates the shipped v2 plan CLI, including checks, transitions, steps, archive, and retirement | pass/fail |
+| `tests/plan-cli.mjs` | validates the shipped marker-only v3 plan CLI, including unreadable unmarked bodies, marker/body checks, GitHub-derived status, steps, archive verification, and retirement | pass/fail |
 | `tests/plan-skill-phases.mjs` | validates the `bounded-workflows` and `plan-workspace-template` plan skill contracts | pass/fail |
 | `tests/ci-observability.mjs` | validates command timing records, wall-time reconstruction, and CI host metadata | pass/fail |
 | `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets | pass/fail |
