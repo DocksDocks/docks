@@ -4,8 +4,8 @@ description: "Use when spinning up a new docks-style plugin project, or capturin
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-08-20"
-  content_hash: "3604452bb5ce76c20527f2573cd8518bd3265e0d439b58bbeefabd48f09a2a6d"
+  updated: "2026-08-21"
+  content_hash: "96b4c6b604aa0fc811fa3f1c7a1db4bf259616792c42c8aacb65d301be9ac8d9"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
