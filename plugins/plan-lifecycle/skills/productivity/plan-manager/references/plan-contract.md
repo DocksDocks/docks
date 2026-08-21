@@ -282,10 +282,15 @@ does not certify permission. There is deliberately no self-certifying
 
 ## What the lifecycle never does
 
-No hashes, no permits, no run identity, no lock files, no bundle sealing, no
-automatic commits, no automatic push, no external-authority object, and no
-tracked plan files. The lifecycle does not weaken the agent-enforced boundary
-above.
+The record carries no hash, no permit, no run identity, no lock file, no sealed
+review bundle, no automatic commit, no automatic push, no external-authority
+object, and no tracked plan file. The lifecycle does not weaken the
+agent-enforced boundary above.
+
+One digest exists, and it grants nothing. `export` writes the sha256 of the body
+it copied beside the copy, and `edit` refuses a file derived from a superseded
+body. The digest detects a stale copy. It never authorizes, seals, or ratifies a
+record, and no reader consults it.
 
 ## Frozen pre-GitHub history
 

@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { finished } from 'node:stream/promises';
 
 export const COMMAND_RECORD_SCHEMA = 1;
 export const RUN_ORIGIN_NS = process.hrtime.bigint();

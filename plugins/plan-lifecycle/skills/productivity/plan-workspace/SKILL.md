@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-21"
-  content_hash: "343de0f326f6a923217298985839b82cbcca492c895502ccb8438587342598d4"
+  content_hash: "1ce6ddfe07361d9a8d999aba3cba410ea71187a166ebc98a284aabf324b92c39"
 ---
 
 # Plans Workspace
@@ -223,11 +223,13 @@ After the marker and blank line, the record carries exactly `## Goal`,
 and once each. `## Goal` carries exactly one mode line. Open-work phase is one
 of `drafting`, `planned`, `ongoing`, or `blocked` in a `plan:<phase>` label; a
 blocked plan starts `## Open questions` with `Blocked: <one-line reason>`.
-Closed completion derives from GitHub `state` and `stateReason`. There are no
-hashes, permits, run identities, locks, or bundles, and the `plan.mjs` shipped
-inside the installed `plan-lifecycle` plugin is the only lifecycle tool. This
-lifecycle creates zero commits and never pushes. Commit when the user asks,
-under `docks:commit-discipline`.
+Closed completion derives from GitHub `state` and `stateReason`. The record
+carries no hash, permit, run identity, lock, or bundle, and the `plan.mjs`
+shipped inside the installed `plan-lifecycle` plugin is the only lifecycle tool.
+An `export` writes the sha256 of the body it copied beside the copy so a stale
+copy cannot revert the record; that digest detects staleness and authorizes
+nothing. This lifecycle creates zero commits and never pushes. Commit when the
+user asks, under `docks:commit-discipline`.
 
 Every Steps row carries an `Effect` of exactly
 `local|probe|production_access|publish|push|release|deploy`. A step whose
