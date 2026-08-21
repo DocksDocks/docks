@@ -297,6 +297,8 @@ function gitSnapshot() {
   return {
     status: run(['status', '--porcelain=v1', '--untracked-files=all']),
     refs: run(['show-ref']),
+    // Belt and braces only: the shim below is what makes mutation impossible, because every
+    // git call the release makes has to match one of three read-only shapes to run at all.
     manifests: manifests.map((file) => fs.readFileSync(path.join(ROOT, file), 'base64')),
   };
 }
@@ -308,8 +310,39 @@ import fs from 'node:fs';
 const tool = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.DOCKS_RELEASE_CALL_LOG, JSON.stringify({ tool, args }) + '\\n');
-if (tool === 'node') {
-  const child = spawnSync(process.env.DOCKS_RELEASE_REAL_NODE, args, {
+// Only the three read-only invocations the dry run is allowed to make reach real git, matched
+// argument for argument, which alone refuses every write form: a real \`hash-object -w\` carries
+// a different argument count, and \`--path -w\` consumes the flag as its path operand and writes
+// nothing. The \`-w\` rejection below is defence in depth for a future widened shape, and it is
+// observable exactly there: matching by subcommand alone keeps the write form refused while the
+// read-only near misses start passing.
+const readOnlyGit = [
+  ['status', '--porcelain'],
+  ['hash-object', '--path', null, '--stdin'],
+  ['rev-parse', '--quiet', '--verify', null],
+];
+const passThroughGit =
+  tool === 'git' &&
+  readOnlyGit.some(
+    (shape) =>
+      shape.length === args.length && shape.every((token, index) => token === null || token === args[index]),
+  ) &&
+  !args.includes('-w');
+// The release runs the selected-plugin gate through \`node scripts/ci.mjs\`. Executing it here
+// would spawn a descendant with the real PATH, and every git call that descendant makes would
+// escape this shim and its log, so the one Node argv the release is allowed to use is stubbed
+// green instead. The gate is covered by the gate's own CI job. With no descendant left, the
+// three shapes above are the only way any git command runs at all, and anything else exits 97.
+const ciStub = ['-q', '--plugin'];
+const isSelectedCiGate =
+  tool === 'node' &&
+  args.length === 4 &&
+  args[0].endsWith('/scripts/ci.mjs') &&
+  args[1] === ciStub[0] &&
+  args[2] === ciStub[1];
+if (isSelectedCiGate) process.exit(0);
+if (passThroughGit) {
+  const child = spawnSync(tool, args, {
     stdio: 'inherit',
     env: { ...process.env, PATH: process.env.DOCKS_RELEASE_REAL_PATH },
   });
@@ -766,7 +799,8 @@ function genericReleaseIo(repo, options = {}) {
     },
     ensureCleanTree() {
       record('ensureCleanTree');
-      return true;
+      if (typeof options.cleanTree === 'function') return options.cleanTree();
+      return options.cleanTree ?? true;
     },
     ensureTool(tool) {
       record('ensureTool', [tool]);
@@ -802,9 +836,21 @@ function genericReleaseIo(repo, options = {}) {
       assert.equal(plugin.name, ciArgs.at(-1));
       return { status: 0, stdout: '', stderr: '' };
     },
+    // Stubbed false by default: the production adapter reaches origin, and a fixture that
+    // could not override it would put the network inside every same-version contract case.
+    tagPublished(tag) {
+      record('tagPublished', [tag]);
+      return options.tagPublished ?? false;
+    },
     waitForTagCi(tag, commit, pushed) {
       record('waitForTagCi', [tag, commit, pushed]);
       return tagCiResult;
+    },
+    wouldStageChange(file, content) {
+      const relative = relativePath(file);
+      record('wouldStageChange', [relative, content]);
+      if (typeof options.wouldStageChange === 'function') return options.wouldStageChange(relative, content);
+      return options.wouldStageChange ?? true;
     },
     writeJson(file, value) {
       record('writeJson', [relativePath(file), value]);
@@ -862,6 +908,8 @@ async function testGenericReleaseModuleContract(
     const currentVersion = JSON.parse(
       fs.readFileSync(path.join(ROOT, plugin.root, '.claude-plugin/plugin.json'), 'utf8'),
     ).version;
+    const [major, minor, patchVersion] = currentVersion.split('.').map(Number);
+    const targetVersion = `${major}.${minor}.${patchVersion + 1}`;
     const fixture = genericReleaseIo(ROOT);
     await runGenericPluginRelease({
       argv: ['--dry-run', '--plugin', plugin.name, 'patch'],
@@ -889,6 +937,17 @@ async function testGenericReleaseModuleContract(
       fixture.output.join('\n'),
       new RegExp(`Bumping ${plugin.name}: ${currentVersion.replaceAll('.', '\\.')} →`),
     );
+    const dryRunOutput = fixture.output.join('\n');
+    assert.ok(
+      dryRunOutput.includes(
+        `  [dry-run] ${plugin.root}/.claude-plugin/plugin.json: would write version → ${targetVersion}`,
+      ),
+      `${plugin.name} real bump preview must name the target version`,
+    );
+    assert.ok(
+      dryRunOutput.includes(`  [dry-run] git commit -m "chore(release): ${plugin.name} v${targetVersion}"`),
+      `${plugin.name} real bump preview must predict the release commit`,
+    );
     assert.equal(
       fixture.calls.some(({ tool }) =>
         ['writeJson', 'commit', 'push', 'createTag', 'waitForTagCi', 'createRelease'].includes(tool),
@@ -899,6 +958,203 @@ async function testGenericReleaseModuleContract(
   }
 
   const generic = ordinaryPlugins[0];
+  const recutPlugin = ordinaryPlugins[2];
+  const recutVersion = JSON.parse(
+    fs.readFileSync(path.join(ROOT, recutPlugin.root, '.claude-plugin/plugin.json'), 'utf8'),
+  ).version;
+  const recutManifest = `${recutPlugin.root}/.claude-plugin/plugin.json`;
+
+  const unchangedRecut = genericReleaseIo(ROOT, { wouldStageChange: false });
+  await runGenericPluginRelease({
+    argv: ['--dry-run', '--plugin', recutPlugin.name, recutVersion],
+    repo: ROOT,
+    plugins: PLUGINS,
+    io: unchangedRecut.io,
+  });
+  const unchangedRecutOutput = unchangedRecut.output.join('\n');
+  assert.ok(
+    unchangedRecutOutput.includes(`  [dry-run] ${recutManifest}: unchanged (already at ${recutVersion})`),
+    'unchanged re-cut preview must identify a manifest that would not stage',
+  );
+  assert.ok(
+    unchangedRecutOutput.includes('  [dry-run] manifests already at this version — tagging existing HEAD'),
+    'unchanged re-cut preview must predict tagging existing HEAD',
+  );
+  assert.equal(
+    unchangedRecut.output.some((line) => line.includes('git commit')),
+    false,
+    'unchanged re-cut preview must not predict a release commit',
+  );
+  // The re-cut is legal only while the version was never published, so the same-version path
+  // must consult origin through the closed set rather than reaching it directly.
+  assert.deepEqual(
+    unchangedRecut.calls.filter(({ tool }) => tool === 'tagPublished').map(({ args }) => args),
+    [[`${recutPlugin.name}--v${recutVersion}`]],
+    'a same-version run must ask exactly once whether that tag is already published',
+  );
+  const publishedRecut = genericReleaseIo(ROOT, { wouldStageChange: false, tagPublished: true });
+  await assert.rejects(
+    () =>
+      runGenericPluginRelease({
+        argv: ['--dry-run', '--plugin', recutPlugin.name, recutVersion],
+        repo: ROOT,
+        plugins: PLUGINS,
+        io: publishedRecut.io,
+      }),
+    new RegExp(`already released: ${recutPlugin.name} v${recutVersion}`),
+    'a published tag must refuse the re-cut instead of previewing it',
+  );
+  assert.equal(
+    publishedRecut.calls.some(({ tool }) => ['writeJson', 'commit', 'push', 'createTag'].includes(tool)),
+    false,
+    'the already-released refusal must precede every write',
+  );
+
+  const formattingOnlyRecut = genericReleaseIo(ROOT, { wouldStageChange: true });
+  await runGenericPluginRelease({
+    argv: ['--dry-run', '--plugin', recutPlugin.name, recutVersion],
+    repo: ROOT,
+    plugins: PLUGINS,
+    io: formattingOnlyRecut.io,
+  });
+  const formattingOnlyOutput = formattingOnlyRecut.output.join('\n');
+  assert.ok(
+    formattingOnlyOutput.includes(
+      `  [dry-run] ${recutManifest}: would rewrite formatting only (already at ${recutVersion})`,
+    ),
+    'formatting-only re-cut preview must distinguish canonicalization from a version bump',
+  );
+  assert.ok(
+    formattingOnlyOutput.includes(`  [dry-run] git commit -m "chore(release): ${recutPlugin.name} v${recutVersion}"`),
+    'formatting-only re-cut preview must predict the release commit',
+  );
+  assert.ok(
+    formattingOnlyRecut.calls.some(
+      ({ tool, args: callArgs }) =>
+        tool === 'wouldStageChange' &&
+        callArgs[0] === recutManifest &&
+        typeof callArgs[1] === 'string' &&
+        callArgs[1].includes(`"version": "${recutVersion}"`),
+    ),
+    'formatting-only re-cut fixture must record the staged path and candidate content',
+  );
+
+  const dirtyTree = genericReleaseIo(ROOT, { cleanTree: false });
+  await runGenericPluginRelease({
+    argv: ['--dry-run', '--plugin', recutPlugin.name, 'patch'],
+    repo: ROOT,
+    plugins: PLUGINS,
+    io: dirtyTree.io,
+  });
+  const dirtyTreeOutput = dirtyTree.output.join('\n');
+  for (const relative of [
+    recutManifest,
+    '.claude-plugin/marketplace.json',
+    `${recutPlugin.root}/.codex-plugin/plugin.json`,
+  ]) {
+    assert.ok(
+      dirtyTreeOutput.includes(`  [dry-run] ${relative}: not compared (working tree dirty)`),
+      `dirty-tree dry-run refusal must decline the per-manifest comparison for ${relative}`,
+    );
+  }
+  assert.equal(
+    dirtyTree.calls.some(({ tool }) => tool === 'wouldStageChange'),
+    false,
+    'dirty-tree dry run must not run a stage comparison it cannot trust',
+  );
+  assert.ok(
+    dirtyTreeOutput.includes('  [dry-run] refused: working tree dirty — commit/stash first'),
+    'dirty-tree dry-run refusal must name the clean-tree gate',
+  );
+  assert.ok(
+    dirtyTreeOutput.includes('  [dry-run] no commit, push, tag, or release would run'),
+    'dirty-tree dry-run refusal must suppress every landing action',
+  );
+  assert.ok(
+    dirtyTreeOutput.includes('[dry-run] BLOCKED — the release would refuse; no changes written, no tag, no release.'),
+    'dirty-tree dry-run refusal must end with the blocked closer',
+  );
+  // Every line the unblocked tail can print, so moving one above the blocked return is caught
+  // rather than passing because the list stopped at the first four.
+  const landingForecastFragments = [
+    'git add',
+    'git commit',
+    'git push',
+    'plugin tag',
+    'wait for tag-CI',
+    'gh release create',
+    'already at this version',
+  ];
+  for (const forbidden of landingForecastFragments) {
+    assert.equal(
+      dirtyTree.output.some((line) => line.includes(forbidden)),
+      false,
+      `dirty-tree dry-run refusal must not print ${forbidden}`,
+    );
+  }
+
+  const cleanTreeFailureMessage = 'fixture clean-tree check failed';
+  const cleanTreeFailure = genericReleaseIo(ROOT, {
+    cleanTree() {
+      throw new Error(cleanTreeFailureMessage);
+    },
+  });
+  await assert.rejects(
+    runGenericPluginRelease({
+      argv: ['--dry-run', '--plugin', generic.name, 'patch'],
+      repo: ROOT,
+      plugins: PLUGINS,
+      io: cleanTreeFailure.io,
+    }),
+    { message: cleanTreeFailureMessage },
+    'clean-tree check failure must surface unchanged',
+  );
+  assert.equal(
+    cleanTreeFailure.output.some((line) => landingForecastFragments.some((fragment) => line.includes(fragment))),
+    false,
+    'clean-tree check failure must not print a landing forecast',
+  );
+
+  const stageProbeFailureMessage = 'fixture staged-content check failed';
+  const stageProbeFailure = genericReleaseIo(ROOT, {
+    wouldStageChange() {
+      throw new Error(stageProbeFailureMessage);
+    },
+  });
+  await assert.rejects(
+    runGenericPluginRelease({
+      argv: ['--dry-run', '--plugin', generic.name, 'patch'],
+      repo: ROOT,
+      plugins: PLUGINS,
+      io: stageProbeFailure.io,
+    }),
+    { message: stageProbeFailureMessage },
+    'staged-content check failure must surface unchanged',
+  );
+  assert.ok(
+    stageProbeFailure.calls.some(({ tool }) => tool === 'wouldStageChange'),
+    'staged-content check failure must reach the stage probe',
+  );
+  assert.equal(
+    stageProbeFailure.output.some((line) => landingForecastFragments.some((fragment) => line.includes(fragment))),
+    false,
+    'staged-content check failure must not print a landing forecast',
+  );
+
+  const missingStageProbe = genericReleaseIo(ROOT);
+  const missingStageProbeIo = { ...missingStageProbe.io };
+  delete missingStageProbeIo.wouldStageChange;
+  await assert.rejects(
+    runGenericPluginRelease({
+      argv: ['--dry-run', '--plugin', generic.name, 'patch'],
+      repo: ROOT,
+      plugins: PLUGINS,
+      io: missingStageProbeIo,
+    }),
+    /generic release IO must be the exact closed adapter/i,
+    'missing stage probe must fail closed-adapter validation',
+  );
+  assert.deepEqual(missingStageProbe.calls, [], 'missing stage probe validation must fail before IO');
   await expectReleasePolicyRefusal(
     runGenericPluginRelease,
     generic,
@@ -1123,7 +1379,6 @@ async function testDryRunReleaseSafety() {
       /fixture and report environment variables must both be non-empty/i,
     );
   }
-  await testGenericReleaseModuleContract(dispatchPluginRelease, runGenericPluginRelease, resolveGenericReleaseIo);
   const before = gitSnapshot();
   assert.equal(before.status, '', 'dry-run safety requires a clean checkout');
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-dry-run-'));
@@ -1141,7 +1396,6 @@ async function testDryRunReleaseSafety() {
         ...process.env,
         PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
         DOCKS_RELEASE_CALL_LOG: callLog,
-        DOCKS_RELEASE_REAL_NODE: process.execPath,
         DOCKS_RELEASE_REAL_PATH: process.env.PATH ?? '',
       },
     });
@@ -1165,6 +1419,22 @@ async function testDryRunReleaseSafety() {
       ),
       'fixture must intercept and preserve the targeted Docks preflight',
     );
+    // The structural safety claim: the gate argv is stubbed green, so no descendant process
+    // exists with the real PATH, and therefore every git call the release makes had to match
+    // one of the three read-only shapes to run at all. A second Node argv would break that.
+    assert.deepEqual(
+      calls.filter(({ tool }) => tool === 'node').map(({ args: callArgs }) => callArgs.slice(1).join(' ')),
+      ['-q --plugin docks'],
+      'the release may run exactly one Node argv, the stubbed selected-plugin gate',
+    );
+    assert.ok(
+      calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs[0] === 'hash-object'),
+      'dry-run fixture must pass the staged-content hash probe through to real git',
+    );
+    assert.ok(
+      calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs[0] === 'rev-parse'),
+      'dry-run fixture must pass the HEAD comparison through to real git',
+    );
     assert.equal(
       calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs[0] === 'push'),
       false,
@@ -1179,6 +1449,19 @@ async function testDryRunReleaseSafety() {
       calls.some(({ tool, args: callArgs }) => tool === 'gh' && callArgs[0] === 'release' && callArgs[1] === 'create'),
       false,
       'dry-run must not invoke gh release create',
+    );
+    assert.equal(
+      calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs.includes('-w')),
+      false,
+      'dry-run must never ask git to write an object',
+    );
+    assert.equal(
+      calls.some(
+        ({ tool, args: callArgs }) =>
+          tool === 'git' && ['update-index', 'write-tree', 'update-ref'].includes(callArgs[0]),
+      ),
+      false,
+      'dry-run must never write the index or a ref',
     );
     assert.equal(
       calls.some(
@@ -1209,7 +1492,6 @@ async function testDryRunReleaseSafety() {
             ...process.env,
             PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
             DOCKS_RELEASE_CALL_LOG: callLog,
-            DOCKS_RELEASE_REAL_NODE: process.execPath,
             DOCKS_RELEASE_REAL_PATH: process.env.PATH ?? '',
           },
         },
@@ -2273,3 +2555,224 @@ assert.equal(integrityStep('verify registry signatures').run, 'npm audit signatu
 assert.equal(integrityStep('verify registry signatures')['continue-on-error'], undefined);
 
 console.log('workflow targeting and integrity separation contracts passed');
+
+// The fake-adapter release contracts need neither real git nor a clean checkout, so they
+// belong in the default run. Only the shim scenario above requires the gated clean tree.
+const releaseModule = await import('../lib/plugin-release.mjs');
+await testGenericReleaseModuleContract(
+  releaseModule.dispatchPluginRelease,
+  releaseModule.runGenericPluginRelease,
+  releaseModule.resolveGenericReleaseIo,
+);
+console.log('generic release module contract and dry-run manifest previews passed');
+
+async function testReleaseAdapterGitContracts(createReleaseIo) {
+  // The adapter spawns git with this process's environment, and must keep doing so: in
+  // production it has to predict what the operator's own `git add` would stage. That makes the
+  // test process the isolation boundary. `GIT_CONFIG_KEY_<n>`/`VALUE_<n>` pairs override every
+  // configuration file, a fixture's `--local` settings included, so a hostile ambient pair can
+  // only be dropped here. Every key is restored below.
+  const isolation = {
+    GIT_CONFIG_GLOBAL: os.devNull,
+    GIT_CONFIG_SYSTEM: os.devNull,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_COUNT: '0',
+    GIT_TERMINAL_PROMPT: '0',
+  };
+  const inherited = Object.fromEntries(Object.keys(isolation).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, isolation);
+  try {
+    await runReleaseAdapterGitContracts(createReleaseIo);
+  } finally {
+    for (const [key, value] of Object.entries(inherited)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+async function runReleaseAdapterGitContracts(createReleaseIo) {
+  const runGit = (repo, gitArgs) => {
+    const result = spawnSync('git', ['-c', 'commit.gpgSign=false', '-c', `core.hooksPath=${os.devNull}`, ...gitArgs], {
+      cwd: repo,
+      encoding: 'utf8',
+    });
+    if ((result.status ?? 1) !== 0) {
+      throw new Error(
+        `git ${gitArgs.join(' ')} fixture setup failed: ${result.stderr?.trim() || `exit ${result.status}`}`,
+      );
+    }
+  };
+  const configureFixtureRepo = (repo) => {
+    runGit(repo, ['config', '--local', 'core.hooksPath', os.devNull]);
+    runGit(repo, ['config', '--local', 'core.attributesFile', os.devNull]);
+    runGit(repo, ['config', '--local', 'core.autocrlf', 'false']);
+    runGit(repo, ['config', '--local', 'core.eol', 'lf']);
+    runGit(repo, ['config', '--local', 'core.safecrlf', 'false']);
+    runGit(repo, ['config', '--local', 'commit.gpgSign', 'false']);
+  };
+
+  const notRepository = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-no-git-'));
+  try {
+    const io = createReleaseIo({ repo: notRepository, plugins: PLUGINS });
+    assert.throws(
+      () => io.ensureCleanTree(),
+      /git status --porcelain failed/,
+      'a failed status probe must never be reported as a clean release tree',
+    );
+  } finally {
+    fs.rmSync(notRepository, { recursive: true, force: true });
+  }
+
+  const cleanComparison = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-compare-'));
+  try {
+    const manifest = path.join(cleanComparison, 'manifest.json');
+    const committedBytes = '{"version":"1.0.0"}\n';
+    runGit(cleanComparison, ['init', '-q']);
+    configureFixtureRepo(cleanComparison);
+    fs.writeFileSync(manifest, committedBytes);
+    runGit(cleanComparison, ['add', 'manifest.json']);
+    runGit(cleanComparison, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'x']);
+
+    const io = createReleaseIo({ repo: cleanComparison, plugins: PLUGINS });
+    assert.equal(
+      io.wouldStageChange(manifest, committedBytes),
+      false,
+      'the exact committed bytes must predict no release commit',
+    );
+    assert.equal(
+      io.wouldStageChange(manifest, '{"version":"1.0.1"}\n'),
+      true,
+      'changed manifest data must predict a release commit',
+    );
+    assert.equal(
+      io.wouldStageChange(manifest, `${JSON.stringify({ version: '1.0.0' }, null, 2)}\n`),
+      true,
+      'different serialization bytes must predict a release commit',
+    );
+  } finally {
+    fs.rmSync(cleanComparison, { recursive: true, force: true });
+  }
+
+  const missingFromHead = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-missing-'));
+  try {
+    const committed = path.join(missingFromHead, 'manifest.json');
+    const absent = path.join(missingFromHead, 'never-committed.json');
+    runGit(missingFromHead, ['init', '-q']);
+    configureFixtureRepo(missingFromHead);
+    fs.writeFileSync(committed, '{"version":"1.0.0"}\n');
+    runGit(missingFromHead, ['add', 'manifest.json']);
+    runGit(missingFromHead, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'x']);
+
+    const io = createReleaseIo({ repo: missingFromHead, plugins: PLUGINS });
+    assert.throws(
+      () => io.wouldStageChange(absent, '{}\n'),
+      /missing from HEAD/,
+      'an uncommitted path must make the release prediction refuse',
+    );
+  } finally {
+    fs.rmSync(missingFromHead, { recursive: true, force: true });
+  }
+
+  const brokenFilter = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-filter-'));
+  try {
+    const manifest = path.join(brokenFilter, 'manifest.json');
+    const committedBytes = '{"version":"1.0.0"}\n';
+    runGit(brokenFilter, ['init', '-q']);
+    configureFixtureRepo(brokenFilter);
+    fs.writeFileSync(manifest, committedBytes);
+    runGit(brokenFilter, ['add', 'manifest.json']);
+    runGit(brokenFilter, ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'x']);
+    fs.writeFileSync(path.join(brokenFilter, '.gitattributes'), '*.json filter=broken\n');
+    runGit(brokenFilter, ['config', 'filter.broken.clean', 'exit 3']);
+    runGit(brokenFilter, ['config', 'filter.broken.required', 'true']);
+
+    const io = createReleaseIo({ repo: brokenFilter, plugins: PLUGINS });
+    // Hashing through --path applies its clean filter; if that fails, the dry run must refuse rather than guess.
+    assert.throws(
+      () => io.wouldStageChange(manifest, committedBytes),
+      /git hash-object failed for /,
+      'a required clean-filter failure must make the release prediction refuse',
+    );
+  } finally {
+    fs.rmSync(brokenFilter, { recursive: true, force: true });
+  }
+}
+
+await testReleaseAdapterGitContracts(releaseModule.createGenericPluginReleaseIo);
+console.log('release adapter git predicates refuse to guess');
+
+function testReleaseShimRefusalMatrix() {
+  // The dry-run safety scenario trusts the shim to be the only route to git. That claim is a
+  // property of the shim itself, so it is proven here on the default path rather than only
+  // behind `--dry-run-release-safety`, which needs a clean checkout and so cannot always run.
+  const shimRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-shim-'));
+  try {
+    const callLog = path.join(shimRoot, 'calls.jsonl');
+    fs.writeFileSync(callLog, '', { mode: 0o600 });
+    for (const name of ['node', 'git', 'claude', 'gh']) writeReleaseShim(shimRoot, name);
+    const invoke = (tool, args, options = {}) =>
+      spawnSync(path.join(shimRoot, tool), args, {
+        cwd: ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          DOCKS_RELEASE_CALL_LOG: callLog,
+          DOCKS_RELEASE_REAL_PATH: process.env.PATH ?? '',
+          // The permitted shapes reach real git, so ambient configuration decides their exit
+          // status. Disable global and system config here as the adapter fixtures do, and drop
+          // any inherited `GIT_CONFIG_KEY_<n>` pairs, which would otherwise override both files.
+          GIT_CONFIG_GLOBAL: os.devNull,
+          GIT_CONFIG_SYSTEM: os.devNull,
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_COUNT: '0',
+          GIT_TERMINAL_PROMPT: '0',
+        },
+        ...options,
+      });
+    const manifest = 'plugins/docks/.claude-plugin/plugin.json';
+    const allowed = [
+      ['git', ['status', '--porcelain'], {}],
+      ['git', ['hash-object', '--path', manifest, '--stdin'], { input: '{}\n' }],
+      ['git', ['rev-parse', '--quiet', '--verify', `HEAD:${manifest}`], {}],
+      // The selected-plugin gate is stubbed green: executing it would spawn a descendant with
+      // the real PATH, whose git calls would bypass this shim entirely. The script path below
+      // must not exist, so a regression back to executing this argv fails to load and is caught
+      // here rather than quietly reintroducing the descendant.
+      ['node', [path.join(ROOT, 'no-such-directory/scripts/ci.mjs'), '-q', '--plugin', 'docks'], {}],
+    ];
+    for (const [tool, args, options] of allowed) {
+      const result = invoke(tool, args, options);
+      assert.equal(result.status, 0, `${tool} ${args.join(' ')} must be permitted: ${result.stderr}`);
+    }
+    const refused = [
+      ['git', ['hash-object', '-w', '--stdin']],
+      ['git', ['tag', 'docks--v9.9.9']],
+      ['git', ['commit', '-m', 'release']],
+      ['git', ['update-ref', 'refs/heads/main', 'HEAD']],
+      // A near miss must refuse too: the shapes match argument for argument, not by subcommand.
+      ['git', ['status']],
+      ['node', ['-e', 'process.exit(0)']],
+      ['node', [path.join(ROOT, 'scripts/ci.mjs'), '--plugin', 'docks']],
+      ['claude', ['plugin', 'tag', '--push']],
+      ['gh', ['release', 'create', 'docks--v9.9.9']],
+    ];
+    for (const [tool, args] of refused) {
+      assert.equal(invoke(tool, args).status, 97, `${tool} ${args.join(' ')} must be refused`);
+    }
+    // Refusal stays observable: the log records the attempt before the decision, which is how
+    // the safety scenario can assert on calls the release was never allowed to make.
+    const logged = fs
+      .readFileSync(callLog, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    assert.equal(logged.length, allowed.length + refused.length, 'every attempt must be logged');
+  } finally {
+    fs.rmSync(shimRoot, { recursive: true, force: true });
+  }
+}
+
+testReleaseShimRefusalMatrix();
+console.log('release shim refuses every argv but the read-only three and the stubbed gate');
