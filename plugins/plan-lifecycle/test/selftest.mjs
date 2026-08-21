@@ -21,7 +21,7 @@ assert.ok(fs.existsSync(path.join(repoRoot, planScriptRelative)), `${planScriptR
 assert.ok(fs.existsSync(path.join(repoRoot, planContractRelative)), `${planContractRelative} must exist`);
 assert.ok(
   read(managerSkillRelative).includes('[`references/plan-contract.md`](references/plan-contract.md)'),
-  `${managerSkillRelative} must link the v2 plan contract reference`,
+  `${managerSkillRelative} must link the v3 plan contract reference`,
 );
 
 const planCli = await import(new URL('../skills/productivity/plan-manager/scripts/plan.mjs', import.meta.url));
