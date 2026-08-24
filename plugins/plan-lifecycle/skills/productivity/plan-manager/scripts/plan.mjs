@@ -37,6 +37,10 @@ const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (gh api user 
 // cli/cli#14073 keeps its keyword closer under exclusion). `includeClosedPrs` stays at its `false` default
 // because a merged pull request is returned regardless (cli/cli#14073) while that default also hides the
 // closed-unmerged references this verifier must never accept (cli/cli#14156).
+// GitHub also classifies some same-repository keyword closers as user-linked and excludes them
+// (verified live: DocksDocks/docks#22 closed by its own `Closes #22` merge returned an empty excluded
+// connection), so the ClosedEvent closer is read as well; GitHub writes that closer itself when a merge
+// closes the issue, and it may be the merge commit or the pull request.
 const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){
   repository(owner:$owner,name:$name){
     defaultBranchRef{ name }
@@ -46,7 +50,7 @@ const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:
         pageInfo{ hasNextPage endCursor }
       }
       timelineItems(last:100, itemTypes:CLOSED_EVENT){
-        nodes{ ... on ClosedEvent{ closer{ __typename ... on Commit{ oid } } } }
+        nodes{ ... on ClosedEvent{ closer{ __typename ... on Commit{ oid } ... on PullRequest{ number url state mergedAt baseRefName repository{ nameWithOwner } } } } }
       }
     }
   }
@@ -336,6 +340,7 @@ function archivePullRequestReferences(issueNumber) {
   const { owner, name } = repositoryCoordinates();
   const closing = [];
   let closingCommitOid;
+  let closerPullRequest;
   let defaultBranch;
   let after;
   let hasNextPage;
@@ -370,10 +375,11 @@ function archivePullRequestReferences(issueNumber) {
     // closed by hand must not keep the earlier commit as proof, so read the latest event and require it.
     const latestClosure = issue.timelineItems.nodes.at(-1)?.closer;
     closingCommitOid = latestClosure?.__typename === 'Commit' ? latestClosure.oid : undefined;
+    closerPullRequest = latestClosure?.__typename === 'PullRequest' ? latestClosure : undefined;
     hasNextPage = issue.closing.pageInfo?.hasNextPage === true;
     if (issue.closing.pageInfo?.endCursor != null) after = issue.closing.pageInfo.endCursor;
   } while (hasNextPage);
-  return { closing, closingCommitOid, defaultBranch };
+  return { closing, closingCommitOid, closerPullRequest, defaultBranch };
 }
 
 function associatedPullRequests(commitOid) {
@@ -975,7 +981,7 @@ function archivePlan(args, retired = false) {
     if (unfinished) fail(`archive refused: non-terminal step ${unfinished.cells[1]}`);
     if (reviewVerdicts(issue).code !== 'pass') fail('archive requires Code-review: pass');
 
-    const { closing, closingCommitOid, defaultBranch } = archivePullRequestReferences(issue.number);
+    const { closing, closingCommitOid, closerPullRequest, defaultBranch } = archivePullRequestReferences(issue.number);
     const landedInto = (references, branch) => references.find((reference) => (
       reference.state === 'MERGED' &&
       reference.mergedAt &&
@@ -984,22 +990,24 @@ function archivePlan(args, retired = false) {
     ));
     const mergedElsewhere = (references) => references.find((reference) => reference.state === 'MERGED' && reference.mergedAt)?.baseRefName;
 
-    // Either proof suffices, so an ineligible keyword reference must not hide a valid commit closure.
-    closingPullRequest = landedInto(closing, defaultBranch);
+    // Any one proof suffices, so an ineligible keyword reference must not hide a valid closure recorded
+    // by the ClosedEvent closer, whether GitHub stored it as the pull request or as the merge commit.
+    const closerReferences = closerPullRequest ? [closerPullRequest] : [];
+    closingPullRequest = landedInto(closing, defaultBranch) ?? landedInto(closerReferences, defaultBranch);
     let associated;
     if (!closingPullRequest && closingCommitOid) {
       associated = associatedPullRequests(closingCommitOid);
       closingPullRequest = landedInto(associated.pullRequests, associated.defaultBranch);
     }
     if (!closingPullRequest) {
-      const wrongClosingBranch = mergedElsewhere(closing);
+      const wrongClosingBranch = mergedElsewhere([...closing, ...closerReferences]);
       if (wrongClosingBranch) fail(`archive requires a pull request merged into ${defaultBranch}, found ${wrongClosingBranch}`);
       if (associated) {
         const wrongCommitBranch = mergedElsewhere(associated.pullRequests);
         if (wrongCommitBranch) fail(`archive requires a pull request merged into ${associated.defaultBranch}, found ${wrongCommitBranch}`);
         fail(`archive requires a merged closing pull request; closing commit ${closingCommitOid} has no associated merged pull request into ${associated.defaultBranch}`);
       }
-      if (closing.length > 0) fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
+      if (closing.length > 0 || closerReferences.length > 0) fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
       fail('archive requires a merged closing pull request; issue has no closing commit');
     }
   }
