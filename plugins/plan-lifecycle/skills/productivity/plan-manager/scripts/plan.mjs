@@ -157,9 +157,18 @@ function issueIdentity(planRef) {
 }
 
 export function machinePathCitations(planText) {
+  // `/dev/null` is the portable bit bucket, not a machine location; every other `/dev/` path
+  // (such as `/dev/shm/...`) names a machine filesystem and stays reported.
+  const machinePath = /(?:^|[\s("'`[{=:;,>])(?:\/(?!\/|\s|dev\/null\b)|[A-Za-z]:[\\/](?=\S)|\\\\(?=[^\\/\s]+[\\/][^\s]))/;
   return planText
     .split('\n')
-    .filter((line) => !/^[A-Z][A-Za-z0-9-]*: *\{/.test(line) && /\/home\/[a-z]|\/Users\/[A-Za-z]/.test(line));
+    .filter((line) => {
+      if (/^[A-Z][A-Za-z0-9-]*: *\{/.test(line)) return false;
+      // Markdown link destinations are URL space, not filesystem citations; inline code stays
+      // detectable because a backticked machine path is still a machine path.
+      const prose = line.replace(/\]\([^)\n]*\)/g, ']()');
+      return machinePath.test(prose);
+    });
 }
 
 export function checkPlan(planText, planRef) {
@@ -581,6 +590,12 @@ function editIssueLabelsIfBodyUnchanged(issue, labels) {
   for (const label of remove) argv.push('--remove-label', label);
   argv.push('--repo', repository.nameWithOwner);
   runGh(argv);
+  if (remove.length > 0 || labels.add) {
+    const stored = labelNames(issueView(issue.number, 'labels').labels);
+    if ((labels.add && !stored.includes(labels.add)) || remove.some((label) => stored.includes(label))) {
+      fail('plan issue labels differ after edit');
+    }
+  }
 }
 
 function parseOptions(args, allowed, repeatable = new Set()) {
@@ -640,9 +655,26 @@ function labelsCommand(args) {
   }
 }
 
+function requireValidPlanIssue(issue) {
+  const failures = checkPlan(issue.body, issue);
+  if (failures.length > 0) fail(failures.map((message) => `#${issue.number}: ${message}`).join('\n'));
+}
+
+function verifySoleAssignee(number, login) {
+  const stored = issueView(number, 'number,assignees');
+  const owners = (stored.assignees ?? []).map((assignee) => assignee.login).filter(Boolean);
+  if (owners.length !== 1 || owners[0] !== login) {
+    fail(`plan #${number} assignee verification failed: expected sole assignee ${login}`);
+  }
+}
+
 function createPlan(args) {
   const options = parseOptions(args, new Set(['--title', '--goal', '--mode', '--label']), new Set(['--label']));
-  if (!options['--title'] || !options['--goal']) fail('new requires --title and --goal');
+  if (options['--title'] === undefined || options['--goal'] === undefined) fail('new requires --title and --goal');
+  const title = options['--title'].trim();
+  const goal = options['--goal'].trim();
+  if (!title || title.length > 70) fail('title must contain 1 to 70 characters after trimming');
+  if (!goal) fail('goal must be non-empty after trimming');
   const mode = options['--mode'] ?? 'plan-and-implement';
   if (!new Set(['plan-and-implement', 'plan-only']).has(mode)) fail(`invalid plan mode: ${mode}`);
   if ([options['--title'], options['--goal']].some((value) => /[\r\n]/.test(value))) fail('title and goal must be single-line text');
@@ -650,13 +682,14 @@ function createPlan(args) {
     if (!label.trim() || /[\r\n]/.test(label)) fail('label names must be non-empty single-line text');
     if (/^plan(?::|$)/.test(label)) fail(`reserved label namespace: ${label}`);
   }
-  const body = planTemplate(options['--goal'], mode);
+  const login = resolveActingLogin();
+  const body = planTemplate(goal, mode);
   const output = withBodyFile(body, (bodyFile) => {
     const argv = [
       'issue',
       'create',
       '--title',
-      options['--title'],
+      title,
       '--body-file',
       bodyFile,
       '--label',
@@ -672,7 +705,9 @@ function createPlan(args) {
   });
   const match = /\/issues\/([1-9]\d*)\/?$/.exec(output);
   if (!match) fail('gh issue create returned an invalid issue URL');
-  console.log(`plan created: #${match[1]} ${output}`);
+  const number = Number(match[1]);
+  verifySoleAssignee(number, login);
+  console.log(`plan created: #${number} ${output}`);
 }
 
 function claimPlan(args) {
@@ -686,7 +721,10 @@ function claimPlan(args) {
     console.log(`plan #${issue.number} already claimed: ${login}`);
     return;
   }
-  runGh(['issue', 'edit', String(issue.number), '--add-assignee', '@me', '--repo', repository.nameWithOwner]);
+  requireValidPlanIssue(issue);
+  issue.claimLogin = login;
+  editIssueLabelsIfBodyUnchanged(issue, {});
+  verifySoleAssignee(issue.number, login);
   console.log(`plan #${issue.number} claimed: ${login}`);
 }
 
@@ -837,6 +875,7 @@ function setPlanStatus(args) {
   if (String(issue.state).toUpperCase() === 'CLOSED') {
     fail(`plan #${issue.number} is closed; status applies to open plans`);
   }
+  requireValidPlanIssue(issue);
   const current = record.status;
   if (!new Set(['unreadable', 'unlabelled']).has(current) && !STATUS_TRANSITIONS[current]?.has(target)) {
     fail(`illegal plan status transition: ${current} -> ${target}`);
@@ -854,6 +893,7 @@ function setStepStatus(args) {
   if (!value || !stepId || !target || args.length !== 3) fail('step requires an issue, step id, and status');
   if (!STEP_STATUSES.has(target)) fail(`unknown step status: ${target}`);
   const { issue, parsed, record } = readPlanIssue(value, true);
+  requireValidPlanIssue(issue);
   if (record.status !== 'ongoing') fail(`plan status is ${record.status}; expected ongoing`);
   const { sections } = sectionMap(parsed.body);
   const table = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
@@ -970,7 +1010,12 @@ function archivePlan(args, retired = false) {
   const options = parseOptions(flags, retired ? new Set(['--reason']) : new Set());
   if (retired && (!String(options['--reason'] ?? '').trim() || /[\r\n]/.test(options['--reason']))) fail('retire requires a single-line --reason');
   const { issue, parsed, record } = readPlanIssue(value, true);
-  if (retired && String(issue.state).toUpperCase() === 'CLOSED') fail(`cannot retire a ${record.status} plan`);
+  const closed = String(issue.state).toUpperCase() === 'CLOSED';
+  const recovery = retired &&
+    closed &&
+    String(issue.stateReason).toUpperCase() === 'NOT_PLANNED' &&
+    labelNames(issue.labels).some((label) => label.startsWith('plan:') && PLAN_STATUSES.has(label.slice(5)));
+  if (retired && closed && !recovery) fail(`cannot retire a ${record.status} plan`);
   if (!retired && record.status !== 'finished') fail(`archive requires finished status, found ${record.status}`);
 
   let closingPullRequest;
@@ -1012,7 +1057,7 @@ function archivePlan(args, retired = false) {
     }
   }
 
-  if (retired) {
+  if (retired && !recovery) {
     runGh([
       'issue',
       'close',
@@ -1026,7 +1071,8 @@ function archivePlan(args, retired = false) {
     ]);
   }
   editIssueLabelsIfBodyUnchanged(issue, { remove: labelsToRemove(issue) });
-  if (retired) console.log(`plan #${issue.number} retired`);
+  if (recovery) console.log(`plan #${issue.number} retired (recovered label cleanup)`);
+  else if (retired) console.log(`plan #${issue.number} retired`);
   else {
     const url = closingPullRequest.url ?? `https://github.com/${repository.nameWithOwner}/pull/${closingPullRequest.number}`;
     console.log(`plan #${issue.number} finished (closed by ${url})`);

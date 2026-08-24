@@ -358,7 +358,9 @@ if (group === 'issue' && command === 'create') {
     state: 'OPEN',
     stateReason: null,
     labels: values('--label'),
-    assignees: values('--assignee').map((login) => login === '@me' ? state.viewerLogin : login),
+    assignees: state.dropCreateAssignee
+      ? []
+      : values('--assignee').map((login) => login === '@me' ? state.viewerLogin : login),
     url: `https://github.com/${state.repo.nameWithOwner}/issues/${number}`,
     createdAt: now,
     updatedAt: now,
@@ -396,14 +398,21 @@ if (group === 'issue' && command === 'edit') {
   const addedAssignees = values('--add-assignee');
   const addedLabels = values('--add-label');
   const removedLabels = values('--remove-label');
+  if (removedLabels.length > 0 && state.labelRemovalErrorOnce) {
+    const message = state.labelRemovalErrorOnce;
+    delete state.labelRemovalErrorOnce;
+    die(message);
+  }
   if (!bodyFile && addedAssignees.length === 0 && addedLabels.length === 0 && removedLabels.length === 0)
     die('issue edit requires a body, label, or assignee change');
   if (bodyFile) issue.body = fs.readFileSync(bodyFile, 'utf8');
   for (const name of removedLabels) issue.labels = issue.labels.filter((label) => label !== name);
   for (const name of addedLabels) if (!issue.labels.includes(name)) issue.labels.push(name);
   issue.assignees ??= [];
-  for (const login of addedAssignees.map((name) => name === '@me' ? state.viewerLogin : name)) {
-    if (!issue.assignees.includes(login)) issue.assignees.push(login);
+  if (!state.dropEditAssignee) {
+    for (const login of addedAssignees.map((name) => name === '@me' ? state.viewerLogin : name)) {
+      if (!issue.assignees.includes(login)) issue.assignees.push(login);
+    }
   }
   touch(issue);
   save();
