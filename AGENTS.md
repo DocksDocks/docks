@@ -83,11 +83,12 @@ The plan record is a GitHub issue. Its body starts with
 sections; it has no frontmatter. GitHub owns title, open-work phase, owner,
 timestamps, and completion, and no plan markdown is tracked in the repository.
 Exactly three skills own the workflow: `plan-workspace` maintains the workspace;
-main-context `plan-manager` runs six phases — decide, draft, research, one plan
-review, implement, code review — and archives; internal `plan-reviewer` returns
-a readable pre-implementation verdict. Two read-only reviewer wrappers ship,
-`plan-reviewer` and `code-reviewer`, and nothing else in the lifecycle has a
-wrapper.
+main-context `plan-manager` runs six phases — decide, draft, research, plan
+review, implement, code review — with bounded repair and fresh re-review in both
+review phases, then archives; internal `plan-reviewer` returns one readable
+pre-implementation verdict block per round. Two read-only reviewer wrappers
+ship, `plan-reviewer` and `code-reviewer`, and nothing else in the lifecycle has
+a wrapper.
 </constraint>
 
 After the marker and blank line, the record carries exactly `## Goal`,
@@ -96,17 +97,36 @@ After the marker and blank line, the record carries exactly `## Goal`,
 and once each. `## Goal` carries exactly one mode line. Open-work phase is one
 of `drafting`, `planned`, `ongoing`, or `blocked` in a `plan:<phase>` label; a
 blocked plan starts `## Open questions` with `Blocked: <one-line reason>`.
-Closed completion derives from GitHub `state` and `stateReason`. The record
-carries no hash, permit, run identity, lock, or bundle, and the `plan.mjs`
-shipped inside the installed `plan-lifecycle` plugin is the only lifecycle tool.
-An `export` writes the sha256 of the body it copied beside the copy so a stale
-copy cannot revert the record; that digest detects staleness and authorizes
-nothing. Routine plan issue publication and post-review landing through a
-branch, commit, normal push, and closing pull request carry the settled mode's
-authorization and need no repeated prompt. After the checks policy passes, the
-manager asks immediately before merge. Without a fresh `Merge now` answer, it
-leaves the pull request and issue open. `plan.mjs archive` verifies the merged
-closing pull request after landing.
+Closed completion derives from GitHub `state` and `stateReason`. `## Review`
+contains exactly `_Review records are stored in issue comments._`. Each reviewer
+returns one markdown block, and the manager posts that whole block as one issue
+comment. The latest trusted well-formed record per review kind wins; its author
+must equal the plan's sole assignee. A legacy body verdict is consulted only
+when no trusted comment record exists for that kind. Both review phases use
+fresh inputs and run at most five rounds, stopping on pass, no progress, a
+finding surviving its fix, or `repair` or `fixes-required` in round five. A
+plan-review `blocked` verdict always routes its user-only decision through
+`## Open questions` and `ask`.
+
+The record carries no hash, permit, run identity, lock, or bundle, and the
+`plan.mjs` shipped inside the installed `plan-lifecycle` plugin is the only
+lifecycle tool. An `export` writes the sha256 of the body it copied beside the
+copy so a stale copy cannot revert the record; that digest detects staleness and
+authorizes nothing. Routine plan issue publication, implement-start linked
+branch creation, commits, normal pushes, and the closing pull request carry the
+settled mode's authorization and need no repeated prompt. Before any branch
+checkout, including `gh issue develop --checkout`, require
+`git status --porcelain` to be empty. If it is dirty, never stash, move, or
+commit ambient work; set the plan `blocked` and name the dirty paths, or use an
+authorized clean worktree.
+Immediately after setting the plan `ongoing`, every `gh issue develop` call uses
+`--repo`; the manager reuses a linked branch or creates one with
+`--base <default> --checkout`, then re-lists and recovers after failure.
+Implementation stops when no linked branch can be verified; there is no local
+fallback. After the checks policy passes, the manager asks immediately before
+merge. Without a fresh `Merge now` answer, it leaves the pull request and issue
+open. `plan.mjs archive` verifies the latest trusted code-review result and
+merged closing pull request after landing.
 
 Every Steps row carries an `Effect` of exactly
 `local|probe|production_access|publish|push|release|deploy`. A step whose
@@ -118,8 +138,9 @@ actions are outside the Steps table.
 
 Render a plan body verbatim only when the user names that plan and asks to see it. After a write, report the one-line header strip and the changed lines only; a write never re-renders the body.
 
-`docs/plans/finished/` is frozen pre-GitHub history: read it as history, never as
-a source of truth, and never parse or migrate it. The complete contract lives in
+`docs/plans/finished/` is frozen pre-GitHub history. Humans may read it as
+history, but it is not a source of truth. No lifecycle command or workspace
+migration operation opens or inventories it. The complete contract lives in
 `docs/PLAN.md`; `docs/AGENTS.md` routes to it and `docs/CLAUDE.md` contains only
 `@AGENTS.md`.
 

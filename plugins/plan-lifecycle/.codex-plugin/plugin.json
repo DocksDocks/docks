@@ -1,7 +1,7 @@
 {
   "name": "plan-lifecycle",
   "version": "0.7.0",
-  "description": "Cross-tool GitHub-issue plan lifecycle: a marker-based v3 issue-body record, six phases (decide, draft, research, one plan review, implement, code review), and two read-only reviewer wrappers, plan-reviewer and code-reviewer.",
+  "description": "Cross-tool GitHub-issue plan lifecycle with marker-based plan bodies, comment-backed review records, implement-start linked branches, bounded plan and code review repair loops, and two read-only reviewer wrappers.",
   "author": {
     "name": "Eduardo Marquez"
   },
@@ -20,7 +20,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "plan-lifecycle",
-    "shortDescription": "GitHub-issue lifecycle skills: workspace, manager orchestration, read-only reviewer.",
+    "shortDescription": "GitHub-issue plans with comment-backed review repair loops.",
     "category": "Productivity"
   }
 }

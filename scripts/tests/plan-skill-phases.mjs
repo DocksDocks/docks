@@ -27,6 +27,9 @@ const README_MD = 'README.md';
 const EXECUTOR_DISPATCH = 'plugins/docks/skills/engineering/refactor/references/executor-dispatch.md';
 const LIFECYCLE_SKILLS_AGENTS = 'plugins/plan-lifecycle/skills/AGENTS.md';
 const DOCKS_README = 'plugins/docks/README.md';
+const CLAUDE_PLAN_MANIFEST = 'plugins/plan-lifecycle/.claude-plugin/plugin.json';
+const CODEX_PLAN_MANIFEST = 'plugins/plan-lifecycle/.codex-plugin/plugin.json';
+const CLAUDE_MARKETPLACE = '.claude-plugin/marketplace.json';
 
 const V3_PINNED_CLAUSES = [
   {
@@ -65,7 +68,7 @@ const V3_PINNED_CLAUSES = [
   },
   {
     name: 'review-export-dispatch',
-    text: 'Run `plan.mjs export <issue>` first and dispatch the reviewer with the issue number and the printed export path',
+    text: "`plan.mjs export <issue>` and dispatch `plan-reviewer` with the issue number and that round's printed export path",
     files: [MANAGER_SKILL],
   },
   {
@@ -74,9 +77,49 @@ const V3_PINNED_CLAUSES = [
     files: [MANAGER_SKILL, ISSUE_PUBLICATION],
   },
   {
+    name: 'body-review-comment-pointer',
+    text: '`## Review` contains exactly `_Review records are stored in issue comments._`; review reports are not appended to the body.',
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'contract-review-comment-pointer',
+    text: '`## Review` is a static pointer, not a review log:',
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'generated-review-comment-pointer',
+    text: 'Closed completion derives from GitHub `state` and `stateReason`. `## Review` contains exactly `_Review records are stored in issue comments._`.',
+    files: [WORKSPACE_SKILL, ROOT_AGENTS],
+  },
+  {
+    name: 'review-comment-publication',
+    text: 'The reviewer returns exactly one markdown block. The manager posts that whole block as one issue comment without editing it.',
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'trusted-review-selection',
+    text: "A record is trusted only when the issue has exactly one assignee and the comment's author login equals that assignee. For each review kind independently, the latest trusted well-formed comment wins, ordered by `createdAt` with API order as the tie-break. Foreign-authored, malformed, and superseded comments never establish current review state. A legacy verdict in the body is consulted for one review kind only when there is no trusted well-formed comment record of that kind.",
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
     name: 'code-review-repair-bound',
-    text: 'If that repair re-review again returns `fixes-required`, stop: append `Code-review: blocked` naming the surviving findings, and set the plan `blocked`.',
-    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
+    text: 'Both review phases run at most five rounds. Each round uses a fresh plan export; each code-review round also uses a fresh complete-candidate diff. On rounds 1 through 4, a `repair` or `fixes-required` verdict requires every reproduced or named finding to be fixed, followed by a fresh export or diff and a fresh review. A repair that changes no relevant bytes is no progress. A finding repeated in the next round survived its fix. Either condition stops the loop, as does `repair` or `fixes-required` in round 5; there is no sixth-round repair.',
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'manager-plan-review-bound',
+    text: '4. **Plan review.** Run at most five rounds.',
+    files: [MANAGER_SKILL],
+  },
+  {
+    name: 'manager-code-review-bound',
+    text: '6. **Code review.** Run at most five rounds.',
+    files: [MANAGER_SKILL],
+  },
+  {
+    name: 'plan-review-blocked-routing',
+    text: 'A plan-review `blocked` verdict routes its user-only decision through `## Open questions` and `ask`; the verdict alone is not a lifecycle block.',
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
     name: 'code-review-pass-verdict',
@@ -85,23 +128,33 @@ const V3_PINNED_CLAUSES = [
   },
   {
     name: 'code-review-fixes-required-verdict',
-    text: '- `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The manager fixes it and dispatches exactly one repair re-review.',
+    text: '- `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The manager fixes every named defect and dispatches a fresh re-review on a fresh diff.',
     files: [CODE_REVIEWER_AGENT, CODE_REVIEWER_CODEX, CODE_REVIEWER_TEMPLATE],
   },
   {
     name: 'advisory-pass-immutable',
-    text: 'Record each advisory as a follow-up and do not change reviewed bytes after a pass; an advisory never triggers a re-review.',
-    files: [MANAGER_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+    text: 'After a pass, record each advisory as follow-up work and do not change reviewed bytes; advisory findings never trigger another review.',
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
     name: 'review-scope-guard',
     text: 'Build the review diff from the complete candidate pull request, not only the dirty worktree. Resolve and fetch the repository default branch, then compute `<merge-base>` with `git merge-base <default-remote-ref> HEAD`. Cover one net tracked candidate with `git diff <merge-base> -- <changed paths>`. Add one `git diff --no-index /dev/null <path>` hunk for each untracked path. `git status --porcelain` still names dirty paths. Name every changed path that no Steps `Files` cell mentions in the review request.',
-    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'manager-review-scope-guard',
+    text: 'At the start of every round, build a fresh review diff from the complete candidate pull request, not only the dirty worktree.',
+    files: [MANAGER_SKILL],
   },
   {
     name: 'reviewed-pr-diff-match',
     text: 'After pull-request creation, record `headRefOid` and compare the changed paths and hunks from `gh pr diff` with the reviewed net candidate. Any mismatch invalidates the pass and blocks merge.',
-    files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'manager-reviewed-pr-diff-match',
+    text: 'Record its `headRefOid` and compare the changed paths and hunks from `gh pr diff` with the reviewed net candidate. Any mismatch invalidates the pass and blocks merge.',
+    files: [MANAGER_SKILL],
   },
   {
     name: 'nonlocal-effect-confirmation',
@@ -125,7 +178,7 @@ const V3_PINNED_CLAUSES = [
   },
   {
     name: 'record-backend',
-    text: 'The plan record is a GitHub issue. Its body carries the v3 byte contract and the human-authored plan, while GitHub fields carry the machine state GitHub already owns. No plan markdown is tracked in the repository.',
+    text: 'The plan record is a GitHub issue. Its body carries the v3 byte contract and the human-authored plan, review records live in issue comments, and GitHub fields carry the machine state GitHub already owns. No plan markdown is tracked in the repository.',
     files: [PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
@@ -134,9 +187,34 @@ const V3_PINNED_CLAUSES = [
     files: [MANAGER_SKILL, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
-    name: 'default-pr-landing',
-    text: 'After `Code-review: pass`, the manager runs landing without another prompt: ensure a non-default branch, commit exactly the reviewed bytes under `docks:commit-discipline`, push normally, and create or update one pull request that carries `Closes #<issue>` and targets the repository default branch.',
+    name: 'show-review-summary',
+    text: 'The header strip is `#<issue> · <status> · <title> · <url>`. `show` prints `reviews: plan=<pass|repair|blocked|none> code=<pass|fixes-required|blocked|none>` on the next line. With `show --body`, the record alone goes to stdout and both metadata lines go to stderr, header first.',
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'plan-only-resume-body',
+    text: 'A later session resumes by reading the full record with `plan.mjs show <issue> --body`.',
+    files: [MANAGER_SKILL],
+  },
+  {
+    name: 'implement-branch-clean-tree',
+    text: 'Before any branch checkout, and specifically before any `gh issue develop --checkout`, require `git status --porcelain` to be empty. If it is dirty, never stash, move, or commit the ambient work. Set the plan `blocked` and name the dirty paths, or continue only in an authorized clean worktree.',
     files: [MANAGER_SKILL, ISSUE_PUBLICATION, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'implement-linked-branch',
+    text: "Pass `--repo <nameWithOwner>` to every `gh issue develop` call. First run `gh issue develop <issue> --repo <nameWithOwner> --list`. If it reports a linked branch, verify that branch belongs to the resolved repository, fetch it, and check it out. Otherwise run `gh issue develop <issue> --repo <nameWithOwner> --base <default-branch> --checkout`. After either path, verify that the checked-out branch is the issue's linked branch.",
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'default-pr-landing',
+    text: 'After `Code-review: pass`, commit and push any remaining reviewed bytes, then create or update one pull request carrying `Closes #<issue>` and targeting the repository default branch. This landing work needs no additional prompt.',
+    files: [ISSUE_PUBLICATION, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
+    name: 'manager-default-pr-landing',
+    text: 'After a pass, commit and push any remaining reviewed bytes, then create or update the closing pull request under `## Landing`.',
+    files: [MANAGER_SKILL],
   },
   {
     name: 'ci-check-discovery',
@@ -155,23 +233,33 @@ const V3_PINNED_CLAUSES = [
   },
   {
     name: 'repository-landing-summary',
-    text: "Routine plan issue publication and post-review landing through a branch, commit, normal push, and closing pull request carry the settled mode's authorization and need no repeated prompt. After the checks policy passes, the manager asks immediately before merge. Without a fresh `Merge now` answer, it leaves the pull request and issue open. `plan.mjs archive` verifies the merged closing pull request after landing.",
+    text: "Routine plan issue publication, implement-start linked branch creation, commits, normal pushes, and the closing pull request carry the settled mode's authorization and need no repeated prompt.",
+    files: [WORKSPACE_SKILL, ROOT_AGENTS],
+  },
+  {
+    name: 'generated-clean-tree-summary',
+    text: 'Before any branch checkout, including `gh issue develop --checkout`, require `git status --porcelain` to be empty. If it is dirty, never stash, move, or commit ambient work; set the plan `blocked` and name the dirty paths, or use an authorized clean worktree.',
     files: [WORKSPACE_SKILL, ROOT_AGENTS],
   },
   {
     name: 'readme-landing-summary',
-    text: 'The lifecycle runs six phases: decide, draft, research, one plan review, implement, and one post-implementation code review. After review passes, it commits and pushes the reviewed branch, opens the closing pull request, and waits for repository CI. It then asks `Merge now` or `Leave pull request open`. Without a fresh `Merge now` answer, it leaves the pull request and issue open. After an approved merge, `plan.mjs archive` verifies the merged closing pull request.',
+    text: 'The lifecycle runs six phases: decide, draft, research, plan review, implement, and code review. Plan repairs are re-reviewed from fresh exports, and code fixes are re-reviewed from fresh diffs, with a five-round ceiling in each review phase. Each reviewer returns one markdown block that the manager stores as one issue comment. When implementation starts, the manager reuses or creates the GitHub-linked plan branch. After code review passes, it commits and pushes any remaining reviewed bytes, opens the closing pull request, and waits for repository CI. It then asks `Merge now` or `Leave pull request open`. Without a fresh `Merge now` answer, it leaves the pull request and issue open. After an approved merge, `plan.mjs archive` verifies the merged closing pull request.',
     files: [README_MD],
   },
   {
     name: 'shipped-readme-landing-summary',
-    text: 'After review passes, the manager commits and pushes the reviewed branch, opens the closing pull request, waits for repository CI, and asks `Merge now` or `Leave pull request open`. Without a fresh `Merge now` answer, it leaves the pull request and issue open. After an approved merge, `plan.mjs archive` verifies the merged closing pull request.',
+    text: 'Plan repairs are re-reviewed from fresh exports, and code fixes are re-reviewed from fresh diffs, with a five-round ceiling in each review phase. Each reviewer returns one markdown block that the manager stores as one issue comment. When implementation starts, the manager reuses or creates the GitHub-linked plan branch. After code review passes, it commits and pushes any remaining reviewed bytes, opens the closing pull request, waits for repository CI, and asks `Merge now` or `Leave pull request open`. Without a fresh `Merge now` answer, it leaves the pull request and issue open. After an approved merge, `plan.mjs archive` verifies the merged closing pull request.',
     files: [DOCKS_README],
   },
   {
     name: 'lifecycle-authoring-landing-boundary',
-    text: 'default issue and pull-request publication, explicit merge confirmation',
+    text: 'comment-backed review records, five-round plan and code review repair loops, implement-start linked-branch publication, default pull-request landing, explicit merge confirmation',
     files: [LIFECYCLE_SKILLS_AGENTS],
+  },
+  {
+    name: 'descriptor-coherence',
+    text: 'Cross-tool GitHub-issue plan lifecycle with marker-based plan bodies, comment-backed review records, implement-start linked branches, bounded plan and code review repair loops, and two read-only reviewer wrappers.',
+    files: [CLAUDE_PLAN_MANIFEST, CODEX_PLAN_MANIFEST, CLAUDE_MARKETPLACE],
   },
   {
     name: 'executor-landing-handoff',
@@ -195,7 +283,7 @@ const V3_PINNED_CLAUSES = [
   },
   {
     name: 'archive-verifier',
-    text: '`plan.mjs archive` is a verifier, not a writer of lifecycle state. It requires all Steps rows to be terminal (`done` or `skipped`), a line matching exactly `Code-review: pass` in `## Review`, and an issue already closed as completed by an eligible merged pull request. It writes no status. On success it removes any stale phase label and prints `plan #<n> finished (closed by <url>)`.',
+    text: '`plan.mjs archive` is a verifier, not a writer of lifecycle state. It requires all Steps rows to be terminal (`done` or `skipped`), the latest trusted well-formed code-review comment to carry `Code-review: pass`, and an issue already closed as completed by an eligible merged pull request. It accepts an exact legacy body line `Code-review: pass` only when no trusted well-formed code-review comment exists. It writes no status. On success it removes any stale phase label and prints `plan #<n> finished (closed by <url>)`.',
     files: [PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
@@ -203,13 +291,18 @@ const V3_PINNED_CLAUSES = [
     text: 'A plan-issue write is a read-modify-write, and the GitHub API offers no precondition for it. Every mutating command re-reads the issue body immediately before the edit, refuses when it differs from the body it read, and re-reads after the edit to confirm the pushed bytes.',
     files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
+  {
+    name: 'frozen-history-boundary',
+    text: 'No lifecycle command or workspace migration operation opens, inventories, parses, classifies, lists, or migrates it.',
+    files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
 ];
 const CONTRACT_CLASSIFICATION_PINS = [
   { name: 'v3 marker', text: '<!-- plan-contract: v3 -->' },
   { name: 'unreadable outcome', text: '| Anything else | unreadable | Refused; no parser is attempted |' },
   {
-    name: 'byte-preserving migration rule',
-    text: '`docs/plans/finished/` holds records written before the lifecycle moved to issues; it is history, never a source of truth, and no command reads it.',
+    name: 'frozen-history-human-read-boundary',
+    text: '`docs/plans/finished/` holds records written before the lifecycle moved to issues. Humans may read it as history, but it is never a source of truth.',
   },
 ];
 

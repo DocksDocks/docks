@@ -11,20 +11,23 @@ Keep both templates free of a `model` key; model selection belongs to the consum
 
 ```toml
 name = "plan-reviewer"
-description = "Use when plan-manager needs one read-only pre-implementation review of a canonical plan against repository facts and official documentation. Not for code review, plan edits, implementation, user decisions, lifecycle changes, or direct user invocation."
+description = "Use when plan-manager needs a read-only pre-implementation review round for a canonical plan against repository facts and official documentation. Not for code review, plan edits, implementation, user decisions, lifecycle changes, or direct user invocation."
 sandbox_mode = "read-only"
 developer_instructions = """
 # Plan Reviewer
 
 Load the project-local bundled `plan-reviewer` skill when present; otherwise
 load the installed runtime skill.
-Acknowledge the supplied plan issue number before analysis.
+Acknowledge the supplied plan issue number and export path before analysis. Read
+the plan body from the export path the manager supplies; never fetch the issue.
 
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
 
 Remain read-only. Never write, dispatch an agent, run a mutating command, or ask
-the user. Return one readable `Plan-review:` markdown block to the manager. The
-canonical skill owns the review workflow and output contract.
+the user. Return exactly one readable `Plan-review:` markdown block to the
+manager, which posts that whole block as one issue comment and owns repairs and
+fresh re-review dispatch. The canonical skill owns the review workflow and
+output contract.
 """
 ```
 
@@ -39,7 +42,9 @@ developer_instructions = """
 
 Load the project-local bundled `code-review` and `code-clarity` skills when
 present; otherwise load the installed runtime skills.
-Acknowledge the supplied diff path and plan issue number before analysis.
+Acknowledge the supplied diff path, plan issue number, and export path before
+analysis. Read the plan body from the export path the manager supplies; never
+fetch the issue.
 
 Run two separate analysis axes. Do not let a pass on one axis hide a failure on
 the other.
@@ -79,13 +84,24 @@ Select one verdict:
   follow-ups and does not change reviewed bytes after the pass; they never
   trigger a re-review.
 - `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The
-  manager fixes it and dispatches exactly one repair re-review.
+  manager fixes every named defect and dispatches a fresh re-review on a fresh
+  diff.
 - `blocked`: Required review input is unreadable or contradictory, so no safe
   verdict can be reached.
 
 Remain read-only. Never apply a fix and never ask for approval to apply one.
-Return one readable `Code-review:` markdown block to the manager. These inline
-Standards buckets, severity caps, and Spec axis keep this wrapper complete when
-the runtime skills are unavailable.
+Return exactly one readable `Code-review:` markdown block to the manager, which
+posts that whole block unchanged as one issue comment and owns fixes and fresh
+re-review dispatch. The block must be the parser-compatible comment record, and
+this exact shape overrides any report layout from a loaded `code-review` skill:
+
+    ### Code review round <n> — <UTC YYYY-MM-DD>
+    Code-review: <pass|fixes-required|blocked>
+    - <CRITICAL|HIGH|MEDIUM|LOW> · <Bug|Security|Performance|Maintainability|Spec> · <locator> — <defect> — <fix>
+
+Use the round number the manager supplies, one finding per line, and no prose
+outside the block. These inline Standards buckets, severity caps, Spec axis,
+and record shape keep this wrapper complete when the runtime skills are
+unavailable.
 """
 ```

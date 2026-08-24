@@ -60,13 +60,17 @@ Plus `write-skill`, `multi-tool-bridge`, and `zoom-out` under `productivity/`.
 
 The plan lifecycle ships separately as the self-versioned `plan-lifecycle`
 plugin in this same marketplace. It includes three skills, the shipped
-`plan.mjs`, a markdown-only v3 plan contract, and the read-only `plan-reviewer`
-and `code-reviewer` wrappers. After review passes, the manager commits and
-pushes the reviewed branch, opens the closing pull request, waits for repository
-CI, and asks `Merge now` or `Leave pull request open`. Without a fresh
-`Merge now` answer, it leaves the pull request and issue open. After an approved
-merge, `plan.mjs archive` verifies the merged closing pull request. Every docks
-route into that lifecycle is fail-loud:
+`plan.mjs`, a marker-based plan contract, and the read-only `plan-reviewer` and
+`code-reviewer` wrappers. Plan repairs are re-reviewed from fresh exports, and
+code fixes are re-reviewed from fresh diffs, with a five-round ceiling in each
+review phase. Each reviewer returns one markdown block that the manager stores
+as one issue comment. When implementation starts, the manager reuses or creates
+the GitHub-linked plan branch. After code review passes, it commits and pushes
+any remaining reviewed bytes, opens the closing pull request, waits for
+repository CI, and asks `Merge now` or `Leave pull request open`. Without a
+fresh `Merge now` answer, it leaves the pull request and issue open. After an
+approved merge, `plan.mjs archive` verifies the merged closing pull request.
+Every docks route into that lifecycle is fail-loud:
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
 

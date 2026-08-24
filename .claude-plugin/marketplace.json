@@ -66,7 +66,7 @@
     {
       "name": "plan-lifecycle",
       "source": "./plugins/plan-lifecycle",
-      "description": "Cross-tool GitHub-issue plan lifecycle: a marker-based v3 issue-body record, six phases (decide, draft, research, one plan review, implement, code review), and two read-only reviewer wrappers, plan-reviewer and code-reviewer.",
+      "description": "Cross-tool GitHub-issue plan lifecycle with marker-based plan bodies, comment-backed review records, implement-start linked branches, bounded plan and code review repair loops, and two read-only reviewer wrappers.",
       "version": "0.7.0",
       "author": {
         "name": "Eduardo Marquez"

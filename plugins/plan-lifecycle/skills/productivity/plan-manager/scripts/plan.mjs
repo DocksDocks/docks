@@ -64,6 +64,10 @@ const ASSOCIATED_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$oid:
     }
   }
 }`;
+const REVIEW_VERDICTS = {
+  plan: new Set(['pass', 'repair', 'blocked']),
+  code: new Set(['pass', 'fixes-required', 'blocked']),
+};
 let repository;
 let actingLogin;
  
@@ -262,7 +266,7 @@ export function checkPlan(planText, planRef) {
 }
 
 function planTemplate(goal, mode) {
-  return `${V3_MARKER}\n\n## Goal\n\n${goal}\n\nMode: ${mode}\n\n## Research\n\n_Not researched yet._\n\n## Steps\n\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n\n## Acceptance\n\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}\n\n## Do not touch\n\nNone\n\n## Open questions\n\nNone\n\n## Review\n\n_No review yet._\n\n## Verification Results\n\n_Not implemented yet._\n`;
+  return `${V3_MARKER}\n\n## Goal\n\n${goal}\n\nMode: ${mode}\n\n## Research\n\n_Not researched yet._\n\n## Steps\n\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n\n## Acceptance\n\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}\n\n## Do not touch\n\nNone\n\n## Open questions\n\nNone\n\n## Review\n\n_Review records are stored in issue comments._\n\n## Verification Results\n\n_Not implemented yet._\n`;
 }
 
 function replaceBlockedReason(planText, reason) {
@@ -414,6 +418,80 @@ function parseIssueNumber(value) {
 
 function issueView(number, fields = ISSUE_FIELDS, repo = repository.nameWithOwner) {
   return parseJson(runGh(['issue', 'view', String(number), '--json', fields, '--repo', repo]), 'gh issue view');
+}
+
+function issueComments(number) {
+  const { owner, name } = repositoryCoordinates();
+  const pages = parseJson(
+    runGh(['api', `repos/${owner}/${name}/issues/${number}/comments`, '--paginate', '--slurp']),
+    'gh api issue comments',
+  );
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    fail('gh api issue comments returned malformed comments');
+  }
+  return pages.flat();
+}
+
+function parseReviewComment(body) {
+  if (typeof body !== 'string') return undefined;
+  const lines = body.trim().split(/\r?\n/);
+  let kind;
+  if (/^### Plan review — \d{4}-\d{2}-\d{2}$/.test(lines[0] ?? '')) kind = 'plan';
+  else if (/^### Code review round [1-9]\d* — \d{4}-\d{2}-\d{2}$/.test(lines[0] ?? '')) kind = 'code';
+  else return undefined;
+
+  const verdictPrefix = kind === 'plan' ? 'Plan-review: ' : 'Code-review: ';
+  const verdict = lines[1]?.startsWith(verdictPrefix) ? lines[1].slice(verdictPrefix.length) : undefined;
+  if (!REVIEW_VERDICTS[kind].has(verdict)) return undefined;
+
+  const findings = lines.slice(2);
+  if (findings.some((line) => line.length === 0)) return undefined;
+  if (kind === 'plan') {
+    if (verdict === 'pass' && findings.length > 0) return undefined;
+    if (verdict !== 'pass' && findings.length === 0) return undefined;
+    if (findings.some((line) => !/^- \[(?:goal_fit|research_gap|security_risk)\] .+ — .+ — .+$/.test(line))) {
+      return undefined;
+    }
+  } else {
+    const parsedFindings = findings.map((line) => (
+      /^- (CRITICAL|HIGH|MEDIUM|LOW) · (?:Bug|Security|Performance|Maintainability|Spec) · .+ — .+ — .+$/.exec(line)
+    ));
+    if (parsedFindings.some((finding) => finding === null)) return undefined;
+    const severities = parsedFindings.map((finding) => finding[1]);
+    if (verdict === 'pass' && severities.some((severity) => severity === 'CRITICAL' || severity === 'HIGH')) return undefined;
+    if (verdict === 'fixes-required' && !severities.some((severity) => severity === 'CRITICAL' || severity === 'HIGH')) return undefined;
+    if (verdict === 'blocked' && findings.length === 0) return undefined;
+  }
+  return { kind, verdict };
+}
+
+function legacyReviewVerdict(body, kind) {
+  const { sections } = sectionMap(body);
+  const prefix = kind === 'plan' ? 'Plan-review' : 'Code-review';
+  const matches = [
+    ...blankFencedRegions(sections.get('Review') ?? '').matchAll(new RegExp(`^${prefix}: ([^\\r\\n]+)$`, 'gm')),
+  ];
+  const verdict = matches.at(-1)?.[1];
+  return REVIEW_VERDICTS[kind].has(verdict) ? verdict : undefined;
+}
+
+function reviewVerdicts(issue) {
+  const owners = (issue.assignees ?? []).map((assignee) => assignee.login).filter(Boolean);
+  const trustedOwner = owners.length === 1 ? owners[0] : undefined;
+  const verdicts = {};
+  for (const comment of issueComments(issue.number)) {
+    const review = parseReviewComment(comment?.body);
+    if (trustedOwner && comment?.user?.login === trustedOwner && review) verdicts[review.kind] = review.verdict;
+  }
+  for (const kind of ['plan', 'code']) {
+    if (verdicts[kind] === undefined) verdicts[kind] = legacyReviewVerdict(issue.body, kind);
+  }
+  return verdicts;
+}
+
+function reviewSummary(issue) {
+  const verdicts = reviewVerdicts(issue);
+  return `reviews: plan=${verdicts.plan ?? 'none'} code=${verdicts.code ?? 'none'}`;
 }
 
 function readPlanIssue(value, forWrite = false) {
@@ -610,13 +688,13 @@ function showPlan(args) {
   const [value, ...flags] = args;
   if (!value || flags.some((flag) => flag !== '--body') || flags.length > 1) fail('show requires an issue and optional --body');
   const { issue, record } = readPlanIssue(value);
-  const header = headerStrip(issue, record.status);
+  const metadata = `${headerStrip(issue, record.status)}\n${reviewSummary(issue)}`;
   if (flags[0] === '--body') {
-    console.error(header);
+    console.error(metadata);
     process.stdout.write(issue.body);
     return;
   }
-  console.log(header);
+  console.log(metadata);
 }
 
 function reviewDirectory() {
@@ -895,7 +973,7 @@ function archivePlan(args, retired = false) {
     const steps = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8).rows;
     const unfinished = steps.length === 0 ? { cells: ['', '(missing)'] } : steps.find(({ cells }) => !new Set(['done', 'skipped']).has(unquoteCode(cells[6])));
     if (unfinished) fail(`archive refused: non-terminal step ${unfinished.cells[1]}`);
-    if (!/^Code-review: pass$/m.test(sections.get('Review') ?? '')) fail('archive requires Code-review: pass');
+    if (reviewVerdicts(issue).code !== 'pass') fail('archive requires Code-review: pass');
 
     const { closing, closingCommitOid, defaultBranch } = archivePullRequestReferences(issue.number);
     const landedInto = (references, branch) => references.find((reference) => (

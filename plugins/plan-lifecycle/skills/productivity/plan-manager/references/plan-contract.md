@@ -97,7 +97,7 @@ exactly these eight `##` sections, in this order, each present once: `## Goal`,
 | `## Acceptance` | The Acceptance table below. |
 | `## Do not touch` | Paths and behaviors the change must leave alone. `None` when nothing applies. |
 | `## Open questions` | Decisions only the user can make. `None` when there are none. Only a blocked plan starts with `Blocked:`. |
-| `## Review` | Plan-review and code-review records, appended by the manager. |
+| `## Review` | Exactly `_Review records are stored in issue comments._`; legacy v3 bodies may still contain the retired body-appended records described below. |
 | `## Verification Results` | Observed commands and their real output, written during implementation. |
 
 The body contains no absolute machine path. A plan is a cold handoff, and a path
@@ -148,12 +148,21 @@ longer available. Post-merge work belongs to a named follow-up plan.
 Ids are unique. Commands run from the repository root and carry no
 `cd <absolute path>` prefix.
 
-## Review records — readable markdown, no hashes
+## Review records — one issue comment per reviewer report
 
-The manager appends to `## Review`. Two record shapes, exactly:
+`## Review` is a static pointer, not a review log:
 
-Before dispatch, the manager runs `plan.mjs export <issue>` and passes the
+```markdown
+_Review records are stored in issue comments._
+```
+
+Before every dispatch, the manager runs `plan.mjs export <issue>` and passes the
 printed absolute path; the reviewer reads the export path the manager supplies.
+For code review, the manager also supplies the fresh round diff described by the
+manager skill.
+
+The reviewer returns exactly one markdown block. The manager posts that whole
+block as one issue comment without editing it. The two exact shapes are:
 
 ```markdown
 ### Plan review — 2026-08-08
@@ -167,18 +176,49 @@ Code-review: fixes-required
 - HIGH · Security · plugins/x/y.mjs:41 — user input reaches `execSync` unquoted — pass argv array to `spawnSync`
 ```
 
-`Plan-review:` is exactly `pass`, `repair`, or `blocked`. `Code-review:` is
-exactly `pass`, `fixes-required`, or `blocked`. A code-review `pass` means no
-`CRITICAL` or `HIGH` finding stands unfixed; it carries only advisory `MEDIUM`
-and `LOW` lines, or none. Record each advisory as a follow-up and do not change
-reviewed bytes after a pass; an advisory never triggers a re-review.
-`fixes-required` names at least one evidenced `CRITICAL` or `HIGH` defect and
-forces exactly one repair re-review; if that re-review still returns
-`fixes-required`, the manager appends `Code-review: blocked` and sets the plan
-`blocked`. A `blocked` verdict has at least one finding line.
+A well-formed record occupies the whole trimmed comment. It has the exact
+matching heading with a UTC `YYYY-MM-DD` date, then exactly one allowed verdict
+line, then only finding lines valid for that review kind. Extra prose, multiple
+records, a missing heading, or an invalid verdict makes the comment ineligible.
+`Plan-review:` is exactly `pass`, `repair`, or `blocked`. A plan-review `pass`
+has no finding lines; `repair` and `blocked` have at least one line in the shape
+`- [<kind>] <locator> — <defect> — <fix>`, where `<kind>` is exactly
+`goal_fit`, `research_gap`, or `security_risk`.
+`Code-review:` is exactly `pass`, `fixes-required`, or `blocked`. Each finding
+uses the one-line severity, category, location, defect, and fix shape shown
+above. `fixes-required` and `blocked` have at least one finding.
+
+A record is trusted only when the issue has exactly one assignee and the
+comment's author login equals that assignee. For each review kind independently,
+the latest trusted well-formed comment wins, ordered by `createdAt` with API
+order as the tie-break. Foreign-authored, malformed, and superseded comments
+never establish current review state. A legacy verdict in the body is consulted
+for one review kind only when there is no trusted well-formed comment record of
+that kind.
+
+A code-review `pass` means no `CRITICAL` or `HIGH` finding stands unfixed; it
+carries only advisory `MEDIUM` and `LOW` lines, or none. After a pass, record
+each advisory as follow-up work and do not change reviewed bytes; advisory
+findings never trigger another review. `fixes-required` names at least one
+evidenced `CRITICAL` or `HIGH` defect.
 
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or
 `security_risk`; nothing else is a finding. A sufficient plan passes.
+
+Both review phases run at most five rounds. Each round uses a fresh plan export;
+each code-review round also uses a fresh complete-candidate diff. On rounds 1
+through 4, a `repair` or `fixes-required` verdict requires every reproduced or
+named finding to be fixed, followed by a fresh export or diff and a fresh
+review. A repair that changes no relevant bytes is no progress. A finding
+repeated in the next round survived its fix. Either condition stops the loop,
+as does `repair` or `fixes-required` in round 5; there is no sixth-round repair.
+
+A plan-review `blocked` verdict routes its user-only decision through
+`## Open questions` and `ask`; the verdict alone is not a lifecycle block. A
+technical code-review `blocked` verdict stops immediately. After implementation
+has started, a technical block or any terminal repair failure requires the
+manager to commit and normally push all current work to the verified linked
+branch before recording the blocker, setting the plan `blocked`, and stopping.
 
 ## Lifecycle state — derived from GitHub
 
@@ -224,7 +264,9 @@ Classification follows the body bytes without guessing:
 A plan-issue write is a read-modify-write, and the GitHub API offers no
 precondition for it. Every mutating command re-reads the issue body immediately
 before the edit, refuses when it differs from the body it read, and re-reads
-after the edit to confirm the pushed bytes.
+after the edit to confirm the pushed bytes. Review-record publication is
+instead one append-only issue-comment write of the reviewer's unchanged block;
+it never enters the export/edit body cycle.
 
 A conflict is not permission to retry blindly. Re-read the issue, re-apply the
 intended change, and run `plan.mjs check <issue>` before continuing.
@@ -249,17 +291,50 @@ Render a plan body verbatim only when the user names that plan and asks to see
 it. After a write, report the one-line header strip and the changed lines only;
 a write never re-renders the body.
 
-The header strip is `#<issue> · <status> · <title> · <url>`.
+The header strip is `#<issue> · <status> · <title> · <url>`. `show` prints
+`reviews: plan=<pass|repair|blocked|none> code=<pass|fixes-required|blocked|none>`
+on the next line. With `show --body`, the record alone goes to stdout and both
+metadata lines go to stderr, header first.
 
 ## Landing
 
-Work lands through a pull request whose body carries `Closes #<issue>` and whose
-base is the target repository's default branch.
+One writer owns a plan issue at a time, recorded in the issue's GitHub assignee
+field. `plan.mjs new` claims ownership at creation and `plan.mjs claim <issue>`
+claims an existing plan. Ownership is a precondition, not advice: every mutating
+command refuses a plan owned by another login, writes nothing when it refuses,
+and claims an unassigned plan in the same write. Read-only commands never check
+ownership.
 
-After `Code-review: pass`, the manager runs landing without another prompt:
-ensure a non-default branch, commit exactly the reviewed bytes under
-`docks:commit-discipline`, push normally, and create or update one pull request
-that carries `Closes #<issue>` and targets the repository default branch.
+Routine linked-branch creation, commits, and normal pushes are authorized when
+the settled `plan-and-implement` run enters phase 5. They are not Steps rows and
+need no separate effect confirmation. A `plan-only` run stops before phase 5 and
+never creates a branch.
+
+Immediately after setting the plan `ongoing`, resolve the target repository's
+`nameWithOwner` and `defaultBranchRef.name`.
+
+Before any branch checkout, and specifically before any `gh issue develop
+--checkout`, require `git status --porcelain` to be empty. If it is dirty, never
+stash, move, or commit the ambient work. Set the plan `blocked` and name the
+dirty paths, or continue only in an authorized clean worktree.
+
+Pass `--repo <nameWithOwner>` to every `gh issue develop` call. First run
+`gh issue develop <issue> --repo <nameWithOwner> --list`. If it reports a
+linked branch, verify that branch belongs to the resolved repository, fetch it,
+and check it out. Otherwise run `gh issue develop <issue> --repo
+<nameWithOwner> --base <default-branch> --checkout`. After either path, verify
+that the checked-out branch is the issue's linked branch.
+
+After any list, create, fetch, or checkout failure, re-run the repository-scoped
+`--list`. If it reports a linked branch, verify that branch belongs to the
+resolved repository, fetch it, and check it out. If recovery cannot verify and
+check out a linked branch, record the blocker, set the plan `blocked`, and stop.
+There is no local or unlinked fallback, and implementation never starts on an
+unverified branch.
+
+After `Code-review: pass`, commit and push any remaining reviewed bytes, then
+create or update one pull request carrying `Closes #<issue>` and targeting the
+repository default branch. This landing work needs no additional prompt.
 
 Never treat an empty first checks result as success. Retry
 `gh pr checks --json name,bucket` at most 12 times with a 10-second delay until
@@ -286,20 +361,15 @@ Only the pull request that lands the completed work carries `Closes #<issue>`.
 A partial pull request carries plain `Refs #<issue>`. `archive` verifies the
 merged result rather than causing it.
 
-One writer owns a plan issue at a time, recorded in the issue's GitHub assignee
-field. `plan.mjs new` claims ownership at creation and `plan.mjs claim <issue>`
-claims an existing plan. Ownership is a precondition, not advice: every mutating
-command refuses a plan owned by another login, writes nothing when it refuses,
-and claims an unassigned plan in the same write. Read-only commands never check
-ownership.
-
 ## Archive verification
 
 `archive` is a verifier, not a status writer. It requires the issue already
 closed with `stateReason: COMPLETED`, every Steps row terminal (`done` or
-`skipped`), and a line exactly `Code-review: pass` in `## Review`. That pass
-line may carry advisory `MEDIUM` and `LOW` finding lines beneath it; only an
-unfixed `CRITICAL` or `HIGH` keeps a plan from archiving.
+`skipped`), and the latest trusted well-formed code-review comment to carry
+`Code-review: pass`. It accepts an exact legacy body line
+`Code-review: pass` only when no trusted well-formed code-review comment exists.
+A pass may carry advisory `MEDIUM` and `LOW` finding lines; an unfixed
+`CRITICAL` or `HIGH` keeps a plan from archiving.
 
 `archive` also requires a merged closing pull request into the target
 repository's default branch. It reads `closedByPullRequestsReferences` with
@@ -356,6 +426,7 @@ record, and no reader consults it.
 
 ## Frozen pre-GitHub history
 
-`docs/plans/finished/` is frozen pre-GitHub history. It is read-only historical
-material, not a source of truth. No command reads, parses, classifies, lists, or
-migrates it.
+`docs/plans/finished/` is frozen pre-GitHub history. Humans may read it as
+history, but it is not a source of truth for this lifecycle. No lifecycle
+command or workspace migration operation opens, inventories, parses,
+classifies, lists, or migrates it.

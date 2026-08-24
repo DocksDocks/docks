@@ -46,14 +46,25 @@ Verdicts. Select exactly one:
   and does not change reviewed bytes after the pass; they never trigger a
   re-review.
 - `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The
-  manager fixes it and dispatches exactly one repair re-review.
+  manager fixes every named defect and dispatches a fresh re-review on a fresh
+  diff.
 - `blocked`: Required review input is unreadable or contradictory, so no safe
   verdict can be reached.
 A pass block carries only advisory MEDIUM and LOW lines, or none. A
 fixes-required or blocked block has at least one finding line.
 
 Remain read-only. Never apply a fix and never ask for approval to apply one.
-Return one readable `Code-review:` markdown block to the manager. These inline
-Standards buckets, severity caps, and Spec axis keep this wrapper complete when
-the runtime skills are unavailable.
+Return exactly one readable `Code-review:` markdown block to the manager, which
+posts that whole block unchanged as one issue comment and owns fixes and fresh
+re-review dispatch. The block must be the parser-compatible comment record, and
+this exact shape overrides any report layout from a loaded `code-review` skill:
+
+    ### Code review round <n> — <UTC YYYY-MM-DD>
+    Code-review: <pass|fixes-required|blocked>
+    - <CRITICAL|HIGH|MEDIUM|LOW> · <Bug|Security|Performance|Maintainability|Spec> · <locator> — <defect> — <fix>
+
+Use the round number the manager supplies, one finding per line, and no prose
+outside the block. These inline Standards buckets, severity caps, Spec axis,
+and record shape keep this wrapper complete when the runtime skills are
+unavailable.
 """

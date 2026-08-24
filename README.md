@@ -70,15 +70,16 @@ a canonical plan for explicit planning, multi-commit/cross-repository work,
 scheduling, cold handoff, unresolved decisions, cross-subsystem/public-contract
 changes, security-sensitive/destructive work, or an external effect.
 
-The three lifecycle skills, shipped `plan.mjs`, markdown-only v2 contract
+The three lifecycle skills, shipped `plan.mjs`, marker-based contract
 reference, and two read-only reviewer wrappers ship as the self-versioned
 `plan-lifecycle` plugin (`plugins/plan-lifecycle/`), installable from this same
-marketplace. Plan records live in GitHub issue bodies.
+marketplace. Plan bodies and comment-backed review records live on GitHub
+issues.
 
 | Owner | Skill | Invocation | Responsibility |
 |---|---|---|---|
 | Workspace | `plan-workspace` | Public | Create the plan label set and maintain `docs/PLAN.md` plus the `docs/AGENTS.md`/`docs/CLAUDE.md` pair; never mutate an individual plan issue |
-| Orchestration | `plan-manager` | Public, main context | Decide → draft → research → one plan review → implement → code review; archive after a passing review and a merged pull request closes the issue |
+| Orchestration | `plan-manager` | Public, main context | Decide → draft → research → plan review → implement → code review; repair and freshly re-review both review phases, then archive after a pass and a merged closing pull request |
 | Plan review | `plan-reviewer` | Internal, read-only | Check only `goal_fit`, `research_gap`, and `security_risk` before implementation |
 | Code review | `code-reviewer` | Internal, read-only | Review the implemented diff against code standards and the plan |
 
@@ -87,13 +88,16 @@ seeded as thin Claude/Codex wrappers; main context invokes `plan-manager`
 directly. The docks pipelines route to these skills and stop, naming the missing
 `plan-lifecycle` plugin, when they are unavailable.
 
-The lifecycle runs six phases: decide, draft, research, one plan review,
-implement, and one post-implementation code review. After review passes, it
-commits and pushes the reviewed branch, opens the closing pull request, and
-waits for repository CI. It then asks `Merge now` or
-`Leave pull request open`. Without a fresh `Merge now` answer, it leaves the
-pull request and issue open. After an approved merge, `plan.mjs archive`
-verifies the merged closing pull request.
+The lifecycle runs six phases: decide, draft, research, plan review, implement,
+and code review. Plan repairs are re-reviewed from fresh exports, and code fixes
+are re-reviewed from fresh diffs, with a five-round ceiling in each review
+phase. Each reviewer returns one markdown block that the manager stores as one
+issue comment. When implementation starts, the manager reuses or creates the
+GitHub-linked plan branch. After code review passes, it commits and pushes any
+remaining reviewed bytes, opens the closing pull request, and waits for
+repository CI. It then asks `Merge now` or `Leave pull request open`. Without a
+fresh `Merge now` answer, it leaves the pull request and issue open. After an
+approved merge, `plan.mjs archive` verifies the merged closing pull request.
 
 Every Steps row has `Effect` exactly
 `local|probe|production_access|publish|push|release|deploy`. Each non-`local`
@@ -112,7 +116,7 @@ The complete contract lives in `docs/PLAN.md`.
 │   │   ├── .claude-plugin/plugin.json
 │   │   ├── skills/                    ← cross-tool skills
 │   │   └── README.md                  ← plugin-facing docs
-│   ├── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (three skills + plan.mjs + v2 contract + two read-only reviewer wrappers)
+│   ├── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (three skills + plan.mjs + marker contract + two read-only reviewer wrappers)
 │   └── effect-kit/                    ← Effect-TS skill kit plugin
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)

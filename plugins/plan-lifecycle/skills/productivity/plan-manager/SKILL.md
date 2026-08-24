@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-21"
-  content_hash: "0f0f3ca545c47bbd5314402248b3047d6a3e50e3604d4e6fd0da4d7862844d4b"
+  updated: "2026-08-24"
+  content_hash: "5eb53874c837ebabd120371a2f5e8a81125eed5c1d504dc8d119c5d942daef12"
 ---
 
 # Plan Manager
@@ -16,10 +16,11 @@ clear, reversible local change with one bounded acceptance path.
 
 <constraint>
 Exactly three skills own the six-phase flow. `plan-workspace` maintains the
-workspace. Main-context `plan-manager` decides, drafts, researches, dispatches
-one plan review, implements, dispatches code review, and archives. Internal
-`plan-reviewer` returns the read-only pre-implementation verdict. Main context
-owns user questions, finding disposition, edits, verification, and lifecycle.
+workspace. Main-context `plan-manager` decides, drafts, researches, runs the
+bounded plan-review and code-review loops, implements, lands, and archives.
+Internal `plan-reviewer` returns each read-only pre-implementation verdict.
+Main context owns user questions, finding disposition, edits, verification,
+review-comment publication, and lifecycle.
 </constraint>
 
 <constraint>
@@ -28,8 +29,8 @@ The plan record is a GitHub issue. Its body starts with
 sections; it has no frontmatter. GitHub owns title, phase, owner, timestamps,
 and completion. Use the v3 contract in
 [`references/plan-contract.md`](references/plan-contract.md) for the exact body,
-table headers, record shapes, status derivation, and archive verification. Do
-not restate or extend those shapes here.
+table headers, review-comment records, status derivation, and archive
+verification. Do not restate or extend those shapes here.
 </constraint>
 
 <constraint>
@@ -38,8 +39,9 @@ immediately before it runs; when `ask` is unavailable the step is set `blocked`
 and the first line of `## Open questions` becomes `Blocked: <one-line reason>`
 naming the unconfirmed effect. Only a blocked plan may open `## Open questions`
 with `Blocked:`.
-Routine plan issue publication and the landing actions in `## Landing` carry
-the settled mode's authorization; they are not Steps rows and never need this
+Routine plan-issue publication, review-comment publication, and the linked
+branch, commit, normal-push, and landing actions described below carry the
+settled mode's authorization. They are not Steps rows and never need this
 confirmation.
 </constraint>
 
@@ -48,19 +50,14 @@ confirmation.
 1. **Decide.** Phase 1 asks exactly one question with exactly three options, in this order and wording: `Plan and implement now`, `Plan only, stop at planned`, `Implement directly` — and skips the question only when the request already settles the mode.
 
    The request settles the mode only when the user explicitly asks to plan and
-   build, explicitly asks for a plan or proposal without execution, or
-   explicitly asks for a direct fix of one clear reversible local diff with one
-   bounded acceptance path. Never use `ask` only for permission to begin. Never
-   use it to restate scope that the request already gives.
-
-   Use a plan for multi-commit or cross-repository work, a cold handoff, an
-   unresolved decision, a cross-subsystem or public-contract change,
-   security-sensitive or destructive work, or any non-`local` effect. When
-   `ask` is unavailable in a subagent, headless run, or `-p` run, take the direct
-   path only for a clear reversible local diff. Otherwise canonical planning
-   continues unless an issue-publication safeguard needs an answer; do not
-   silently substitute a tracked file. State a direct-path assumption in the
-   final report. A direct run creates no plan issue.
+   build, asks for a plan without execution, or asks for a direct fix of one
+   clear reversible local diff with one bounded acceptance path. Never use
+   `ask` only for permission to begin. Use a plan for multi-commit or
+   cross-repository work, a cold handoff, an unresolved decision, a
+   cross-subsystem or public-contract change, security-sensitive or
+   destructive work, or any non-`local` effect. When `ask` is unavailable,
+   take the direct path only for such a clear reversible local diff and state
+   that assumption in the final report. A direct run creates no plan issue.
 
 2. **Draft.** Complete the preflight in
    [`references/github-issue-publication.md`](references/github-issue-publication.md).
@@ -71,110 +68,137 @@ confirmation.
    outcome and one Mode line in `## Goal`, the hypothesis in `## Research`, and
    provisional `## Steps` and `## Acceptance` tables. Keep status `drafting`.
 
-3. **Research.** Run `plan.mjs export <issue>`. The command writes into the
-   repository's sanctioned, untracked review scratch. It resolves that directory
-   with `git rev-parse --git-path docks-review`. A plain clone uses
-   `.git/docks-review/`. A linked worktree gets a worktree-private directory.
-   The command creates a missing scratch directory with mode `0700`. It writes the
-   body verbatim to `plan-<issue>.md`. It writes the body digest as one lowercase
-   SHA-256 line in `plan-<issue>.md.origin`. The sidecar mode is `0600`. The
-   command prints the absolute export path. Confirm or refute the hypothesis
-   against the repository. Read the target files and the nearest `AGENTS.md` or
-   `CLAUDE.md`. Use the language server for definitions and references before
-   changing an exported symbol. Verify every library, framework, runtime, or
-   external-API claim against current official documentation. Never rely on
-   memory. Follow the library and API fact rule in
-   `docks:skill-agent-pipeline`; cite that skill by name, never by its repository
-   path.
+3. **Research.** Run `plan.mjs export <issue>`. It resolves the repository's
+   sanctioned untracked scratch with `git rev-parse --git-path docks-review`
+   (worktree-safe), creates it with mode `0700`, writes the body verbatim to
+   `plan-<issue>.md` plus a SHA-256 sidecar `plan-<issue>.md.origin` with mode
+   `0600`, and prints the absolute export path. Confirm or refute the
+   hypothesis against the repository: read the target files and the nearest
+   `AGENTS.md` or `CLAUDE.md`, use the language server before changing an
+   exported symbol, and verify every library or external-API claim against
+   current official documentation under the fact rule in
+   `docks:skill-agent-pipeline` (cite it by name, never by path).
 
    In the local file, record each finding in `## Research` with a repository
    path and symbol or an official URL. Name the durable fix and the temporary
-   fix that it replaces in one line. A patch-over is not ready when a root-cause
-   fix is reachable. Bind the exact `Files` cells; their union is the plan's
-   declared scope. Fill `## Acceptance`. Run `plan.mjs edit <issue> --file
-   <local-file>`. Run `plan.mjs check <issue>`. Set the plan with
-   `plan.mjs status <issue> planned`. Delete the temporary file and its `.origin`
-   sidecar. Every later body edit uses the same export, edit, check, and delete
-   flow.
+   fix it replaces in one line. Bind the exact `Files` cells; their union is
+   the plan's declared scope. Fill `## Acceptance`. Run
+   `plan.mjs edit <issue> --file <local-file>`, then `plan.mjs check <issue>`,
+   then `plan.mjs status <issue> planned`, then delete the temporary file and
+   its `.origin` sidecar. Every later body edit uses this same flow.
 
-4. **Plan review.** Dispatch the `plan-reviewer` agent exactly once for every
-   canonical plan. Run `plan.mjs export <issue>` first and dispatch the reviewer with the issue number and the printed export path, because a read-only reviewer cannot fetch an issue body itself. Append the verdict and
-   findings verbatim to `## Review` under
-   `### Plan review — <UTC date>`. Fix every finding that you reproduce. For a
-   rejected finding, append one line that states why.
+4. **Plan review.** Run at most five rounds. At the start of every round, run
+   `plan.mjs export <issue>` and dispatch `plan-reviewer` with the issue number
+   and that round's printed export path. A read-only reviewer cannot fetch the
+   issue body itself. It returns exactly one markdown block; post that whole
+   block unchanged as one issue comment. Never append a review record to
+   `## Review`.
 
-   A `blocked` verdict identifies a decision that only the user can make. Put
-   the decision in `## Open questions` and use `ask`. The verdict is not a
-   lifecycle block. There is no second review round, no permit, and no repair
-   ceiling. If dispatch fails, retry the dispatch because no review ran. If the
-   same failure signature recurs and no relevant bytes changed between attempts,
-   stop, append `Plan-review: blocked` naming that signature, and set the plan
-   blocked. When no wrapper is registered, dispatch one fresh read-only
-   subagent. Give it the same three-kind contract by naming the `plan-reviewer`
-   skill. A missing wrapper never creates another role and never skips review.
+   `Plan-review: pass` ends this phase. `Plan-review: repair` names findings to
+   reproduce. On rounds 1 through 4, fix every reproduced finding, record the
+   evidence for any rejected finding, and require relevant plan bytes to change.
+   A repair with no relevant byte change is no progress: record the blocker, set
+   the plan `blocked`, and stop. Re-export the repaired body and dispatch a fresh
+   review in the next round. If that review repeats any named finding that was
+   just repaired, the finding survived its fix: record it, set the plan
+   `blocked`, and stop. Never proceed to implementation with repaired bytes that
+   no review passed.
 
-   **Plan-only runs stop here.** Deliver the reviewed issue carrying `plan:planned`.
-   Report the verdict and issue number. Do not enter phase 5 without a new user
-   instruction. A later session resumes at phase 5 by reading the issue body.
+   `Plan-review: blocked` identifies a decision only the user can make. Put it
+   in `## Open questions` through the edit flow and use `ask`; it is not by
+   itself a lifecycle block. If the answer changes the plan, use a fresh
+   export and review in the next available round; with no answer, stop at the
+   pending user decision.
 
-5. **Implement.** Run `plan.mjs status <issue> ongoing`. For each row, run
-   `plan.mjs step <issue> <id> in-flight`, implement or delegate the task, and
-   run `plan.mjs step <issue> <id> done` after its proof succeeds. Follow the
-   effect confirmation constraint before running any non-`local` row.
+   A `Plan-review: repair` verdict in round 5 exhausts the ceiling: record the
+   blocker, set the plan `blocked`, and stop without an unreviewable
+   sixth-round repair. If dispatch fails, retry because no review ran; if the
+   same failure signature recurs with no relevant byte change, record it and
+   block. When no wrapper is registered, dispatch one fresh read-only subagent
+   and name the `plan-reviewer` skill; a missing wrapper never creates another
+   role or skips review.
 
-   Write self-explaining code under `docks:code-clarity`. Prefer domain names to
-   vague names. Make invalid states unrepresentable in types. Prefer small named
-   functions to narration. Make errors name the operation and subject. Comment
-   only when syntax cannot express the reason. Run every `## Acceptance` command
-   and write its real output into `## Verification Results` through the edit
-   flow.
+   **Plan-only runs stop here after a pass.** Deliver the issue carrying
+   `plan:planned`, report the verdict and issue number, and never create a
+   branch or enter phase 5 without a new user instruction. A later session
+   resumes by reading the full record with `plan.mjs show <issue> --body`.
 
-6. **Code review.** Build the review diff from the complete candidate pull
-   request, not only the dirty worktree. Resolve and fetch the repository
-   default branch, then compute `<merge-base>` with
-   `git merge-base <default-remote-ref> HEAD`. Cover one net tracked candidate
-   with `git diff <merge-base> -- <changed paths>`. Add one
+5. **Implement.** Run `plan.mjs status <issue> ongoing`, then resolve the target
+   repository's `nameWithOwner` and `defaultBranchRef.name`.
+
+   Before any branch checkout, and specifically before any `gh issue develop
+   --checkout`, require `git status --porcelain` to be empty. If it is dirty,
+   never stash, move, or commit the ambient work. Set the plan `blocked` and
+   name the dirty paths, or continue only in an authorized clean worktree.
+
+   Check out the issue's linked branch through the repository-scoped flow in
+   the contract reference: pass `--repo <nameWithOwner>` to every
+   `gh issue develop` call, reuse a verified linked branch from `--list`, or
+   create one with `--base <default-branch> --checkout`, and verify the
+   checkout. After any failure, re-list and recover; if recovery cannot verify
+   and check out a linked branch, record the blocker, set the plan `blocked`,
+   and stop. There is no local or unlinked fallback, and plan-only runs never
+   create a branch.
+
+   Branch creation, commits, and normal pushes are routine authorized work
+   from this point onward. For each row, run
+   `plan.mjs step <issue> <id> in-flight`, implement or delegate, and mark it
+   `done` after its proof succeeds, honoring the effect confirmation
+   constraint for any non-`local` row. Write self-explaining code under
+   `docks:code-clarity`. Run every `## Acceptance` command and write its real
+   output into `## Verification Results` through the edit flow.
+
+6. **Code review.** Run at most five rounds. At the start of every round, build
+   a fresh review diff from the complete candidate pull request, not only the
+   dirty worktree. Resolve and fetch the repository default branch, compute
+   `<merge-base>` with `git merge-base <default-remote-ref> HEAD`, and cover one
+   net tracked candidate with `git diff <merge-base> -- <changed paths>`. Add one
    `git diff --no-index /dev/null <path>` hunk for each untracked path.
-   `git status --porcelain` still names dirty paths. Name every changed path
-   that no Steps `Files` cell mentions in the review request.
+   `git status --porcelain` still names dirty paths. Name every changed path that
+   no Steps `Files` cell mentions in the review request.
 
    Resolve the scratch directory with `git rev-parse --git-path docks-review`
-   and create it with mode `0700`. Write the review input to
-   `<that directory>/<issue>-<round>.diff`. Resolving through git keeps linked
-   worktrees valid, where `.git` is a file and a literal `.git/` path does not
-   exist. The directory is untracked and discarded with the clone.
+   (mode `0700`; linked-worktree safe, since `.git` may be a file) and write
+   each fresh input to `<that directory>/<issue>-<round>.diff`. Re-run
+   `plan.mjs export <issue>` in the same round so the reviewer receives the
+   fresh absolute diff path, fresh absolute export path, and issue number.
 
-   After pull-request creation, record `headRefOid` and compare the changed paths
-   and hunks from `gh pr diff` with the reviewed net candidate. Any mismatch
-   invalidates the pass and blocks merge.
+   Dispatch `code-reviewer`. It returns exactly one markdown block; post that
+   whole block unchanged as one issue comment. `Code-review: pass` ends the loop
+   with no unfixed `CRITICAL` or `HIGH` finding. Record any advisory `MEDIUM` or
+   `LOW` lines as follow-up work only after pass, do not change reviewed bytes,
+   and never re-review for an advisory.
 
-   Re-export the record before this dispatch too, exactly as in phase 4, so the
-   reviewer reads current bytes rather than a stale export.
+   `Code-review: fixes-required` names evidenced `CRITICAL` or `HIGH` defects.
+   On rounds 1 through 4, fix every named defect. A repair with no relevant byte
+   change is no progress and terminates the loop. Build a fresh diff, re-export
+   the current plan, and dispatch the next round against the repaired bytes. If
+   that review repeats any named defect just repaired, the finding survived its
+   fix and terminates the loop. A non-pass verdict in round 5 exhausts the
+   ceiling without starting a sixth-round repair.
 
-   Dispatch `code-reviewer` with the absolute diff path, the absolute export
-   path, and the issue number. Append its
-   report to `## Review` under
-   `### Code review round <n> — <UTC date>`. A round that returns
-   `Code-review: pass` carries no unfixed `CRITICAL` or `HIGH` finding; it may
-   still carry advisory `MEDIUM` and `LOW` lines. Record each advisory as a
-   follow-up and do not change reviewed bytes after a pass; an advisory never
-   triggers a re-review. A round that returns `Code-review: fixes-required`
-   names at least one evidenced `CRITICAL` or `HIGH` defect: fix every one of
-   them, then dispatch exactly one repair re-review. If that repair re-review
-   again returns `fixes-required`, stop: append `Code-review: blocked` naming
-   the surviving findings, and set the plan `blocked`.
+   `Code-review: blocked` is a technical block caused by unreadable or
+   contradictory review input and terminates the loop. For that verdict or any
+   terminal repair failure—no progress, a surviving finding, dispatch failure
+   with unchanged bytes, or the round-five ceiling—commit all current work,
+   including repair bytes, push it normally to the linked plan branch, record
+   the blocker, set the plan `blocked`, and stop. Perform the commit and push
+   before the blocked lifecycle write so implementation work is never stranded.
 
-   A `pass` round ends review and starts landing. Follow `## Landing`. Run
-   `plan.mjs archive <issue>` only after an approved merge lands the closing
-   pull request.
+   After a pass, commit and push any remaining reviewed bytes, then create or
+   update the closing pull request under `## Landing`. Record its `headRefOid`
+   and compare the changed paths and hunks from `gh pr diff` with the reviewed
+   net candidate. Any mismatch invalidates the pass and blocks merge. Run
+   `plan.mjs archive <issue>` only after an approved merge lands that pull
+   request.
 
 ## Plan contract
 
 Read [`references/plan-contract.md`](references/plan-contract.md) before creating
 or changing a canonical plan. It owns the exact v3 marker, eight sections,
-Steps and Acceptance table headers, review records, GitHub-field ownership,
-derived status truth table, and archive verification. The record has no
-frontmatter, hashes, permits, or alternate readable shape.
+Steps and Acceptance table headers, review-comment record shapes and trust,
+GitHub-field ownership, derived status truth table, linked-branch flow, and
+archive verification. The record has no frontmatter and no hashes or permits.
 Keep paths repository-relative; acceptance rows run from the repository root.
 
 ## Lifecycle CLI
@@ -182,34 +206,24 @@ Keep paths repository-relative; acceptance rows run from the repository root.
 `plan.mjs` is plugin payload, not project payload. It ships inside the installed `plan-lifecycle` plugin at `skills/productivity/plan-manager/scripts/plan.mjs`. A project never vendors, copies, or re-creates it, and an unresolvable tool means the plugin is not installed. Never report it as a file missing from the repository. Resolve it from the loaded `plan-manager` skill directory, or from the runtime plugin cache. Run it with the repository root as the working directory, because it resolves the target repository from that checkout's GitHub remote.
 
 The `plan:` namespace is reserved: `labels --extra` and `new --label` reject a
-value that is `plan` or begins `plan:`, so an extra cannot plant a second status
-label. Every mutating command refuses a plan owned by another login and claims an
-unassigned one in the same write; read-only commands never check ownership.
+value that is `plan` or begins `plan:`. `edit` requires export provenance for
+every body change: it refuses a missing sidecar, an unreadable digest, or a
+digest from a superseded body revision, and refreshes the digest before the
+remote body write. A local sidecar failure fails closed and requires one
+re-export; a phase-only status change leaves the body and sidecar valid.
 
-`edit` requires export provenance for every body change. It refuses a missing
-sidecar, an unreadable digest, or a digest from a superseded body revision.
-After validation, `edit` refreshes the digest before the remote body write.
-A local sidecar failure fails closed and requires one re-export.
-A phase-only status change leaves the body and sidecar valid.
-
-`archive` reads `closedByPullRequestsReferences` with `excludeUserLinked: true`.
-A manually linked pull request never proves a landing.
-
-When that connection is empty, `archive` examines only the latest closure.
-A commit closer supplies its `associatedPullRequests`.
-Any other latest closer supplies no commit fallback proof.
-An issue closed by a commit, reopened, then closed by hand has no commit proof.
-
-Every accepted pull request merges into the target repository's default branch.
-A commit pushed straight to that branch has no associated merged pull request
-and is refused.
+Review state follows the contract: a comment is trusted only when the issue
+has exactly one assignee and that assignee authored the well-formed
+whole-comment record; the latest trusted record per review kind wins, with a
+legacy body verdict used only when no trusted record of that kind exists.
+Archive proof rules live in the contract reference.
 
 | command | behaviour | stdout on success |
 |---|---|---|
 | `labels [--extra <name>]…` | `gh label create <name> --force` for `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, and `plan:blocked`, then each `--extra` | one line per label: `label ready: <name>` |
 | `new --title <t> --goal <g> [--mode plan-and-implement\|plan-only] [--label <name>]…` | render the v3 marker-based body, `gh issue create --title --body-file --label plan --label plan:drafting --assignee @me` (+ extras) | `plan created: #<n> <url>` |
 | `claim <issue>` | resolve the acting login, `gh issue edit <n> --add-assignee @me` when unassigned; idempotent for the owner, refuses a foreign owner without writing | `plan #<n> claimed: <login>` |
-| `show <issue> [--body]` | header strip on stdout; `--body` puts the record alone on stdout and the header strip on stderr | `#<n> · <status> · <title> · <url>` |
+| `show <issue> [--body]` | header strip, then per-kind verdicts from latest trusted comments with legacy fallback only when none exists; `--body` puts the record alone on stdout and both metadata lines on stderr | header strip, then `reviews: plan=<pass\|repair\|blocked\|none> code=<pass\|fixes-required\|blocked\|none>` |
 | `export <issue>` | `export` writes the body to the worktree-aware `docks-review` directory. It writes its SHA-256 digest to `<file>.origin` with mode `0600`. | the absolute export path |
 | `edit <issue> --file <path>` | `edit` runs 13 checks. It requires provenance for the current body. It refreshes the digest before the remote body write. It then replaces the body. | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
 | `check <issue \| --file <path>>` | 13 checks | `plan check passed: #<n>` or `plan check passed: <path>` |
@@ -217,11 +231,10 @@ and is refused.
 | `step <issue> <step-id> <status>` | rewrite one Steps `Status` cell | `plan #<n> step <id>: <old> -> <new>` |
 | `list [--status <s>]` | list plan issues and derive status from phase label for open work or from `state` + `stateReason` when closed; open issues first, then closed; each group sorted by ascending number | `<status>\t#<n>\t<title>` per line |
 | `next` | queue-aware startable plans from `docs/PLAN-QUEUE.md` (`Plan` cell holds the issue number); falls back to every `planned` plan on a missing or malformed queue, warning on stderr | `#<n>` per line |
-| `archive <issue>` | require completed closure, terminal steps, an exact `Code-review: pass` line, and a merged closing pull request into the target repository's default branch; remove any stale phase label without writing status | `plan #<n> finished (closed by <pr-url>)` |
+| `archive <issue>` | require completed closure, terminal steps, a trusted latest `Code-review: pass` comment (or legacy body pass only when no trusted code record exists), and a merged closing pull request into the target repository's default branch; remove any stale phase label without writing status | `plan #<n> finished (closed by <pr-url>)` |
 | `retire <issue> --reason <text>` | close as not planned and remove every phase label; completion derives as `retired` from GitHub | `plan #<n> retired` |
 
-Every command exits 0 on success and 1 on a usage or validation failure. Failure
-messages keep their current wording wherever the check is unchanged.
+Every command exits 0 on success and 1 on a usage or validation failure.
 
 ## Issue publication
 
@@ -230,9 +243,11 @@ run the preflight in
 [`references/github-issue-publication.md`](references/github-issue-publication.md).
 The settled plan mode authorizes routine creation and update of the plan issue
 in the repository that the preflight resolved. Do not ask again for that
-publication or show a repository picker that repeats a resolved fact. Ask only
-for an ambiguous repository or a sensitive public disclosure. When such an ask
-cannot be obtained, report the blocker and create nothing.
+publication or show a repository picker that repeats a resolved fact. The same
+authorization covers posting each reviewer's returned block as one unchanged
+issue comment. Ask only for an ambiguous repository or a sensitive public
+disclosure. When such an ask cannot be obtained, report the blocker and create
+nothing.
 
 ## Reading and writing
 
@@ -242,10 +257,9 @@ Render a plan body verbatim only when the user names that plan and asks to see i
 
 One writer owns a plan issue at a time, recorded in the issue's own GitHub assignee field. `plan.mjs new` claims ownership at creation and `plan.mjs claim <issue>` claims an existing plan. Ownership is a precondition, not advice: every mutating command refuses a plan owned by another login, writes nothing when it refuses, and claims an unassigned plan in the same write. Read-only commands never check ownership. Taking a plan from another owner is a deliberate manual GitHub action; no lifecycle command transfers ownership.
 
-After `Code-review: pass`, the manager runs landing without another prompt:
-ensure a non-default branch, commit exactly the reviewed bytes under
-`docks:commit-discipline`, push normally, and create or update one pull request
-that carries `Closes #<issue>` and targets the repository default branch.
+The linked plan branch, commits, and normal pushes are already routine
+authorized work from implement start. The closing pull request carries
+`Closes #<issue>` and targets the repository default branch.
 
 Never treat an empty first checks result as success. Retry
 `gh pr checks --json name,bucket` at most 12 times with a 10-second delay until
@@ -268,44 +282,34 @@ or diff changed, block merge. Invoke `gh pr merge` with
 `--match-head-commit <reviewed-head-sha>` and the repository's configured merge
 strategy only after the fresh `Merge now` answer.
 
-Only the pull request that lands the completed work carries `Closes #<issue>`.
-A partial pull request carries plain `Refs #<issue>`. `archive` reads the
-merged result rather than causing it. A plan that never lands is retired, not
-archived.
+Only the pull request that lands the completed work carries `Closes #<issue>`;
+a partial one carries plain `Refs #<issue>`. A plan that never lands is
+retired, not archived.
 
 ## Frozen history
 
-`docs/plans/finished/` is frozen pre-GitHub history. Never read, parse, classify,
-or migrate it through this lifecycle. It is not a plan source of truth.
+`docs/plans/finished/` is frozen pre-GitHub history. Humans may read it as
+history, but no lifecycle command or workspace migration operation opens or
+inventories it; it is not a lifecycle source of truth.
 
 ## Git boundary
 
-Routine landing Git work is in scope: branch, commit, push, and pull request
-after `Code-review: pass`, under `docks:commit-discipline`. The merge itself
-needs the fresh `Merge now` answer. Force-push, history rewrite, branch
-deletion, and every other destructive Git action stay out of scope without an
-explicit user request.
+Routine linked-branch creation, commits, and normal pushes are in scope from
+implement start under `docks:commit-discipline`; the merge itself needs the
+fresh `Merge now` answer. Force-push, history rewrite, branch deletion, and
+every other destructive Git action stay out of scope without an explicit user
+request.
 
 ## BAD / GOOD
 
 ```text
-BAD: Skip repository research because the draft sounds plausible.
-GOOD: Confirm the hypothesis, cite the source, and choose the durable fix.
+BAD: Stop a failed code-review loop with repaired work left uncommitted.
+GOOD: Before blocking, commit and push all current work to the linked branch.
 
-BAD: Run implementation after a plan-only delivery without a new instruction.
-GOOD: Stop at the reviewed planned issue and report its number and verdict.
+BAD: Append a reviewer report to the issue body's `## Review` section.
+GOOD: Post the reviewer's one markdown block unchanged as one issue comment.
 
-BAD: Treat a failed repair re-review as permission to dispatch another round.
-GOOD: After one repair re-review still returns `fixes-required`, record the
-      block and stop.
-
-BAD: Ask a second time which repository receives the plan issue.
-GOOD: Publish to the repository the preflight resolved and report it.
-
-BAD: Merge the pull request because the required checks turned green.
-GOOD: Ask `Merge now` or `Leave pull request open`, then act on that answer.
-
-BAD: Stop at a passed review and hand the user an uncommitted tree.
-GOOD: Commit, push, open the closing pull request, watch the required checks,
-      then stop at the merge question.
+BAD: Wait until a passed review to create the implementation branch.
+GOOD: Verify and check out the linked plan branch when phase 5 starts; after a
+      pass, create or update the closing pull request and wait for the merge ask.
 ```
