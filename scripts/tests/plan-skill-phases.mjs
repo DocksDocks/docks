@@ -217,6 +217,11 @@ const V3_PINNED_CLAUSES = [
     files: [ISSUE_PUBLICATION, PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
+    name: 'code-review-block-commit',
+    text: 'Before recording a technical block or terminal repair failure, commit and normally push all current work to the linked plan branch.',
+    files: [PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
     name: 'manager-default-pr-landing',
     text: 'After a pass, commit and push any remaining reviewed bytes, then create or update the closing pull request under `## Landing`.',
     files: [MANAGER_SKILL],
@@ -366,6 +371,11 @@ function assertV3ClausesAndMutations() {
       text.includes('plan_contract:'),
       false,
       `${relative} must fail when a plan_contract: frontmatter key is inserted`,
+    );
+    assert.equal(
+      text.includes('terminal review block'),
+      false,
+      `${relative} must fail when the ambiguous terminal-review-block phrase returns`,
     );
   }
 }
