@@ -1,6 +1,6 @@
 {
   "name": "plan-lifecycle",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Cross-tool GitHub-issue plan lifecycle with marker-based plan bodies, comment-backed review records, implement-start linked branches, bounded plan and code review repair loops, and two read-only reviewer wrappers.",
   "author": {
     "name": "Eduardo Marquez"
