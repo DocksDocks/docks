@@ -103,11 +103,36 @@ function graphqlValue(expression, variables) {
   return expression;
 }
 
+function commentJson(comment, issue) {
+  const login = typeof comment.author === 'string' ? comment.author : comment.author?.login ?? comment.user?.login;
+  return {
+    id: comment.id,
+    body: comment.body,
+    author: login ? { login } : null,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt ?? comment.createdAt,
+    url: comment.url ?? `${issue.url}#issuecomment-${comment.id}`,
+  };
+}
+
+function apiCommentJson(comment, issue) {
+  const rendered = commentJson(comment, issue);
+  return {
+    id: rendered.id,
+    body: rendered.body,
+    user: rendered.author,
+    created_at: rendered.createdAt,
+    updated_at: rendered.updatedAt,
+    html_url: rendered.url,
+  };
+}
+
 function issueJson(issue) {
   return {
     ...issue,
     labels: labels(issue.labels),
     assignees: assignees(issue.assignees),
+    comments: (issue.comments ?? []).map((comment) => commentJson(comment, issue)),
     closedByPullRequestsReferences: issue.closedByPullRequestsReferences ?? [],
   };
 }
@@ -130,6 +155,7 @@ const ISSUE_JSON_FIELDS = new Set([
   'createdAt',
   'updatedAt',
   'closedByPullRequestsReferences',
+  'comments',
 ]);
 const PR_JSON_FIELDS = new Set([
   'number',
@@ -143,6 +169,21 @@ const PR_JSON_FIELDS = new Set([
   'baseRefName',
   'headRefName',
 ]);
+
+const commentsEndpoint = /^repos\/([^/]+)\/([^/]+)\/issues\/([1-9]\d*)\/comments$/.exec(`${command ?? ''}`);
+if (group === 'api' && commentsEndpoint) {
+  if (!args.includes('--paginate') || !args.includes('--slurp')) die('issue comments api requires --paginate and --slurp');
+  const repo = `${commentsEndpoint[1]}/${commentsEndpoint[2]}`;
+  if (repo !== state.repo.nameWithOwner) die(`repository not found: ${repo}`);
+  const issue = issueByNumber(Number(commentsEndpoint[3]));
+  const comments = (issue.comments ?? []).map((comment) => apiCommentJson(comment, issue));
+  const pages = [];
+  for (let index = 0; index < comments.length; index += 100) pages.push(comments.slice(index, index + 100));
+  if (pages.length === 0) pages.push([]);
+  console.log(JSON.stringify(pages));
+  save();
+  process.exit(0);
+}
 
 if (group === 'api' && command === 'graphql') {
   const query = formFields('-f').query;
@@ -321,6 +362,7 @@ if (group === 'issue' && command === 'create') {
     url: `https://github.com/${state.repo.nameWithOwner}/issues/${number}`,
     createdAt: now,
     updatedAt: now,
+    comments: [],
     closedByPullRequestsReferences: [],
   };
   state.issues.push(issue);

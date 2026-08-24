@@ -16,8 +16,8 @@ rules below remain complete when those skills are unavailable.
 <constraint>
 Remain read-only. Never apply a fix. Never edit the plan or diff. Never dispatch
 another agent. Never ask for approval to apply findings and never ask the user a
-question. Return the report to the manager, which owns fixes, re-review, and all
-lifecycle changes.
+question. Return the report to the manager, which owns fixes, fresh re-review
+dispatch on a fresh diff, issue-comment publication, and all lifecycle changes.
 </constraint>
 
 <constraint>
@@ -84,14 +84,17 @@ buckets or the Spec axis defined below.
      follow-ups and does not change reviewed bytes after the pass; they never
      trigger a re-review.
    - `fixes-required`: At least one evidenced `CRITICAL` or `HIGH` defect. The
-     manager fixes it and dispatches exactly one repair re-review.
+     manager fixes every named defect and dispatches a fresh re-review on a
+     fresh diff.
    - `blocked`: Required review input is unreadable or contradictory, so no safe
      verdict can be reached.
-10. Order findings `CRITICAL`, `HIGH`, `MEDIUM`, then `LOW`. Return once.
+10. Order findings `CRITICAL`, `HIGH`, `MEDIUM`, then `LOW`. Return exactly one
+    markdown block; the manager posts that whole block as one issue comment.
 
 ## Output Format
 
-Return readable markdown and no surrounding commentary.
+Return exactly one readable markdown block and no surrounding commentary. The
+manager posts the whole block as one issue comment.
 
 ```markdown
 ### Code review round <n> — <UTC date>
@@ -134,4 +137,6 @@ single review record orders all findings by severity.
   actionable fix.
 - Findings use the four Standards buckets or the Spec category.
 - The verdict matches the evidence and finding set.
+- The output is one readable markdown review block for the manager to post as
+  one issue comment.
 - The reviewer applies no fix and asks for no approval.

@@ -45,9 +45,10 @@ present". `scripts/skills/no-author-scripts.mjs` enforces this.
 
 `plan-workspace` maintains the repository `plan*` labels, the `docs/PLAN.md`
 standard, and its `docs/AGENTS.md`/`docs/CLAUDE.md` routing pair; main-context
-`plan-manager` runs decide → draft → research → one plan review → implement →
-code review; internal `plan-reviewer` returns a read-only pre-implementation
-verdict. Two read-only reviewer wrappers ship: the plugin wrappers at
+`plan-manager` runs decide → draft → research → plan review → implement → code
+review, with bounded repair and fresh re-review in both review phases; internal
+`plan-reviewer` returns one read-only pre-implementation verdict block per
+round. Two read-only reviewer wrappers ship: the plugin wrappers at
 `../agents/plan-reviewer.md` and `../agents/code-reviewer.md`, with this source
 repository's matching `.codex/agents/plan-reviewer.toml` and
 `.codex/agents/code-reviewer.toml` pair. `plugins/plan-lifecycle/agents/`
@@ -59,13 +60,16 @@ deliberately carries no context-tree node (`claude plugin validate` lints every
 The synchronized surface is the v3 first-line marker, no-frontmatter rule,
 eight sections, both table headers, four open-work phases (`drafting`, `planned`,
 `ongoing`, `blocked`), the GitHub `state` + `stateReason` derivation truth table,
-the three plan-review kinds (`goal_fit`, `research_gap`, `security_risk`), the
-two review-record shapes, default issue and pull-request publication, explicit
-merge confirmation, lifecycle-tool ownership, issue write preconditions,
+the three plan-review kinds (`goal_fit`, `research_gap`, `security_risk`),
+comment-backed review records, five-round plan and code review repair loops,
+implement-start linked-branch publication, default pull-request landing,
+explicit merge confirmation, lifecycle-tool ownership, issue write
+preconditions, trusted latest-record selection with legacy-body fallback,
 archive-as-verifier landing proof, and marker-only classification: any body
-without the exact v3 opening is unreadable and no parser is attempted. Legacy
-workspace migration leaves old files unopened and creates fresh records only
-for user-restated goals.
+without the exact v3 opening is unreadable and no parser is attempted. Humans
+may read frozen history, but no lifecycle command or workspace migration
+operation opens or inventories it. Legacy workspace migration creates fresh
+records only for user-restated goals.
 
 When any part changes, synchronize the three skills,
 `plan-manager/references/plan-contract.md`,

@@ -68,6 +68,7 @@ fs.writeFileSync(
       issues: [],
       prs: [],
       nextIssue: 1,
+      nextComment: 1,
       clock: 0,
       calls: [],
     },
@@ -119,6 +120,20 @@ function issue(number) {
 
 function updateIssue(number, update) {
   updateState((state) => update(state.issues.find((entry) => entry.number === number)));
+}
+
+function addIssueComment(number, body, author = 'plan-agent') {
+  updateState((state) => {
+    const entry = state.issues.find((candidate) => candidate.number === number);
+    const id = state.nextComment++;
+    entry.comments ??= [];
+    entry.comments.push({
+      id,
+      body,
+      author,
+      createdAt: new Date(Date.parse('2026-08-20T20:00:00Z') + id * 1000).toISOString(),
+    });
+  });
 }
 
 function createPlan(name, options = {}) {
@@ -243,6 +258,7 @@ try {
     'GitHub-owned machine fields must not be stored in the body',
   );
   assert.match(template.body, /^Mode: plan-only$/m);
+  assert.match(template.body, /^_Review records are stored in issue comments\._$/m);
   assert.deepEqual(template.labels, ['plan', 'plan:drafting']);
   assert.deepEqual(template.assignees, ['plan-agent']);
   const createCall = loadState().calls.find(
@@ -619,13 +635,79 @@ try {
   const shown = run('show', String(editNumber));
   expectSuccess(shown, 'show');
   const shownHeader = `#${editNumber} · drafting · Exercise edit · ${issue(editNumber).url}`;
-  assert.equal(shown.stdout, `${shownHeader}\n`);
+  const emptyReviewSummary = 'reviews: plan=none code=none';
+  assert.equal(shown.stdout, `${shownHeader}\n${emptyReviewSummary}\n`);
   assert.equal(shown.stderr, '');
   assert.doesNotMatch(shown.stdout, /plan_contract:/);
   const shownBody = run('show', `#${editNumber}`, '--body');
   expectSuccess(shownBody, 'show --body');
   assert.equal(shownBody.stdout, issue(editNumber).body);
-  assert.equal(shownBody.stderr, `${shownHeader}\n`);
+  assert.equal(shownBody.stderr, `${shownHeader}\n${emptyReviewSummary}\n`);
+
+  const commentSummaryNumber = createPlan('comment-review-summary');
+  updateState((state) => {
+    const entry = state.issues.find((candidate) => candidate.number === commentSummaryNumber);
+    entry.comments = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body:
+        index === 0
+          ? '### Plan review — 2026-08-20\nPlan-review: repair\n- [goal_fit] ## Goal — foreign finding — ignore it'
+          : 'not a review record',
+      author: 'other-agent',
+      createdAt: new Date(Date.parse('2026-08-20T20:00:00Z') + index * 1000).toISOString(),
+    }));
+    state.nextComment = 101;
+  });
+  addIssueComment(
+    commentSummaryNumber,
+    '### Plan review — 2026-08-21\nPlan-review: repair\n- [research_gap] src/example.mjs:1 — evidence is missing — cite the source',
+  );
+  addIssueComment(commentSummaryNumber, '### Code review round 1 — 2026-08-21\nCode-review: pass');
+  addIssueComment(commentSummaryNumber, '### Plan review — 2026-08-22\nPlan-review: pass');
+  addIssueComment(
+    commentSummaryNumber,
+    '### Code review round 2 — 2026-08-22\nCode-review: fixes-required\n- HIGH · Bug · src/example.mjs:9 — later regression survives — fix the regression',
+  );
+  addIssueComment(commentSummaryNumber, '### Code review round 3 — 2026-08-23\nCode-review: pass', 'other-agent');
+  addIssueComment(
+    commentSummaryNumber,
+    '### Code review round 4 — 2026-08-24\nCode-review: pass\n- HIGH · Security · src/example.mjs:10 — malformed pass carries high — reject the malformed record',
+  );
+  const commentCallsBefore = loadState().calls.length;
+  const commentSummary = run('show', String(commentSummaryNumber));
+  expectSuccess(commentSummary, 'show paginated trusted review summary');
+  assert.equal(
+    commentSummary.stdout,
+    `#${commentSummaryNumber} · drafting · Exercise comment-review-summary · ${issue(commentSummaryNumber).url}\n` +
+      'reviews: plan=pass code=fixes-required\n',
+  );
+  const commentApiCall = loadState()
+    .calls.slice(commentCallsBefore)
+    .find(
+      (call) => call[0] === 'api' && call[1] === `repos/DocksDocks/fixture/issues/${commentSummaryNumber}/comments`,
+    );
+  assert.ok(commentApiCall?.includes('--paginate'), 'show must request every issue-comment page');
+  assert.ok(commentApiCall?.includes('--slurp'), 'show must parse paginated issue comments as pages');
+
+  const legacySummaryNumber = createPlan('legacy-review-summary');
+  updateIssue(legacySummaryNumber, (entry) => {
+    entry.body = entry.body.replace(
+      '_Review records are stored in issue comments._',
+      'Plan-review: repair\nCode-review: pass',
+    );
+  });
+  const legacySummary = run('show', String(legacySummaryNumber));
+  expectSuccess(legacySummary, 'show legacy review summary');
+  assert.match(legacySummary.stdout, /reviews: plan=repair code=pass\n$/);
+
+  const ambiguousOwnerSummaryNumber = createPlan('ambiguous-owner-review-summary');
+  updateIssue(ambiguousOwnerSummaryNumber, (entry) => {
+    entry.assignees.push('other-agent');
+  });
+  addIssueComment(ambiguousOwnerSummaryNumber, '### Plan review — 2026-08-24\nPlan-review: pass');
+  const ambiguousOwnerSummary = run('show', String(ambiguousOwnerSummaryNumber));
+  expectSuccess(ambiguousOwnerSummary, 'show refuses comment trust without a sole assignee');
+  assert.match(ambiguousOwnerSummary.stdout, /reviews: plan=none code=none\n$/);
 
   const reviewDirectory = path.join(scratch, '.git/docks-review');
   const exported = run('export', String(editNumber));
@@ -1195,7 +1277,10 @@ try {
   assert.match(unfinishedArchive.stderr, /non-terminal step/);
 
   updateIssue(unfinishedArchiveNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass with caveat');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass with caveat',
+    );
   });
   const inexactReviewArchive = run('archive', String(unfinishedArchiveNumber));
   assert.equal(inexactReviewArchive.status, 1, 'changing the exact Code-review pass line must be refused');
@@ -1206,7 +1291,7 @@ try {
   setIssueStatus(advisoryPassNumber, 'ongoing');
   updateIssue(advisoryPassNumber, (entry) => {
     entry.body = replaceStepStatus(entry.body, 'done').replace(
-      '_No review yet._',
+      '_Review records are stored in issue comments._',
       'Code-review: pass\n- MEDIUM · Maintainability · src/example.mjs:9 — duplicated guard clause — extract a named predicate',
     );
     entry.state = 'CLOSED';
@@ -1233,12 +1318,70 @@ try {
   const advisoryPassArchive = run('archive', String(advisoryPassNumber));
   expectSuccess(advisoryPassArchive, 'archive accepts a pass carrying only an advisory line');
 
+  const trustedPassNumber = createPlan('trusted-comment-pass-archive');
+  makeValid(trustedPassNumber);
+  setIssueStatus(trustedPassNumber, 'ongoing');
+  updateIssue(trustedPassNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [
+      {
+        number: 43,
+        url: 'https://github.com/DocksDocks/fixture/pull/43',
+        repository: 'DocksDocks/fixture',
+        userLinked: false,
+      },
+    ];
+  });
+  addIssueComment(trustedPassNumber, '### Code review round 1 — 2026-08-24\nCode-review: pass');
+  const trustedPassArchive = run('archive', String(trustedPassNumber));
+  expectSuccess(trustedPassArchive, 'archive accepts latest trusted code-review pass comment');
+
+  const supersededPassNumber = createPlan('superseded-comment-pass-archive');
+  makeValid(supersededPassNumber);
+  setIssueStatus(supersededPassNumber, 'ongoing');
+  updateIssue(supersededPassNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+  });
+  addIssueComment(supersededPassNumber, '### Code review round 1 — 2026-08-23\nCode-review: pass');
+  addIssueComment(
+    supersededPassNumber,
+    '### Code review round 2 — 2026-08-24\nCode-review: fixes-required\n- HIGH · Bug · src/example.mjs:9 — the earlier pass is stale — repair the defect',
+  );
+  const supersededPassArchive = run('archive', String(supersededPassNumber));
+  assert.equal(supersededPassArchive.status, 1, 'a later trusted fixes-required record must supersede a pass');
+  assert.match(supersededPassArchive.stderr, /archive requires Code-review: pass/);
+
+  for (const [name, commentBody, author] of [
+    ['foreign-comment-pass', '### Code review round 1 — 2026-08-24\nCode-review: pass', 'other-agent'],
+    ['malformed-comment-pass', 'Code-review: pass', 'plan-agent'],
+  ]) {
+    const number = createPlan(`${name}-archive`);
+    makeValid(number);
+    setIssueStatus(number, 'ongoing');
+    updateIssue(number, (entry) => {
+      entry.body = replaceStepStatus(entry.body, 'done');
+      entry.state = 'CLOSED';
+      entry.stateReason = 'COMPLETED';
+    });
+    addIssueComment(number, commentBody, author);
+    const refused = run('archive', String(number));
+    assert.equal(refused.status, 1, `${name} must not authorize archive`);
+    assert.match(refused.stderr, /archive requires Code-review: pass/);
+  }
+
   const mediumOnlyRequiredNumber = createPlan('medium-only-fixes-required');
   makeValid(mediumOnlyRequiredNumber);
   setIssueStatus(mediumOnlyRequiredNumber, 'ongoing');
   updateIssue(mediumOnlyRequiredNumber, (entry) => {
     entry.body = replaceStepStatus(entry.body, 'done').replace(
-      '_No review yet._',
+      '_Review records are stored in issue comments._',
       'Code-review: fixes-required\n- MEDIUM · Maintainability · src/example.mjs:9 — duplicated guard clause — extract a named predicate',
     );
     entry.state = 'CLOSED';
@@ -1252,7 +1395,10 @@ try {
   makeValid(wrongBranchNumber);
   setIssueStatus(wrongBranchNumber, 'ongoing');
   updateIssue(wrongBranchNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [
@@ -1303,7 +1449,10 @@ try {
   makeValid(manualLinkArchiveNumber);
   setIssueStatus(manualLinkArchiveNumber, 'ongoing');
   updateIssue(manualLinkArchiveNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [
@@ -1354,7 +1503,10 @@ try {
   makeValid(keywordArchiveNumber);
   setIssueStatus(keywordArchiveNumber, 'ongoing');
   updateIssue(keywordArchiveNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [
@@ -1392,7 +1544,10 @@ try {
   makeValid(paginatedArchiveNumber);
   setIssueStatus(paginatedArchiveNumber, 'ongoing');
   updateIssue(paginatedArchiveNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = Array.from({ length: 101 }, (_, index) => ({
@@ -1425,7 +1580,10 @@ try {
   makeValid(closedReferenceNumber);
   setIssueStatus(closedReferenceNumber, 'ongoing');
   updateIssue(closedReferenceNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [
@@ -1460,7 +1618,10 @@ try {
   makeValid(commitArchiveNumber);
   setIssueStatus(commitArchiveNumber, 'ongoing');
   updateIssue(commitArchiveNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [];
@@ -1509,7 +1670,10 @@ try {
   makeValid(ineligibleReferenceCommitNumber);
   setIssueStatus(ineligibleReferenceCommitNumber, 'ongoing');
   updateIssue(ineligibleReferenceCommitNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [
@@ -1559,7 +1723,10 @@ try {
   makeValid(pullRequestLatestCloserNumber);
   setIssueStatus(pullRequestLatestCloserNumber, 'ongoing');
   updateIssue(pullRequestLatestCloserNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [];
@@ -1600,7 +1767,10 @@ try {
   makeValid(directPushNumber);
   setIssueStatus(directPushNumber, 'ongoing');
   updateIssue(directPushNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [];
@@ -1623,7 +1793,10 @@ try {
   makeValid(commitWrongBranchNumber);
   setIssueStatus(commitWrongBranchNumber, 'ongoing');
   updateIssue(commitWrongBranchNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [];
@@ -1652,7 +1825,10 @@ try {
   makeValid(staleCommitNumber);
   setIssueStatus(staleCommitNumber, 'ongoing');
   updateIssue(staleCommitNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.closedByPullRequestsReferences = [];
