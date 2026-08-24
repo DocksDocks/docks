@@ -1755,13 +1755,83 @@ try {
   assert.equal(
     pullRequestLatestCloserArchive.status,
     1,
-    'a PullRequest latest closer must not reuse an earlier commit',
+    'an unmerged PullRequest latest closer must not reuse an earlier commit',
   );
   assert.equal(
     pullRequestLatestCloserArchive.stderr.trim(),
-    'archive requires a merged closing pull request; issue has no closing commit',
+    'archive requires a closing pull request merged into DocksDocks/fixture:main',
   );
   assert.deepEqual(issue(pullRequestLatestCloserNumber), beforePullRequestLatestCloserArchive);
+
+  const mergedCloserNumber = createPlan('merged-pull-request-closer-archive');
+  makeValid(mergedCloserNumber);
+  setIssueStatus(mergedCloserNumber, 'ongoing');
+  updateIssue(mergedCloserNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [];
+    entry.timelineItems = [
+      {
+        closer: {
+          __typename: 'PullRequest',
+          number: 52,
+          url: 'https://github.com/DocksDocks/fixture/pull/52',
+          state: 'MERGED',
+          mergedAt: '2026-08-21T10:00:00Z',
+          baseRefName: 'main',
+          repository: { nameWithOwner: 'DocksDocks/fixture' },
+        },
+      },
+    ];
+  });
+  const mergedCloserArchive = run('archive', String(mergedCloserNumber));
+  assert.equal(
+    mergedCloserArchive.status,
+    0,
+    'a merged default-branch PullRequest closer must satisfy archive when the excluded connection is empty',
+  );
+  assert.match(
+    mergedCloserArchive.stdout,
+    /finished \(closed by https:\/\/github\.com\/DocksDocks\/fixture\/pull\/52\)/,
+  );
+
+  const wrongBranchCloserNumber = createPlan('wrong-branch-pull-request-closer-archive');
+  makeValid(wrongBranchCloserNumber);
+  setIssueStatus(wrongBranchCloserNumber, 'ongoing');
+  updateIssue(wrongBranchCloserNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done').replace(
+      '_Review records are stored in issue comments._',
+      'Code-review: pass',
+    );
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+    entry.closedByPullRequestsReferences = [];
+    entry.timelineItems = [
+      {
+        closer: {
+          __typename: 'PullRequest',
+          number: 53,
+          url: 'https://github.com/DocksDocks/fixture/pull/53',
+          state: 'MERGED',
+          mergedAt: '2026-08-21T11:00:00Z',
+          baseRefName: 'release',
+          repository: { nameWithOwner: 'DocksDocks/fixture' },
+        },
+      },
+    ];
+  });
+  const beforeWrongBranchCloserArchive = issue(wrongBranchCloserNumber);
+  const wrongBranchCloserArchive = run('archive', String(wrongBranchCloserNumber));
+  assert.equal(wrongBranchCloserArchive.status, 1, 'a PullRequest closer merged elsewhere must be refused');
+  assert.equal(
+    wrongBranchCloserArchive.stderr.trim(),
+    'archive requires a pull request merged into main, found release',
+  );
+  assert.deepEqual(issue(wrongBranchCloserNumber), beforeWrongBranchCloserArchive);
 
   const directPushNumber = createPlan('direct-push-archive');
   makeValid(directPushNumber);

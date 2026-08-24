@@ -376,12 +376,15 @@ repository's default branch. It reads `closedByPullRequestsReferences` with
 `excludeUserLinked: true`. Therefore, a manually linked pull request never
 proves a landing.
 
-Either proof suffices. `archive` first seeks an eligible keyword closer. Only
-when that connection holds none does it examine the latest closure. A commit
-closer supplies its `associatedPullRequests`. Any other latest closer supplies
-no commit fallback proof. An ineligible keyword reference, such as one still
-open, never hides a valid commit proof.
-An issue closed by a commit, reopened, then closed by hand has no commit proof.
+Any one proof suffices. `archive` first seeks an eligible keyword closer. Only
+when that connection holds none does it examine the latest closure. GitHub may
+classify a same-repository keyword closer as user-linked and exclude it, so the
+`ClosedEvent` closer covers that case. A pull-request closer is itself verified
+as a candidate closing pull request. A commit closer supplies its
+`associatedPullRequests`. Any other latest closer supplies no fallback proof.
+An ineligible keyword reference, such as one still open, never hides a valid
+closure proof.
+An issue closed by a commit, reopened, then closed by hand has no closure proof.
 
 Every accepted pull request has `state: MERGED`.
 Its `baseRefName` matches that repository's `defaultBranchRef.name`.

@@ -227,11 +227,12 @@ A manually linked pull request never proves a landing.
 
 Either proof suffices, and the verifier tries them in one order. It first looks
 for an eligible keyword closer. Only when that connection holds none does it
-examine the latest closure. A commit closer supplies its `associatedPullRequests`.
-Any other latest closer supplies no commit fallback proof. An ineligible keyword
-reference, such as one still open, therefore never hides a valid commit proof.
-The verifier accepts only merged pull requests whose base matches that
-repository's default branch.
+examine the latest closure. A pull-request closer is itself verified as a
+candidate closing pull request. A commit closer supplies its
+`associatedPullRequests`. Any other latest closer supplies no fallback proof.
+An ineligible keyword reference, such as one still open, therefore never hides
+a valid closure proof. The verifier accepts only merged pull requests whose
+base matches that repository's default branch.
 
 Earlier closure events do not count. An issue closed by a commit, reopened, then
 closed by hand has no commit proof. A commit pushed straight to the default
