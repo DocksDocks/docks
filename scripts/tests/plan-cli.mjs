@@ -239,6 +239,40 @@ try {
   assert.equal(reservedNew.stderr.trim(), 'reserved label namespace: plan:ongoing');
   assert.equal(loadState().nextIssue, beforeReservedNew.nextIssue);
   assert.deepEqual(loadState().issues, beforeReservedNew.issues);
+  const beforeOversizedTitle = loadState();
+  const oversizedTitle = run('new', '--title', 'x'.repeat(71), '--goal', 'An oversized title creates no issue');
+  assert.equal(oversizedTitle.status, 1);
+  assert.equal(oversizedTitle.stderr.trim(), 'title must contain 1 to 70 characters after trimming');
+  assert.equal(loadState().nextIssue, beforeOversizedTitle.nextIssue);
+  assert.deepEqual(loadState().issues, beforeOversizedTitle.issues);
+  const beforeWhitespaceGoal = loadState();
+  const whitespaceGoal = run('new', '--title', 'Whitespace goal', '--goal', ' \t ');
+  assert.equal(whitespaceGoal.status, 1);
+  assert.equal(whitespaceGoal.stderr.trim(), 'goal must be non-empty after trimming');
+  assert.equal(loadState().nextIssue, beforeWhitespaceGoal.nextIssue);
+  assert.deepEqual(loadState().issues, beforeWhitespaceGoal.issues);
+
+  const failedCreateAssignmentNumber = loadState().nextIssue;
+  updateState((state) => {
+    state.dropCreateAssignee = true;
+  });
+  const failedCreateAssignment = run(
+    'new',
+    '--title',
+    'Missing create assignment',
+    '--goal',
+    'The silently dropped assignment must be reported',
+  );
+  assert.equal(failedCreateAssignment.status, 1);
+  assert.equal(failedCreateAssignment.stdout, '');
+  assert.equal(
+    failedCreateAssignment.stderr.trim(),
+    `plan #${failedCreateAssignmentNumber} assignee verification failed: expected sole assignee plan-agent`,
+  );
+  assert.deepEqual(issue(failedCreateAssignmentNumber).assignees, []);
+  updateState((state) => {
+    delete state.dropCreateAssignee;
+  });
   const topicNumber = createPlan('topic-label', { labels: ['security'] });
   assert.deepEqual(issue(topicNumber).labels, ['plan', 'plan:drafting', 'security']);
 
@@ -269,6 +303,7 @@ try {
     '@me',
   ]);
   const claimNumber = createPlan('claim');
+  makeValid(claimNumber);
   updateIssue(claimNumber, (entry) => {
     entry.assignees = [];
   });
@@ -280,6 +315,65 @@ try {
   expectSuccess(claimedAgain, 'claim idempotently');
   assert.equal(claimedAgain.stdout.trim(), `plan #${claimNumber} already claimed: plan-agent`);
   assert.deepEqual(issue(claimNumber).assignees, ['plan-agent']);
+  const failedClaimAssignmentNumber = createPlan('failed-claim-assignment');
+  makeValid(failedClaimAssignmentNumber);
+  updateIssue(failedClaimAssignmentNumber, (entry) => {
+    entry.assignees = [];
+  });
+  updateState((state) => {
+    state.dropEditAssignee = true;
+  });
+  const failedClaimAssignment = run('claim', String(failedClaimAssignmentNumber));
+  assert.equal(failedClaimAssignment.status, 1);
+  assert.equal(failedClaimAssignment.stdout, '');
+  assert.equal(
+    failedClaimAssignment.stderr.trim(),
+    `plan #${failedClaimAssignmentNumber} assignee verification failed: expected sole assignee plan-agent`,
+  );
+  assert.deepEqual(issue(failedClaimAssignmentNumber).assignees, []);
+  updateState((state) => {
+    delete state.dropEditAssignee;
+  });
+
+  const concurrentClaimNumber = createPlan('concurrent-claim');
+  makeValid(concurrentClaimNumber);
+  updateIssue(concurrentClaimNumber, (entry) => {
+    entry.assignees = [];
+  });
+  const concurrentClaimBody = issue(concurrentClaimNumber).body;
+  updateState((state) => {
+    state.remoteChange = {
+      issue: concurrentClaimNumber,
+      viewsBeforeChange: 1,
+      body: `${concurrentClaimBody}\nremote claim change\n`,
+    };
+  });
+  const concurrentClaim = run('claim', String(concurrentClaimNumber));
+  assert.equal(concurrentClaim.status, 1);
+  assert.equal(concurrentClaim.stdout, '');
+  assert.equal(concurrentClaim.stderr.trim(), 'plan issue changed remotely; re-read and retry');
+  assert.deepEqual(issue(concurrentClaimNumber).assignees, []);
+
+  const malformedClaimNumber = createPlan('malformed-claim');
+  makeValid(malformedClaimNumber);
+  updateIssue(malformedClaimNumber, (entry) => {
+    entry.assignees = [];
+    entry.body = entry.body.replace('| A1 | `node --version` | Exit 0 |\n', '');
+  });
+  const malformedClaimBefore = issue(malformedClaimNumber);
+  const malformedClaimEditsBefore = loadState().calls.filter(
+    (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(malformedClaimNumber),
+  ).length;
+  const malformedClaim = run('claim', String(malformedClaimNumber));
+  assert.equal(malformedClaim.status, 1);
+  assert.match(malformedClaim.stderr, new RegExp(`#${malformedClaimNumber}: check 9:`));
+  assert.deepEqual(issue(malformedClaimNumber), malformedClaimBefore);
+  assert.equal(
+    loadState().calls.filter(
+      (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(malformedClaimNumber),
+    ).length,
+    malformedClaimEditsBefore,
+  );
   const foreignClaimNumber = createPlan('foreign-claim');
   updateIssue(foreignClaimNumber, (entry) => {
     entry.assignees = ['other-agent'];
@@ -477,6 +571,41 @@ try {
       /check 12:/,
     );
   }
+  for (const machinePath of [
+    '/usr/local/x',
+    '/workspace/x',
+    '/tmp/x',
+    'C:\\Users\\x',
+    '\\\\host\\share',
+    '`/home/user/x`',
+    '`C:\\Users\\x`',
+    '`\\\\host\\share`',
+    '/dev/shm/x',
+  ]) {
+    mutateAndRestore(
+      validNumber,
+      `machine path ${machinePath} introduced`,
+      (entry) => {
+        entry.body = entry.body.replace('_Not researched yet._', `_Not researched yet._ ${machinePath}`);
+      },
+      /check 10:/,
+    );
+  }
+
+  const portableCitationsFile = path.join(scratch, 'portable-citations-plan.md');
+  fs.writeFileSync(
+    portableCitationsFile,
+    issue(validNumber).body.replace(
+      '_Not researched yet._',
+      [
+        'Repository facts are in src/example.mjs and DocksDocks/docks#23.',
+        'See https://example.com/usr/local/x and [the lifecycle guide](/docs/plan-lifecycle).',
+        'Command: {/tmp/example}',
+        'Cover each untracked path with `git diff --no-index /dev/null docs/PLAN.md`.',
+      ].join('\n'),
+    ),
+  );
+  expectSuccess(run('check', '--file', portableCitationsFile), 'check portable path citations');
 
   const validFile = path.join(scratch, 'valid-plan.md');
   fs.writeFileSync(validFile, issue(validNumber).body);
@@ -1224,8 +1353,20 @@ try {
   assert.match(bogusListing.stdout, new RegExp(`^drafting\\t#${transitionNumber}\\t`, 'm'));
   assert.doesNotMatch(bogusListing.stdout, /plan:bogus/);
   updateIssue(transitionNumber, (entry) => entry.labels.push('plan:blocked'));
-  expectSuccess(run('status', String(transitionNumber), 'planned'), 'conflicting labels repaired');
-  assert.deepEqual(issue(transitionNumber).labels.sort(), ['plan', 'plan:planned', 'security']);
+  const malformedStatusBefore = issue(transitionNumber);
+  const malformedStatusEditsBefore = loadState().calls.filter(
+    (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(transitionNumber),
+  ).length;
+  const malformedStatus = run('status', String(transitionNumber), 'planned');
+  assert.equal(malformedStatus.status, 1);
+  assert.match(malformedStatus.stderr, new RegExp(`#${transitionNumber}: check 2:`));
+  assert.deepEqual(issue(transitionNumber), malformedStatusBefore);
+  assert.equal(
+    loadState().calls.filter(
+      (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(transitionNumber),
+    ).length,
+    malformedStatusEditsBefore,
+  );
 
   const stepTransitions = {
     planned: new Set(['in-flight', 'done', 'blocked', 'skipped']),
@@ -1252,6 +1393,26 @@ try {
       }
     }
   }
+  const malformedStepNumber = createPlan('malformed-step');
+  makeValid(malformedStepNumber);
+  setIssueStatus(malformedStepNumber, 'ongoing');
+  updateIssue(malformedStepNumber, (entry) => {
+    entry.body = entry.body.replace('| A1 | `node --version` | Exit 0 |\n', '');
+  });
+  const malformedStepBefore = issue(malformedStepNumber);
+  const malformedStepEditsBefore = loadState().calls.filter(
+    (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(malformedStepNumber),
+  ).length;
+  const malformedStep = run('step', String(malformedStepNumber), 'implement_contract', 'done');
+  assert.equal(malformedStep.status, 1);
+  assert.match(malformedStep.stderr, new RegExp(`#${malformedStepNumber}: check 9:`));
+  assert.deepEqual(issue(malformedStepNumber), malformedStepBefore);
+  assert.equal(
+    loadState().calls.filter(
+      (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(malformedStepNumber),
+    ).length,
+    malformedStepEditsBefore,
+  );
 
   const dependencyNumber = createPlan('dependency');
   makeValid(dependencyNumber, {
@@ -1927,6 +2088,37 @@ try {
     'archive requires a merged closing pull request; issue has no closing commit',
   );
   assert.deepEqual(issue(staleCommitNumber), beforeStaleCommitArchive);
+
+  const retireRecoveryNumber = createPlan('retire-cleanup-recovery');
+  makeValid(retireRecoveryNumber);
+  setIssueStatus(retireRecoveryNumber, 'planned');
+  updateState((state) => {
+    state.labelRemovalErrorOnce = 'stubbed label cleanup failure';
+  });
+  const failedRetireCleanup = run('retire', String(retireRecoveryNumber), '--reason', 'The request was withdrawn');
+  assert.equal(failedRetireCleanup.status, 1, 'retire must expose a failed label cleanup');
+  assert.equal(failedRetireCleanup.stderr.trim(), 'gh issue edit failed: stubbed label cleanup failure');
+  assert.equal(issue(retireRecoveryNumber).state, 'CLOSED');
+  assert.equal(issue(retireRecoveryNumber).stateReason, 'NOT_PLANNED');
+  assert.deepEqual(
+    issue(retireRecoveryNumber).labels,
+    ['plan', 'plan:planned'],
+    'failed retire cleanup must preserve the recoverable phase label',
+  );
+  const recoveredRetire = run('retire', String(retireRecoveryNumber), '--reason', 'Retry the label cleanup');
+  expectSuccess(recoveredRetire, 'retire label cleanup recovery');
+  assert.equal(recoveredRetire.stdout.trim(), `plan #${retireRecoveryNumber} retired (recovered label cleanup)`);
+  assert.deepEqual(issue(retireRecoveryNumber).labels, ['plan']);
+  assert.equal(
+    loadState().calls.filter(
+      (call) => call[0] === 'issue' && call[1] === 'close' && call[2] === String(retireRecoveryNumber),
+    ).length,
+    1,
+    'retire recovery must not close the issue again',
+  );
+  const completedRecoveryRetry = run('retire', String(retireRecoveryNumber), '--reason', 'A second retry');
+  assert.equal(completedRecoveryRetry.status, 1, 'a fully retired plan must remain refused');
+  assert.equal(completedRecoveryRetry.stderr.trim(), 'cannot retire a retired plan');
 
   const retiredNumber = createPlan('retired');
   makeValid(retiredNumber);
