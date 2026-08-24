@@ -243,7 +243,7 @@ export function checkPlan(planText, planRef) {
   if (/\bstep \d+\b/.test(planText)) failures.push('check 7: bare numeric step citation is not allowed');
   for (const row of stepsTable.rows) {
     const display = Number(row.cells[0]);
-    const dependencies = row.cells[4] === '—' ? [] : row.cells[4].split(',').map((value) => value.trim());
+    const dependencies = row.cells[4] === '-' ? [] : row.cells[4].split(',').map((value) => value.trim());
     for (const dependency of dependencies) {
       if (!displayNumbers.has(dependency) || !/^\d+$/.test(dependency) || Number(dependency) >= display) {
         failures.push(`check 8: step ${row.cells[1] || row.cells[0]} has invalid dependency ${dependency}`);
@@ -263,6 +263,7 @@ export function checkPlan(planText, planRef) {
     if (!command || !expected) failures.push(`check 9: acceptance ${id || '(empty)'} has an empty required cell`);
   }
   if (machinePathCitations(planText).length > 0) failures.push('check 10: body contains an absolute machine path');
+  if (planText.includes('\u2014')) failures.push('check 10: body contains an em dash');
   const researchIsPlaceholder = (sections.get('Research') ?? '').includes('_Not researched yet._');
   if (researchIsPlaceholder && status !== undefined && status !== 'drafting') {
     failures.push('check 11: Research must be filled once the plan leaves drafting');
@@ -449,10 +450,11 @@ function issueComments(number) {
 
 function parseReviewComment(body) {
   if (typeof body !== 'string') return undefined;
+  if (body.includes('\u2014')) return undefined;
   const lines = body.trim().split(/\r?\n/);
   let kind;
-  if (/^### Plan review — \d{4}-\d{2}-\d{2}$/.test(lines[0] ?? '')) kind = 'plan';
-  else if (/^### Code review round [1-9]\d* — \d{4}-\d{2}-\d{2}$/.test(lines[0] ?? '')) kind = 'code';
+  if (/^### Plan review - \d{4}-\d{2}-\d{2}$/.test(lines[0] ?? '')) kind = 'plan';
+  else if (/^### Code review round [1-9]\d* - \d{4}-\d{2}-\d{2}$/.test(lines[0] ?? '')) kind = 'code';
   else return undefined;
 
   const verdictPrefix = kind === 'plan' ? 'Plan-review: ' : 'Code-review: ';
@@ -464,12 +466,12 @@ function parseReviewComment(body) {
   if (kind === 'plan') {
     if (verdict === 'pass' && findings.length > 0) return undefined;
     if (verdict !== 'pass' && findings.length === 0) return undefined;
-    if (findings.some((line) => !/^- \[(?:goal_fit|research_gap|security_risk)\] .+ — .+ — .+$/.test(line))) {
+    if (findings.some((line) => !/^- \[(?:goal_fit|research_gap|security_risk)\] .+ - .+ - .+$/.test(line))) {
       return undefined;
     }
   } else {
     const parsedFindings = findings.map((line) => (
-      /^- (CRITICAL|HIGH|MEDIUM|LOW) · (?:Bug|Security|Performance|Maintainability|Spec) · .+ — .+ — .+$/.exec(line)
+      /^- (CRITICAL|HIGH|MEDIUM|LOW) · (?:Bug|Security|Performance|Maintainability|Spec) · .+ - .+ - .+$/.exec(line)
     ));
     if (parsedFindings.some((finding) => finding === null)) return undefined;
     const severities = parsedFindings.map((finding) => finding[1]);
@@ -678,6 +680,9 @@ function createPlan(args) {
   const mode = options['--mode'] ?? 'plan-and-implement';
   if (!new Set(['plan-and-implement', 'plan-only']).has(mode)) fail(`invalid plan mode: ${mode}`);
   if ([options['--title'], options['--goal']].some((value) => /[\r\n]/.test(value))) fail('title and goal must be single-line text');
+  if ([options['--title'], options['--goal']].some((value) => value.includes('\u2014'))) {
+    fail('title and goal must not contain an em dash');
+  }
   for (const label of options['--label'] ?? []) {
     if (!label.trim() || /[\r\n]/.test(label)) fail('label names must be non-empty single-line text');
     if (/^plan(?::|$)/.test(label)) fail(`reserved label namespace: ${label}`);
@@ -870,6 +875,9 @@ function setPlanStatus(args) {
   if (!PLAN_STATUSES.has(target)) fail(`unknown plan status: ${target}`);
   const options = parseOptions(flags, new Set(['--reason']));
   if (target === 'blocked' && (!String(options['--reason'] ?? '').trim() || /[\r\n]/.test(options['--reason']))) fail('blocked status requires --reason as single-line text');
+  if (target === 'blocked' && String(options['--reason'] ?? '').includes('\u2014')) {
+    fail('blocked status --reason must not contain an em dash');
+  }
   if (target !== 'blocked' && options['--reason'] !== undefined) fail('--reason is allowed only for blocked status');
   const { issue, record } = readPlanIssue(value, true);
   if (String(issue.state).toUpperCase() === 'CLOSED') {
@@ -901,7 +909,7 @@ function setStepStatus(args) {
   if (!row) fail(`unknown step id: ${stepId}`);
   const current = unquoteCode(row.cells[6]);
   if (!STEP_TRANSITIONS[current]?.has(target)) fail(`illegal step status transition: ${current} -> ${target}`);
-  if (new Set(['in-flight', 'done']).has(target) && row.cells[4] !== '—') {
+  if (new Set(['in-flight', 'done']).has(target) && row.cells[4] !== '-') {
     const byNumber = new Map(table.rows.map((entry) => [entry.cells[0], unquoteCode(entry.cells[6])]));
     const unfinished = row.cells[4].split(',').map((dependency) => dependency.trim()).filter((number) => !new Set(['done', 'skipped']).has(byNumber.get(number)));
     if (unfinished.length > 0) fail(`step:${stepId} has unfinished dependency ${unfinished.join(', ')}`);
@@ -962,7 +970,7 @@ function parseQueue(queueText) {
       stage: Number(cells[0]),
       plan: cells[1],
       number: numeric ? Number(numeric[1]) : undefined,
-      dependencies: cells[2] === '—' ? [] : cells[2].split(',').map((item) => item.trim()),
+      dependencies: cells[2] === '-' ? [] : cells[2].split(',').map((item) => item.trim()),
       order: rows.length,
     });
   }

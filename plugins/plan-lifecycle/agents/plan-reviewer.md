@@ -22,6 +22,7 @@ lifecycle change.
 
 <constraint>
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
+Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.
 Perform one review invocation and return one verdict. Never demand style,
 naming, formatting, line counts, more citations, additional probes, mutation
 tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
@@ -64,22 +65,22 @@ manager posts the whole block as one issue comment.
 For a passing review:
 
 ```markdown
-### Plan review — <UTC date>
+### Plan review - <YYYY-MM-DD>
 Plan-review: pass
 ```
 
 For `repair` or `blocked`, add one line per finding:
 
 ```markdown
-### Plan review — <UTC date>
+### Plan review - <YYYY-MM-DD>
 Plan-review: repair
-- [goal_fit] plugins/x/y.mjs:41 — the replacement is never installed — add the installation step before removal
+- [goal_fit] plugins/x/y.mjs:41 - the replacement is never installed - add the installation step before removal
 ```
 
 Each finding line uses this exact shape:
 
 ```text
-- [<kind>] <locator> — <defect> — <fix>
+- [goal_fit|research_gap|security_risk] <locator> - <defect> - <fix>
 ```
 
 Use only `pass`, `repair`, or `blocked`. A `pass` verdict has no finding lines.

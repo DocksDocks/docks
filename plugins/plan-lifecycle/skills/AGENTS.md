@@ -1,7 +1,7 @@
 # Authoring the plan-lifecycle skills (plugins/plan-lifecycle/skills/)
 
-This plugin ships exactly three skills — `productivity/plan-workspace`,
-`productivity/plan-manager`, and `productivity/plan-reviewer` — plus one
+This plugin ships exactly three skills - `productivity/plan-workspace`,
+`productivity/plan-manager`, and `productivity/plan-reviewer` - plus one
 `plan-manager/scripts/plan.mjs` lifecycle tool, one
 `plan-manager/references/plan-contract.md` contract reference, and two read-only
 reviewer wrappers at `../agents/plan-reviewer.md` and
@@ -28,13 +28,13 @@ After changing a skill's meaning, run `node scripts/skills/content-hash.mjs
 differs, so a formatting-only edit leaves both fields alone and the recorded date
 keeps describing the last real change. Readers use `metadata.updated` to judge
 staleness, so the date must never be bumped by a formatting pass. Shipped
-`scripts/` sit outside the content-hash surface — bump `metadata.updated`
+`scripts/` sit outside the content-hash surface - bump `metadata.updated`
 manually when only those change.
 </constraint>
 
 <constraint>
 Shipped skill bodies (SKILL.md + `references/`) and the shipped agent body are
-consumer-facing — never name docks plugin-author scripts (`scripts/ci.mjs`,
+consumer-facing - never name docks plugin-author scripts (`scripts/ci.mjs`,
 `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.mjs`,
 `scripts/config/*`, `scripts/lib/*`) as a step. Make verification
 self-contained or refer generically to "the project's CI / validators, if
@@ -94,6 +94,6 @@ text; change it only in lockstep across all six routes and both validators.
 
 Same rubric as every kit skill: `node
 plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score
---per-file plugins/plan-lifecycle/skills` — per-file floor productivity 8
+--per-file plugins/plan-lifecycle/skills` - per-file floor productivity 8
 (`scripts/config/scoring.json`); agents floor 14. Skills surface as
 `plan-lifecycle:<name>` from `name` in `.claude-plugin/plugin.json`.

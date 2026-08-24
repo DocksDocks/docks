@@ -82,7 +82,7 @@ A body carries no phase. `check <issue>` enforces every rule; `check --file
 <path>` enforces only body-readable rules and skips the phase-label rule, both
 `Blocked:` rules, and the filled-Research rule rather than assuming a phase.
 
-## Body — exactly these eight `##` sections, in this order, each present once
+## Body - exactly these eight `##` sections, in this order, each present once
 
 Every v3 plan opens with `<!-- plan-contract: v3 -->`, then a blank line, then
 exactly these eight `##` sections, in this order, each present once: `## Goal`,
@@ -101,17 +101,19 @@ exactly these eight `##` sections, in this order, each present once: `## Goal`,
 | `## Verification Results` | Observed commands and their real output, written during implementation. |
 
 The body contains no absolute machine path. A plan is a cold handoff, and a path
-from one machine is not portable.
+from one machine is not portable. A plan body contains no U+2014 em dash character anywhere.
+
+Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.
 
 Once an open plan leaves `drafting`, `## Research` must no longer carry the
 template placeholder `_Not researched yet._`.
 
-## Steps table — exact header and cell grammar
+## Steps table - exact header and cell grammar
 
 ```text
 | # | Id | Task | Files | Depends | Effect | Status | Done when |
 |---:|---|---|---|---|---|---|---|
-| 1 | add_plan_cli | Add the plan CLI with new/check/status/step/list/next/archive | plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs | — | `local` | `planned` | `plan.mjs check <issue>` exits 0 |
+| 1 | add_plan_cli | Add the plan CLI with new/check/status/step/list/next/archive | plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs | - | `local` | `planned` | `plan.mjs check <issue>` exits 0 |
 ```
 
 - `Id` matches `[a-z][a-z0-9_]{0,63}` and is unique within the plan. Every plan
@@ -120,7 +122,7 @@ template placeholder `_Not researched yet._`.
   diff and any subset scope check read it from there.
 - No `Files` cell names the plan's own issue reference. Writing lifecycle state
   into GitHub is the CLI's job, not an implementation step.
-- `Depends` is `—` or a comma-separated list of lower display numbers from the
+- `Depends` is `-` or a comma-separated list of lower display numbers from the
   same table.
 - `Effect` is exactly one of `local`, `probe`, `production_access`, `publish`,
   `push`, `release`, `deploy`.
@@ -137,7 +139,7 @@ Every Steps row must be terminal before the pull request carrying
 `Closes #<issue>` merges. Once that merge closes the issue, step mutation is no
 longer available. Post-merge work belongs to a named follow-up plan.
 
-## Acceptance table — exact header
+## Acceptance table - exact header
 
 ```text
 | ID | Command | Expected |
@@ -148,7 +150,7 @@ longer available. Post-merge work belongs to a named follow-up plan.
 Ids are unique. Commands run from the repository root and carry no
 `cd <absolute path>` prefix.
 
-## Review records — one issue comment per reviewer report
+## Review records - one issue comment per reviewer report
 
 `## Review` is a static pointer, not a review log:
 
@@ -165,15 +167,15 @@ The reviewer returns exactly one markdown block. The manager posts that whole
 block as one issue comment without editing it. The two exact shapes are:
 
 ```markdown
-### Plan review — 2026-08-08
+### Plan review - <YYYY-MM-DD>
 Plan-review: pass
-- [goal_fit] `## Steps` row 4 — the step deletes the validator but no step adds its replacement — add a step that installs the replacement before the deletion
+- [goal_fit] `## Steps` row 4 - the step deletes the validator but no step adds its replacement - add a step that installs the replacement before the deletion
 ```
 
 ```markdown
-### Code review round 1 — 2026-08-08
+### Code review round <n> - <YYYY-MM-DD>
 Code-review: fixes-required
-- HIGH · Security · plugins/x/y.mjs:41 — user input reaches `execSync` unquoted — pass argv array to `spawnSync`
+- HIGH · Security · plugins/x/y.mjs:41 - user input reaches `execSync` unquoted - pass argv array to `spawnSync`
 ```
 
 A well-formed record occupies the whole trimmed comment. It has the exact
@@ -182,11 +184,10 @@ line, then only finding lines valid for that review kind. Extra prose, multiple
 records, a missing heading, or an invalid verdict makes the comment ineligible.
 `Plan-review:` is exactly `pass`, `repair`, or `blocked`. A plan-review `pass`
 has no finding lines; `repair` and `blocked` have at least one line in the shape
-`- [<kind>] <locator> — <defect> — <fix>`, where `<kind>` is exactly
-`goal_fit`, `research_gap`, or `security_risk`.
+`- [goal_fit|research_gap|security_risk] <locator> - <defect> - <fix>`, with
+exactly one of the three bracketed kinds.
 `Code-review:` is exactly `pass`, `fixes-required`, or `blocked`. Each finding
-uses the one-line severity, category, location, defect, and fix shape shown
-above. `fixes-required` and `blocked` have at least one finding.
+uses `- <CRITICAL|HIGH|MEDIUM|LOW> · <Bug|Security|Performance|Maintainability|Spec> · <locator> - <defect> - <fix>` on one line. `fixes-required` and `blocked` have at least one finding.
 
 A record is trusted only when the issue has exactly one assignee and the
 comment's author login equals that assignee. For each review kind independently,
@@ -220,7 +221,7 @@ has started, a technical block or any terminal repair failure requires the
 manager to commit and normally push all current work to the verified linked
 branch before recording the blocker, setting the plan `blocked`, and stopping.
 
-## Lifecycle state — derived from GitHub
+## Lifecycle state - derived from GitHub
 
 The open-work phase enum is exactly `drafting`, `planned`, `ongoing`, and
 `blocked`. Open phase transitions are:

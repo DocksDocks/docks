@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-24"
-  content_hash: "0e071cfe585daaa1649a43c70e5265bc7852b6a983f493362942829d3263d72f"
+  content_hash: "1979ad7c8da0ace07ecf6d23a01f7d2e102f28f16f1694e75c4a78715a32ea62"
 ---
 
 # Plans Workspace
@@ -207,8 +207,8 @@ The plan record is a GitHub issue. Its body starts with
 sections; it has no frontmatter. GitHub owns title, open-work phase, owner,
 timestamps, and completion, and no plan markdown is tracked in the repository.
 Exactly three skills own the workflow: `plan-workspace` maintains the workspace;
-main-context `plan-manager` runs six phases — decide, draft, research, plan
-review, implement, code review — with bounded repair and fresh re-review in both
+main-context `plan-manager` runs six phases - decide, draft, research, plan
+review, implement, code review - with bounded repair and fresh re-review in both
 review phases, then archives; internal `plan-reviewer` returns one readable
 pre-implementation verdict block per round. Two read-only reviewer wrappers
 ship, `plan-reviewer` and `code-reviewer`, and nothing else in the lifecycle has

@@ -9,7 +9,7 @@ The `Plan` cell now holds a plan issue number; any existing non-numeric cell nam
 
 | Stage | Plan | Depends on | Why |
 |---:|---|---|---|
-| 1 | ci-observability-and-test-contracts | — | This plan is finished. |
+| 1 | ci-observability-and-test-contracts | - | This plan is finished. |
 | 2 | plan-execution-queue-contract | ci-observability-and-test-contracts | CI observability is finished and its full gate is green; this plan is finished, so the queue now orders the remaining work. |
 
 ## OptMem design input

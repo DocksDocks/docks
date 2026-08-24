@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-24"
-  content_hash: "a5ed7496458e7b22b9ca9c3e18d4deb85dd7b44a033a77abb9f1bde3031b6916"
+  content_hash: "4659a94aad0e0b53da5008e6591360e2233251851e82fea8303058e236ed5ffe"
 ---
 
 # Plan Reviewer
@@ -25,7 +25,7 @@ apply a fix or change the plan.
 </constraint>
 
 <constraint>
-A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
+A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes. Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.
 Never demand style, naming, formatting, line counts, more citations, additional
 probes or mutation tests, extra acceptance rows, restructuring for its own sake,
 or any cosmetic fix. There is no score, quota, or instruction to improve until
@@ -46,7 +46,7 @@ Report a finding only under this closed table.
 |---|---|
 |`goal_fit`|the Steps, taken together, do not achieve `## Goal`, or a step contradicts it|
 |`research_gap`|a load-bearing `## Research` claim is unverified or contradicted by the repository, a source the change obviously needs was not consulted, or the chosen fix is temporary where a durable one is reachable|
-|`security_risk`|the change introduces or ignores a security problem — secret exposure, injection, an authorization gap, or a destructive irreversible operation with no confirmation|
+|`security_risk`|the change introduces or ignores a security problem - secret exposure, injection, an authorization gap, or a destructive irreversible operation with no confirmation|
 
 Read enough repository context to test the plan. Follow definitions and
 references for load-bearing symbols. Inspect relevant tests and neighboring
@@ -64,13 +64,13 @@ Return exactly one readable `Plan-review:` markdown block defined by the v3
 contract in the `plan-manager` skill's `references/plan-contract.md`. The
 manager posts that whole block as one issue comment. Do not return JSON. A pass
 has no finding lines. A repair or blocked verdict has at least one finding line.
-Use a precise plan locator, defect, and actionable fix.
+Each finding uses `- [goal_fit|research_gap|security_risk] <locator> - <defect> - <fix>` with a precise plan locator and actionable fix.
 
 ```markdown
-### Plan review — <UTC date>
+### Plan review - <YYYY-MM-DD>
 Plan-review: repair
-- [goal_fit] `## Steps` row 4 — the plan removes the validator without adding its replacement — add the replacement before the removal
-- [security_risk] plugins/x/y.mjs:41 — untrusted input reaches a shell command — pass an argv array without a shell
+- [goal_fit] `## Steps` row 4 - the plan removes the validator without adding its replacement - add the replacement before the removal
+- [security_risk] plugins/x/y.mjs:41 - untrusted input reaches a shell command - pass an argv array without a shell
 ```
 
 ## BAD / GOOD

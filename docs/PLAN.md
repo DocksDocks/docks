@@ -1,4 +1,4 @@
-# PLAN.md — plan record standard
+# PLAN.md - plan record standard
 
 The plan record is a GitHub issue. Its body carries the v3 byte contract and the
 human-authored plan, review records live in issue comments, and GitHub fields
@@ -88,7 +88,9 @@ Spell it `Blocked: <one-line text>`. Only a blocked plan may open that section
 with `Blocked:`. No other body field stores the reason.
 
 The body contains no absolute machine path. A plan is a cold handoff, and a path
-from one machine is not portable.
+from one machine is not portable. A plan body contains no U+2014 em dash character anywhere.
+
+Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.
 
 Contract classification is byte-driven and deliberately does not guess:
 
@@ -120,7 +122,7 @@ The Steps table uses this exact header:
 |---:|---|---|---|---|---|---|---|
 ```
 
-`#` is the positive display number. `Id` matches `[a-z][a-z0-9_]{0,63}` and is unique. `Task`, `Files`, and `Done when` are non-empty. `Depends` is `—` or a comma-separated list of lower display numbers from the same table. `Effect` is exactly one of `local`, `probe`, `production_access`, `publish`, `push`, `release`, or `deploy`. `Status` is exactly one of `planned`, `in-flight`, `done`, `blocked`, or `skipped`; `done` and `skipped` are terminal. `Done when` names one observable proof and carries no "or STOP" clause. Step citations use `step:<id>` and resolve to a declared id.
+`#` is the positive display number. `Id` matches `[a-z][a-z0-9_]{0,63}` and is unique. `Task`, `Files`, and `Done when` are non-empty. `Depends` is `-` or a comma-separated list of lower display numbers from the same table. `Effect` is exactly one of `local`, `probe`, `production_access`, `publish`, `push`, `release`, or `deploy`. `Status` is exactly one of `planned`, `in-flight`, `done`, `blocked`, or `skipped`; `done` and `skipped` are terminal. `Done when` names one observable proof and carries no "or STOP" clause. Step citations use `step:<id>` and resolve to a declared id.
 
 Every Steps row must be terminal before the closing pull request merges. Once
 that merge closes the issue as completed, the derived state is `finished` and
@@ -288,7 +290,7 @@ The header strip is `#<issue> · <status> · <title> · <url>`. `show` prints
 on the next line. With `show --body`, the record alone goes to stdout and both
 metadata lines go to stderr, header first.
 
-## Review records — one issue comment per reviewer report
+## Review records - one issue comment per reviewer report
 
 `## Review` is a static pointer, not a review log:
 
@@ -304,22 +306,24 @@ The reviewer returns exactly one markdown block. The manager posts that whole
 block as one issue comment without editing it. The two exact shapes are:
 
 ```markdown
-### Plan review — <date>
+### Plan review - <YYYY-MM-DD>
 Plan-review: pass|repair|blocked
-- [goal_fit] `## Steps` row 4 — the step removes the validator without replacing it — add the replacement before removal
+- [goal_fit] `## Steps` row 4 - the step removes the validator without replacing it - add the replacement before removal
 ```
 
 ```markdown
-### Code review round <n> — <date>
+### Code review round <n> - <YYYY-MM-DD>
 Code-review: pass|fixes-required|blocked
-- HIGH · Security · plugins/x/y.mjs:41 — user input reaches a shell command unquoted — pass an argument array
+- HIGH · Security · plugins/x/y.mjs:41 - user input reaches a shell command unquoted - pass an argument array
 ```
 
 A well-formed record occupies the whole comment. It has the matching heading,
 then exactly one verdict line, then zero or more nonblank finding lines. Extra
 prose, multiple records, a missing heading, or an invalid verdict makes the
-comment ineligible. `Plan-review:` is exactly `pass`, `repair`, or `blocked`.
-`Code-review:` is exactly `pass`, `fixes-required`, or `blocked`.
+comment ineligible. `Plan-review:` is exactly `pass`, `repair`, or `blocked`. Plan-review findings use
+`- [goal_fit|research_gap|security_risk] <locator> - <defect> - <fix>`.
+`Code-review:` is exactly `pass`, `fixes-required`, or `blocked`. Code-review
+findings use `- <CRITICAL|HIGH|MEDIUM|LOW> · <Bug|Security|Performance|Maintainability|Spec> · <locator> - <defect> - <fix>`.
 
 A record is trusted only when the issue has exactly one assignee and the
 comment's author login equals that assignee. For each review kind independently,
@@ -356,7 +360,7 @@ branch before recording the blocker, setting the plan `blocked`, and stopping.
 
 ## Phases
 
-1. **Decide.** Phase 1 asks exactly one question with exactly three options, in this order and wording: `Plan and implement now`, `Plan only, stop at planned`, `Implement directly` — and skips the question only when the request already settles the mode.
+1. **Decide.** Phase 1 asks exactly one question with exactly three options, in this order and wording: `Plan and implement now`, `Plan only, stop at planned`, `Implement directly` - and skips the question only when the request already settles the mode.
 2. **Draft.** Create the plan issue, write the goal and research hypothesis, and keep provisional Steps and Acceptance tables while status remains `drafting`.
 3. **Research.** Verify repository facts and external claims, record their sources, choose the durable fix, bind the exact files, complete Acceptance, pass `plan.mjs check`, and set the plan `planned`.
 4. **Plan review.** Run up to five rounds from fresh exports. Post each reviewer block as one issue comment. Fix reproduced findings and dispatch a fresh review; stop on pass, no progress, a finding surviving its fix, or `repair` in round five. Route every `blocked` user-only decision through `## Open questions` and `ask`, including in round five. A plan-only run stops at `planned` only after plan review passes.
@@ -446,7 +450,7 @@ Cite repository-relative paths only; acceptance rows run from the repository roo
 
 ## Queue
 
-`docs/PLAN-QUEUE.md` is optional and classification-neutral. Its table is `| Stage | Plan | Depends on | Why |`, with `Plan` holding the issue number. A row is eligible only when its full direct and transitive dependency closure is finished. Stages give deterministic priority. The queue is a discovery and prioritization view only and grants no lifecycle, review, mutation, or external-effect authority. A workspace without it stays valid.
+`docs/PLAN-QUEUE.md` is optional and classification-neutral. Its table is `| Stage | Plan | Depends on | Why |`, with `Plan` holding the issue number. An empty `Depends on` cell is `-`. A row is eligible only when its full direct and transitive dependency closure is finished. Stages give deterministic priority. The queue is a discovery and prioritization view only and grants no lifecycle, review, mutation, or external-effect authority. A workspace without it stays valid.
 
 A `Plan` cell that is not a positive issue number names a frozen pre-GitHub
 record. Such a row, and any row depending on it, is skipped rather than treated
