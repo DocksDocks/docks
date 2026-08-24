@@ -1,4 +1,4 @@
-# Codex Agent Defaults — two read-only reviewers
+# Codex Agent Defaults - two read-only reviewers
 
 During an authorized workspace bootstrap, migration, or explicit refresh, seed
 only a missing reviewer wrapper. Seed `.codex/agents/plan-reviewer.toml` and
@@ -22,6 +22,14 @@ Acknowledge the supplied plan issue number and export path before analysis. Read
 the plan body from the export path the manager supplies; never fetch the issue.
 
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
+
+Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.
+
+Use this exact record grammar:
+
+    ### Plan review - <YYYY-MM-DD>
+    Plan-review: <pass|repair|blocked>
+    - [goal_fit|research_gap|security_risk] <locator> - <defect> - <fix>
 
 Remain read-only. Never write, dispatch an agent, run a mutating command, or ask
 the user. Return exactly one readable `Plan-review:` markdown block to the
@@ -77,6 +85,8 @@ the other.
 Use `Bug`, `Security`, `Performance`, or `Maintainability` for Standards
 findings. Use `Spec` for a plan mismatch.
 
+Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.
+
 Select one verdict:
 
 - `pass`: No `CRITICAL` or `HIGH` finding stands unfixed. Advisory `MEDIUM`
@@ -95,9 +105,9 @@ posts that whole block unchanged as one issue comment and owns fixes and fresh
 re-review dispatch. The block must be the parser-compatible comment record, and
 this exact shape overrides any report layout from a loaded `code-review` skill:
 
-    ### Code review round <n> — <UTC YYYY-MM-DD>
+    ### Code review round <n> - <YYYY-MM-DD>
     Code-review: <pass|fixes-required|blocked>
-    - <CRITICAL|HIGH|MEDIUM|LOW> · <Bug|Security|Performance|Maintainability|Spec> · <locator> — <defect> — <fix>
+    - <CRITICAL|HIGH|MEDIUM|LOW> · <Bug|Security|Performance|Maintainability|Spec> · <locator> - <defect> - <fix>
 
 Use the round number the manager supplies, one finding per line, and no prose
 outside the block. These inline Standards buckets, severity caps, Spec axis,

@@ -20,6 +20,7 @@ const linkedParent = fs.realpathSync(fs.mkdtempSync(path.join(testScratchRoot, '
 const linkedScratch = path.join(linkedParent, 'worktree');
 const statePath = path.join(scratch, 'gh-state.json');
 const V3_MARKER = '<!-- plan-contract: v3 -->';
+const FORBIDDEN_DASH = String.fromCodePoint(0x2014);
 const V3_SECTIONS = [
   '## Goal',
   '## Research',
@@ -157,7 +158,7 @@ function createPlan(name, options = {}) {
 
 function makeValid(number, options = {}) {
   const steps = options.steps ?? [
-    '| 1 | implement_contract | Implement the contract | src/example.mjs | — | `local` | `planned` | command exits 0 |',
+    '| 1 | implement_contract | Implement the contract | src/example.mjs | - | `local` | `planned` | command exits 0 |',
   ];
   updateIssue(number, (entry) => {
     entry.body = entry.body
@@ -251,6 +252,23 @@ try {
   assert.equal(whitespaceGoal.stderr.trim(), 'goal must be non-empty after trimming');
   assert.equal(loadState().nextIssue, beforeWhitespaceGoal.nextIssue);
   assert.deepEqual(loadState().issues, beforeWhitespaceGoal.issues);
+  for (const [name, title, goal] of [
+    ['title', `Forbidden${FORBIDDEN_DASH}title`, 'A forbidden title creates no issue'],
+    ['goal', 'Forbidden goal', `A forbidden${FORBIDDEN_DASH}goal creates no issue`],
+  ]) {
+    const beforeForbiddenNew = loadState();
+    const forbiddenNew = run('new', '--title', title, '--goal', goal);
+    assert.equal(forbiddenNew.status, 1, `${name} must reject an em dash`);
+    assert.equal(forbiddenNew.stderr.trim(), 'title and goal must not contain an em dash');
+    const afterForbiddenNew = loadState();
+    assert.equal(afterForbiddenNew.nextIssue, beforeForbiddenNew.nextIssue, `${name} must create no issue`);
+    assert.deepEqual(afterForbiddenNew.issues, beforeForbiddenNew.issues, `${name} must leave issues unchanged`);
+    assert.equal(
+      afterForbiddenNew.calls.filter((call) => call[0] === 'issue' && call[1] === 'create').length,
+      beforeForbiddenNew.calls.filter((call) => call[0] === 'issue' && call[1] === 'create').length,
+      `${name} must fail before gh issue create`,
+    );
+  }
 
   const failedCreateAssignmentNumber = loadState().nextIssue;
   updateState((state) => {
@@ -521,7 +539,7 @@ try {
     [
       'unfinished dependency introduced',
       (entry) => {
-        entry.body = entry.body.replace('| — | `local` |', '| 2 | `local` |');
+        entry.body = entry.body.replace('| - | `local` |', '| 2 | `local` |');
       },
       /check 8:/,
     ],
@@ -541,6 +559,13 @@ try {
         entry.body = entry.body.replace('_Not researched yet._', '_Not researched yet._ /home/alice/private');
       },
       /check 10:/,
+    ],
+    [
+      'em dash introduced',
+      (entry) => {
+        entry.body = entry.body.replace('_Not researched yet._', `_Not researched yet._ ${FORBIDDEN_DASH}`);
+      },
+      /check 10: body contains an em dash/,
     ],
     [
       'self-reference introduced',
@@ -780,7 +805,7 @@ try {
       id: index + 1,
       body:
         index === 0
-          ? '### Plan review — 2026-08-20\nPlan-review: repair\n- [goal_fit] ## Goal — foreign finding — ignore it'
+          ? '### Plan review - 2026-08-20\nPlan-review: repair\n- [goal_fit] ## Goal - foreign finding - ignore it'
           : 'not a review record',
       author: 'other-agent',
       createdAt: new Date(Date.parse('2026-08-20T20:00:00Z') + index * 1000).toISOString(),
@@ -789,18 +814,18 @@ try {
   });
   addIssueComment(
     commentSummaryNumber,
-    '### Plan review — 2026-08-21\nPlan-review: repair\n- [research_gap] src/example.mjs:1 — evidence is missing — cite the source',
+    '### Plan review - 2026-08-21\nPlan-review: repair\n- [research_gap] src/example.mjs:1 - evidence is missing - cite the source',
   );
-  addIssueComment(commentSummaryNumber, '### Code review round 1 — 2026-08-21\nCode-review: pass');
-  addIssueComment(commentSummaryNumber, '### Plan review — 2026-08-22\nPlan-review: pass');
+  addIssueComment(commentSummaryNumber, '### Code review round 1 - 2026-08-21\nCode-review: pass');
+  addIssueComment(commentSummaryNumber, '### Plan review - 2026-08-22\nPlan-review: pass');
   addIssueComment(
     commentSummaryNumber,
-    '### Code review round 2 — 2026-08-22\nCode-review: fixes-required\n- HIGH · Bug · src/example.mjs:9 — later regression survives — fix the regression',
+    '### Code review round 2 - 2026-08-22\nCode-review: fixes-required\n- HIGH · Bug · src/example.mjs:9 - later regression survives - fix the regression',
   );
-  addIssueComment(commentSummaryNumber, '### Code review round 3 — 2026-08-23\nCode-review: pass', 'other-agent');
+  addIssueComment(commentSummaryNumber, '### Code review round 3 - 2026-08-23\nCode-review: pass', 'other-agent');
   addIssueComment(
     commentSummaryNumber,
-    '### Code review round 4 — 2026-08-24\nCode-review: pass\n- HIGH · Security · src/example.mjs:10 — malformed pass carries high — reject the malformed record',
+    '### Code review round 4 - 2026-08-24\nCode-review: pass\n- HIGH · Security · src/example.mjs:10 - malformed pass carries high - reject the malformed record',
   );
   const commentCallsBefore = loadState().calls.length;
   const commentSummary = run('show', String(commentSummaryNumber));
@@ -833,7 +858,7 @@ try {
   updateIssue(ambiguousOwnerSummaryNumber, (entry) => {
     entry.assignees.push('other-agent');
   });
-  addIssueComment(ambiguousOwnerSummaryNumber, '### Plan review — 2026-08-24\nPlan-review: pass');
+  addIssueComment(ambiguousOwnerSummaryNumber, '### Plan review - 2026-08-24\nPlan-review: pass');
   const ambiguousOwnerSummary = run('show', String(ambiguousOwnerSummaryNumber));
   expectSuccess(ambiguousOwnerSummary, 'show refuses comment trust without a sole assignee');
   assert.match(ambiguousOwnerSummary.stdout, /reviews: plan=none code=none\n$/);
@@ -1296,6 +1321,31 @@ try {
   const missingReason = run('status', String(transitionNumber), 'blocked');
   assert.equal(missingReason.status, 1);
   assert.match(missingReason.stderr, /blocked status requires --reason/);
+  const beforeForbiddenBlockedReason = issue(transitionNumber);
+  const blockedReasonEditsBefore = loadState().calls.filter(
+    (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(transitionNumber),
+  ).length;
+  const forbiddenBlockedReason = run(
+    'status',
+    String(transitionNumber),
+    'blocked',
+    '--reason',
+    `waiting${FORBIDDEN_DASH}for input`,
+  );
+  assert.equal(forbiddenBlockedReason.status, 1, 'blocked status reason must reject an em dash');
+  assert.equal(forbiddenBlockedReason.stderr.trim(), 'blocked status --reason must not contain an em dash');
+  assert.deepEqual(
+    issue(transitionNumber),
+    beforeForbiddenBlockedReason,
+    'forbidden blocked reason must leave issue unchanged',
+  );
+  assert.equal(
+    loadState().calls.filter(
+      (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(transitionNumber),
+    ).length,
+    blockedReasonEditsBefore,
+    'forbidden blocked reason must fail before the composed-body write',
+  );
 
   const blockedCheckNumber = createPlan('blocked-first-line');
   makeValid(blockedCheckNumber);
@@ -1417,7 +1467,7 @@ try {
   const dependencyNumber = createPlan('dependency');
   makeValid(dependencyNumber, {
     steps: [
-      '| 1 | prepare | Prepare the dependency | src/example.mjs | — | `local` | `planned` | command exits 0 |',
+      '| 1 | prepare | Prepare the dependency | src/example.mjs | - | `local` | `planned` | command exits 0 |',
       '| 2 | consume | Consume the dependency | src/example.mjs | 1 | `local` | `planned` | command exits 0 |',
     ],
   });
@@ -1453,7 +1503,7 @@ try {
   updateIssue(advisoryPassNumber, (entry) => {
     entry.body = replaceStepStatus(entry.body, 'done').replace(
       '_Review records are stored in issue comments._',
-      'Code-review: pass\n- MEDIUM · Maintainability · src/example.mjs:9 — duplicated guard clause — extract a named predicate',
+      'Code-review: pass\n- MEDIUM · Maintainability · src/example.mjs:9 - duplicated guard clause - extract a named predicate',
     );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
@@ -1495,7 +1545,7 @@ try {
       },
     ];
   });
-  addIssueComment(trustedPassNumber, '### Code review round 1 — 2026-08-24\nCode-review: pass');
+  addIssueComment(trustedPassNumber, '### Code review round 1 - 2026-08-24\nCode-review: pass');
   const trustedPassArchive = run('archive', String(trustedPassNumber));
   expectSuccess(trustedPassArchive, 'archive accepts latest trusted code-review pass comment');
 
@@ -1510,17 +1560,17 @@ try {
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
   });
-  addIssueComment(supersededPassNumber, '### Code review round 1 — 2026-08-23\nCode-review: pass');
+  addIssueComment(supersededPassNumber, '### Code review round 1 - 2026-08-23\nCode-review: pass');
   addIssueComment(
     supersededPassNumber,
-    '### Code review round 2 — 2026-08-24\nCode-review: fixes-required\n- HIGH · Bug · src/example.mjs:9 — the earlier pass is stale — repair the defect',
+    '### Code review round 2 - 2026-08-24\nCode-review: fixes-required\n- HIGH · Bug · src/example.mjs:9 - the earlier pass is stale - repair the defect',
   );
   const supersededPassArchive = run('archive', String(supersededPassNumber));
   assert.equal(supersededPassArchive.status, 1, 'a later trusted fixes-required record must supersede a pass');
   assert.match(supersededPassArchive.stderr, /archive requires Code-review: pass/);
 
   for (const [name, commentBody, author] of [
-    ['foreign-comment-pass', '### Code review round 1 — 2026-08-24\nCode-review: pass', 'other-agent'],
+    ['foreign-comment-pass', '### Code review round 1 - 2026-08-24\nCode-review: pass', 'other-agent'],
     ['malformed-comment-pass', 'Code-review: pass', 'plan-agent'],
   ]) {
     const number = createPlan(`${name}-archive`);
@@ -1536,6 +1586,26 @@ try {
     assert.equal(refused.status, 1, `${name} must not authorize archive`);
     assert.match(refused.stderr, /archive requires Code-review: pass/);
   }
+  const legacyDashRecordNumber = createPlan('legacy-dash-record-archive');
+  makeValid(legacyDashRecordNumber);
+  setIssueStatus(legacyDashRecordNumber, 'ongoing');
+  updateIssue(legacyDashRecordNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+  });
+  addIssueComment(
+    legacyDashRecordNumber,
+    `### Plan review - 2026-08-24\nPlan-review: repair\n- [goal_fit] ## Goal ${FORBIDDEN_DASH} temporary fix ${FORBIDDEN_DASH} require the durable fix`,
+  );
+  addIssueComment(legacyDashRecordNumber, `### Code review round 1 ${FORBIDDEN_DASH} 2026-08-24\nCode-review: pass`);
+  const legacyDashRecordShow = run('show', String(legacyDashRecordNumber));
+  expectSuccess(legacyDashRecordShow, 'show finished plan with legacy dash records');
+  assert.match(legacyDashRecordShow.stdout, / · finished · /);
+  assert.match(legacyDashRecordShow.stdout, /reviews: plan=none code=none\n$/);
+  const legacyDashRecordArchive = run('archive', String(legacyDashRecordNumber));
+  assert.equal(legacyDashRecordArchive.status, 1, 'legacy dash code-review pass must not authorize archive');
+  assert.match(legacyDashRecordArchive.stderr, /archive requires Code-review: pass/);
 
   const mediumOnlyRequiredNumber = createPlan('medium-only-fixes-required');
   makeValid(mediumOnlyRequiredNumber);
@@ -1543,7 +1613,7 @@ try {
   updateIssue(mediumOnlyRequiredNumber, (entry) => {
     entry.body = replaceStepStatus(entry.body, 'done').replace(
       '_Review records are stored in issue comments._',
-      'Code-review: fixes-required\n- MEDIUM · Maintainability · src/example.mjs:9 — duplicated guard clause — extract a named predicate',
+      'Code-review: fixes-required\n- MEDIUM · Maintainability · src/example.mjs:9 - duplicated guard clause - extract a named predicate',
     );
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
@@ -2251,7 +2321,7 @@ try {
   const queueFile = path.join(scratch, 'docs/PLAN-QUEUE.md');
   fs.writeFileSync(
     queueFile,
-    `| Stage | Plan | Depends on | Why |\n|---:|---|---|---|\n| 1 | ${dependencyOne} | — | First dependency. |\n| 2 | #${dependencyTwo} | ${dependencyOne} | Second dependency. |\n| 3 | ${queuedNumber} | #${dependencyTwo} | Ready after transitive closure. |\n`,
+    `| Stage | Plan | Depends on | Why |\n|---:|---|---|---|\n| 1 | ${dependencyOne} | - | First dependency. |\n| 2 | #${dependencyTwo} | ${dependencyOne} | Second dependency. |\n| 3 | ${queuedNumber} | #${dependencyTwo} | Ready after transitive closure. |\n`,
   );
   const startable = run('next');
   expectSuccess(startable, 'next valid queue');
@@ -2270,7 +2340,7 @@ try {
 
   fs.writeFileSync(
     queueFile,
-    `| Stage | Plan | Depends on | Why |\n|---:|---|---|---|\n| 1 | ${queuedNumber} | — | Numeric plan. |\n| 2 | legacy-plan-slug | — | Frozen history. |\n| 3 | ${openPlanned} | legacy-plan-slug | Depends on frozen history. |\n`,
+    `| Stage | Plan | Depends on | Why |\n|---:|---|---|---|\n| 1 | ${queuedNumber} | - | Numeric plan. |\n| 2 | legacy-plan-slug | - | Frozen history. |\n| 3 | ${openPlanned} | legacy-plan-slug | Depends on frozen history. |\n`,
   );
   const mixedQueue = run('next');
   expectSuccess(mixedQueue, 'next mixed numeric and legacy queue');
@@ -2290,7 +2360,7 @@ try {
       .map((number) => `#${number}`);
   fs.writeFileSync(
     queueFile,
-    `| Stage | Plan | Depends on | Why |\n|---:|---|---|---|\n| 1 | ${queuedNumber} | — | First declaration. |\n| 2 | ${queuedNumber} | — | Duplicate declaration. |\n`,
+    `| Stage | Plan | Depends on | Why |\n|---:|---|---|---|\n| 1 | ${queuedNumber} | - | First declaration. |\n| 2 | ${queuedNumber} | - | Duplicate declaration. |\n`,
   );
   const duplicateQueue = run('next');
   expectSuccess(duplicateQueue, 'next duplicate queue fallback');

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-24"
-  content_hash: "973fff36b0ba5ca03ed497d26a3d493100fb7b1441d08658cad860c582ef8225"
+  content_hash: "9ba61ce6b78db45126838e43e8dc1c4033f0c6aad29b8eb559e6371ad5a31f18"
 ---
 
 # Plan Manager
@@ -47,7 +47,7 @@ confirmation.
 
 ## Six-phase flow
 
-1. **Decide.** Phase 1 asks exactly one question with exactly three options, in this order and wording: `Plan and implement now`, `Plan only, stop at planned`, `Implement directly` — and skips the question only when the request already settles the mode.
+1. **Decide.** Phase 1 asks exactly one question with exactly three options, in this order and wording: `Plan and implement now`, `Plan only, stop at planned`, `Implement directly` - and skips the question only when the request already settles the mode.
 
    The request settles the mode only when the user explicitly asks to plan and
    build, asks for a plan without execution, or asks for a direct fix of one
@@ -66,7 +66,7 @@ confirmation.
    `plan.mjs new --title <title> --goal <goal> --mode <plan-and-implement|plan-only>`.
    Report the returned issue number. Use the edit flow below to write the full
    outcome and one Mode line in `## Goal`, the hypothesis in `## Research`, and
-   provisional `## Steps` and `## Acceptance` tables. Keep status `drafting`.
+   provisional `## Steps` and `## Acceptance` tables. Keep status `drafting`. Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.
 
 3. **Research.** Run `plan.mjs export <issue>`. It resolves the repository's
    sanctioned untracked scratch with `git rev-parse --git-path docks-review`
@@ -179,8 +179,8 @@ confirmation.
 
    `Code-review: blocked` is a technical block caused by unreadable or
    contradictory review input and terminates the loop. For that verdict or any
-   terminal repair failure—no progress, a surviving finding, dispatch failure
-   with unchanged bytes, or the round-five ceiling—commit all current work,
+   terminal repair failure-no progress, a surviving finding, dispatch failure
+   with unchanged bytes, or the round-five ceiling-commit all current work,
    including repair bytes, push it normally to the linked plan branch, record
    the blocker, set the plan `blocked`, and stop. Perform the commit and push
    before the blocked lifecycle write so implementation work is never stranded.

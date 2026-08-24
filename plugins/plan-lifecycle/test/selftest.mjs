@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// plan-lifecycle self-test — binds the four declarations the extraction relies
+// plan-lifecycle self-test - binds the four declarations the extraction relies
 // on: the fail-loud routing prerequisite in every external route, closed
 // compatibility with docks' parsed major, manifest/catalog version agreement,
 // and single ownership in both catalogs plus the author registry.

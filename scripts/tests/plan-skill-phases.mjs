@@ -16,6 +16,8 @@ const WORKSPACE_SKILL = 'plugins/plan-lifecycle/skills/productivity/plan-workspa
 const WORKSPACE_TEMPLATE = 'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md';
 const PLAN_CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
 const PLAN_MD = 'docs/PLAN.md';
+const PLAN_REVIEWER_AGENT = 'plugins/plan-lifecycle/agents/plan-reviewer.md';
+const PLAN_REVIEWER_CODEX = '.codex/agents/plan-reviewer.toml';
 const CODE_REVIEWER_AGENT = 'plugins/plan-lifecycle/agents/code-reviewer.md';
 const CODE_REVIEWER_CODEX = '.codex/agents/code-reviewer.toml';
 const CODE_REVIEWER_TEMPLATE =
@@ -30,6 +32,9 @@ const DOCKS_README = 'plugins/docks/README.md';
 const CLAUDE_PLAN_MANIFEST = 'plugins/plan-lifecycle/.claude-plugin/plugin.json';
 const CODEX_PLAN_MANIFEST = 'plugins/plan-lifecycle/.codex-plugin/plugin.json';
 const CLAUDE_MARKETPLACE = '.claude-plugin/marketplace.json';
+const PLAN_LIFECYCLE_SELFTEST = 'plugins/plan-lifecycle/test/selftest.mjs';
+const DURABLE_SOLUTION_CLAUSE =
+  'Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.';
 
 const V3_PINNED_CLAUSES = [
   {
@@ -168,7 +173,7 @@ const V3_PINNED_CLAUSES = [
   },
   {
     name: 'three-option-ask',
-    text: 'Phase 1 asks exactly one question with exactly three options, in this order and wording: `Plan and implement now`, `Plan only, stop at planned`, `Implement directly` — and skips the question only when the request already settles the mode.',
+    text: 'Phase 1 asks exactly one question with exactly three options, in this order and wording: `Plan and implement now`, `Plan only, stop at planned`, `Implement directly` - and skips the question only when the request already settles the mode.',
     files: [MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
@@ -552,6 +557,117 @@ function assertBoundedWorkflows() {
   assert.doesNotMatch(reviewer, removedReviewerTerms);
 }
 
+function assertDurablePolicyAndRecordGrammar() {
+  const durablePolicySurfaces = [
+    MANAGER_SKILL,
+    REVIEWER_SKILL,
+    PLAN_REVIEWER_AGENT,
+    CODE_REVIEWER_AGENT,
+    PLAN_REVIEWER_CODEX,
+    CODE_REVIEWER_CODEX,
+    CODE_REVIEWER_TEMPLATE,
+    PLAN_CONTRACT,
+    PLAN_MD,
+    WORKSPACE_TEMPLATE,
+  ];
+  for (const relative of durablePolicySurfaces) {
+    const occurrences = normalizeContract(read(relative)).split(DURABLE_SOLUTION_CLAUSE).length - 1;
+    const expected = relative === CODE_REVIEWER_TEMPLATE ? 2 : 1;
+    assert.equal(occurrences, expected, `${relative} must carry the durable-solution clause ${expected} time(s)`);
+  }
+
+  const grammarPins = [
+    {
+      text: '### Plan review - <YYYY-MM-DD>',
+      files: [
+        PLAN_CONTRACT,
+        PLAN_MD,
+        WORKSPACE_TEMPLATE,
+        REVIEWER_SKILL,
+        PLAN_REVIEWER_AGENT,
+        PLAN_REVIEWER_CODEX,
+        CODE_REVIEWER_TEMPLATE,
+      ],
+    },
+    {
+      text: '### Code review round <n> - <YYYY-MM-DD>',
+      files: [
+        PLAN_CONTRACT,
+        PLAN_MD,
+        WORKSPACE_TEMPLATE,
+        CODE_REVIEWER_AGENT,
+        CODE_REVIEWER_CODEX,
+        CODE_REVIEWER_TEMPLATE,
+      ],
+    },
+    {
+      text: '- [goal_fit|research_gap|security_risk] <locator> - <defect> - <fix>',
+      files: [
+        PLAN_CONTRACT,
+        PLAN_MD,
+        WORKSPACE_TEMPLATE,
+        REVIEWER_SKILL,
+        PLAN_REVIEWER_AGENT,
+        PLAN_REVIEWER_CODEX,
+        CODE_REVIEWER_TEMPLATE,
+      ],
+    },
+    {
+      text: '- <CRITICAL|HIGH|MEDIUM|LOW> · <Bug|Security|Performance|Maintainability|Spec> · <locator> - <defect> - <fix>',
+      files: [
+        PLAN_CONTRACT,
+        PLAN_MD,
+        WORKSPACE_TEMPLATE,
+        CODE_REVIEWER_AGENT,
+        CODE_REVIEWER_CODEX,
+        CODE_REVIEWER_TEMPLATE,
+      ],
+    },
+  ];
+  for (const { text, files } of grammarPins) {
+    for (const relative of files) {
+      assert.ok(read(relative).includes(text), `${relative} is missing record grammar: ${text}`);
+    }
+  }
+
+  for (const relative of [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE]) {
+    assert.ok(
+      normalizeContract(read(relative)).includes(
+        '`Depends` is `-` or a comma-separated list of lower display numbers from the same table.',
+      ),
+      `${relative} is missing the empty Depends cell grammar`,
+    );
+    assert.ok(
+      read(relative).includes('A plan body contains no U+2014 em dash character anywhere.'),
+      `${relative} is missing the plan-body em dash ban`,
+    );
+  }
+  for (const relative of [PLAN_MD, WORKSPACE_TEMPLATE]) {
+    assert.ok(
+      read(relative).includes('An empty `Depends on` cell is `-`.'),
+      `${relative} is missing the empty queue dependency grammar`,
+    );
+  }
+
+  for (const relative of [
+    PLAN_CONTRACT,
+    PLAN_MD,
+    WORKSPACE_TEMPLATE,
+    WORKSPACE_SKILL,
+    MANAGER_SKILL,
+    REVIEWER_SKILL,
+    LIFECYCLE_SKILLS_AGENTS,
+    PLAN_REVIEWER_AGENT,
+    CODE_REVIEWER_AGENT,
+    PLAN_REVIEWER_CODEX,
+    CODE_REVIEWER_CODEX,
+    CODE_REVIEWER_TEMPLATE,
+    PLAN_LIFECYCLE_SELFTEST,
+  ]) {
+    assert.doesNotMatch(read(relative), /\u2014/u, `${relative} contains a U+2014 character`);
+  }
+}
+
 function assertWorkspaceTemplateSynchronized() {
   const template = read(WORKSPACE_TEMPLATE);
   const opening = '````markdown\n';
@@ -612,6 +728,7 @@ if (caseName === 'plan-workspace-template') {
   assertV3ClausesAndMutations();
   assertPhaseOneOptionLabels();
   assertPortablePlanTextRule();
+  assertDurablePolicyAndRecordGrammar();
   assertLifecycleRoutePrerequisite();
   assertWorkspaceTemplateSynchronized();
   console.log('three-skill, two-wrapper v3 plan workflows passed');

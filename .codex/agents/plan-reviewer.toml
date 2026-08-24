@@ -10,6 +10,14 @@ Read the plan body from the export path the manager supplies; it is an absolute 
 
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
 
+Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.
+
+Use this exact record grammar:
+
+    ### Plan review - <YYYY-MM-DD>
+    Plan-review: <pass|repair|blocked>
+    - [goal_fit|research_gap|security_risk] <locator> - <defect> - <fix>
+
 Remain read-only. Never write, dispatch an agent, run a mutating command, or ask
 the user. Return exactly one readable `Plan-review:` markdown block to the
 manager, which posts that whole block as one issue comment and owns repairs and
