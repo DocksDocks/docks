@@ -8,7 +8,7 @@ Run focused checks while implementing. For a final change owned by exactly one p
 
 ## Multi-plugin model (`scripts/lib/plugins.mjs`)
 
-The repo hosts **multiple plugins** (`docks`, `plan-lifecycle`, `effect-kit`) under `plugins/`. `scripts/lib/plugins.mjs` is the **single source of truth**: a `PLUGINS` array of descriptors, each declaring paths + capabilities. **Adding a plugin = adding one descriptor** — no edits to `ci.mjs`/`release.mjs`.
+The repo hosts **multiple plugins** (`docks`, `plan-lifecycle`) under `plugins/`. `scripts/lib/plugins.mjs` is the **single source of truth**: a `PLUGINS` array of descriptors, each declaring paths + capabilities. **Adding a plugin = adding one descriptor** — no edits to `ci.mjs`/`release.mjs`.
 
 | Descriptor field | Meaning |
 |---|---|
@@ -28,14 +28,14 @@ The repo hosts **multiple plugins** (`docks`, `plan-lifecycle`, `effect-kit`) un
 
 `lib/plugin-release.mjs` owns ordinary release ordering behind `runGenericPluginRelease({ argv, repo, plugins, io })`. Its IO value is an exact closed adapter that carries sixteen filesystem, Git, Claude, GitHub, selected-CI, and logging operations. `release.mjs` composes the production operations. Descriptors remain inert policy data. The fifteenth operation, `wouldStageChange`, answers whether `git add` of release bytes would stage anything different from HEAD. Production hashes the proposed bytes with `git hash-object --path <file> --stdin`. It compares that hash with `git rev-parse --quiet --verify HEAD:<path>`. `--path` applies the same clean filters that `git add` applies. The probe never passes `-w`, so it never writes an object. The sixteenth operation, `tagPublished`, answers whether a release tag is already published: it checks the local ref, then asks origin, and refuses to guess when origin is unreachable. It is an adapter operation because reaching origin is IO. A caller that cannot stub it puts the network inside every test of the surrounding decision. The engine validates every policy before touching IO. It enforces dry-run no-mutation itself rather than trusting an adapter.
 
-`ci.mjs` is **registry-driven**. A full invocation runs repo-wide checks once (workflow YAML, both marketplace catalogs, tree/guard, durable anchors, author tooling, unit tests, and CI targeting), then selects every present plugin's shell hooks, repository author suites, and capability-driven `gatePlugin` work. `--plugin <name>` skips repo-wide sections and runs only the named plugin's owned author checks, target-derived shell lint, and plugin validation. When Docks plan author checks apply, CI runs `scripts/tests/plan-cli.mjs` plus `scripts/tests/plan-skill-phases.mjs` with the `bounded-workflows` and `plan-workspace-template` cases. Trigger-collision checks audit Docks and Effect Kit together once.
+`ci.mjs` is **registry-driven**. A full invocation runs repo-wide checks once (workflow YAML, both marketplace catalogs, tree/guard, durable anchors, author tooling, unit tests, and CI targeting), then selects every present plugin's shell hooks, repository author suites, and capability-driven `gatePlugin` work. `--plugin <name>` skips repo-wide sections and runs only the named plugin's owned author checks, target-derived shell lint, and plugin validation. When Docks plan author checks apply, CI runs `scripts/tests/plan-cli.mjs` plus `scripts/tests/plan-skill-phases.mjs` with the `bounded-workflows` and `plan-workspace-template` cases. Trigger-collision checks audit Docks once.
 
 ## Pull-request topology
 
 The closed `core` pull-request lane selects plugins, not regression partitions.
-It owns the focused Docks plan CLI and plan skill phase contracts, the Docks,
-effect-kit, and plan-lifecycle plugin gates, their joint trigger-collision
-audit, and JavaScript quality. The always-on `repo` shard owns the repo-wide checks.
+It owns the focused Docks plan CLI and plan skill phase contracts, the Docks and
+plan-lifecycle plugin gates, the Docks trigger-collision audit, and JavaScript
+quality. The always-on `repo` shard owns the repo-wide checks.
 
 The lane performs the frozen Bun install and materializes the pinned
 `claude-code` binary. Its result feeds the single authoritative
@@ -174,7 +174,7 @@ For example, an 8 GB, 6-core swapless host with tmpfs `/tmp` prints
 
 ```text
 final implementation tree → node scripts/ci.mjs --plugin <name>   (LAYER 1 — local, selected plugin)
-     → node scripts/release.mjs [--plugin <docks|effect-kit|plan-lifecycle>] <bump>   (one plugin)
+     → node scripts/release.mjs [--plugin <docks|plan-lifecycle>] <bump>   (one plugin)
         ├── runs ci.mjs -q --plugin <name> as the selected-plugin preflight
         ├── bumps THIS plugin's plugin.json (+ codex mirror) + its marketplace entry
         ├── commits + pushes  (chore(release): <name> v<version>)
@@ -186,7 +186,7 @@ final implementation tree → node scripts/ci.mjs --plugin <name>   (LAYER 1 —
 
 The release tag, not the manifest number, is the fact that a version was released. When manifests are already at this version, a re-cut stages nothing. The release tags existing HEAD instead of creating a commit. A dry run consults the clean-tree gate. On a dirty tree, it reports the refusal instead of forecasting a landing it cannot predict.
 
-The positional flow above is preserved for docks/effect-kit/plan-lifecycle, including its existing bump resolution, local and tag CI gates, commit/push/tag behavior, release notes, and read-only dry run.
+The positional flow above is preserved for docks and plan-lifecycle, including its existing bump resolution, local and tag CI gates, commit/push/tag behavior, release notes, and read-only dry run.
 
 GitHub pull requests resolve their diff into a shard set and run `node scripts/ci.mjs --lane <shard>` for each, then require the unchanged `validate` join status. `resolve-shards` maps changed paths onto plugin roots from `lib/plugins.mjs` and emits the matrix; the `repo` shard always runs, `core` runs when the diff implicates a plugin it owns, and every resolution failure — unresolvable base, empty diff, non-pull-request event, or a path outside every plugin root — falls open to both shards. `workflow_dispatch` runs one untargeted `node scripts/ci.mjs` full invocation. A release-tag push strictly resolves the tag's plugin identity, rejects malformed or unknown targets, and runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate; PR sharding never touches that path. The `repo` shard owns the repo-wide workflow, standalone catalog, tree/durable-anchor, and CI-targeting sections, so a plugin shard runs only the selected plugins' owned author checks, shell-hook lint, and plugin gates, including marketplace/version coherence. Targeted `--plugin` CI skips the repo-wide sections entirely. The Bun dependency cache only reduces repeated download work. Its contents are never validation evidence: the frozen lockfile, release preflight, and `ci.mjs` result remain authoritative.
 
@@ -196,4 +196,4 @@ Before `node scripts/release.mjs`, run the smallest authoritative gate for the f
 
 ## Versioning
 
-Versions are **per-plugin and independent** — `docks` and `effect-kit` bump separately, and the Claude marketplace catalog holds one entry per plugin (matched by `name`). Within a single plugin, both its `plugin.json`s (`.claude-plugin/`, `.codex-plugin/`) and its marketplace entry carry a `version` that must agree — `release.mjs` keeps that plugin's triple in lockstep, and `ci.mjs`'s per-plugin gate fails on disagreement; `claude plugin tag` validates it too. The Codex marketplace catalog has no plugin version field but is still validated for JSON shape. Without an explicit plugin `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `<name>--v<X.Y.Z>`, with the double-dash separator from `claude plugin tag`.
+Versions are **per-plugin and independent** — `docks` and `plan-lifecycle` bump separately, and the Claude marketplace catalog holds one entry per plugin (matched by `name`). Within a single plugin, both its `plugin.json`s (`.claude-plugin/`, `.codex-plugin/`) and its marketplace entry carry a `version` that must agree — `release.mjs` keeps that plugin's triple in lockstep, and `ci.mjs`'s per-plugin gate fails on disagreement; `claude plugin tag` validates it too. The Codex marketplace catalog has no plugin version field but is still validated for JSON shape. Without an explicit plugin `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `<name>--v<X.Y.Z>`, with the double-dash separator from `claude plugin tag`.

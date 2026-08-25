@@ -344,12 +344,12 @@ if (targets.length > 0) {
   }
 }
 
-const routingPluginNames = new Set(['docks', 'effect-kit']);
+const routingPluginNames = new Set(['docks']);
 const selectedRoutingPlugin = targets.some(({ name }) => routingPluginNames.has(name));
 const collisionGroups = [];
 if (selectedRoutingPlugin) {
   collisionGroups.push({
-    label: 'docks/effect-kit',
+    label: 'docks',
     roots: PLUGINS.filter(({ name }) => routingPluginNames.has(name)).map(({ skills }) => skills),
   });
 }

@@ -77,8 +77,7 @@ sync). Under this tree, `refactor`, `security`, `context-tree`, and
 `skill-agent-pipeline` are lifecycle ROUTES: each carries one byte-identical
 absent-lifecycle prerequisite paragraph, asserted verbatim by
 `scripts/tests/plan-skill-phases.mjs` and the plan-lifecycle self-test. Change
-that paragraph only in lockstep across all six routes (these four plus
-effect-kit's `effect-ts-port` and `effect-ts-setup`) and both validators.
+that paragraph only in lockstep across all four routes and both validators.
 
 ## Cross-tool wording (Claude Code + Codex)
 

@@ -36,34 +36,6 @@
       ]
     },
     {
-      "name": "effect-kit",
-      "source": "./plugins/effect-kit",
-      "description": "Cross-tool Effect skill kit: Effect 3.x setup (effect-ts-setup), patterns (effect-ts-specialist), and porting (effect-ts-port), plus version-gated Effect v4 beta guidance (effect-v4).",
-      "version": "0.5.0",
-      "author": {
-        "name": "Eduardo Marquez"
-      },
-      "license": "MIT",
-      "homepage": "https://github.com/DocksDocks/docks",
-      "repository": "https://github.com/DocksDocks/docks",
-      "keywords": [
-        "effect",
-        "effect-ts",
-        "typescript",
-        "skills",
-        "cross-tool",
-        "codex"
-      ],
-      "category": "engineering-workflows",
-      "tags": [
-        "effect",
-        "typescript",
-        "cross-tool",
-        "skills",
-        "codex"
-      ]
-    },
-    {
       "name": "plan-lifecycle",
       "source": "./plugins/plan-lifecycle",
       "description": "Cross-tool GitHub-issue plan lifecycle with marker-based plan bodies, comment-backed review records, implement-start linked branches, bounded plan and code review repair loops, and two read-only reviewer wrappers.",
