@@ -185,6 +185,21 @@ if (group === 'api' && commentsEndpoint) {
   process.exit(0);
 }
 
+const eventsEndpoint = /^repos\/([^/]+)\/([^/]+)\/issues\/([1-9]\d*)\/events$/.exec(`${command ?? ''}`);
+if (group === 'api' && eventsEndpoint) {
+  if (!args.includes('--paginate') || !args.includes('--slurp')) die('issue events api requires --paginate and --slurp');
+  const repo = `${eventsEndpoint[1]}/${eventsEndpoint[2]}`;
+  if (repo !== state.repo.nameWithOwner) die(`repository not found: ${repo}`);
+  const issue = issueByNumber(Number(eventsEndpoint[3]));
+  const events = issue.events ?? [];
+  const pages = [];
+  for (let index = 0; index < events.length; index += 100) pages.push(events.slice(index, index + 100));
+  if (pages.length === 0) pages.push([]);
+  console.log(JSON.stringify(pages));
+  save();
+  process.exit(0);
+}
+
 if (group === 'api' && command === 'graphql') {
   const query = formFields('-f').query;
   if (!query) die('graphql requires -f query=<query>');
@@ -366,6 +381,7 @@ if (group === 'issue' && command === 'create') {
     updatedAt: now,
     comments: [],
     closedByPullRequestsReferences: [],
+    events: [],
   };
   state.issues.push(issue);
   console.log(issue.url);

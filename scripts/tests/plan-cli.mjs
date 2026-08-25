@@ -212,6 +212,38 @@ function replaceStepStatus(body, status) {
   );
 }
 
+function bodyEditCallCount(number) {
+  return loadState().calls.filter(
+    (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(number) && call.includes('--body-file'),
+  ).length;
+}
+
+function assertFrozenEditRefused(number, mutateBody, messagePatterns, label) {
+  const beforeBody = issue(number).body;
+  const exported = run('export', String(number));
+  expectSuccess(exported, `${label} export`);
+  const exportPath = exported.stdout.trim();
+  const originBefore = fs.readFileSync(`${exportPath}.origin`, 'utf8');
+  const incomingBody = mutateBody(fs.readFileSync(exportPath, 'utf8'));
+  assert.notEqual(incomingBody, beforeBody, `${label} fixture must change the exported body`);
+  fs.writeFileSync(exportPath, incomingBody);
+  const bodyWritesBefore = bodyEditCallCount(number);
+
+  const refused = run('edit', String(number), '--file', exportPath);
+  assert.equal(refused.status, 1, `${label} must be refused`);
+  assert.match(refused.stderr.trim(), /^step state is frozen once work starts:/, `${label} must report the freeze`);
+  for (const pattern of messagePatterns) {
+    assert.match(refused.stderr, pattern, `${label} must identify the violation`);
+  }
+  assert.equal(issue(number).body, beforeBody, `${label} must leave the remote body unchanged`);
+  assert.equal(bodyEditCallCount(number), bodyWritesBefore, `${label} must fail before the body write`);
+  assert.equal(
+    fs.readFileSync(`${exportPath}.origin`, 'utf8'),
+    originBefore,
+    `${label} must fail before refreshing export provenance`,
+  );
+}
+
 try {
   const labelsBeforeReservedFailure = loadState().labels;
   const reservedExtra = run('labels', '--extra', 'plan:foo');
@@ -1026,72 +1058,207 @@ try {
     'a second consecutive edit of the same exported file must update the issue',
   );
 
-  const terminalRegressionNumber = createPlan('terminal-step-regression-edit');
-  makeValid(terminalRegressionNumber);
-  updateIssue(terminalRegressionNumber, (entry) => {
-    entry.body = replaceStepStatus(entry.body, 'done');
-  });
-  const beforeTerminalRegressionEdit = issue(terminalRegressionNumber).body;
-  const terminalRegressionExport = run('export', String(terminalRegressionNumber));
-  expectSuccess(terminalRegressionExport, 'terminal step regression edit export');
-  const terminalRegressionExportPath = terminalRegressionExport.stdout.trim();
-  fs.writeFileSync(
-    terminalRegressionExportPath,
-    replaceStepStatus(fs.readFileSync(terminalRegressionExportPath, 'utf8'), 'planned'),
-  );
-  const terminalRegressionBodyWritesBefore = loadState().calls.filter(
-    (call) =>
-      call[0] === 'issue' &&
-      call[1] === 'edit' &&
-      call[2] === String(terminalRegressionNumber) &&
-      call.includes('--body-file'),
-  ).length;
-  const terminalRegressionEdit = run('edit', String(terminalRegressionNumber), '--file', terminalRegressionExportPath);
-  assert.equal(terminalRegressionEdit.status, 1, 'a file must not regress a terminal remote step');
-  assert.equal(
-    terminalRegressionEdit.stderr.trim(),
-    `status regression: step implement_contract (done -> planned) is terminal on #${terminalRegressionNumber} but the file reverts it; re-export and re-apply the edit`,
-  );
-  assert.equal(
-    issue(terminalRegressionNumber).body,
-    beforeTerminalRegressionEdit,
-    'a terminal step regression must leave the remote body unchanged',
-  );
-  assert.equal(
-    loadState().calls.filter(
-      (call) =>
-        call[0] === 'issue' &&
-        call[1] === 'edit' &&
-        call[2] === String(terminalRegressionNumber) &&
-        call.includes('--body-file'),
-    ).length,
-    terminalRegressionBodyWritesBefore,
-    'a terminal step regression must fail before the body write',
+  const plannedStepRow =
+    '| 1 | implement_contract | Implement the contract | src/example.mjs | - | `local` | `planned` | command exits 0 |';
+  const appendedPlannedStepRow =
+    '| 2 | extend_contract | Extend the contract | src/extra.mjs | - | `local` | `planned` | command exits 0 |';
+
+  const plannedToDoneNumber = createPlan('planned-to-done-edit-freeze');
+  makeValid(plannedToDoneNumber);
+  setIssueStatus(plannedToDoneNumber, 'ongoing');
+  assertFrozenEditRefused(
+    plannedToDoneNumber,
+    (body) => replaceStepStatus(body, 'done'),
+    [/step implement_contract Status planned -> done/],
+    'planned to done body edit',
   );
 
-  const terminalStepRow =
-    '| 1 | implement_contract | Implement the contract | src/example.mjs | - | `local` | `done` | command exits 0 |';
-  const addedStepRow =
-    '| 2 | extend_contract | Extend the contract | src/extra.mjs | - | `local` | `planned` | command exits 0 |';
-  const terminalPreservingBody = beforeTerminalRegressionEdit.replace(
-    terminalStepRow,
-    `${terminalStepRow}\n${addedStepRow}`,
+  const inFlightToPlannedNumber = createPlan('in-flight-to-planned-edit-freeze');
+  makeValid(inFlightToPlannedNumber);
+  updateIssue(inFlightToPlannedNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'in-flight');
+  });
+  setIssueStatus(inFlightToPlannedNumber, 'ongoing');
+  assertFrozenEditRefused(
+    inFlightToPlannedNumber,
+    (body) => replaceStepStatus(body, 'planned'),
+    [/step implement_contract Status in-flight -> planned/],
+    'in-flight to planned body edit',
   );
-  assert.notEqual(
-    terminalPreservingBody,
-    beforeTerminalRegressionEdit,
-    'the non-regressing edit fixture must add a step row',
+
+  const rowRemovalNumber = createPlan('row-removal-edit-freeze');
+  const removableStepRow =
+    '| 2 | remove_contract | Remove the contract | src/remove.mjs | 1 | `local` | `planned` | command exits 0 |';
+  makeValid(rowRemovalNumber, { steps: [plannedStepRow, removableStepRow] });
+  setIssueStatus(rowRemovalNumber, 'ongoing');
+  assertFrozenEditRefused(
+    rowRemovalNumber,
+    (body) => body.replace(`\n${removableStepRow}`, ''),
+    [/step remove_contract removed/, /retire it with `step \d+ remove_contract skipped`/],
+    'row removal body edit',
   );
-  fs.writeFileSync(terminalRegressionExportPath, terminalPreservingBody);
-  const terminalPreservingEdit = run('edit', String(terminalRegressionNumber), '--file', terminalRegressionExportPath);
-  expectSuccess(terminalPreservingEdit, 'terminal-preserving row addition edit');
+
+  const dependsRewriteNumber = createPlan('depends-rewrite-edit-freeze');
+  const dependentStepRow =
+    '| 2 | follow_contract | Follow the contract | src/follow.mjs | 1 | `local` | `planned` | command exits 0 |';
+  makeValid(dependsRewriteNumber, { steps: [plannedStepRow, dependentStepRow] });
+  setIssueStatus(dependsRewriteNumber, 'ongoing');
+  assertFrozenEditRefused(
+    dependsRewriteNumber,
+    (body) => body.replace(dependentStepRow, dependentStepRow.replace('| 1 | `local` |', '| - | `local` |')),
+    [/step follow_contract Depends 1 -> -/],
+    'Depends body edit',
+  );
+
+  const effectDowngradeNumber = createPlan('effect-downgrade-edit-freeze');
+  const pushStepRow =
+    '| 1 | implement_contract | Implement the contract | src/example.mjs | - | `push` | `planned` | command exits 0 |';
+  makeValid(effectDowngradeNumber, { steps: [pushStepRow] });
+  setIssueStatus(effectDowngradeNumber, 'ongoing');
+  assertFrozenEditRefused(
+    effectDowngradeNumber,
+    (body) => body.replace('| `push` | `planned` |', '| `local` | `planned` |'),
+    [/step implement_contract Effect `push` -> `local`/],
+    'Effect downgrade body edit',
+  );
+
+  const historicalOngoingNumber = createPlan('historical-ongoing-edit-freeze');
+  makeValid(historicalOngoingNumber);
+  setIssueStatus(historicalOngoingNumber, 'planned');
+  updateIssue(historicalOngoingNumber, (entry) => {
+    entry.events = [{ event: 'labeled', label: { name: 'plan:ongoing' } }];
+  });
+  assertFrozenEditRefused(
+    historicalOngoingNumber,
+    (body) => replaceStepStatus(body, 'done'),
+    [/step implement_contract Status planned -> done/],
+    'historically ongoing body edit',
+  );
+  assert.ok(
+    loadState().calls.some(
+      (call) =>
+        call[0] === 'api' &&
+        call[1] === `repos/DocksDocks/fixture/issues/${historicalOngoingNumber}/events` &&
+        call.includes('--paginate') &&
+        call.includes('--slurp'),
+    ),
+    'a currently planned edit must consult issue label history',
+  );
+
+  const closedRowAdditionNumber = createPlan('closed-row-addition-edit-freeze');
+  makeValid(closedRowAdditionNumber);
+  setIssueStatus(closedRowAdditionNumber, 'ongoing');
+  updateIssue(closedRowAdditionNumber, (entry) => {
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+  });
+  assertFrozenEditRefused(
+    closedRowAdditionNumber,
+    (body) => body.replace(plannedStepRow, `${plannedStepRow}\n${appendedPlannedStepRow}`),
+    [/step extend_contract added to a closed plan/, /new work takes a follow-up plan/],
+    'closed plan row addition',
+  );
+
+  const nonPlannedAdditionNumber = createPlan('non-planned-row-addition-edit-freeze');
+  makeValid(nonPlannedAdditionNumber);
+  setIssueStatus(nonPlannedAdditionNumber, 'ongoing');
+  const appendedDoneStepRow = appendedPlannedStepRow.replace('`planned`', '`done`');
+  assertFrozenEditRefused(
+    nonPlannedAdditionNumber,
+    (body) => body.replace(plannedStepRow, `${plannedStepRow}\n${appendedDoneStepRow}`),
+    [/new step extend_contract born done; new rows start planned/],
+    'non-planned row addition',
+  );
+
+  const insertedRowNumber = createPlan('inserted-row-edit-freeze');
+  const secondDisplayStepRow = plannedStepRow.replace('| 1 |', '| 2 |');
+  makeValid(insertedRowNumber, { steps: [secondDisplayStepRow] });
+  setIssueStatus(insertedRowNumber, 'ongoing');
+  const insertedPlannedStepRow =
+    '| 1 | prepare_contract | Prepare the contract | src/prepare.mjs | - | `local` | `planned` | command exits 0 |';
+  assertFrozenEditRefused(
+    insertedRowNumber,
+    (body) => body.replace(secondDisplayStepRow, `${insertedPlannedStepRow}\n${secondDisplayStepRow}`),
+    [/new step prepare_contract inserted between existing rows; new rows append at the end/],
+    'inserted row body edit',
+  );
+
+  const appendedRowNumber = createPlan('appended-row-edit');
+  makeValid(appendedRowNumber);
+  setIssueStatus(appendedRowNumber, 'ongoing');
+  const appendedRowExport = run('export', String(appendedRowNumber));
+  expectSuccess(appendedRowExport, 'appended planned row export');
+  const appendedRowExportPath = appendedRowExport.stdout.trim();
+  const appendedRowBody = fs
+    .readFileSync(appendedRowExportPath, 'utf8')
+    .replace(plannedStepRow, `${plannedStepRow}\n${appendedPlannedStepRow}`);
+  fs.writeFileSync(appendedRowExportPath, appendedRowBody);
+  const appendedRowBodyWritesBefore = bodyEditCallCount(appendedRowNumber);
+  const appendedRowEdit = run('edit', String(appendedRowNumber), '--file', appendedRowExportPath);
+  expectSuccess(appendedRowEdit, 'appended planned row edit');
+  assert.equal(issue(appendedRowNumber).body, appendedRowBody, 'an appended planned row must update the ongoing plan');
+  assert.equal(bodyEditCallCount(appendedRowNumber), appendedRowBodyWritesBefore + 1);
+
+  for (const neverStartedStatus of ['drafting', 'planned']) {
+    const redraftNumber = createPlan(`${neverStartedStatus}-steps-redraft`);
+    makeValid(redraftNumber);
+    if (neverStartedStatus === 'planned') {
+      setIssueStatus(redraftNumber, 'planned');
+    } else {
+      updateIssue(redraftNumber, (entry) => {
+        entry.events = [{ event: 'labeled', label: { name: 'plan:blocked' } }];
+      });
+    }
+    assert.equal(
+      issue(redraftNumber).events.some((event) => event.event === 'labeled' && event.label?.name === 'plan:ongoing'),
+      false,
+      'pre-start fixtures must have no ongoing label event',
+    );
+    const redraftExport = run('export', String(redraftNumber));
+    expectSuccess(redraftExport, `${neverStartedStatus} redraft export`);
+    const redraftExportPath = redraftExport.stdout.trim();
+    const redraftedStepRow =
+      '| 2 | implement_contract | Redraft the contract | src/redrafted.mjs | - | `push` | `done` | command exits 0 |';
+    const redraftedBody = fs.readFileSync(redraftExportPath, 'utf8').replace(plannedStepRow, redraftedStepRow);
+    fs.writeFileSync(redraftExportPath, redraftedBody);
+    const redraftBodyWritesBefore = bodyEditCallCount(redraftNumber);
+    const redraftEdit = run('edit', String(redraftNumber), '--file', redraftExportPath);
+    expectSuccess(redraftEdit, `${neverStartedStatus} steps redraft`);
+    assert.equal(issue(redraftNumber).body, redraftedBody, `${neverStartedStatus} steps must remain freely editable`);
+    assert.equal(bodyEditCallCount(redraftNumber), redraftBodyWritesBefore + 1);
+    assert.ok(
+      loadState().calls.some(
+        (call) =>
+          call[0] === 'api' &&
+          call[1] === `repos/DocksDocks/fixture/issues/${redraftNumber}/events` &&
+          call.includes('--paginate') &&
+          call.includes('--slurp'),
+      ),
+      `${neverStartedStatus} edits must receive a non-starting issue-events fixture`,
+    );
+  }
+
+  const proseEditNumber = createPlan('ongoing-prose-edit');
+  makeValid(proseEditNumber);
+  setIssueStatus(proseEditNumber, 'ongoing');
+  const proseExport = run('export', String(proseEditNumber));
+  expectSuccess(proseExport, 'ongoing prose edit export');
+  const proseExportPath = proseExport.stdout.trim();
+  const proseBody = fs
+    .readFileSync(proseExportPath, 'utf8')
+    .replace('Implement the contract', 'Implement the reviewed contract')
+    .replace('_Not implemented yet._', '`node --version` exited 0.');
+  fs.writeFileSync(proseExportPath, proseBody);
+  const proseBodyWritesBefore = bodyEditCallCount(proseEditNumber);
+  const proseEdit = run('edit', String(proseEditNumber), '--file', proseExportPath);
+  expectSuccess(proseEdit, 'ongoing status-preserving prose edit');
   assert.equal(
-    issue(terminalRegressionNumber).body,
-    terminalPreservingBody,
-    'adding a row while preserving terminal cells must update the remote body',
+    issue(proseEditNumber).body,
+    proseBody,
+    'ongoing Task and Verification Results prose must remain editable',
   );
-  assert.match(issue(terminalRegressionNumber).body, /\| `done` \| command exits 0 \|/);
-  assert.match(issue(terminalRegressionNumber).body, /\| 2 \| extend_contract .+ \| `planned` \| command exits 0 \|/);
+  assert.equal(bodyEditCallCount(proseEditNumber), proseBodyWritesBefore + 1);
+  assert.match(issue(proseEditNumber).body, /\| `planned` \| command exits 0 \|/);
 
   const staleExportNumber = createPlan('stale-export-edit');
   makeValid(staleExportNumber);
