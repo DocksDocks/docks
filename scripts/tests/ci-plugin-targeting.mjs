@@ -381,7 +381,7 @@ if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skil
   if (rows.length) process.stdout.write(\`\${rows.join('\\n')}\\n\`);
 }
 if (tool === 'node' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
-  process.stdout.write('code-reviewer.md 14\\nplan-reviewer.md 14\\n');
+  process.stdout.write('code-reviewer 14\\nplan-reviewer 14\\n');
 }
 if (tool === 'node' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
 process.exit(0);

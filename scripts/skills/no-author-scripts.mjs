@@ -20,8 +20,29 @@ const AGENTS_DIR = argSkills
   : path.join(REPO_DIR, 'plugins/docks/agents');
 const ALLOWLIST = ['scaffold', 'write-skill'];
 
-const PATTERN =
-  /(?<![/A-Za-z0-9_.-])scripts\/[^\s`]+\.mjs\b|tree\/guard\.sh|content-hash\.sh|transform-guard\.sh|no-author-scripts\.sh|codex-facts\.sh|guard-spec\.sh/;
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const scriptEntries = fs.readdirSync(path.join(REPO_DIR, 'scripts'), { withFileTypes: true });
+const topLevelScriptTails = scriptEntries
+  .filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
+  .map((entry) => escapeRegex(entry.name))
+  .sort();
+const firstLevelScriptDirs = scriptEntries
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => escapeRegex(entry.name))
+  .sort();
+const authorScriptTails = [...topLevelScriptTails, `(?:${firstLevelScriptDirs.join('|')})/` + '[^\\s`]+\\.mjs'];
+// The tails come from the real author-side scripts/ inventory, so bundled
+// plugin-internal paths (write-skill/scripts/skill-guard.mjs, plan-lifecycle's
+// scripts/plan.mjs) never match: their filenames are not author tails. Any
+// prefix - bare, ./, ../, variables, substitutions, alternate clone roots -
+// of a real author tail is therefore a violation, with no exemption logic.
+const PATTERN = new RegExp(
+  `scripts/(?:${authorScriptTails.join('|')})\\b|tree/guard\\.sh|content-hash\\.sh|transform-guard\\.sh|no-author-scripts\\.sh|codex-facts\\.sh|guard-spec\\.sh`,
+);
+
+function namesAuthorScript(line) {
+  return PATTERN.test(line);
+}
 
 function walk(dir, filter, out = []) {
   let entries;
@@ -50,7 +71,7 @@ for (const f of files) {
   if (ALLOWLIST.includes(skill)) continue;
   const lines = fs.readFileSync(f, 'utf8').split('\n');
   lines.forEach((line, i) => {
-    if (PATTERN.test(line)) report.push(`${path.relative(REPO_DIR, f)}:${i + 1}:${line}`);
+    if (namesAuthorScript(line)) report.push(`${path.relative(REPO_DIR, f)}:${i + 1}:${line}`);
   });
 }
 

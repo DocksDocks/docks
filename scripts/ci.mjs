@@ -427,33 +427,91 @@ function gatePlugin(p) {
   for (const f of p.extraJson)
     readJSON(f) ? ok(`${p.name} ${path.basename(f)} JSON valid`) : fail(`${p.name} ${f} JSON invalid`);
 
-  if (p.skills && fs.existsSync(p.skills)) gateSkills(p, manifest);
+  if (p.skills) {
+    if (fs.existsSync(p.skills)) gateSkills(p, manifest);
+    else fail(`${p.name} declared skills root missing: ${p.skills}`);
+  }
 
-  if (p.agents && fs.existsSync(p.agents)) {
-    nodeOk(['scripts/agents/guard.mjs', p.agents])
-      ? ok(`${p.name} agents/guard passed`)
-      : fail(`${p.name} agents/guard failed (run: node scripts/agents/guard.mjs ${p.agents})`);
-    const floor = floorOf('agents');
-    const count = fs
-      .readdirSync(p.agents)
-      .filter((f) => f.endsWith('.md') && f !== 'AGENTS.md' && f !== 'CLAUDE.md').length;
-    const agentScoreRows = node(['scripts/agents/score.mjs', '--per-file', p.agents])
-      .stdout.trim()
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => ({ line, score: parseInt(line.split(' ').pop(), 10) }));
-    const total = agentScoreRows.reduce((sum, row) => sum + row.score, 0);
-    total >= count * floor
-      ? ok(`${p.name} agents score: ${total} (floor ${count * floor} = ${count} × ${floor})`)
-      : fail(`${p.name} agents score: ${total} below floor ${count * floor} (${count} × ${floor})`);
-    let aunder = 0;
-    for (const row of agentScoreRows) {
-      if (row.score < floor) {
-        fail(`  ${p.name} agents:${row.line} below per-file floor ${floor}`);
-        aunder = 1;
+  if (p.agents) {
+    if (!fs.existsSync(p.agents)) {
+      fail(`${p.name} declared agents root missing: ${p.agents}`);
+    } else {
+      nodeOk(['scripts/agents/guard.mjs', p.agents])
+        ? ok(`${p.name} agents/guard passed`)
+        : fail(`${p.name} agents/guard failed (run: node scripts/agents/guard.mjs ${p.agents})`);
+      const floor = floorOf('agents');
+      const agentFiles = fs
+        .readdirSync(p.agents)
+        .filter((name) => name.endsWith('.md') && name !== 'AGENTS.md' && name !== 'CLAUDE.md')
+        .sort();
+      const onDisk = agentFiles.map((name) => name.replace(/\.md$/u, ''));
+      const scoreArgs = ['scripts/agents/score.mjs', '--per-file', p.agents];
+      const scoreCommand = `node ${scoreArgs.join(' ')}`;
+      const scoreRun = node(scoreArgs);
+      if ((scoreRun.status ?? 1) !== 0) {
+        const detail = `${scoreRun.stdout ?? ''}${scoreRun.stderr ?? ''}`.trim();
+        if (detail) console.error(detail);
+        fail(`${p.name} agent scorer exited ${scoreRun.status ?? 'null'} — no score set to gate (${scoreCommand})`);
+      } else {
+        const agentScoreRows = (scoreRun.stdout ?? '')
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => {
+            const match = /^(.+)\s+(\S+)$/u.exec(line);
+            return { line, name: match?.[1] ?? '', score: Number(match?.[2]) };
+          });
+        const nonFinite = agentScoreRows.filter((row) => !Number.isFinite(row.score));
+        const scoredCounts = new Map();
+        for (const row of agentScoreRows) scoredCounts.set(row.name, (scoredCounts.get(row.name) ?? 0) + 1);
+        const scored = new Set(scoredCounts.keys());
+        const disk = new Set(onDisk);
+        const unscored = onDisk.filter((name) => !scored.has(name));
+        const notOnDisk = [...scored].filter((name) => !disk.has(name));
+        const duplicates = [...scoredCounts].filter(([, count]) => count > 1).map(([name]) => name);
+        const scoreSetMismatch =
+          agentScoreRows.length !== onDisk.length ||
+          unscored.length > 0 ||
+          notOnDisk.length > 0 ||
+          duplicates.length > 0;
+
+        if (onDisk.length === 0) {
+          fail(`${p.name} declared agents root is empty — no agent score set to gate: ${p.agents}`);
+        } else if (nonFinite.length > 0) {
+          fail(
+            `${p.name} agent scorer produced non-finite score(s): ${nonFinite.map((row) => row.line).join(', ')} (${scoreCommand})`,
+          );
+        } else if (scoreSetMismatch) {
+          const mismatchDetails = [
+            unscored.length > 0 ? `unscored on disk: ${unscored.join(', ')}` : null,
+            notOnDisk.length > 0 ? `not on disk: ${notOnDisk.join(', ')}` : null,
+            duplicates.length > 0 ? `duplicate score rows: ${duplicates.join(', ')}` : null,
+          ].filter(Boolean);
+          fail(
+            `${p.name} agent score set does not cover the tree: expected ${onDisk.length} agent(s) on disk, parsed ${agentScoreRows.length} score row(s) from ${scoreCommand}` +
+              (mismatchDetails.length > 0 ? ` — ${mismatchDetails.join(' — ')}` : ''),
+          );
+        } else {
+          ok(
+            `${p.name} agent score set covers the tree: ${agentScoreRows.length} score rows for ${onDisk.length} agent files on disk`,
+          );
+          const total = agentScoreRows.reduce((sum, row) => sum + row.score, 0);
+          total >= onDisk.length * floor
+            ? ok(`${p.name} agents score: ${total} (floor ${onDisk.length * floor} = ${onDisk.length} × ${floor})`)
+            : fail(
+                `${p.name} agents score: ${total} below floor ${onDisk.length * floor} (${onDisk.length} × ${floor})`,
+              );
+          let aunder = 0;
+          for (const row of agentScoreRows) {
+            if (row.score < floor) {
+              fail(`  ${p.name} agents:${row.line} below per-file floor ${floor}`);
+              aunder = 1;
+            }
+          }
+          if (!aunder) ok(`${p.name} agents per-file all ≥ ${floor}`);
+        }
       }
     }
-    if (!aunder) ok(`${p.name} agents per-file all ≥ ${floor}`);
   }
 
   if (p.distributionContract) {
