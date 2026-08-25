@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-08-25"
-  content_hash: "082d42dc672fe8b5374559ca3f13585651d9c603288a9705bf4f759f8d897eac"
+  content_hash: "f71d5e5486566c6703275bafa0a70364dfd7fb3d3f9558c5f41950f725a1a2dc"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -74,8 +74,8 @@ Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 mer
 ## The plan record (IPC + deliverable)
 
 ```text
-GitHub issue #<n> labeled plan plus exactly one lifecycle label:
-plan:drafting | plan:planned | plan:ongoing | plan:blocked
+GitHub issue #<n> labeled plan, created with plan:drafting;
+plan-manager owns every later phase transition.
 ```
 
 Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. Downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping the headings.
