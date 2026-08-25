@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-20"
-  content_hash: "ad67d35bcd6555712c0186c0a5001b9474131e3e34627841eee6b2836224d8ee"
+  updated: "2026-08-25"
+  content_hash: "f108c4f561c1c05d73670783cdc425333b867e6cc64057289d7c85a8d7e290a7"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -21,7 +21,7 @@ Read-only. This pipeline never modifies source. Its only deliverable is the audi
 </constraint>
 
 <constraint>
-Intent controls the handoff, not Plan Mode. Hand the full report to `plan-manager`, which files it as a plan issue with `plan.mjs new --title <t> --goal <g>`, and do NOT call `ExitPlanMode` (Claude-only). `plan-workspace` owns label and workspace setup; the unified `plan-manager` owns canonical-plan creation, fresh review, lifecycle, and any requested implementation. An audit-only request ends after the report. If the current request explicitly includes remediation, keep this pipeline read-only, then hand confirmed findings to `fix-workflow` and continue through `plan-manager` without requiring another user-issued lifecycle command. Use `docs/security-audit-<date>.md` only as an untracked fallback when the repository has no GitHub remote.
+Intent controls the handoff, not Plan Mode. Hand the full report to `plan-manager`, which owns the GitHub plan issue through the six manager lifecycle phases — decide, draft, research, plan review, implement, and code review; these are separate from the audit's five internal analysis phases below. Do NOT call `ExitPlanMode` (Claude-only). `plan-workspace` owns label and workspace setup. An audit-only request ends after the report. If the current request explicitly includes remediation, keep this pipeline read-only, then hand confirmed findings to `fix-workflow` and continue through `plan-manager` without requiring another user-issued lifecycle command. If no GitHub-backed plan lifecycle is available, STOP and report that prerequisite; never write a tracked or untracked plan file.
 </constraint>
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
@@ -62,7 +62,7 @@ Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequen
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
-2. Ask `plan-manager` to create the canonical audit issue with `plan.mjs new --title <t> --goal <g>` and own every later lifecycle write. In a repository without a GitHub remote, use the untracked fallback below. Write an `## Environment` block: date, branch, short git status.
+2. Ask `plan-manager` to create the canonical audit issue with `plan.mjs new --title <t> --goal <g>` and own every later lifecycle write. If no GitHub-backed plan lifecycle is available, stop and report; never write a plan file. Write an `## Environment` block: date, branch, short git status.
 3. For each pipeline row, in order:
    - Read `references/<phase>.md`.
    - Perform that analysis against the scope, using Phase 1's map as the starting point for phases 2–3.
@@ -75,8 +75,8 @@ Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequen
 The plan issue holds the whole run. It doubles as inter-phase memory and the final artifact.
 
 ```text
-GitHub issue #<n> labeled plan, plan:drafting (created and managed by plan-manager)
-docs/security-audit-<YYYYMMDD>.md          (untracked fallback only when the repository has no GitHub remote)
+GitHub issue #<n> labeled plan plus exactly one lifecycle label:
+plan:drafting | plan:planned | plan:ongoing | plan:blocked
 ```
 
 Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. The headings above are the contract; downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping for them.

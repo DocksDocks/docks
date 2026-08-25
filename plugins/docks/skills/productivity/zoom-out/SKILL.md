@@ -1,11 +1,11 @@
 ---
 name: zoom-out
-description: "Use when tunneling in code-level detail and you need a system-level map — modules, callers, data flow, seams — using the project's domain vocabulary. Triggers: user says \"zoom out\", \"give me a map\", \"I'm lost in this code\", \"how does this fit\"; OR you've been reading the same file for 10+ minutes without a model of the surrounding system; OR an architectural question landed and the next action isn't obvious. Output is a labelled diagram or tight bullet list, not prose."
+description: "Use when tunneling in code-level detail and you need a system-level map — modules, callers, data flow, seams — using the project's domain vocabulary. Triggers: user says \"zoom out\", \"give me a map\", \"I'm lost in this code\", \"how does this fit\"; OR you've been reading the same file for 10+ minutes without a model of the surrounding system; OR an architectural question landed and the next action isn't obvious. Output is a labelled diagram or tight bullet list, not prose. Not for finding one symbol or fixing a single function (stay in direct work), or structural refactoring (use solid or refactor)."
 user-invocable: true
 metadata:
   pattern: micro-skill
-  updated: "2026-07-05"
-  content_hash: "178ae11f7be487c7c59cbe64ba01e8769f1fb0b003b334a0453ca4c4fe694c8e"
+  updated: "2026-08-25"
+  content_hash: "d0f032b8cf888879525a072f59d0e10e65cc546796d451465e8948115fef7d2a"
 ---
 
 # Zoom Out

@@ -4,8 +4,8 @@ description: "Use when splitting work into small reviewable/atomic commits, deci
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "10cb9a6d895fa037bdfe8c12d29d0abb7ac5e5df16314b6255c6c95abf726937"
+  updated: "2026-08-25"
+  content_hash: "976d6d6824383ff2213244f57e58004fc0453c3eb487e5e4c2516aff46ca3f9b"
 ---
 
 # Commit & PR Discipline
@@ -33,10 +33,11 @@ into independently green commits, they are one commit, not two.
 </constraint>
 
 <constraint>
-Never rewrite history others may have built on. Fixup, autosquash, amend, and
-rebase are for your own not-yet-merged branch. Push rewritten history only with
-`git push --force-with-lease` (never bare `--force` — it silently discards a
-collaborator's or CI bot's newer commits), and only to your own PR branch.
+Never rewrite history others may have built on. Never force-push or rewrite any
+history without explicit user confirmation, even on your own PR branch. Once
+confirmed, amend, autosquash, and rebase are limited to your own not-yet-merged
+branch. Push rewritten history only with `git push --force-with-lease` (never
+bare `--force` — it silently discards a collaborator's or CI bot's newer commits).
 </constraint>
 
 ## When to use / when NOT
@@ -128,14 +129,15 @@ type or missed `!` mis-versions the next release.
 ## Fixup / autosquash — clean up before review, not after
 
 Address review feedback and self-caught mistakes as fixups while the PR is open,
-then fold them before merge (or let squash-merge do it — see the merge table):
+then, after explicit user confirmation, fold them before merge (or let
+squash-merge do it — see the merge table):
 
 ```bash
 git commit --fixup=<sha>            # fix goes into <sha> on autosquash
 git commit --fixup=amend:<sha>      # also reword <sha>'s message (editor opens)
 git commit --fixup=reword:<sha>     # reword ONLY — no content change
-git rebase -i --autosquash <base>   # reorders fixup! commits onto their targets
-git push --force-with-lease         # your own PR branch only (constraint above)
+git rebase -i --autosquash <base>   # explicit user confirmation required first
+git push --force-with-lease         # own PR branch; explicit confirmation required
 ```
 
 - `--autosquash` matches on the `fixup!`/`squash!` subject prefix against earlier
@@ -144,13 +146,18 @@ git push --force-with-lease         # your own PR branch only (constraint above)
 - `rebase.autoSquash=true` makes interactive rebases autosquash by default;
   whether your Git also applies it to non-interactive rebases varies by version
   (verify: `git rebase -h | grep -i autosquash`, or your installed `git-rebase(1)`).
-- Stacked branches: `git rebase --update-refs` force-updates the other branches
-  pointing at rebased commits (checked-out worktrees excluded).
+- After explicit user confirmation, stacked branches may use
+  `git rebase --update-refs` to force-update the other branches pointing at
+  rebased commits (checked-out worktrees excluded).
 - During review, PREFER pushing fixup commits over force-pushing rewrites:
   reviewers see what changed since their last pass; rewriting mid-review destroys
   their per-commit anchor points.
 
 ## PR hygiene
+Plan-lifecycle branches are excluded from the generic landing guidance below.
+Defer landing them to `plan-manager`, which must obtain fresh explicit user
+approval to "Merge now"; do not apply generic merge, squash, or rebase advice to
+those branches.
 
 GitHub's guidance (verified 2026-07-05; re-verify:
 <https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/getting-started/helping-others-review-your-changes>):
@@ -210,11 +217,11 @@ craft into the PR title/description, which become the squashed message.
 | Gotcha | Consequence | Right move |
 |---|---|---|
 | `git commit -am` as reflex | stages everything tracked — unrelated edits ride along | `git add -p`, review `git diff --cached`, then commit |
-| Amending or rebasing after pushing to a shared branch | collaborators' pulls diverge; their work needs manual rescue | rewrite only unpushed/own-PR-branch history; `--force-with-lease` |
+| Amending or rebasing after pushing to a shared branch | collaborators' pulls diverge; their work needs manual rescue | never rewrite shared history; on your own PR branch, rewrite only after explicit user confirmation and use `--force-with-lease` |
 | Conventional-commit type chosen by vibe (`chore` for a bug fix) | release tooling mis-versions or drops the change from the changelog | `fix`/`feat` per actual effect; check what the repo's tooling parses |
 | PR description = pasted commit list | reviewer gets no narrative, reads the diff cold | write the briefing (what/why, review order, verification) |
-| Force-pushing a rewrite mid-review | reviewer's inline comments detach; they re-review from scratch | push fixup commits during review; fold them at merge time |
-| Merging with "fixup!" commits still unfolded | noise commits land on the base branch permanently | `rebase -i --autosquash` before merge, or use squash-merge |
+| Force-pushing a rewrite mid-review | reviewer's inline comments detach; they re-review from scratch | push fixup commits during review; after explicit confirmation, fold them at merge time |
+| Merging with "fixup!" commits still unfolded | noise commits land on the base branch permanently | after explicit confirmation, `rebase -i --autosquash` before merge, or use squash-merge |
 | Splitting so far that a commit is not independently green | bisect lands on red commits; revert takes multiple steps | the green-tree constraint bounds the split |
 
 ## Verification
@@ -224,7 +231,7 @@ required (use the project's CI/validators too, if present):
 
 ```bash
 git log --oneline @{upstream}..     # each subject: imperative, one idea, no "and"
-git rebase -i --exec 'npm test' @{upstream}   # green at EVERY commit, not just HEAD
+git rebase -i --exec 'npm test' @{upstream}   # after confirmation; green at every commit
 git diff @{upstream}.. --stat       # size sanity: is this one reviewable unit?
 ```
 

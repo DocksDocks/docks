@@ -1,11 +1,11 @@
 ---
 name: solid
-description: Use when designing a module / service / class with multiple concerns, refactoring a 300+ LOC file with mixed change axes, replacing a growing switch/if-else with a strategy map, converting runtime instanceof checks into discriminated unions, splitting a fat interface, or breaking a hard-coded dependency on a concrete SDK. Generic SOLID across TS / Rust / Python / Go — React-component composition lives in react-component-patterns; type-level union/`class` design in type-safety-discipline.
+description: Use when designing a module / service / class with multiple concerns, refactoring a 300+ LOC file with mixed change axes, replacing a growing switch/if-else with a strategy map, converting runtime instanceof checks into discriminated unions, splitting a fat interface, or breaking a hard-coded dependency on a concrete SDK. Generic SOLID across TS / Rust / Python / Go — React-component composition lives in react-component-patterns; type-level union/`class` design in type-safety-discipline. Not for readability-only naming or prose (use code-clarity).
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "778c905fca15e0a10499f5a8ca7b007e7f5603b3156db382a3826a892334e1dc"
+  updated: "2026-08-25"
+  content_hash: "8d1db580f817b4866a2d3b44505169749da88af65a42b7636fbddda47d0a7cfc"
 ---
 
 # SOLID — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion
@@ -79,16 +79,17 @@ function formatEvent(type: string, e: Event): string {
 
 ```ts
 // GOOD — Strategy Map; new variants drop in without editing the dispatcher
+type EventKind = "user_invited" | "role_changed" | "permission_granted";
 type Formatter = (e: Event) => string;
 
-const FORMATTERS: Record<string, Formatter> = {
+const FORMATTERS: Record<EventKind, Formatter> = {
   user_invited:       (e) => `${e.actor} invited ${e.target}`,
   role_changed:       (e) => `${e.actor} changed role`,
   permission_granted: (e) => `${e.actor} granted ${e.resource}`,
 };
 
-function formatEvent(type: string, e: Event): string {
-  return (FORMATTERS[type] ?? ((evt) => `unknown: ${type}`))(e);
+function formatEvent(type: EventKind, e: Event): string {
+  return FORMATTERS[type](e);
 }
 ```
 

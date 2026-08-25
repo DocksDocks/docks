@@ -4,8 +4,8 @@ description: "Use when spinning up a new docks-style plugin project, or capturin
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-08-21"
-  content_hash: "96b4c6b604aa0fc811fa3f1c7a1db4bf259616792c42c8aacb65d301be9ac8d9"
+  updated: "2026-08-25"
+  content_hash: "5c7e2316f3c6e7dc45c831806d2bee85853995696725a6933232c1aa6adc023b"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -81,7 +81,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 3. **Choose templates.** For each file a new project needs parameterized (manifests, root AGENTS.md, node AGENTS.md), create `templates/<name>.template` with `{{ var }}` placeholders where repo-specific values appear.
 4. **Propose.** Show the spec (variables, tree_nodes, bundled_skills, scripts) + the template file list. **STOP for confirmation** (constraint 2).
 5. **Write.** Create `docs/scaffold/spec.yaml`, `docs/scaffold/templates/`, and the `docs/scaffold/` context-tree node pair (AGENTS.md + CLAUDE.md).
-6. **Verify.** Parse the spec as YAML; reject anchors, aliases, unknown schema versions, missing sources, and missing templates. Render every template with fixed test values into a temporary directory, require zero unresolved `{{` tokens, then run the generated project's validators.
+6. **Verify.** Parse the spec as YAML; reject anchors, aliases, unknown schema versions, missing sources, and missing templates. Render every template with fixed test values into a temporary directory, require zero unresolved `{{` tokens, and validate the temporary render. Defer generated-project validator execution to seed mode, after writing a complete project.
 
 ## Workflow — seed mode (`scaffold <target-path>`)
 

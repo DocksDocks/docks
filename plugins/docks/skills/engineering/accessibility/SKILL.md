@@ -4,8 +4,8 @@ description: "Use when making UI accessible: focus trap + restore-on-close in mo
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "985675bbaf37ed2650caa40c4ea85e4f54a8cad1e973195471f250679408c579"
+  updated: "2026-08-25"
+  content_hash: "0f7879efd0b3f50143ee7b916576d681603f376e416cfb36c0babefcaaeb1e59"
 ---
 
 # Accessibility
@@ -47,7 +47,7 @@ Native-element decision line: navigates → `<a href>`; performs an action → `
 
 ## Focus management
 
-**Modals: prefer native `<dialog>` + `showModal()`.** It delivers the full APG dialog contract for free: `::backdrop`, everything outside made `inert`, Escape closes, implicit `aria-modal="true"`, initial focus moves inside, focus returns to the invoker on close (Baseline since 2022; verify: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog).
+**Modals: prefer native `<dialog>` + `showModal()`.** It supplies `::backdrop`, makes everything outside `inert`, closes on Escape, exposes modal semantics, and moves initial focus inside (Baseline since 2022; verify: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog). Focus restoration to the invoker is not guaranteed: capture the invoking element reference and restore focus explicitly on close.
 
 ```html
 <dialog id="confirm" aria-labelledby="confirm-title">

@@ -59,7 +59,7 @@ bun run lint && bun run typecheck && bun run build && bun audit
 pnpm lint && pnpm typecheck && pnpm build && pnpm audit
 ```
 
-Commit once: `chore(deps): bump X/Y/Z + patch CVE-XXXX-YYYY` with the advisory link in the body.
+Commit in at least two independently revertible units: the security bump stands alone with the advisory link in its body, and hygiene upgrades go in a separate commit.
 
 ## JS Major Upgrade Surprises
 

@@ -4,8 +4,8 @@ description: Use when setting up multi-tool agent compatibility in a project (Co
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-20"
-  content_hash: "eb846d12a14539882857bbc651f5894efae6c258482dfea886ec004de43afcbd"
+  updated: "2026-08-25"
+  content_hash: "c34569700d395d37eff6238c5508353ffa5f7731f9ec9cf9b75639a7eb80b6ce"
 ---
 
 # Multi-Tool Agent Bridge
@@ -126,6 +126,7 @@ For each row classified `CREATE` / `MIGRATE+SYMLINK` / `REWRITE+@IMPORT`:
    git mv .claude/skills/<name> .agents/skills/<name>
    ln -s ../../.agents/skills/<name> .claude/skills/<name>
    ```
+   After creating each entry, run `readlink .claude/skills/<name>`; expect `../../.agents/skills/<name>`.
    Skip when destination already exists. If `.claude/skills/<name>` is already a symlink pointing at the right target → SKIP. If it's a symlink pointing somewhere else → STOP and ask the user (do not silently fix).
 
 4. **CLAUDE.md rewrite** — first pick the TARGET file:

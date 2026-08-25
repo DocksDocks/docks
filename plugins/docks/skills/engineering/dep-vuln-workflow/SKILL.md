@@ -4,8 +4,8 @@ description: Use when running bun/pnpm/npm/yarn audit, pip-audit, cargo audit, o
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-20"
-  content_hash: "5c5d8cc137ca9ab04ced232c915cab1dd1597c2d03222e331661694f56760e26"
+  updated: "2026-08-25"
+  content_hash: "0e50c0d72dd4c8fae297e5a3875c6bed9411dda8303d3d13a146c2320d7445e7"
 ---
 
 # Dependency Vulnerability & Upgrade Workflow
