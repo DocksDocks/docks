@@ -1026,6 +1026,73 @@ try {
     'a second consecutive edit of the same exported file must update the issue',
   );
 
+  const terminalRegressionNumber = createPlan('terminal-step-regression-edit');
+  makeValid(terminalRegressionNumber);
+  updateIssue(terminalRegressionNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'done');
+  });
+  const beforeTerminalRegressionEdit = issue(terminalRegressionNumber).body;
+  const terminalRegressionExport = run('export', String(terminalRegressionNumber));
+  expectSuccess(terminalRegressionExport, 'terminal step regression edit export');
+  const terminalRegressionExportPath = terminalRegressionExport.stdout.trim();
+  fs.writeFileSync(
+    terminalRegressionExportPath,
+    replaceStepStatus(fs.readFileSync(terminalRegressionExportPath, 'utf8'), 'planned'),
+  );
+  const terminalRegressionBodyWritesBefore = loadState().calls.filter(
+    (call) =>
+      call[0] === 'issue' &&
+      call[1] === 'edit' &&
+      call[2] === String(terminalRegressionNumber) &&
+      call.includes('--body-file'),
+  ).length;
+  const terminalRegressionEdit = run('edit', String(terminalRegressionNumber), '--file', terminalRegressionExportPath);
+  assert.equal(terminalRegressionEdit.status, 1, 'a file must not regress a terminal remote step');
+  assert.equal(
+    terminalRegressionEdit.stderr.trim(),
+    `status regression: step implement_contract (done -> planned) is terminal on #${terminalRegressionNumber} but the file reverts it; re-export and re-apply the edit`,
+  );
+  assert.equal(
+    issue(terminalRegressionNumber).body,
+    beforeTerminalRegressionEdit,
+    'a terminal step regression must leave the remote body unchanged',
+  );
+  assert.equal(
+    loadState().calls.filter(
+      (call) =>
+        call[0] === 'issue' &&
+        call[1] === 'edit' &&
+        call[2] === String(terminalRegressionNumber) &&
+        call.includes('--body-file'),
+    ).length,
+    terminalRegressionBodyWritesBefore,
+    'a terminal step regression must fail before the body write',
+  );
+
+  const terminalStepRow =
+    '| 1 | implement_contract | Implement the contract | src/example.mjs | - | `local` | `done` | command exits 0 |';
+  const addedStepRow =
+    '| 2 | extend_contract | Extend the contract | src/extra.mjs | - | `local` | `planned` | command exits 0 |';
+  const terminalPreservingBody = beforeTerminalRegressionEdit.replace(
+    terminalStepRow,
+    `${terminalStepRow}\n${addedStepRow}`,
+  );
+  assert.notEqual(
+    terminalPreservingBody,
+    beforeTerminalRegressionEdit,
+    'the non-regressing edit fixture must add a step row',
+  );
+  fs.writeFileSync(terminalRegressionExportPath, terminalPreservingBody);
+  const terminalPreservingEdit = run('edit', String(terminalRegressionNumber), '--file', terminalRegressionExportPath);
+  expectSuccess(terminalPreservingEdit, 'terminal-preserving row addition edit');
+  assert.equal(
+    issue(terminalRegressionNumber).body,
+    terminalPreservingBody,
+    'adding a row while preserving terminal cells must update the remote body',
+  );
+  assert.match(issue(terminalRegressionNumber).body, /\| `done` \| command exits 0 \|/);
+  assert.match(issue(terminalRegressionNumber).body, /\| 2 \| extend_contract .+ \| `planned` \| command exits 0 \|/);
+
   const staleExportNumber = createPlan('stale-export-edit');
   makeValid(staleExportNumber);
   setIssueStatus(staleExportNumber, 'ongoing');
@@ -1443,6 +1510,81 @@ try {
       }
     }
   }
+
+  const finishedStepNumber = createPlan('finished-step-repair');
+  makeValid(finishedStepNumber);
+  setIssueStatus(finishedStepNumber, 'ongoing');
+  updateIssue(finishedStepNumber, (entry) => {
+    entry.body = replaceStepStatus(entry.body, 'in-flight');
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+  });
+  const finishedStepBefore = issue(finishedStepNumber);
+  const finishedStepCallsBefore = loadState().calls.length;
+  const finishedStepRepair = run('step', String(finishedStepNumber), 'implement_contract', 'done');
+  expectSuccess(finishedStepRepair, 'finished plan terminal step repair');
+  assert.equal(
+    finishedStepRepair.stdout.trim(),
+    `plan #${finishedStepNumber} step implement_contract: in-flight -> done`,
+  );
+  const finishedStepAfter = issue(finishedStepNumber);
+  assert.match(finishedStepAfter.body, /\| `done` \| command exits 0 \|/);
+  assert.equal(finishedStepAfter.state, finishedStepBefore.state, 'terminal repair must not reopen the issue');
+  assert.equal(
+    finishedStepAfter.stateReason,
+    finishedStepBefore.stateReason,
+    'terminal repair must preserve the completed state reason',
+  );
+  assert.deepEqual(
+    finishedStepAfter.labels,
+    finishedStepBefore.labels,
+    'terminal repair must not mutate the plan labels',
+  );
+  const finishedStepCalls = loadState().calls.slice(finishedStepCallsBefore);
+  assert.equal(
+    finishedStepCalls.filter(
+      (call) =>
+        call[0] === 'issue' &&
+        call[1] === 'edit' &&
+        call[2] === String(finishedStepNumber) &&
+        call.includes('--body-file'),
+    ).length,
+    1,
+    'terminal repair must record exactly one body edit',
+  );
+  assert.equal(
+    finishedStepCalls.some((call) => call[0] === 'issue' && new Set(['close', 'reopen']).has(call[1])),
+    false,
+    'terminal repair must not create another issue state transition',
+  );
+
+  const finishedStepBodyBeforeRefusal = finishedStepAfter.body;
+  const finishedStepBodyWritesBeforeRefusal = loadState().calls.filter(
+    (call) =>
+      call[0] === 'issue' &&
+      call[1] === 'edit' &&
+      call[2] === String(finishedStepNumber) &&
+      call.includes('--body-file'),
+  ).length;
+  const finishedNonterminalStep = run('step', String(finishedStepNumber), 'implement_contract', 'in-flight');
+  assert.equal(finishedNonterminalStep.status, 1, 'a finished plan must reject a non-terminal step target');
+  assert.equal(finishedNonterminalStep.stderr.trim(), 'plan status is finished; expected ongoing');
+  assert.equal(
+    issue(finishedStepNumber).body,
+    finishedStepBodyBeforeRefusal,
+    'refusing a non-terminal repair must leave the closed issue body unchanged',
+  );
+  assert.equal(
+    loadState().calls.filter(
+      (call) =>
+        call[0] === 'issue' &&
+        call[1] === 'edit' &&
+        call[2] === String(finishedStepNumber) &&
+        call.includes('--body-file'),
+    ).length,
+    finishedStepBodyWritesBeforeRefusal,
+    'a non-terminal target on a finished plan must fail before the body write',
+  );
   const malformedStepNumber = createPlan('malformed-step');
   makeValid(malformedStepNumber);
   setIssueStatus(malformedStepNumber, 'ongoing');

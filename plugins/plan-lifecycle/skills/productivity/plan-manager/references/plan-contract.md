@@ -136,8 +136,9 @@ template placeholder `_Not researched yet._`.
   to a declared id. A bare `step 3` is invalid.
 
 Every Steps row must be terminal before the pull request carrying
-`Closes #<issue>` merges. Once that merge closes the issue, step mutation is no
-longer available. Post-merge work belongs to a named follow-up plan.
+`Closes #<issue>` merges. After that merge closes the issue, step mutation is
+limited to terminal repair of a closed-but-unarchived record. Post-merge work
+belongs to a named follow-up plan.
 
 ## Acceptance table - exact header
 
@@ -271,6 +272,11 @@ it never enters the export/edit body cycle.
 
 A conflict is not permission to retry blindly. Re-read the issue, re-apply the
 intended change, and run `plan.mjs check <issue>` before continuing.
+`step` requires an open `ongoing` plan, except that a `finished` plan accepts a
+step mutation when the target status is terminal (`done` or `skipped`). This
+repairs a closed-but-unarchived record without creating a new closure event.
+Never reopen the issue for this repair: `archive` trusts only the latest
+closure, so reopening would discard the eligible closure proof.
 
 `export` writes the body to `<git-dir>/docks-review/plan-<n>.md`. It writes the
 body digest to `plan-<n>.md.origin` as one lowercase SHA-256 line. The sidecar
@@ -281,6 +287,9 @@ sidecar, an unreadable digest, or a digest from a superseded body revision.
 After validation, `edit` refreshes the digest before the remote body write.
 A local sidecar failure fails closed and requires one re-export.
 A phase-only status change leaves the body and sidecar valid.
+`edit` also refuses an incoming body that moves any matching step id from a
+terminal remote status (`done` or `skipped`) to a different non-terminal
+status. Re-export the current body and re-apply the intended edit.
 
 For every body edit, export the record. Edit the export. Run
 `plan.mjs check <issue>`. Delete the export and its `.origin` sidecar.

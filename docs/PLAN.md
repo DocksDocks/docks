@@ -126,8 +126,8 @@ The Steps table uses this exact header:
 
 Every Steps row must be terminal before the closing pull request merges. Once
 that merge closes the issue as completed, the derived state is `finished` and
-step mutation is no longer legal. Post-merge work belongs to a named follow-up
-plan.
+step mutation is limited to terminal repair of a closed-but-unarchived record.
+Post-merge work belongs to a named follow-up plan.
 
 No Steps `Files` cell names the plan's own issue reference. Writing lifecycle
 state into the record is the CLI's job, not an implementation step.
@@ -196,10 +196,10 @@ resolves the target repository from that checkout's GitHub remote.
 | `plan.mjs claim <issue>` | Take single-writer ownership of an existing plan: assign the acting login, stay idempotent when it already owns the plan, and refuse when another login does. |
 | `plan.mjs show <issue> [--body]` | Print the header strip, then `reviews: plan=<pass\|repair\|blocked\|none> code=<pass\|fixes-required\|blocked\|none>`. With `--body`, print only the body to stdout and send both metadata lines to stderr, header first. |
 | `plan.mjs export <issue>` | Write the issue body verbatim to `plan-<issue>.md` inside the scratch directory `git rev-parse --git-path docks-review` resolves, creating it mode 0700 when missing, and print the absolute path. |
-| `plan.mjs edit <issue> --file <path>` | Validate the file as the plan record, refuse on any failed check, replace the issue body, and print the header strip and the changed lines. |
+| `plan.mjs edit <issue> --file <path>` | Validate the file as the plan record, refuse on any failed check or any regression of a matching terminal step to a different non-terminal status, instruct re-export, replace the issue body, and print the header strip and the changed lines. |
 | `plan.mjs check <issue \| --file <path>>` | Validate a v3 record and print the pass result. |
 | `plan.mjs status <issue> <status> [--reason <text>]` | Validate and apply one open-status transition, then replace all phase labels with the target phase label. Refuse closed issues. |
-| `plan.mjs step <issue> <step-id> <status>` | Rewrite one Steps `Status` cell after checking the plan state and dependencies. |
+| `plan.mjs step <issue> <step-id> <status>` | Rewrite one Steps `Status` cell after checking dependencies; require an open `ongoing` plan, or a `finished` plan when the target status is terminal (`done` or `skipped`) for repair. |
 | `plan.mjs list [--status <s>]` | Print `<status>\t#<issue>\t<title>` for every issue labelled `plan`, deriving `unlabelled`, `finished`, `retired`, and `duplicate` rather than reading them from the body. |
 | `plan.mjs next` | Print startable open plans, using the queue when it is present and valid. |
 | `plan.mjs archive <issue>` | Verify terminal steps, the latest trusted code-review result (with legacy body fallback only when no trusted comment record exists), completed closure, and an eligible merged closing pull request; strip stale phase labels and write no status. |
@@ -249,6 +249,12 @@ remaining window but does not close it, because the read and the edit are
 separate API calls. A conflict is not an error to retry blindly: re-read the
 record, re-apply the intent, and run `plan.mjs check <issue>` before continuing.
 
+`step` requires an open `ongoing` plan, except that a `finished` plan accepts a
+step mutation when the target status is terminal (`done` or `skipped`). This
+repairs a closed-but-unarchived record without creating a new closure event.
+Never reopen the issue for this repair: `archive` trusts only the latest
+closure, so reopening would discard the eligible closure proof.
+
 An export copy is a snapshot of one body revision, not a live view. The `step`
 and `edit` commands rewrite body bytes. A status change also rewrites body bytes
 when it adds or clears the blocked reason. These body writes supersede every
@@ -264,6 +270,10 @@ A local digest failure fails closed before the remote write and requires one
 re-export. The `claim`, `archive`, and `retire` commands do not rewrite body
 bytes. A successful phase-only status change writes labels only and leaves the
 body and digest valid. The guard compares body bytes, not the issue timestamp.
+
+`edit` also refuses an incoming body that moves any matching step id from a
+terminal remote status (`done` or `skipped`) to a different non-terminal
+status. Re-export the current body and re-apply the intended edit.
 
 Re-export immediately before every body edit. Edit the export. Run
 `plan.mjs check <issue>`. Delete the export and its `.origin` sidecar. Never
