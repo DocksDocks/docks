@@ -302,6 +302,11 @@ const V3_PINNED_CLAUSES = [
     files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
   },
   {
+    name: 'execution-state-freeze',
+    text: "Once work starts (irreversibly: when the current phase is neither `drafting` nor `planned`, or label events show that `plan:ongoing` was ever applied), `edit` preserves every existing Steps row's Status, Effect, Depends, display number, and presence byte-for-byte; new rows must be appended after every existing row, must start `planned`, and are refused on closed plans; after that boundary, only `plan.mjs step` writes step state.",
+    files: [PLAN_CONTRACT, MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
+  },
+  {
     name: 'frozen-history-boundary',
     text: 'No lifecycle command or workspace migration operation opens, inventories, parses, classifies, lists, or migrates it.',
     files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],

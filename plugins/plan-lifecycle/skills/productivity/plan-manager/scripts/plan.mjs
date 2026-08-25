@@ -448,6 +448,23 @@ function issueComments(number) {
   return pages.flat();
 }
 
+function planWorkStarted(issue, recordStatus) {
+  // "Started" must be irreversible: `blocked -> planned` and `blocked -> drafting` are legal transitions,
+  // so a started plan can legally return to an editable label. Label events are GitHub-owned timeline
+  // facts no later transition or body write can erase; the query runs only when the current label alone
+  // does not already prove the plan started.
+  if (recordStatus !== 'drafting' && recordStatus !== 'planned') return true;
+  const { owner, name } = repositoryCoordinates();
+  const pages = parseJson(
+    runGh(['api', `repos/${owner}/${name}/issues/${issue.number}/events`, '--paginate', '--slurp']),
+    'gh api issue events',
+  );
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    fail('gh api issue events returned malformed events');
+  }
+  return pages.flat().some((event) => event?.event === 'labeled' && event?.label?.name === 'plan:ongoing');
+}
+
 function parseReviewComment(body) {
   if (typeof body !== 'string') return undefined;
   if (body.includes('\u2014')) return undefined;
@@ -842,23 +859,56 @@ function editPlan(args) {
   }
   const failures = checkPlan(after, issue);
   if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
-  // The provenance digest proves the remote body is the one exported from, not that the FILE reflects it:
-  // an intervening export refreshes the sidecar, so a stale draft can pass the digest check and silently
-  // revert step statuses the CLI advanced in between. A terminal cell never legally regresses
-  // (STEP_TRANSITIONS closes `done` and `skipped`), so refuse any matching step id moving away from one.
-  const stepStatuses = (text) => {
-    const table = parseRows(sectionMap(text).sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
-    return new Map(table.rows.map(({ cells }) => [cells[1], unquoteCode(cells[6])]));
-  };
-  const remoteSteps = stepStatuses(parsed.body);
-  const regressed = [...stepStatuses(after)]
-    .filter(([id, status]) => {
-      const remote = remoteSteps.get(id);
-      return new Set(['done', 'skipped']).has(remote) && status !== remote && !new Set(['done', 'skipped']).has(status);
-    })
-    .map(([id, status]) => `${id} (${remoteSteps.get(id)} -> ${status})`);
-  if (regressed.length > 0) {
-    fail(`status regression: step ${regressed.join(', ')} is terminal on #${issue.number} but the file reverts it; re-export and re-apply the edit`);
+  // Once work starts, `plan.mjs step` is the only writer of step state. A body edit could otherwise
+  // bypass STEP_TRANSITIONS (`planned -> done`), fake completion by removing a non-terminal row (archive
+  // requires every step terminal), reorder execution by rewriting Depends or display numbers, or suppress
+  // the pre-run `ask` by downgrading a non-local Effect. Task, Files, and Done-when stay editable as prose.
+  if (planWorkStarted(issue, record.status)) {
+    const stepRows = (text) => {
+      const table = parseRows(sectionMap(text).sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
+      return table.rows.map(({ cells }) => ({
+        display: cells[0],
+        id: cells[1],
+        depends: cells[4],
+        effect: cells[5],
+        status: unquoteCode(cells[6]),
+      }));
+    };
+    const remoteRows = stepRows(parsed.body);
+    const incomingRows = stepRows(after);
+    const incomingById = new Map(incomingRows.map((row) => [row.id, row]));
+    const remoteIds = new Set(remoteRows.map((row) => row.id));
+    const violations = [];
+    for (const row of remoteRows) {
+      const next = incomingById.get(row.id);
+      if (!next) {
+        violations.push(`step ${row.id} removed (retire it with \`step ${issue.number} ${row.id} skipped\`)`);
+        continue;
+      }
+      if (next.status !== row.status) violations.push(`step ${row.id} Status ${row.status} -> ${next.status}`);
+      if (next.effect !== row.effect) violations.push(`step ${row.id} Effect ${row.effect} -> ${next.effect}`);
+      if (next.depends !== row.depends) violations.push(`step ${row.id} Depends ${row.depends} -> ${next.depends}`);
+      if (next.display !== row.display) violations.push(`step ${row.id} display ${row.display} -> ${next.display}`);
+    }
+    // A closed record accepts no new rows: post-merge mutation is terminal repair only, and new work
+    // belongs to a follow-up plan - an appended planned row plus finished-plan `step ... done` would
+    // smuggle unreviewed work into a merged record. Open started plans append planned-born rows only.
+    const closed = String(issue.state).toUpperCase() === 'CLOSED';
+    const lastRemotePosition = incomingRows.reduce(
+      (last, row, index) => (remoteIds.has(row.id) ? index : last),
+      -1,
+    );
+    incomingRows.forEach((row, index) => {
+      if (remoteIds.has(row.id)) return;
+      if (closed) violations.push(`step ${row.id} added to a closed plan (new work takes a follow-up plan)`);
+      else if (row.status !== 'planned') violations.push(`new step ${row.id} born ${row.status}; new rows start planned`);
+      else if (index < lastRemotePosition) violations.push(`new step ${row.id} inserted between existing rows; new rows append at the end`);
+    });
+    if (violations.length > 0) {
+      fail(
+        `step state is frozen once work starts: ${violations.join('; ')}. Use \`plan.mjs step\` for status changes, then re-export and re-apply the edit`,
+      );
+    }
   }
   const changes = changedLines(issue.body, after);
   // Stage provenance before the remote write. A failed sidecar write then costs one re-export; the reverse

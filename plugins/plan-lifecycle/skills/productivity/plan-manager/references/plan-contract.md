@@ -287,9 +287,15 @@ sidecar, an unreadable digest, or a digest from a superseded body revision.
 After validation, `edit` refreshes the digest before the remote body write.
 A local sidecar failure fails closed and requires one re-export.
 A phase-only status change leaves the body and sidecar valid.
-`edit` also refuses an incoming body that moves any matching step id from a
-terminal remote status (`done` or `skipped`) to a different non-terminal
-status. Re-export the current body and re-apply the intended edit.
+Once work starts (irreversibly: when the current phase is neither `drafting` nor
+`planned`, or label events show that `plan:ongoing` was ever applied), `edit`
+preserves every existing Steps row's Status, Effect, Depends, display number,
+and presence byte-for-byte; new rows must be appended after every existing row,
+must start `planned`, and are refused on closed plans; after that boundary, only
+`plan.mjs step` writes step state.
+Before this boundary, a `drafting` or `planned` plan with no historical
+`plan:ongoing` event may edit Steps freely. On a closed plan, post-merge step
+mutation remains limited to terminal repair; new work requires a follow-up plan.
 
 For every body edit, export the record. Edit the export. Run
 `plan.mjs check <issue>`. Delete the export and its `.origin` sidecar.

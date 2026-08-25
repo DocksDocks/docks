@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-08-25"
-  content_hash: "f51725f1a98263c28ae64f217751538a9fe841b27f464e4c67d785dc46e91dc9"
+  content_hash: "42379616a3df0c377616ebb2173a48095e07858c8c4633b7688587c5b44eb802"
 ---
 
 # Plan Manager
@@ -225,7 +225,7 @@ Archive proof rules live in the contract reference.
 | `claim <issue>` | resolve the acting login, `gh issue edit <n> --add-assignee @me` when unassigned; idempotent for the owner, refuses a foreign owner without writing | `plan #<n> claimed: <login>` |
 | `show <issue> [--body]` | header strip, then per-kind verdicts from latest trusted comments with legacy fallback only when none exists; `--body` puts the record alone on stdout and both metadata lines on stderr | header strip, then `reviews: plan=<pass\|repair\|blocked\|none> code=<pass\|fixes-required\|blocked\|none>` |
 | `export <issue>` | `export` writes the body to the worktree-aware `docks-review` directory. It writes its SHA-256 digest to `<file>.origin` with mode `0600`. | the absolute export path |
-| `edit <issue> --file <path>` | `edit` runs 13 checks. It requires provenance for the current body and refuses a file that moves any matching step id from a terminal remote status (`done` or `skipped`) to a different non-terminal status; re-export and re-apply the edit. It refreshes the digest before the remote body write, then replaces the body. | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
+| `edit <issue> --file <path>` | Once work starts (irreversibly: when the current phase is neither `drafting` nor `planned`, or label events show that `plan:ongoing` was ever applied), `edit` preserves every existing Steps row's Status, Effect, Depends, display number, and presence byte-for-byte; new rows must be appended after every existing row, must start `planned`, and are refused on closed plans; after that boundary, only `plan.mjs step` writes step state. It requires provenance for the current body, refreshes the digest before the remote body write, then replaces the body. | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
 | `check <issue \| --file <path>>` | 13 checks | `plan check passed: #<n>` or `plan check passed: <path>` |
 | `status <issue> <status> [--reason <text>]` | `status` requires an open issue. It validates and updates its phase label. It keeps a leading `Blocked:` line only for blocked status. | `plan #<n> status: <old> -> <new>` |
 | `step <issue> <step-id> <status>` | rewrite one Steps `Status` cell; requires an open `ongoing` plan, or a `finished` plan when the target status is terminal (`done` or `skipped`) for repair | `plan #<n> step <id>: <old> -> <new>` |
