@@ -72,25 +72,6 @@ export const PLUGINS = [
     },
   },
   {
-    name: 'effect-kit',
-    root: 'plugins/effect-kit',
-    ciLane: 'core',
-    javascriptQuality: { ci: ['plugins/effect-kit/test'], lint: [] },
-    skills: 'plugins/effect-kit/skills',
-    agents: null,
-    codex: true,
-    selftest: 'plugins/effect-kit/test/selftest.mjs',
-    rust: null,
-    extraJson: [],
-    authorChecks: [],
-    releaseContracts: [],
-    transformGuard: false,
-    release: {
-      kind: 'generic',
-      install: '/plugin marketplace update docks\n/plugin install effect-kit@docks',
-    },
-  },
-  {
     name: 'plan-lifecycle',
     root: 'plugins/plan-lifecycle',
     ciLane: 'core',
@@ -105,8 +86,8 @@ export const PLUGINS = [
     rust: null,
     extraJson: [],
     // 'plan-reviewer' also stays on docks: the routing prerequisite the suite
-    // asserts lives in docks/effect-kit skill bodies, while the lifecycle
-    // machinery it drives ships here. Both owners select the same suites and
+    // asserts lives in docks skill bodies, while the lifecycle machinery it
+    // drives ships here. Both owners select the same suites and
     // selectedAuthorChecks() dedupes on a full run.
     authorChecks: ['plan-reviewer'],
     releaseContracts: [],

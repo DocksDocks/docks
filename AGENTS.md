@@ -24,7 +24,6 @@ Node 24 remains the validator runtime and matches CI's `node-version`; Bun 1.4.0
 │   ├── skills/   (cross-tool)        surfaced in every runtime — incl. security/refactor/skill-agent-pipeline pipelines
 │   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
 ├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin (cross-tool): three skills, shipped plan.mjs, v3 contract reference, and two read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
-├── plugins/effect-kit/               Effect-TS skill kit plugin (cross-tool): effect-ts-setup / effect-ts-specialist / effect-ts-port (skills-only; depends on docks for plan-lifecycle + authoring skills); self-versioned
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
@@ -43,7 +42,6 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. Each is paired w
 |---|---|
 | `docs/AGENTS.md` | plan-record routing, GitHub issue backend, frozen pre-GitHub archive |
 | `plugins/docks/skills/AGENTS.md` | skill authoring — description CSO, frontmatter, body rules, scoring |
-| `plugins/effect-kit/skills/AGENTS.md` | effect-kit skill authoring — Effect 3.x plus version-gated Effect v4 conventions |
 | `plugins/plan-lifecycle/skills/AGENTS.md` | plan-lifecycle skill authoring — the three lifecycle skills, contract sync, fail-loud routing |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
 | `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |

@@ -81,14 +81,14 @@ a coordinated multi-file cutover. The skill bodies are asserted verbatim by
 `scripts/tests/plan-cli.mjs`. Update positive assertions in the same change as
 their normative sentences; never relax an assertion to make a copy drift pass.
 
-## Fail-loud routing (six external routes)
+## Fail-loud routing (four external routes)
 
-`refactor`, `security`, `context-tree`, and `skill-agent-pipeline` (docks) plus
-`effect-ts-port` and `effect-ts-setup` (effect-kit) each carry one
-byte-identical prerequisite paragraph naming this plugin, so a runtime without
-`plan-lifecycle` stops instead of silently proceeding without a plan.
-`test/selftest.mjs` and `scripts/tests/plan-skill-phases.mjs` assert the exact
-text; change it only in lockstep across all six routes and both validators.
+`refactor`, `security`, `context-tree`, and `skill-agent-pipeline` (docks) each
+carry one byte-identical prerequisite paragraph naming this plugin, so a
+runtime without `plan-lifecycle` stops instead of silently proceeding without
+a plan. `test/selftest.mjs` and `scripts/tests/plan-skill-phases.mjs` assert the
+exact text; change it only in lockstep across all four routes and both
+validators.
 
 ## Scoring and namespace
 

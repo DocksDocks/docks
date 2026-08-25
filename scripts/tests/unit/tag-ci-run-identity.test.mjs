@@ -98,7 +98,7 @@ test('ambiguity fails loudly instead of picking', () => {
 });
 
 test('another tag at the same commit is not this tag', () => {
-  listRuns([run({ headBranch: 'effect-kit--v0.4.0' })]);
+  listRuns([run({ headBranch: 'plan-lifecycle--v0.4.0' })]);
   assert.throws(() => io.waitForTagCi(TAG, COMMIT, PUSHED_AT), /no CI run appeared/);
 });
 

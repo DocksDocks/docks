@@ -13,7 +13,7 @@ import test from 'node:test';
 // gate rather than a reimplementation of it.
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, '../../..');
-const TARGET = 'effect-kit';
+const TARGET = 'docks';
 const SKILLS_ROOT = `plugins/${TARGET}/skills`;
 
 // Counted the way the gate counts: every <category>/<skill> directory, SKILL.md or not.

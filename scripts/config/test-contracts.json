@@ -2,25 +2,6 @@
   "schema": 1,
   "contracts": [
     {
-      "id": "plugin-effect-kit-selftest",
-      "version": 1,
-      "title": "Effect Kit self-test",
-      "owner": {
-        "suite": "plugins/effect-kit/test/selftest.mjs",
-        "layer": "smoke"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "plugins/effect-kit/test/selftest.mjs",
-        "expected_min": 1
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
       "id": "plugin-plan-lifecycle-selftest",
       "version": 1,
       "title": "Plan Lifecycle self-test",

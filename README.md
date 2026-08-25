@@ -19,13 +19,12 @@ here neither depend on it nor reference it.
 
 ## Platform support
 
-The three plugins that ship from this repository support Linux and macOS only:
+The two plugins that ship from this repository support Linux and macOS only:
 
 | Plugin | Supported hosts |
 |---|---|
 | `docks` | Linux and macOS only |
 | `plan-lifecycle` | Linux and macOS only |
-| `effect-kit` | Linux and macOS only |
 
 After install, the pipeline skills are user-invocable — ask "run a security audit", "refactor `src/`", or "audit my skills", or invoke `security` / `refactor` / `skill-agent-pipeline` directly. Every other skill auto-triggers by description match; namespacing is invisible at runtime.
 
@@ -116,8 +115,7 @@ The complete contract lives in `docs/PLAN.md`.
 │   │   ├── .claude-plugin/plugin.json
 │   │   ├── skills/                    ← cross-tool skills
 │   │   └── README.md                  ← plugin-facing docs
-│   ├── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (three skills + plan.mjs + marker contract + two read-only reviewer wrappers)
-│   └── effect-kit/                    ← Effect-TS skill kit plugin
+│   └── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (three skills + plan.mjs + marker contract + two read-only reviewer wrappers)
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
 │   ├── skills/guard.mjs, agents/guard.mjs + score.mjs
@@ -153,7 +151,7 @@ Node 24 remains the validator runtime and matches CI's `node-version`; Bun 1.4.0
 
 `--per-file` on a scorer prints one `<name> <score>` line per item — useful for spotting drift after an edit. `node scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
 
-On a PR to `main`, CI runs only the shards the changed paths resolve to — the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks, plan-lifecycle and effect-kit each tag independently), it runs the repo-wide shard plus that plugin's own gate. See `.github/workflows/ci.yml`; full trigger model below.
+On a PR to `main`, CI runs only the shards the changed paths resolve to — the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks and plan-lifecycle tag independently), it runs the repo-wide shard plus that plugin's own gate. See `.github/workflows/ci.yml`; full trigger model below.
 
 ## Versioning + releases
 

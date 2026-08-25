@@ -43,7 +43,7 @@ for (const name of RETIRED_PLAN_MACHINERY) {
 }
 
 // ---- routing prerequisite: byte-identical, exactly once per route ----------
-// Keep in lockstep with scripts/tests/plan-skill-phases.mjs and the six files.
+// Keep in lockstep with scripts/tests/plan-skill-phases.mjs and the four files.
 const LIFECYCLE_ROUTE_PREREQUISITE =
   'Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.';
 const LIFECYCLE_ROUTE_FILES = [
@@ -51,8 +51,6 @@ const LIFECYCLE_ROUTE_FILES = [
   'plugins/docks/skills/engineering/security/SKILL.md',
   'plugins/docks/skills/productivity/context-tree/SKILL.md',
   'plugins/docks/skills/productivity/skill-agent-pipeline/SKILL.md',
-  'plugins/effect-kit/skills/engineering/effect-ts-port/SKILL.md',
-  'plugins/effect-kit/skills/engineering/effect-ts-setup/SKILL.md',
 ];
 for (const relative of LIFECYCLE_ROUTE_FILES) {
   const occurrences = read(relative).split(LIFECYCLE_ROUTE_PREREQUISITE).length - 1;
@@ -99,21 +97,6 @@ assert.equal(
 );
 assert.equal(claudeManifest.version, marketVersion('plan-lifecycle'), 'plan-lifecycle catalog entry must agree');
 
-const effectClaude = readJson('plugins/effect-kit/.claude-plugin/plugin.json');
-const effectCodex = readJson('plugins/effect-kit/.codex-plugin/plugin.json');
-assert.equal(
-  effectClaude.version,
-  effectCodex.version,
-  `effect-kit manifests must agree (claude=${effectClaude.version} codex=${effectCodex.version})`,
-);
-assert.equal(effectClaude.version, marketVersion('effect-kit'), 'effect-kit catalog entry must agree');
-assert.ok(
-  (effectClaude.dependencies ?? []).some(
-    (dependency) => dependency.name === 'plan-lifecycle' && dependency.marketplace === 'docks',
-  ),
-  'effect-kit Claude manifest must declare the plan-lifecycle dependency',
-);
-
 // ---- single ownership: both catalogs and the author registry ---------------
 const codexEntries = codexMarket.plugins.filter((plugin) => plugin.name === 'plan-lifecycle');
 assert.equal(codexEntries.length, 1, 'plan-lifecycle must have exactly one Codex marketplace entry');
@@ -127,8 +110,8 @@ assert.equal(registered.length, 1, 'the author registry must contain exactly one
 assert.equal(registered[0].root, 'plugins/plan-lifecycle');
 
 console.log(
-  'plan-lifecycle self-test PASSED: routing-prerequisite (6 routes), ' +
-    `manifest/catalog agreement (plan-lifecycle ${claudeManifest.version}, effect-kit ${effectClaude.version}), ` +
+  'plan-lifecycle self-test PASSED: routing-prerequisite (4 routes), ' +
+    `manifest/catalog agreement (plan-lifecycle ${claudeManifest.version}), ` +
     'registry and both catalogs hold exactly one entry, plan CLI exposes its closed API, ' +
     `minimum_docks_major ${compatibility.minimum_docks_major} met by docks major ${docksMajor}`,
 );

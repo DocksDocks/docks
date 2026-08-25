@@ -491,16 +491,8 @@ async function testFocusedCiCommandSelection() {
     'scripts/tests/ci-observability.mjs',
     'scripts/tests/test-contracts.mjs',
   ];
-  const effectKitBiomeCiArgv = ['run', 'biome', 'ci', 'plugins/effect-kit/test'];
-  const coreBiomeCiArgv = [
-    'run',
-    'biome',
-    'ci',
-    'scripts',
-    'plugins/docks/hooks',
-    'plugins/effect-kit/test',
-    'plugins/plan-lifecycle/test',
-  ];
+  const planLifecycleBiomeCiArgv = ['run', 'biome', 'ci', 'plugins/plan-lifecycle/test'];
+  const coreBiomeCiArgv = ['run', 'biome', 'ci', 'scripts', 'plugins/docks/hooks', 'plugins/plan-lifecycle/test'];
   const docksBiomeLintArgv = ['run', 'biome', 'lint', 'plugins/docks/skills/productivity/write-skill/scripts'];
   const coreBiomeLintArgv = [
     'run',
@@ -515,7 +507,7 @@ async function testFocusedCiCommandSelection() {
 
   try {
     const [targeted, untargeted, docksTargeted, core, timedCore, repoWide, full] = await Promise.all([
-      run('targeted-', ['--plugin', 'effect-kit']),
+      run('targeted-', ['--plugin', 'plan-lifecycle']),
       run('untargeted-', []),
       run('docks-targeted-', ['--plugin', 'docks']),
       run('core-', ['--lane', 'core']),
@@ -531,14 +523,14 @@ async function testFocusedCiCommandSelection() {
         `targeted CI must not invoke repo-wide command ${script}`,
       );
     }
-    assert.equal(countToolInvocation(targeted.calls, 'bun', effectKitBiomeCiArgv), 1);
+    assert.equal(countToolInvocation(targeted.calls, 'bun', planLifecycleBiomeCiArgv), 1);
     assert.match(targeted.result.stdout, /javascript quality/);
     assert.doesNotMatch(
       targeted.result.stdout,
       /workflow YAML|marketplace catalogs|repo-wide guards|CI targeting contract/,
     );
     assert.equal(
-      invokesNode(targeted.calls, 'scripts/skills/guard.mjs', 'plugins/effect-kit/skills'),
+      invokesNode(targeted.calls, 'scripts/skills/guard.mjs', 'plugins/plan-lifecycle/skills'),
       true,
       'targeted CI must retain the selected plugin gate',
     );
@@ -547,19 +539,16 @@ async function testFocusedCiCommandSelection() {
     const planCliArgv = ['scripts/tests/plan-cli.mjs'];
     const boundedWorkflowArgv = ['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows'];
     const templateCaseArgv = ['scripts/tests/plan-skill-phases.mjs', '--case', 'plan-workspace-template'];
-    const crossPluginCollisionArgv = [
-      'tests/skill-trigger-collision.mjs',
-      'plugins/docks/skills',
-      'plugins/effect-kit/skills',
-    ];
+    const docksCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/docks/skills'];
     const planLifecycleCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/plan-lifecycle/skills'];
 
+    assert.equal(countToolInvocation(targeted.calls, 'node', planLifecycleCollisionArgv), 1);
     assert.equal(
-      countToolInvocation(targeted.calls, 'node', crossPluginCollisionArgv),
-      1,
-      'an Effect Kit target must retain the joint Docks/Effect trigger-collision contract',
+      countToolInvocation(targeted.calls, 'node', docksCollisionArgv),
+      0,
+      'a Plan Lifecycle target must not run the Docks trigger-collision contract',
     );
-    assert.equal(countToolInvocation(targeted.calls, 'node', planCliArgv), 0);
+    assert.equal(countToolInvocation(targeted.calls, 'node', planCliArgv), 1);
 
     for (const [ciArgs, selected] of [
       [[], untargeted],
@@ -577,9 +566,9 @@ async function testFocusedCiCommandSelection() {
         `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must run the bounded workflow contract once`,
       );
       assert.equal(
-        countToolInvocation(selected.calls, 'node', crossPluginCollisionArgv),
+        countToolInvocation(selected.calls, 'node', docksCollisionArgv),
         1,
-        `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must audit Docks and Effect Kit together once`,
+        `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must audit Docks once`,
       );
       if (ciArgs.length === 0) {
         assert.equal(countToolInvocation(selected.calls, 'bun', ['run', 'check:js']), 1);
@@ -610,13 +599,12 @@ async function testFocusedCiCommandSelection() {
     }
     assert.match(core.result.stdout, /plan orchestration/);
     assert.match(core.result.stdout, /plugin: docks/);
-    assert.match(core.result.stdout, /plugin: effect-kit/);
     assert.match(core.result.stdout, /plugin: plan-lifecycle/);
     assert.doesNotMatch(core.result.stdout, /partition passed/);
     assert.equal(countToolInvocation(core.calls, 'node', planCliArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', boundedWorkflowArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', templateCaseArgv), 1);
-    assert.equal(countToolInvocation(core.calls, 'node', crossPluginCollisionArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'node', docksCollisionArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', planLifecycleCollisionArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', ['plugins/plan-lifecycle/test/selftest.mjs']), 1);
 
@@ -652,11 +640,10 @@ async function testFocusedCiCommandSelection() {
         'skill trigger collisions',
         'plan orchestration',
         'plugin: docks',
-        'plugin: effect-kit',
         'plugin: plan-lifecycle',
         'javascript quality',
       ],
-      'core CI timing phases must own its three plugins and nothing repo-wide',
+      'core CI timing phases must own its two plugins and nothing repo-wide',
     );
     const observedFloorCalls = core.calls.filter(
       ({ args: callArgs }) => callArgs[0] === 'scripts/config/read-floor.mjs',
@@ -701,7 +688,7 @@ async function testFocusedCiCommandSelection() {
     }
     assert.equal(countToolInvocation(repoWide.calls, 'node', ['scripts/plans/no-bespoke-gates.mjs']), 1);
     assert.equal(countToolInvocation(repoWide.calls, 'bun', ['run', 'test:unit']), 1);
-    assert.doesNotMatch(repoWide.result.stdout, /plugin: docks|plugin: effect-kit|plugin: plan-lifecycle/);
+    assert.doesNotMatch(repoWide.result.stdout, /plugin: docks|plugin: plan-lifecycle/);
     assert.equal(countToolInvocation(repoWide.calls, 'bun', ['run', 'check:js']), 0);
     assert.equal(countToolInvocation(repoWide.calls, 'bun', coreBiomeCiArgv), 0);
     // The repo shard used to schedule no biome at all: it selects zero plugins, so the
@@ -896,7 +883,7 @@ async function testGenericReleaseModuleContract(
   runGenericPluginRelease,
   resolveGenericReleaseIo,
 ) {
-  const ordinaryNames = ['docks', 'effect-kit', 'plan-lifecycle'];
+  const ordinaryNames = ['docks', 'plan-lifecycle'];
   const ordinaryPlugins = ordinaryNames.map((name) => PLUGINS.find((plugin) => plugin.name === name));
   for (const plugin of ordinaryPlugins) {
     assert.ok(plugin, `missing ordinary plugin descriptor: ${plugin?.name}`);
@@ -958,7 +945,7 @@ async function testGenericReleaseModuleContract(
   }
 
   const generic = ordinaryPlugins[0];
-  const recutPlugin = ordinaryPlugins[2];
+  const recutPlugin = ordinaryPlugins.at(-1);
   const recutVersion = JSON.parse(
     fs.readFileSync(path.join(ROOT, recutPlugin.root, '.claude-plugin/plugin.json'), 'utf8'),
   ).version;
@@ -1476,10 +1463,10 @@ async function testDryRunReleaseSafety() {
       'Docks dry-run must not invoke write, commit, push, tag, workflow, or GitHub Release mutation',
     );
     assert.deepEqual(gitSnapshot(), before);
-    const ordinaryReleaseBytes = ['effect-kit', 'plan-lifecycle']
+    const ordinaryReleaseBytes = ['plan-lifecycle']
       .flatMap((name) => [`plugins/${name}/.claude-plugin/plugin.json`, `plugins/${name}/.codex-plugin/plugin.json`])
       .map((file) => fs.readFileSync(path.join(ROOT, file), 'base64'));
-    for (const pluginName of ['effect-kit', 'plan-lifecycle']) {
+    for (const pluginName of ['plan-lifecycle']) {
       fs.writeFileSync(callLog, '', { mode: 0o600 });
       const pluginResult = spawnSync(
         process.execPath,
@@ -1526,7 +1513,7 @@ async function testDryRunReleaseSafety() {
       );
     }
     assert.deepEqual(
-      ['effect-kit', 'plan-lifecycle']
+      ['plan-lifecycle']
         .flatMap((name) => [`plugins/${name}/.claude-plugin/plugin.json`, `plugins/${name}/.codex-plugin/plugin.json`])
         .map((file) => fs.readFileSync(path.join(ROOT, file), 'base64')),
       ordinaryReleaseBytes,
@@ -1542,7 +1529,7 @@ function testTimingWriteFailure() {
   const worktree = path.join(fixtureRoot, 'worktree');
   let worktreeAdded = false;
   const runCi = (cwd, timingPath) =>
-    spawnSync(process.execPath, ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', timingPath], {
+    spawnSync(process.execPath, ['scripts/ci.mjs', '--plugin', 'plan-lifecycle', '--timings-json', timingPath], {
       cwd,
       encoding: 'utf8',
       timeout: 600_000,
@@ -1563,7 +1550,7 @@ function testTimingWriteFailure() {
       path.join(ROOT, 'scripts/lib/ci-background-task.mjs'),
       path.join(worktree, 'scripts/lib/ci-background-task.mjs'),
     );
-    const manifestPath = path.join(worktree, 'plugins/effect-kit/.claude-plugin/plugin.json');
+    const manifestPath = path.join(worktree, 'plugins/plan-lifecycle/.claude-plugin/plugin.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     manifest.version = '0.0.0';
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -1606,9 +1593,9 @@ if (mode === '--timing-write-failure') {
 const names = (rows) => rows.map((row) => row.name);
 const byName = (name) => PLUGINS.find((plugin) => plugin.name === name);
 
-assert.deepEqual(names(resolveCiTargets(PLUGINS, null)), ['docks', 'effect-kit', 'plan-lifecycle']);
+assert.deepEqual(names(resolveCiTargets(PLUGINS, null)), ['docks', 'plan-lifecycle']);
 assert.deepEqual(names(resolveCiTargets(PLUGINS, 'docks')), ['docks']);
-assert.throws(() => resolveCiTargets(PLUGINS, 'unknown-plugin'), /unknown plugin.*docks, effect-kit, plan-lifecycle/);
+assert.throws(() => resolveCiTargets(PLUGINS, 'unknown-plugin'), /unknown plugin.*docks, plan-lifecycle/);
 const laneShape = ({ name, targets, repoWide }) => ({
   name,
   targets: names(targets),
@@ -1620,7 +1607,6 @@ assert.deepEqual(
   PLUGINS.map(({ name, ciLane }) => ({ name, ciLane })),
   [
     { name: 'docks', ciLane: 'core' },
-    { name: 'effect-kit', ciLane: 'core' },
     { name: 'plan-lifecycle', ciLane: 'core' },
   ],
 );
@@ -1631,7 +1617,7 @@ assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'repo')), {
 });
 assert.deepEqual(laneShape(resolveCiLane(PLUGINS, 'core')), {
   name: 'core',
-  targets: ['docks', 'effect-kit', 'plan-lifecycle'],
+  targets: ['docks', 'plan-lifecycle'],
   repoWide: false,
 });
 assert.equal(
@@ -1640,19 +1626,14 @@ assert.equal(
   'exactly one shard may own the repo-wide checks, and it must be the always-on one',
 );
 const syntheticCorePlugin = {
-  ...byName('effect-kit'),
+  ...byName('plan-lifecycle'),
   name: 'synthetic-core-plugin',
   root: 'plugins/synthetic-core-plugin',
   ciLane: 'core',
 };
 PLUGINS.push(syntheticCorePlugin);
 try {
-  assert.deepEqual(names(resolveCiLane(PLUGINS, 'core').targets), [
-    'docks',
-    'effect-kit',
-    'plan-lifecycle',
-    'synthetic-core-plugin',
-  ]);
+  assert.deepEqual(names(resolveCiLane(PLUGINS, 'core').targets), ['docks', 'plan-lifecycle', 'synthetic-core-plugin']);
 } finally {
   assert.equal(PLUGINS.pop(), syntheticCorePlugin);
 }
@@ -1677,10 +1658,10 @@ assert.throws(() => resolveCiLane(PLUGINS, 'constructor'), /unknown CI lane.*rep
 assert.throws(
   () =>
     resolveCiLane(
-      PLUGINS.filter(({ name }) => name !== 'effect-kit'),
+      PLUGINS.filter(({ name }) => name !== 'plan-lifecycle'),
       'core',
     ),
-  /unknown plugin: effect-kit/,
+  /unknown plugin: plan-lifecycle/,
 );
 await Promise.all(
   [
@@ -1735,7 +1716,6 @@ assert.deepEqual(shardsFor(['plugins/plan-lifecycle/test/selftest.mjs', 'plugins
   'repo',
   'core',
 ]);
-assert.deepEqual(shardsFor(['plugins/docks/skills/a.md', 'plugins/effect-kit/test/b.mjs']).lanes, ['repo', 'core']);
 
 // Every fail-open path selects everything.
 for (const [label, selection] of [
@@ -1778,14 +1758,17 @@ for (const [label, input] of [
 // usable shard must fail here rather than ride in ungated.
 assert.deepEqual(assertShardTopologyCoversRegistry(), ['repo', 'core']);
 for (const [label, broken] of [
-  ['a plugin with no ciLane', { ...byName('effect-kit'), name: 'no-lane', root: 'plugins/no-lane', ciLane: undefined }],
+  [
+    'a plugin with no ciLane',
+    { ...byName('plan-lifecycle'), name: 'no-lane', root: 'plugins/no-lane', ciLane: undefined },
+  ],
   [
     'a plugin claiming the repo-wide shard',
-    { ...byName('effect-kit'), name: 'greedy', root: 'plugins/greedy', ciLane: 'repo' },
+    { ...byName('plan-lifecycle'), name: 'greedy', root: 'plugins/greedy', ciLane: 'repo' },
   ],
   [
     'a plugin on an unknown shard',
-    { ...byName('effect-kit'), name: 'stray', root: 'plugins/stray', ciLane: 'mutations' },
+    { ...byName('plan-lifecycle'), name: 'stray', root: 'plugins/stray', ciLane: 'mutations' },
   ],
 ]) {
   if (broken.ciLane === undefined) delete broken.ciLane;
@@ -1816,7 +1799,7 @@ const withPluginTreeEntry = (name, make, run) => {
   assert.equal(fs.existsSync(target), false, `${name} must leave no residue`);
 };
 
-assert.deepEqual(assertPluginTreesAreRegistered(), ['plugins/docks', 'plugins/effect-kit', 'plugins/plan-lifecycle']);
+assert.deepEqual(assertPluginTreesAreRegistered(), ['plugins/docks', 'plugins/plan-lifecycle']);
 
 // The reported defect, and it must reach callers through the wired entry point too.
 withPluginTreeEntry(
@@ -1864,7 +1847,7 @@ withPluginTreeEntry(
 
 // The mirror defect: a descriptor outliving its tree. The shard resolver keeps
 // routing diffs to a root nothing can validate.
-const deletedTreePlugin = { ...byName('effect-kit'), name: 'deleted-tree', root: 'plugins/deleted-tree' };
+const deletedTreePlugin = { ...byName('plan-lifecycle'), name: 'deleted-tree', root: 'plugins/deleted-tree' };
 PLUGINS.push(deletedTreePlugin);
 try {
   assert.throws(
@@ -1921,7 +1904,6 @@ try {
 }
 console.log('shard resolver CLI fail-open behaviour passed');
 assert.deepEqual([...selectedAuthorChecks([byName('docks')])], ['idempotency', 'plan-reviewer']);
-assert.deepEqual([...selectedAuthorChecks([byName('effect-kit')])], []);
 assert.deepEqual([...selectedAuthorChecks([byName('plan-lifecycle')])], ['plan-reviewer']);
 assert.deepEqual(
   [...selectedAuthorChecks([byName('docks'), byName('plan-lifecycle')])],
@@ -1934,7 +1916,7 @@ await testFocusedCiCommandSelection();
 console.log('focused CI command selection passed');
 
 assert.deepEqual(parseReleaseTag('docks--v0.12.8'), { plugin: 'docks', version: '0.12.8' });
-assert.deepEqual(parseReleaseTag('effect-kit--v11.2.0'), { plugin: 'effect-kit', version: '11.2.0' });
+assert.deepEqual(parseReleaseTag('plan-lifecycle--v11.2.0'), { plugin: 'plan-lifecycle', version: '11.2.0' });
 for (const invalid of [
   'docks--v01.2.3',
   'docks--v1.02.3',
@@ -1947,7 +1929,10 @@ for (const invalid of [
   assert.throws(() => parseReleaseTag(invalid), /invalid release tag|unknown plugin/);
 assert.deepEqual(workflowCiSelection('pull_request', ''), { mode: 'full', plugin: null });
 assert.deepEqual(workflowCiSelection('workflow_dispatch', ''), { mode: 'full', plugin: null });
-assert.deepEqual(workflowCiSelection('push', 'effect-kit--v0.3.1'), { mode: 'targeted', plugin: 'effect-kit' });
+assert.deepEqual(workflowCiSelection('push', 'plan-lifecycle--v0.3.1'), {
+  mode: 'targeted',
+  plugin: 'plan-lifecycle',
+});
 assert.throws(() => workflowCiSelection('push', 'bad-tag'), /invalid release tag/);
 assert.throws(() => workflowCiSelection('schedule', ''), /unsupported workflow event/);
 console.log('release tag and workflow selection passed');
@@ -1957,12 +1942,12 @@ try {
   const githubOutput = path.join(tmp, 'github-output');
   const cli = spawnSync(
     'node',
-    ['scripts/ci-target.mjs', 'release-tag', 'effect-kit--v0.11.2', '--github-output', githubOutput],
+    ['scripts/ci-target.mjs', 'release-tag', 'plan-lifecycle--v0.11.2', '--github-output', githubOutput],
     { cwd: ROOT, encoding: 'utf8' },
   );
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stdout, '');
-  assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'mode=targeted\nplugin=effect-kit\n');
+  assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'mode=targeted\nplugin=plan-lifecycle\n');
 
   const malformed = spawnSync('node', ['scripts/ci-target.mjs', 'release-tag', 'docks--v1.2.3;echo-owned'], {
     cwd: ROOT,
@@ -1996,13 +1981,13 @@ try {
       RUNNER_ARCH: 'X64',
     };
     const [targeted, hosted] = await Promise.all([
-      execFileResult('node', ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', timingPath], {
+      execFileResult('node', ['scripts/ci.mjs', '--plugin', 'plan-lifecycle', '--timings-json', timingPath], {
         cwd: ROOT,
         encoding: 'utf8',
         env: hostFreeEnv,
         timeout: 120_000,
       }),
-      execFileResult('node', ['scripts/ci.mjs', '--plugin', 'effect-kit', '--timings-json', hostedTimingPath], {
+      execFileResult('node', ['scripts/ci.mjs', '--plugin', 'plan-lifecycle', '--timings-json', hostedTimingPath], {
         cwd: ROOT,
         encoding: 'utf8',
         env: hostedEnv,
@@ -2010,9 +1995,9 @@ try {
       }),
     ]);
     assert.equal(targeted.status, 0, `${targeted.stdout}\n${targeted.stderr}`);
-    assert.doesNotMatch(targeted.stdout, /skill-maintainer idempotency|plan review policy|plugin: docks/);
-    assert.match(targeted.stdout, /plugin: effect-kit/);
-    validateTimingReport(timingPath, 'effect-kit', ['javascript quality']);
+    assert.doesNotMatch(targeted.stdout, /skill-maintainer idempotency|plugin: docks/);
+    assert.match(targeted.stdout, /plugin: plan-lifecycle/);
+    validateTimingReport(timingPath, 'plan-lifecycle', ['javascript quality', 'javascript quality lint']);
     console.log('targeted CI timing report passed');
 
     assert.equal(hosted.status, 0, `${hosted.stdout}\n${hosted.stderr}`);

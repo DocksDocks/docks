@@ -330,8 +330,6 @@ const LIFECYCLE_ROUTE_FILES = [
   'plugins/docks/skills/engineering/security/SKILL.md',
   'plugins/docks/skills/productivity/context-tree/SKILL.md',
   'plugins/docks/skills/productivity/skill-agent-pipeline/SKILL.md',
-  'plugins/effect-kit/skills/engineering/effect-ts-port/SKILL.md',
-  'plugins/effect-kit/skills/engineering/effect-ts-setup/SKILL.md',
 ];
 
 function normalizeContract(text) {

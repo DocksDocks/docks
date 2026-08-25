@@ -65,7 +65,6 @@ Edit the node, not this list, when a folder's rules change.
 |---|---|
 | `docs/` | plan-record routing + issue-body contract |
 | `plugins/docks/skills/` | skill authoring + scoring |
-| `plugins/effect-kit/skills/` | effect-kit skill authoring |
 | `plugins/plan-lifecycle/skills/` | plan-lifecycle skill authoring |
 | `scripts/` | validator / CI tooling contract |
 | `.github/` | CI workflow triggers |

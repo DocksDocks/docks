@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // release.mjs — dispatch the generic plugin release lane.
 //
-// Generic positional lane (Docks, Effect Kit, and Plan Lifecycle):
+// Generic positional lane (Docks and Plan Lifecycle):
 //   node scripts/release.mjs [--dry-run] [--plugin <name>] patch|minor|major|<X.Y.Z>
 //   (--plugin defaults to "docks")
 //
