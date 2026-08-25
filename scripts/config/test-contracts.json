@@ -173,6 +173,25 @@
       "skips": []
     },
     {
+      "id": "unit-agent-score-vacuity",
+      "version": 1,
+      "title": "Agent score gate vacuity contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/agent-score-vacuity.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/agent-score-vacuity.test.mjs",
+        "expected_min": 7
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
       "id": "unit-ci-background-task",
       "version": 1,
       "title": "Ci Background Task unit contracts",
