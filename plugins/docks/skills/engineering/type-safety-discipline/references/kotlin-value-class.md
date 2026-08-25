@@ -61,7 +61,7 @@ fun send(invite: Invite) = when (invite) {
 }
 ```
 
-`sealed` constrains subclasses to the same compilation unit (Kotlin 1.5+). Kotlin 1.7+ checks exhaustiveness for `when` over sealed, enum, and Boolean subjects in both expression and statement form.
+`sealed` permits direct subclasses anywhere in the same package and module (Kotlin 1.5+; multiplatform projects also require the same source set). Kotlin 1.7+ checks exhaustiveness for `when` over sealed, enum, and Boolean subjects in both expression and statement form.
 
 ### Exhaustive `when`
 
