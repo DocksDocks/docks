@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-24"
-  content_hash: "9ba61ce6b78db45126838e43e8dc1c4033f0c6aad29b8eb559e6371ad5a31f18"
+  updated: "2026-08-25"
+  content_hash: "f51725f1a98263c28ae64f217751538a9fe841b27f464e4c67d785dc46e91dc9"
 ---
 
 # Plan Manager
@@ -225,10 +225,10 @@ Archive proof rules live in the contract reference.
 | `claim <issue>` | resolve the acting login, `gh issue edit <n> --add-assignee @me` when unassigned; idempotent for the owner, refuses a foreign owner without writing | `plan #<n> claimed: <login>` |
 | `show <issue> [--body]` | header strip, then per-kind verdicts from latest trusted comments with legacy fallback only when none exists; `--body` puts the record alone on stdout and both metadata lines on stderr | header strip, then `reviews: plan=<pass\|repair\|blocked\|none> code=<pass\|fixes-required\|blocked\|none>` |
 | `export <issue>` | `export` writes the body to the worktree-aware `docks-review` directory. It writes its SHA-256 digest to `<file>.origin` with mode `0600`. | the absolute export path |
-| `edit <issue> --file <path>` | `edit` runs 13 checks. It requires provenance for the current body. It refreshes the digest before the remote body write. It then replaces the body. | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
+| `edit <issue> --file <path>` | `edit` runs 13 checks. It requires provenance for the current body and refuses a file that moves any matching step id from a terminal remote status (`done` or `skipped`) to a different non-terminal status; re-export and re-apply the edit. It refreshes the digest before the remote body write, then replaces the body. | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
 | `check <issue \| --file <path>>` | 13 checks | `plan check passed: #<n>` or `plan check passed: <path>` |
 | `status <issue> <status> [--reason <text>]` | `status` requires an open issue. It validates and updates its phase label. It keeps a leading `Blocked:` line only for blocked status. | `plan #<n> status: <old> -> <new>` |
-| `step <issue> <step-id> <status>` | rewrite one Steps `Status` cell | `plan #<n> step <id>: <old> -> <new>` |
+| `step <issue> <step-id> <status>` | rewrite one Steps `Status` cell; requires an open `ongoing` plan, or a `finished` plan when the target status is terminal (`done` or `skipped`) for repair | `plan #<n> step <id>: <old> -> <new>` |
 | `list [--status <s>]` | list plan issues and derive status from phase label for open work or from `state` + `stateReason` when closed; open issues first, then closed; each group sorted by ascending number | `<status>\t#<n>\t<title>` per line |
 | `next` | queue-aware startable plans from `docs/PLAN-QUEUE.md` (`Plan` cell holds the issue number); falls back to every `planned` plan on a missing or malformed queue, warning on stderr | `#<n>` per line |
 | `archive <issue>` | require completed closure, terminal steps, a trusted latest `Code-review: pass` comment (or legacy body pass only when no trusted code record exists), and a merged closing pull request into the target repository's default branch; remove any stale phase label without writing status | `plan #<n> finished (closed by <pr-url>)` |

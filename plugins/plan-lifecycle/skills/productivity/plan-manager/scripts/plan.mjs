@@ -825,7 +825,7 @@ function editPlan(args) {
   if (!value) fail('edit requires an issue and --file');
   const options = parseOptions(flags, new Set(['--file']));
   if (!options['--file']) fail('edit requires an issue and --file');
-  const { issue, record } = readPlanIssue(value, true);
+  const { issue, parsed, record } = readPlanIssue(value, true);
   const file = options['--file'];
   const after = fs.readFileSync(file, 'utf8');
   // Every body edit runs export, edit, check, delete, so a file with no sidecar was derived from bytes this
@@ -842,6 +842,24 @@ function editPlan(args) {
   }
   const failures = checkPlan(after, issue);
   if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
+  // The provenance digest proves the remote body is the one exported from, not that the FILE reflects it:
+  // an intervening export refreshes the sidecar, so a stale draft can pass the digest check and silently
+  // revert step statuses the CLI advanced in between. A terminal cell never legally regresses
+  // (STEP_TRANSITIONS closes `done` and `skipped`), so refuse any matching step id moving away from one.
+  const stepStatuses = (text) => {
+    const table = parseRows(sectionMap(text).sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
+    return new Map(table.rows.map(({ cells }) => [cells[1], unquoteCode(cells[6])]));
+  };
+  const remoteSteps = stepStatuses(parsed.body);
+  const regressed = [...stepStatuses(after)]
+    .filter(([id, status]) => {
+      const remote = remoteSteps.get(id);
+      return new Set(['done', 'skipped']).has(remote) && status !== remote && !new Set(['done', 'skipped']).has(status);
+    })
+    .map(([id, status]) => `${id} (${remoteSteps.get(id)} -> ${status})`);
+  if (regressed.length > 0) {
+    fail(`status regression: step ${regressed.join(', ')} is terminal on #${issue.number} but the file reverts it; re-export and re-apply the edit`);
+  }
   const changes = changedLines(issue.body, after);
   // Stage provenance before the remote write. A failed sidecar write then costs one re-export; the reverse
   // order would leave a local digest naming a body GitHub already replaced, which reads as a valid export.
@@ -902,7 +920,12 @@ function setStepStatus(args) {
   if (!STEP_STATUSES.has(target)) fail(`unknown step status: ${target}`);
   const { issue, parsed, record } = readPlanIssue(value, true);
   requireValidPlanIssue(issue);
-  if (record.status !== 'ongoing') fail(`plan status is ${record.status}; expected ongoing`);
+  // A plan whose issue closed with a step still non-terminal deadlocks: `step` wanted `ongoing` while
+  // `archive` wants every step terminal. Reopening to repair destroys the closure proof (only the latest
+  // closure event counts), so a `finished` plan accepts exactly the terminal repairs archive needs - a body
+  // edit on the closed issue, which creates no closure event and never touches GitHub state.
+  const terminalRepair = record.status === 'finished' && new Set(['done', 'skipped']).has(target);
+  if (record.status !== 'ongoing' && !terminalRepair) fail(`plan status is ${record.status}; expected ongoing`);
   const { sections } = sectionMap(parsed.body);
   const table = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
   const row = table.rows.find(({ cells }) => cells[1] === stepId);
