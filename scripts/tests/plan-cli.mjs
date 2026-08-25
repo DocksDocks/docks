@@ -1046,12 +1046,7 @@ try {
       call[2] === String(terminalRegressionNumber) &&
       call.includes('--body-file'),
   ).length;
-  const terminalRegressionEdit = run(
-    'edit',
-    String(terminalRegressionNumber),
-    '--file',
-    terminalRegressionExportPath,
-  );
+  const terminalRegressionEdit = run('edit', String(terminalRegressionNumber), '--file', terminalRegressionExportPath);
   assert.equal(terminalRegressionEdit.status, 1, 'a file must not regress a terminal remote step');
   assert.equal(
     terminalRegressionEdit.stderr.trim(),
@@ -1088,12 +1083,7 @@ try {
     'the non-regressing edit fixture must add a step row',
   );
   fs.writeFileSync(terminalRegressionExportPath, terminalPreservingBody);
-  const terminalPreservingEdit = run(
-    'edit',
-    String(terminalRegressionNumber),
-    '--file',
-    terminalRegressionExportPath,
-  );
+  const terminalPreservingEdit = run('edit', String(terminalRegressionNumber), '--file', terminalRegressionExportPath);
   expectSuccess(terminalPreservingEdit, 'terminal-preserving row addition edit');
   assert.equal(
     issue(terminalRegressionNumber).body,
@@ -1563,9 +1553,7 @@ try {
     'terminal repair must record exactly one body edit',
   );
   assert.equal(
-    finishedStepCalls.some(
-      (call) => call[0] === 'issue' && new Set(['close', 'reopen']).has(call[1]),
-    ),
+    finishedStepCalls.some((call) => call[0] === 'issue' && new Set(['close', 'reopen']).has(call[1])),
     false,
     'terminal repair must not create another issue state transition',
   );
@@ -1578,12 +1566,7 @@ try {
       call[2] === String(finishedStepNumber) &&
       call.includes('--body-file'),
   ).length;
-  const finishedNonterminalStep = run(
-    'step',
-    String(finishedStepNumber),
-    'implement_contract',
-    'in-flight',
-  );
+  const finishedNonterminalStep = run('step', String(finishedStepNumber), 'implement_contract', 'in-flight');
   assert.equal(finishedNonterminalStep.status, 1, 'a finished plan must reject a non-terminal step target');
   assert.equal(finishedNonterminalStep.stderr.trim(), 'plan status is finished; expected ongoing');
   assert.equal(
