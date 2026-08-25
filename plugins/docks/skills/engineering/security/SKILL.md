@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-08-25"
-  content_hash: "f108c4f561c1c05d73670783cdc425333b867e6cc64057289d7c85a8d7e290a7"
+  content_hash: "0bc63235cff0a0e7225217ea04e230e5c80e75bff547c967d92efb0957c7d681"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -75,8 +75,8 @@ Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequen
 The plan issue holds the whole run. It doubles as inter-phase memory and the final artifact.
 
 ```text
-GitHub issue #<n> labeled plan plus exactly one lifecycle label:
-plan:drafting | plan:planned | plan:ongoing | plan:blocked
+GitHub issue #<n> labeled plan, created with plan:drafting;
+plan-manager owns every later phase transition.
 ```
 
 Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. The headings above are the contract; downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping for them.
