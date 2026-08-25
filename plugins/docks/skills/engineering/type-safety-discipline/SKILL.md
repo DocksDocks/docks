@@ -1,6 +1,6 @@
 ---
 name: type-safety-discipline
-description: "Use when designing identifier types that could be mixed up across entities (UserId vs OrderId), validating external input (form/API/env), switching over tagged unions for exhaustiveness, choosing between `any`/`unknown`/generics or `interface`/`type` alias, OR deciding whether a TypeScript `class` is justified (Error subtype, long-lived stateful object with invariants, framework-mandated shape). Primary examples in TS; equivalencies for Rust (newtype), Kotlin (value class), Python (NewType)."
+description: "Use when designing identifier types that could be mixed up across entities (UserId vs OrderId), validating external input (form/API/env), switching over tagged unions for exhaustiveness, choosing between `any`/`unknown`/generics or `interface`/`type` alias, OR deciding whether a TypeScript `class` is justified (Error subtype, long-lived stateful object with invariants, framework-mandated shape). Primary examples in TS; equivalencies for Rust (newtype), Kotlin (value class), Python (NewType). Not for readability-only naming or prose (use code-clarity) or demonstrated structural SOLID patterns (use solid)."
 user-invocable: false
 paths:
   - "**/*.ts"
@@ -11,8 +11,8 @@ paths:
   - "**/*.py"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "74c4701d627121b99f58d1e71065e2c45fbd318db0692cc263f4bc4d95807181"
+  updated: "2026-08-25"
+  content_hash: "836e27d3196f88f3b6ea039fc3b992856d4594042d44c040faaca41e3ebed5d0"
 ---
 
 # Type-Safety Discipline
@@ -235,7 +235,7 @@ The runtime `throw` covers the off-chance the compiler is bypassed (data crossin
 
 **Equivalency:**
 - **Rust:** `match` is exhaustive by default — the compiler errors on missing arms. No special idiom needed.
-- **Kotlin:** `when` over a `sealed` class/interface is exhaustive when used as an expression: `val r = when (e) { is Click -> ...; is Key -> ...; is Scroll -> ... }`. Statement form (`when (e) { ... }`) is not checked — always assign or return.
+- **Kotlin:** Kotlin 1.7+ checks `when` exhaustiveness for sealed, enum, and Boolean subjects in both expression and statement form. Open-ended subjects such as `String` are not exhaustiveness-checked as statements; use expression form with `else` when every path must produce a value.
 - **Python:** `match` + `typing.assert_never(x)` in a wildcard arm (3.11+) forces `mypy --strict` to error on unhandled variants.
 
 ## 8. Parse, don't assert, at I/O boundaries

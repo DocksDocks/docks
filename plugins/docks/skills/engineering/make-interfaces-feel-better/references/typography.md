@@ -1,18 +1,13 @@
 # Typography
 
+Typography rendering details that make interfaces feel better.
+
 ## Contents
 
 - [Text Wrapping](#text-wrapping)
-  - [text-wrap: balance](#text-wrap-balance)
-  - [text-wrap: pretty](#text-wrap-pretty)
-  - [When to Use Which](#when-to-use-which)
 - [Font Smoothing (macOS)](#font-smoothing-macos)
-  - [Good vs. Bad](#good-vs-bad)
+- [Font Family Scope](#font-family-scope)
 - [Tabular Numbers](#tabular-numbers)
-  - [When to Use](#when-to-use)
-  - [Caveat](#caveat)
-
-Typography rendering details that make interfaces feel better.
 
 ## Text Wrapping
 
@@ -109,6 +104,28 @@ html {
 ```
 
 **Note:** This only affects macOS rendering. Other platforms ignore these properties, so it's safe to apply universally.
+
+## Font Family Scope
+
+This skill does not require a specific font family. Do not introduce a paid or proprietary typeface just to satisfy the polish checklist.
+
+Use the product's existing type system unless the task explicitly asks for a type change. If the design calls for a system-native macOS feel, use the system font stack. If the design calls for a commercial face such as Helvetica Now, treat it as an optional brand decision and keep a practical fallback stack.
+
+```css
+/* System-native macOS/iOS feel */
+html {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+```
+
+```css
+/* Commercial brand face with safe fallbacks */
+html {
+  font-family: "Helvetica Now", "Helvetica Neue", Arial, sans-serif;
+}
+```
+
+**Rule:** font smoothing, text wrapping, and tabular numbers are rendering details. They do not override the project's chosen font family.
 
 ## Tabular Numbers
 

@@ -12,7 +12,7 @@ Before writing the Step 4 row for a security finding, run this checklist:
 | Advisory URL pinned | The "Why" field cites the advisory; no link = no traceable rationale |
 | Reachability confirmed | Build-time-only deps don't ship; if vuln isn't in runtime bundle, it's a hygiene fix not a security fix |
 | Fixed-version available | If upstream has no fix yet, plan a `replace` / `pnpm.overrides` / `[patch.crates-io]` workaround instead |
-| OWASP category tagged | Helps the commit message + future grep (`OWASP A03:2021` for injection, etc.) |
+| OWASP category tagged | Helps the commit message + future grep (`OWASP A05:2025` for injection, etc.) |
 
 ## Test-Strategy Template
 
@@ -54,5 +54,5 @@ The universal "if test X fails, revert" rule isn't enough for security. Add thes
 - `../SKILL.md` — universal 6-step procedure
 - `dep-vuln-workflow` skill — severity triage and ecosystem-readiness
 - `lint-no-suppressions` skill — never silence security linter output
-- OWASP Top 10 (2021): https://owasp.org/Top10/
+- OWASP Top 10 (2025): https://owasp.org/Top10/2025/
 - GitHub Advisory Database: https://github.com/advisories

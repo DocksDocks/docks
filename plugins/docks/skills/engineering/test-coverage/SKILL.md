@@ -4,8 +4,8 @@ description: Use when writing tests for code that ALREADY EXISTS — adding cove
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-20"
-  content_hash: "99057f59ad0d400835f2160d10f48f5106e0d2677552f6ba5f94b9337d5eb579"
+  updated: "2026-08-25"
+  content_hash: "0bdc8f81f2d1858f2fdf008f288ec927da14996dd7bc2f3e9499501afca0c683"
 ---
 
 # Test Coverage Generation
@@ -35,6 +35,7 @@ Don't generate tests for code with no behavior worth verifying — re-export bar
 
 NOT for:
 - Test-first development where the test is the spec (use **tdd-workflow** — different skill, different ordering)
+- Structural refactoring itself (use **refactor**; use this skill first only when existing behavior needs characterization)
 - Pure smoke tests that only check "does it import" (those tests are noise; write meaningful assertions or skip)
 
 ## The Six-Step Procedure

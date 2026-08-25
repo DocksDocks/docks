@@ -4,8 +4,8 @@ description: "Use when project-local SKILL.md files need validation or refresh a
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-07-05"
-  content_hash: "f93e5a4d42153056c333f3381d04bbb85242309be850b16a268f82f930ec56e2"
+  updated: "2026-08-25"
+  content_hash: "4e80cc6d2403b2923e3bb5b1e6eac684a7e4c25a5b149e45cbb9739b6b88b86c"
 ---
 
 # Skill Maintenance
@@ -53,9 +53,11 @@ local behavior, and wait for explicit user approval before deleting files.
    typo), show the before/after as a diff and get explicit confirmation before
    writing — silently auto-rewriting prose can drop authored intent. Relocate
    verbatim; reword only on approval.
-6. **Bump metadata only on meaning change.** Change `metadata.updated` when the
-   normalized body or any reference content changed. Do not bump it for a pure
-   formatting no-op.
+6. **Refresh metadata only on meaning change.** When the project provides
+   content-hash tooling, use it to re-sync `metadata.content_hash` and
+   `metadata.updated` after normalized body or reference content changes.
+   Otherwise, bump `metadata.updated` manually. Do not update metadata for a
+   pure formatting no-op.
 7. **Verify loading.** Re-run the narrow validator or startup command available
    in the project, then list any residual risk.
 

@@ -1,11 +1,11 @@
 ---
 name: design-tokenization
-description: "Use when working with colors, Tailwind classes, CSS variables, dark mode, semantic/brand tokens, or theming shadcn/ui, Base UI, or Radix components. Also audits hex literals, soft tints, paired foreground tokens, and Tailwind v4 @source. Preserve the project's bg-X/text-on-X or bg-X/text-X-foreground convention. Not for React composition/effects/RSC (use react-component-patterns) or spacing/motion/radius polish (use make-interfaces-feel-better)."
+description: "Use when working with colors, Tailwind classes, CSS variables, dark mode, semantic/brand tokens, or theming shadcn/ui, Base UI, or Radix components. Also audits hex literals, soft tints, paired foreground tokens, and Tailwind v4 @source. Preserve the project's bg-X/text-on-X or bg-X/text-X-foreground convention. Not for accessibility semantics/keyboard/ARIA (use accessibility), React composition/effects/RSC (use react-component-patterns), or spacing/motion/radius polish (use make-interfaces-feel-better)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-24"
-  content_hash: "a1ee372206679472e3790b3af150bee2030a16e638f8659a006e5da38887c461"
+  updated: "2026-08-25"
+  content_hash: "dd48a1e744a7ce5044e4c42ac32e5cd6d1b3c8f658f8bee90b4abb385dcd57a2"
 ---
 
 # Design Tokenization
@@ -176,4 +176,4 @@ Four-step procedure. Don't skip the audit — proposing token names without seei
 - Tailwind v4 `@source` (automatic source detection + explicit registration): https://tailwindcss.com/docs/detecting-classes-in-source-files
 - shadcn/ui design tokens: https://ui.shadcn.com/docs/theming (uses the `*-foreground` convention)
 - Brandfetch / logo.dev — verify official hex before adding a brand token
-- Companion skills: `make-interfaces-feel-better` (visual polish), `lint-no-suppressions` (when CI greps feel "annoying" — fix the violation, don't disable)
+- Companion skills: `accessibility` (semantics, keyboard behavior, and ARIA), `make-interfaces-feel-better` (visual polish), `lint-no-suppressions` (when CI greps feel "annoying" — fix the violation, don't disable)

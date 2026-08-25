@@ -1,6 +1,6 @@
 ---
 name: react-component-patterns
-description: "Use when designing or reviewing React components — `useEffect`/`react-hooks` errors, composition APIs, Next.js RSC boundaries, or reusable shadcn/ui, Base UI, and Radix primitives. Inventory and reuse existing components first; React 19 uses ref-as-prop. Not for Tailwind/color/theme token work (use design-tokenization), visual polish (use make-interfaces-feel-better), or speculative one-caller abstractions."
+description: "Use when designing or reviewing React components — `useEffect`/`react-hooks` errors, composition APIs, Next.js RSC boundaries, or reusable shadcn/ui, Base UI, and Radix primitives. Inventory and reuse existing components first; React 19 uses ref-as-prop. Not for accessibility semantics/keyboard/ARIA (use accessibility), Tailwind/color/theme token work (use design-tokenization), visual polish (use make-interfaces-feel-better), or speculative one-caller abstractions."
 user-invocable: false
 paths:
   - "**/*.tsx"
@@ -9,8 +9,8 @@ paths:
   - "**/*.js"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-24"
-  content_hash: "1dc27aeba859b5bf214e718094a51ac72ea3c8ed0ac775abe2604794f1bc5010"
+  updated: "2026-08-25"
+  content_hash: "cce28baced98fd4e6497765f24d432543231613c3187eaddeb48dd2f91cd9a08"
 ---
 
 # React Component Patterns

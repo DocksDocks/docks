@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-21"
-  content_hash: "3c2e953bdcd16540ffb49f86bc4b157b3072e1a0793c755f5d4c9b1d20620f43"
+  updated: "2026-08-25"
+  content_hash: "082d42dc672fe8b5374559ca3f13585651d9c603288a9705bf4f759f8d897eac"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -17,7 +17,7 @@ Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS con
 </constraint>
 
 <constraint>
-Phases 1–5 are READ-ONLY analysis. If the user asked only for an assessment or plan, the reviewed plan is the deliverable and the run stops after reporting it. If the user asked to refactor or implement, the unified `plan-manager` owns canonical-plan creation, the single pre-implementation plan review, implementation and delegation, verification, the post-implementation code review, and archive; continue into Phases 7–8 without requiring another user-issued lifecycle command. Do not call `ExitPlanMode` (Claude-only). Stop only for a real unresolved user decision or persisted blocker.
+Phases 1–5 are READ-ONLY analysis. If the user asked only for an assessment or plan, the reviewed plan is the deliverable and the run stops after reporting it. If the user asked to refactor or implement, hand the plan to `plan-manager` for the six manager lifecycle phases — decide, draft, research, plan review, implement, and code review — which are separate from this skill's internal phases. The manager owns the canonical GitHub issue, lifecycle transitions, delegation, verification, and archive; continue into Phases 7–8 without requiring another user-issued lifecycle command. Do not call `ExitPlanMode` (Claude-only). Stop only for a real unresolved user decision or persisted blocker.
 </constraint>
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
@@ -67,15 +67,15 @@ Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 mer
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`), record scope (a path, or the whole project).
-2. Ask `plan-manager` to create the canonical plan issue with `plan.mjs new --title <t> --goal <g>` and own every lifecycle write. In a repository without a GitHub remote, use the untracked fallback below. Write an `## Environment` block (date, branch, short git status).
+2. Ask `plan-manager` to create the canonical plan issue with `plan.mjs new --title <t> --goal <g>` and own every lifecycle write. If no GitHub-backed plan lifecycle is available, stop and report; never write a tracked or untracked plan file. Write an `## Environment` block (date, branch, short git status).
 3. For each read-only row (1 → 5), in order: read `references/<phase>.md`, perform it, write under the row's heading, confirm the heading landed before the next phase. If a phase finds nothing, write "no findings" — never silently skip.
 4. At the HANDOFF, follow the request intent below. Resume at Phase 7 after the manager sets the plan `ongoing`; no user lifecycle command is required.
 
 ## The plan record (IPC + deliverable)
 
 ```text
-GitHub issue #<n> labeled plan, plan:drafting (created and managed by plan-manager)
-docs/refactor-plan-<YYYYMMDD>.md          (untracked fallback only when the repository has no GitHub remote)
+GitHub issue #<n> labeled plan plus exactly one lifecycle label:
+plan:drafting | plan:planned | plan:ongoing | plan:blocked
 ```
 
 Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. Downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping the headings.

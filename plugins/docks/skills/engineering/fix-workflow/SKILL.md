@@ -4,8 +4,8 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-20"
-  content_hash: "4f92bd65d07cf1fe79dc6f103f6f78bfd03b2101b4c4d86786abdeb113216de7"
+  updated: "2026-08-25"
+  content_hash: "3c08cc3be5b2c17de11bc9ef12ef7f6be0b9810adcccbe41f57c73e801674766"
 ---
 
 # Fix Workflow
@@ -117,6 +117,9 @@ For each finding, fill in this template before writing any code:
 | Revert trigger | Specific test/lint that, if it flips, triggers `git restore` |
 | Blast radius | What else touches this code path |
 
+Normalize upstream findings into these fields before planning. For a `security` finding, map `location` plus `evidence` to **Files/Before**, `remediation` to **After**, `CWE` plus `exploitation` to **Why/Blast radius**, and derive **Test strategy/Revert trigger** from the exploitation path and its narrowest deterministic signal. For a `code-review` line (`SEVERITY / category / locator / defect / fix`), map `locator` plus `defect` to **Files/Before**, `fix` to **After**, `SEVERITY` plus `category` and `defect` to **Why/Blast radius**, and derive **Test strategy/Revert trigger** from the defect's observable behavior.
+
+Route any fix with non-local effects through the `plan-lifecycle` skill's `plan-manager`; do not treat the local fix table as approval to bypass that lifecycle.
 Show the user the table grouped by tier. If the plan contains any Tier 2/3 fix, print it as your final message and end the turn — do not call Edit/Write until the user approves (a Tier-1-only plan may proceed directly).
 
 **For finding-type-specific test strategies and revert triggers**, load the matching reference file from the routing table above.

@@ -61,25 +61,31 @@ fun send(invite: Invite) = when (invite) {
 }
 ```
 
-`sealed` constrains subclasses to the same compilation unit (Kotlin 1.5+). Combined with `when` as an expression, the compiler checks exhaustiveness.
+`sealed` constrains subclasses to the same compilation unit (Kotlin 1.5+). Kotlin 1.7+ checks exhaustiveness for `when` over sealed, enum, and Boolean subjects in both expression and statement form.
 
 ### Exhaustive `when`
 
 ```kotlin
-// EXHAUSTIVE — `when` is used as an expression (assigned)
+// EXHAUSTIVE — Kotlin 1.7+ checks this sealed-subject expression
 val message = when (invite) {
     is Invite.User -> "Sent to user ${invite.id.value}"
     is Invite.Guest -> "Sent to ${invite.email}"
 }
 
-// NOT exhaustive — statement form, no compile-time check
+// ALSO EXHAUSTIVE — sealed-subject statements are compile-checked in Kotlin 1.7+
 when (invite) {
     is Invite.User -> sendToUser(invite.id)
     is Invite.Guest -> sendToGuest(invite.email, invite.name)
 }
+
+// NOT EXHAUSTIVENESS-CHECKED — String is an open-ended subject
+val status: String = readStatus()
+when (status) {
+    "ready" -> start()
+}
 ```
 
-Always assign or return from `when` to get the check.
+On Kotlin 1.7+, statement form is safe for sealed, enum, and Boolean subjects. For open-ended subjects such as `String`, use expression form with `else` when every path must produce a value.
 
 ## Parse-don't-validate with kotlinx.serialization
 

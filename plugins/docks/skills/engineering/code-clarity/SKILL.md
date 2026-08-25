@@ -1,11 +1,11 @@
 ---
 name: code-clarity
-description: "Use when code is hard to understand without narration; improving names, types, function boundaries, comments, docstrings, error messages, or test names; deciding what belongs in code versus documentation; or removing prose that merely restates mechanics. Not for structural dead-code/duplication/SOLID audits (use refactor), correctness/security review (use code-review), or type design alone (use type-safety-discipline)."
+description: "Use when code is hard to understand without narration; improving names, types, function boundaries, comments, docstrings, error messages, or test names; deciding what belongs in code versus documentation; or removing prose that merely restates mechanics. Not for dead-code/duplication sweeps (use refactor), demonstrated SOLID design patterns (use solid), correctness/security review (use code-review), or type design alone (use type-safety-discipline)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-14"
-  content_hash: "d926bb858cddf15a5cad1bc03f293458212bcf042bcd895b1e02b1f71aaefa83"
+  updated: "2026-08-25"
+  content_hash: "84451e4b342b8bb8ff2fd3160c13d6298b0738ff0f5c03dcbb7bf7963c9a42f4"
 ---
 
 # Code Clarity

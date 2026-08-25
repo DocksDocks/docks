@@ -1,11 +1,11 @@
 ---
 name: tdd-workflow
-description: Use when the user asks for TDD, test-first, "write the test first then implement", "spec it out with tests", red-green-refactor, or describes a feature as input/output pairs and wants tests to drive the implementation. Also for NEW behavior with no test coverage where tests act as the spec. Not for adding tests to existing code (use test-coverage). Not for migrations/ports ("failing test per route before porting") — characterization, not spec; use the porting skill or test-coverage.
+description: Use when the user asks for TDD, test-first, "write the test first then implement", "spec it out with tests", red-green-refactor, or describes a feature as input/output pairs and wants tests to drive the implementation. Also for NEW behavior with no test coverage where tests act as the spec. Not for adding tests to existing code (use test-coverage). Not for migrations/ports ("failing test per route before porting") — characterization of existing behavior belongs in test-coverage, not TDD.
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "fde4faf4646f87a3dfa58d34169f4f212da9012e9fa95faf433f5eb6076e1464"
+  updated: "2026-08-25"
+  content_hash: "d5b3326c92bf72d4023f5ff2726f459875158b33a77b566c4749169d825f1fd9"
 ---
 
 # Test-Driven Development Workflow
@@ -21,8 +21,8 @@ TDD is an ORDERING contract, not a label. Production code MUST NOT be written be
 - Bug fix where the user wants a regression test written first that reproduces the bug, then the fix
 
 NOT for:
-- Adding tests to code that already works (use coverage-driven test generation — different skill)
-- Refactoring with a safety net — pinning current behavior with tests before changing the implementation is characterization of EXISTING code, which is coverage-driven (use the test-coverage skill)
+- Adding tests to code that already works (use the `test-coverage` skill)
+- Structural refactoring itself (use the `refactor` skill); use `test-coverage` first only when existing behavior needs characterization
 - Exploratory spikes / one-shot scripts where the spec genuinely doesn't exist yet
 - Pure debugging where you already have a failing test from CI
 
