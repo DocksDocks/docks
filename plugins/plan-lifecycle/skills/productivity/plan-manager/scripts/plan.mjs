@@ -37,7 +37,7 @@ function unquoteCode(value) {
   return /^`[^`]+`$/.test(value) ? value.slice(1, -1) : value;
 }
 function labelNames(labels) {
-  return (labels ?? []).map((label) => (typeof label === 'string' ? label : label.name));
+  return (labels ?? []).map((label) => token(typeof label === 'string' ? label : label.name));
 }
 function runGh(argv) {
   const result = spawnSync('gh', argv, { encoding: 'utf8' });
@@ -182,7 +182,7 @@ function planWorkStarted(issue, recordStatus) {
   if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
     fail('gh api issue events returned malformed events');
   }
-  return pages.flat().some((event) => event?.event === 'labeled' && event?.label?.name === 'plan:ongoing');
+  return pages.flat().some((event) => event?.event === 'labeled' && token(event?.label?.name ?? '') === 'plan:ongoing');
 }
 function stateDirectory() {
   const base = process.env.XDG_STATE_HOME || path.join(process.env.HOME || os.homedir(), '.local', 'state');
@@ -239,7 +239,7 @@ function editIssueLabelsIfBodyUnchanged(issue, labels) {
   runGh(argv);
   if (remove.length > 0 || labels.add) {
     const stored = labelNames(issueView(issue.number, 'labels').labels);
-    if ((labels.add && !stored.includes(labels.add)) || remove.some((label) => stored.includes(label))) {
+    if ((labels.add && !stored.includes(labels.add)) || remove.some((label) => stored.includes(token(label)))) {
       fail('plan issue labels differ after edit');
     }
   }
@@ -283,9 +283,8 @@ export function statusFromIssue(issue) {
   }
 }
 function labelsToRemove(issue, target) {
-  return labelNames(issue.labels).filter(
-    (label) => label.startsWith('plan:') && (!target || label !== `plan:${target}`),
-  );
+  const names = (issue.labels ?? []).map((label) => (typeof label === 'string' ? label : label.name));
+  return names.filter((label) => token(label).startsWith('plan:') && (!target || token(label) !== `plan:${target}`));
 }
 function headerStrip(issue, status) {
   return `#${issue.number} · ${status} · ${issue.title} · ${issue.url}`;
@@ -383,17 +382,30 @@ function sectionMap(body) {
   });
   return sections;
 }
+// Split a table row on pipes that are not escaped; a pipe is escaped only when an odd
+// run of backslashes precedes it, so `\\|` is a literal backslash followed by a delimiter.
+function splitCells(row) {
+  const cells = [];
+  let cell = '',
+    backslashes = 0;
+  for (const char of row) {
+    if (char === '|' && backslashes % 2 === 0) {
+      cells.push(cell);
+      cell = '';
+    } else cell += char;
+    backslashes = char === '\\' ? backslashes + 1 : 0;
+  }
+  cells.push(cell);
+  if (cells.length > 1 && cells[0].trim() === '') cells.shift();
+  if (cells.length > 1 && cells.at(-1).trim() === '') cells.pop();
+  return cells;
+}
 function table(text, header) {
   const lines = text.split('\n'),
     scan = blankFencedRegions(text)
       .split('\n')
       .map((line) => (/^(?: {4}|\t)/.test(line) ? '' : line)),
-    cells = (line) =>
-      line
-        .trim()
-        .replace(/^\||(?<!\\)\|$/g, '')
-        .split(/(?<!\\)\|/)
-        .map((cell) => cell.trim());
+    cells = (line) => splitCells(line.trim()).map((cell) => cell.trim());
   const start = scan.findIndex((line) => cells(line).map(token).join('|') === cells(header).map(token).join('|'));
   if (start < 0) return { lines, start, end: start, rows: [] };
   const isSeparator = (line) => cells(line).every((cell) => /^:?-+:?$/.test(cell));
@@ -495,8 +507,8 @@ export function parsePlan(text) {
     acceptance: table(sections.get('Acceptance'), ACCEPTANCE_HEADER).rows,
   };
 }
-function printAdvice(text, status, extra = []) {
-  const result = normalizePlan(text);
+function printAdvice(text, status, extra = [], options = {}) {
+  const result = normalizePlan(text, options);
   if (status !== 'drafting' && parsePlan(text).sections.get('Research').includes('_Not researched yet._'))
     result.advice.push('Research is not filled after drafting.');
   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
@@ -524,7 +536,7 @@ export function parseReviewComment(body) {
   if (
     kind === 'code' &&
     verdict === 'pass' &&
-    /\b(critical|high)\b/i.test(lines.filter((_, i) => i > 0 && i !== index).join('\n'))
+    lines.some((line) => /^\s*(?:[-*]\s+)?(?:\[(?:critical|high)\]|(?:critical|high):)/i.test(line))
   )
     verdict = 'fixes-required';
   return { kind, verdict };
@@ -565,7 +577,14 @@ function createPlan(args) {
   for (const label of extras) if (/^plan(?::|$)/i.test(label)) fail(`reserved label namespace: ${label}`);
   resolveActingLogin();
   for (const label of PLAN_LABELS) runGh(['label', 'create', label, '--force', '--repo', repository.nameWithOwner]);
-  const source = `## Goal\n${options['--goal']}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
+  const goalText = blankFencedRegions(options['--goal'])
+    .split('\n')
+    .map((masked, index) => {
+      const line = options['--goal'].split('\n')[index];
+      return /^ {0,3}##[ \t]/.test(masked) ? line.replace(/^( {0,3})##/, '$1###') : line;
+    })
+    .join('\n');
+  const source = `## Goal\n${goalText}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
   const { body } = normalizePlan(source, { mode: options['--mode'] });
   const url = withBodyFile(body, (file) =>
     runGh([
@@ -589,7 +608,7 @@ function createPlan(args) {
   const number = /\/issues\/([1-9]\d*)\/?$/.exec(url)?.[1];
   if (!number) fail('gh issue create returned an invalid issue URL');
   console.log(`plan created: #${number} ${url}`);
-  printAdvice(source, 'drafting');
+  printAdvice(source, 'drafting', [], { mode: options['--mode'] });
 }
 function showPlan(args) {
   const [value, ...flags] = args;

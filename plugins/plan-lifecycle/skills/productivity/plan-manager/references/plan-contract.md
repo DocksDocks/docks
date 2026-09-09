@@ -142,8 +142,9 @@ the hyphen. Finding lines are free text.
 | `repair`, `changes`, `fixes-required` | `repair` | `fixes-required` |
 | `blocked` | `blocked` | `blocked` |
 
-A code pass with a whole-word critical or high severity token in its finding
-lines derives as fixes-required, without case sensitivity. Trust requires exactly
+A code pass derives as fixes-required when any finding line starts with a
+`critical` or `high` severity field, written `- [high]` or `high:`, in any case.
+Severity words inside finding prose do not count. Trust requires exactly
 one issue assignee and a comment author login equal to that assignee. The latest
 trusted eligible comment per kind wins, ordered by `createdAt`; API order breaks
 ties. Missing trusted reviews derive as none. There is no body verdict fallback.
@@ -229,7 +230,10 @@ clean worktree. After setting ongoing, reuse or create the linked branch. Every
 `gh issue develop` call includes `--repo`; creation uses `--base <default> --checkout`.
 Re-list after failure. Stop without a verified link.
 After code review passes, commit and push reviewed bytes and open a closing pull request.
-Apply repository checks policy and wait up to five minutes for checks to appear.
+Checks policy: wait up to five minutes for checks to appear, then wait for every
+check to complete. A failed or cancelled check blocks the merge question until the
+fix is reviewed. When the repository has no configured checks, treat the green local
+gate as the check result and say so in the merge question.
 Ask afresh: `Merge now` or `Leave pull request open`. Without `Merge now`, leave both
 records open. Merge with `--match-head-commit` for the reviewed head.
 A prior plan approval never authorizes merge.

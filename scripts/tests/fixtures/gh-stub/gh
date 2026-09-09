@@ -422,8 +422,9 @@ if (group === 'issue' && command === 'edit') {
   if (!bodyFile && addedAssignees.length === 0 && addedLabels.length === 0 && removedLabels.length === 0)
     die('issue edit requires a body, label, or assignee change');
   if (bodyFile) issue.body = fs.readFileSync(bodyFile, 'utf8');
-  for (const name of removedLabels) issue.labels = issue.labels.filter((label) => label !== name);
-  for (const name of addedLabels) if (!issue.labels.includes(name)) issue.labels.push(name);
+  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+  for (const name of removedLabels) issue.labels = issue.labels.filter((label) => !same(label, name));
+  for (const name of addedLabels) if (!issue.labels.some((label) => same(label, name))) issue.labels.push(name);
   issue.assignees ??= [];
   if (!state.dropEditAssignee) {
     for (const login of addedAssignees.map((name) => name === '@me' ? state.viewerLogin : name)) {
