@@ -337,6 +337,14 @@ try {
       '# Code review\n\ncode-review: approved\nHIGH: The parser loses data.',
       { kind: 'code', verdict: 'fixes-required' },
     ],
+    [
+      '### Code review round 1 - 2026-09-09\nCode-review: pass\n- [low] src/api.mjs:3 - the high-level API name is unclear; critical path is fine - rename',
+      { kind: 'code', verdict: 'pass' },
+    ],
+    [
+      '### Code review round 1 - 2026-09-09\nCode-review: pass\n- [HIGH] src/api.mjs:3 - data loss - fix',
+      { kind: 'code', verdict: 'fixes-required' },
+    ],
   ];
   for (const [text, expected] of reviewCases) assert.deepEqual(parseReviewComment(text), expected);
   const reviews = createPlan('trusted reviews');
@@ -353,6 +361,22 @@ try {
   shown = run('show', String(reviews));
   expectSuccess(shown, 'timestamp review show');
   assert.match(shown.stdout, /^reviews: plan=pass code=fixes-required$/m);
+
+  // Phase labels compare case-insensitively and are removed by their stored spelling.
+  const mixedLabels = createPlan('mixed-case labels');
+  updateIssue(mixedLabels, (entry) => {
+    entry.labels = ['plan', 'Plan:Drafting'];
+  });
+  assert.match(run('show', String(mixedLabels)).stdout, /· drafting ·/, 'mixed-case phase label is read');
+  expectSuccess(run('status', String(mixedLabels), 'planned'), 'transition from a mixed-case label');
+  assert.deepEqual(issue(mixedLabels).labels, ['plan', 'plan:planned'], 'the mixed-case label is removed');
+  updateIssue(mixedLabels, (entry) => {
+    entry.events = [{ event: 'labeled', label: { name: 'Plan:Ongoing' } }];
+  });
+  refuse(
+    edit(mixedLabels, (text) => text.replace('| planned |', '| done |')),
+    'step state is frozen once work starts: step fix_parser status changed',
+  );
 
   // Archive needs terminal work, a trusted pass, and the actual merged closer.
   const landed = closedPlan('merged closer');
@@ -403,6 +427,13 @@ try {
   expectSuccess(run('step', String(piped), 'fix_parser', 'in-flight'), 'update sibling of piped row');
   assert.ok(issue(piped).body.includes(pipedRow), 'step preserves the escaped pipe row');
   assert.match(issue(piped).body, /\| fix_parser \| .* \| in-flight \|/);
+  const backslashRow =
+    '| 3 | back_slash | Path `C:\\\\` | src\\\\win.mjs | - | local | planned | Ends with a literal backslash |';
+  expectSuccess(
+    edit(piped, (text) => text.replace(`${pipedRow}\n`, `${pipedRow}\n${backslashRow}\n`)),
+    'add a row whose cell ends in an even backslash run',
+  );
+  assert.ok(issue(piped).body.includes(backslashRow), 'an even backslash run before a pipe is a delimiter');
 
   // A row that does not parse to eight cells blocks every write instead of vanishing.
   const malformed = createPlan('malformed row');
@@ -558,20 +589,21 @@ try {
     '--title',
     'explicit mode',
     '--goal',
-    'Ship it.\nMode: plan-and-implement\n\n### Context\nDetails.',
+    'Ship it.\nMode: plan-and-implement\n\n## Context\nDetails.\n\n```text\n## fenced heading\n```',
     '--mode',
     'plan-only',
   );
   expectSuccess(explicit, 'new with explicit mode');
+  assert.doesNotMatch(explicit.stdout, /Mode defaulted/, 'advice honors the explicit --mode');
   const explicitNumber = Number(/^plan created: #(\d+)/m.exec(explicit.stdout)[1]);
   assert.match(issue(explicitNumber).body, /\nMode: plan-only\n/, 'explicit --mode is the live mode');
   assert.equal(issue(explicitNumber).body.match(/^Mode:/gm).length, 1, 'the embedded Mode line is removed');
   assert.ok(
-    issue(explicitNumber).body.includes('### Context\nDetails.\n\nMode: plan-only'),
-    'goal prose stays inside Goal',
+    issue(explicitNumber).body.includes('### Context\nDetails.\n\n```text\n## fenced heading\n```\n\nMode: plan-only'),
+    'an unfenced H2 in --goal is demoted to H3, a fenced one is kept, and both stay inside Goal',
   );
   refuse(
-    run('new', '--title', 'unknown section', '--goal', 'Ship it.\n\n## Context\nDetails.', '--mode', 'plan-only'),
+    edit(explicitNumber, (text) => text.replace('## Acceptance', '## Context\n\nDetails.\n\n## Acceptance')),
     'unknown section heading: Context; use only Goal, Research, Steps, Acceptance, Do not touch, Open questions, Verification Results or write it below an existing section as ### or plain text',
   );
   const embedded = run('new', '--title', 'embedded mode', '--goal', 'Ship it.\nMode: plan-and-implement');
