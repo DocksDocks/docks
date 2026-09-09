@@ -477,8 +477,8 @@ try {
   expectSuccess(
     edit(fencedMode, (text) =>
       text
-        .replace('Fix the parser.\n\n', `Fix the parser.\n\n${modeExample}`)
-        .replace('Mode: plan-and-implement\n', 'Mode: plan-only\n'),
+        .replace('Mode: plan-and-implement\n', 'Mode: plan-only\n')
+        .replace('Fix the parser.\n\n', `Fix the parser.\n\n${modeExample}`),
     ),
     'edit with fenced mode example',
   );
