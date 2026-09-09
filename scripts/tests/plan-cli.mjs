@@ -548,6 +548,9 @@ try {
   );
   assert.ok(issue(indentedTable).body.includes(indentedExample), 'indented example bytes are preserved');
   expectSuccess(run('status', String(indentedTable), 'ongoing'), 'start indented-table plan');
+  expectSuccess(run('step', String(indentedTable), 'fix_parser', 'in-flight'), 'step targets the live table');
+  assert.match(issue(indentedTable).body, /\| fix_parser \| .* \| in-flight \|/);
+  assert.ok(issue(indentedTable).body.includes(indentedExample), 'indented example still untouched');
 
   // An explicit --mode outranks a Mode line embedded in --goal; a later live Mode line wins.
   const explicit = run(
@@ -570,9 +573,7 @@ try {
     /\nMode: plan-and-implement\n/,
     'goal-authored Mode is kept without --mode',
   );
-  expectSuccess(run('step', String(indentedTable), 'fix_parser', 'in-flight'), 'step targets the live table');
-  assert.match(issue(indentedTable).body, /\| fix_parser \| .* \| in-flight \|/);
-  assert.ok(issue(indentedTable).body.includes(indentedExample), 'indented example still untouched');
+
   // Dependency normalization is idempotent even when a step id is a number.
   const numericId = createPlan('numeric step id');
   const numericRows = [
