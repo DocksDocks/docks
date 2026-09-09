@@ -181,7 +181,9 @@ Keep scratch and machine paths out of durable records. No queue file is tool inp
 Writes set the v4 marker, canonical heading and token case, lowercase ids with
 hyphens changed to underscores, and trimmed trailing whitespace. U+2014 becomes
 ` - ` with doubled spaces collapsed. Missing or unknown Mode becomes plan-only.
-Unknown Effect and Status tokens remain in the record and produce advice.
+Unknown Effect and Status tokens remain in the record and produce advice. A
+literal pipe inside a table cell is written `\|`; a row that does not parse to
+eight cells blocks every write so the row is never dropped.
 
 Advice prints `advice: <text>` on stdout and exits 0. It covers absolute machine
 paths, `_Not researched yet._` after drafting, defaulted Mode, unknown Effect or
@@ -204,6 +206,9 @@ illegal step status transition: <from> -> <to>
 plan status is <status>; expected ongoing
 archive requires finished status, found <status>
 archive refused: non-terminal step <id>
+archive refused: no Steps rows parsed
+duplicate step id after normalization: <id>
+Steps row <n> has <count> cells; expected 8. Escape a literal pipe as \| so the row is preserved.
 archive requires Code-review: pass
 archive requires a closing pull request merged into <nameWithOwner>:<branch>
 retire requires a single-line --reason

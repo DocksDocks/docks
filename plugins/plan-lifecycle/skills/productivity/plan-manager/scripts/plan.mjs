@@ -376,8 +376,8 @@ function table(text, header) {
     cells = (line) =>
       line
         .trim()
-        .replace(/^\||\|$/g, '')
-        .split('|')
+        .replace(/^\||(?<!\\)\|$/g, '')
+        .split(/(?<!\\)\|/)
         .map((cell) => cell.trim());
   const start = lines.findIndex((line) => cells(line).map(token).join('|') === cells(header).map(token).join('|'));
   let end = start + 2;
@@ -455,6 +455,9 @@ export function parsePlan(text) {
   return {
     marker: MARKER,
     sections,
+    malformedSteps: table(sections.get('Steps'), STEPS_HEADER)
+      .rows.map((row, index) => ({ line: index + 1, cells: row.length }))
+      .filter((row) => row.cells !== 8),
     steps: table(sections.get('Steps'), STEPS_HEADER)
       .rows.filter((row) => row.length === 8)
       .map(([display, id, task, files, depends, effect, status, doneWhen]) => ({
@@ -581,6 +584,13 @@ function showPlan(args) {
     printAdvice(issue.body, status);
   }
 }
+function refuseMalformedSteps(plan) {
+  const [first] = plan.malformedSteps;
+  if (first)
+    fail(
+      `Steps row ${first.line} has ${first.cells} cells; expected 8. Escape a literal pipe as \\| so the row is preserved.`,
+    );
+}
 function editPlan(args) {
   const [value, ...flags] = args,
     file = parseOptions(flags, new Set(['--file']))['--file'];
@@ -597,7 +607,9 @@ function editPlan(args) {
     );
   const source = fs.readFileSync(file, 'utf8'),
     { body } = normalizePlan(source),
-    incoming = parsePlan(body).steps;
+    incomingPlan = parsePlan(body),
+    incoming = incomingPlan.steps;
+  refuseMalformedSteps(incomingPlan);
   const seenIds = new Set();
   for (const row of incoming) {
     if (seenIds.has(row.id)) fail(`duplicate step id after normalization: ${row.id}`);
@@ -663,6 +675,7 @@ function setStepStatus(args) {
     { issue, parsed, status } = readPlanIssue(value, true);
   if (!STEP_STATUSES.has(target)) fail(`unknown step status: ${target}`);
   if (status !== 'ongoing' && status !== 'finished') fail(`plan status is ${status}; expected ongoing`);
+  refuseMalformedSteps(parsed);
   const row = parsed.steps.find((step) => step.id === stepId(id));
   if (!row) fail(`unknown step id: ${id}`);
   const current = row.status;

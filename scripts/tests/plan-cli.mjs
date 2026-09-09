@@ -391,6 +391,43 @@ try {
   refuse(run('step', String(terminal), 'fix_parser', 'in-flight'), 'illegal step status transition: done -> in-flight');
   assert.match(issue(terminal).body, /\| `?done`? \|/);
 
+  // A step update preserves every sibling row, including one whose cell holds an escaped pipe.
+  const piped = createPlan('escaped pipe sibling');
+  const pipedRow = '| 2 | grep_pipe | Grep `a \\| b` | src/grep.mjs | - | local | planned | Pipe survives |';
+  expectSuccess(
+    edit(piped, (text) => text.replace('| Records round-trip |\n', `| Records round-trip |\n${pipedRow}\n`)),
+    'add piped row',
+  );
+  assert.ok(issue(piped).body.includes(pipedRow), 'edit preserves the escaped pipe cell');
+  expectSuccess(run('status', String(piped), 'ongoing'), 'start piped plan');
+  expectSuccess(run('step', String(piped), 'fix_parser', 'in-flight'), 'update sibling of piped row');
+  assert.ok(issue(piped).body.includes(pipedRow), 'step preserves the escaped pipe row');
+  assert.match(issue(piped).body, /\| fix_parser \| .* \| in-flight \|/);
+
+  // A row that does not parse to eight cells blocks every write instead of vanishing.
+  const malformed = createPlan('malformed row');
+  refuse(
+    edit(malformed, (text) =>
+      text.replace(
+        '| Records round-trip |\n',
+        '| Records round-trip |\n| 2 | broken | Unescaped a | b | src | - | local | planned | Lost |\n',
+      ),
+    ),
+    'Steps row 2 has 9 cells; expected 8. Escape a literal pipe as \\| so the row is preserved.',
+  );
+  updateIssue(malformed, (entry) => {
+    entry.body = entry.body.replace(
+      '| Records round-trip |\n',
+      '| Records round-trip |\n| 2 | broken | Unescaped a | b | src | - | local | planned | Lost |\n',
+    );
+  });
+  expectSuccess(run('status', String(malformed), 'ongoing'), 'start malformed plan');
+  refuse(
+    run('step', String(malformed), 'fix_parser', 'in-flight'),
+    'Steps row 2 has 9 cells; expected 8. Escape a literal pipe as \\| so the row is preserved.',
+  );
+  assert.match(issue(malformed).body, /\| broken \|/, 'the malformed row is untouched');
+
   console.log(
     'plan-cli smoke PASSED: normalization, v3 read, ownership, compare-before-write, provenance, step freeze, transitions, review trust, archive proof',
   );
