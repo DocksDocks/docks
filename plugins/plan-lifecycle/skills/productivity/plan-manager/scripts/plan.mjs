@@ -364,27 +364,29 @@ const stepId = (value) => token(value).replaceAll('-', '_');
 const terminal = (status) => ['done', 'skipped'].includes(status);
 function sectionMap(body) {
   const headings = [...blankFencedRegions(body).matchAll(/^\s*##[ \t]+([^\n]+)$/gm)];
-  return new Map(
-    headings.map((heading, index) => [
-      SECTIONS.find((name) => name.toLowerCase() === heading[1].trim().toLowerCase()) ?? heading[1].trim(),
-      body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length).trim(),
-    ]),
-  );
+  const sections = new Map();
+  headings.forEach((heading, index) => {
+    const name = SECTIONS.find((known) => known.toLowerCase() === heading[1].trim().toLowerCase()) ?? heading[1].trim();
+    if (sections.has(name)) fail(`duplicate section heading: ${name}`);
+    sections.set(name, body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length).trim());
+  });
+  return sections;
 }
 function table(text, header) {
   const lines = text.split('\n'),
+    scan = blankFencedRegions(text).split('\n'),
     cells = (line) =>
       line
         .trim()
         .replace(/^\||(?<!\\)\|$/g, '')
         .split(/(?<!\\)\|/)
         .map((cell) => cell.trim());
-  const start = lines.findIndex((line) => cells(line).map(token).join('|') === cells(header).map(token).join('|'));
+  const start = scan.findIndex((line) => cells(line).map(token).join('|') === cells(header).map(token).join('|'));
   if (start < 0) return { lines, start, end: start, rows: [] };
   const isSeparator = (line) => cells(line).every((cell) => /^:?-+:?$/.test(cell));
-  const first = start + 1 + (lines[start + 1] !== undefined && isSeparator(lines[start + 1]) ? 1 : 0);
+  const first = start + 1 + (scan[start + 1] !== undefined && isSeparator(scan[start + 1]) ? 1 : 0);
   let end = first;
-  while (end < lines.length && lines[end].trim().startsWith('|')) end++;
+  while (end < scan.length && scan[end].trim().startsWith('|')) end++;
   return { lines, start, end, rows: lines.slice(first, end).map(cells) };
 }
 const render = (sections) =>
@@ -618,6 +620,7 @@ function editPlan(args) {
     seenIds.add(row.id);
   }
   if (planWorkStarted(issue, status)) {
+    refuseMalformedSteps(parsed);
     const frozen = (detail) => fail(`step state is frozen once work starts: ${detail}`),
       ids = new Set(parsed.steps.map((row) => row.id));
     const last = incoming.reduce((position, row, index) => (ids.has(row.id) ? index : position), -1);

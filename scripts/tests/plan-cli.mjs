@@ -441,6 +441,38 @@ try {
   assert.ok(unseparatedBody.includes('| A1 | node smoke.mjs | Exit 0 |'), 'first acceptance row survives');
   assert.equal(unseparatedBody, body(), 'separators are restored');
 
+  // A fenced example table is not the live table, and a duplicate section heading blocks the write.
+  const fenced = createPlan('fenced example');
+  const example = [
+    '```markdown',
+    '| # | Id | Task | Files | Depends | Effect | Status | Done when |',
+    '|---:|---|---|---|---|---|---|---|',
+    '| 1 | example | Example | x | - | local | done | Never |',
+    '```',
+    '',
+  ].join('\n');
+  expectSuccess(
+    edit(fenced, (text) => text.replace('## Steps\n\n', `## Steps\n\n${example}`)),
+    'edit with fenced example',
+  );
+  assert.ok(
+    issue(fenced).body.includes('| 1 | example | Example | x | - | local | done | Never |'),
+    'example untouched',
+  );
+  expectSuccess(run('status', String(fenced), 'ongoing'), 'start fenced plan');
+  expectSuccess(run('step', String(fenced), 'fix_parser', 'in-flight'), 'step targets the live table');
+  assert.match(issue(fenced).body, /\| fix_parser \| .* \| in-flight \|/);
+  assert.ok(
+    issue(fenced).body.includes('| 1 | example | Example | x | - | local | done | Never |'),
+    'example still untouched',
+  );
+  const doubled = createPlan('duplicate heading');
+  refuse(
+    edit(doubled, (text) => text.replace('## Acceptance', '## steps\n\nNothing.\n\n## Acceptance')),
+    'duplicate section heading: Steps',
+  );
+  assert.equal(issue(doubled).body, body(), 'a duplicate heading writes nothing');
+
   console.log(
     'plan-cli smoke PASSED: normalization, v3 read, ownership, compare-before-write, provenance, step freeze, transitions, review trust, archive proof',
   );
