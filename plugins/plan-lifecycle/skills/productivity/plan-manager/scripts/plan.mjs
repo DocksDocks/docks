@@ -363,7 +363,7 @@ const token = (value) => unquoteCode(value.trim()).toLowerCase();
 const stepId = (value) => token(value).replaceAll('-', '_');
 const terminal = (status) => ['done', 'skipped'].includes(status);
 function sectionMap(body) {
-  const headings = [...blankFencedRegions(body).matchAll(/^\s*##[ \t]+([^\n]+)$/gm)];
+  const headings = [...blankFencedRegions(body).matchAll(/^ {0,3}##[ \t]+([^\n]+)$/gm)];
   const sections = new Map();
   headings.forEach((heading, index) => {
     const name = SECTIONS.find((known) => known.toLowerCase() === heading[1].trim().toLowerCase()) ?? heading[1].trim();

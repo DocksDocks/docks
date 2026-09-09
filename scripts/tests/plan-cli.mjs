@@ -487,6 +487,19 @@ try {
   assert.match(fencedModeBody, /\nMode: plan-only\n/, 'the unfenced Mode decision is the live mode');
   assert.equal(fencedModeBody.match(/^Mode:/gm).length, 2, 'one example, one live Mode line');
 
+  // A fenced block that ends a section survives normalization with either fence style.
+  for (const fence of ['```', '~~~']) {
+    const trailing = createPlan(`trailing fence ${fence}`);
+    const evidence = `${fence}text\nnode smoke.mjs | tail -1\n${fence}`;
+    expectSuccess(
+      edit(trailing, (text) =>
+        text.replace('The parser loses mixed-case records.\n', `The parser loses mixed-case records.\n\n${evidence}\n`),
+      ),
+      `edit with trailing ${fence} fence`,
+    );
+    assert.ok(issue(trailing).body.includes(evidence), `trailing ${fence} block is preserved`);
+  }
+
   console.log(
     'plan-cli smoke PASSED: normalization, v3 read, ownership, compare-before-write, provenance, step freeze, transitions, review trust, archive proof',
   );
