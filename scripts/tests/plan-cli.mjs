@@ -500,6 +500,40 @@ try {
     assert.ok(issue(trailing).body.includes(evidence), `trailing ${fence} block is preserved`);
   }
 
+  // An indented code example never becomes the live Mode.
+  const indentedMode = createPlan('indented mode example');
+  expectSuccess(
+    edit(indentedMode, (text) =>
+      text
+        .replace('Mode: plan-and-implement\n', 'Mode: plan-only\n')
+        .replace('Fix the parser.\n\n', 'Fix the parser.\n\n    Mode: plan-and-implement\n\n'),
+    ),
+    'edit with indented mode example',
+  );
+  assert.ok(issue(indentedMode).body.includes('    Mode: plan-and-implement\n'), 'indented example is preserved');
+  assert.match(issue(indentedMode).body, /\nMode: plan-only\n/, 'the plan-only decision is the live mode');
+
+  // Dependency normalization is idempotent even when a step id is a number.
+  const numericId = createPlan('numeric step id');
+  const numericRows = [
+    '| 1 | prepare | Prepare | src/a.mjs | - | local | planned | Ready |',
+    '| 2 | 1 | Numeric | src/b.mjs | - | local | planned | Ready |',
+    '| 3 | finish | Finish | src/c.mjs | prepare | local | planned | Ready |',
+  ].join('\n');
+  expectSuccess(
+    edit(numericId, (text) =>
+      text.replace(
+        '| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | planned | Records round-trip |',
+        numericRows,
+      ),
+    ),
+    'edit with numeric id',
+  );
+  const once = issue(numericId).body;
+  assert.match(once, /\| 3 \| finish \| Finish \| src\/c\.mjs \| 1 \|/, 'prepare resolves to display 1');
+  expectSuccess(edit(numericId), 'second normalization');
+  assert.equal(issue(numericId).body, once, 'a second normalization changes nothing');
+
   console.log(
     'plan-cli smoke PASSED: normalization, v3 read, ownership, compare-before-write, provenance, step freeze, transitions, review trust, archive proof',
   );

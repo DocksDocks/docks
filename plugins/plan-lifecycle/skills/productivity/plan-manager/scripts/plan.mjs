@@ -415,9 +415,9 @@ export function normalizePlan(text) {
   const goalLines = goal.split('\n'),
     modeLines = blankFencedRegions(goal)
       .split('\n')
-      .map((line, index) => (/^\s*Mode:/i.test(line) ? index : -1))
+      .map((line, index) => (/^ {0,3}Mode:/i.test(line) ? index : -1))
       .filter((index) => index >= 0);
-  const mode = modeLines.length ? /^\s*Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines[0]]) : undefined,
+  const mode = modeLines.length ? /^ {0,3}Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines[0]]) : undefined,
     value = mode?.[1].toLowerCase();
   const valid = ['plan-only', 'plan-and-implement'].includes(value);
   if (!valid) advice.push('Mode defaulted to plan-only; implementation needs an explicit mode.');
@@ -433,16 +433,15 @@ export function normalizePlan(text) {
     if (!STEP_STATUSES.has(row[6])) advice.push(`unknown Status: ${row[6]}`);
     if (row[5] !== 'local') advice.push(`step ${row[1]} Effect ${row[5]} needs an in-session ask before it runs.`);
   }
-  const numbers = new Map(rows.map((row) => [row[1], row[0]]));
+  const numbers = new Map(rows.filter((row) => row.length === 8).map((row) => [row[1], row[0]]));
+  const displays = new Set(numbers.values());
+  const dependency = (part) => {
+    const trimmed = part.trim();
+    if (displays.has(trimmed)) return trimmed;
+    return numbers.get(stepId(trimmed)) ?? trimmed;
+  };
   for (const row of rows)
-    if (row.length === 8)
-      row[4] =
-        row[4] === '-'
-          ? '-'
-          : row[4]
-              .split(',')
-              .map((part) => numbers.get(stepId(part)) ?? part.trim())
-              .join(', ');
+    if (row.length === 8) row[4] = row[4] === '-' ? '-' : row[4].split(',').map(dependency).join(', ');
   replaceTable(sections, 'Steps', STEPS_HEADER, STEPS_SEPARATOR, rows);
   replaceTable(
     sections,
