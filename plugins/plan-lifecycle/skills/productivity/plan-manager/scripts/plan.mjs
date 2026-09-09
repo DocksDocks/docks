@@ -5,91 +5,21 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-
 const PLAN_STATUSES = new Set(['drafting', 'planned', 'ongoing', 'blocked']);
 const STEP_STATUSES = new Set(['planned', 'in-flight', 'done', 'blocked', 'skipped']);
 const STEP_EFFECTS = new Set(['local', 'probe', 'production_access', 'publish', 'push', 'release', 'deploy']);
-const SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch', 'Open questions', 'Review', 'Verification Results'];
-const V3_MARKER = '<!-- plan-contract: v3 -->';
 const STEPS_HEADER = '| # | Id | Task | Files | Depends | Effect | Status | Done when |';
 const STEPS_SEPARATOR = '|---:|---|---|---|---|---|---|---|';
 const ACCEPTANCE_HEADER = '| ID | Command | Expected |';
 const ACCEPTANCE_SEPARATOR = '|---|---|---|';
 const PLAN_LABELS = ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked'];
-const STATUS_TRANSITIONS = {
-  drafting: new Set(['planned', 'ongoing', 'blocked']),
-  planned: new Set(['drafting', 'ongoing', 'blocked']),
-  ongoing: new Set(['blocked']),
-  blocked: new Set(['drafting', 'planned', 'ongoing']),
-};
-const STEP_TRANSITIONS = {
-  planned: new Set(['in-flight', 'done', 'blocked', 'skipped']),
-  'in-flight': new Set(['done', 'blocked', 'skipped']),
-  blocked: new Set(['in-flight', 'done', 'skipped']),
-  done: new Set(),
-  skipped: new Set(),
-};
 const ISSUE_FIELDS = 'number,title,body,state,stateReason,labels,assignees,url,createdAt,updatedAt';
 const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (gh api user --jq .login returned nothing)';
-// `closedByPullRequestsReferences` returns manually linked pull requests alongside keyword closers, so a
-// collaborator could link any merged pull request and pass this verifier; `excludeUserLinked` drops them and
-// keeps keyword closers (verified live: microsoft/vscode#331368 returns its link in the plain connection,
-// cli/cli#14073 keeps its keyword closer under exclusion). `includeClosedPrs` stays at its `false` default
-// because a merged pull request is returned regardless (cli/cli#14073) while that default also hides the
-// closed-unmerged references this verifier must never accept (cli/cli#14156).
-// GitHub also classifies some same-repository keyword closers as user-linked and excludes them
-// (verified live: DocksDocks/docks#22 closed by its own `Closes #22` merge returned an empty excluded
-// connection), so the ClosedEvent closer is read as well; GitHub writes that closer itself when a merge
-// closes the issue, and it may be the merge commit or the pull request.
-const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){
-  repository(owner:$owner,name:$name){
-    defaultBranchRef{ name }
-    issue(number:$number){
-      closing: closedByPullRequestsReferences(first:100, after:$after, excludeUserLinked:true){
-        nodes{ number url state mergedAt baseRefName repository{ nameWithOwner } }
-        pageInfo{ hasNextPage endCursor }
-      }
-      timelineItems(last:100, itemTypes:CLOSED_EVENT){
-        nodes{ ... on ClosedEvent{ closer{ __typename ... on Commit{ oid } ... on PullRequest{ number url state mergedAt baseRefName repository{ nameWithOwner } } } } }
-      }
-    }
-  }
-}`;
-const ASSOCIATED_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$oid:String!,$after:String){
-  repository(owner:$owner,name:$name){
-    defaultBranchRef{ name }
-    commit: object(expression:$oid){
-      ... on Commit{
-        associatedPullRequests(first:100, after:$after){
-          nodes{ number url state mergedAt baseRefName repository{ nameWithOwner } }
-          pageInfo{ hasNextPage endCursor }
-        }
-      }
-    }
-  }
-}`;
-const REVIEW_VERDICTS = {
-  plan: new Set(['pass', 'repair', 'blocked']),
-  code: new Set(['pass', 'fixes-required', 'blocked']),
-};
-let repository;
-let actingLogin;
- 
-
+const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){ repository(owner:$owner,name:$name){ defaultBranchRef{ name } issue(number:$number){ closing: closedByPullRequestsReferences(first:100, after:$after, excludeUserLinked:true){ nodes{ number url state mergedAt baseRefName repository{ nameWithOwner } } pageInfo{ hasNextPage endCursor } } timelineItems(last:100, itemTypes:CLOSED_EVENT){ nodes{ ... on ClosedEvent{ closer{ __typename ... on Commit{ oid } ... on PullRequest{ number url state mergedAt baseRefName repository{ nameWithOwner } } } } } } } } }`;
+const ASSOCIATED_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$oid:String!,$after:String){ repository(owner:$owner,name:$name){ defaultBranchRef{ name } commit: object(expression:$oid){ ... on Commit{ associatedPullRequests(first:100, after:$after){ nodes{ number url state mergedAt baseRefName repository{ nameWithOwner } } pageInfo{ hasNextPage endCursor } } } } } }`;
 function fail(message) {
   throw new Error(message);
 }
-
-function planContract(planText) {
-  return planText.startsWith(`${V3_MARKER}\n\n`) ? 'v3' : 'unreadable';
-}
-
-function parsePlanText(planText) {
-  const contract = planContract(planText);
-  if (contract !== 'v3') fail('unreadable plan record');
-  return { body: planText };
-}
-
 function blankFencedRegions(text) {
   let fence;
   return text
@@ -103,205 +33,12 @@ function blankFencedRegions(text) {
     })
     .join('\n');
 }
-
-function parseRows(sectionText, header, separator, width) {
-  const lines = blankFencedRegions(sectionText).split('\n');
-  const headerIndex = lines.indexOf(header);
-  const headerMatches = headerIndex !== -1 && lines[headerIndex + 1] === separator;
-  if (!headerMatches) return { headerMatches, rowCount: 0, rows: [] };
-  const rows = [];
-  for (let index = headerIndex + 2; index < lines.length; index += 1) {
-    if (!lines[index].startsWith('|')) break;
-    const cells = lines[index].slice(1, -1).split('|').map((cell) => cell.trim());
-    rows.push({ cells, line: lines[index], lineIndex: index });
-  }
-  return { headerMatches: true, rowCount: rows.length, rows: rows.filter((row) => row.cells.length === width) };
-}
-
-function sectionMap(body) {
-  const headings = [...blankFencedRegions(body).matchAll(/^## (.+)$/gm)];
-  const sections = new Map();
-  for (let index = 0; index < headings.length; index += 1) {
-    const heading = headings[index];
-    const start = heading.index + heading[0].length + 1;
-    sections.set(heading[1], body.slice(start, headings[index + 1]?.index ?? body.length).trimEnd());
-  }
-  return { headings: headings.map((match) => match[1]), sections };
-}
-
 function unquoteCode(value) {
   return /^`[^`]+`$/.test(value) ? value.slice(1, -1) : value;
 }
-
-function pathsInFilesCell(value) {
-  return value.split(',').map((entry) => unquoteCode(entry.trim())).filter(Boolean);
-}
-
 function labelNames(labels) {
-  return (labels ?? []).map((label) => typeof label === 'string' ? label : label.name);
+  return (labels ?? []).map((label) => (typeof label === 'string' ? label : label.name));
 }
-
-function issueIdentity(planRef) {
-  if (planRef === undefined || planRef === null) return undefined;
-  if (typeof planRef === 'object') {
-    const number = Number(planRef.number);
-    return {
-      number: Number.isInteger(number) && number > 0 ? number : undefined,
-      url: planRef.url,
-    };
-  }
-  const value = String(planRef).trim();
-  const match = /(?:^#?|\/issues\/)([1-9]\d*)$/.exec(value);
-  if (!match) return undefined;
-  return { number: Number(match[1]), url: value.includes('/issues/') ? value : undefined };
-}
-
-export function machinePathCitations(planText) {
-  // `/dev/null` is the portable bit bucket, not a machine location; every other `/dev/` path
-  // (such as `/dev/shm/...`) names a machine filesystem and stays reported.
-  const machinePath = /(?:^|[\s("'`[{=:;,>])(?:\/(?!\/|\s|dev\/null\b)|[A-Za-z]:[\\/](?=\S)|\\\\(?=[^\\/\s]+[\\/][^\s]))/;
-  return planText
-    .split('\n')
-    .filter((line) => {
-      if (/^[A-Z][A-Za-z0-9-]*: *\{/.test(line)) return false;
-      // Markdown link destinations are URL space, not filesystem citations; inline code stays
-      // detectable because a backticked machine path is still a machine path.
-      const prose = line.replace(/\]\([^)\n]*\)/g, ']()');
-      return machinePath.test(prose);
-    });
-}
-
-export function checkPlan(planText, planRef) {
-  const contract = planContract(planText);
-  if (contract !== 'v3') return ['check 1: unreadable plan contract'];
-
-  const failures = [];
-  // Count standalone marker lines only: a record about this contract legitimately quotes the marker in prose.
-  const markerLines = planText.split('\n').filter((line) => line.trim() === V3_MARKER).length;
-  if (!planText.startsWith(`${V3_MARKER}\n\n`) || markerLines !== 1 || /^---[ \t]*$/m.test(planText)) {
-    failures.push('check 1: v3 marker must be the first line, followed by one blank line, with no frontmatter fence');
-  }
-
-  // Phase lives in the issue labels, never in the body: a file has no phase, so every
-  // phase-dependent rule below is skipped rather than guessed.
-  const status = planRef && typeof planRef === 'object' ? statusFromIssue(planRef) : undefined;
-  const { headings, sections } = sectionMap(planText);
-  if (status !== undefined) {
-    if (status === 'unreadable' || status === 'unlabelled') {
-      failures.push('check 2: an open plan requires exactly one recognized phase label');
-    }
-    const openQuestionsFirstLine = (sections.get('Open questions') ?? '').trimStart().split('\n')[0] ?? '';
-    if (status === 'blocked' && !/^Blocked: [^\r\n]+$/.test(openQuestionsFirstLine)) {
-      failures.push('check 2: blocked status requires `Blocked: <one-line text>` as the first line of Open questions');
-    }
-    if (status !== 'blocked' && /^Blocked:/.test(openQuestionsFirstLine)) {
-      failures.push(`check 2: only blocked status may open Open questions with \`Blocked:\`; status is ${status}`);
-    }
-  }
-
-  if (
-    planRef &&
-    typeof planRef === 'object' &&
-    Object.hasOwn(planRef, 'title') &&
-    (typeof planRef.title !== 'string' || !planRef.title.trim() || planRef.title.length > 70)
-  ) {
-    failures.push('check 3: issue title must contain 1 to 70 characters');
-  }
-  if (planRef && typeof planRef === 'object' && (Object.hasOwn(planRef, 'createdAt') || Object.hasOwn(planRef, 'updatedAt'))) {
-    const created = Date.parse(planRef.createdAt);
-    const updated = Date.parse(planRef.updatedAt);
-    if (!Number.isFinite(created) || !Number.isFinite(updated) || updated < created) {
-      failures.push('check 4: issue createdAt and updatedAt must be timestamps in chronological order');
-    }
-  }
-  if (headings.join('\0') !== SECTIONS.join('\0')) {
-    failures.push('check 5: required sections must appear once in contract order');
-  }
-
-  const stepsTable = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
-  if (!stepsTable.headerMatches) failures.push('check 6: Steps table header must match the contract');
-  if (stepsTable.headerMatches && stepsTable.rows.length === 0) failures.push('check 6: Steps table requires at least one row');
-  const stepsHaveEightCells = stepsTable.rowCount === stepsTable.rows.length;
-  if (stepsTable.headerMatches && !stepsHaveEightCells) failures.push('check 6: every Steps row must have eight cells');
-  const stepIds = new Set();
-  const displayNumbers = new Set();
-  const stepFiles = new Set();
-  for (const row of stepsTable.rows) {
-    const [display, id, task, files, , effectCell, statusCell, doneWhen] = row.cells;
-    if (!/^[a-z][a-z0-9_]{0,63}$/.test(id) || stepIds.has(id)) failures.push(`check 6: invalid or duplicate step Id ${id || '(empty)'}`);
-    else stepIds.add(id);
-    if (!task || !files || !doneWhen) failures.push(`check 6: step ${id || display} has an empty required cell`);
-    if (!STEP_EFFECTS.has(unquoteCode(effectCell))) failures.push(`check 6: step ${id || display} has an invalid Effect`);
-    if (!STEP_STATUSES.has(unquoteCode(statusCell))) failures.push(`check 6: step ${id || display} has an invalid Status`);
-    if (!/^[1-9]\d*$/.test(display) || displayNumbers.has(display)) failures.push(`check 8: invalid display number ${display}`);
-    displayNumbers.add(display);
-    for (const file of pathsInFilesCell(files)) stepFiles.add(file);
-  }
-  for (const citation of planText.matchAll(/\bstep:([A-Za-z0-9_-]+)\b/g)) {
-    if (!stepIds.has(citation[1])) failures.push(`check 7: unknown step citation step:${citation[1]}`);
-  }
-  if (/\bstep \d+\b/.test(planText)) failures.push('check 7: bare numeric step citation is not allowed');
-  for (const row of stepsTable.rows) {
-    const display = Number(row.cells[0]);
-    const dependencies = row.cells[4] === '-' ? [] : row.cells[4].split(',').map((value) => value.trim());
-    for (const dependency of dependencies) {
-      if (!displayNumbers.has(dependency) || !/^\d+$/.test(dependency) || Number(dependency) >= display) {
-        failures.push(`check 8: step ${row.cells[1] || row.cells[0]} has invalid dependency ${dependency}`);
-      }
-    }
-  }
-  const acceptance = parseRows(sections.get('Acceptance') ?? '', ACCEPTANCE_HEADER, ACCEPTANCE_SEPARATOR, 3);
-  if (!acceptance.headerMatches) failures.push('check 9: Acceptance table header must match the contract');
-  if (acceptance.headerMatches && acceptance.rows.length === 0) failures.push('check 9: Acceptance table requires at least one row');
-  const acceptanceCellsMatch = acceptance.rowCount === acceptance.rows.length;
-  if (acceptance.headerMatches && !acceptanceCellsMatch) failures.push('check 9: every Acceptance row must have three cells');
-  const acceptanceIds = new Set();
-  for (const { cells } of acceptance.rows) {
-    const [id, command, expected] = cells;
-    if (!id || acceptanceIds.has(id)) failures.push(`check 9: invalid or duplicate acceptance ID ${id || '(empty)'}`);
-    else acceptanceIds.add(id);
-    if (!command || !expected) failures.push(`check 9: acceptance ${id || '(empty)'} has an empty required cell`);
-  }
-  if (machinePathCitations(planText).length > 0) failures.push('check 10: body contains an absolute machine path');
-  if (planText.includes('\u2014')) failures.push('check 10: body contains an em dash');
-  const researchIsPlaceholder = (sections.get('Research') ?? '').includes('_Not researched yet._');
-  if (researchIsPlaceholder && status !== undefined && status !== 'drafting') {
-    failures.push('check 11: Research must be filled once the plan leaves drafting');
-  }
-  const identity = issueIdentity(planRef);
-  if (identity?.number !== undefined) {
-    const references = new Set([String(identity.number), `#${identity.number}`]);
-    if (identity.url) references.add(identity.url);
-    if ([...stepFiles].some((file) => references.has(file))) failures.push('check 12: Steps Files contains the plan issue itself');
-  }
-  const modes = [...(sections.get('Goal') ?? '').matchAll(/^Mode: (plan-and-implement|plan-only)$/gm)];
-  if (modes.length !== 1) failures.push('check 13: Goal must contain exactly one valid Mode line');
-  return failures;
-}
-
-function planTemplate(goal, mode) {
-  return `${V3_MARKER}\n\n## Goal\n\n${goal}\n\nMode: ${mode}\n\n## Research\n\n_Not researched yet._\n\n## Steps\n\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n\n## Acceptance\n\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}\n\n## Do not touch\n\nNone\n\n## Open questions\n\nNone\n\n## Review\n\n_Review records are stored in issue comments._\n\n## Verification Results\n\n_Not implemented yet._\n`;
-}
-
-function replaceBlockedReason(planText, reason) {
-  const lines = planText.split('\n');
-  const heading = lines.indexOf('## Open questions');
-  const nextHeading = lines.indexOf('## Review', heading + 1);
-  if (heading === -1 || nextHeading === -1) fail('Open questions section is missing or out of order');
-  const content = lines.slice(heading + 1, nextHeading);
-  const probe = [...content];
-  while (probe[0] === '') probe.shift();
-  // Nothing to write and nothing to clear: leave the bytes untouched instead of renormalizing whitespace.
-  if (reason === undefined && !/^Blocked: /.test(probe[0] ?? '')) return planText;
-  while (content[0] === '') content.shift();
-  if (/^Blocked: /.test(content[0] ?? '')) content.shift();
-  while (content[0] === '') content.shift();
-  if (reason !== undefined) content.unshift(`Blocked: ${reason}`);
-  if (content.length === 0) content.push('None');
-  lines.splice(heading + 1, nextHeading - heading - 1, '', ...content, '');
-  return lines.join('\n');
-}
-
 function runGh(argv) {
   const result = spawnSync('gh', argv, { encoding: 'utf8' });
   if (result.error?.code === 'ENOENT') fail('gh is not installed or not on PATH');
@@ -312,7 +49,6 @@ function runGh(argv) {
   }
   return result.stdout;
 }
-
 function resolveActingLogin() {
   if (actingLogin !== undefined) return actingLogin;
   const login = runGh(['api', 'user', '--jq', '.login']).trim();
@@ -320,7 +56,6 @@ function resolveActingLogin() {
   actingLogin = login;
   return actingLogin;
 }
-
 function resolveRepository() {
   try {
     const output = runGh(['repo', 'view', '--json', 'nameWithOwner,visibility,defaultBranchRef']);
@@ -330,8 +65,6 @@ function resolveRepository() {
     fail(`no GitHub remote: ${error.message}`);
   }
 }
-
-
 function parseJson(output, command) {
   try {
     return JSON.parse(output);
@@ -339,13 +72,11 @@ function parseJson(output, command) {
     fail(`${command} returned invalid JSON`);
   }
 }
-
 function repositoryCoordinates() {
   const [owner, name, ...extra] = repository.nameWithOwner.split('/');
   if (!owner || !name || extra.length > 0) fail(`invalid repository name: ${repository.nameWithOwner}`);
   return { owner, name };
 }
-
 function archivePullRequestReferences(issueNumber) {
   const { owner, name } = repositoryCoordinates();
   const closing = [];
@@ -381,8 +112,6 @@ function archivePullRequestReferences(issueNumber) {
     }
     defaultBranch = repo.defaultBranchRef.name;
     closing.push(...issue.closing.nodes);
-    // The current closure is the only one that proves anything: an issue closed by a commit, reopened, then
-    // closed by hand must not keep the earlier commit as proof, so read the latest event and require it.
     const latestClosure = issue.timelineItems.nodes.at(-1)?.closer;
     closingCommitOid = latestClosure?.__typename === 'Commit' ? latestClosure.oid : undefined;
     closerPullRequest = latestClosure?.__typename === 'PullRequest' ? latestClosure : undefined;
@@ -391,7 +120,6 @@ function archivePullRequestReferences(issueNumber) {
   } while (hasNextPage);
   return { closing, closingCommitOid, closerPullRequest, defaultBranch };
 }
-
 function associatedPullRequests(commitOid) {
   const { owner, name } = repositoryCoordinates();
   const pullRequests = [];
@@ -425,17 +153,14 @@ function associatedPullRequests(commitOid) {
   } while (hasNextPage);
   return { pullRequests, defaultBranch };
 }
-
 function parseIssueNumber(value) {
   const match = /^#?([1-9]\d*)$/.exec(String(value ?? ''));
   if (!match) fail(`invalid plan issue: ${value ?? '(missing)'}`);
   return Number(match[1]);
 }
-
 function issueView(number, fields = ISSUE_FIELDS, repo = repository.nameWithOwner) {
   return parseJson(runGh(['issue', 'view', String(number), '--json', fields, '--repo', repo]), 'gh issue view');
 }
-
 function issueComments(number) {
   const { owner, name } = repositoryCoordinates();
   const pages = parseJson(
@@ -447,12 +172,7 @@ function issueComments(number) {
   }
   return pages.flat();
 }
-
 function planWorkStarted(issue, recordStatus) {
-  // "Started" must be irreversible: `blocked -> planned` and `blocked -> drafting` are legal transitions,
-  // so a started plan can legally return to an editable label. Label events are GitHub-owned timeline
-  // facts no later transition or body write can erase; the query runs only when the current label alone
-  // does not already prove the plan started.
   if (recordStatus !== 'drafting' && recordStatus !== 'planned') return true;
   const { owner, name } = repositoryCoordinates();
   const pages = parseJson(
@@ -464,95 +184,6 @@ function planWorkStarted(issue, recordStatus) {
   }
   return pages.flat().some((event) => event?.event === 'labeled' && event?.label?.name === 'plan:ongoing');
 }
-
-function parseReviewComment(body) {
-  if (typeof body !== 'string') return undefined;
-  if (body.includes('\u2014')) return undefined;
-  const lines = body.trim().split(/\r?\n/);
-  let kind;
-  if (/^### Plan review - \d{4}-\d{2}-\d{2}$/.test(lines[0] ?? '')) kind = 'plan';
-  else if (/^### Code review round [1-9]\d* - \d{4}-\d{2}-\d{2}$/.test(lines[0] ?? '')) kind = 'code';
-  else return undefined;
-
-  const verdictPrefix = kind === 'plan' ? 'Plan-review: ' : 'Code-review: ';
-  const verdict = lines[1]?.startsWith(verdictPrefix) ? lines[1].slice(verdictPrefix.length) : undefined;
-  if (!REVIEW_VERDICTS[kind].has(verdict)) return undefined;
-
-  const findings = lines.slice(2);
-  if (findings.some((line) => line.length === 0)) return undefined;
-  if (kind === 'plan') {
-    if (verdict === 'pass' && findings.length > 0) return undefined;
-    if (verdict !== 'pass' && findings.length === 0) return undefined;
-    if (findings.some((line) => !/^- \[(?:goal_fit|research_gap|security_risk)\] .+ - .+ - .+$/.test(line))) {
-      return undefined;
-    }
-  } else {
-    const parsedFindings = findings.map((line) => (
-      /^- (CRITICAL|HIGH|MEDIUM|LOW) · (?:Bug|Security|Performance|Maintainability|Spec) · .+ - .+ - .+$/.exec(line)
-    ));
-    if (parsedFindings.some((finding) => finding === null)) return undefined;
-    const severities = parsedFindings.map((finding) => finding[1]);
-    if (verdict === 'pass' && severities.some((severity) => severity === 'CRITICAL' || severity === 'HIGH')) return undefined;
-    if (verdict === 'fixes-required' && !severities.some((severity) => severity === 'CRITICAL' || severity === 'HIGH')) return undefined;
-    if (verdict === 'blocked' && findings.length === 0) return undefined;
-  }
-  return { kind, verdict };
-}
-
-function legacyReviewVerdict(body, kind) {
-  const { sections } = sectionMap(body);
-  const prefix = kind === 'plan' ? 'Plan-review' : 'Code-review';
-  const matches = [
-    ...blankFencedRegions(sections.get('Review') ?? '').matchAll(new RegExp(`^${prefix}: ([^\\r\\n]+)$`, 'gm')),
-  ];
-  const verdict = matches.at(-1)?.[1];
-  return REVIEW_VERDICTS[kind].has(verdict) ? verdict : undefined;
-}
-
-function reviewVerdicts(issue) {
-  const owners = (issue.assignees ?? []).map((assignee) => assignee.login).filter(Boolean);
-  const trustedOwner = owners.length === 1 ? owners[0] : undefined;
-  const verdicts = {};
-  for (const comment of issueComments(issue.number)) {
-    const review = parseReviewComment(comment?.body);
-    if (trustedOwner && comment?.user?.login === trustedOwner && review) verdicts[review.kind] = review.verdict;
-  }
-  for (const kind of ['plan', 'code']) {
-    if (verdicts[kind] === undefined) verdicts[kind] = legacyReviewVerdict(issue.body, kind);
-  }
-  return verdicts;
-}
-
-function reviewSummary(issue) {
-  const verdicts = reviewVerdicts(issue);
-  return `reviews: plan=${verdicts.plan ?? 'none'} code=${verdicts.code ?? 'none'}`;
-}
-
-function readPlanIssue(value, forWrite = false) {
-  const number = parseIssueNumber(value);
-  const issue = issueView(number);
-  const contract = planContract(issue.body);
-  if (contract !== 'v3') fail(`unreadable plan contract: #${number}`);
-  if (forWrite) {
-    const login = resolveActingLogin();
-    const owners = (issue.assignees ?? []).map((assignee) => assignee.login).filter(Boolean);
-    const foreignOwner = owners.find((owner) => owner !== login);
-    if (foreignOwner) fail(`plan #${issue.number} is owned by ${foreignOwner}`);
-    if (owners.length === 0) issue.claimLogin = login;
-  }
-  return {
-    issue,
-    parsed: parsePlanText(issue.body),
-    record: {
-      title: issue.title,
-      status: statusFromIssue(issue),
-      owner: (issue.assignees ?? []).map((assignee) => assignee.login).filter(Boolean)[0] ?? null,
-      created: issue.createdAt,
-      updated: issue.updatedAt,
-    },
-  };
-}
-
 function stateDirectory() {
   const base = process.env.XDG_STATE_HOME || path.join(process.env.HOME || os.homedir(), '.local', 'state');
   const directory = path.join(base, 'docks', 'plan');
@@ -560,7 +191,6 @@ function stateDirectory() {
   fs.chmodSync(directory, 0o700);
   return directory;
 }
-
 function withBodyFile(body, callback) {
   const temporary = path.join(stateDirectory(), `body-${process.pid}-${randomUUID()}.md`);
   let descriptor;
@@ -575,7 +205,6 @@ function withBodyFile(body, callback) {
     fs.rmSync(temporary, { force: true });
   }
 }
-
 function editIssueBodyIfUnchanged(issue, after, labels = {}) {
   const current = issueView(issue.number, 'body,updatedAt');
   if (current.body !== issue.body) fail('plan issue changed remotely; re-read and retry');
@@ -593,7 +222,6 @@ function editIssueBodyIfUnchanged(issue, after, labels = {}) {
   const stored = issueView(issue.number, 'body,updatedAt');
   if (stored.body !== after) fail('plan issue body differs after edit');
 }
-
 function editIssueLabelsIfBodyUnchanged(issue, labels) {
   const remove = labels.remove ?? [];
   const claims = Object.hasOwn(issue, 'claimLogin');
@@ -616,12 +244,15 @@ function editIssueLabelsIfBodyUnchanged(issue, labels) {
     }
   }
 }
-
 function parseOptions(args, allowed, repeatable = new Set()) {
   const options = {};
   for (let index = 0; index < args.length; index += 2) {
     const flag = args[index];
-    if (!allowed.has(flag) || args[index + 1] === undefined || (!repeatable.has(flag) && Object.hasOwn(options, flag))) {
+    if (
+      !allowed.has(flag) ||
+      args[index + 1] === undefined ||
+      (!repeatable.has(flag) && Object.hasOwn(options, flag))
+    ) {
       fail(`invalid option: ${flag ?? '(missing)'}`);
     }
     if (repeatable.has(flag)) {
@@ -631,7 +262,6 @@ function parseOptions(args, allowed, repeatable = new Set()) {
   }
   return options;
 }
-
 function statusFromLabels(labels) {
   const statuses = labelNames(labels)
     .filter((label) => label.startsWith('plan:') && PLAN_STATUSES.has(label.slice(5)))
@@ -639,130 +269,27 @@ function statusFromLabels(labels) {
   if (statuses.length === 0) return 'unlabelled';
   return statuses.length === 1 ? statuses[0] : 'unreadable';
 }
-
-function statusFromIssue(issue) {
+export function statusFromIssue(issue) {
   if (String(issue.state).toUpperCase() !== 'CLOSED') return statusFromLabels(issue.labels);
   switch (String(issue.stateReason).toUpperCase()) {
-    case 'COMPLETED': return 'finished';
-    case 'NOT_PLANNED': return 'retired';
-    case 'DUPLICATE': return 'duplicate';
-    default: return 'unreadable';
+    case 'COMPLETED':
+      return 'finished';
+    case 'NOT_PLANNED':
+      return 'retired';
+    case 'DUPLICATE':
+      return 'duplicate';
+    default:
+      return 'unreadable';
   }
 }
-
 function labelsToRemove(issue, target) {
-  return labelNames(issue.labels)
-    .filter((label) => label.startsWith('plan:') && (!target || label !== `plan:${target}`));
+  return labelNames(issue.labels).filter(
+    (label) => label.startsWith('plan:') && (!target || label !== `plan:${target}`),
+  );
 }
-
 function headerStrip(issue, status) {
   return `#${issue.number} · ${status} · ${issue.title} · ${issue.url}`;
 }
-
-function labelsCommand(args) {
-  const options = parseOptions(args, new Set(['--extra']), new Set(['--extra']));
-  const extras = options['--extra'] ?? [];
-  const labels = [...PLAN_LABELS, ...extras];
-  for (const label of labels) {
-    if (!label.trim() || /[\r\n]/.test(label)) fail('label names must be non-empty single-line text');
-  }
-  const reserved = extras.find((label) => /^plan(?::|$)/.test(label));
-  if (reserved) fail(`reserved label namespace: ${reserved}`);
-  for (const label of labels) {
-    runGh(['label', 'create', label, '--force', '--repo', repository.nameWithOwner]);
-    console.log(`label ready: ${label}`);
-  }
-}
-
-function requireValidPlanIssue(issue) {
-  const failures = checkPlan(issue.body, issue);
-  if (failures.length > 0) fail(failures.map((message) => `#${issue.number}: ${message}`).join('\n'));
-}
-
-function verifySoleAssignee(number, login) {
-  const stored = issueView(number, 'number,assignees');
-  const owners = (stored.assignees ?? []).map((assignee) => assignee.login).filter(Boolean);
-  if (owners.length !== 1 || owners[0] !== login) {
-    fail(`plan #${number} assignee verification failed: expected sole assignee ${login}`);
-  }
-}
-
-function createPlan(args) {
-  const options = parseOptions(args, new Set(['--title', '--goal', '--mode', '--label']), new Set(['--label']));
-  if (options['--title'] === undefined || options['--goal'] === undefined) fail('new requires --title and --goal');
-  const title = options['--title'].trim();
-  const goal = options['--goal'].trim();
-  if (!title || title.length > 70) fail('title must contain 1 to 70 characters after trimming');
-  if (!goal) fail('goal must be non-empty after trimming');
-  const mode = options['--mode'] ?? 'plan-and-implement';
-  if (!new Set(['plan-and-implement', 'plan-only']).has(mode)) fail(`invalid plan mode: ${mode}`);
-  if ([options['--title'], options['--goal']].some((value) => /[\r\n]/.test(value))) fail('title and goal must be single-line text');
-  if ([options['--title'], options['--goal']].some((value) => value.includes('\u2014'))) {
-    fail('title and goal must not contain an em dash');
-  }
-  for (const label of options['--label'] ?? []) {
-    if (!label.trim() || /[\r\n]/.test(label)) fail('label names must be non-empty single-line text');
-    if (/^plan(?::|$)/.test(label)) fail(`reserved label namespace: ${label}`);
-  }
-  const login = resolveActingLogin();
-  const body = planTemplate(goal, mode);
-  const output = withBodyFile(body, (bodyFile) => {
-    const argv = [
-      'issue',
-      'create',
-      '--title',
-      title,
-      '--body-file',
-      bodyFile,
-      '--label',
-      'plan',
-      '--label',
-      'plan:drafting',
-      '--assignee',
-      '@me',
-    ];
-    for (const label of options['--label'] ?? []) argv.push('--label', label);
-    argv.push('--repo', repository.nameWithOwner);
-    return runGh(argv).trim();
-  });
-  const match = /\/issues\/([1-9]\d*)\/?$/.exec(output);
-  if (!match) fail('gh issue create returned an invalid issue URL');
-  const number = Number(match[1]);
-  verifySoleAssignee(number, login);
-  console.log(`plan created: #${number} ${output}`);
-}
-
-function claimPlan(args) {
-  if (args.length !== 1) fail('claim requires one issue');
-  const { issue } = readPlanIssue(args[0]);
-  const login = resolveActingLogin();
-  const owners = (issue.assignees ?? []).map((assignee) => assignee.login);
-  const foreignOwner = owners.find((owner) => owner !== login);
-  if (foreignOwner) fail(`plan #${issue.number} is owned by ${foreignOwner}`);
-  if (owners.includes(login)) {
-    console.log(`plan #${issue.number} already claimed: ${login}`);
-    return;
-  }
-  requireValidPlanIssue(issue);
-  issue.claimLogin = login;
-  editIssueLabelsIfBodyUnchanged(issue, {});
-  verifySoleAssignee(issue.number, login);
-  console.log(`plan #${issue.number} claimed: ${login}`);
-}
-
-function showPlan(args) {
-  const [value, ...flags] = args;
-  if (!value || flags.some((flag) => flag !== '--body') || flags.length > 1) fail('show requires an issue and optional --body');
-  const { issue, record } = readPlanIssue(value);
-  const metadata = `${headerStrip(issue, record.status)}\n${reviewSummary(issue)}`;
-  if (flags[0] === '--body') {
-    console.error(metadata);
-    process.stdout.write(issue.body);
-    return;
-  }
-  console.log(metadata);
-}
-
 function reviewDirectory() {
   const result = spawnSync('git', ['rev-parse', '--git-path', 'docks-review'], { encoding: 'utf8' });
   if (result.error?.code === 'ENOENT') fail('git is not installed or not on PATH');
@@ -772,7 +299,6 @@ function reviewDirectory() {
   if (!gitPath) fail('git rev-parse failed: empty git path');
   return path.resolve(process.cwd(), gitPath);
 }
-
 function exportPlan(args) {
   if (args.length !== 1) fail('export requires one issue');
   const { issue } = readPlanIssue(args[0]);
@@ -781,20 +307,17 @@ function exportPlan(args) {
   fs.chmodSync(directory, 0o700);
   const destination = path.join(directory, `plan-${issue.number}.md`);
   fs.writeFileSync(destination, issue.body, { encoding: 'utf8', mode: 0o600 });
-  // Record the body this copy came from. A label-only write moves the issue timestamp without touching the
-  // body, so the digest of the bytes is the only provenance that neither misses a revert nor invents one.
   fs.writeFileSync(originFile(destination), `${bodyDigest(issue.body)}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.chmodSync(destination, 0o600);
+  fs.chmodSync(originFile(destination), 0o600);
   console.log(destination);
 }
-
 function bodyDigest(body) {
   return createHash('sha256').update(body, 'utf8').digest('hex');
 }
-
 function originFile(planFile) {
   return `${planFile}.origin`;
 }
-
 function readOrigin(planFile) {
   const source = originFile(planFile);
   let recorded;
@@ -802,14 +325,11 @@ function readOrigin(planFile) {
     recorded = fs.readFileSync(source, 'utf8').trim();
   } catch (error) {
     if (error.code === 'ENOENT') return undefined;
-    throw error;
+    fail(`unreadable export provenance: ${source}`);
   }
-  // A truncated or hand-edited sidecar must stop the edit. Treating it as absent would disable the guard
-  // exactly when provenance is least trustworthy.
-  if (!/^[0-9a-f]{64}$/.test(recorded)) fail(`unreadable export provenance: ${source} holds no sha256 digest; re-export the plan`);
+  if (!/^[0-9a-f]{64}$/.test(recorded)) fail(`unreadable export provenance: ${source}`);
   return recorded;
 }
-
 function changedLines(before, after) {
   const left = before.split('\n');
   const right = after.split('\n');
@@ -836,309 +356,437 @@ function changedLines(before, after) {
   }
   return changes;
 }
-
-function editPlan(args) {
-  const [value, ...flags] = args;
-  if (!value) fail('edit requires an issue and --file');
-  const options = parseOptions(flags, new Set(['--file']));
-  if (!options['--file']) fail('edit requires an issue and --file');
-  const { issue, parsed, record } = readPlanIssue(value, true);
-  const file = options['--file'];
-  const after = fs.readFileSync(file, 'utf8');
-  // Every body edit runs export, edit, check, delete, so a file with no sidecar was derived from bytes this
-  // tool never recorded. Accepting it would let a copy or a deleted sidecar disable the guard silently.
-  const origin = readOrigin(file);
-  if (!origin) {
-    fail(`missing export provenance: ${originFile(file)} does not exist; run \`plan.mjs export ${issue.number}\` and re-apply the edit`);
-  }
-  const current = bodyDigest(issue.body);
-  if (origin !== current) {
-    fail(
-      `stale export: ${file} was exported from body ${origin.slice(0, 12)}, but #${issue.number} now holds ${current.slice(0, 12)}; re-export and re-apply the edit`,
-    );
-  }
-  const failures = checkPlan(after, issue);
-  if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
-  // Once work starts, `plan.mjs step` is the only writer of step state. A body edit could otherwise
-  // bypass STEP_TRANSITIONS (`planned -> done`), fake completion by removing a non-terminal row (archive
-  // requires every step terminal), reorder execution by rewriting Depends or display numbers, or suppress
-  // the pre-run `ask` by downgrading a non-local Effect. Task, Files, and Done-when stay editable as prose.
-  if (planWorkStarted(issue, record.status)) {
-    const stepRows = (text) => {
-      const table = parseRows(sectionMap(text).sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
-      return table.rows.map(({ cells }) => ({
-        display: cells[0],
-        id: cells[1],
-        depends: cells[4],
-        effect: cells[5],
-        status: unquoteCode(cells[6]),
-      }));
-    };
-    const remoteRows = stepRows(parsed.body);
-    const incomingRows = stepRows(after);
-    const incomingById = new Map(incomingRows.map((row) => [row.id, row]));
-    const remoteIds = new Set(remoteRows.map((row) => row.id));
-    const violations = [];
-    for (const row of remoteRows) {
-      const next = incomingById.get(row.id);
-      if (!next) {
-        violations.push(`step ${row.id} removed (retire it with \`step ${issue.number} ${row.id} skipped\`)`);
-        continue;
-      }
-      if (next.status !== row.status) violations.push(`step ${row.id} Status ${row.status} -> ${next.status}`);
-      if (next.effect !== row.effect) violations.push(`step ${row.id} Effect ${row.effect} -> ${next.effect}`);
-      if (next.depends !== row.depends) violations.push(`step ${row.id} Depends ${row.depends} -> ${next.depends}`);
-      if (next.display !== row.display) violations.push(`step ${row.id} display ${row.display} -> ${next.display}`);
-    }
-    // A closed record accepts no new rows: post-merge mutation is terminal repair only, and new work
-    // belongs to a follow-up plan - an appended planned row plus finished-plan `step ... done` would
-    // smuggle unreviewed work into a merged record. Open started plans append planned-born rows only.
-    const closed = String(issue.state).toUpperCase() === 'CLOSED';
-    const lastRemotePosition = incomingRows.reduce(
-      (last, row, index) => (remoteIds.has(row.id) ? index : last),
-      -1,
-    );
-    incomingRows.forEach((row, index) => {
-      if (remoteIds.has(row.id)) return;
-      if (closed) violations.push(`step ${row.id} added to a closed plan (new work takes a follow-up plan)`);
-      else if (row.status !== 'planned') violations.push(`new step ${row.id} born ${row.status}; new rows start planned`);
-      else if (index < lastRemotePosition) violations.push(`new step ${row.id} inserted between existing rows; new rows append at the end`);
-    });
-    if (violations.length > 0) {
+const SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch', 'Open questions', 'Verification Results'];
+const MARKER = '<!-- plan-contract: v4 -->';
+let repository, actingLogin;
+const token = (value) => unquoteCode(value.trim()).toLowerCase();
+const stepId = (value) => token(value).replaceAll('-', '_');
+const terminal = (status) => ['done', 'skipped'].includes(status);
+const trimBlankLines = (text) => text.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
+const RETIRED_SECTIONS = new Set(['review']);
+function sectionMap(body) {
+  const headings = [...blankFencedRegions(body).matchAll(/^ {0,3}##[ \t]+([^\n]+)$/gm)];
+  const sections = new Map();
+  headings.forEach((heading, index) => {
+    const title = heading[1].trim();
+    const name = SECTIONS.find((known) => known.toLowerCase() === title.toLowerCase());
+    if (!name && !RETIRED_SECTIONS.has(title.toLowerCase()))
       fail(
-        `step state is frozen once work starts: ${violations.join('; ')}. Use \`plan.mjs step\` for status changes, then re-export and re-apply the edit`,
+        `unknown section heading: ${title}; use only ${SECTIONS.join(', ')} or write it below an existing section as ### or plain text`,
       );
-    }
+    const key = name ?? title;
+    if (sections.has(key)) fail(`duplicate section heading: ${key}`);
+    sections.set(
+      key,
+      trimBlankLines(body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length)),
+    );
+  });
+  return sections;
+}
+function table(text, header) {
+  const lines = text.split('\n'),
+    scan = blankFencedRegions(text)
+      .split('\n')
+      .map((line) => (/^(?: {4}|\t)/.test(line) ? '' : line)),
+    cells = (line) =>
+      line
+        .trim()
+        .replace(/^\||(?<!\\)\|$/g, '')
+        .split(/(?<!\\)\|/)
+        .map((cell) => cell.trim());
+  const start = scan.findIndex((line) => cells(line).map(token).join('|') === cells(header).map(token).join('|'));
+  if (start < 0) return { lines, start, end: start, rows: [] };
+  const isSeparator = (line) => cells(line).every((cell) => /^:?-+:?$/.test(cell));
+  const first = start + 1 + (scan[start + 1] !== undefined && isSeparator(scan[start + 1]) ? 1 : 0);
+  let end = first;
+  while (end < scan.length && scan[end].trim().startsWith('|')) end++;
+  return { lines, start, end, rows: lines.slice(first, end).map(cells) };
+}
+const render = (sections) =>
+  `${MARKER}\n\n${SECTIONS.map((name) => `## ${name}\n\n${sections.get(name) ?? ''}`.trimEnd()).join('\n\n')}\n`;
+function replaceTable(sections, name, header, separator, rows) {
+  const parsed = table(sections.get(name) ?? '', header);
+  if (parsed.start < 0) return;
+  parsed.lines.splice(
+    parsed.start,
+    parsed.end - parsed.start,
+    header,
+    separator,
+    ...rows.map((cells) => `| ${cells.join(' | ')} |`),
+  );
+  sections.set(name, parsed.lines.join('\n'));
+}
+export function normalizePlan(text, { mode: explicitMode } = {}) {
+  const advice = [];
+  const cleaned = text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => (line.includes('\u2014') ? line.replaceAll('\u2014', ' - ').replace(/ {2,}/g, ' ') : line).trimEnd())
+    .join('\n');
+  const sections = sectionMap(cleaned),
+    goal = sections.get('Goal') ?? '';
+  const goalLines = goal.split('\n'),
+    modeLines = blankFencedRegions(goal)
+      .split('\n')
+      .map((line, index) => (/^ {0,3}Mode:/i.test(line) ? index : -1))
+      .filter((index) => index >= 0);
+  const mode = modeLines.length ? /^ {0,3}Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines.at(-1)]) : undefined,
+    value = (explicitMode ?? mode?.[1] ?? '').toLowerCase();
+  const valid = ['plan-only', 'plan-and-implement'].includes(value);
+  if (!valid) advice.push('Mode defaulted to plan-only; implementation needs an explicit mode.');
+  const goalWithoutMode = goalLines.filter((_, index) => !modeLines.includes(index)).join('\n');
+  sections.set('Goal', trimBlankLines(`${trimBlankLines(goalWithoutMode)}\n\nMode: ${valid ? value : 'plan-only'}`));
+  const rows = table(sections.get('Steps') ?? '', STEPS_HEADER).rows;
+  for (const row of rows) {
+    if (row.length !== 8) continue;
+    row[1] = stepId(row[1]);
+    row[5] = token(row[5]);
+    row[6] = token(row[6]);
+    if (!STEP_EFFECTS.has(row[5])) advice.push(`unknown Effect: ${row[5]}`);
+    if (!STEP_STATUSES.has(row[6])) advice.push(`unknown Status: ${row[6]}`);
+    if (row[5] !== 'local') advice.push(`step ${row[1]} Effect ${row[5]} needs an in-session ask before it runs.`);
   }
-  const changes = changedLines(issue.body, after);
-  // Stage provenance before the remote write. A failed sidecar write then costs one re-export; the reverse
-  // order would leave a local digest naming a body GitHub already replaced, which reads as a valid export.
-  fs.writeFileSync(originFile(file), `${bodyDigest(after)}\n`, { encoding: 'utf8', mode: 0o600 });
-  editIssueBodyIfUnchanged(issue, after);
-  console.log(headerStrip(issue, record.status));
+  const numbers = new Map(rows.filter((row) => row.length === 8).map((row) => [row[1], row[0]]));
+  const displays = new Set(numbers.values());
+  const dependency = (part) => {
+    const trimmed = part.trim();
+    if (displays.has(trimmed)) return trimmed;
+    return numbers.get(stepId(trimmed)) ?? trimmed;
+  };
+  for (const row of rows)
+    if (row.length === 8) row[4] = row[4] === '-' ? '-' : row[4].split(',').map(dependency).join(', ');
+  replaceTable(sections, 'Steps', STEPS_HEADER, STEPS_SEPARATOR, rows);
+  replaceTable(
+    sections,
+    'Acceptance',
+    ACCEPTANCE_HEADER,
+    ACCEPTANCE_SEPARATOR,
+    table(sections.get('Acceptance') ?? '', ACCEPTANCE_HEADER).rows,
+  );
+  if (
+    /(?:^|[\s("'`[{=:;,>])(?:\/(?!\/|\s|dev\/null\b)|[A-Za-z]:[\\/]|\\\\\S)/m.test(
+      cleaned.replace(/\]\([^)\n]*\)/g, ']()'),
+    )
+  )
+    advice.push('body contains an absolute machine path.');
+  return { body: render(sections), advice };
+}
+export function parsePlan(text) {
+  const { body } = normalizePlan(text),
+    sections = sectionMap(body);
+  return {
+    marker: MARKER,
+    sections,
+    malformedSteps: table(sections.get('Steps'), STEPS_HEADER)
+      .rows.map((row, index) => ({ line: index + 1, cells: row.length }))
+      .filter((row) => row.cells !== 8),
+    steps: table(sections.get('Steps'), STEPS_HEADER)
+      .rows.filter((row) => row.length === 8)
+      .map(([display, id, task, files, depends, effect, status, doneWhen]) => ({
+        display,
+        id,
+        task,
+        files,
+        depends,
+        effect,
+        status,
+        doneWhen,
+      })),
+    acceptance: table(sections.get('Acceptance'), ACCEPTANCE_HEADER).rows,
+  };
+}
+function printAdvice(text, status, extra = []) {
+  const result = normalizePlan(text);
+  if (status !== 'drafting' && parsePlan(text).sections.get('Research').includes('_Not researched yet._'))
+    result.advice.push('Research is not filled after drafting.');
+  for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
+}
+export function parseReviewComment(body) {
+  if (typeof body !== 'string') return undefined;
+  const lines = body.trim().split(/\r?\n/),
+    heading = /^(?:#+\s*)?(plan|code) review/i.exec(lines[0]);
+  if (!heading) return undefined;
+  const kind = heading[1].toLowerCase();
+  const index = lines.findIndex((line, i) => i > 0 && /^(plan|code)[- ]review:\s*(\S+)/i.test(line));
+  const match = /^(plan|code)[- ]review:\s*(\S+)/i.exec(lines[index] ?? '');
+  if (!match || match[1].toLowerCase() !== kind) return undefined;
+  const alias = match[2].toLowerCase();
+  let verdict = ['pass', 'ok', 'approved'].includes(alias)
+    ? 'pass'
+    : ['repair', 'changes', 'fixes-required'].includes(alias)
+      ? kind === 'plan'
+        ? 'repair'
+        : 'fixes-required'
+      : alias === 'blocked'
+        ? 'blocked'
+        : undefined;
+  if (!verdict) return undefined;
+  if (
+    kind === 'code' &&
+    verdict === 'pass' &&
+    /\b(critical|high)\b/i.test(lines.filter((_, i) => i > 0 && i !== index).join('\n'))
+  )
+    verdict = 'fixes-required';
+  return { kind, verdict };
+}
+function reviewVerdicts(issue) {
+  const owners = issue.assignees ?? [],
+    verdicts = {};
+  const comments = issueComments(issue.number)
+    .map((comment, index) => ({ comment, index }))
+    .sort(
+      (a, b) =>
+        (Date.parse(a.comment.createdAt ?? a.comment.created_at) || 0) -
+          (Date.parse(b.comment.createdAt ?? b.comment.created_at) || 0) || a.index - b.index,
+    );
+  for (const { comment } of comments) {
+    const review = parseReviewComment(comment.body);
+    if (owners.length === 1 && (comment.user?.login ?? comment.author?.login) === owners[0].login && review)
+      verdicts[review.kind] = review.verdict;
+  }
+  return verdicts;
+}
+function readPlanIssue(value, forWrite = false) {
+  const issue = issueView(parseIssueNumber(value));
+  if (!/^\s*<!-- plan-contract: v[34] -->/i.test(issue.body)) fail(`unreadable plan contract: #${issue.number}`);
+  if (forWrite) {
+    const login = resolveActingLogin(),
+      owners = (issue.assignees ?? []).map((owner) => owner.login);
+    const foreign = owners.find((owner) => owner !== login);
+    if (foreign) fail(`plan #${issue.number} is owned by ${foreign}`);
+    if (!owners.length) issue.claimLogin = login;
+  }
+  return { issue, parsed: parsePlan(issue.body), status: statusFromIssue(issue) };
+}
+function createPlan(args) {
+  const options = parseOptions(args, new Set(['--title', '--goal', '--mode', '--label']), new Set(['--label']));
+  if (!options['--title']?.trim() || !options['--goal']?.trim()) fail('new requires --title and --goal');
+  const extras = options['--label'] ?? [];
+  for (const label of extras) if (/^plan(?::|$)/i.test(label)) fail(`reserved label namespace: ${label}`);
+  resolveActingLogin();
+  for (const label of PLAN_LABELS) runGh(['label', 'create', label, '--force', '--repo', repository.nameWithOwner]);
+  const source = `## Goal\n${options['--goal']}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
+  const { body } = normalizePlan(source, { mode: options['--mode'] });
+  const url = withBodyFile(body, (file) =>
+    runGh([
+      'issue',
+      'create',
+      '--title',
+      options['--title'].replaceAll('\u2014', ' - ').replace(/ {2,}/g, ' ').trim(),
+      '--body-file',
+      file,
+      '--label',
+      'plan',
+      '--label',
+      'plan:drafting',
+      '--assignee',
+      '@me',
+      ...extras.flatMap((label) => ['--label', label]),
+      '--repo',
+      repository.nameWithOwner,
+    ]).trim(),
+  );
+  const number = /\/issues\/([1-9]\d*)\/?$/.exec(url)?.[1];
+  if (!number) fail('gh issue create returned an invalid issue URL');
+  console.log(`plan created: #${number} ${url}`);
+  printAdvice(source, 'drafting');
+}
+function showPlan(args) {
+  const [value, ...flags] = args;
+  if (!value || flags.length > 1 || flags.some((flag) => flag !== '--body'))
+    fail('show requires an issue and optional --body');
+  const { issue, status } = readPlanIssue(value),
+    reviews = reviewVerdicts(issue);
+  const metadata = `${headerStrip(issue, status)}\nreviews: plan=${reviews.plan ?? 'none'} code=${reviews.code ?? 'none'}`;
+  if (flags.length) {
+    console.error(metadata);
+    process.stdout.write(issue.body);
+  } else {
+    console.log(metadata);
+    printAdvice(issue.body, status);
+  }
+}
+function refuseMalformedSteps(plan) {
+  const [first] = plan.malformedSteps;
+  if (first)
+    fail(
+      `Steps row ${first.line} has ${first.cells} cells; expected 8. Escape a literal pipe as \\| so the row is preserved.`,
+    );
+}
+function editPlan(args) {
+  const [value, ...flags] = args,
+    file = parseOptions(flags, new Set(['--file']))['--file'];
+  if (!file) fail('edit requires an issue and --file');
+  const { issue, parsed, status } = readPlanIssue(value, true),
+    origin = readOrigin(file);
+  if (!origin)
+    fail(
+      `missing export provenance: ${file}.origin does not exist; run \`plan.mjs export ${issue.number}\` and re-apply the edit`,
+    );
+  if (origin !== bodyDigest(issue.body))
+    fail(
+      `stale export: ${file} was exported from a superseded body; run \`plan.mjs export ${issue.number}\` and re-apply the edit`,
+    );
+  const source = fs.readFileSync(file, 'utf8'),
+    { body } = normalizePlan(source),
+    incomingPlan = parsePlan(body),
+    incoming = incomingPlan.steps;
+  refuseMalformedSteps(incomingPlan);
+  const seenIds = new Set();
+  for (const row of incoming) {
+    if (seenIds.has(row.id)) fail(`duplicate step id after normalization: ${row.id}`);
+    seenIds.add(row.id);
+  }
+  if (planWorkStarted(issue, status)) {
+    refuseMalformedSteps(parsed);
+    const frozen = (detail) => fail(`step state is frozen once work starts: ${detail}`),
+      ids = new Set(parsed.steps.map((row) => row.id));
+    const last = incoming.reduce((position, row, index) => (ids.has(row.id) ? index : position), -1);
+    for (const row of parsed.steps) {
+      const matches = incoming.filter((next) => next.id === row.id);
+      if (matches.length !== 1) frozen(`step ${row.id} removed or duplicated`);
+      for (const key of ['id', 'display', 'depends', 'effect', 'status'])
+        if (matches[0][key] !== row[key]) frozen(`step ${row.id} ${key} changed`);
+    }
+    incoming.forEach((row, index) => {
+      if (
+        !ids.has(row.id) &&
+        (String(issue.state).toUpperCase() === 'CLOSED' || row.status !== 'planned' || index < last)
+      )
+        frozen(`new step ${row.id} must append as planned on an open plan`);
+    });
+  }
+  fs.writeFileSync(file, body);
+  fs.writeFileSync(originFile(file), `${bodyDigest(body)}\n`, { mode: 0o600 });
+  fs.chmodSync(originFile(file), 0o600);
+  editIssueBodyIfUnchanged(issue, body);
+  const changes = changedLines(issue.body, body);
+  console.log(headerStrip(issue, status));
   console.log(`changed: ${changes.length} line(s)`);
   for (const line of changes) console.log(line);
+  printAdvice(source, status);
 }
-
-function checkCommand(args) {
-  if (args.length === 2 && args[0] === '--file') {
-    const file = args[1];
-    const planText = fs.readFileSync(file, 'utf8');
-    const failures = checkPlan(planText, undefined);
-    if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
-    console.log(`plan check passed: ${file}`);
-    return;
-  }
-  if (args.length !== 1) fail('check requires one issue or --file path');
-  // check is the validator: an unclassifiable body must surface as a numbered failure, not as a read error.
-  const issue = issueView(parseIssueNumber(args[0]));
-  const failures = checkPlan(issue.body, issue);
-  if (failures.length > 0) fail(failures.map((message) => `#${issue.number}: ${message}`).join('\n'));
-  console.log(`plan check passed: #${issue.number}`);
-}
-
 function setPlanStatus(args) {
-  const [value, target, ...flags] = args;
-  if (!value || !target) fail('status requires an issue and status');
+  const [value, raw, ...flags] = args,
+    target = token(raw ?? ''),
+    options = parseOptions(flags, new Set(['--reason']));
   if (!PLAN_STATUSES.has(target)) fail(`unknown plan status: ${target}`);
-  const options = parseOptions(flags, new Set(['--reason']));
-  if (target === 'blocked' && (!String(options['--reason'] ?? '').trim() || /[\r\n]/.test(options['--reason']))) fail('blocked status requires --reason as single-line text');
-  if (target === 'blocked' && String(options['--reason'] ?? '').includes('\u2014')) {
-    fail('blocked status --reason must not contain an em dash');
-  }
-  if (target !== 'blocked' && options['--reason'] !== undefined) fail('--reason is allowed only for blocked status');
-  const { issue, record } = readPlanIssue(value, true);
-  if (String(issue.state).toUpperCase() === 'CLOSED') {
+  if (target === 'blocked' && (!options['--reason']?.trim() || /[\r\n]/.test(options['--reason'])))
+    fail('blocked status requires --reason as single-line text');
+  const { issue, parsed, status } = readPlanIssue(value, true);
+  if (String(issue.state).toUpperCase() === 'CLOSED')
     fail(`plan #${issue.number} is closed; status applies to open plans`);
-  }
-  requireValidPlanIssue(issue);
-  const current = record.status;
-  if (!new Set(['unreadable', 'unlabelled']).has(current) && !STATUS_TRANSITIONS[current]?.has(target)) {
-    fail(`illegal plan status transition: ${current} -> ${target}`);
-  }
-  const after = replaceBlockedReason(issue.body, target === 'blocked' ? options['--reason'] : undefined);
-  const labels = { add: `plan:${target}`, remove: labelsToRemove(issue, target) };
-  // A phase-only move changes no body bytes, so it stays a label write and cannot lose a concurrent body edit.
-  if (after === issue.body) editIssueLabelsIfBodyUnchanged(issue, labels);
-  else editIssueBodyIfUnchanged(issue, after, labels);
-  console.log(`plan #${issue.number} status: ${current} -> ${target}`);
+  if (planWorkStarted(issue, status) && !['ongoing', 'blocked'].includes(target))
+    fail(`illegal plan status transition: ${status} -> ${target}`);
+  const content = parsed.sections.get('Open questions').replace(/^Blocked:[^\n]*\n?\s*/i, '');
+  parsed.sections.set(
+    'Open questions',
+    `${target === 'blocked' ? `Blocked: ${options['--reason']}\n\n` : ''}${content}`.trim(),
+  );
+  const source = render(parsed.sections);
+  editIssueBodyIfUnchanged(issue, normalizePlan(source).body, {
+    add: `plan:${target}`,
+    remove: labelsToRemove(issue, target),
+  });
+  console.log(`plan #${issue.number} status: ${status} -> ${target}`);
+  printAdvice(issue.body, target);
 }
-
 function setStepStatus(args) {
-  const [value, stepId, target] = args;
-  if (!value || !stepId || !target || args.length !== 3) fail('step requires an issue, step id, and status');
+  if (args.length !== 3) fail('step requires an issue, step id, and status');
+  const [value, id, raw] = args,
+    target = token(raw),
+    { issue, parsed, status } = readPlanIssue(value, true);
   if (!STEP_STATUSES.has(target)) fail(`unknown step status: ${target}`);
-  const { issue, parsed, record } = readPlanIssue(value, true);
-  requireValidPlanIssue(issue);
-  // A plan whose issue closed with a step still non-terminal deadlocks: `step` wanted `ongoing` while
-  // `archive` wants every step terminal. Reopening to repair destroys the closure proof (only the latest
-  // closure event counts), so a `finished` plan accepts exactly the terminal repairs archive needs - a body
-  // edit on the closed issue, which creates no closure event and never touches GitHub state.
-  const terminalRepair = record.status === 'finished' && new Set(['done', 'skipped']).has(target);
-  if (record.status !== 'ongoing' && !terminalRepair) fail(`plan status is ${record.status}; expected ongoing`);
-  const { sections } = sectionMap(parsed.body);
-  const table = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
-  const row = table.rows.find(({ cells }) => cells[1] === stepId);
-  if (!row) fail(`unknown step id: ${stepId}`);
-  const current = unquoteCode(row.cells[6]);
-  if (!STEP_TRANSITIONS[current]?.has(target)) fail(`illegal step status transition: ${current} -> ${target}`);
-  if (new Set(['in-flight', 'done']).has(target) && row.cells[4] !== '-') {
-    const byNumber = new Map(table.rows.map((entry) => [entry.cells[0], unquoteCode(entry.cells[6])]));
-    const unfinished = row.cells[4].split(',').map((dependency) => dependency.trim()).filter((number) => !new Set(['done', 'skipped']).has(byNumber.get(number)));
-    if (unfinished.length > 0) fail(`step:${stepId} has unfinished dependency ${unfinished.join(', ')}`);
-  }
-  const bodyLines = parsed.body.split('\n');
-  const stepSectionStart = bodyLines.indexOf('## Steps') + 1;
-  const rowIndex = bodyLines.findIndex((line, index) => index >= stepSectionStart && line === row.line);
-  const parts = bodyLines[rowIndex].split('|');
-  parts[7] = parts[7].replace(current, target);
-  bodyLines[rowIndex] = parts.join('|');
-  const after = `${issue.body.slice(0, issue.body.length - parsed.body.length)}${bodyLines.join('\n')}`;
-  editIssueBodyIfUnchanged(issue, after);
-  console.log(`plan #${issue.number} step ${stepId}: ${current} -> ${target}`);
+  if (status !== 'ongoing' && status !== 'finished') fail(`plan status is ${status}; expected ongoing`);
+  refuseMalformedSteps(parsed);
+  const row = parsed.steps.find((step) => step.id === stepId(id));
+  if (!row) fail(`unknown step id: ${id}`);
+  const current = row.status;
+  if (
+    (status === 'finished' && !terminal(target)) ||
+    (status !== 'finished' && terminal(current) && current !== target)
+  )
+    fail(`illegal step status transition: ${current} -> ${target}`);
+  const advice = normalizePlan(issue.body).advice.filter((message) => message.startsWith('Mode defaulted')),
+    unfinished = row.depends
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part !== '-' && !terminal(parsed.steps.find((step) => step.display === part)?.status));
+  if (['in-flight', 'done'].includes(target) && unfinished.length)
+    advice.push(`step ${row.id} has unfinished dependency ${unfinished.join(', ')}`);
+  row.status = target;
+  replaceTable(
+    parsed.sections,
+    'Steps',
+    STEPS_HEADER,
+    STEPS_SEPARATOR,
+    parsed.steps.map((step) => Object.values(step)),
+  );
+  const source = render(parsed.sections);
+  editIssueBodyIfUnchanged(issue, normalizePlan(source).body);
+  console.log(`plan #${issue.number} step ${row.id}: ${current} -> ${target}`);
+  printAdvice(source, status, advice);
 }
-
-function issueListings() {
+function listPlans(args) {
+  const selected = parseOptions(args, new Set(['--status']))['--status'];
   const issues = parseJson(
-    runGh(['issue', 'list', '--label', 'plan', '--state', 'all', '--limit', '500', '--json', ISSUE_FIELDS.replace('body,', ''), '--repo', repository.nameWithOwner]),
+    runGh([
+      'issue',
+      'list',
+      '--label',
+      'plan',
+      '--state',
+      'all',
+      '--limit',
+      '500',
+      '--json',
+      ISSUE_FIELDS.replace('body,', ''),
+      '--repo',
+      repository.nameWithOwner,
+    ]),
     'gh issue list',
   );
-  return issues
-    .map((issue) => ({
-      ...issue,
-      status: statusFromIssue(issue),
-      owner: (issue.assignees ?? []).map((assignee) => assignee.login).filter(Boolean)[0] ?? null,
-      created: issue.createdAt,
-      updated: issue.updatedAt,
-    }))
-    .sort((left, right) => {
-      const leftClosed = String(left.state).toUpperCase() === 'CLOSED' ? 1 : 0;
-      const rightClosed = String(right.state).toUpperCase() === 'CLOSED' ? 1 : 0;
-      return leftClosed - rightClosed || left.number - right.number;
-    });
-}
-
-function listPlans(args) {
-  const options = parseOptions(args, new Set(['--status']));
-  const selectableStatuses = new Set([...PLAN_STATUSES, 'finished', 'retired', 'duplicate', 'unlabelled', 'unreadable']);
-  if (options['--status'] && !selectableStatuses.has(options['--status'])) fail(`unknown plan status: ${options['--status']}`);
-  for (const issue of issueListings()) {
-    if (!options['--status'] || issue.status === options['--status']) console.log(`${issue.status}\t#${issue.number}\t${issue.title}`);
+  issues.sort(
+    (a, b) =>
+      Number(a.state.toUpperCase() === 'CLOSED') - Number(b.state.toUpperCase() === 'CLOSED') || a.number - b.number,
+  );
+  for (const issue of issues) {
+    const status = statusFromIssue(issue);
+    if (!selected || status === token(selected)) console.log(`${status}\t#${issue.number}\t${issue.title}`);
   }
 }
-
-function parseQueue(queueText) {
-  const lines = queueText.split('\n');
-  const headerIndex = lines.indexOf('| Stage | Plan | Depends on | Why |');
-  if (headerIndex === -1 || lines[headerIndex + 1] !== '|---:|---|---|---|') fail('queue table header is invalid');
-  const rows = [];
-  const planValues = new Set();
-  for (let index = headerIndex + 2; index < lines.length && lines[index].startsWith('|'); index += 1) {
-    const cells = lines[index].slice(1, -1).split('|').map((cell) => cell.trim());
-    if (cells.length !== 4 || !/^\d+$/.test(cells[0]) || !cells[1] || !cells[3]) fail(`queue row ${index + 1} is invalid`);
-    if (planValues.has(cells[1])) fail(`duplicate queue plan ${cells[1]}`);
-    planValues.add(cells[1]);
-    const numeric = /^#?([1-9]\d*)$/.exec(cells[1]);
-    rows.push({
-      stage: Number(cells[0]),
-      plan: cells[1],
-      number: numeric ? Number(numeric[1]) : undefined,
-      dependencies: cells[2] === '-' ? [] : cells[2].split(',').map((item) => item.trim()),
-      order: rows.length,
-    });
-  }
-  return rows.sort((left, right) => left.stage - right.stage || left.order - right.order);
-}
-
-function nextPlans(args) {
-  if (args.length > 0) fail('next takes no arguments');
-  const listings = issueListings();
-  const planned = new Set(listings.filter(({ status }) => status === 'planned').map(({ number }) => number));
-  const finished = new Set(listings.filter(({ status }) => status === 'finished').map(({ number }) => number));
-  const queueFile = 'docs/PLAN-QUEUE.md';
-  if (fs.existsSync(queueFile)) {
-    try {
-      const rows = parseQueue(fs.readFileSync(queueFile, 'utf8'));
-      if (rows.length > 0) {
-        const byReference = new Map(rows.map((row) => [row.plan.replace(/^#/, ''), row]));
-        const dependencyClosureIsFinished = (reference, seen = new Set()) => {
-          const key = reference.replace(/^#/, '');
-          if (seen.has(key) || !/^[1-9]\d*$/.test(key)) return false;
-          const number = Number(key);
-          if (!finished.has(number)) return false;
-          const dependencyRow = byReference.get(key);
-          if (!dependencyRow || dependencyRow.number === undefined) return dependencyRow === undefined;
-          const nextSeen = new Set(seen).add(key);
-          return dependencyRow.dependencies.every((dependency) => dependencyClosureIsFinished(dependency, nextSeen));
-        };
-        for (const row of rows) {
-          if (row.number !== undefined && planned.has(row.number) && row.dependencies.every((dependency) => dependencyClosureIsFinished(dependency))) console.log(`#${row.number}`);
-        }
-        return;
-      }
-    } catch (error) {
-      console.error(`warning: malformed ${queueFile}: ${error.message}; falling back to planned plans`);
-    }
-  } else {
-    console.error(`warning: missing ${queueFile}; falling back to planned plans`);
-  }
-  for (const number of [...planned].sort((left, right) => left - right)) console.log(`#${number}`);
-}
-
 function archivePlan(args, retired = false) {
-  const [value, ...flags] = args;
-  if (!value) fail(`${retired ? 'retire' : 'archive'} requires an issue`);
-  const options = parseOptions(flags, retired ? new Set(['--reason']) : new Set());
-  if (retired && (!String(options['--reason'] ?? '').trim() || /[\r\n]/.test(options['--reason']))) fail('retire requires a single-line --reason');
-  const { issue, parsed, record } = readPlanIssue(value, true);
-  const closed = String(issue.state).toUpperCase() === 'CLOSED';
-  const recovery = retired &&
-    closed &&
-    String(issue.stateReason).toUpperCase() === 'NOT_PLANNED' &&
-    labelNames(issue.labels).some((label) => label.startsWith('plan:') && PLAN_STATUSES.has(label.slice(5)));
-  if (retired && closed && !recovery) fail(`cannot retire a ${record.status} plan`);
-  if (!retired && record.status !== 'finished') fail(`archive requires finished status, found ${record.status}`);
-
-  let closingPullRequest;
+  const [value, ...flags] = args,
+    options = parseOptions(flags, new Set(retired ? ['--reason'] : []));
+  if (retired && (!options['--reason']?.trim() || /[\r\n]/.test(options['--reason'])))
+    fail('retire requires a single-line --reason');
+  const { issue, parsed, status } = readPlanIssue(value, true);
+  if (retired && String(issue.state).toUpperCase() === 'CLOSED') fail(`cannot retire a ${status} plan`);
+  if (!retired && status !== 'finished') fail(`archive requires finished status, found ${status}`);
+  let closer;
   if (!retired) {
-    const { sections } = sectionMap(parsed.body);
-    const steps = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8).rows;
-    const unfinished = steps.length === 0 ? { cells: ['', '(missing)'] } : steps.find(({ cells }) => !new Set(['done', 'skipped']).has(unquoteCode(cells[6])));
-    if (unfinished) fail(`archive refused: non-terminal step ${unfinished.cells[1]}`);
+    if (parsed.steps.length === 0) fail('archive refused: no Steps rows parsed');
+    const unfinished = parsed.steps.find((row) => !terminal(row.status));
+    if (unfinished) fail(`archive refused: non-terminal step ${unfinished.id}`);
     if (reviewVerdicts(issue).code !== 'pass') fail('archive requires Code-review: pass');
-
-    const { closing, closingCommitOid, closerPullRequest, defaultBranch } = archivePullRequestReferences(issue.number);
-    const landedInto = (references, branch) => references.find((reference) => (
-      reference.state === 'MERGED' &&
-      reference.mergedAt &&
-      reference.repository?.nameWithOwner === repository.nameWithOwner &&
-      reference.baseRefName === branch
-    ));
-    const mergedElsewhere = (references) => references.find((reference) => reference.state === 'MERGED' && reference.mergedAt)?.baseRefName;
-
-    // Any one proof suffices, so an ineligible keyword reference must not hide a valid closure recorded
-    // by the ClosedEvent closer, whether GitHub stored it as the pull request or as the merge commit.
-    const closerReferences = closerPullRequest ? [closerPullRequest] : [];
-    closingPullRequest = landedInto(closing, defaultBranch) ?? landedInto(closerReferences, defaultBranch);
-    let associated;
-    if (!closingPullRequest && closingCommitOid) {
-      associated = associatedPullRequests(closingCommitOid);
-      closingPullRequest = landedInto(associated.pullRequests, associated.defaultBranch);
-    }
-    if (!closingPullRequest) {
-      const wrongClosingBranch = mergedElsewhere([...closing, ...closerReferences]);
-      if (wrongClosingBranch) fail(`archive requires a pull request merged into ${defaultBranch}, found ${wrongClosingBranch}`);
-      if (associated) {
-        const wrongCommitBranch = mergedElsewhere(associated.pullRequests);
-        if (wrongCommitBranch) fail(`archive requires a pull request merged into ${associated.defaultBranch}, found ${wrongCommitBranch}`);
-        fail(`archive requires a merged closing pull request; closing commit ${closingCommitOid} has no associated merged pull request into ${associated.defaultBranch}`);
-      }
-      if (closing.length > 0 || closerReferences.length > 0) fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
-      fail('archive requires a merged closing pull request; issue has no closing commit');
-    }
+    const { closingCommitOid, closerPullRequest, defaultBranch } = archivePullRequestReferences(issue.number);
+    const references = closerPullRequest
+      ? [closerPullRequest]
+      : closingCommitOid
+        ? associatedPullRequests(closingCommitOid).pullRequests
+        : [];
+    closer = references.find(
+      (pr) =>
+        pr.state === 'MERGED' &&
+        pr.mergedAt &&
+        pr.repository?.nameWithOwner === repository.nameWithOwner &&
+        pr.baseRefName === defaultBranch,
+    );
+    if (!closer)
+      fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
   }
-
-  if (retired && !recovery) {
+  editIssueLabelsIfBodyUnchanged(issue, { remove: labelsToRemove(issue) });
+  if (retired)
     runGh([
       'issue',
       'close',
@@ -1146,47 +794,33 @@ function archivePlan(args, retired = false) {
       '--reason',
       'not planned',
       '--comment',
-      options['--reason'],
+      options['--reason'].replaceAll('\u2014', ' - ').replace(/ {2,}/g, ' '),
       '--repo',
       repository.nameWithOwner,
     ]);
-  }
-  editIssueLabelsIfBodyUnchanged(issue, { remove: labelsToRemove(issue) });
-  if (recovery) console.log(`plan #${issue.number} retired (recovered label cleanup)`);
-  else if (retired) console.log(`plan #${issue.number} retired`);
-  else {
-    const url = closingPullRequest.url ?? `https://github.com/${repository.nameWithOwner}/pull/${closingPullRequest.number}`;
-    console.log(`plan #${issue.number} finished (closed by ${url})`);
-  }
+  console.log(
+    retired
+      ? `plan #${issue.number} retired`
+      : `plan #${issue.number} finished (closed by ${closer.url ?? `https://github.com/${repository.nameWithOwner}/pull/${closer.number}`})`,
+  );
 }
-
-function usage() {
-  return 'usage: plan.mjs <labels|new|claim|show|export|edit|check|status|step|list|next|archive|retire> ...';
-}
-
-function main(argv) {
-  const [command, ...args] = argv;
-  if (!command) fail(usage());
+function main([command, ...args]) {
   const commands = {
-    labels: labelsCommand,
     new: createPlan,
-    claim: claimPlan,
     show: showPlan,
     export: exportPlan,
     edit: editPlan,
-    check: checkCommand,
     status: setPlanStatus,
     step: setStepStatus,
     list: listPlans,
-    next: nextPlans,
-    archive: (values) => archivePlan(values),
+    archive: archivePlan,
     retire: (values) => archivePlan(values, true),
   };
-  if (!commands[command]) fail(usage());
+  if (!Object.hasOwn(commands, command))
+    fail('usage: plan.mjs <new|show|export|edit|status|step|list|archive|retire> ...');
   repository = resolveRepository();
   commands[command](args);
 }
-
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try {
     main(process.argv.slice(2));

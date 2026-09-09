@@ -116,25 +116,6 @@
       "skips": []
     },
     {
-      "id": "repo-plan-skill-phases",
-      "version": 1,
-      "title": "Plan Skill Phases repository contract",
-      "owner": {
-        "suite": "scripts/tests/plan-skill-phases.mjs",
-        "layer": "contract"
-      },
-      "selection": {
-        "kind": "node-script",
-        "selector": "scripts/tests/plan-skill-phases.mjs --case bounded-workflows|plan-workspace-template",
-        "expected_min": 2
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["node-24"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
       "id": "repo-skill-trigger-collision",
       "version": 1,
       "title": "Skill Trigger Collision repository contract",

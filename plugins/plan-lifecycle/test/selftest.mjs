@@ -1,8 +1,5 @@
 #!/usr/bin/env node
-// plan-lifecycle self-test - binds the four declarations the extraction relies
-// on: the fail-loud routing prerequisite in every external route, closed
-// compatibility with docks' parsed major, manifest/catalog version agreement,
-// and single ownership in both catalogs plus the author registry.
+// Check plugin packaging and compatibility. The author smoke covers the helper.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,51 +8,6 @@ import { fileURLToPath } from 'node:url';
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(pluginRoot, '../..');
 const readJson = (relative) => JSON.parse(fs.readFileSync(path.join(repoRoot, relative), 'utf8'));
-const read = (relative) => fs.readFileSync(path.join(repoRoot, relative), 'utf8');
-
-// ---- plan.mjs: closed shipped API and no retired lifecycle machinery ------
-const planScriptRelative = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
-const planContractRelative = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
-const managerSkillRelative = 'plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md';
-assert.ok(fs.existsSync(path.join(repoRoot, planScriptRelative)), `${planScriptRelative} must exist`);
-assert.ok(fs.existsSync(path.join(repoRoot, planContractRelative)), `${planContractRelative} must exist`);
-assert.ok(
-  read(managerSkillRelative).includes('[`references/plan-contract.md`](references/plan-contract.md)'),
-  `${managerSkillRelative} must link the v3 plan contract reference`,
-);
-
-const planCli = await import(new URL('../skills/productivity/plan-manager/scripts/plan.mjs', import.meta.url));
-const PLAN_CLI_EXPORTS = ['checkPlan', 'machinePathCitations'];
-assert.deepEqual(Object.keys(planCli).sort(), PLAN_CLI_EXPORTS, 'plan.mjs must expose only the closed plan CLI API');
-for (const name of PLAN_CLI_EXPORTS) {
-  assert.equal(typeof planCli[name], 'function', `plan.mjs export ${name} must be a function`);
-}
-const RETIRED_PLAN_MACHINERY = [
-  'transactPlanRun',
-  'reducePlanRun',
-  'replacePlanRunInPlace',
-  'plan_sha256',
-  'ExternalAuthorityV1',
-];
-const planSource = read(planScriptRelative);
-for (const name of RETIRED_PLAN_MACHINERY) {
-  assert.ok(!planSource.includes(name), `plan.mjs source must not contain retired machinery ${name}`);
-}
-
-// ---- routing prerequisite: byte-identical, exactly once per route ----------
-// Keep in lockstep with scripts/tests/plan-skill-phases.mjs and the four files.
-const LIFECYCLE_ROUTE_PREREQUISITE =
-  'Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.';
-const LIFECYCLE_ROUTE_FILES = [
-  'plugins/docks/skills/engineering/refactor/SKILL.md',
-  'plugins/docks/skills/engineering/security/SKILL.md',
-  'plugins/docks/skills/productivity/context-tree/SKILL.md',
-  'plugins/docks/skills/productivity/skill-agent-pipeline/SKILL.md',
-];
-for (const relative of LIFECYCLE_ROUTE_FILES) {
-  const occurrences = read(relative).split(LIFECYCLE_ROUTE_PREREQUISITE).length - 1;
-  assert.equal(occurrences, 1, `${relative} must carry the absent-lifecycle prerequisite paragraph exactly once`);
-}
 
 // ---- compatibility: closed object, integer minimum met by docks ------------
 const compatibility = readJson('plugins/plan-lifecycle/compatibility.json');
@@ -110,8 +62,7 @@ assert.equal(registered.length, 1, 'the author registry must contain exactly one
 assert.equal(registered[0].root, 'plugins/plan-lifecycle');
 
 console.log(
-  'plan-lifecycle self-test PASSED: routing-prerequisite (4 routes), ' +
-    `manifest/catalog agreement (plan-lifecycle ${claudeManifest.version}), ` +
-    'registry and both catalogs hold exactly one entry, plan CLI exposes its closed API, ' +
+  `plan-lifecycle self-test PASSED: manifest/catalog agreement (${claudeManifest.version}), ` +
+    'registry and both catalogs hold exactly one entry, ' +
     `minimum_docks_major ${compatibility.minimum_docks_major} met by docks major ${docksMajor}`,
 );

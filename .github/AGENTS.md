@@ -3,10 +3,8 @@
 `workflows/ci.yml` keeps one authoritative `validate (scripts/ci.mjs)` status.
 Pull requests run the `validation-shards` matrix lanes their changed paths
 resolve to plus the independent `targeting-contracts` job; `validate` joins both
-prerequisites without rerunning the gate. Core owns `scripts/tests/plan-cli.mjs`
-plus the `bounded-workflows` case and the `plan-workspace-template` comparison
-between `docs/PLAN.md` and the plugin plan template in
-`scripts/tests/plan-skill-phases.mjs`, the Docks trigger-collision audit, the
+prerequisites without rerunning the gate. Core owns the helper smoke in
+`scripts/tests/plan-cli.mjs`, the Docks trigger-collision audit, the
 plugin gates, and JavaScript quality. Manual
 dispatches run one full gate alongside the targeting contract
 before the same join. Tag pushes run one registry-resolved plugin gate; the join

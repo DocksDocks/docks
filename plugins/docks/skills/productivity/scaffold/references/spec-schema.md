@@ -85,10 +85,10 @@ bundled_skills:
   - { source: plugins/docks/skills/productivity/write-skill }
 ```
 
-The three exact plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context adaptive orchestration, and repository-grounded plan review. Scaffold generation does not automatically create or review a plan. Both `plan-reviewer` and `code-reviewer` receive read-only Codex wrappers; main context invokes `plan-manager` directly. The plan record is a GitHub issue: its body starts with `<!-- plan-contract: v3 -->`, followed by one blank line and the eight `##` sections, and carries no frontmatter; its `plan:<status>` label owns the open-work phase, and no plan markdown is tracked in the repository.
+The three plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context orchestration, and repository-grounded plan review. Scaffold generation does not create or review a plan. The read-only Codex wrappers are `plan-reviewer` and `code-reviewer`. Main context invokes `plan-manager` directly. Plans are GitHub issues, not tracked markdown files. Read `skills/productivity/plan-manager/references/plan-contract.md` inside the installed `plan-lifecycle` plugin for the v4 contract.
 
-- `source` — path in the source repo. Setup must read these from the live repo rather than copying a stale example.
-- `destination` — optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.
+- `source` - path in the source repo. Setup must read these from the live repo rather than copying a stale example.
+- `destination` - optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.
 - Copied verbatim (pinned). Consumers update them later via `claude plugin update`.
 
 ## `scripts`
@@ -128,6 +128,6 @@ variables:
 
 - A token is `{{ name }}` (spaces optional: `{{name}}` also matches). `name` must be a key under `variables`.
 - Tokens are valid in template file CONTENT and in `templated_files[].dest`, `tree_nodes[].path`, `bundled_skills[].destination`.
-- Substitution is literal find-and-replace done by the skill as it writes (no engine, no sed step). After writing, grep the target for `{{` — zero matches is the invariant.
+- Substitution is literal find-and-replace done by the skill as it writes (no engine, no sed step). After writing, grep the target for `{{` - zero matches is the invariant.
 - `plugin_name` must be kebab-case and must not be `docks`.
 - JSON-escape values that contain quotes when rendering `.json` templates.

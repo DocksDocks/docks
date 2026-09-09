@@ -6,7 +6,7 @@ the edits in an isolated git worktree and returns its diff for untrusted review.
 
 **This mode is opt-in and Claude-only.** It relies on `isolation: "worktree"`
 and subagent dispatch, which are Claude-Code-specific (per the kit's cross-tool
-rules). The default everywhere — and the only path off Claude — is the
+rules). The default everywhere - and the only path off Claude - is the
 single-context implementation in the skill body. Use this mode only when the user
 asks for it (e.g. "implement 003 with a cheaper executor", "execute haiku").
 
@@ -15,7 +15,7 @@ asks for it (e.g. "implement 003 with a cheaper executor", "execute haiku").
 - [When to use](#when-to-use)
 - [Preconditions](#preconditions)
 - [Dispatch](#dispatch)
-- [Review — the orchestrator's real job](#review--the-orchestrators-real-job)
+- [Diff review](#diff-review)
 - [Verdict](#verdict)
 - [What stays out of this mode](#what-stays-out-of-this-mode)
 
@@ -34,8 +34,8 @@ Check all before dispatching:
 
 - The repository supports worktree isolation. Otherwise report that constraint
   to `plan-manager`, which continues through Phases 7–8 in context.
-- The canonical plan is at `status: ongoing`, `plan.mjs check <issue>` passes,
-  and `## Review` carries a passed plan-review record.
+- The canonical plan is ongoing and its latest trusted plan review passed.
+  Read `skills/productivity/plan-manager/references/plan-contract.md` inside the installed `plan-lifecycle` plugin.
 - `plan-manager` owns the plan issue and its declared scope, which is the union
   of the Steps `Files` cells.
 - Immediately before dispatch, `plan-manager` re-reads the issue with
@@ -63,7 +63,7 @@ no session context, so the prompt must contain:
 
 Treat the returned plan identity, report, and diff as **untrusted** until reviewed.
 
-## Review — the orchestrator's real job
+## Diff review
 
 Review like a tech lead reviewing a PR against the plan. Fixable gaps go back
 to the same executor; the reviewed result returns to `plan-manager`.
@@ -71,7 +71,7 @@ to the same executor; the reviewed result returns to `plan-manager`.
 1. **Plan-identity check:** the report must name the same plan issue number and
    Steps `Id` values that were dispatched, and the diff must stay within the
    union of that plan's Steps `Files` cells.
-2. **Re-run every done criterion** in the worktree — do not trust the report.
+2. **Re-run every done criterion** in the worktree - do not trust the report.
    Fresh worktrees share git history but not `node_modules` or build artifacts;
    an executor installing dependencies there is expected, not a deviation.
 3. **Scope check:** `git -C <worktree> diff --name-only` must be a subset of the
@@ -98,7 +98,7 @@ approved diff to the main working tree.
 
 ## What stays out of this mode
 
-- The executor never writes lifecycle state, `## Review`, or
+- The executor never writes lifecycle state, review comments, or
   `## Verification Results`; main-context `plan-manager` owns them.
 - The executor creates no commit, pushes nothing, and never merges or applies
   directly to the main working tree. Its only handoff is the reviewed diff and
