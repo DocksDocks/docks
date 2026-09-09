@@ -472,6 +472,20 @@ try {
     'duplicate section heading: Steps',
   );
   assert.equal(issue(doubled).body, body(), 'a duplicate heading writes nothing');
+  const fencedMode = createPlan('fenced mode example');
+  const modeExample = '```markdown\nMode: plan-and-implement\n```\n\n';
+  expectSuccess(
+    edit(fencedMode, (text) =>
+      text
+        .replace('Fix the parser.\n\n', `Fix the parser.\n\n${modeExample}`)
+        .replace('Mode: plan-and-implement\n', 'Mode: plan-only\n'),
+    ),
+    'edit with fenced mode example',
+  );
+  const fencedModeBody = issue(fencedMode).body;
+  assert.ok(fencedModeBody.includes(modeExample.trimEnd()), 'fenced Mode example is preserved');
+  assert.match(fencedModeBody, /\nMode: plan-only\n/, 'the unfenced Mode decision is the live mode');
+  assert.equal(fencedModeBody.match(/^Mode:/gm).length, 2, 'one example, one live Mode line');
 
   console.log(
     'plan-cli smoke PASSED: normalization, v3 read, ownership, compare-before-write, provenance, step freeze, transitions, review trust, archive proof',

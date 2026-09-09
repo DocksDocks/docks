@@ -412,11 +412,17 @@ export function normalizePlan(text) {
     .join('\n');
   const sections = sectionMap(cleaned),
     goal = sections.get('Goal') ?? '';
-  const mode = /^\s*Mode:\s*(.*?)\s*$/im.exec(goal),
+  const goalLines = goal.split('\n'),
+    modeLines = blankFencedRegions(goal)
+      .split('\n')
+      .map((line, index) => (/^\s*Mode:/i.test(line) ? index : -1))
+      .filter((index) => index >= 0);
+  const mode = modeLines.length ? /^\s*Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines[0]]) : undefined,
     value = mode?.[1].toLowerCase();
   const valid = ['plan-only', 'plan-and-implement'].includes(value);
   if (!valid) advice.push('Mode defaulted to plan-only; implementation needs an explicit mode.');
-  sections.set('Goal', `${goal.replace(/^\s*Mode:.*$/gim, '').trim()}\n\nMode: ${valid ? value : 'plan-only'}`.trim());
+  const goalWithoutMode = goalLines.filter((_, index) => !modeLines.includes(index)).join('\n');
+  sections.set('Goal', `${goalWithoutMode.trim()}\n\nMode: ${valid ? value : 'plan-only'}`.trim());
   const rows = table(sections.get('Steps') ?? '', STEPS_HEADER).rows;
   for (const row of rows) {
     if (row.length !== 8) continue;
