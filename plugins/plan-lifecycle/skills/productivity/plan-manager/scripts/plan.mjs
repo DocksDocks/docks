@@ -362,13 +362,17 @@ let repository, actingLogin;
 const token = (value) => unquoteCode(value.trim()).toLowerCase();
 const stepId = (value) => token(value).replaceAll('-', '_');
 const terminal = (status) => ['done', 'skipped'].includes(status);
+const trimBlankLines = (text) => text.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
 function sectionMap(body) {
   const headings = [...blankFencedRegions(body).matchAll(/^ {0,3}##[ \t]+([^\n]+)$/gm)];
   const sections = new Map();
   headings.forEach((heading, index) => {
     const name = SECTIONS.find((known) => known.toLowerCase() === heading[1].trim().toLowerCase()) ?? heading[1].trim();
     if (sections.has(name)) fail(`duplicate section heading: ${name}`);
-    sections.set(name, body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length).trim());
+    sections.set(
+      name,
+      trimBlankLines(body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length)),
+    );
   });
   return sections;
 }
@@ -422,7 +426,7 @@ export function normalizePlan(text) {
   const valid = ['plan-only', 'plan-and-implement'].includes(value);
   if (!valid) advice.push('Mode defaulted to plan-only; implementation needs an explicit mode.');
   const goalWithoutMode = goalLines.filter((_, index) => !modeLines.includes(index)).join('\n');
-  sections.set('Goal', `${goalWithoutMode.trim()}\n\nMode: ${valid ? value : 'plan-only'}`.trim());
+  sections.set('Goal', trimBlankLines(`${trimBlankLines(goalWithoutMode)}\n\nMode: ${valid ? value : 'plan-only'}`));
   const rows = table(sections.get('Steps') ?? '', STEPS_HEADER).rows;
   for (const row of rows) {
     if (row.length !== 8) continue;

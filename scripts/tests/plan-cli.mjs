@@ -513,6 +513,27 @@ try {
   assert.ok(issue(indentedMode).body.includes('    Mode: plan-and-implement\n'), 'indented example is preserved');
   assert.match(issue(indentedMode).body, /\nMode: plan-only\n/, 'the plan-only decision is the live mode');
 
+  for (const [label, transform] of [
+    [
+      'leading',
+      (text) =>
+        text.replace(
+          '## Goal\n\nFix the parser.\n\n',
+          '## Goal\n\n    Mode: plan-and-implement\n\nFix the parser.\n\n',
+        ),
+    ],
+    ['trailing', (text) => text.replace('Mode: plan-only\n\n', 'Mode: plan-only\n\n    Mode: plan-and-implement\n\n')],
+  ]) {
+    const placed = createPlan(`${label} indented mode example`);
+    expectSuccess(
+      edit(placed, (text) => transform(text.replace('Mode: plan-and-implement\n', 'Mode: plan-only\n'))),
+      `edit with ${label} indented example`,
+    );
+    expectSuccess(edit(placed), `${label} second normalization`);
+    assert.ok(issue(placed).body.includes('    Mode: plan-and-implement\n'), `${label} indented example is preserved`);
+    assert.match(issue(placed).body, /\nMode: plan-only\n/, `${label}: the plan-only decision stays live`);
+    assert.equal(issue(placed).body.match(/^Mode:/gm).length, 1, `${label}: exactly one live Mode line`);
+  }
   // Dependency normalization is idempotent even when a step id is a number.
   const numericId = createPlan('numeric step id');
   const numericRows = [
