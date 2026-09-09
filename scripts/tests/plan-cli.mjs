@@ -377,6 +377,8 @@ try {
     edit(mixedLabels, (text) => text.replace('| planned |', '| done |')),
     'step state is frozen once work starts: step fix_parser status changed',
   );
+  refuse(run('status', String(mixedLabels), 'drafting'), 'illegal plan status transition: planned -> drafting');
+  assert.deepEqual(issue(mixedLabels).labels, ['plan', 'plan:planned'], 'history keeps the plan out of drafting');
 
   // Archive needs terminal work, a trusted pass, and the actual merged closer.
   const landed = closedPlan('merged closer');
@@ -434,6 +436,13 @@ try {
     'add a row whose cell ends in an even backslash run',
   );
   assert.ok(issue(piped).body.includes(backslashRow), 'an even backslash run before a pipe is a delimiter');
+  const oddRow =
+    '| 4 | odd_run | Keep `a \\\\\\| b` | src/odd.mjs | - | local | planned | Three backslashes escape the pipe |';
+  expectSuccess(
+    edit(piped, (text) => text.replace(`${backslashRow}\n`, `${backslashRow}\n${oddRow}\n`)),
+    'add a row with an odd backslash run before a pipe',
+  );
+  assert.ok(issue(piped).body.includes(oddRow), 'an odd backslash run before a pipe keeps the pipe in the cell');
 
   // A row that does not parse to eight cells blocks every write instead of vanishing.
   const malformed = createPlan('malformed row');
