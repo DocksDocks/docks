@@ -436,12 +436,17 @@ try {
     'add a row whose cell ends in an even backslash run',
   );
   assert.ok(issue(piped).body.includes(backslashRow), 'an even backslash run before a pipe is a delimiter');
-  const oddRow = String.raw`| 4 | odd_run | Keep \`a \\\| b\` | src/odd.mjs | - | local | planned | Three backslashes escape the pipe |`;
+  const oddCell = String.raw`Keep a \\\| b`;
+  assert.equal(oddCell, 'Keep a \\\\\\| b', 'the raw fixture holds exactly three backslashes before the pipe');
+  const oddRow = `| 4 | odd_run | ${oddCell} | src/odd.mjs | - | local | planned | Three backslashes escape the pipe |`;
   expectSuccess(
     edit(piped, (text) => text.replace(`${backslashRow}\n`, `${backslashRow}\n${oddRow}\n`)),
     'add a row with an odd backslash run before a pipe',
   );
-  assert.ok(issue(piped).body.includes(oddRow), 'an odd backslash run before a pipe keeps the pipe in the cell');
+  assert.ok(
+    issue(piped).body.includes(`| ${oddCell} |`),
+    'an odd backslash run before a pipe keeps the pipe in the cell',
+  );
   expectSuccess(run('step', String(piped), 'fix_parser', 'done'), 'step rewrite beside the odd-run row');
   assert.ok(issue(piped).body.includes(oddRow), 'the odd-run row survives a step rewrite as one cell');
 
