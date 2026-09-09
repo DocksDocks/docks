@@ -380,10 +380,12 @@ function table(text, header) {
         .split(/(?<!\\)\|/)
         .map((cell) => cell.trim());
   const start = lines.findIndex((line) => cells(line).map(token).join('|') === cells(header).map(token).join('|'));
-  let end = start + 2;
-  if (start < 0) return { lines, start, end, rows: [] };
+  if (start < 0) return { lines, start, end: start, rows: [] };
+  const isSeparator = (line) => cells(line).every((cell) => /^:?-+:?$/.test(cell));
+  const first = start + 1 + (lines[start + 1] !== undefined && isSeparator(lines[start + 1]) ? 1 : 0);
+  let end = first;
   while (end < lines.length && lines[end].trim().startsWith('|')) end++;
-  return { lines, start, end, rows: lines.slice(start + 2, end).map(cells) };
+  return { lines, start, end, rows: lines.slice(first, end).map(cells) };
 }
 const render = (sections) =>
   `${MARKER}\n\n${SECTIONS.map((name) => `## ${name}\n\n${sections.get(name) ?? ''}`.trimEnd()).join('\n\n')}\n`;

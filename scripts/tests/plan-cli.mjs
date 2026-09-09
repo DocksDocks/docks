@@ -428,6 +428,19 @@ try {
   );
   assert.match(issue(malformed).body, /\| broken \|/, 'the malformed row is untouched');
 
+  // A missing separator line is inserted; the first data row is never mistaken for it.
+  const unseparated = createPlan('missing separator');
+  expectSuccess(
+    edit(unseparated, (text) =>
+      text.replace('|---:|---|---|---|---|---|---|---|\n', '').replace('|---|---|---|\n', ''),
+    ),
+    'edit without separators',
+  );
+  const unseparatedBody = issue(unseparated).body;
+  assert.ok(unseparatedBody.includes('| 1 | fix_parser | Fix parser |'), 'first step row survives');
+  assert.ok(unseparatedBody.includes('| A1 | node smoke.mjs | Exit 0 |'), 'first acceptance row survives');
+  assert.equal(unseparatedBody, body(), 'separators are restored');
+
   console.log(
     'plan-cli smoke PASSED: normalization, v3 read, ownership, compare-before-write, provenance, step freeze, transitions, review trust, archive proof',
   );
