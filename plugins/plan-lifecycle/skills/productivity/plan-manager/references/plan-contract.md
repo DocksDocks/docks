@@ -185,7 +185,7 @@ Unknown Effect and Status tokens remain in the record and produce advice. A
 literal pipe inside a table cell is written `\|`. A row that does not parse to
 eight cells is kept verbatim by `status`, and it blocks `edit` and `step`, so a
 rewrite never drops the row. Once work has started, `edit` also refuses while
-the current record holds such a row. A duplicate section heading blocks `edit`.
+the current record holds such a row. A duplicate or unknown `##` heading blocks every body write; a retired `## Review` heading is dropped on the next write. An explicit `--mode` on `new` outranks any Mode line inside `--goal`; otherwise the last unfenced, unindented Mode line in Goal is the decision.
 
 Advice prints `advice: <text>` on stdout and exits 0. It covers absolute machine
 paths, `_Not researched yet._` after drafting, defaulted Mode, unknown Effect or
@@ -212,6 +212,7 @@ archive refused: no Steps rows parsed
 duplicate step id after normalization: <id>
 Steps row <n> has <count> cells; expected 8. Escape a literal pipe as \| so the row is preserved.
 duplicate section heading: <name>
+unknown section heading: <title>; use only <the seven sections> or write it below an existing section as ### or plain text
 archive requires Code-review: pass
 archive requires a closing pull request merged into <nameWithOwner>:<branch>
 retire requires a single-line --reason

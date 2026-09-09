@@ -363,14 +363,21 @@ const token = (value) => unquoteCode(value.trim()).toLowerCase();
 const stepId = (value) => token(value).replaceAll('-', '_');
 const terminal = (status) => ['done', 'skipped'].includes(status);
 const trimBlankLines = (text) => text.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
+const RETIRED_SECTIONS = new Set(['review']);
 function sectionMap(body) {
   const headings = [...blankFencedRegions(body).matchAll(/^ {0,3}##[ \t]+([^\n]+)$/gm)];
   const sections = new Map();
   headings.forEach((heading, index) => {
-    const name = SECTIONS.find((known) => known.toLowerCase() === heading[1].trim().toLowerCase()) ?? heading[1].trim();
-    if (sections.has(name)) fail(`duplicate section heading: ${name}`);
+    const title = heading[1].trim();
+    const name = SECTIONS.find((known) => known.toLowerCase() === title.toLowerCase());
+    if (!name && !RETIRED_SECTIONS.has(title.toLowerCase()))
+      fail(
+        `unknown section heading: ${title}; use only ${SECTIONS.join(', ')} or write it below an existing section as ### or plain text`,
+      );
+    const key = name ?? title;
+    if (sections.has(key)) fail(`duplicate section heading: ${key}`);
     sections.set(
-      name,
+      key,
       trimBlankLines(body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length)),
     );
   });
@@ -409,7 +416,7 @@ function replaceTable(sections, name, header, separator, rows) {
   );
   sections.set(name, parsed.lines.join('\n'));
 }
-export function normalizePlan(text) {
+export function normalizePlan(text, { mode: explicitMode } = {}) {
   const advice = [];
   const cleaned = text
     .replace(/\r\n/g, '\n')
@@ -424,7 +431,7 @@ export function normalizePlan(text) {
       .map((line, index) => (/^ {0,3}Mode:/i.test(line) ? index : -1))
       .filter((index) => index >= 0);
   const mode = modeLines.length ? /^ {0,3}Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines.at(-1)]) : undefined,
-    value = mode?.[1].toLowerCase();
+    value = (explicitMode ?? mode?.[1] ?? '').toLowerCase();
   const valid = ['plan-only', 'plan-and-implement'].includes(value);
   if (!valid) advice.push('Mode defaulted to plan-only; implementation needs an explicit mode.');
   const goalWithoutMode = goalLines.filter((_, index) => !modeLines.includes(index)).join('\n');
@@ -558,9 +565,8 @@ function createPlan(args) {
   for (const label of extras) if (/^plan(?::|$)/i.test(label)) fail(`reserved label namespace: ${label}`);
   resolveActingLogin();
   for (const label of PLAN_LABELS) runGh(['label', 'create', label, '--force', '--repo', repository.nameWithOwner]);
-  const explicitMode = options['--mode'] ? `\nMode: ${options['--mode']}` : '';
-  const source = `## Goal\n${options['--goal']}${explicitMode}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
-  const { body } = normalizePlan(source);
+  const source = `## Goal\n${options['--goal']}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
+  const { body } = normalizePlan(source, { mode: options['--mode'] });
   const url = withBodyFile(body, (file) =>
     runGh([
       'issue',

@@ -558,7 +558,7 @@ try {
     '--title',
     'explicit mode',
     '--goal',
-    'Ship it.\nMode: plan-and-implement',
+    'Ship it.\nMode: plan-and-implement\n\n### Context\nDetails.',
     '--mode',
     'plan-only',
   );
@@ -566,6 +566,14 @@ try {
   const explicitNumber = Number(/^plan created: #(\d+)/m.exec(explicit.stdout)[1]);
   assert.match(issue(explicitNumber).body, /\nMode: plan-only\n/, 'explicit --mode is the live mode');
   assert.equal(issue(explicitNumber).body.match(/^Mode:/gm).length, 1, 'the embedded Mode line is removed');
+  assert.ok(
+    issue(explicitNumber).body.includes('### Context\nDetails.\n\nMode: plan-only'),
+    'goal prose stays inside Goal',
+  );
+  refuse(
+    run('new', '--title', 'unknown section', '--goal', 'Ship it.\n\n## Context\nDetails.', '--mode', 'plan-only'),
+    'unknown section heading: Context; use only Goal, Research, Steps, Acceptance, Do not touch, Open questions, Verification Results or write it below an existing section as ### or plain text',
+  );
   const embedded = run('new', '--title', 'embedded mode', '--goal', 'Ship it.\nMode: plan-and-implement');
   expectSuccess(embedded, 'new with embedded mode only');
   assert.match(
