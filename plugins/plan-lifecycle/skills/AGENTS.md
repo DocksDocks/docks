@@ -16,7 +16,7 @@ docks' parsed major. Do not replace it with prose or a same-major convention.
 During skill iteration, run the narrow validators relevant to the change. After
 a meaningful batch, you may run the owning plugin gate
 (`node scripts/ci.mjs --plugin plan-lifecycle` here); reserve full
-`node scripts/ci.mjs` for the final implementation tree. Don't loosen validator
+`node scripts/ci.mjs` for the final implementation tree. Do not loosen validator
 floors to make a file pass; fix the file. The validator/CI contract lives in
 `scripts/AGENTS.md`.
 </constraint>
@@ -43,10 +43,10 @@ present". `scripts/skills/no-author-scripts.mjs` enforces this.
 
 ## Roles (closed set)
 
-`plan-workspace` maintains the repository `plan*` labels, the `docs/PLAN.md`
-standard, and its `docs/AGENTS.md`/`docs/CLAUDE.md` routing pair; main-context
-`plan-manager` runs decide → draft → research → plan review → implement → code
-review, with bounded repair and fresh re-review in both review phases; internal
+`plan-workspace` maintains workspace routing and reviewer setup; `new` creates
+the repository plan labels. Main-context `plan-manager` runs decide, draft,
+research, plan review, implement, and code review, with fresh review after
+repairs and user decisions when review cannot progress;
 `plan-reviewer` returns one read-only pre-implementation verdict block per
 round. Two read-only reviewer wrappers ship: the plugin wrappers at
 `../agents/plan-reviewer.md` and `../agents/code-reviewer.md`, with this source
@@ -57,38 +57,22 @@ deliberately carries no context-tree node (`claude plugin validate` lints every
 
 ## Plan-skill contract sync
 
-The synchronized surface is the v3 first-line marker, no-frontmatter rule,
-eight sections, both table headers, four open-work phases (`drafting`, `planned`,
-`ongoing`, `blocked`), the GitHub `state` + `stateReason` derivation truth table,
-the three plan-review kinds (`goal_fit`, `research_gap`, `security_risk`),
-comment-backed review records, five-round plan and code review repair loops,
-implement-start linked-branch publication, default pull-request landing,
-explicit merge confirmation, lifecycle-tool ownership, issue write
-preconditions, trusted latest-record selection with legacy-body fallback,
-archive-as-verifier landing proof, and marker-only classification: any body
-without the exact v3 opening is unreadable and no parser is attempted. Humans
-may read frozen history, but no lifecycle command or workspace migration
-operation opens or inventories it. Legacy workspace migration creates fresh
-records only for user-restated goals.
+`plan-manager/references/plan-contract.md` is canonical. Skill bodies,
+workspace templates, project routing, and reviewer wrappers point to it rather
+than repeat record grammar. Keep the six phases in the manager and the finding
+vocabulary in the read-only reviewers.
 
-When any part changes, synchronize the three skills,
-`plan-manager/references/plan-contract.md`,
-`productivity/plan-workspace/references/plan-md-template.md`, this repository's
-`docs/PLAN.md`, both plugin and Codex wrapper pairs, and
-`scripts/tests/plan-skill-phases.mjs`. Main owns one content-hash backfill after
-a coordinated multi-file cutover. The skill bodies are asserted verbatim by
-`scripts/tests/plan-skill-phases.mjs`; the CLI is exercised by
-`scripts/tests/plan-cli.mjs`. Update positive assertions in the same change as
-their normative sentences; never relax an assertion to make a copy drift pass.
+Coordinate edits across those surfaces when concepts change. Refresh content
+hashes after all reference edits finish. `scripts/tests/plan-cli.mjs` exercises
+the helper's behavior; no test pins skill prose.
 
 ## Fail-loud routing (four external routes)
 
 `refactor`, `security`, `context-tree`, and `skill-agent-pipeline` (docks) each
 carry one byte-identical prerequisite paragraph naming this plugin, so a
 runtime without `plan-lifecycle` stops instead of silently proceeding without
-a plan. `test/selftest.mjs` and `scripts/tests/plan-skill-phases.mjs` assert the
-exact text; change it only in lockstep across all four routes and both
-validators.
+a plan. `test/selftest.mjs` asserts the exact prerequisite paragraph text;
+change that paragraph only in lockstep across all four routes and the self-test.
 
 ## Scoring and namespace
 

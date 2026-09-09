@@ -75,9 +75,9 @@ and the two read-only reviewer wrappers live in the `plan-lifecycle` plugin
 (`plugins/plan-lifecycle/skills/AGENTS.md` owns their authoring and contract
 sync). Under this tree, `refactor`, `security`, `context-tree`, and
 `skill-agent-pipeline` are lifecycle ROUTES: each carries one byte-identical
-absent-lifecycle prerequisite paragraph, asserted verbatim by
-`scripts/tests/plan-skill-phases.mjs` and the plan-lifecycle self-test. Change
-that paragraph only in lockstep across all four routes and both validators.
+absent-lifecycle prerequisite paragraph, asserted verbatim by the plan-lifecycle
+self-test only. Change that paragraph only in lockstep across all four routes
+and that self-test.
 
 ## Cross-tool wording (Claude Code + Codex)
 

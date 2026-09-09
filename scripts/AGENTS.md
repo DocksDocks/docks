@@ -20,7 +20,7 @@ The repo hosts **multiple plugins** (`docks`, `plan-lifecycle`) under `plugins/`
 | `selftest` | path to a runnable self-test, or `null` |
 | `ciLane` | required pull-request shard ownership: `core` for every plugin. With `root`, this is the changed-path → shard mapping the PR matrix resolves against; `repo` is the always-on repo-wide shard and no plugin may claim it |
 | `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
-| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency`; `plan-reviewer`, which selects `plan-cli.mjs` and two `plan-skill-phases.mjs` cases, for Docks; `[]` otherwise) |
+| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency` for Docks; `plan-reviewer`, which selects only the `plan-cli.mjs` helper smoke, for Docks and Plan Lifecycle; `[]` otherwise) |
 | `releaseContracts` | ordered production release-state/evidence contract tests owned by the plugin (`[]` when absent) |
 | `sourceChecks` | ordered source/process/smoke invocations owned by the plugin; each `{ path, args }` (`[]` when absent) |
 | `transformGuard` | run `transform-guard.mjs` (curated transformers) |
@@ -28,12 +28,12 @@ The repo hosts **multiple plugins** (`docks`, `plan-lifecycle`) under `plugins/`
 
 `lib/plugin-release.mjs` owns ordinary release ordering behind `runGenericPluginRelease({ argv, repo, plugins, io })`. Its IO value is an exact closed adapter that carries sixteen filesystem, Git, Claude, GitHub, selected-CI, and logging operations. `release.mjs` composes the production operations. Descriptors remain inert policy data. The fifteenth operation, `wouldStageChange`, answers whether `git add` of release bytes would stage anything different from HEAD. Production hashes the proposed bytes with `git hash-object --path <file> --stdin`. It compares that hash with `git rev-parse --quiet --verify HEAD:<path>`. `--path` applies the same clean filters that `git add` applies. The probe never passes `-w`, so it never writes an object. The sixteenth operation, `tagPublished`, answers whether a release tag is already published: it checks the local ref, then asks origin, and refuses to guess when origin is unreachable. It is an adapter operation because reaching origin is IO. A caller that cannot stub it puts the network inside every test of the surrounding decision. The engine validates every policy before touching IO. It enforces dry-run no-mutation itself rather than trusting an adapter.
 
-`ci.mjs` is **registry-driven**. A full invocation runs repo-wide checks once (workflow YAML, both marketplace catalogs, tree/guard, durable anchors, author tooling, unit tests, and CI targeting), then selects every present plugin's shell hooks, repository author suites, and capability-driven `gatePlugin` work. `--plugin <name>` skips repo-wide sections and runs only the named plugin's owned author checks, target-derived shell lint, and plugin validation. When Docks plan author checks apply, CI runs `scripts/tests/plan-cli.mjs` plus `scripts/tests/plan-skill-phases.mjs` with the `bounded-workflows` and `plan-workspace-template` cases. Trigger-collision checks audit Docks once.
+`ci.mjs` is **registry-driven**. A full invocation runs repo-wide checks once (workflow YAML, both marketplace catalogs, tree/guard, durable anchors, author tooling, unit tests, and CI targeting), then selects every present plugin's shell hooks, repository author suites, and capability-driven `gatePlugin` work. `--plugin <name>` skips repo-wide sections and runs only the named plugin's owned author checks, target-derived shell lint, and plugin validation. When plan author checks apply, CI runs only the `scripts/tests/plan-cli.mjs` helper smoke. Trigger-collision checks audit Docks once.
 
 ## Pull-request topology
 
 The closed `core` pull-request lane selects plugins, not regression partitions.
-It owns the focused Docks plan CLI and plan skill phase contracts, the Docks and
+It owns the plan CLI helper smoke, the Docks and
 plan-lifecycle plugin gates, the Docks trigger-collision audit, and JavaScript
 quality. The always-on `repo` shard owns the repo-wide checks.
 
@@ -50,17 +50,16 @@ for multi-commit work, scheduling, cold handoff, unresolved approaches,
 cross-subsystem or public-contract changes, destructive or security-sensitive
 work, external effects, or an explicit plan request.
 
-The live plan author suite exercises the GitHub-issue-backed v3 marker contract.
-`scripts/tests/plan-cli.mjs` tests the shipped
+The live plan author suite runs the helper smoke in `scripts/tests/plan-cli.mjs`
+against the shipped
 `plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs`.
-`scripts/tests/plan-skill-phases.mjs` runs the `bounded-workflows` and
-`plan-workspace-template` cases; the latter compares `docs/PLAN.md` with
-`plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md`.
+The canonical v4 contract lives in
+`plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md`.
 
 The optional plan queue keeps issue numbers in `docs/PLAN-QUEUE.md`. It is an
 input to `plan.mjs next`, not a separate validator. The queue is only a discovery
 and prioritization view and grants no lifecycle or execution authority. These
-contracts run inside the existing plan orchestration section, so the timing
+checks run inside the existing plan orchestration section, so the timing
 phase census is unchanged.
 
 ### Adding plugin N+1 (the whole checklist — no orchestrator edits)
@@ -92,8 +91,7 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
-| `tests/plan-cli.mjs` | validates the shipped marker-only v3 plan CLI, including unreadable unmarked bodies, marker/body checks, GitHub-derived status, steps, archive verification, and retirement | pass/fail |
-| `tests/plan-skill-phases.mjs` | validates the `bounded-workflows` and `plan-workspace-template` plan skill contracts | pass/fail |
+| `tests/plan-cli.mjs` | smoke-tests the shipped v4 plan helper | pass/fail |
 | `tests/ci-observability.mjs` | validates command timing records, wall-time reconstruction, and CI host metadata | pass/fail |
 | `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh`, via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |

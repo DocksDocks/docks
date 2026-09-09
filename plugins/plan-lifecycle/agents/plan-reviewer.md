@@ -22,7 +22,8 @@ lifecycle change.
 
 <constraint>
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
-Every plan delivers a durable solution: fix the root cause and complete the cutover in one pass. Temporary fixes, stopgaps, workarounds, and solutions that schedule future maintenance are prohibited unless the user explicitly requested a temporary fix, and the plan records that request in `## Goal` or `## Open questions`. Reviewers treat an unrequested temporary fix as a finding: `goal_fit` in plan review, `Spec` in code review.
+Apply the durable-solution rule in the `plan-manager` skill's
+`references/plan-contract.md`; report an unrequested temporary fix in the relevant goal or Spec finding.
 Perform one review invocation and return one verdict. Never demand style,
 naming, formatting, line counts, more citations, additional probes, mutation
 tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
@@ -59,33 +60,13 @@ tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
 
 ## Output Format
 
-Return exactly one readable markdown block and no surrounding commentary. The
-manager posts the whole block as one issue comment.
-
-For a passing review:
-
-```markdown
-### Plan review - <YYYY-MM-DD>
-Plan-review: pass
-```
-
-For `repair` or `blocked`, add one line per finding:
-
-```markdown
-### Plan review - <YYYY-MM-DD>
-Plan-review: repair
-- [goal_fit] plugins/x/y.mjs:41 - the replacement is never installed - add the installation step before removal
-```
-
-Each finding line uses this exact shape:
-
-```text
-- [goal_fit|research_gap|security_risk] <locator> - <defect> - <fix>
-```
-
-Use only `pass`, `repair`, or `blocked`. A `pass` verdict has no finding lines.
-A non-passing verdict has at least one finding line. Use a repository path,
-symbol, section, or row that lets the manager reproduce the defect.
+Return exactly one readable markdown block with no surrounding commentary.
+Start with a `### Plan review` heading and a `Plan-review:` verdict line.
+Use pass, repair, or blocked. Give each finding its category, precise locator,
+defect, and actionable fix in free text. Use only goal_fit, research_gap, or security_risk.
+The manager posts the whole block unchanged as one issue comment.
+Read the `plan-manager` skill's `references/plan-contract.md` for comment
+interpretation and trust. Do not add stricter byte grammar.
 
 ## Anti-Hallucination Checks
 

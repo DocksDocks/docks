@@ -537,8 +537,6 @@ async function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(targeted.calls, 'bun', ['run', 'check:js']), 0);
 
     const planCliArgv = ['scripts/tests/plan-cli.mjs'];
-    const boundedWorkflowArgv = ['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows'];
-    const templateCaseArgv = ['scripts/tests/plan-skill-phases.mjs', '--case', 'plan-workspace-template'];
     const docksCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/docks/skills'];
     const planLifecycleCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/plan-lifecycle/skills'];
 
@@ -559,11 +557,6 @@ async function testFocusedCiCommandSelection() {
         countToolInvocation(selected.calls, 'node', planCliArgv),
         1,
         `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must run the plan CLI contract once`,
-      );
-      assert.equal(
-        countToolInvocation(selected.calls, 'node', boundedWorkflowArgv),
-        1,
-        `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must run the bounded workflow contract once`,
       );
       assert.equal(
         countToolInvocation(selected.calls, 'node', docksCollisionArgv),
@@ -602,8 +595,6 @@ async function testFocusedCiCommandSelection() {
     assert.match(core.result.stdout, /plugin: plan-lifecycle/);
     assert.doesNotMatch(core.result.stdout, /partition passed/);
     assert.equal(countToolInvocation(core.calls, 'node', planCliArgv), 1);
-    assert.equal(countToolInvocation(core.calls, 'node', boundedWorkflowArgv), 1);
-    assert.equal(countToolInvocation(core.calls, 'node', templateCaseArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', docksCollisionArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', planLifecycleCollisionArgv), 1);
     assert.equal(countToolInvocation(core.calls, 'node', ['plugins/plan-lifecycle/test/selftest.mjs']), 1);
@@ -613,7 +604,6 @@ async function testFocusedCiCommandSelection() {
     assert.equal(countToolInvocation(timedCore.calls, 'bun', coreBiomeCiArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'bun', coreBiomeLintArgv), 1);
     assert.equal(countToolInvocation(timedCore.calls, 'node', planCliArgv), 1);
-    assert.equal(countToolInvocation(timedCore.calls, 'node', boundedWorkflowArgv), 1);
     const timing = JSON.parse(fs.readFileSync(timedCore.timingPath, 'utf8'));
     assertCommandTelemetry(timing);
     assert.equal(timing.schema, 2);

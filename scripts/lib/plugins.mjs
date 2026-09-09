@@ -85,10 +85,8 @@ export const PLUGINS = [
     selftest: 'plugins/plan-lifecycle/test/selftest.mjs',
     rust: null,
     extraJson: [],
-    // 'plan-reviewer' also stays on docks: the routing prerequisite the suite
-    // asserts lives in docks skill bodies, while the lifecycle machinery it
-    // drives ships here. Both owners select the same suites and
-    // selectedAuthorChecks() dedupes on a full run.
+    // Both owners select only the plan-cli.mjs helper smoke through 'plan-reviewer'.
+    // selectedAuthorChecks() dedupes it on a full run.
     authorChecks: ['plan-reviewer'],
     releaseContracts: [],
     transformGuard: false,

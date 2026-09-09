@@ -374,14 +374,6 @@ if (planAuthorChecks) {
   nodeOk(['scripts/tests/plan-cli.mjs'])
     ? ok('plan CLI contract passed')
     : fail('plan CLI contract failed (run: node scripts/tests/plan-cli.mjs)');
-  nodeOk(['scripts/tests/plan-skill-phases.mjs', '--case', 'bounded-workflows'])
-    ? ok('bounded workflow contract passed')
-    : fail('bounded workflow contract failed (run: node scripts/tests/plan-skill-phases.mjs --case bounded-workflows)');
-  nodeOk(['scripts/tests/plan-skill-phases.mjs', '--case', 'plan-workspace-template'])
-    ? ok('plan workspace template contract passed')
-    : fail(
-        'plan workspace template contract failed (run: node scripts/tests/plan-skill-phases.mjs --case plan-workspace-template)',
-      );
 }
 
 for (const plugin of targets) gatePlugin(plugin);

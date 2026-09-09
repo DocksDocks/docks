@@ -1,6 +1,6 @@
 # docks
 
-Claude Code + Codex plugin marketplace publishing the **docks** plugin — a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, human-docs, design tokens, SOLID, type-safety, and React patterns; and a GitHub-issue lifecycle tracks multi-commit work.
+Claude Code + Codex plugin marketplace publishing the **docks** plugin - a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, human-docs, design tokens, SOLID, type-safety, and React patterns; and a GitHub-issue lifecycle tracks multi-commit work.
 
 ## Install
 
@@ -26,7 +26,7 @@ The two plugins that ship from this repository support Linux and macOS only:
 | `docks` | Linux and macOS only |
 | `plan-lifecycle` | Linux and macOS only |
 
-After install, the pipeline skills are user-invocable — ask "run a security audit", "refactor `src/`", or "audit my skills", or invoke `security` / `refactor` / `skill-agent-pipeline` directly. Every other skill auto-triggers by description match; namespacing is invisible at runtime.
+After install, the pipeline skills are user-invocable - ask "run a security audit", "refactor `src/`", or "audit my skills", or invoke `security` / `refactor` / `skill-agent-pipeline` directly. Every other skill auto-triggers by description match; namespacing is invisible at runtime.
 
 ## What's inside
 
@@ -50,14 +50,14 @@ Auto-trigger on matching tasks (all `user-invocable: false`):
 | `test-coverage` | Adding tests to existing code; backfilling coverage |
 | `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
 | `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `security` / `code-review` |
-| `human-docs-workflow` | README, CLAUDE.md, docs/, .env.example, JSDoc — every claim grounded in source |
-| `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
+| `human-docs-workflow` | README, CLAUDE.md, docs/, .env.example, JSDoc - every claim grounded in source |
+| `design-tokenization` | Color/Tailwind work - semantic + brand tokens, no-hex, `:root`/`.dark` parity |
 | `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
 | `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
 | `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment |
 | `react-component-patterns` | React 19+ effects (3 acceptable categories) + composition (compound, slot/`asChild`, polymorphic, headless, provider+hook, cva variants) |
-| `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
-| `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
+| `solid` | Generic SOLID for TS/Python/Go modules - strategy maps, discriminated unions, fat-interface splits, dependency injection |
+| `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate - TS primary; references for Rust/Kotlin/Python |
 
 The `productivity/` category contains `context-tree`, `multi-tool-bridge`, `scaffold`, `skill-agent-pipeline`, `skill-maintenance`, `write-skill`, and `zoom-out`.
 
@@ -69,40 +69,25 @@ a canonical plan for explicit planning, multi-commit/cross-repository work,
 scheduling, cold handoff, unresolved decisions, cross-subsystem/public-contract
 changes, security-sensitive/destructive work, or an external effect.
 
-The three lifecycle skills, shipped `plan.mjs`, marker-based contract
-reference, and two read-only reviewer wrappers ship as the self-versioned
-`plan-lifecycle` plugin (`plugins/plan-lifecycle/`), installable from this same
-marketplace. Plan bodies and comment-backed review records live on GitHub
-issues.
+The self-versioned `plan-lifecycle` plugin ships the helper and the canonical
+v4 contract. Plans live in GitHub issues, with reviews in issue comments.
+Do not track plan bodies as repository files.
 
-| Owner | Skill | Invocation | Responsibility |
-|---|---|---|---|
-| Workspace | `plan-workspace` | Public | Create the plan label set and maintain `docs/PLAN.md` plus the `docs/AGENTS.md`/`docs/CLAUDE.md` pair; never mutate an individual plan issue |
-| Orchestration | `plan-manager` | Public, main context | Decide → draft → research → plan review → implement → code review; repair and freshly re-review both review phases, then archive after a pass and a merged closing pull request |
-| Plan review | `plan-reviewer` | Internal, read-only | Check only `goal_fit`, `research_gap`, and `security_risk` before implementation |
-| Code review | `code-reviewer` | Internal, read-only | Review the implemented diff against code standards and the plan |
+| Owner | Responsibility |
+|---|---|
+| `plan-workspace` skill | Maintain workspace routing |
+| Main-context `plan-manager` skill | Decide, draft, research, plan review, implement, code review |
+| Internal `plan-reviewer` skill | Review goal fit, research gaps, and security risk |
+| Read-only `plan-reviewer` and `code-reviewer` wrappers | Run the two review roles |
 
-These are the only live plan skills. Both read-only reviewers ship and get
-seeded as thin Claude/Codex wrappers; main context invokes `plan-manager`
-directly. The docks pipelines route to these skills and stop, naming the missing
-`plan-lifecycle` plugin, when they are unavailable.
+Settle Mode before implementation. `plan-only` stops after plan review;
+`plan-and-implement` permits the full lifecycle. A defaulted Mode permits no implementation.
+Each non-local step requires an in-session `ask` immediately before it runs.
+Merge requires a fresh `Merge now` answer. Without it, leave the pull request open.
 
-The lifecycle runs six phases: decide, draft, research, plan review, implement,
-and code review. Plan repairs are re-reviewed from fresh exports, and code fixes
-are re-reviewed from fresh diffs, with a five-round ceiling in each review
-phase. Each reviewer returns one markdown block that the manager stores as one
-issue comment. When implementation starts, the manager reuses or creates the
-GitHub-linked plan branch. After code review passes, it commits and pushes any
-remaining reviewed bytes, opens the closing pull request, and waits for
-repository CI. It then asks `Merge now` or `Leave pull request open`. Without a
-fresh `Merge now` answer, it leaves the pull request and issue open. After an
-approved merge, `plan.mjs archive` verifies the merged closing pull request.
-
-Every Steps row has `Effect` exactly
-`local|probe|production_access|publish|push|release|deploy`. Each non-`local`
-effect requires an in-session confirmation immediately before it runs.
-
-The complete contract lives in `docs/PLAN.md`.
+Read `skills/productivity/plan-manager/references/plan-contract.md` inside the
+installed `plan-lifecycle` plugin for the complete contract and helper commands.
+If the plugin is missing, report it. Do not invent a substitute workflow.
 
 ## Repository layout
 
@@ -123,7 +108,7 @@ The complete contract lives in `docs/PLAN.md`.
 └── .github/workflows/ci.yml           ← validator CI on push/PR
 ```
 
-**What ships to users**: only the `plugins/<name>/` directory of each installed plugin. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to `~/.claude/plugins/cache/` on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism — Claude Code's plugin cache copies only the directory pointed at by `source`.
+**What ships to users**: only the `plugins/<name>/` directory of each installed plugin. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to `~/.claude/plugins/cache/` on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism - Claude Code's plugin cache copies only the directory pointed at by `source`.
 
 ## Develop locally
 
@@ -133,7 +118,7 @@ Test changes without pushing to GitHub:
 claude --plugin-dir ./plugins/docks
 ```
 
-When a `--plugin-dir` plugin shares a name with an installed marketplace plugin, the local copy wins for that session. After edits, run `/reload-plugins` in the running session — no Claude Code restart needed.
+When a `--plugin-dir` plugin shares a name with an installed marketplace plugin, the local copy wins for that session. After edits, run `/reload-plugins` in the running session - no Claude Code restart needed.
 
 ## Validate before pushing
 
@@ -144,14 +129,14 @@ bun install --frozen-lockfile
 node scripts/skills/guard.mjs    # Codex + Claude skill compatibility + reference hygiene
 node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file   # skill quality score (max 16)
 node scripts/agents/guard.mjs    # frontmatter, "Use when…" / "Not…" CSO, model declared
-node scripts/agents/score.mjs    # quality score (max 15) — model, tools, Workflow + Success Criteria
+node scripts/agents/score.mjs    # quality score (max 15) - model, tools, Workflow + Success Criteria
 ```
 
 Node 24 remains the validator runtime and matches CI's `node-version`; Bun 1.4.0 is the package manager pinned through `packageManager`.
 
-`--per-file` on a scorer prints one `<name> <score>` line per item — useful for spotting drift after an edit. `node scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
+`--per-file` on a scorer prints one `<name> <score>` line per item - useful for spotting drift after an edit. `node scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
 
-On a PR to `main`, CI runs only the shards the changed paths resolve to — the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks and plan-lifecycle tag independently), it runs the repo-wide shard plus that plugin's own gate. See `.github/workflows/ci.yml`; full trigger model below.
+On a PR to `main`, CI runs only the shards the changed paths resolve to - the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks and plan-lifecycle tag independently), it runs the repo-wide shard plus that plugin's own gate. See `.github/workflows/ci.yml`; full trigger model below.
 
 ## Versioning + releases
 
@@ -169,12 +154,12 @@ node scripts/release.mjs major    # 0.1.0 → 1.0.0
 node scripts/release.mjs 0.2.0    # explicit
 ```
 
-The script bumps the Claude and Codex plugin manifests plus the versioned Claude marketplace catalog, commits + pushes, runs `claude plugin tag --push` for the `docks--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes auto-generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created — the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
+The script bumps the Claude and Codex plugin manifests plus the versioned Claude marketplace catalog, commits + pushes, runs `claude plugin tag --push` for the `docks--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes auto-generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created - the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
 
-CI runs only on (a) PRs to main, (b) tag pushes matching `<plugin>--v<version>`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI — PR validation gates merges, tag-CI gates releases.
+CI runs only on (a) PRs to main, (b) tag pushes matching `<plugin>--v<version>`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI - PR validation gates merges, tag-CI gates releases.
 
 Manually: `claude plugin tag --push ./plugins/docks` (tag only, no GitHub Release).
 
 ## License
 
-MIT — see `LICENSE` at the repo root.
+MIT - see `LICENSE` at the repo root.
