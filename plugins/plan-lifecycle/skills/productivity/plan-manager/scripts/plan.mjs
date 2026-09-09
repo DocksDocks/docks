@@ -423,7 +423,7 @@ export function normalizePlan(text) {
       .split('\n')
       .map((line, index) => (/^ {0,3}Mode:/i.test(line) ? index : -1))
       .filter((index) => index >= 0);
-  const mode = modeLines.length ? /^ {0,3}Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines[0]]) : undefined,
+  const mode = modeLines.length ? /^ {0,3}Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines.at(-1)]) : undefined,
     value = mode?.[1].toLowerCase();
   const valid = ['plan-only', 'plan-and-implement'].includes(value);
   if (!valid) advice.push('Mode defaulted to plan-only; implementation needs an explicit mode.');
@@ -558,7 +558,8 @@ function createPlan(args) {
   for (const label of extras) if (/^plan(?::|$)/i.test(label)) fail(`reserved label namespace: ${label}`);
   resolveActingLogin();
   for (const label of PLAN_LABELS) runGh(['label', 'create', label, '--force', '--repo', repository.nameWithOwner]);
-  const source = `## Goal\n${options['--goal']}\nMode: ${options['--mode'] ?? ''}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
+  const explicitMode = options['--mode'] ? `\nMode: ${options['--mode']}` : '';
+  const source = `## Goal\n${options['--goal']}${explicitMode}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
   const { body } = normalizePlan(source);
   const url = withBodyFile(body, (file) =>
     runGh([

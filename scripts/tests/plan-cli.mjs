@@ -548,6 +548,28 @@ try {
   );
   assert.ok(issue(indentedTable).body.includes(indentedExample), 'indented example bytes are preserved');
   expectSuccess(run('status', String(indentedTable), 'ongoing'), 'start indented-table plan');
+
+  // An explicit --mode outranks a Mode line embedded in --goal; a later live Mode line wins.
+  const explicit = run(
+    'new',
+    '--title',
+    'explicit mode',
+    '--goal',
+    'Ship it.\nMode: plan-and-implement',
+    '--mode',
+    'plan-only',
+  );
+  expectSuccess(explicit, 'new with explicit mode');
+  const explicitNumber = Number(/^plan created: #(\d+)/m.exec(explicit.stdout)[1]);
+  assert.match(issue(explicitNumber).body, /\nMode: plan-only\n/, 'explicit --mode is the live mode');
+  assert.equal(issue(explicitNumber).body.match(/^Mode:/gm).length, 1, 'the embedded Mode line is removed');
+  const embedded = run('new', '--title', 'embedded mode', '--goal', 'Ship it.\nMode: plan-and-implement');
+  expectSuccess(embedded, 'new with embedded mode only');
+  assert.match(
+    issue(Number(/^plan created: #(\d+)/m.exec(embedded.stdout)[1])).body,
+    /\nMode: plan-and-implement\n/,
+    'goal-authored Mode is kept without --mode',
+  );
   expectSuccess(run('step', String(indentedTable), 'fix_parser', 'in-flight'), 'step targets the live table');
   assert.match(issue(indentedTable).body, /\| fix_parser \| .* \| in-flight \|/);
   assert.ok(issue(indentedTable).body.includes(indentedExample), 'indented example still untouched');
