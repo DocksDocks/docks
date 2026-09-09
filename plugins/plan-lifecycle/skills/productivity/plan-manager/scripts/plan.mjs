@@ -378,7 +378,9 @@ function sectionMap(body) {
 }
 function table(text, header) {
   const lines = text.split('\n'),
-    scan = blankFencedRegions(text).split('\n'),
+    scan = blankFencedRegions(text)
+      .split('\n')
+      .map((line) => (/^(?: {4}|\t)/.test(line) ? '' : line)),
     cells = (line) =>
       line
         .trim()

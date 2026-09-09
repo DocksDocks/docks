@@ -534,6 +534,23 @@ try {
     assert.match(issue(placed).body, /\nMode: plan-only\n/, `${label}: the plan-only decision stays live`);
     assert.equal(issue(placed).body.match(/^Mode:/gm).length, 1, `${label}: exactly one live Mode line`);
   }
+
+  // An indented example table before the live table is neither selected nor rewritten.
+  const indentedTable = createPlan('indented example table');
+  const indentedExample = [
+    '    | # | Id | Task | Files | Depends | Effect | Status | Done when |',
+    '    |---:|---|---|---|---|---|---|---|',
+    '    | 1 | example | Example | x | - | local | done | Never |',
+  ].join('\n');
+  expectSuccess(
+    edit(indentedTable, (text) => text.replace('## Steps\n\n', `## Steps\n\n${indentedExample}\n\n`)),
+    'edit with indented example table',
+  );
+  assert.ok(issue(indentedTable).body.includes(indentedExample), 'indented example bytes are preserved');
+  expectSuccess(run('status', String(indentedTable), 'ongoing'), 'start indented-table plan');
+  expectSuccess(run('step', String(indentedTable), 'fix_parser', 'in-flight'), 'step targets the live table');
+  assert.match(issue(indentedTable).body, /\| fix_parser \| .* \| in-flight \|/);
+  assert.ok(issue(indentedTable).body.includes(indentedExample), 'indented example still untouched');
   // Dependency normalization is idempotent even when a step id is a number.
   const numericId = createPlan('numeric step id');
   const numericRows = [
