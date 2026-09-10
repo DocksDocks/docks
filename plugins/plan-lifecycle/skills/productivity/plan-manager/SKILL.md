@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-09"
-  content_hash: "01ad2e1eba8203c06281095b2ed264c12facd3982188cd9af57fce90afc493ee"
+  updated: "2026-09-10"
+  content_hash: "1b2799245b4bf7d73f5aabe19c36ac7dfa267684aad3dcf0b930512854d38522"
 ---
 
 # Plan Manager
@@ -126,8 +126,11 @@ before recording the blocker so repairs are not stranded.
 ## Landing and reporting
 
 After pass, commit and push remaining reviewed bytes. Create or update the
-closing pull request. Compare its head and diff with the reviewed candidate;
-a mismatch invalidates the pass. Follow the canonical checks policy: wait up
+closing pull request, whose body carries `Closes #<issue>`; a partial pull
+request carries plain `Refs #<issue>`. Without `Closes` the merge leaves no
+closing reference and archive cannot prove the landing. Compare its head and
+diff with the reviewed candidate; a mismatch invalidates the pass.
+Follow the canonical checks policy: wait up
 to five minutes for checks to appear, and never treat an empty result as success.
 Ask freshly for `Merge now` or `Leave pull request open`. Without a fresh merge
 answer, leave it open. Re-read the head and diff immediately before merging

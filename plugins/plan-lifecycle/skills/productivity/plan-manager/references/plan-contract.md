@@ -230,6 +230,9 @@ clean worktree. After setting ongoing, reuse or create the linked branch. Every
 `gh issue develop` call includes `--repo`; creation uses `--base <default> --checkout`.
 Re-list after failure. Stop without a verified link.
 After code review passes, commit and push reviewed bytes and open a closing pull request.
+Only the pull request that lands the completed work carries `Closes #<issue>`; a partial
+one carries plain `Refs #<issue>`. The `Closes` keyword produces the closing reference
+`archive` verifies, so a landing pull request without it leaves the plan unarchivable.
 Checks policy: wait up to five minutes for checks to appear, then wait for every
 check to complete. A failed or cancelled check blocks the merge question until the
 fix is reviewed. When the repository has no configured checks, treat the green local
