@@ -7,7 +7,7 @@ import { bodyAfterFrontmatter, splitLines } from '../lib/skills-parse.mjs';
 
 const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
-const ARG = process.argv[2] || path.join(REPO_DIR, 'plugins/docks/agents');
+const ARG = process.argv[2] || path.join(REPO_DIR, 'plugins/plan-lifecycle/agents');
 
 let files;
 if (fs.existsSync(ARG) && fs.statSync(ARG).isFile()) {

@@ -12,7 +12,7 @@ const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
 const args = process.argv.slice(2);
 const mode = args.includes('--per-file') ? 'per-file' : 'total';
 const dirArg = args.find((a) => !a.startsWith('--'));
-const DIR = dirArg || path.join(REPO_DIR, 'plugins/docks/agents');
+const DIR = dirArg || path.join(REPO_DIR, 'plugins/plan-lifecycle/agents');
 // Research gate: the agent is told to settle a claim against an authoritative source instead of
 // trusting memory. Scoring one vendor's MCP tool names would bake a single harness into a quality
 // score — omp ships built-in web search, Claude Code ships its own fetch and search, and other
