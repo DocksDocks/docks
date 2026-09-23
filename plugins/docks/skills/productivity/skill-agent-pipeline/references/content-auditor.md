@@ -86,7 +86,7 @@ Git history is allowed here only to find where a rule came from. It is still not
 1. **Context is not cruft.** Facts only the author knows (audience, environment, quality bar, tool contracts, and the reasons for constraints) stay.
 2. **Length is not cruft.** Never propose a removal only because a section is long. The harm comes from specific outdated instructions.
 3. **Fragile operations keep exact scripts.** Where only one sequence is safe (destructive commands, auth, release, migrations), exact low-freedom text is correct.
-4. **Load-bearing turn-ending gates stay.** "Print the proposal as your final message and end the turn" is the only pause that works across runtimes. Do not soften it.
+4. **Blocking approval gates stay.** A gate that stops all writes until the user answers is load-bearing. Do not soften it. The harness question tool (for example omp `ask`, Claude Code `AskUserQuestion`) is the gate; "print the question as your final message and end the turn" is the fallback when no question tool exists. Flag the defect: a plain-text question ("Approve? yes/no") with no block, where the agent can keep writing.
 5. **Calibrated urgency in trigger text can stay.** A description may be firm about when to load the skill, because skills tend to under-trigger. Flag shouting in bodies, not routing text.
 
 **Verdict shape.** Each finding is a proposal, not an edit. Record the file, the quoted text, the pattern, the provenance (commit or "unknown"), and a proposed rewrite. Prefer a rewrite over a bare removal when the rule still has a purpose. A removal is a hypothesis: before it lands, run a baseline check (see `write-skill`) on the old and the new text. If the old text gives better results, keep it or restore it in its simplest form.

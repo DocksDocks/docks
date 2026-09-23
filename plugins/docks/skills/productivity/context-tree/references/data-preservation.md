@@ -35,13 +35,13 @@ Render at the approval gate — alongside the node list — a row for EVERY sect
 
 Defaults: anything you cannot confidently route → **KEEP in root** (never silently move or drop). `DROP` requires an explicit user mark. A legacy CLAUDE.md never gets a row here: context-tree does not edit or delete it; `multi-tool-bridge` owns it. MIXED sections (part stays, part moves) split paragraph-by-paragraph; the unclassified remainder stays in root.
 
-When a canonical plan is warranted, `plan-manager` reviews the proposal first. Then print the node list and this table as your FINAL message and **end the turn** (the turn-ending approval gate). Write nothing until the user approves; silence is not consent. `--dry-run` and preview-only requests stop here permanently.
+When a canonical plan is warranted, `plan-manager` reviews the proposal first. Then print the node list and this table, and ask for approval with the harness question tool (the approval gate; tool names and the no-tool fallback are in the SKILL.md Intent gate). Write nothing until the user answers; silence is not consent; an ambiguous answer re-shows the tables. `--dry-run` and preview-only requests stop here permanently.
 
 ### 3. Two-phase write
 
 **Phase A — nodes first, root untouched.** After the user approves, write each `<folder>/AGENTS.md`, copying the routed sections **verbatim** (reformatting heading levels / list markers is fine; rewording is not). Never write a `CLAUDE.md`. Confirm each AGENTS.md is non-empty and ≤500 lines. If you halt now, the root still has everything — worst case is duplication, which is recoverable. Loss is not.
 
-**Phase B — prune root last.** Re-read the root and confirm it still matches `"$SOURCE_BEFORE"`. Show the exact lines to remove (the relocated sections) and **end the turn** for the second confirmation. After the user confirms, delete them and update the `## Context tree` routing table. Never delete a section you cannot point to inside an already-written node.
+**Phase B — prune root last.** Re-read the root and confirm it still matches `"$SOURCE_BEFORE"`. Show the exact lines to remove (the relocated sections) and ask for the second confirmation as a separate question-tool call. After the user confirms, delete them and update the `## Context tree` routing table. Never delete a section you cannot point to inside an already-written node.
 
 ### 4. Verification (fail loud)
 

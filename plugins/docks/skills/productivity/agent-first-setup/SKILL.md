@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-09-23"
-  content_hash: "f1e3405c451c110a30aced1b75e29643a54bdb7bc3dfa5e37cbb44b957e919d0"
+  content_hash: "fc0de0d71755ed4ee2715bd9b9849e1083a54f331f8540cae2b09dc520c686af"
 ---
 
 # Agent-First Setup
@@ -25,7 +25,7 @@ Delegate, do not re-implement. For Step 1 and Step 2, load the named skill and f
 </constraint>
 
 <constraint>
-Every write stays behind the approval gate of the skill that owns it. When that skill says to print a proposal and end the turn, print the proposal and ask for approval with the current harness's question tool (see "Asking the user"); if the harness has no such tool, end the turn. Resume this workflow only after the user answers. This skill adds no writes of its own. `audit` mode never writes: it runs Step 0, the owning skills' read-only modes, and Step 3, then reports. Step 3 reports findings; it never auto-fixes them.
+Every write stays behind the approval gate of the skill that owns it. At that gate, print the owning skill's proposal and ask for approval with the harness question tool (see "Asking the user"); if the harness has no such tool, end the turn. Resume this workflow only after the user answers. This skill adds no writes of its own. `audit` mode never writes: it runs Step 0, the owning skills' read-only modes, and Step 3, then reports. Step 3 reports findings; it never auto-fixes them.
 </constraint>
 
 ## Modes

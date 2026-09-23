@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: generative-skill
   updated: "2026-09-23"
-  content_hash: "eceaf3387c080b8f178bb1e4824c6c7f2664a37fbb03e3e4bd09e79229b8dbf0"
+  content_hash: "cf66172b3aa495791d6ba11b310f9c7e872bf88656648aa9810986ac11a738ca"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -19,7 +19,7 @@ metadata:
 </constraint>
 
 <constraint>
-**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then print it as your final message and END THE TURN. Do not call Write/Edit until the user replies. Do NOT call `ExitPlanMode` (Claude-only); the turn-ending gate works identically on Codex.
+**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then ask for approval with the harness question tool (omp `ask`; Claude Code `AskUserQuestion`; Codex `request_user_input`, not in every mode; OpenCode `question`; else the tool the harness registers). Do not call Write/Edit until the user answers. Silence is not consent; an ambiguous answer re-shows the proposal. No question tool (headless, print mode)? Print the question as your final message and end the turn; do not invent a tool call. A plain-text "Approve?" in a reply is not a gate. Do NOT call `ExitPlanMode` (Claude-only).
 </constraint>
 
 <constraint>
@@ -83,7 +83,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 1. **Acknowledge state.** Check for an existing `docs/scaffold/spec.yaml`. If present, this is a re-capture — diff against it, don't blind-overwrite.
 2. **Walk the repo.** Detect context-tree nodes (reuse `context-tree audit`), plugin manifests, skill categories, and the validator scripts in `scripts/`.
 3. **Choose templates.** For each file a new project needs parameterized (manifests, root AGENTS.md, node AGENTS.md), create `templates/<name>.template` with `{{ var }}` placeholders where repo-specific values appear. Node templates follow constraint 5: replace any volatile value from the source repo (version, count, line anchor) with the owning file plus `(verify: <command>)`, and give `root-AGENTS.md.template` one `## Context tree` row per `tree_nodes` path (first cell `` `<path>/AGENTS.md` ``).
-4. **Propose.** Show the spec (variables, tree_nodes, bundled_skills, scripts), the template file list, and the full write set: `docs/scaffold/spec.yaml`, `docs/scaffold/templates/`, `docs/scaffold/AGENTS.md`, and the new `docs/scaffold/AGENTS.md` row in the root routing table. **STOP for confirmation** (constraint 2).
+4. **Propose.** Show the spec (variables, tree_nodes, bundled_skills, scripts), the template file list, and the full write set: `docs/scaffold/spec.yaml`, `docs/scaffold/templates/`, `docs/scaffold/AGENTS.md`, and the new `docs/scaffold/AGENTS.md` row in the root routing table. **Ask for approval with the question tool and wait** (constraint 2).
 5. **Write.** Create `docs/scaffold/spec.yaml`, `docs/scaffold/templates/`, and the `docs/scaffold/` context-tree node (`AGENTS.md` only). Add the row `` | `docs/scaffold/AGENTS.md` | <one-line purpose> | `` to the `## Context tree` table in the root `AGENTS.md` (the format `context-tree` owns). If the root has no such table, add the section with this one row. An unrouted node fails the routing checks of `context-tree` and `agent-first-setup`.
 6. **Verify.** Parse the spec as YAML; reject anchors, aliases, unknown schema versions, missing sources, and missing templates. Render every template with fixed test values into a temporary directory, require zero unresolved `{{` tokens, require the rendered root `AGENTS.md` to have a `## Context tree` row for every rendered `tree_nodes` path, and validate the temporary render. Defer generated-project validator execution to seed mode, after writing a complete project.
 
@@ -91,8 +91,8 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 
 1. **Greenfield check.** Target must be empty/absent; refuse otherwise. Refuse name `docks` (constraint 1).
 2. **Load spec.** Read `docs/scaffold/spec.yaml`. If absent, stop and suggest `scaffold setup`.
-3. **Interview.** Prompt for each `variable`; pull `default_from` via `git config` where set. (Use `AskUserQuestion` on Claude; plain prompts elsewhere.)
-4. **Resolve + manifest.** Compute every output path and substitute variables into a preview. Show the full file manifest + resolved variable values. **STOP for confirmation** (constraint 2).
+3. **Interview.** Ask for every `variable` in one question-tool call (constraint 2 names the tools); pull `default_from` via `git config` where set and offer it as the default. No question tool: print all variables as one question as your final message and end the turn.
+4. **Resolve + manifest.** Compute every output path and substitute variables into a preview. Show the full file manifest + resolved variable values. **Ask for approval with the question tool and wait** (constraint 2).
 5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree nodes (one `AGENTS.md` each, no `CLAUDE.md`); use the bundled `plan-workspace` to seed the plan label set plus `docs/AGENTS.md` and `docs/PLAN.md`; bundle the three exact plan skills (`plan-workspace`, `plan-manager`, `plan-reviewer`); render `.codex/agents/plan-reviewer.toml` and `.codex/agents/code-reviewer.toml` as the two project-local read-only reviewer wrappers. Main context owns `plan-manager` directly; do not invent wrappers for manager, workspace, creator, repairer, or improver. The seeded entrypoints are `.mjs` files run via `node` — no exec bit to set.
 6. **Init + verify.** `git init` if needed. Run `bun install --frozen-lockfile`, then every validator the spec's `scripts` list copies, for example `node <target>/scripts/skills/guard.mjs <target>/plugins/<name>/skills` and `node <target>/scripts/tree/guard.mjs <target>` (the seeded `scripts/AGENTS.md` owns the full list). Then grep for stray `{{` (constraint 3) and run the seed routing and durability check below from the target root. Every line it prints is a failure. This check is a subset: the full agent-first check (commands, symlinks, skill descriptions) is `agent-first-setup` Step 3. The routing rows use the shared rule: a table row whose first cell is `` `<path>AGENTS.md` ``, with an optional `@` inside the backticks.
 

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-23"
-  content_hash: "5fa6aae10851b119e3c16f659dfdaccf8a296d2e2f77b4d00d386f11824b3d41"
+  content_hash: "da55e2b450320366ba817ee1b5637311fc517b975d010f8c7a70c5559f9dfa73"
 ---
 
 # Multi-Tool Agent Bridge
@@ -148,7 +148,7 @@ After classification (or in layouts without a legacy CLAUDE.md, where classifica
 
 `SURFACE ONLY` means: list with one-line summaries in the final report, do NOT touch. `HANDOFF` means: this skill does not write it; the report names the owning skill.
 
-**Approval gate** — print the Step 3 proposal table (when Step 3 ran) and this action table as your final message, then end the turn. This is the only gate of the run. Do not call Write/Edit/`git mv`/`git rm`/`ln` until the user approves (or amends) both tables in their reply. With nothing to write (fully bridged), report the no-op and stop.
+**Approval gate** — print the Step 3 proposal table (when Step 3 ran) and this action table, then ask for approval with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`; use the tool the harness registers, even when it is not listed). Batch every open question (approval, mixed-section splits) into one call. A plain-text "Approve? yes/no" in the reply is wrong when a question tool exists. If the harness registers no question tool (headless or print-mode runs), print the question as the final message and end the turn; do not invent a tool call. This is the only gate of the run. Do not call Write/Edit/`git mv`/`git rm`/`ln` until the user approves (or amends) both tables in their answer. Silence is not consent; an ambiguous answer re-shows the tables. With nothing to write (fully bridged), report the no-op and stop.
 
 ### Step 5 — Apply
 
@@ -276,7 +276,7 @@ Final report (markdown):
 | `.claude/agents/*.md` auto-converted to `.codex/agents/*.toml` | Quietly translating format and model names | SURFACE ONLY — Codex subagents are TOML with different model namespace; let the user decide whether to port |
 | Plugin-author repo migrates `plugins/docks/skills/` to `.agents/skills/` | Treats plugin-internal skills as project-level skills | Layout detection (Step 1) skips skills migration when `.claude-plugin/` is present |
 | `git mv` fails outside a git repo | Falling back to silent `mv` and losing rename tracking | Use `git mv` / `git rm` when in a repo; plain `mv` / `rm` otherwise; report which was used |
-| Mixed-content section split paragraph-by-paragraph without user input | Author intent lost | Show the proposed split, wait for approval; unsure mixed sections default to `.claude/rules/claude-code.md` |
+| Mixed-content section split paragraph-by-paragraph without user input | Author intent lost | Show the proposed split and ask with the harness question tool at the Step 4 gate; unsure mixed sections default to `.claude/rules/claude-code.md` |
 | Only `./CLAUDE.md` checked; project keeps memory at `./.claude/CLAUDE.md` | Skill reports "no CLAUDE.md" and Claude keeps reading CLAUDE.md instead of AGENTS.md | Audit BOTH locations (Step 2) |
 | Nested `api/CLAUDE.md` skipped, or its keepers put in `claude-code.md` | Claude keeps reading `api/CLAUDE.md` instead of `api/AGENTS.md`, or folder rules load in every session | Enumerate nested files (Step 2); generic → `api/AGENTS.md`, keepers → `.claude/rules/api.md` with `paths: - "api/**"` |
 | Only `git ls-files --exclude-standard` used to find `CLAUDE.local.md` | Ignored files are skipped, so a gitignored nested `CLAUDE.local.md` is never reported | Use the Step 2 `find` with prune |
