@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-09-23"
-  content_hash: "b7138b472949b417d9ddc016f8c7dacee9232a2f69866c3d53d194a3b1a1c26a"
+  content_hash: "6b9765cee1d19f8351dcf57c6908b1ca91eca47048786e3d46a5b810d1f7885c"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -51,21 +51,21 @@ Run in order. Each phase reads its reference, then hands its output to `plan-man
 | 0 | State detection (counts, today) | — | `## Phase 0: State` | all |
 | 1 | Exploration (profile, enumerate skills/agents, knowledge areas) | `references/explorer.md` | `## Phase 1: Exploration Results` | all |
 | 2a | Skills categorization (the delta) | `references/categorizer.md` | `## Phase 2a: Categorizer Proposals` | all |
-| 2c | Content-accuracy audit (every ref/snippet/identifier vs current source) | `references/content-auditor.md` | `## Phase 2c: Content-Accuracy Audit` | all |
+| 2c | Content-accuracy audit (every ref/snippet/identifier vs current source) + prompt-style sub-check | `references/content-auditor.md` | `## Phase 2c: Content-Accuracy Audit` | all |
 | 2b | Pattern scan (file:line evidence) | `references/pattern-scanner.md` | `## Phase 2b: Pattern Scanner Findings` | all |
 | 3 | Skills builder (draft SKILL.md + references/) | `references/skills-builder.md` | `## Phase 3: Skills Plan` | all |
 | 4a | Agent role mapping | `references/role-mapper.md` | `## Phase 4a: Role Mapper Proposals` | all |
 | 4b | Agent pattern extraction | `references/pattern-extractor.md` | `## Phase 4b: Pattern Extractor Content` | all |
 | 5 | Agents builder (draft `.md` + `.toml`) | `references/agents-builder.md` + `references/codex-agents-builder.md` | `## Phase 5: Agents Plan` | all |
-| 6 | Verification (skills + agents + cross-layer) | `references/verifier.md` | `## Phase 6: Verification` | all |
+| 6 | Verification (skills + agents + cross-layer + behavioral grading) | `references/verifier.md` | `## Phase 6: Verification` | all |
 
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
 2. **Phase 0** (inline): count `.agents/skills/*/SKILL.md`, `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`, and `.codex/agents/*.toml`; note whether a local `skill-maintenance` exists and whether plugin `docks:skill-maintenance` is available (a stale local copy is flagged for REMOVAL in Phase 2a, not regenerated); write the counts + today under `## Phase 0: State`.
-3. Ask `plan-manager` to create the canonical issue with `plan.mjs new --title <t> --goal <g>` and own every lifecycle write. In a repository without a GitHub remote, use `docs/skills-audit-<YYYYMMDD>.md` as an untracked fallback. Run Phases 1→2a→2c→2b→3. **Phase 2c is mandatory and always runs** — it audits every existing skill and agent claim against current source (ignoring git history and `metadata.updated`); write its table even when all-clean, never skip. After 2c, **reconcile**: amend the `## Phase 2a` block in place to escalate each non-CLEAN skill to REFRESH/REWRITE (`→ escalated by 2c: …`), and route each non-CLEAN agent to the Phase 5 regenerate list — so the handoff reads one delta.
+3. Ask `plan-manager` to create the canonical issue with `plan.mjs new --title <t> --goal <g>` and own every lifecycle write. In a repository without a GitHub remote, use `docs/skills-audit-<YYYYMMDD>.md` as an untracked fallback. Run Phases 1→2a→2c→2b→3. **Phase 2c is mandatory and always runs** — it audits every existing skill and agent claim against current source (git history and `metadata.updated` are never accuracy evidence; its prompt-style sub-check uses git history only to find where a rule came from); write its table even when all-clean, never skip. After 2c, **reconcile**: amend the `## Phase 2a` block in place to escalate each non-CLEAN skill to REFRESH/REWRITE (`→ escalated by 2c: …`), and route each non-CLEAN agent to the Phase 5 regenerate list — so the handoff reads one delta.
 4. **Agent track:** run Phases 4a→4b→5 on every runtime — they draft each agent in both `.claude/agents/*.md` and `.codex/agents/*.toml` form.
-5. Run Phase 6 (verifier). It validates skills and BOTH agent formats, plus cross-layer integrity.
+5. Run Phase 6 (verifier). It validates skills and BOTH agent formats, plus cross-layer integrity, and grades any behavioral check of a drafted or refreshed skill (quoted evidence, no partial credit).
 6. Before starting each phase, confirm the prior heading is present. If a phase found nothing, write "no changes" under its heading — never silently skip.
 7. After Phase 6, present the plan (see Gate).
 
@@ -103,14 +103,14 @@ Phases 1–6 are read-only. After Phase 6:
 |---|---|---|
 | Phase 1 — profile, enumerate skills/agents, knowledge areas | `references/explorer.md` | all |
 | Phase 2a — the skill-set delta (create/update/split/merge/refresh) | `references/categorizer.md` | all |
-| Phase 2c — content-accuracy audit of every existing claim vs current source | `references/content-auditor.md` | all |
+| Phase 2c — content-accuracy audit of every existing claim vs current source, plus the prompt-style sub-check (pressure language, history narratives, trigger lists, one-incident rules; keep list) | `references/content-auditor.md` | all |
 | Phase 2b — codebase pattern extraction with file:line | `references/pattern-scanner.md` | all |
 | Phase 3 — draft SKILL.md bodies + references/ splits | `references/skills-builder.md` | all |
 | Phase 4a — map skills → agent roles | `references/role-mapper.md` | all |
 | Phase 4b — extract per-agent system-prompt content | `references/pattern-extractor.md` | all |
 | Phase 5 — draft Claude agent files (`.md`) | `references/agents-builder.md` | all |
 | Phase 5 — translate each agent to Codex (`.toml`) | `references/codex-agents-builder.md` | all |
-| Phase 6 — validate skills, agents, cross-layer integrity | `references/verifier.md` | all |
+| Phase 6 — validate skills, agents, cross-layer integrity; grade behavioral checks | `references/verifier.md` | all |
 
 ## Verification (Phase 6 + after any SKILL.md split — fail loud)
 

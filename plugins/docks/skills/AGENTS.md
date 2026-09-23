@@ -35,9 +35,10 @@ One-shot whole-repo setup and audit go through the `agent-first-setup` skill.
 1. **Lead with "Use when …"** — the guard enforces this prefix (verify: temporarily reword one description to drop the prefix → `node scripts/skills/guard.mjs` must fail on it; revert).
 2. **Key use case first** — Claude Code truncates the combined description in the listing (limit: Skills docs in `## Sources`); the first ~100 chars matter most.
 3. **≤500 chars** for full scorer credit; the hard cap is 1,024 (agentskills.io spec). Point values: write-skill's `scripts/skill-guard.mjs` (verify: `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file | grep <name>`).
-4. **Concrete trigger keywords**, not capability prose. "Use when running bun audit, pnpm audit, pip-audit…" beats "Use when working with dependency security." Move "Covers X, Y, Z" enumerations into the body.
-5. **No slop words** (`comprehensive`, `robust`, `elegant`, `seamless`) — each costs scorer points (`skill-guard.mjs`).
-6. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. `tests/skill-trigger-collision.mjs` fails an unrouted pair whose shared positive-surface trigger tokens reach its `OVERLAP_FAIL` threshold, but the subtle collisions still need the manual near-miss pass; `write-skill`'s near-miss table is the procedure.
+4. **Say what the skill does as well as when.** After the "Use when" trigger, name the job the skill does (for example "produces a tiered fix plan"). The agent picks a skill from the description alone, so a description with triggers but no job cannot be told apart from a neighbor. Move long "Covers X, Y, Z" enumerations into the body, but keep one clause that states the job. Source: the agentskills.io spec `description` field (`## Sources`).
+5. **Name categories of user intent; concrete nouns are fine.** "Use when running bun audit, pnpm audit, pip-audit…" beats "Use when working with dependency security", because commands and file types are what users type. But group them under the user intent they serve, and do not add one keyword per missed query: an ever-growing list overfits to the queries you saw, uses up the shared listing budget, and still misses the next phrasing. When a skill under-triggers, fix the intent category and confirm with the `write-skill` trigger check, not by adding tokens. Source: skill-creator `scripts/improve_description.py` (`## Sources`).
+6. **No slop words** (`comprehensive`, `robust`, `elegant`, `seamless`) — each costs scorer points (`skill-guard.mjs`).
+7. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. `tests/skill-trigger-collision.mjs` fails an unrouted pair whose shared positive-surface trigger tokens reach its `OVERLAP_FAIL` threshold, but the subtle collisions still need the manual near-miss pass; `write-skill`'s near-miss table is the procedure.
 
 ## Frontmatter
 
@@ -51,11 +52,15 @@ Structural rules are enforced by `scripts/skills/guard.mjs`.
 | `metadata.updated` | `YYYY-MM-DD`; bump only on a real content change |
 | `metadata.content_hash` | auto-managed by `scripts/skills/content-hash.mjs --backfill` |
 | `allowed-tools` | pre-approves tools while the skill is active |
+| `license` | optional; a license name or the name of a bundled license file (agentskills.io spec). Set it on a skill that carries its own license terms, so a consumer who copies the folder knows the terms |
+| `compatibility` | optional; ≤500 chars (agentskills.io spec); states environment requirements (intended product, system packages, network access). Add it only when the skill cannot run without them, so a runtime or user can tell before activation. Check the length by hand unless the guard enforces it (verify: `grep -n compatibility plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs`) |
 | third-party | add an `upstream:` block (`source`/`license`/`vendored_at`) to relax kit checks for vendored skills |
 
 ## Body (loads on activation — every line is a recurring cost)
 
 Conciseness test: "would removing this line cause Claude to make mistakes? If not, cut it." Don't restate what Claude already knows.
+
+**No surprises.** A skill must do only what its name and description say. Do not put in actions a user would be surprised by if the skill's intent were described to them: no hidden network calls or data exfiltration, no unrelated file or git changes, no malware. Docks skills run in other people's repositories with the agent's permissions, and the user approves a skill by its description, not by reading the body. Source: the Principle of Lack of Surprise in skill-creator `SKILL.md` (`## Sources`).
 
 | Pattern | When |
 |---|---|
@@ -107,6 +112,7 @@ Skills run in both runtimes; phrase for both. Sources: the Claude Code skills do
 4. **Codex reads bodies as plain markdown** — it does not weight `<constraint>` XML. A safety rule must read correctly as plain prose, not lean on the tag for emphasis.
 5. **`isolation: worktree` is Claude-only.** Don't rely on it (or plugin-subagent `hooks`/`mcpServers`/`permissionMode`) for cross-tool safety.
 6. **Goals over step-lists for frontier models.** Frontier-model prompting guides warn that skills written for prior models are often too prescriptive and can degrade output; literal-following models won't generalize an instruction beyond its stated scope. Write the goal + the non-negotiable constraints, state scope explicitly, and skip micro-step choreography the model can derive.
+7. **Test on the smallest model expected to run the skill.** A larger model fills gaps in a thin instruction; a smaller model follows the text literally and shows where the skill is under-specified. Run the `write-skill` baseline check on the smallest model tier (and runtime) the skill targets, not only on the model you author with. Source: the Agent Skills best-practices guide, "test with all models you plan to use" (`## Sources`).
 
 ## Scoring
 
@@ -122,3 +128,6 @@ Artifacts surface as `<plugin>:<name>` (e.g. `docks:security`, `docks:write-skil
 
 - Skills: <https://code.claude.com/docs/en/skills>
 - agentskills.io spec: <https://agentskills.io/specification>
+- Agent Skills best practices: <https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>
+- skill-creator `SKILL.md` (Apache-2.0): <https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md>
+- skill-creator `scripts/improve_description.py` (Apache-2.0): <https://github.com/anthropics/skills/blob/main/skills/skill-creator/scripts/improve_description.py>
