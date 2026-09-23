@@ -4,8 +4,8 @@ description: "Use when tunneling in code-level detail and you need a system-leve
 user-invocable: true
 metadata:
   pattern: micro-skill
-  updated: "2026-08-25"
-  content_hash: "d0f032b8cf888879525a072f59d0e10e65cc546796d451465e8948115fef7d2a"
+  updated: "2026-09-23"
+  content_hash: "81f77792c9967fb2e6b1704f481eab86229e1162e253fc55096186f85bf2cda5"
 ---
 
 # Zoom Out
@@ -92,4 +92,4 @@ your question restated:
 
 ## Source
 
-Pattern adapted from Matt Pocock's `zoom-out` skill (MIT): <https://github.com/mattpocock/skills/blob/main/skills/engineering/zoom-out/SKILL.md>. Matt's is 5 lines and assumes a richer CONTEXT.md / glossary discipline; this expansion encodes the discipline inline so it works without those files.
+Pattern adapted from Matt Pocock's `zoom-out` skill (MIT; since removed upstream), pinned at its last version: <https://github.com/mattpocock/skills/blob/801a01cc7d265e06dd9dbcef5a4c471add05a0b3/skills/engineering/zoom-out/SKILL.md>. The upstream skill was a one-line prompt that relied on the project's domain glossary. This skill states the method inline, so it works without a glossary file.

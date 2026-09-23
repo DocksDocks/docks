@@ -4,8 +4,8 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-20"
-  content_hash: "779d8fdf7514356ac1565cee54a13d5d15e678578b3e71d7cffe5218942ba93c"
+  updated: "2026-09-23"
+  content_hash: "f614eb7f27d28a71848a7c795145f36a77202c66d1bcf4b2ec73b0755d198029"
 ---
 
 # Code Review
@@ -86,7 +86,7 @@ For deep per-category finding patterns, severity calibration tables, and false-p
 |---|---|
 | Security — OWASP Top 10, auth, crypto, deserialization, SSRF, IDOR | `references/security.md` |
 | Performance — N+1, render cascades, sync I/O, allocation in hot paths | `references/perf.md` |
-| Maintainability / AI slop — dead code, duplication, smart abstractions, contradictory comments, made-up errors | `references/maintainability.md` |
+| Maintainability / AI slop — dead code, duplication, smart abstractions, contradictory comments, made-up errors, Fowler smell baseline | `references/maintainability.md` |
 
 (Bug-category findings are language-agnostic and covered by Step 4's pre-verify checks; no separate reference needed.)
 
@@ -131,6 +131,8 @@ When the trigger above fires, run the review on two axes and report them side-by
 
 **Axis 1 — Standards.** Does the diff follow the project's documented conventions? Source: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/adr/*`, any `STYLE.md`/`STANDARDS.md`, plus the skill set under `.claude/skills/`. **Skip what tooling already enforces** (eslint/biome/prettier/tsc/ruff/clippy/gofmt) — note their presence but don't re-derive what `npx tsc --noEmit` would flag in 2 seconds.
 
+The Standards axis always applies the **Fowler smell baseline** in `references/maintainability.md`, even when the repo documents no standards. A documented repo standard overrides the baseline, and each smell is a judgement call ("possible Feature Envy"), never a hard violation.
+
 **Axis 2 — Spec.** Does the diff faithfully implement what was asked? Source priority:
 1. The plan issue named by the branch or commit message — read its body with `plan.mjs show <issue> --body`, then use its `## Goal` and `## Steps`.
 2. A `Closes #N` / `#N` reference in a commit message or PR body — fetch the referenced issue when the repository has GitHub.
@@ -157,12 +159,12 @@ each citing the spec line + the diff line>
 ## Summary
 - Standards: N findings (1 critical / 2 high / …)
 - Spec: M findings (k missing, j scope creep, i implemented-wrong)
-- Worst single issue across both axes: <one line>
+- Worst issue per axis: Standards <one line>; Spec <one line> (do not pick one winner across axes — that is the reranking the constraint forbids)
 ```
 
 Run the two passes sequentially within one turn — the discipline that matters is keeping the reports separate, not how they're scheduled. (A runtime with isolated workers MAY split the axes so one doesn't bleed into the other's context, but sequential is the portable default.)
 
-Pattern adapted from Matt Pocock's `review` skill (MIT): <https://github.com/mattpocock/skills/blob/main/skills/in-progress/review/SKILL.md>.
+Pattern adapted from Matt Pocock's `code-review` skill (formerly `review`; MIT): <https://github.com/mattpocock/skills/blob/main/skills/engineering/code-review/SKILL.md>.
 
 ## Common Traps
 

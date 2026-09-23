@@ -4,8 +4,8 @@ description: Use when designing a module / service / class with multiple concern
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "8d1db580f817b4866a2d3b44505169749da88af65a42b7636fbddda47d0a7cfc"
+  updated: "2026-09-23"
+  content_hash: "ec0c6e7f21fa94db9712828a412cc6b4f6ed2a2d4524a27b5537f25f915a0952"
 ---
 
 # SOLID — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion
@@ -152,4 +152,4 @@ In codebases without a DI container, **function arguments are the abstraction**.
 - Structural vocabulary + the three tests: `references/depth-and-seams.md`
 - Maintenance twin: the `refactor` skill's `references/solid-analyzer.md` carries a condensed copy of this per-principle rubric and of the TypeScript class-justification gate (canonical deep form in `type-safety-discipline`) — sync the twins in the same commit when either changes.
 - Uncle Bob's original SOLID essays: https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html
-- Depth/seam vocabulary adapted from Matt Pocock's `improve-codebase-architecture` skill (MIT): https://github.com/mattpocock/skills/blob/main/docs/engineering/improve-codebase-architecture.md
+- Depth/seam vocabulary, the three tests, dependency categories, and "replace, don't layer" adapted from Matt Pocock's `codebase-design` skill (MIT; the vocabulary was first part of his `improve-codebase-architecture` skill): https://github.com/mattpocock/skills/blob/main/skills/engineering/codebase-design/SKILL.md

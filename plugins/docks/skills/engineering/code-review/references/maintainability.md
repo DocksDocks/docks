@@ -7,6 +7,7 @@
   - [Duplication](#duplication)
   - ["Smart" Abstractions](#smart-abstractions)
   - [AI-Slop Tells](#ai-slop-tells)
+  - [Smell Baseline (Fowler)](#smell-baseline-fowler)
 - [Severity Calibration](#severity-calibration)
 - [False-Positive Guards](#false-positive-guards)
 - [Output Template (extends the parent SKILL.md format)](#output-template-extends-the-parent-skillmd-format)
@@ -67,6 +68,30 @@ These patterns appear disproportionately in AI-generated code. Each is a finding
 | **Mock data left in production code** | `if (user.id === 'demo-user') return { name: 'Demo' }` | Test fixture leaked into prod path |
 | **Variable name + comment disagreeing** | `const isActive = false  // user is active` | One of them is stale; review history to know which |
 | **Boilerplate JSDoc that adds nothing** | `/** Get the user. @returns User */ function getUser(): User` | Pure noise; types already convey it |
+
+### Smell Baseline (Fowler)
+
+A fixed set of code smells from Martin Fowler's *Refactoring* (chapter 3). The Standards axis applies this baseline to every diff, even when the repo documents no standards. Two rules bind it:
+
+- **The repo overrides.** A documented repo standard wins. If the repo endorses a pattern that the baseline flags, do not report the smell.
+- **Always a judgement call.** Label each hit as a heuristic ("possible Feature Envy"), never as a hard violation. Skip what tooling already enforces.
+
+| Smell | What to look for in the diff | Suggested fix |
+|---|---|---|
+| Mysterious Name | A function, variable, or type name that does not say what it does or holds | Rename; if no honest name fits, the design is unclear |
+| Duplicated Code | The same logic shape in more than one hunk or file | Extract the shared shape; call it from each site |
+| Feature Envy | A method that uses another object's data more than its own | Move the method to the data it uses |
+| Data Clumps | The same few fields or parameters always travel together | Bundle them into one type; pass that type |
+| Primitive Obsession | A primitive or string stands in for a domain concept | Give the concept its own small type |
+| Repeated Switches | The same `switch` / `if` chain on the same type in several places | One shared lookup map, or polymorphism |
+| Shotgun Surgery | One logical change forces edits scattered across many files | Gather what changes together into one module |
+| Divergent Change | One file or module changes for several unrelated reasons | Split it so each module changes for one reason |
+| Speculative Generality | Abstractions, parameters, or hooks for needs the spec does not have | Delete; inline until a real need exists |
+| Message Chains | Long `a.b().c().d()` navigation the caller should not depend on | Hide the walk behind one method on the first object |
+| Middle Man | A class or function that mostly delegates onward | Remove it; call the real target directly |
+| Refused Bequest | A subclass or implementer that ignores or overrides most of what it inherits | Drop the inheritance; use composition |
+
+Severity follows the calibration below (cap MEDIUM). Smell baseline adapted from Matt Pocock's `code-review` skill (MIT): <https://github.com/mattpocock/skills/blob/main/skills/engineering/code-review/SKILL.md>.
 
 ## Severity Calibration
 

@@ -4,14 +4,14 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "3c08cc3be5b2c17de11bc9ef12ef7f6be0b9810adcccbe41f57c73e801674766"
+  updated: "2026-09-23"
+  content_hash: "acd730e56506f33d5de1396510e59c35922cb4c0316a131208ed4f75b6b103dd"
 ---
 
 # Fix Workflow
 
 <constraint>
-Step 0 — before anything else: build a feedback loop. If you have a fast, deterministic, agent-runnable pass/fail signal for the bug, you will find the cause — bisection, hypothesis testing, and instrumentation all just consume that signal. Without one, "fixing" is speculation. The full ranked menu of 10 loop-construction methods, plus iteration rules, non-deterministic-bug handling, and the "when you genuinely cannot build a loop" stop-and-ask procedure live in [`references/feedback-loops.md`](references/feedback-loops.md). Read it before Step 2 (Reproduce). Spend disproportionate effort here — a 2-second deterministic loop is a debugging superpower; a 90-second flaky one is barely better than nothing.
+Step 0 — before anything else: build a feedback loop. If you have a tight pass/fail signal for the bug — one that goes red on *this* bug — you will find the cause; bisection, hypothesis testing, and instrumentation all just consume that signal. Without one, "fixing" is speculation. The ranked menu of 10 loop-construction methods, the Redact rule, the tighten rules, non-deterministic-bug handling, the "tight / red-capable" exit check, and the "when you genuinely cannot build a loop" stop-and-ask procedure live in [`references/feedback-loops.md`](references/feedback-loops.md). Step 0 ends only when that exit check passes. Spend disproportionate effort here — a 2-second deterministic loop is a debugging superpower; a 90-second flaky one is barely better than nothing.
 </constraint>
 
 <constraint>
@@ -74,6 +74,7 @@ This step consumes the feedback loop you built per the Step 0 constraint (`refer
 - If no test infrastructure: STOP and discuss with the user — adding a test framework is a separate task
 - Confirm the failure before continuing. "I think I see why this happens" is not reproduction.
 - For non-deterministic bugs: raise the reproduction rate before debugging (loop 100×, pin clock/RNG, freeze network). 1%-flake is not debuggable; 50% is. See `references/feedback-loops.md` § Non-deterministic bugs.
+- Once the loop is red, minimise the repro before Step 3 — see `references/feedback-loops.md` § Minimise.
 
 ### Step 3 — Discover (parallel by default)
 
@@ -192,4 +193,4 @@ After all approved fixes land, run the full verification sweep (tests + lint + t
 - Companion pipeline skills: `security`, `refactor` (cross-tool pipelines — no slash command)
 - Per-finding-type templates: `references/security-fix-templates.md`, `references/perf-fix-templates.md`, `references/bug-fix-templates.md`
 - Feedback-loop construction (Step 0): `references/feedback-loops.md`
-- Framing for feedback-loops.md adapted from Matt Pocock's `diagnose` skill (MIT): https://github.com/mattpocock/skills/blob/main/skills/engineering/diagnose/SKILL.md
+- Framing for feedback-loops.md adapted from Matt Pocock's `diagnosing-bugs` skill (formerly `diagnose`; MIT): https://github.com/mattpocock/skills/blob/main/skills/engineering/diagnosing-bugs/SKILL.md — the original text was adapted from the `diagnose` version pinned at https://github.com/mattpocock/skills/blob/694fa30311e02c2639942308513555e61ee84a6f/skills/engineering/diagnose/SKILL.md
