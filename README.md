@@ -107,7 +107,7 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
 │   ├── skills/guard.mjs, agents/guard.mjs + score.mjs
 │   └── tree/ + config/ + lib/
-└── .github/workflows/ci.yml           ← validator CI on push/PR
+└── .github/workflows/ci.yml           ← validator CI on PR, release tag, and manual dispatch
 ```
 
 **What ships to users**: only the `plugins/<name>/` directory of each installed plugin. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to `~/.claude/plugins/cache/` on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism - Claude Code's plugin cache copies only the directory pointed at by `source`.
