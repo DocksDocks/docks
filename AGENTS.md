@@ -46,7 +46,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. A node is a sing
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
 | `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |
 
-The table must name every `AGENTS.md` below the root (verify: `git ls-files '*AGENTS.md'`). No CI gate compares the table with disk: `scripts/tree/guard.mjs` enforces the node contract (size cap, no legacy `CLAUDE.md`) only, and the `context-tree audit` op reports orphan nodes. The `context-tree` skill (`plugins/docks/skills/productivity/context-tree/`) scaffolds, audits, and refreshes these nodes.
+The table must name every `AGENTS.md` below the root, and every row must resolve. `scripts/tree/guard.mjs` enforces both, plus the node contract (size cap, no legacy `CLAUDE.md`) (verify: delete one row from a scratch copy, then run `node scripts/tree/guard.mjs <copy>`; it must fail naming the node). The `context-tree` skill (`plugins/docks/skills/productivity/context-tree/`) scaffolds, audits, and refreshes these nodes.
 
 ## Authoring agents
 

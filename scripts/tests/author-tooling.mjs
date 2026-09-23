@@ -135,6 +135,22 @@ function testTreeGuardOperationalFailures() {
     assertStarted(legacy);
     assert.equal(legacy.status, 1);
     assert.match(legacy.stderr, /^FAIL: \.claude\/CLAUDE\.md — legacy CLAUDE\.md suppresses native AGENTS\.md loading/);
+
+    // The root routing table must name every nested node, and every row must resolve.
+    const routeRoot = path.join(fixtureRoot, 'route');
+    fs.mkdirSync(path.join(routeRoot, 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(routeRoot, 'sub', 'AGENTS.md'), '# Sub\n');
+    fs.writeFileSync(path.join(routeRoot, 'AGENTS.md'), '# Root\n');
+    const unrouted = runNode(TREE_GUARD, [routeRoot]);
+    assertStarted(unrouted);
+    assert.equal(unrouted.status, 1);
+    assert.match(unrouted.stderr, /^FAIL: sub\/AGENTS\.md — node not routed/m);
+    fs.writeFileSync(path.join(routeRoot, 'AGENTS.md'), '| Node |\n|---|\n| `sub/AGENTS.md` |\n| `gone/AGENTS.md` |\n');
+    const dead = runNode(TREE_GUARD, [routeRoot]);
+    assertStarted(dead);
+    assert.equal(dead.status, 1);
+    assert.match(dead.stderr, /^FAIL: AGENTS\.md table row `gone\/AGENTS\.md` — dead route/m);
+    assert.doesNotMatch(dead.stderr, /not routed/);
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }

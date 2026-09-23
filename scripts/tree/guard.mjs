@@ -2,7 +2,8 @@
 // Guard: validate context-tree nodes.
 // A node is a directory carrying AGENTS.md; AGENTS.md must stay <= 500 lines.
 // Any CLAUDE.md (incl. .claude/CLAUDE.md) fails: it suppresses Claude Code's native
-// AGENTS.md loading. Usage: tree/guard.mjs [repo-root]
+// AGENTS.md loading. The root AGENTS.md routing table (rows naming `<dir>/AGENTS.md`)
+// must name every nested node, and every row must resolve. Usage: tree/guard.mjs [repo-root]
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -64,6 +65,20 @@ for (const dir of dirs) {
   const agents = path.join(dir, 'AGENTS.md');
   const alines = (readTreeFile(agents).match(/\n/g) || []).length;
   if (alines > 500) fail(`${rel}/AGENTS.md — ${alines} lines (cap: 500). Split the folder or tighten.`);
+}
+
+// Routing table: a hand-kept list is durable only while a check compares it with disk.
+const rootAgents = path.join(ROOT, 'AGENTS.md');
+if (fs.existsSync(rootAgents)) {
+  const routed = new Set();
+  for (const line of readTreeFile(rootAgents).split('\n')) {
+    if (!line.startsWith('|')) continue;
+    for (const m of line.matchAll(/`([^`\s]*AGENTS\.md)`/g)) routed.add(m[1]);
+  }
+  const nested = dirs.filter((d) => d !== ROOT).map((d) => path.relative(ROOT, path.join(d, 'AGENTS.md')));
+  for (const rel of nested) if (!routed.has(rel)) fail(`${rel} — node not routed from the root AGENTS.md table`);
+  for (const rel of routed)
+    if (!fs.existsSync(path.join(ROOT, rel))) fail(`AGENTS.md table row \`${rel}\` — dead route (file missing)`);
 }
 
 if (errors > 0) {
