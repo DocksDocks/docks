@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: generative-skill
   updated: "2026-09-23"
-  content_hash: "2aff9f473a5d6a4437458f75d76aed36316c0254bb982992aa61cfb0b0ec3d87"
+  content_hash: "238ff65877dfd0dbe0336d274c4bf520c736db8b4e7aa762d875663af4d135bd"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -19,7 +19,7 @@ metadata:
 </constraint>
 
 <constraint>
-**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then ask for approval with the harness question tool (omp `ask`; Claude Code `AskUserQuestion`; Codex `request_user_input`, not in every mode; OpenCode `question`; else the tool the harness registers). Outside Codex Plan mode, the call can return without a user answer; an empty or default answer is not approval, so write nothing and end the turn. Do not call Write/Edit until the user answers. Silence is not consent; an ambiguous answer re-shows the proposal. No question tool (headless, print mode)? Print the question as your final message and end the turn; do not invent a tool call. A plain-text "Approve?" in a reply is not a gate. Do NOT call `ExitPlanMode` (Claude-only).
+**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then ask for approval with the harness question tool (omp `ask`; Claude Code `AskUserQuestion`; Codex `request_user_input`, not in every mode; OpenCode `question`; else the tool the harness registers). Outside Codex Plan mode, the call can return without a user answer; an empty or default answer is not approval, so write nothing and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Do not call Write/Edit until the user answers. Silence is not consent; an ambiguous answer re-shows the proposal. No question tool (headless, print mode)? Print the question as your final message and end the turn; do not invent a tool call. A plain-text "Approve?" in a reply is not a gate. Do NOT call `ExitPlanMode` (Claude-only).
 </constraint>
 
 <constraint>
@@ -91,7 +91,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 
 1. **Greenfield check.** Target must be empty/absent; refuse otherwise. Refuse name `docks` (constraint 1).
 2. **Load spec.** Read `docs/scaffold/spec.yaml`. If absent, stop and suggest `scaffold setup`.
-3. **Interview.** Ask for every `variable` in one question-tool call (constraint 2 names the tools); pull `default_from` via `git config` where set and offer it as the default. No question tool: print all variables as one question as your final message and end the turn.
+3. **Interview.** Ask for the `variable` values with the question tool (constraint 2 names the tools), in as few calls as the tool allows (Codex: 3 per call). Pull `default_from` via `git config` where set and offer it as the first option; the user types other values as free text. No question tool: print all variables as one question as your final message and end the turn.
 4. **Resolve + manifest.** Compute every output path and substitute variables into a preview. Show the full file manifest + resolved variable values. **Ask for approval with the question tool and wait** (constraint 2).
 5. **Write the project.** For each entry: copy bundled skills/scripts verbatim; render templates with `{{ var }}` filled; create tree nodes (one `AGENTS.md` each, no `CLAUDE.md`); use the bundled `plan-workspace` to seed the plan label set plus `docs/AGENTS.md` and `docs/PLAN.md`; bundle the three exact plan skills (`plan-workspace`, `plan-manager`, `plan-reviewer`); render `.codex/agents/plan-reviewer.toml` and `.codex/agents/code-reviewer.toml` as the two project-local read-only reviewer wrappers. Main context owns `plan-manager` directly; do not invent wrappers for manager, workspace, creator, repairer, or improver. The seeded entrypoints are `.mjs` files run via `node` — no exec bit to set.
 6. **Init + verify.** `git init` if needed. Run `bun install --frozen-lockfile`, then every validator the spec's `scripts` list copies, for example `node <target>/scripts/skills/guard.mjs <target>/plugins/<name>/skills` and `node <target>/scripts/tree/guard.mjs <target>` (the seeded `scripts/AGENTS.md` owns the full list). Then grep for stray `{{` (constraint 3) and run the seed routing and durability check below from the target root. Every line it prints is a failure. This check is a subset: the full agent-first check (commands, symlinks, skill descriptions) is `agent-first-setup` Step 3. The routing rows use the shared rule: a table row whose first cell is `` `<path>AGENTS.md` ``, with an optional `@` inside the backticks.
