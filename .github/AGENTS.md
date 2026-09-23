@@ -7,7 +7,7 @@ prerequisites without rerunning the gate. Core owns the helper smoke in
 `scripts/tests/plan-cli.mjs`, the Docks trigger-collision audit, the
 plugin gates, and JavaScript quality. Manual
 dispatches run one full gate alongside the targeting contract
-before the same join. Tag pushes run one registry-resolved plugin gate; the join
+before the same join. Tag pushes run the repo lane, then one registry-resolved plugin gate; the join
 requires the targeting contract to be skipped there.
 
 `workflows/dependency-integrity.yml` runs on a weekly schedule and on manual
@@ -106,7 +106,7 @@ Mitigations against npm and GitHub Actions supply-chain attacks. Each is load-be
 - **Dependency caches use the official `actions/cache`**, with the Bun key bound to `bun.lock` and `package.json`. Bun itself comes from `oven-sh/setup-bun`, which reads the `packageManager` pin and caches only the executable.
 - **`claude-code` is pinned rather than installed globally**: it is an exact-version devDependency in `package.json` and hash-locked in `bun.lock`, including its platform-binary optional dependencies. `minimumReleaseAge` in `bunfig.toml` quarantines fresh publishes (verify: `grep -n minimumReleaseAge bunfig.toml`); bump the dependency only to a version older than that quarantine.
 - **Lifecycle scripts are denied in `package.json` with `"trustedDependencies": []`.** The empty array is the only spelling that denies every lifecycle script. Omitting the field instead trusts Bun's built-in list, which includes `@anthropic-ai/claude-code`.
-- **The PR `core` lane and every non-PR `validate` execution** run `bun install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the CLI binary whose lifecycle script was denied, and put `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. The PR `validate` job is only the authoritative lane-result join. Node is the validator runtime (version: root `AGENTS.md` Commands); Bun is the package manager and script runner.
+- **Every PR validation shard, the targeting-contracts job, and every non-PR `validate` execution** run `bun install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the CLI binary whose lifecycle script was denied, and put `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. The PR `validate` job is only the authoritative lane-result join. Node is the validator runtime (version: root `AGENTS.md` Commands); Bun is the package manager and script runner.
 - **`npm audit signatures`** remains the non-blocking signature check after every install because Bun has no signature-verification equivalent.
 </constraint>
 

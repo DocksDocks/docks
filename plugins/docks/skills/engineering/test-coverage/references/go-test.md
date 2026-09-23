@@ -221,7 +221,7 @@ Stable knobs (recent majors):
 |---|---|
 | `go test -parallel N` | Cap parallel tests **within a package** (those calling `t.Parallel()`) |
 | `go test -p N` | Parallel **package** compilation+execution; defaults to GOMAXPROCS |
-| `go test -race` | Race detector — slow (~2-10×) but catches concurrency bugs; CRITICAL in CI |
+| `go test -race` | Race detector — slow (~2-20× execution time, 5-10× memory) but catches concurrency bugs; CRITICAL in CI |
 | `go test -count=1` | Bypass cache; required when measuring fresh runs |
 | `go test -timeout 30s` | Kill stuck tests; default 10m too long for CI feedback |
 | `go test -short` | Skip tests that opt into `testing.Short()` — fast feedback loops |
@@ -259,7 +259,7 @@ go test -cover -coverpkg=./internal/... -coverprofile=cov.out ./...
 
 # Filter the profile after collection (post-processing is the Go idiom — there's no
 # built-in exclude list):
-grep -v -E '(_mock\.go|_generated\.go|/mocks/|/pb/|main\.go:|_string\.go:)' cov.out > cov.filtered
+grep -v -E '(/main\.go:|\.pb(\.gw)?\.go:|_mock\.go:|_generated\.go:|/mocks/|/generated/|wire_gen\.go:|_string\.go:)' cov.out > cov.filtered
 
 # Common exclusions:
 #   - *.pb.go / *.pb.gw.go        (protobuf / grpc-gateway codegen)
@@ -270,7 +270,7 @@ grep -v -E '(_mock\.go|_generated\.go|/mocks/|/pb/|main\.go:|_string\.go:)' cov.
 #   - **/wire_gen.go              (google/wire DI codegen)
 ```
 
-Per-line `// +build !coverage` is uncommon in Go; prefer post-collection profile filtering or scoped `-coverpkg`. Codecov / Coveralls config files can also exclude paths post-upload.
+File-level `//go:build` constraints are uncommon for coverage exclusion; prefer post-collection profile filtering or scoped `-coverpkg`. Codecov / Coveralls config files can also exclude paths post-upload.
 
 ## See Also
 

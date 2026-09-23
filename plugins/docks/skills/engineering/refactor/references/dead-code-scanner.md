@@ -16,7 +16,7 @@ Dynamic-reference check before SAFE. Before marking any export SAFE-to-remove, s
 | vulture | `vulture <scope> --min-confidence 80` |
 | ruff | `ruff check --select F811,F841 <scope>` |
 | Go | `deadcode -test ./...` |
-| Rust | `cargo-udeps` |
+| Rust | `cargo +nightly udeps` (needs a nightly toolchain) |
 
 ## Step 2 — Manual scan (always)
 
@@ -30,7 +30,7 @@ Exported symbols cross-referenced with imports; files with zero inbound imports;
 | CAUTION | components, API routes, middleware | dynamic-import check REQUIRED before removable |
 | DANGER | config, entry points, type defs, build-referenced files | manual review only |
 
-## Output (write under `## Phase 2a: Dead Code Findings`)
+## Output (write under `### Phase 2a: Dead Code Findings` in `## Research`)
 
 Per finding: `file:line` · Category (unused export/dep/unreachable/orphaned/param/commented) · Safety tier · Evidence · Dynamic-reference check result (SAFE and CAUTION items).
 

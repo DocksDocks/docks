@@ -36,9 +36,11 @@ Constraints at START, gotchas at END. Bullets/tables, no prose. Every claim has 
 | regenerate | draft fresh file; back up original to `<name>.md.bak` (note in output) |
 | delete | list the file under "files to delete" in the plan with the reason; remove it in Phase 7 only after explicit user approval |
 
-## Output (write under `## Phase 5: Agents Plan`)
+## Output (write under `### Phase 5: Agents Plan`)
 
-Per agent: `### File: .claude/agents/<name>.md` + full content; then its Codex `.codex/agents/<name>.toml` twin per `codex-agents-builder.md` (for an `Agent`-dispatching agent the `.toml` still ships — note the `agents.max_depth: 1` single-level-dispatch caveat).
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
+
+Per agent: `#### File: .claude/agents/<name>.md`, then put the full content in a fenced block whose fence is longer than any fence inside the content (for example four backticks), so the plan helper ignores the file's own `##` headings; then its Codex `.codex/agents/<name>.toml` twin per `codex-agents-builder.md` (for an `Agent`-dispatching agent the `.toml` still ships — put its delegation in `developer_instructions` and flag nested delegation for the user to verify).
 
 ## Gotcha
 

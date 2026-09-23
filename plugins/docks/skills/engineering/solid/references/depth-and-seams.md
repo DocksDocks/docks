@@ -1,6 +1,6 @@
 # Depth, Seams, and the Deletion Test
 
-Deep reference for the "deepening opportunity" trigger in the parent `SKILL.md`. Use these terms exactly when proposing or reviewing structural refactors — vocabulary drift ("component," "service," "API," "boundary") makes every review longer and every conversation looser. Adapted from Matt Pocock's `codebase-design` skill (`github.com/mattpocock/skills` — `skills/engineering/codebase-design/SKILL.md` and its `DEEPENING.md`, MIT).
+Deep reference for the three-tests constraint in the parent `SKILL.md`. Use these terms exactly when proposing or reviewing structural refactors — vocabulary drift ("component," "service," "API," "boundary") makes every review longer and every conversation looser. Adapted from Matt Pocock's `codebase-design` skill (`github.com/mattpocock/skills` — `skills/engineering/codebase-design/SKILL.md` and its `DEEPENING.md`, MIT).
 
 ## Contents
 
@@ -68,7 +68,7 @@ Corollary: an in-memory test fake **counts as the second adapter** if you write 
 | Smell | Apply the test | Resolution |
 |---|---|---|
 | File > 300 LOC, two change axes share it (S) | Deletion test on the smaller axis — if deleting it concentrates complexity into one new module, split. If it scatters complexity, the original module was the right home; the LOC count is not the violation. | Split only if deletion concentrates. |
-| Switch with 5+ arms (O) | Two adapters? If only the current dispatcher uses each branch, the strategy map is hypothetical seam. If a second consumer (test fixture, alternate dispatcher) also picks branches by key, real seam — strategy map. | Real seam → strategy map. Hypothetical → leave switch. |
+| Switch with 5+ arms (O) | First ask what the proposal adds. A same-module Strategy Map (`Record<key, fn>` next to the dispatcher) adds no new interface and no adapter — it is an in-process change (category 1 below), so the two-adapter test does not apply. Apply the two-adapter test only when the proposal adds a new interface, class hierarchy, or module per variant: if only the current dispatcher picks branches, that seam is hypothetical; if a second consumer (test fixture, alternate dispatcher) also picks branches by key, it is real. | Growing switch → same-module strategy map. New interface / hierarchy / per-variant module → only on a real seam; otherwise keep the map in one module. |
 | Interface > 10 methods (I) | Interface IS test surface — do tests reach past the interface to set up just one method? That's an I-violation signal. If every test exercises ≥ half the methods, it's not an I-violation, it's just a wide interface. | Split when test reach exceeds what the test needs. |
 | Hard-coded SDK in business logic (D) | Two adapters? Real SDK in prod + a fake in tests is two real adapters → inject. Hypothetical "we might swap providers someday" is not. | Inject when a test fake is real, not aspirational. |
 | `instanceof` gating behaviour (L) | Interface IS test surface — if the switch on type IS the contract, the discriminated union *is* the interface. | Discriminated union + exhaustive switch (compiler enforces the contract). |

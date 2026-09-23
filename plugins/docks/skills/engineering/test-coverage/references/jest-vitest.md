@@ -31,7 +31,7 @@ The APIs are similar but not identical — Vitest uses `vi.*`, Jest uses `jest.*
 ## File Naming Conventions
 
 - Co-located: `parseDuration.ts` + `parseDuration.test.ts` in the same directory (most common, Vitest default)
-- `__tests__/` folder: `src/utils/__tests__/parseDuration.test.ts` (Jest default with `testPathIgnorePatterns`)
+- `__tests__/` folder: `src/utils/__tests__/parseDuration.test.ts` (matched by Jest's default `testMatch`)
 - `.spec.ts` extension: some projects prefer for "spec" vs "unit"
 - Read the project's existing files; match exactly.
 
@@ -133,15 +133,15 @@ Stable knobs (recent majors):
 | Vitest | Jest | What |
 |---|---|---|
 | `--pool=forks` (default since Vitest 2.0) / `--pool=threads` | n/a (always forks) | Forks = isolated but slower; threads = faster, shared globals |
-| `--poolOptions.threads.maxThreads=N` | `--maxWorkers=N` or `--maxWorkers=50%` | Cap parallel workers; CI default leaves room for runner overhead |
+| `--maxWorkers=N` (Vitest 4 removed `poolOptions`; older majors used `--poolOptions.<pool>.maxThreads`/`maxForks`) | `--maxWorkers=N` or `--maxWorkers=50%` | Cap parallel workers; CI default leaves room for runner overhead |
 | `--no-isolate` | n/a | Reuse same context across files in a worker — fast but module state leaks |
 | `--shard=1/4` | `--shard=1/4` | Run 1 of 4 disjoint slices; ideal for CI matrix |
-| `--bail` | `--bail` | Stop on first failure — faster local iteration |
-| `--changed` / `--changed-since` | `--onlyChanged` / `--changedSince` | Tests touching changed files only |
+| `--bail=1` (takes a failure count) | `--bail` | Stop on first failure — faster local iteration |
+| `--changed [since]` | `--onlyChanged` / `--changedSince` | Tests touching changed files only |
 
 Per-machine guidance:
-- **Laptop (4–8 cores), local iteration:** leave defaults; layer `--changed --bail` for tight loops.
-- **CI runner with N vCPU:** explicit `--maxWorkers=N` (Jest) or `--poolOptions.threads.maxThreads=N` (Vitest) — don't let the runner thrash.
+- **Laptop (4–8 cores), local iteration:** leave defaults; layer `--changed --bail=1` (Vitest) or `--onlyChanged --bail` (Jest) for tight loops.
+- **CI runner with N vCPU:** explicit `--maxWorkers=N` (Jest and Vitest) — don't let the runner thrash.
 - **DB-sharing integration tests:** drop to `--maxWorkers=1` (or run them as a separate `:integration` suite); shared connections + parallel tests = flake.
 - **CI matrix:** prefer `--shard=` over manually splitting test files; the runner handles balanced distribution.
 

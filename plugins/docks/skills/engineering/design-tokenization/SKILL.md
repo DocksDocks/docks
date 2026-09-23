@@ -4,8 +4,8 @@ description: "Use when working with colors, Tailwind classes, CSS variables, dar
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "dd48a1e744a7ce5044e4c42ac32e5cd6d1b3c8f658f8bee90b4abb385dcd57a2"
+  updated: "2026-09-23"
+  content_hash: "df13bc6b4ad0edc5bdc9ce7a35bae32c80db8ef6a3d07a5760ff5ed5adccbb1d"
 ---
 
 # Design Tokenization
@@ -15,7 +15,7 @@ No hex color literals in application code. Every visible color routes through a 
 </constraint>
 
 <constraint>
-Every token defined in `:root` must also be defined in `.dark`. A token defined in only one block silently breaks contrast in the other mode — utility resolves to `undefined` and falls back to inherited or transparent. Treat the two blocks as a contract: edit both in the same change.
+Every token defined in `:root` must also be defined in `.dark`. A token defined in only one block silently breaks contrast in the other mode. Custom properties inherit: a token only in `:root` keeps its light value in dark mode. A token only in `.dark` is undefined in light mode, so `var()` is invalid and the property falls back to its inherited or initial value. Treat the two blocks as a contract: edit both in the same change.
 </constraint>
 
 <constraint>
@@ -68,7 +68,7 @@ The table below illustrates the `on-*` form; in a `*-foreground` project, use th
 | `stripe` / `on-stripe` | `#635BFF` | Stripe-branded checkout |
 | `google` / `on-google` | `#4285F4` | "Sign in with Google" |
 | `github` / `on-github` | `#181717` | "Continue with GitHub" |
-| `spotify` / `on-spotify` | `#1DB954` | "Listen on Spotify" |
+| `spotify` / `on-spotify` | `#1ED760` | "Listen on Spotify" |
 | `discord` / `on-discord` | `#5865F2` | "Join our Discord" |
 
 Why brand tokens, not generic `bg-green` for WhatsApp:
@@ -117,7 +117,7 @@ Exception — alpha modifiers ARE allowed for hover/active states on the same ba
 
 ## Tailwind v4 — @source and Class-Purge
 
-Tailwind v4 (`@tailwindcss/vite`) auto-detects sources but skips `.gitignore`'d paths, binary files, and anything outside the stylesheet's project root. Add `@source` for every directory the heuristic misses (monorepo siblings, `shared/`, gitignored build trees):
+Tailwind v4 (`@tailwindcss/vite`) auto-detects sources from the current working directory. It skips `.gitignore`'d paths, `node_modules`, binary files, CSS files, and package-manager lock files. In a monorepo where the build runs from the repo root, set the scan base with `@import "tailwindcss" source("../src");`. Add `@source` (relative to the stylesheet) for every directory the heuristic misses (monorepo siblings, `shared/`, gitignored build trees):
 
 ```css
 /* Wrong fix: misses src/shared/ — classes there get purged */
@@ -135,7 +135,7 @@ Symptom of missing `@source`: layout/button "collapses" because `w-12` / `left-1
 ```
 Need a new color in a component →
   ├─ Is it a third-party brand (Google, Stripe, WhatsApp, etc.)?
-  │   └─ YES → brand token. Define in :root (and .dark if vendor has dark variant).
+  │   └─ YES → brand token. Define in :root AND .dark (same value unless the vendor publishes a dark variant).
   │           Use bg-{brand} + the project's paired foreground. Done.
   │   └─ NO → continue
   ├─ Does an existing semantic token cover the intent?
@@ -154,7 +154,7 @@ Four-step procedure. Don't skip the audit — proposing token names without seei
 1. **Audit (read-only)** — run the four greps in `references/audit-and-greps.md` against the project root. Categorize matches: hex-in-app, generic-palette-as-semantic, brand colors hidden as hex, alpha-modifier tints, unpaired backgrounds.
 2. **Propose** — list every distinct hex, group near-duplicates (within ~3% HSL), and produce a token table classified as semantic or brand. Preserve the existing foreground naming. An audit-only or proposal-only request stops after this table. For an implementation request, continue without a blanket confirmation pause; ask only if no project evidence resolves a materially different naming or brand-identity choice.
 3. **Apply** — add tokens to BOTH `:root` and `.dark` in the canonical stylesheet (see `references/canonical-stylesheet.md` for the full shape). Update `@theme inline`. Replace hex in app code. Add paired foregrounds. Convert alpha tints to X-tint triples. Reuse existing components and tokens rather than creating a parallel theme surface.
-4. **Lock** — drop the audit greps into pre-commit / CI as an enforcement gate. Script in `references/audit-and-greps.md`.
+4. **Lock** — gate greps 1 and 2 in pre-commit / CI. Greps 3 and 4 need manual review, so keep them in the audit only. Script in `references/audit-and-greps.md`.
 
 ## Common Traps
 

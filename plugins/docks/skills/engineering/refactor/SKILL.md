@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-09-23"
-  content_hash: "3bd1cd3824fd8e7ea9ce4f84dea64d73cd180b1d188bc6684e94c703446d503e"
+  content_hash: "4d1ada166d41eede8a0657563fed0071d1d0eeca9439f1bfdc56b8cfd266fe7d"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -48,27 +48,27 @@ Reuse before abstraction. In Phase 1, inventory existing modules, exports, regis
 
 ## Pipeline
 
-Run in order. Each phase reads its reference, then hands its output to `plan-manager` for the plan issue under the exact heading (the heading is the resume anchor — keep it verbatim).
+Run in order. Each phase reads its reference, then hands its output to `plan-manager` for the plan issue under the exact subheading in the section shown. The plan helper accepts only its fixed `##` sections (see `skills/productivity/plan-manager/references/plan-contract.md` inside the installed `plan-lifecycle` plugin), so every phase writes a `###` subheading inside `## Research` or `## Verification Results`. The subheading is the resume anchor — keep it verbatim.
 
-| # | Phase | Reference | Output heading |
+| # | Phase | Reference | Output section → subheading |
 |---|---|---|---|
-| 1 | Exploration (stack, tools, abstractions, DI) | `references/explorer.md` | `## Phase 1: Exploration Results` |
-| 2a | Dead-code scan (safety-tiered) | `references/dead-code-scanner.md` | `## Phase 2a: Dead Code Findings` |
-| 2b | Duplication & modernization scan | `references/duplication-scanner.md` | `## Phase 2b: Duplication Findings` |
-| 3 | SOLID analysis (only evidenced S/O/L/I/D smells + monorepo) | `references/solid-analyzer.md` | `## Phase 3: SOLID Analysis Results` |
-| 4 | Planning (3 tiers, 9 fields/change) | `references/planner.md` | `## Phase 4: Refactoring Plan` |
-| 5 | Pre-implementation verification | `references/pre-verifier.md` | `## Phase 5: Pre-Verifier Results` |
-| — | **HANDOFF** — assessment stops; implementation enters manager review | (this body) | `## Phase 6: Plan Presentation` |
-| 7 | Implementation (one change at a time) | (this body) | `## Phase 7: Implementation Log` |
-| 8 | Post-implementation verification | `references/post-verifier.md` | `## Phase 8: Post-Verifier Results` |
+| 1 | Exploration (stack, tools, abstractions, DI) | `references/explorer.md` | `## Research` → `### Phase 1: Exploration Results` |
+| 2a | Dead-code scan (safety-tiered) | `references/dead-code-scanner.md` | `## Research` → `### Phase 2a: Dead Code Findings` |
+| 2b | Duplication & modernization scan | `references/duplication-scanner.md` | `## Research` → `### Phase 2b: Duplication Findings` |
+| 3 | SOLID analysis (only evidenced S/O/L/I/D smells + monorepo) | `references/solid-analyzer.md` | `## Research` → `### Phase 3: SOLID Analysis Results` |
+| 4 | Planning (3 tiers, 9 fields/change) | `references/planner.md` | `## Research` → `### Phase 4: Refactoring Plan` |
+| 5 | Pre-implementation verification | `references/pre-verifier.md` | `## Research` → `### Phase 5: Pre-Verifier Results` |
+| — | **HANDOFF** — assessment stops; implementation enters manager review | (this body) | `## Research` → `### Phase 6: Plan Presentation` |
+| 7 | Implementation (one change at a time) | (this body) | `## Verification Results` → `### Phase 7: Implementation Log` |
+| 8 | Post-implementation verification | `references/post-verifier.md` | `## Verification Results` → `### Phase 8: Post-Verifier Results` |
 
 Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 merges 2a + 2b + 3.
 
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`), record scope (a path, or the whole project).
-2. Ask `plan-manager` to create the canonical plan issue with `plan.mjs new --title <t> --goal <g>` and own every lifecycle write. If no GitHub-backed plan lifecycle is available, stop and report; never write a tracked or untracked plan file. Write an `## Environment` block (date, branch, short git status).
-3. For each read-only row (1 → 5), in order: read `references/<phase>.md`, perform it, write under the row's heading, confirm the heading landed before the next phase. If a phase finds nothing, write "no findings" — never silently skip.
+2. Ask `plan-manager` to create the canonical plan issue with `plan.mjs new --title <t> --goal <g>` and own every lifecycle write. If no GitHub-backed plan lifecycle is available, stop and report; never write a tracked or untracked plan file. Write a `### Environment` block (date, branch, short git status) at the top of `## Research`.
+3. For each read-only row (1 → 5), in order: read `references/<phase>.md`, perform it, write under the row's subheading, confirm the subheading landed before the next phase. If a phase finds nothing, write "no findings" — never silently skip.
 4. At the HANDOFF, follow the request intent below. Resume at Phase 7 after the manager sets the plan `ongoing`; no user lifecycle command is required.
 
 ## The plan record (IPC + deliverable)
@@ -78,11 +78,11 @@ GitHub issue #<n> labeled plan, created with plan:drafting;
 plan-manager owns every later phase transition.
 ```
 
-Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. Downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping the headings.
+Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. Downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping the `### Phase` subheadings. Never add a new `##` heading: the helper rejects any `##` heading outside its fixed sections.
 
 ## Review handoff (replaces Plan Mode)
 
-After Phase 5, write `## Phase 6: Plan Presentation` in the report handed to `plan-manager`:
+After Phase 5, write `### Phase 6: Plan Presentation` under `## Research` in the report handed to `plan-manager`:
 
 1. Refactorings by tier (1 Quick Wins / 2 Consolidation / 3 Structural) — each with `file:line`, what-changes, Pattern (SOLID entries), risk.
 2. Estimated impact: files modified, lines removed, duplicates eliminated, SOLID resolved by principle.
@@ -149,4 +149,4 @@ No content loss outside the planned diff: every deletion must be a planned dead-
 | Raw `rm` to delete dead code | Unstaged, harder to recover | `git rm` only; revert via `git restore` |
 | Flagging modernization from memory | Ships a backwards "fix" (e.g. Next.js `proxy.ts`) | Verify against current docs for the installed version |
 | Resolving one SOLID violation but adding another | Net-negative refactor ships | Phase 8 re-checks all 5 principles; revert on any new violation |
-| Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | Use the untracked fallback only for that repository |
+| Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | Stop and report the missing GitHub remote; do not create a plan file |

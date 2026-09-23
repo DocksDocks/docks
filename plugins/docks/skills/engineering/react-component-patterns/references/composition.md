@@ -31,7 +31,7 @@ Deep reference for composition triggers in the parent `SKILL.md`. Six compositio
 - The same context value is consumed in 3+ places with the same boilerplate — provider + hook territory.
 
 <constraint>
-Slots / `asChild` (the Radix `<Slot>` pattern) require `React.cloneElement` and assume the child accepts the parent's props. Use them only when the parent's API is "behavior, not markup" — buttons, tooltips, links, dropdowns. Don't reach for `asChild` to avoid styling indirection; that's what variant systems are for.
+Slots / `asChild` (the Radix `<Slot>` pattern) require `React.cloneElement` and assume the child accepts the parent's props. Use them only when the parent's API is "behavior, not markup" — buttons, tooltips, links, dropdowns. Don't reach for `asChild` to avoid styling indirection; that's what variant systems are for. Match the primitive library's composition prop: Radix uses `asChild`; Base UI uses `render` (`render={<Link href="/x" />}`), and the rendered component must forward `ref` and spread all received props onto its DOM node.
 </constraint>
 
 ## Pattern 1 — Compound Components

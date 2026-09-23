@@ -12,7 +12,7 @@ The written file is read as current state in every session. Fill it so it stays 
 - **No volatile values.** No version numbers, counts, sizes, coverage percentages, dates, or `file:NN` line numbers. Name the file or config key that owns the value and add `(verify: <command>)`.
 - **No "currently", "now", "recently".** Write the rule, not the state.
 - **Pointers, not copies.** A fact owned by another file (a nested `AGENTS.md`, a config file, a policy doc) gets a backticked repo-root-relative path, not a restatement. Every pointer must resolve.
-- **Routing table only with its check.** The `## Context map` table is the single home of the nested-node list. Keep one row per nested `AGENTS.md`; the verify command in that section compares the table with disk. Do not add other hand-maintained lists (directory trees, skill lists, table lists).
+- **Routing table only with its check.** The `## Context tree` table is the single home of the nested-node list. `context-tree` owns its rows: this skill writes the heading, the intro, and the empty table only, and never adds a row. Each row names a node as `` `<dir>/AGENTS.md` `` in the first cell (a leading `@` inside the backticks is tolerated; a bare `@path` outside backticks is an eager import that loads the file into every session). The check in that section compares the table with disk. Do not add other hand-maintained lists (directory trees, skill lists, table lists).
 - **Keep the stale-tolerance line** below the intro unchanged.
 
 ````markdown
@@ -47,22 +47,29 @@ defines these commands; change them there, not here.
 - **Pinned versions**: `<!-- TODO: .nvmrc / package.json engines / rust-toolchain.toml / .python-version -->`
   owns them (verify: `<!-- TODO: command that prints the pinned version -->`).
 
-## Context map
+## Context tree
 
 Each nested `AGENTS.md` holds the rules for editing files in its folder.
-Read it before you edit there. Add a row when you add a node.
+Read it before you edit there. Claude Code loads a folder's AGENTS.md when
+it reads a file there. Codex loads AGENTS.md files only from the project root
+down to the working directory at session start, so it finds a deeper node
+through this table. `context-tree` adds a row when it adds a node.
 
-| Node | Purpose |
+| Node | Governs |
 |---|---|
-<!-- TODO: one row per nested AGENTS.md, e.g. | `api/AGENTS.md` | HTTP handlers and route conventions | ; delete the table if there are no nested nodes -->
+<!-- TODO: context-tree fills one row per nested AGENTS.md, e.g. | `api/AGENTS.md` | HTTP handlers and route conventions | ; leave the table empty if there are no nested nodes -->
 
-Check (must print nothing):
+Check (must print nothing). A row is a table line whose first cell is
+`<dir>/AGENTS.md` in backticks; a leading `@` inside the backticks is stripped.
 
 ```bash
-git ls-files -co --exclude-standard -- ':(glob)*/**/AGENTS.md' \
-  | while IFS= read -r p; do grep -qF "\`$p\`" AGENTS.md || echo "UNROUTED: $p"; done
-grep -oE '`[^`]*AGENTS\.md`' AGENTS.md | tr -d '`' \
-  | while IFS= read -r p; do test -f "$p" || echo "DEAD POINTER: $p"; done
+routes=$(awk -F'|' '/^[[:space:]]*\|/ { c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c ~ /^`@?[^` ]*AGENTS\.md`$/) { gsub(/`/, "", c); sub(/^@/, "", c); sub(/^\.\//, "", c); print c } }' AGENTS.md 2>/dev/null | sort -u)
+git ls-files -co --exclude-standard -- ':(glob)*/**/AGENTS.md' ':(exclude,glob)**/node_modules/**' | while IFS= read -r n; do
+  printf '%s\n' "$routes" | grep -qxF "$n" || echo "UNROUTED: $n"
+done
+printf '%s\n' "$routes" | while IFS= read -r p; do
+  if [ -n "$p" ] && ! test -f "$p"; then echo "DEAD ROUTE: $p"; fi
+done
 ```
 
 ## Canonical locations
@@ -72,7 +79,8 @@ grep -oE '`[^`]*AGENTS\.md`' AGENTS.md | tr -d '`' \
   `ls .agents/skills/`. A new skill needs `name` and `description`
   frontmatter per the [agentskills.io spec](https://agentskills.io/specification).
 - Claude Code-only rules: `.claude/rules/claude-code.md`. Never create a
-  `CLAUDE.md`; it stops Claude Code from loading this file.
+  `CLAUDE.md`: a CLAUDE.md without an `@AGENTS.md` import makes Claude read
+  it instead of this file.
 
 ## Engineering rules
 

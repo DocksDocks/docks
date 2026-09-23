@@ -11,7 +11,7 @@ No artifact may be reported accurate without stating how many claims were opened
 </constraint>
 
 <constraint>
-Per-finding reproduction is mandatory. Before a drift finding lands, re-open the cited source and confirm the mismatch at the current `file:line`. DROP anything you cannot reproduce under `## Dropped (failed reproduction)` with a reason.
+Per-finding reproduction is mandatory. Before a drift finding lands, re-open the cited source and confirm the mismatch at the current `file:line`. DROP anything you cannot reproduce under a `#### Dropped (failed reproduction)` block inside the Phase 2c subheading, with a reason.
 </constraint>
 
 ## Contents
@@ -91,7 +91,7 @@ Git history is allowed here only to find where a rule came from. It is still not
 
 **Verdict shape.** Each finding is a proposal, not an edit. Record the file, the quoted text, the pattern, the provenance (commit or "unknown"), and a proposed rewrite. Prefer a rewrite over a bare removal when the rule still has a purpose. A removal is a hypothesis: before it lands, run a baseline check (see `write-skill`) on the old and the new text. If the old text gives better results, keep it or restore it in its simplest form.
 
-Output, under the Phase 2c heading after the accuracy table:
+Output, under the `### Phase 2c` subheading after the accuracy table:
 
 | Artifact | Pattern | Evidence (quoted) | Provenance | Proposed rewrite |
 |---|---|---|---|---|
@@ -100,20 +100,22 @@ Write "no prompt-style findings" when the table is empty. A clean result changes
 
 ## 2a reconciliation (feedback to the delta)
 
-After this phase, return to the `## Phase 2a` block and amend each non-`CLEAN` **skill** action inline: append `→ escalated by 2c: REFRESH|REWRITE (<top finding>)`. For a skill with prompt-style findings, append `→ style: <n> findings` so Phase 3 applies the proposed rewrites. Route non-`CLEAN` **agents** to the Phase 5 regenerate list. The gate then reads one reconciled delta, not two conflicting ones.
+After this phase, return to the `### Phase 2a` block and amend each non-`CLEAN` **skill** action inline: append `→ escalated by 2c: REFRESH|REWRITE (<top finding>)`. For a skill with prompt-style findings, append `→ style: <n> findings` so Phase 3 applies the proposed rewrites. Route non-`CLEAN` **agents** to the Phase 5 regenerate list. The gate then reads one reconciled delta, not two conflicting ones.
 
 ## Optional Claude-only acceleration (output-identical, non-normative)
 
-On Claude Code only, the orchestrator MAY dispatch one read-only auditor per artifact in parallel and merge results into the single `## Phase 2c` heading — the output table MUST be byte-identical to the sequential procedure. This is a runtime accelerator, not part of the portable pipeline; other runtimes run the loop sequentially in this context. This is the most expensive phase by design — that cost is the point; it is the only one that catches pre-baseline drift, so never substitute a sample to make it cheaper.
+On Claude Code only, the orchestrator MAY dispatch one read-only auditor per artifact in parallel and merge results into the single `### Phase 2c` subheading — the output table MUST be byte-identical to the sequential procedure. This is a runtime accelerator, not part of the portable pipeline; other runtimes run the loop sequentially in this context. This is the most expensive phase by design — that cost is the point; it is the only one that catches pre-baseline drift, so never substitute a sample to make it cheaper.
 
-## Output (write under `## Phase 2c: Content-Accuracy Audit`)
+## Output (write under `### Phase 2c: Content-Accuracy Audit`)
+
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
 
 One row per skill and per agent:
 
 | Artifact | claims checked | confirmed | broken-ref | stale-snippet | fictional-api | drifted-desc | verdict |
 |---|---|---|---|---|---|---|---|
 
-Then a roll-up line — total claims checked / total drift / skills CLEAN·REFRESH·REWRITE / agents CLEAN·REGEN — and a `## Dropped (failed reproduction)` block. Every artifact gets a row even when CLEAN (with its non-zero claims-checked count); if the whole tree is clean, still write the table — never "no changes" without the counts.
+Then a roll-up line — total claims checked / total drift / skills CLEAN·REFRESH·REWRITE / agents CLEAN·REGEN — and a `#### Dropped (failed reproduction)` block. Every artifact gets a row even when CLEAN (with its non-zero claims-checked count); if the whole tree is clean, still write the table — never "no changes" without the counts.
 
 ## Gotcha
 

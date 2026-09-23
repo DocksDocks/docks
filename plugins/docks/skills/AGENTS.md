@@ -26,7 +26,7 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 2. Fast to understand: the root states commands (build/test/lint) and repo-wide rules only; per-folder rules live in the folder AGENTS.md; no duplicated facts.
 3. Trustworthy: durable facts only; every volatile value has a verify command; behavior claims carry a probe.
 4. Verifiable: the skill ends with a check an agent can run (commands, not prose).
-5. No CLAUDE.md files (they suppress native AGENTS.md loading).
+5. No CLAUDE.md files (one home for instructions; a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md).
 
 One-shot whole-repo setup and audit go through the `agent-first-setup` skill.
 
@@ -93,14 +93,14 @@ cross-repository work, cold handoff, unresolved decisions,
 cross-subsystem/public-contract changes, security-sensitive/destructive work, or
 external effects.
 
-The `plan-*` skills, their shipped `plan.mjs`, the v2 issue-body contract,
+The `plan-*` skills, their shipped `plan.mjs`, the issue-body contract
+(`plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md`),
 and the read-only reviewer wrappers live in the `plan-lifecycle` plugin
 (`plugins/plan-lifecycle/skills/AGENTS.md` owns their authoring and contract
 sync). Some skills under this tree are lifecycle ROUTES: each carries one
-byte-identical absent-lifecycle prerequisite paragraph, asserted verbatim by the
-plan-lifecycle self-test only. The route list lives in
-`plugins/plan-lifecycle/skills/AGENTS.md`. Change that paragraph only in
-lockstep across all routes and that self-test.
+byte-identical absent-lifecycle prerequisite paragraph; no check compares the
+copies. `plugins/plan-lifecycle/skills/AGENTS.md` (Fail-loud routing) owns the
+rule and the command that finds every copy.
 
 ## Cross-tool wording (Claude Code + Codex)
 

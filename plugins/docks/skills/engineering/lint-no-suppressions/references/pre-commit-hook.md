@@ -73,7 +73,7 @@ GitHub Actions step:
   run: |
     git fetch origin ${{ github.base_ref }} --depth 1
     git diff --unified=0 origin/${{ github.base_ref }}..HEAD -- \
-      '*.ts' '*.tsx' '*.js' '*.jsx' '*.py' '*.go' '*.rs' '*.kt' '*.java' '*.sh' \
+      '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.cjs' '*.py' '*.go' '*.rs' '*.kt' '*.java' '*.sh' '*.sql' \
       | grep -E '^\+' | grep -v '^+++' \
       | grep -E '(eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck|// *noqa|# *noqa|# *type: *ignore|# *pylint: *disable|@SuppressWarnings)' \
       && { echo "✗ PR adds new suppressions — see .githooks/pre-commit"; exit 1; } \
@@ -85,7 +85,7 @@ GitLab CI / Circle CI / Bitbucket equivalents follow the same shape: fetch the b
 ## Tuning
 
 - **Exclude vendored / generated paths** by adding them to the `case "$f" in` filter at the top. Typical excludes: `*/vendor/*`, `*/node_modules/*`, `*/dist/*`, `*/build/*`, `*_generated.ts`.
-- **Add new suppression patterns** to `SUPPRESSION_PATTERNS` as your toolchain grows: `clippy::allow`, `//nolint`, `# shellcheck disable=`, `# ruff: noqa`.
+- **Add new suppression patterns** to `SUPPRESSION_PATTERNS` (and to the CI mirror regex) as your toolchain grows: `#!?\[(allow|expect)\(` (Rust/clippy attributes), `//nolint`, `# *shellcheck disable=`, `# *ruff: *noqa`.
 - **Allow specific files** to suppress (e.g., third-party type shims, codegen output) by adding an explicit `case "$f"` clause that `continue`s past them.
 
 ## Limitations

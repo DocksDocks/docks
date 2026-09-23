@@ -87,14 +87,16 @@ Use this algorithm to avoid timestamp churn:
 3. Normalize original and new content by trimming trailing whitespace and
    collapsing repeated blank lines.
 4. If normalized content is equal, discard the edit.
-5. If normalized content differs, update `metadata.updated` to today's date.
+5. If normalized content differs, re-sync metadata with the project's
+   content-hash tooling if it has one; otherwise update `metadata.updated` to
+   today's date.
 6. Re-run the project validator or loader smoke test.
 
 ## Local `skill-maintenance` Decision Table
 
 | Local content | Docks plugin available | Decision |
 |---|---|---|
-| Generic rules only | yes | Propose removal after user approval |
+| Generic rules only | yes | Propose removal; delete only after user approval |
 | Generic plus stale rules | yes | Propose removal; note stale rules |
 | Project-specific checks | yes | Keep local or rename to project-specific maintenance |
 | Project-specific checks | no | Keep local |

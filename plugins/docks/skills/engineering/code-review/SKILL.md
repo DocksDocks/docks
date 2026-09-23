@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-23"
-  content_hash: "5b99bcbbdde9cf10ab51a8be481649a4a3a0c98955d81545ec870c5d1f70637e"
+  content_hash: "0a7f1d512f99d3be7bd154bdfeefed8e6a34c840e1077a5107c2bd41095efd7b"
 ---
 
 # Code Review
@@ -78,9 +78,7 @@ Every finding lands in exactly one:
 
 Cap severity at the bucket's worst-case: a "performance" finding capped at *high* (causing prod outage), a "maintainability" finding capped at *medium* (slows future development).
 
-## When to Load Per-Axis Finding Catalogs
-
-For deep per-category finding patterns, severity calibration tables, and false-positive guards:
+For deep per-category finding patterns, severity calibration tables, and false-positive guards, load the per-axis catalog:
 
 | Finding category | Reference file |
 |---|---|
@@ -118,9 +116,9 @@ Then print "Apply fixes? (all / critical-only / specific findings / none)" as yo
 
 If the user approves fixes:
 
-1. Apply in severity order, critical first
+1. Apply in severity order, critical first. Before each fix, run `git status --short -- <file>` and save a copy of the file outside the repository.
 2. Run the project's tests + linter + type-checker after each change (or batched if changes are independent)
-3. If a fix breaks a test or introduces a regression, **revert with `git restore`** and report the revert — don't try to fix the fix in the same review cycle
+3. If a fix breaks a test or introduces a regression, revert only the fix: copy the saved file back (and delete any file the fix created). This keeps the user's uncommitted edits in the file. Use `git restore <file>` only when the file was clean before the fix — on a file with uncommitted edits it also deletes the user's work. Report the revert, and don't try to fix the fix in the same review cycle.
 4. After all approved fixes land, re-run the full check suite and report final state
 
 Inline apply covers single-file, low-blast-radius fixes only. Hand cross-file or architectural findings to the `fix-workflow` skill as a findings list — it tiers fixes by blast radius and pre-declares revert triggers per change.
@@ -129,7 +127,7 @@ Inline apply covers single-file, low-blast-radius fixes only. Hand cross-file or
 
 When the trigger above fires, run the review on two axes and report them side-by-side without merging.
 
-**Axis 1 — Standards.** Does the diff follow the project's documented conventions? Source: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/adr/*`, any `STYLE.md`/`STANDARDS.md`, plus the skill set under `.claude/skills/`. **Skip what tooling already enforces** (eslint/biome/prettier/tsc/ruff/clippy/gofmt) — note their presence but don't re-derive what `npx tsc --noEmit` would flag in 2 seconds.
+**Axis 1 — Standards.** Does the diff follow the project's documented conventions? Source: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/adr/*`, any `STYLE.md`/`STANDARDS.md`, plus the project skills under `.agents/skills/` or `.claude/skills/`. **Skip what tooling already enforces** (eslint/biome/prettier/tsc/ruff/clippy/gofmt) — note their presence but don't re-derive what `npx tsc --noEmit` would flag in 2 seconds.
 
 The Standards axis always applies the **Fowler smell baseline** in `references/maintainability.md`, even when the repo documents no standards. A documented repo standard overrides the baseline, and each smell is a judgement call ("possible Feature Envy"), never a hard violation.
 

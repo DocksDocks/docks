@@ -65,7 +65,7 @@ Each entry is `{ path, <one seed source> }`. `path` may contain `{{ var }}` toke
 | `template: <file>` | Render `templates/<file>` into the node's `AGENTS.md`. |
 | `seed: { type: self-reference }` | The folder documents the scaffold itself (e.g. `docs/scaffold`). |
 
-Every node is a single `AGENTS.md` (see the `context-tree` skill). Never write a `CLAUDE.md`: it suppresses native `AGENTS.md` loading in Claude Code.
+Every node is a single `AGENTS.md` (see the `context-tree` skill). Never write a `CLAUDE.md`: a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md.
 
 ```yaml
 tree_nodes:
@@ -83,10 +83,10 @@ Every `AGENTS.md` a seed writes (root `templated_files` entry and each `tree_nod
 |---|---|---|
 | Carry the stale-tolerance line verbatim: "Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting." | every node | grep each `AGENTS.md` for the line |
 | State build/test/lint commands and name the file that defines them (e.g. `package.json` scripts). Repo-wide rules only. | root | read |
-| One `## Context map` row per `tree_nodes` path: backticked `<path>/AGENTS.md` + one-line purpose. This table is the only list of nodes. | root | every nested `AGENTS.md` on disk is named; every named node exists |
+| One `## Context tree` row per `tree_nodes` path: first cell `` `<path>/AGENTS.md` `` (an `@` inside the backticks is tolerated; a bare `@path` outside backticks is an eager import, do not use it) + one-line purpose. This table is the only list of nodes. | root | every nested `AGENTS.md` on disk is named; every named node exists |
 | Hold only the rules for editing files in the node's folder. A fact owned by another file (commands, repo-wide policy, generated data) is a backticked repo-root-relative path, not a copy. | nested nodes | every backticked path resolves |
 | No line-number anchors (`path:NN`), live versions, counts, sizes, dates, or "currently"/"recently". Name the file or config key that owns the value and add `(verify: <command>)`. | every node | grep for `path:NN` and the banned words |
-| No `CLAUDE.md` anywhere. | whole target | `git ls-files` for `CLAUDE.md` is empty |
+| No `CLAUDE.md` anywhere. A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md. | whole target | `git ls-files` for `CLAUDE.md` is empty |
 
 The seed-mode check commands are in the skill body (seed step 6).
 
@@ -105,7 +105,7 @@ The three plan skills are copied verbatim and keep separate ownership: workspace
 
 - `source` - path in the source repo. Setup must read these from the live repo rather than copying a stale example.
 - `destination` - optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.
-- Copied verbatim (pinned). Consumers update them later via `claude plugin update`.
+- Copied verbatim (pinned). A copy never re-syncs from the source repo. To update it, re-copy it from the source repo into the seeded project and release a new plugin version there; that project's consumers then receive it through `claude plugin update`.
 
 ## `scripts`
 

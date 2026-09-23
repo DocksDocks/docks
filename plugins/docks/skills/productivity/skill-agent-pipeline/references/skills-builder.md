@@ -3,7 +3,7 @@
 Draft complete `SKILL.md` bodies and `references/` files for every delta the categorizer proposed, using Phase 2b's `file:line` evidence — **converted to durable anchors** in what you emit (2b notes are point-in-time evidence; the skill you write outlives them).
 
 <constraint>
-References split is mandatory. If a drafted SKILL.md body would exceed 310 lines, move the most-detailed sections into `references/<topic>.md` (30–150 lines each) and leave a 1–2 line pointer in the body. Past ~310 lines, content falls outside the post-compaction re-attachment window and is silently dropped. The verifier (Phase 6) hard-fails a 310–500 line body with no `references/`.
+References split is mandatory. If a drafted SKILL.md body would exceed 310 lines, move the most-detailed sections into `references/<topic>.md` (30–150 lines each) and leave a 1–2 line pointer in the body. After compaction, Claude Code re-attaches only the first 5,000 tokens of each invoked skill (https://code.claude.com/docs/en/skills), and drops the rest without a warning. The kit chose 310 lines as a line budget that keeps a typical body inside that token budget; it is kit policy, not a documented line limit. The verifier (Phase 6) hard-fails a 310–500 line body with no `references/`.
 </constraint>
 
 <constraint>
@@ -73,9 +73,11 @@ description: "Use when editing checkout routes, STRIPE_WEBHOOK_SECRET handling, 
 
 Prefer the plugin-provided `docks:skill-maintenance`. Create a local `skill-maintenance` only for project-specific behavior not covered by the plugin. If proposed: `pattern: reviewer`, body ≤100 lines, quoted description ≤1024 chars. Workflow: identify modified files → cross-reference skill `source_files` → update affected skills → bump `metadata.updated` ONLY when the skill's meaning changed (normalized body or any `references/*.md` differs). Re-running on an unchanged skill MUST be a no-op. Describe checks as inline read/search/list steps — do NOT reference kit-internal validators, which don't ship to downstream projects.
 
-## Output (write under `## Phase 3: Skills Plan`)
+## Output (write under `### Phase 3: Skills Plan`)
 
-Per skill, a delimited block: `### File: <skills-dir>/<name>/SKILL.md` + full content, then each `### File: .../references/<topic>.md` + content. `<skills-dir>` is `.agents/skills` when that directory exists (a bridged project; `.claude/skills/<name>` stays a symlink to it), else `.claude/skills` — then recommend `multi-tool-bridge` in the report so Codex finds the skills too.
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
+
+Per skill, a delimited block: `#### File: <skills-dir>/<name>/SKILL.md`, then each `#### File: .../references/<topic>.md`. Under each one, put the full content in a fenced block whose fence is longer than any fence inside the content (for example four backticks), so the plan helper ignores the file's own `##` headings. `<skills-dir>` is `.agents/skills` when that directory exists (a bridged project; `.claude/skills/<name>` stays a symlink to it), else `.claude/skills` — then recommend `multi-tool-bridge` in the report so Codex finds the skills too.
 
 ## Gotcha
 

@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-23"
-  content_hash: "66059cfaae9674e15ee174cb89894236917199343315e56f04d992a94fab93f6"
+  content_hash: "21967495ba4496b81eba6325a7515c887010dbcfc132941b47712f6b739b5a77"
 ---
 
 # SOLID — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion
@@ -21,7 +21,7 @@ Don't add classes / inheritance just to "make SOLID fit." If a codebase is funct
 </constraint>
 
 <constraint>
-The Strategy Map (the Open/Closed pattern in this skill) is code, not config. Never move map entries to JSON / YAML — you trade type safety, exhaustiveness checks, and tree-shaking for a "data-driven" win that becomes parallel duplication the moment a variant needs custom logic.
+The Strategy Map (the Open/Closed pattern in this skill) is code, not config. Never move map entries to JSON / YAML — you trade type safety and exhaustiveness checks for a "data-driven" win that becomes parallel duplication the moment a variant needs custom logic.
 </constraint>
 
 <constraint>
@@ -138,7 +138,7 @@ In codebases without a DI container, **function arguments are the abstraction**.
 | Wrong fix | Right fix |
 |---|---|
 | Add an `abstract class Formatter` and a subclass per variant | Strategy Map (`Record<string, (x: T) => U>`) — same Open/Closed property, no inheritance tax |
-| Move switch arms to `formatters.json` | Keep them as code; otherwise you lose exhaustiveness and tree-shaking |
+| Move switch arms to `formatters.json` | Keep them as code; otherwise you lose type safety and exhaustiveness |
 | Wrap every dependency in an interface "for testability" | Wrap only at the seam you actually want to swap (the SDK, the network, the clock) — and only when a second adapter (test fake, alt provider) actually exists |
 | Split a 200-line module into 4 × 50-line modules to "obey SRP" | Leave it; don't split until two genuinely independent change axes share the file |
 | Use `extends` / inheritance to share method implementations | Composition: extract a function, call it from both places |

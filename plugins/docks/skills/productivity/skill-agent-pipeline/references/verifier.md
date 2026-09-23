@@ -3,7 +3,7 @@
 Validate the Phase 3 Skills Plan and the Phase 5 Agents Plan before the user sees the plan. Verify only the phases that ran — skills always; agents only if present.
 
 <constraint>
-Per-finding reproduction is mandatory. Before any finding lands in `## Issues to Fix`: re-check the claim against the actual artifact — list the path to confirm a "missing path" claim; read the cited `file:line` to confirm an accuracy claim; re-count identifiers for a CSO-vague flag; re-read frontmatter for a rule violation. DROP anything that fails reproduction; log it under `## Dropped (failed reproduction)` with a reason.
+Per-finding reproduction is mandatory. Before any finding lands in the `#### Issues to Fix` block: re-check the claim against the actual artifact — list the path to confirm a "missing path" claim; read the cited `file:line` to confirm an accuracy claim; re-count identifiers for a CSO-vague flag; re-read frontmatter for a rule violation. DROP anything that fails reproduction; log it under the `#### Dropped (failed reproduction)` block with a reason.
 </constraint>
 
 ## Skill checks (every Phase 3 skill)
@@ -25,26 +25,27 @@ Per-finding reproduction is mandatory. Before any finding lands in `## Issues to
 
 **Claude `.claude/agents/*.md`:** `name` kebab-case ≤64, no "anthropic"/"claude" · description <1024, 3rd person, specific · system prompt <200 lines · tools minimal · no scope overlaps.
 
-**Codex `.codex/agents/*.toml`:** parses as TOML; all three required keys present (`name`, `description`, `developer_instructions`); `model` ∈ the known Codex IDs or omitted; `sandbox_mode` ∈ {`read-only`, `workspace-write`, `danger-full-access`} or omitted; `name` matches its Claude twin. An `Agent`-dispatching agent STILL ships a `.toml` (single-level dispatch ports under Codex `agents.max_depth: 1`) — verify it routes delegation to a `worker`/`explorer` child and notes the depth cap; **hard fail** only a `.toml` that assumes deeper-than-default nesting works.
+**Codex `.codex/agents/*.toml`:** parses as TOML; all three required keys present (`name`, `description`, `developer_instructions`); `model` omitted, or a model ID that the Codex models page lists today (verify at https://developers.openai.com/codex/models; do not check against a hand-kept list); `sandbox_mode` ∈ {`read-only`, `workspace-write`, `danger-full-access`} or omitted; `name` matches its Claude twin. An `Agent`-dispatching agent still ships a `.toml`; put its delegation in `developer_instructions` (built-in `worker`/`explorer` or a custom agent). Codex docs state no nesting-depth key, so flag nested delegation for the user to verify.
 
 ## Cross-layer integrity (critical)
 
-Every `.claude/skills/…` path referenced by a Phase 5 agent MUST exist in the Phase 3 Skills Plan. Split→two skills or merged→sibling: flag for path update. Path neither on disk nor proposed: **hard fail**, regenerate Phase 5.
+Every skill path (`<skills-dir>/…`, or its `.claude/skills/…` symlink twin) referenced by a Phase 5 agent MUST exist in the Phase 3 Skills Plan. `<skills-dir>` is the directory `skills-builder.md` writes to. Split→two skills or merged→sibling: flag for path update. Path neither on disk nor proposed: **hard fail**, regenerate Phase 5.
 
 ## Replaced-skill sentinel
 
-For each split/merge in Phase 3, the gate presentation MUST include `git rm -r .claude/skills/<old-name>/` for cleanup. Flag if missing.
+For each split/merge in Phase 3, the gate presentation MUST include the cleanup of the old skill: `git rm -r <skills-dir>/<old-name>`, plus `git rm .claude/skills/<old-name>` (no trailing slash) when `<skills-dir>` is `.agents/skills` and that entry is a symlink. Flag if missing.
 
 ## SKILL.md split preservation (per-section, not byte-%)
 
-For every Phase 3 split of a `SKILL.md` into `references/`, verify no content was lost — splitting adds pointers, so output ≥ input; a byte-% floor is the wrong check. Per-section presence + a line-parity tripwire:
+For every Phase 3 split of a `SKILL.md` into `references/`, verify no content was lost — splitting adds pointers, so output ≥ input; a byte-% floor is the wrong check. Per-section presence + a net-shrink tripwire (POSIX sh):
 
 ```bash
-# original snapshot taken before the split (e.g. /tmp/skill.before)
-while IFS= read -r h; do
+# original snapshot taken before the split (e.g. /tmp/skill.before). POSIX sh; no bash-only syntax.
+# Strip the leading #s so a promoted/demoted heading (### → ##) still matches.
+grep -E '^#{1,3} ' /tmp/skill.before | sed -E 's/^#{1,3} +//' | while IFS= read -r h; do
   grep -rqF "$h" <skill>/SKILL.md <skill>/references/ || echo "LOST SECTION: $h"
-done < <(grep -E '^#{1,3} ' /tmp/skill.before)
-before=$(wc -l < /tmp/skill.before); after=$(cat <skill>/SKILL.md <skill>/references/*.md | wc -l)
+done
+before=$(wc -c < /tmp/skill.before); after=$(cat <skill>/SKILL.md <skill>/references/*.md | wc -c)
 awk -v b="$before" -v a="$after" 'BEGIN{ if (a < b) print "NET SHRINK after split" }'
 ```
 
@@ -59,14 +60,16 @@ Apply these rules whenever the pipeline checks a drafted or refreshed skill beha
 3. **Surface compliance fails.** The right file name with empty or wrong content, a required heading with a wrong body, or a command that is printed but never run is a fail. The pass must reflect the real task outcome, not a match by coincidence.
 4. **Flag non-discriminating assertions.** An assertion that a clearly wrong output also passes gives false confidence, which is worse than no assertion. Also flag an important outcome (good or bad) that no assertion covers, and an assertion that the available output cannot show. Raise only clear gaps, not style preferences.
 
-Output, under `## Phase 6: Verification` → `Behavioral Grading`:
+Output, under `### Phase 6: Verification` → `#### Behavioral Grading`:
 
 | Skill | Prompt | Expectation | with skill | without skill (or old version) | Evidence (quoted) |
 |---|---|---|---|---|---|
 
 Then an `Assertion critique` list. A drafted skill that does not beat its baseline on the expectations it exists for goes to `Issues to Fix` as should-fix. Write "not run" with the reason when no behavioral check ran; never leave the heading out.
 
-## Output (write under `## Phase 6: Verification`)
+## Output (write under `### Phase 6: Verification`)
+
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
 
 `Skills Report` · `Agents Report` · `Cross-Layer Integrity` · `Replaced-Skill Sentinel` · `Behavioral Grading` · `Issues to Fix` (hard fail → should-fix → minor) · `Dropped (failed reproduction)`.
 

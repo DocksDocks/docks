@@ -10,12 +10,14 @@ Relocation *adds* scaffolding — node headings, the `## tree` metadata, the roo
 
 ### 1. Inventory (before any write)
 
-Snapshot the root context file aside so the original survives the prune:
+Copy every file the run will change (the root `AGENTS.md` and each existing node that `refresh` rewrites) into a backup directory OUTSIDE the repository, before the first write. Keep relative paths. Never use `git stash` as a backup: it reverts the working tree. Restore = copy back.
 
 ```bash
-cp <root>/AGENTS.md /tmp/root.before
-grep -nE '^#{1,3} ' /tmp/root.before        # the section list you must account for
-wc -c < /tmp/root.before                     # baseline bytes
+BACKUP="${XDG_STATE_HOME:-$HOME/.local/state}/context-tree/$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")-$(date +%Y%m%dT%H%M%S)"
+mkdir -p "$BACKUP" && cp AGENTS.md "$BACKUP/AGENTS.md"    # repeat per changed node: mkdir -p "$BACKUP/<folder>" && cp <folder>/AGENTS.md "$BACKUP/<folder>/"
+SOURCE_BEFORE="$BACKUP/AGENTS.md"
+grep -nE '^#{1,3} ' "$SOURCE_BEFORE"        # the section list you must account for
+wc -c < "$SOURCE_BEFORE"                     # baseline bytes
 ```
 
 ### 2. Per-section relocation table (the gate)
@@ -29,37 +31,37 @@ Render at the approval gate — alongside the node list — a row for EVERY sect
 | ## CI triggers                | .github/AGENTS.md            | CI config change axis          |
 | ## Repository purpose         | KEEP in root                 | cross-cutting; not folder-local |
 | ## Legacy notes               | DROP (user-confirmed)        | obsolete — explicit drop       |
-| scripts/CLAUDE.md             | DELETE (legacy stub)         | `@AGENTS.md` only; suppresses AGENTS.md loading |
 ```
 
-Defaults: anything you cannot confidently route → **KEEP in root** (never silently move or drop). `DROP` requires an explicit user mark. A legacy CLAUDE.md gets a `DELETE (legacy stub)` row only when it holds nothing but `@AGENTS.md` / `@../AGENTS.md`; one with real content routes to `multi-tool-bridge`, not to this table. MIXED sections (part stays, part moves) split paragraph-by-paragraph; the unclassified remainder stays in root.
+Defaults: anything you cannot confidently route → **KEEP in root** (never silently move or drop). `DROP` requires an explicit user mark. A legacy CLAUDE.md never gets a row here: context-tree does not edit or delete it; `multi-tool-bridge` owns it. MIXED sections (part stays, part moves) split paragraph-by-paragraph; the unclassified remainder stays in root.
 
-Then **end the turn** and wait (the turn-ending approval gate). `--dry-run` stops here permanently.
+When a canonical plan is warranted, `plan-manager` reviews the proposal first. Then print the node list and this table as your FINAL message and **end the turn** (the turn-ending approval gate). Write nothing until the user approves; silence is not consent. `--dry-run` and preview-only requests stop here permanently.
 
 ### 3. Two-phase write
 
-**Phase A — nodes first, root untouched.** Write each `<folder>/AGENTS.md`, copying the routed sections **verbatim** (reformatting heading levels / list markers is fine; rewording is not). Never write a `CLAUDE.md`. Confirm each AGENTS.md is non-empty and ≤500 lines. If you halt now, the root still has everything — worst case is duplication, which is recoverable. Loss is not.
+**Phase A — nodes first, root untouched.** After the user approves, write each `<folder>/AGENTS.md`, copying the routed sections **verbatim** (reformatting heading levels / list markers is fine; rewording is not). Never write a `CLAUDE.md`. Confirm each AGENTS.md is non-empty and ≤500 lines. If you halt now, the root still has everything — worst case is duplication, which is recoverable. Loss is not.
 
-**Phase B — prune root last.** Show the exact lines to remove (the relocated sections), confirm, then delete them and insert the one-line breadcrumb per node. Delete the approved legacy stub CLAUDE.md files in this phase. Never delete a section you cannot point to inside an already-written node.
+**Phase B — prune root last.** Re-read the root and confirm it still matches `"$SOURCE_BEFORE"`. Show the exact lines to remove (the relocated sections) and **end the turn** for the second confirmation. After the user confirms, delete them and update the `## Context tree` routing table. Never delete a section you cannot point to inside an already-written node.
 
 ### 4. Verification (fail loud)
 
 ```bash
-# every original section heading must appear somewhere downstream
-while IFS= read -r h; do
-  grep -rqF "$h" <written-nodes> <root>/AGENTS.md || echo "LOST SECTION: $h"
-done < <(grep -E '^#{1,3} ' /tmp/root.before)
+# every original section heading must appear somewhere downstream.
+# Strip the leading #s so a promoted/demoted heading (### → ##) still matches.
+grep -E '^#{1,3} ' "$SOURCE_BEFORE" | sed -E 's/^#{1,3} +//' | while IFS= read -r h; do
+  grep -rqF "$h" <written-nodes> AGENTS.md || echo "LOST SECTION: $h"
+done
 # net-shrink tripwire (expect total >= original because scaffolding was added)
-before=$(wc -c < /tmp/root.before)
-after=$(cat <root>/AGENTS.md <every-written-node> | wc -c)
+before=$(wc -c < "$SOURCE_BEFORE")
+after=$(cat AGENTS.md <every-written-node> | wc -c)
 awk -v b="$before" -v a="$after" 'BEGIN{ if (a < b) print "NET SHRINK — investigate" }'
 ```
 
-Any `LOST SECTION` (other than a user-confirmed `DROP`) or `NET SHRINK` line ⇒ restore `<root>/AGENTS.md` from `/tmp/root.before`, locate the content, and re-run. Do not report the tree complete with an open miss.
+Any `LOST SECTION` (other than a user-confirmed `DROP`) or `NET SHRINK` line ⇒ restore `AGENTS.md` from `"$SOURCE_BEFORE"`, locate the content, and re-run. Do not report the tree complete with an open miss.
 
 ## Quick checklist
 
-- [ ] Original root copied to `/tmp/root.before` before any write
+- [ ] Root and every changed node copied to `$BACKUP` (outside the repo) before any write
 - [ ] Relocation table covers every `^#{1,3}` section; unclassified → KEEP in root
 - [ ] Turn ended at the gate; nothing written before the user replied
 - [ ] Phase A wrote nodes (no CLAUDE.md) + the node check passed BEFORE any root deletion

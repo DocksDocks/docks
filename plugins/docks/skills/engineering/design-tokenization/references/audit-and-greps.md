@@ -1,6 +1,6 @@
 # Audit Greps + Pre-merge Lock Script
 
-Universal grep set used by the audit phase and locked into the project's pre-commit / CI as the enforcement gate.
+Universal grep set used by the audit phase. Greps 1 and 2 are locked into the project's pre-commit / CI as the enforcement gate. Greps 3 and 4 have exemptions and false positives that need a human, so they stay audit-only.
 
 ## The Four Audit Greps
 
@@ -47,11 +47,12 @@ Heuristic only — manually verify. False positives: decorative bars, dividers, 
 
 ## Lock Script — Pre-commit Hook
 
-Drop this at `.githooks/pre-commit-tokens` and wire once:
+Save the script as `.githooks/pre-commit-tokens`. Git runs only hooks with standard names, so call it from `.githooks/pre-commit` (create that file, or add the call line to an existing one) and wire once:
 
 ```bash
 git config core.hooksPath .githooks
-chmod +x .githooks/pre-commit-tokens
+printf '#!/usr/bin/env bash\nexec .githooks/pre-commit-tokens\n' > .githooks/pre-commit  # skip if pre-commit exists; add the exec line instead
+chmod +x .githooks/pre-commit .githooks/pre-commit-tokens
 ```
 
 Mirror as a CI job — client hooks bypass with `--no-verify`.
@@ -74,11 +75,12 @@ check() {
   fi
 }
 
+# Regexes are copied from audit greps 1 and 2 above; keep them identical.
 check "Hex literal in app code" \
-  "grep -rEn '#[0-9a-fA-F]{3,8}\\b' src/ --include='*.tsx' --include='*.ts' --include='*.jsx' --include='*.js' | grep -v 'index.css'"
+  "grep -rEn '#[0-9a-fA-F]{3,8}\\b' src/ --include='*.tsx' --include='*.ts' --include='*.jsx' --include='*.js' --include='*.vue' --include='*.svelte' | grep -v 'index.css'"
 
 check "Generic palette used for semantic role" \
-  "grep -rEn '(bg|text|border)-(red|blue|green|yellow|purple|pink|orange)-[0-9]+' src/ --include='*.tsx' --include='*.ts'"
+  "grep -rEn '(bg|text|border)-(red|blue|green|yellow|purple|pink|orange|gray|slate|zinc|neutral|stone)-[0-9]+' src/ --include='*.tsx' --include='*.ts'"
 
 [ "$violations" -gt 0 ] && exit 1
 exit 0

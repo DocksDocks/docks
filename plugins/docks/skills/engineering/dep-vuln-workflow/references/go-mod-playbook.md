@@ -25,7 +25,7 @@ go get <module>@vX.Y.Z                       # Pin
 go get -u ./...                              # Upgrade all (patch+minor)
 
 # osv-scanner (Google's cross-ecosystem, no reachability)
-osv-scanner scan source -L go.sum            # v2 CLI; flags drift — verify with `osv-scanner scan --help`
+osv-scanner scan source -L go.mod            # v2 CLI; Go support reads go.mod; flags drift — verify with `osv-scanner scan --help`
 ```
 
 Full check suite after every upgrade:
@@ -40,7 +40,7 @@ gofmt -l . && go vet ./... && staticcheck ./... && go test ./... && govulncheck 
 |---|---|
 | Go 1.21 → 1.22 | For-range loop variables scoped per iteration (silent behavior change in goroutines) |
 | Go 1.20 → 1.21 | `min`/`max`/`clear` builtins; `slices`/`maps` stdlib |
-| Module path `/v2` and up | Major version bumps REQUIRE the path suffix (`example.com/lib/v2`) — `go get example.com/lib@v2.0.0` without the suffix silently picks v1 latest |
+| Module path `/v2` and up | Major version bumps REQUIRE the path suffix (`example.com/lib/v2`) — `go get example.com/lib@v2.0.0` without the suffix fails with "module path must match major version" (or resolves `v2.0.0+incompatible` for a repo with no `go.mod`) |
 | gRPC majors | Code-gen output differs across `protoc-gen-go-grpc` versions; mismatched server/client codegen breaks subtle things |
 | `chi` / `gin` / `echo` majors | Middleware signature changes; trailing-slash routing semantics |
 | `database/sql` driver bumps | `sql.Null*` generic in 1.22+; older drivers may need shims |
@@ -68,14 +68,14 @@ if err != nil {
 }
 ```
 
-`nolintlint` (golangci-lint's meta-linter) polices `//nolint:` directives — set `require-explanation: true` (defaults **false**, opt in) to make the same-line reason `//nolint:errcheck // reason here` mandatory. Keep both on. See `lint-no-suppressions`.
+`nolintlint` (golangci-lint's meta-linter) polices `//nolint:` directives. Set `require-explanation: true` to make the same-line reason `//nolint:errcheck // reason here` mandatory, and `require-specific: true` to ban bare `//nolint` without a linter name. Both default to **false**; opt in and keep both on. See `lint-no-suppressions`.
 
 ## Go Gotchas
 
 - **Minimum Version Selection (MVS) surprises.** When two deps require different versions of a transitive, Go picks the HIGHER one. A passive upgrade in dep A might silently raise the version of unrelated dep B.
 - **`//go:build ignore` / build tags.** Code excluded from your build won't be in the binary. govulncheck handles this; generic scanners may not.
 - **`replace` directives in `go.mod`.** Fast-fix for an upstream vuln before a fixed release: `replace example.com/lib => example.com/lib v0.0.0-YYYYMMDDHHMMSS-<sha>`. Document why inline; remove once upstream releases.
-- **Major version go-get pitfall.** `go get example.com/lib@v2.5.0` (without the `/v2` path suffix) silently picks v1.x latest because the module path doesn't match. Always include the suffix for v2+.
+- **Major version go-get pitfall.** `go get example.com/lib@v2.5.0` (without the `/v2` path suffix) fails with "invalid version: module contains a go.mod file, so module path must match major version". A repo with no `go.mod` resolves to `v2.5.0+incompatible` instead. Always include the suffix for v2+.
 - **`go.sum` hash-pin discipline.** Every commit to `go.mod` or `go.sum` should be reviewable — never `go mod tidy` without inspecting the resulting `go.sum` diff.
 
 ## See Also

@@ -21,7 +21,7 @@ Every finding needs `file:line` and a concrete trigger scenario (the exact seque
 
 Trace user input from the Phase 1 entry points through handlers to sinks. For each suspicious path, construct the trigger sequence and the attack flow before writing it up.
 
-## Output (write under `## Phase 2b: Logic Findings`)
+## Output (write under `## Research` → `### Phase 2b: Logic Findings`)
 
 Group by category. Per finding: `file:line` · Category · Evidence (quote if short) · Trigger scenario · Attack flow (numbered) · Impact · Suggested fix/pattern · Risk tier (low/medium/high). Document a full attack flow for every high-risk finding.
 

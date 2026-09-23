@@ -2,7 +2,7 @@
 
 ## One file per node
 
-A node is `<folder>/AGENTS.md` and nothing else. Do not write a `CLAUDE.md` beside it. Codex walks AGENTS.md natively. Claude Code (v2.1.277+) lazy-loads a subdirectory's AGENTS.md when it reads a file there, but only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists on the path. A legacy CLAUDE.md therefore hides the node from Claude Code: propose its deletion in the approval table (stub-only) or route it to `multi-tool-bridge` (real content).
+A node is `<folder>/AGENTS.md` and nothing else. Do not write a `CLAUDE.md` beside it. Claude Code (v2.1.277+) lazy-loads a subdirectory's AGENTS.md when it reads a file there, but only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the working directory or above. Codex reads the AGENTS.md files from the project root down to the working directory once, at session start; it does not load a node below the working directory, so the agent must open it from the root routing table. A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md. `audit` reports every legacy CLAUDE.md and routes it to `multi-tool-bridge`; context-tree never edits or deletes one.
 
 ## AGENTS.md skeleton
 
@@ -35,7 +35,7 @@ trust the stated purpose and re-locate it (grep the symbol) before acting.
 - sources: <every file this node's claims cite — `audit` pre-filters on this list>
 ```
 
-Keep it ≤500 lines (Anthropic doc max; distinct from the SKILL.md 310 sweet spot). If it grows past that, the folder probably needs to split.
+Keep it ≤500 lines (kit policy, enforced by the kit's checks — not an Anthropic doc limit; distinct from the SKILL.md 310 sweet spot). If it grows past that, the folder probably needs to split.
 
 ## Pre-write checklist (run before writing each node)
 
@@ -47,7 +47,7 @@ Keep it ≤500 lines (Anthropic doc max; distinct from the SKILL.md 310 sweet sp
 - [ ] No live `path:NN` line anchors — durable anchors only; the stale-tolerance line is present
 - [ ] Every "X enforces/automates/blocks Y" claim carries a cue that EXERCISES the behavior (should-fail probe), not an existence check — or the claim is cut
 - [ ] Reads correctly if it's the ONLY context file loaded (the `--continue` test)
-- [ ] No `CLAUDE.md` or `.claude/CLAUDE.md` in this folder or above it (a legacy one suppresses AGENTS.md loading)
+- [ ] No `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in this folder or above it (a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md; report it for `multi-tool-bridge`)
 - [ ] AGENTS.md ≤500 lines
 - [ ] `## tree` `sources:` lists every file this node's claims cite (so `audit` can verify them)
 
@@ -58,18 +58,20 @@ Insert into the root `AGENTS.md`:
 ```markdown
 ## Context tree
 
-Per-folder conventions live in nested `AGENTS.md` nodes and load lazily
-(Codex walks AGENTS.md; Claude Code loads a folder's AGENTS.md when it reads
-a file there). Do not add CLAUDE.md files: they suppress AGENTS.md loading.
-Edit the node, not this list, when a folder's rules change. `context-tree audit`
-checks this table against the AGENTS.md files on disk.
+Per-folder conventions live in nested `AGENTS.md` nodes. Claude Code loads a
+folder's AGENTS.md when it reads a file there; Codex loads only the nodes from
+the root down to its working directory, so open the node for the folder you
+edit from this table. Do not add CLAUDE.md files: a CLAUDE.md without an
+`@AGENTS.md` import makes Claude read it instead of AGENTS.md. Edit the node,
+not this list, when a folder's rules change. `context-tree audit` checks this
+table against the AGENTS.md files on disk.
 
 | Node | Governs |
 |---|---|
-| `<folder>/` | <one-line purpose> |
+| `<folder>/AGENTS.md` | <one-line purpose> |
 ```
 
-This table is the one allowed hand-kept list: it is the single home of the routing fact, and `audit` compares it with disk (a node missing from the table is an orphan; a row with no `<folder>/AGENTS.md` is a `dead-pointer`). Fill it from `find . -name AGENTS.md -not -path "*/node_modules/*" -not -path "./AGENTS.md"` (every hit is a node). Each row is a pointer only; the rules live in the node, so the root stays sparse.
+This table is the one allowed hand-kept list: it is the single home of the routing fact, and `audit` compares it with disk (a node missing from the table is an orphan; a row whose path does not exist is a `dead-pointer`). Row rule, shared by every checker in the kit: a routed node is a table row, under any heading, whose first cell is the node path in backticks — `` `<folder>/AGENTS.md` ``. An `@` inside the backticks (`` `@<folder>/AGENTS.md` ``) is tolerated: a code span is not imported; checkers strip it. Never write a bare `@<folder>/AGENTS.md` outside backticks: that is an eager import, and Claude loads the node into every session (`audit` reports it as `eager-import`). Fill the table from `find . \( -path ./.git -o -path '*/node_modules' \) -prune -o -name AGENTS.md -print` (every hit except `./AGENTS.md` is a node). Each row is a pointer only; the rules live in the node, so the root stays sparse.
 
 ## Per-section relocation table (the approval gate)
 

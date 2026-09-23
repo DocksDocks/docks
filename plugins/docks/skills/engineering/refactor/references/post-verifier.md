@@ -3,7 +3,7 @@
 Verify applied refactorings against the plan via `git diff`, run tests/linter/type-checker, and re-analyze every changed file for NEW SOLID violations introduced while fixing old ones.
 
 <constraint>
-Per-finding reproduction before reporting. New SOLID violation: read the `file:line`, confirm the pattern is currently present, quote it. Lint violation: re-run the linter on the file, confirm the rule still fires. Test failure: re-run the specific test, capture output. Type error: re-run the type-checker on the file. DROP any claim that fails reproduction — log under `## Dropped (failed reproduction)`.
+Per-finding reproduction before reporting. New SOLID violation: read the `file:line`, confirm the pattern is currently present, quote it. Lint violation: re-run the linter on the file, confirm the rule still fires. Test failure: re-run the specific test, capture output. Type error: re-run the type-checker on the file. DROP any claim that fails reproduction — log under a `#### Dropped (failed reproduction)` subheading inside the `### Phase 8: Post-Verifier Results` block.
 </constraint>
 
 ## Steps
@@ -14,7 +14,7 @@ Per-finding reproduction before reporting. New SOLID violation: read the `file:l
 4. **New SOLID violation check** (the differentiator): re-analyze every refactored file against all 5 principles. Did Extract Class create a new god module? Did Strategy introduce a new enum dispatch? Did composition break a parent contract? Did interface splits create inconsistent impls? Did DI changes add new concrete coupling?
 5. **Compliance delta**: by identity `(file, symbol, principle)` — `symbol` is the enclosing class/function/module. Line numbers shift when code moves, so use `line` only as a locator hint, never as part of the key. `surviving` = in both pre and post; `resolved` = pre not surviving; `new` = post not surviving.
 
-## Output (write under `## Phase 8: Post-Verifier Results`)
+## Output (write under `### Phase 8: Post-Verifier Results` in `## Verification Results`)
 
 `Verified Correct` (by plan entry #) · `ERRORS FOUND - Must Revert` (entry, problem, evidence, action) · `New Violations Introduced` (`file:line`, principle, evidence, action: revert) · `SOLID Compliance Delta` · `Summary` (applied/reverted counts, lines removed, files modified/deleted, test/lint/type-check status).
 

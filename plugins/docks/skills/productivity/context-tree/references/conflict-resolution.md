@@ -2,7 +2,7 @@
 
 ## Contents
 
-- [Existing-node detection](#existing-node-detection-run-first-always) · [Legacy CLAUDE.md](#legacy-claudemd-drift-to-fix) · [Merge vs overwrite](#merge-vs-overwrite) · [Per-section relocation](#per-section-relocation-init--full-refresh)
+- [Existing-node detection](#existing-node-detection-run-first-always) · [Legacy CLAUDE.md](#legacy-claudemd-report-and-route) · [Merge vs overwrite](#merge-vs-overwrite) · [Per-section relocation](#per-section-relocation-init--full-refresh)
 - [Drift detection (`audit`)](#drift-detection-audit--content-accuracy-not-existence) — checkable claims, per-claim verdicts, durable-docs findings, [Graph Lint](#graph-lint-cross-node-health--after-the-per-claim-pass), pre-filter
 - [No-op refresh (hook safety)](#no-op-refresh-hook-safety)
 
@@ -17,19 +17,25 @@ test -f <folder>/AGENTS.md
 
 Existing nodes are PRESERVED by `init` — never clobbered. `docs/` is the canonical subsystem example: `init` detects it and excludes it from the write set. Only an explicit `refresh <folder>` touches an existing node; route setup or refresh of `docs/AGENTS.md` + `docs/PLAN.md` to `plan-workspace`.
 
-## Legacy CLAUDE.md (drift to fix)
+## Legacy CLAUDE.md (report and route)
 
-A legacy CLAUDE.md is any `CLAUDE.md` or `.claude/CLAUDE.md` in the project, root or nested. It suppresses native AGENTS.md loading in Claude Code: when one exists on the path, Claude reads only CLAUDE.md files and ignores AGENTS.md. Never write one. `audit` reports each as `legacy-claude-md`.
+A legacy CLAUDE.md is any `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in the project, root or nested. When one exists in the working directory or above, Claude reads the CLAUDE.md files, not AGENTS.md. Never write one. `audit` reports each as `legacy-claude-md`. context-tree never edits or deletes a CLAUDE.md: `multi-tool-bridge` owns every write to it.
 
 ```bash
-find . -name CLAUDE.md -not -path '*/node_modules/*'   # also matches .claude/CLAUDE.md
+find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print |
+while IFS= read -r f; do   # -name CLAUDE.md also matches .claude/CLAUDE.md
+  if grep -qvE '^[[:space:]]*(@(\.\./)*AGENTS\.md[[:space:]]*)?$' "$f"; then
+    if grep -qE '(^|[[:space:]])@(\.\./)*AGENTS\.md' "$f"; then k='content + import (migrate)'; else k='content, no import (defect)'; fi
+  else k='import stub (redundant)'; fi
+  echo "legacy-claude-md: $f — $k"
+done
 ```
 
-| Found | Fix |
-|---|---|
-| `CLAUDE.md` holding only `@AGENTS.md` (or `@../AGENTS.md`) | Delete it. List it in the approval table as `DELETE (legacy stub)`; delete only after approval. |
-| `CLAUDE.md` holding only an import, with no `AGENTS.md` beside it | Ask: the folder is not a node (delete the stub) or it needs an AGENTS.md (generate the node, then delete the stub). |
-| `CLAUDE.md` with content beyond the import | Do not edit or delete it here. A CLAUDE.md with real content, root or nested → `multi-tool-bridge` (it migrates nested files into the folder AGENTS.md and a path-scoped `.claude/rules/` file, then removes the file). |
+| Found | Severity | Fix |
+|---|---|---|
+| `CLAUDE.md` holding only `@AGENTS.md` (or `@../AGENTS.md`) | Redundant: the import still delivers AGENTS.md | Cleanup finding. Route to `multi-tool-bridge`, which deletes it behind its own gate. |
+| `CLAUDE.md` with content and no `@AGENTS.md` import | Defect: Claude reads it instead of AGENTS.md | Route to `multi-tool-bridge` (it migrates nested files into the folder AGENTS.md and a path-scoped `.claude/rules/` file, then removes the file). `init` stops until it is migrated. |
+| `CLAUDE.md` with content and an import | Claude-only content outside AGENTS.md | Route to `multi-tool-bridge` for migration. |
 
 ## Merge vs overwrite
 
@@ -81,7 +87,7 @@ Soft prose (rationale, "prefer X" advice) has no source anchor — mark it `unve
 
 ### Verdict per claim
 
-`confirmed` · `broken-ref` (path/line gone) · `stale-snippet` (snippet/command drifted) · `fictional-identifier` (named thing not defined) · `drifted-claim` (threshold/behaviour wrong) · `legacy-claude-md` (a `CLAUDE.md` / `.claude/CLAUDE.md` exists in the repo and suppresses AGENTS.md loading; fix = delete a stub behind the approval gate, or route real content to `multi-tool-bridge`) · `line-anchor` (live `path:NN` in the node — even if accurate today it rots on the next edit; fix = convert to the durable `` `path` — `symbol` — purpose (verify: `cmd`) `` form, never just re-point the number; fictional example paths exempt) · `volatile-value` · `duplicated-fact` · `dead-pointer` · `unchecked-list` (see the durable-docs table below) · `unverifiable`. A node is **CLEAN** only at zero drift AND a non-zero stated claim count; otherwise report it as a `refresh` candidate with its top finding.
+`confirmed` · `broken-ref` (path/line gone) · `stale-snippet` (snippet/command drifted) · `fictional-identifier` (named thing not defined) · `drifted-claim` (threshold/behaviour wrong) · `legacy-claude-md` (a `CLAUDE.md` / `.claude/CLAUDE.md` / `CLAUDE.local.md` exists in the repo; an import stub is redundant, a file without an `@AGENTS.md` import is a defect; fix owner = `multi-tool-bridge`) · `line-anchor` (live `path:NN` in the node — even if accurate today it rots on the next edit; fix = convert to the durable `` `path` — `symbol` — purpose (verify: `cmd`) `` form, never just re-point the number; fictional example paths exempt) · `volatile-value` · `duplicated-fact` · `dead-pointer` · `unchecked-list` · `eager-import` (see the durable-docs table below) · `unverifiable`. A node is **CLEAN** only at zero drift AND a non-zero stated claim count; otherwise report it as a `refresh` candidate with its top finding.
 
 ### Durable-docs findings
 
@@ -94,7 +100,15 @@ A node is read as current state. These findings apply even when the text is accu
 | `dead-pointer` | a backticked repo path that resolves neither from the node's own folder nor from the repo root, or a "see root" / "see parent" with no path. A path that names a location in another project (consumer repo, upstream) is not a pointer | re-locate the owner by the pointer's stated purpose (grep the symbol) and fix the path; if no owner exists, state the rule in the node or cut the pointer |
 | `unchecked-list` | a hand-kept enumeration of things that change, with no check that compares it with disk | replace with the rule + the `find`/`grep` command that lists them; keep a list only when it is the single home of the fact AND a check compares it with disk (the root Context-tree table, checked by `audit`) |
 | `line-anchor` | a live `path:NN` anchor | convert to `` `path` — `symbol` — purpose (verify: `cmd`) ``; never re-point the number |
-| `legacy-claude-md` | any `CLAUDE.md` / `.claude/CLAUDE.md` in the repo | delete a stub-only file behind the approval gate; route real content to `multi-tool-bridge` |
+| `legacy-claude-md` | any `CLAUDE.md` / `.claude/CLAUDE.md` / `CLAUDE.local.md` in the repo (classifier in "Legacy CLAUDE.md" above) | route to `multi-tool-bridge`; context-tree never edits or deletes it |
+| `eager-import` | a bare `@path` outside backticks and fences in any AGENTS.md, root included (Claude expands it on every load). An `@` inside backticks is a code span, not an import. Detect with the snippet below | put the path in backticks; keep a bare import only when the target must always be in context, and say why |
+
+```bash
+# eager-import: bare @path outside fences and code spans, in every AGENTS.md
+find . \( -path ./.git -o -path '*/node_modules' \) -prune -o -name AGENTS.md -print | while IFS= read -r f; do
+  awk '/^[[:space:]]*```/{x=!x; next} x{next} {t=$0; gsub(/`[^`]*`/, "", t); if (t ~ /(^|[[:space:](])@[^[:space:]]*[.\/]/) print "eager-import: " FILENAME ":" NR}' "$f"
+done
+```
 
 ### Graph Lint (cross-node health — after the per-claim pass)
 
@@ -103,18 +117,25 @@ The per-claim checks above judge one node at a time; these five judge the tree a
 | Lint check | Verify by |
 |---|---|
 | Contradictions between nodes | Compare rules that govern the same file/tool/threshold across nodes AND the root; two nodes giving incompatible instructions for the same case is a finding, whichever is "right" |
-| Orphan node — no inbound link | A node's folder missing from the root Context-tree table and unreferenced by any sibling node; it still loads lazily but is invisible to a reader navigating from the root. The reverse — a table row whose `<folder>/AGENTS.md` does not exist — is a `dead-pointer`. List the nodes on disk with `find . -name AGENTS.md -not -path '*/node_modules/*' -not -path './AGENTS.md'` |
+| Orphan node — no inbound link | A node missing from the root `## Context tree` table and unreferenced by any sibling node; it still loads lazily in Claude Code but is invisible to a reader navigating from the root, and a Codex session started at the root never finds it. The reverse — a table row whose path does not exist — is a `dead-pointer`. Row rule (the same in every kit checker): a table row under any heading whose first cell matches `` `@?<path>AGENTS.md` ``; strip the leading `@`. Check with the snippet below this table |
 | Concept mentioned but lacking a node | A folder/subsystem repeatedly named across nodes (or in root) that qualifies as a node under "What counts as a node" yet has no node |
 | Missing cross-references | Node A depends on a convention owned by node B without naming B's path; the `refresh` fix is a backticked pointer to B. If A restates the convention, that is also a `duplicated-fact` |
 | Web-fillable data gap | A claim that needs an external fact the repo cannot supply (a version, an upstream URL, a spec value) left vague where a source could pin it |
 
-Output: append the graph findings to the per-node report as `graph: <check> — <finding>` lines; each is a `refresh` candidate (or a root Context-tree table fix), decided by the user.
+```bash
+grep -E '^\|[[:space:]]*`@?[^`]*AGENTS\.md`' AGENTS.md | sed -E 's/^\|[[:space:]]*`@?([^`]*)`.*/\1/' | sort -u > /tmp/ct.routed
+find . \( -path ./.git -o -path '*/node_modules' \) -prune -o -name AGENTS.md -print | sed 's|^\./||' | grep -vx AGENTS.md | sort > /tmp/ct.disk
+comm -13 /tmp/ct.routed /tmp/ct.disk | sed 's/^/orphan-node: /'
+comm -23 /tmp/ct.routed /tmp/ct.disk | sed 's/^/dead-pointer: /'
+```
+
+Output: append the graph findings to the per-node report as `graph: <check> — <finding>` lines; each is a `refresh` candidate (or a root `## Context tree` table fix), decided by the user.
 
 ### Pre-filter (cheap, not authoritative)
 
 Scope the read with the node's `## tree` `sources:` list (the files its claims cite); the git delta since the node's last commit (`git log -1 --format=%H -- <folder>/AGENTS.md`) narrows where to look first. Neither substitutes for opening every claim — they only order the work.
 
-Output per node: `claims checked | confirmed | broken-ref | stale-snippet | fictional-identifier | drifted-claim | volatile-value | duplicated-fact | dead-pointer | unchecked-list | line-anchor | verdict`, plus a dropped-on-failed-reproduction list. Report drift; do not auto-fix in `audit`. The user decides whether to `refresh`.
+Output per node: `claims checked | confirmed | broken-ref | stale-snippet | fictional-identifier | drifted-claim | volatile-value | duplicated-fact | dead-pointer | unchecked-list | line-anchor | eager-import | verdict`, plus a dropped-on-failed-reproduction list. Report drift; do not auto-fix in `audit`. The user decides whether to `refresh`.
 
 ## No-op refresh (hook safety)
 

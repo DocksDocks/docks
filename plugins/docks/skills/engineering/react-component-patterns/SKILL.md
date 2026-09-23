@@ -10,7 +10,7 @@ paths:
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-23"
-  content_hash: "313ea19fbbdb16920d0a5f7565289c6fdf48da745ea821b06a3b6930a5b862c5"
+  content_hash: "192403e00c8c0e97c8f6f7c0e83160842b639908692b3adb824e2267e160188b"
 ---
 
 # React Component Patterns
@@ -22,7 +22,7 @@ Three related sub-domains:
 3. **RSC boundary** (Next.js App Router) — when refactoring code across the Server/Client divide, debugging `Functions cannot be passed to Client Components`, or deciding where `"use client"` goes. Deep examples in [`references/rsc-boundary.md`](references/rsc-boundary.md).
 
 <constraint>
-`useEffect` is the exception, not the rule. React 19's docs are explicit: most effects in modern codebases are wrong. Before adding one, prove the code doesn't fit a faster escape hatch. Never suppress `react-hooks/set-state-in-effect` or `react-hooks/exhaustive-deps` — fix the underlying issue.
+`useEffect` is the exception, not the rule. React's "You Might Not Need an Effect" page shows that many effects are unnecessary, and that removing them makes code easier to follow and faster. Before adding one, prove the code doesn't fit a faster escape hatch. Never suppress `react-hooks/set-state-in-effect` or `react-hooks/exhaustive-deps` — fix the underlying issue.
 </constraint>
 
 <constraint>
@@ -38,7 +38,7 @@ React 19 made `ref` a regular prop on function components — `forwardRef` is no
 </constraint>
 
 <constraint>
-In Next.js App Router, a Server Component must never forward a non-serializable value (function, class instance, JSX component reference like a `lucide-react` icon) as a prop to a Client Component. The one function exception is a Server Function (`"use server"`), which React passes as a reference. Marking the shared file `"use client"` does not fix it — the Server Component still serializes the value at the boundary. The fix is to remove the Server Component from the import chain (Client owns the import) or to project to plain data before passing. See [`references/rsc-boundary.md`](references/rsc-boundary.md).
+In Next.js App Router, a Server Component must never forward a non-serializable value (function, class instance, JSX component reference like a `lucide-react` icon) as a prop to a Client Component. Two kinds of function reference cross: Server Functions (`"use server"`), and a function or component exported from a `"use client"` module and passed through unchanged. Closures, and objects or arrays built from those exports, do not cross. Marking the shared file `"use client"` does not fix a shared data array — the array is neither a component nor a serializable value. The fix is to remove the Server Component from the import chain (Client owns the import) or to project to plain data before passing. See [`references/rsc-boundary.md`](references/rsc-boundary.md).
 </constraint>
 
 ## Quick BAD/GOOD — derived state via effect
@@ -90,16 +90,16 @@ This is the single home of the derived-state example. The full anti-pattern → 
 | Polymorphic `as` on a 2-tag component | Two named components | `composition.md` |
 | Compound components with no shared state | Children-as-prop with discriminated `kind` | `composition.md` |
 | `cva` for 2 variants | `clsx` ternary — `cva` earns its keep at 5+ variants | `composition.md` |
-| Server Component forwards Client-Component data (icons, `onSelect`) as a prop | Client owns the import; Server forwards only plain data, JSX, or Server Functions | `rsc-boundary.md` |
-| Rebuilding a primitive already exported by the repository or registry | Inventory first; extend the existing shadcn/ui, Base UI, Radix, or project-local primitive | `composition.md` |
-| Migrating an established Radix/ARIA/non-shadcn system just to use the default | Preserve the repository convention; migrate only when explicitly requested | `composition.md` |
+| Server Component forwards Client-Component data (icons, `onSelect`) as a prop | Client owns the import; Server forwards only plain data, JSX, Server Functions, or unchanged `"use client"` exports | `rsc-boundary.md` |
+| Rebuilding a primitive already exported by the repository or registry | Inventory first; extend the existing shadcn/ui, Base UI, Radix, or project-local primitive | SKILL.md constraint (Inventory before invention) |
+| Migrating an established Radix/ARIA/non-shadcn system just to use the default | Preserve the repository convention; migrate only when explicitly requested | SKILL.md constraint (Inventory before invention) |
 | Add `"use client"` to the shared file and leave the Server-Component import | Remove the Server-side import; the Server Component has no business with that data | `rsc-boundary.md` |
 
 ## When to Load Each Reference
 
 - **`references/effects.md`** — the long-form effect policy: the 3 acceptable categories (DOM subscription, external system sync, debounced async), full anti-pattern → replacement table, concrete `useSyncExternalStore` and debounced-value implementations, gotchas around `set-state-in-effect`, `useEffectEvent`, and Strict Mode double-invocation.
 - **`references/composition.md`** — the long-form composition guide: full code for all 6 patterns (compound, slot/`asChild`, polymorphic, headless, provider+hook, cva variants), React 19 ref-as-prop migration, and a Common Traps table.
-- **`references/rsc-boundary.md`** — the long-form Next.js Server↔Client serialization guide: serializable-types table (quote-for-quote from React 19 docs), the NAV_GROUPS-style extraction trap with BAD/GOOD code, the three valid sharing patterns (client-only module, plain-data projection, children slot), decision tree for `"use client"` placement, and gotchas around `"use client"` contagion direction and JSX-element vs component-reference confusion.
+- **`references/rsc-boundary.md`** — the long-form Next.js Server↔Client serialization guide: serializable-types table (paraphrased from the React docs, with local-guidance rows marked), the NAV_GROUPS-style extraction trap with BAD/GOOD code, the three valid sharing patterns (client-only module, plain-data projection, children slot), decision tree for `"use client"` placement, and gotchas around `"use client"` contagion direction and JSX-element vs component-reference confusion.
 
 ## Companion Skills
 

@@ -23,7 +23,7 @@ Perf tests must lock in the regression-prevention:
 
 | Pattern | Test strategy |
 |---|---|
-| N+1 query | Count queries: instrument with `pg.on('query')` / `Sequelize.afterQuery`; assert ≤ K queries per request |
+| N+1 query | Count queries: wrap `client.query`, or use a driver/ORM hook (knex `.on('query')`, pg-promise `query` event, Sequelize `logging`/`benchmark`); assert ≤ K queries per request |
 | Slow query | `EXPLAIN ANALYZE` regression test in CI: assert plan uses the expected index |
 | Render cascade | React Profiler API: assert commit-count under N for a given user action |
 | Hot loop allocation | Benchmark with a fixed input size; assert ns/iter under a threshold (criterion / vitest bench) |

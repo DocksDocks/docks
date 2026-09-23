@@ -4,8 +4,8 @@ description: Use when writing tests for code that ALREADY EXISTS — adding cove
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "0bdc8f81f2d1858f2fdf008f288ec927da14996dd7bc2f3e9499501afca0c683"
+  updated: "2026-09-23"
+  content_hash: "f6c76c235a29f24268143102cfbb2edd0b344410dc14aa5f977b70981e33d76e"
 ---
 
 # Test Coverage Generation
@@ -19,7 +19,7 @@ Each generated test must exercise REAL behavior. A test that only verifies mock 
 </constraint>
 
 <constraint>
-Tests are READ-ONLY when running the suite. If a test fails because the test itself is wrong (typo, bad mock, wrong import path), fix the test. If a test fails because the production code is wrong, REPORT the bug and stop — do not modify production code while in test-coverage mode. Bug-fixing belongs in a separate cycle.
+Production code is READ-ONLY in this mode. If a test fails because the test itself is wrong (typo, bad mock, wrong import path), fix the test. If a test fails because the production code is wrong, REPORT the bug and stop — do not modify production code while in test-coverage mode. Bug-fixing belongs in a separate cycle.
 </constraint>
 
 <constraint>
@@ -48,7 +48,7 @@ Read these in order:
 
 1. `package.json` `scripts.test` / `pyproject.toml [tool.pytest]` / `Cargo.toml [dev-dependencies]` / `go.mod` / `pom.xml` or `build.gradle` — the canonical framework declaration
 2. One existing test file from the project (find with `Glob '**/*.test.*'` or `**/*_test.*` or `**/Test*.java`) — captures the project's actual style: assertion library, describe/it vs flat, mock helpers, file naming
-3. Coverage config if present: `vitest.config.*` / `jest.config.*` / `.coveragerc` / `cargo-tarpaulin.toml` / JaCoCo plugin block — tells you which thresholds matter
+3. Coverage config if present: `vitest.config.*` / `jest.config.*` / `.coveragerc` / `tarpaulin.toml` / `.tarpaulin.toml` / JaCoCo plugin block — tells you which thresholds matter
 
 Don't proceed without these three reads. Mimicking the project's style from a sample is what makes generated tests fit; running blind produces tests that look "off" and require rewriting.
 

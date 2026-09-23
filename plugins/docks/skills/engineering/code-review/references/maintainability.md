@@ -99,7 +99,7 @@ Maintainability findings cap at MEDIUM. The calibration knob is:
 
 - **HIGH cap** never — maintainability doesn't cause outages directly (those become bugs)
 - **MEDIUM** — change-frequency is high (touched ≥ once per month historically per `git log`) → noise hurts
-- **LOW** — stable code that hasn't been touched in ≥ 6 months → cleanup is nice-to-have, not urgent
+- **LOW** — all other code (touched less than once per month) → cleanup is nice-to-have, not urgent
 
 If the same maintainability finding appears in code that's about to be deleted / refactored anyway, drop the finding — the cleanup will subsume it.
 

@@ -26,9 +26,11 @@ Derive role candidates independently from the Phase 3 Skills Plan (don't wait fo
 
 Target 100–200 lines per agent system prompt (excl. frontmatter). Flag any role that would exceed 200.
 
-## Output (write under `## Phase 4b: Pattern Extractor Content`)
+## Output (write under `### Phase 4b: Pattern Extractor Content`)
 
-Per role: `### Agent: <name>`, estimated size, then the 7 dimensions as labeled blocks (see the agent-builder reference for the assembled shape).
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
+
+Per role: `#### Agent: <name>`, estimated size, then the 7 dimensions as labeled blocks (see the agent-builder reference for the assembled shape).
 
 ## Gotcha
 

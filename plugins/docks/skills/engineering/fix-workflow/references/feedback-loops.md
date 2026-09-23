@@ -49,7 +49,7 @@ Try in roughly this order — earlier methods are usually cheaper and sharper.
 
 Treat the loop as a product. Once you have *a* loop, ask:
 
-- **Faster?** Cache setup, skip unrelated init, narrow the test scope, use `--testPathPattern` / `-k` filters.
+- **Faster?** Cache setup, skip unrelated init, narrow the test scope, use path or name filters (Jest `--testPathPatterns` on Jest 30+, `--testPathPattern` before it; pytest `-k`).
 - **Sharper?** Assert on the specific symptom ("expected 200 OK, got 401"), not "didn't crash" / "exit code 0".
 - **More deterministic?** Pin the clock (`vi.useFakeTimers`, `freezegun`), seed RNG, isolate filesystem (`tmp_path`, `mktemp -d`), freeze network (record-replay, MSW), mock external services.
 

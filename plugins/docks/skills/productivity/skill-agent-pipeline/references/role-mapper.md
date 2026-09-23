@@ -17,7 +17,7 @@ Determine an agent role:
 | name | kebab-case, ≤64 chars, no "anthropic"/"claude" |
 | description | 3rd person, ≤1024 chars, specific WHAT + WHEN to delegate + scope-exclusion clause; never generic |
 | tools | minimal — read-only agents get read/search/list/shell; implementation agents add write/edit |
-| model | `opus` (default for project agents) |
+| model | omit by default; set it only when the user pins one (see `agents-builder.md`) |
 | domain | which Phase 3 skills + references/ it covers (Phase-3 paths only) |
 | scope boundaries | what it must NOT do, and which agent handles that |
 
@@ -29,7 +29,9 @@ SRP test: if the agent's scope can't be stated in one sentence, split it. Allow 
 
 Broken skill references (paths gone in Phase 3) → path fix or regenerate. Inlined skill content (long prose, no references) → rewrite-to-reference. Generic/overlapping description → consolidate or split.
 
-## Output (write under `## Phase 4a: Role Mapper Proposals`)
+## Output (write under `### Phase 4a: Role Mapper Proposals`)
+
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
 
 `Agent Roster (Proposed)` (action create/update/regenerate/delete + the fields above) · `Existing Agent Audit` · `Skipped Skills` · `Cross-Cutting Agents`.
 

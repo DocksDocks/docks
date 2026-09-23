@@ -22,9 +22,11 @@ Scope note: 2b findings are point-in-time WORKING NOTES consumed by the builder 
 
 Scan the Phase-1 source directories. Record the exact `file:line` for each finding. Read existing skills first to avoid duplicating what's already documented.
 
-## Output (write under `## Phase 2b: Pattern Scanner Findings`)
+## Output (write under `### Phase 2b: Pattern Scanner Findings`)
 
-One section per domain (Architecture / Conventions / API / Testing / Gotchas), each finding `file:line` + description + short excerpt. End with a per-domain finding count. Every domain needs ≥1 finding; gotchas need concrete failure scenarios, not abstract warnings.
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
+
+One `####` block per domain (Architecture / Conventions / API / Testing / Gotchas), each finding `file:line` + description + short excerpt. End with a per-domain finding count. Every domain needs ≥1 finding; gotchas need concrete failure scenarios, not abstract warnings.
 
 ## Gotcha
 

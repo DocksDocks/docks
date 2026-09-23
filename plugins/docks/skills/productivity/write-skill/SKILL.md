@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-09-23"
-  content_hash: "9506fffca07d18fe122bed7c7d22d551eb8a76669e7959d74ed7bb4df4171e0a"
+  content_hash: "98dea987f1c5a46fc58014f402179c341b22fa60c1fe4725e94c3a1e8d2549eb"
 ---
 
 # Write a Skill (docks conventions)
@@ -19,7 +19,7 @@ Description-first. The description is surfaced in the skill listing every sessio
 </constraint>
 
 <constraint>
-Body sweet spot: 80–310 lines (the bundled `skill-guard.mjs` scorer awards 2 pts here). ≤80 lines is allowed but loses the 2 pts. >310 is also allowed (≤500 hard cap per agentskills.io) but you're past Claude Code's post-compaction re-attachment window (5,000 tokens ≈ 310 lines), so content past that may be silently dropped after auto-compaction. When the body crosses ~280 lines, move detail into `references/<topic>.md` files (30–150 lines each) and leave a one-line pointer in the body. Pattern: see `react-component-patterns/SKILL.md` and its three references.
+Body sweet spot: 80–310 lines (the bundled `skill-guard.mjs` scorer awards 2 pts here). Under 80 lines is allowed but loses the 2 pts. Over 310 is also allowed (`skill-guard.mjs` fails past 500; agentskills.io recommends under 500) but you're past Claude Code's post-compaction re-attachment window (5,000 tokens ≈ 310 lines), so content past that may be silently dropped after auto-compaction. When the body crosses ~310 lines, move detail into `references/<topic>.md` files (30–150 lines each) and leave a one-line pointer in the body. Pattern: see `react-component-patterns/SKILL.md` and its `references/` folder.
 </constraint>
 
 <constraint>
@@ -70,7 +70,7 @@ metadata:
 | 8 | Code fence with language tag | 1 | ` ```ts `, ` ```bash `, etc. — not bare ` ``` ` |
 | 9 | Body 80–310 lines | 2 | sweet spot; either side loses the 2 pts |
 
-**Per-file floor (per category):** engineering 10, productivity 8 (`scripts/config/scoring.json`). CI fails any skill below its category floor. Aim for 14+ on new skills — leaves headroom when CSO rules tighten.
+**Per-file floor by category:** `scripts/config/scoring.json` (verify: `node -p "JSON.stringify(require('./scripts/config/scoring.json').skills)"`). CI fails any skill below its category floor. Aim for 14+ on new skills — leaves headroom when CSO rules tighten.
 
 ## The authoring loop
 
@@ -139,7 +139,7 @@ If a near-miss has no clean route, the new skill's `Not for…` clause (or the s
 
 | Trigger | Action |
 |---|---|
-| Body crosses ~280 lines OR you're about to add another ~50 | Pull the most-detailed section into `references/<topic>.md`. Keep a 1–2 line pointer in the body. |
+| Body crosses ~310 lines OR you're about to add another ~50 | Pull the most-detailed section into `references/<topic>.md`. Keep a 1–2 line pointer in the body. |
 | Multiple languages share the same principle but need per-language code | One body section explaining the principle, language-specific BAD/GOOD in `references/<lang>-<topic>.md`. Pattern: `solid/references/typescript-solid.md`, `…/rust-solid.md`. |
 | A scenario applies but is the exception, not the rule | `references/` keeps it out of the per-session-loaded body. |
 
@@ -188,7 +188,7 @@ Skill bodies and `references/` are durable docs, and so is every AGENTS.md or RE
 | A. Durable vs point-in-time | every skill that writes docs | durable outputs (AGENTS.md nodes, README-style docs, skills) follow B and C; point-in-time outputs (findings, plan evidence, audit records) carry a date and keep `file:line` |
 | B. One fact, one home | every skill that writes docs | each fact has one owning file; other files name it as a backticked repo-root-relative path; `@path` import only when the target must always be in context; a fact is copied only when it is deleted from its source |
 | C. Durable facts only | every skill that writes docs | no live `path:NN`, no bare version/count/size/date, no "currently"/"as of"/"recently", no hand list of changing things unless a check compares it with disk; each volatile value has `(verify: <command>)` or the rule that produces it; one stale-tolerance line per generated durable doc |
-| D. Agent-first | every skill that writes or changes files in a user repo | findable (a root AGENTS.md routes to every nested node and canonical location; skills in `.agents/skills/`, symlinked from `.claude/skills/`); fast to understand (root holds commands and repo-wide rules only, folder rules live in the folder AGENTS.md); trustworthy (C holds, behavior claims carry a probe); verifiable (the skill ends with a check an agent can run — commands, not prose); no CLAUDE.md files (they suppress native AGENTS.md loading) |
+| D. Agent-first | every skill that writes or changes files in a user repo | findable (a root AGENTS.md routes to every nested node and canonical location; skills in `.agents/skills/`, symlinked from `.claude/skills/`); fast to understand (root holds commands and repo-wide rules only, folder rules live in the folder AGENTS.md); trustworthy (C holds, behavior claims carry a probe); verifiable (the skill ends with a check an agent can run — commands, not prose); no CLAUDE.md files (one home for instructions; a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md) |
 
 A failed row is a defect in the skill, not in one output: fix the template or the instruction that produces the doc.
 
@@ -201,7 +201,7 @@ A failed row is a defect in the skill, not in one output: fix the template or th
 | BAD/GOOD pair is two snippets of similar code with no annotation | Add the `// BAD — <one-line reason>` and `// GOOD — <one-line reason>` comments; the agent pattern-matches on the comments |
 | Every paragraph wrapped in `<constraint>` | Demote to prose — past 3 constraints the scorer gives nothing, and the pattern stops signalling "non-negotiable" |
 | `name:` doesn't match directory name | Guard fails. Rename directory to match (kebab-case, `[a-z0-9-]+`, ≤64 chars). |
-| Forgot `metadata.updated` bump after editing | Bump to today (`date "+%Y-%m-%d"`) **only if content actually changed**. If this project documents `metadata.content_hash`, run its documented hash-sync command; otherwise do not add a hash or report missing Docks tooling. |
+| Forgot `metadata.updated` bump after editing | Do not bump it by hand. Run the project's content-hash backfill (see the bookkeeping constraint): it re-syncs `metadata.content_hash` and stamps `metadata.updated` in one write, and only when the hash differs. If the project has no hash tooling, do not add a hash or report missing Docks tooling. |
 | Body crossed 310 → just left it there | Move detail to `references/`. Past 310 lines, post-compaction re-attachment drops content silently. |
 | Used `comprehensive`/`robust`/`elegant`/`seamless` because it "reads better" | Each occurrence costs 1 pt. Rewrite or cut. |
 | Mixed terminology — "field"/"box"/"element" for the same thing | Pick one term and use it throughout; the model treats synonyms as potentially distinct concepts. |
@@ -215,8 +215,8 @@ A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no 
 
 ## When this skill does NOT apply
 
-- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.mjs` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The root `AGENTS.md` `## Authoring agents` section is the source of truth for agents.
-- Modifying an existing skill — read it first, preserve constraint blocks, bump `metadata.updated`, re-score before commit.
+- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.mjs` (no `model` key, "Use when …" + "Not …" clauses, anti-hallucination checklist, 60–300 body). The root `AGENTS.md` `## Authoring agents` section is the source of truth for agents.
+- Modifying an existing skill — use `skill-maintenance`. Read the skill first, preserve constraint blocks, re-sync metadata with the project's content-hash backfill (never bump `metadata.updated` by hand), and re-score before commit.
 
 ## Source attribution
 

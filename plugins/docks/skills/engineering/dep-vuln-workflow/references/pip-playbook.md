@@ -26,12 +26,13 @@ pipenv update <pkg>
 
 # uv (Astral's fast resolver, lockfile-aware)
 uv pip compile requirements.in -o requirements.txt --upgrade
-uv export --format requirements-txt | pip-audit -r /dev/stdin   # uv has no audit subcommand
+uv audit                                    # Audit the locked project (preview feature; `--no-group` / `--no-extra` narrow scope)
+uv export --format requirements-txt | pip-audit -r /dev/stdin   # Fallback for uv releases without `uv audit`
 uv tree
 
 # safety (third-party scanner, broader DB)
 pip install safety                          # Safety 3 requires an account: `safety auth login` (or an API key)
-safety scan                                 # Safety 3 command (the v2 `check` command was removed)
+safety scan                                 # Safety 3 command (`check` is deprecated in Safety 3; use `scan`)
 ```
 
 Full check suite after every upgrade:
@@ -44,12 +45,12 @@ ruff check . && mypy . && pytest && pip-audit --strict
 
 | Upgrade | Watch out for |
 |---|---|
-| Python 3.11 → 3.12 | `distutils` removed; PEP 695 generic syntax; `Self` type at runtime |
+| Python 3.11 → 3.12 | `distutils` removed; PEP 695 generic syntax; PEP 698 `@typing.override` |
 | Python 3.12 → 3.13 | Free-threaded build (no-GIL) opt-in; legacy `unittest` alias deprecations |
 | Django 4 → 5 | Async views/forms expanded; `django.utils.timezone.utc` removed; `USE_DEPRECATED_PYTZ` gone |
-| FastAPI ↔ Pydantic version coupling | FastAPI ≥ 0.100 requires Pydantic v2; v1 → v2 is a major rewrite of validators/config |
+| FastAPI ↔ Pydantic version coupling | FastAPI ≥ 0.126 requires Pydantic ≥ 2.7 (0.100–0.125 accept v1 or v2; 0.128 drops `pydantic.v1`); v1 → v2 is a major rewrite of validators/config |
 | Pydantic v1 → v2 | `@validator` → `@field_validator`; `Config` class → `model_config`; `.dict()` → `.model_dump()` |
-| SQLAlchemy 1.4 → 2.0 | `Session.execute()` returns `Result`; legacy `Query` API removed; `select()` is the new default |
+| SQLAlchemy 1.4 → 2.0 | `Session.execute()` returns `Result`; `Query` API is legacy (still works); prefer `select()` + `Session.execute()` |
 | Flask 2 → 3 | `before_first_request` removed; `app.json_encoder` removed; signed-serializer changes |
 
 ## Exposure Filter — Python Specifics

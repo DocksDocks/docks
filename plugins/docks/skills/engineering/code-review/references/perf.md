@@ -18,7 +18,6 @@ Per-axis expansion of the parent SKILL.md Step 3 (performance bucket). Load when
 
 | Symptom | What's wrong | Starting severity |
 |---|---|---|
-| `const arr = []; for (...) arr.push(...)` in tight loop with known size | Repeated grow + copy; pre-size or use typed array | LOW-MEDIUM |
 | `JSON.parse(JSON.stringify(obj))` to clone in a request handler | O(n) clone on every request; structured clone or shallow ok | MEDIUM |
 | Regex compiled inside the loop body | Recompiled per iteration | MEDIUM |
 | String concatenation with `+=` over 10k items | Quadratic in some engines; use array join | LOW-MEDIUM |
@@ -28,7 +27,6 @@ Per-axis expansion of the parent SKILL.md Step 3 (performance bucket). Load when
 | Symptom | What's wrong | Starting severity |
 |---|---|---|
 | `fs.readFileSync` on the request path | Blocks the event loop | HIGH |
-| Missing `await` on an async call that returns a promise | Silent unhandled rejection; race conditions | HIGH |
 | Sequential `await` for independent calls (`await a; await b;`) | Wall-clock cost = sum; should be `Promise.all` | MEDIUM |
 | `setTimeout(fn, 0)` for "concurrency" | Doesn't actually parallelize; usually a code smell | LOW |
 
@@ -48,10 +46,8 @@ Per-axis expansion of the parent SKILL.md Step 3 (performance bucket). Load when
 |---|---|---|
 | Does this run on a hot path (request handler, render, animation)? | Keep starting severity | Drop 1 tier |
 | Does it scale with user input (N items) where N can be ≥1000? | Keep starting severity | Drop 1 tier |
-| Is there an observed perf regression (benchmark, profiler, user report)? | Bump 1 tier (now it's measurable, not theoretical) | Cap at HIGH |
+| Is there an observed perf regression (benchmark, profiler, user report)? | Keep starting severity (the bucket cap is HIGH) | Drop 1 tier and mark "verify with profile" |
 | Does it block other operations (event loop, main thread, DB lock)? | Keep starting severity | Drop 1 tier |
-
-A perf finding without a measurement is theoretical — cap at HIGH and mark "verify with profile."
 
 ## False-Positive Guards
 

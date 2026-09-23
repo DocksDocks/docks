@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: reviewer
   updated: "2026-09-23"
-  content_hash: "30fc7e2eb50af406186757182480a203eb49178920107e2edaa1412dde9534ab"
+  content_hash: "7208f28d8a7da0f88b12ba010e9b772d3d011a1c555f4dbb0bb58c993ba4bdf4"
 ---
 
 # Skill Maintenance

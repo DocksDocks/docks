@@ -170,7 +170,7 @@ class UserServiceTest {
 }
 ```
 
-For Spring Boot, use `@WebMvcTest`, `@DataJpaTest`, or `@SpringBootTest` with `@MockBean` for the appropriate slice.
+For Spring Boot, use `@WebMvcTest`, `@DataJpaTest`, or `@SpringBootTest` with `@MockitoBean` (Spring Framework 6.2+) for the appropriate slice. Spring Boot's `@MockBean` is deprecated since 3.4 and removed in 4.0.
 
 ## Running
 
@@ -274,6 +274,10 @@ public class UserDto {
 <plugin>
   <groupId>org.jacoco</groupId>
   <artifactId>jacoco-maven-plugin</artifactId>
+  <executions>
+    <execution><goals><goal>prepare-agent</goal></goals></execution>
+    <execution><id>check</id><goals><goal>check</goal></goals></execution> <!-- enforces <rules>; binds to verify -->
+  </executions>
   <configuration>
     <excludes>
       <exclude>**/dto/*.class</exclude>             <!-- Lombok-heavy DTOs -->
@@ -295,7 +299,7 @@ public class UserDto {
 </plugin>
 ```
 
-JaCoCo honors `javax.annotation.Generated` and `lombok.Generated` automatically — annotating generated code is the cleanest per-class opt-out. For everything else, prefer plugin-level `<excludes>` over scattered annotations so reviewers can see the rule in one place.
+JaCoCo filters classes and methods annotated with a CLASS- or RUNTIME-retained annotation whose simple name contains `Generated` — for example `lombok.Generated`, which Lombok adds only when `lombok.addLombokGeneratedAnnotation = true` is set in `lombok.config`. `javax.annotation.Generated` is SOURCE-retained, so JaCoCo does not filter it. For everything else, prefer plugin-level `<excludes>` over scattered annotations so reviewers can see the rule in one place.
 
 ## See Also
 

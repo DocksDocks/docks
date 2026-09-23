@@ -22,7 +22,7 @@ against the commit it was written at.
 | Artifact | Class | Anchor form |
 |---|---|---|
 | Every AGENTS.md node, every SKILL.md and `references/` file, knowledge-bundle concepts, README-style docs a skill writes into a user repo | **durable** | rules B and C; bare `path:NN` forbidden unless the path is fictional (teaching example) |
-| Plan issues and plan `## Sources`, review/security/refactor findings, pipeline working notes, incident notes, release evidence, dated audit records | **point-in-time** (EXEMPT) | `file:line` REQUIRED (precision at creation is the job) |
+| Plan issues (every section, including `## Research`), review/security/refactor findings, pipeline working notes, incident notes, release evidence, dated audit records | **point-in-time** (EXEMPT) | `file:line` REQUIRED (precision at creation is the job) |
 
 The test: *will anyone read this after the cited code has changed?* Yes → durable.
 A fenced code block that teaches a BAD example is exempt inside a durable doc.

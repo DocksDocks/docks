@@ -2,7 +2,7 @@
 
 ## Contents
 
-- [Stub files — delete, no classification](#stub-files-delete-no-classification)
+- [Stub files — delete as cleanup, no classification](#stub-files-delete-as-cleanup-no-classification)
 - [CLAUDE-specific keyword set (any one hit → .claude/rules/claude-code.md)](#claude-specific-keyword-set-any-one-hit-clauderulesclaude-codemd)
 - [GENERIC content (move to AGENTS.md)](#generic-content-move-to-agentsmd)
 - [MIXED sections — splitting strategy](#mixed-sections-splitting-strategy)
@@ -13,17 +13,17 @@
 - [Verification heuristic for the proposed split](#verification-heuristic-for-the-proposed-split)
 - [Sources](#sources)
 
-Claude Code v2.1.277+ reads `AGENTS.md` natively, but only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists. A legacy CLAUDE.md therefore suppresses AGENTS.md. The bridge skill moves its content out and deletes it:
+Claude Code v2.1.277+ reads `AGENTS.md` natively. By default, when a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the working directory or above, Claude reads the CLAUDE.md files, not AGENTS.md. A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md: that is the defect. The bridge skill moves its content out and deletes it:
 
 - **GENERIC** → moves to `AGENTS.md` (tool-agnostic instructions); for a nested file, to `<dir>/AGENTS.md`
-- **CLAUDE-SPECIFIC** → moves to `.claude/rules/claude-code.md` (loads alongside AGENTS.md; does not suppress it); for a nested file, to the path-scoped `.claude/rules/<dir-slug>.md`
+- **CLAUDE-SPECIFIC** → moves to `.claude/rules/claude-code.md` (loads alongside AGENTS.md; does not count for the CLAUDE.md check); for a nested file, to the path-scoped `.claude/rules/<dir-slug>.md`
 - **MIXED** → propose split; default to the file's rules destination when uncertain
 
 The split is presented to the user as a proposal table; **no write or delete happens without explicit approval**. The skill never creates or rewrites a CLAUDE.md.
 
-## Stub files — delete, no classification
+## Stub files — delete as cleanup, no classification
 
-A legacy CLAUDE.md that holds only `@AGENTS.md` or `@../AGENTS.md` (plus blank lines) is a stub from the earlier import workaround. It carries no content. Mark it `DELETE` in the action table and skip classification.
+A legacy CLAUDE.md that holds only `@AGENTS.md` or `@../AGENTS.md` (plus blank lines) is a stub from the earlier import workaround. It still delivers AGENTS.md through the import, so it is redundant, not a defect. It carries no content. Kit policy removes it: mark it `DELETE` (cleanup) in the action table and skip classification.
 
 In a non-stub file, a leading `@AGENTS.md` / `@../AGENTS.md` line is dropped, not moved; AGENTS.md now loads on its own.
 
@@ -121,15 +121,15 @@ A legacy CLAUDE.md can live at `./CLAUDE.md`, `./.claude/CLAUDE.md`, or both. Cl
 
 - **Detect both.** Classify whichever exists; if both exist, classify the union so a rule in one file is not duplicated or contradicted by the other.
 - **Delete both** after their content is written to AGENTS.md and the rules file. Delete last, never first.
-- **`CLAUDE.local.md`** also suppresses AGENTS.md. It is personal: report it, do not touch it.
+- **`CLAUDE.local.md`** also counts: while it exists, Claude reads CLAUDE.md files instead of AGENTS.md. It is personal and usually gitignored: find it with `find` (Step 2), report it, do not touch it.
 
 ## Nested legacy files — `<dir>/CLAUDE.md` and `<dir>/.claude/CLAUDE.md`
 
-A legacy CLAUDE.md below the root loads only when Claude reads a file in `<dir>`, and it suppresses `<dir>/AGENTS.md`. Classify it with the same keyword rules, but keep its folder scope in the destinations:
+A legacy CLAUDE.md below the root loads only when Claude reads a file in `<dir>`. Without an `@AGENTS.md` import, Claude reads it instead of `<dir>/AGENTS.md`. Classify it with the same keyword rules, but keep its folder scope in the destinations. `<dir>/AGENTS.md` is only the destination for the migrated generic content: the root routing row for it belongs to `context-tree`, and the skill reports that hand-off.
 
 | Content | Destination | Write rule |
 |---|---|---|
-| Stub (`@AGENTS.md` / `@../AGENTS.md` only) | none | `DELETE` |
+| Stub (`@AGENTS.md` / `@../AGENTS.md` only) | none | `DELETE` (cleanup) |
 | GENERIC | `<dir>/AGENTS.md` | create if missing; else append a `## Migrated from CLAUDE.md` section; never overwrite |
 | CLAUDE-SPECIFIC | `.claude/rules/<dir-slug>.md` at the project root | create with `paths:` frontmatter; else append a `## Migrated from <dir>/CLAUDE.md` section; never overwrite |
 
@@ -152,7 +152,7 @@ Quote each glob. Do not change the `paths:` of an existing rules file; append th
 
 ## What about user-level CLAUDE.md?
 
-This skill scopes to the **project-level** CLAUDE.md only. User-level CLAUDE.md (`~/.claude/CLAUDE.md`) and managed-policy CLAUDE.md are out of scope. They do not suppress project AGENTS.md, and they often hold personal/org settings that do not belong in the project repo.
+This skill scopes to the **project-level** CLAUDE.md only. User-level CLAUDE.md (`~/.claude/CLAUDE.md`) and managed-policy CLAUDE.md are out of scope. They do not count for the CLAUDE.md check, so they load alongside project AGENTS.md, and they often hold personal/org settings that do not belong in the project repo.
 
 ## Verification heuristic for the proposed split
 
@@ -162,5 +162,5 @@ Secondary duplication tripwire only: if the moved lines exceed the source by mor
 
 ## Sources
 
-- <https://code.claude.com/docs/en/memory> — section "AGENTS.md" (checked 2026-09-23): Claude Code v2.1.277+ reads AGENTS.md natively; any `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in the directory or above suppresses it; `.claude/rules/*.md` and `~/.claude/CLAUDE.md` load alongside AGENTS.md; a CLAUDE.md holding only `@AGENTS.md` can be removed. Section "Path-specific rules": a `.claude/rules/` file with `paths:` frontmatter (a YAML list of globs) loads only when Claude works with a matching file.
+- <https://code.claude.com/docs/en/memory> — section "AGENTS.md" (checked 2026-09-23): Claude Code v2.1.277+ reads AGENTS.md natively; by default any `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in the working directory or above makes Claude read the CLAUDE.md files instead; a CLAUDE.md that imports AGENTS.md still includes it through the import ("you can leave it"; remove it if it holds nothing else); `.claude/rules/*.md` and `~/.claude/CLAUDE.md` load alongside AGENTS.md. Section "Path-specific rules": a `.claude/rules/` file with `paths:` frontmatter (a YAML list of globs) loads only when Claude works with a matching file.
 - <https://code.claude.com/docs/en/settings> — the `.claude/` directory, plugin/marketplace, and tool/permission primitives behind the CLAUDE-specific keyword set above.

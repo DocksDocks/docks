@@ -22,7 +22,7 @@ Check `node_modules/.bin/` and PATH for:
 | JS/TS | `knip`, `depcheck`, `ts-prune` |
 | Python | `vulture`, `ruff` |
 | Go | `deadcode` |
-| Rust | `cargo-udeps` |
+| Rust | `cargo-udeps` (also record whether a nightly toolchain is installed: `rustup toolchain list`; `cargo udeps` runs only on nightly) |
 
 Record exact availability — Phase 2 uses them tool-first, manual-second.
 
@@ -32,7 +32,7 @@ Record exact availability — Phase 2 uses them tool-first, manual-second.
 - Class hierarchies — search `extends `, `implements `, `class ...(...):`; surface base classes with >1 descendant.
 - DI: constructor injection (`constructor(private`, `def __init__(self,`, `func New`), containers (NestJS `@Injectable`, InversifyJS, Spring `@Component`), factories, registries.
 
-## Output (write under `## Phase 1: Exploration Results`)
+## Output (write under `### Phase 1: Exploration Results` in `## Research`)
 
 `Project Profile` · `Analysis Tools` (each tool from the table above: available yes/no, with resolved path) · `File Map` (source dirs + counts) · `Existing Abstractions` (interfaces / hierarchies / DI, each `file:line`) · `Conventions` (relevant patterns from AGENTS.md / CLAUDE.md / project skills).
 

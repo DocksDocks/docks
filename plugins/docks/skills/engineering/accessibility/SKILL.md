@@ -4,8 +4,8 @@ description: "Use when making UI accessible: focus trap + restore-on-close in mo
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "0f7879efd0b3f50143ee7b916576d681603f376e416cfb36c0babefcaaeb1e59"
+  updated: "2026-09-23"
+  content_hash: "dbca450826300d1e4d88fd6331e04919988a6d33b77a59074cd569f940a98104"
 ---
 
 # Accessibility
@@ -159,7 +159,7 @@ Media feature values: `no-preference` / `reduce`; Baseline since 2020 (verify: h
 }
 ```
 
-- Prefer per-animation swaps. The global kill-switch (`* { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }`) is a retrofit safety net only — it can't tell decorative motion from state-conveying motion. Use `0.01ms`, not `0`, so `animationend` handlers still fire.
+- Prefer per-animation swaps. The global kill-switch (`* { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }`) is a retrofit safety net only — it can't tell decorative motion from state-conveying motion. Use `0.01ms`, not `0`, so `transitionend` handlers still fire (a transition with a combined duration of 0s never starts).
 - JS: `matchMedia("(prefers-reduced-motion: reduce)")` — read `.matches`, subscribe to `change`.
 - Motion / framer-motion: wrap the tree in `MotionConfig` with `reducedMotion="user"` (auto-disables transform/layout animations, keeps opacity/color), or branch per component with `useReducedMotion()` (verify: https://motion.dev/docs/react-accessibility).
 - Tailwind: `motion-safe:` / `motion-reduce:` variants — `motion-safe:transition-transform motion-reduce:transition-none`.

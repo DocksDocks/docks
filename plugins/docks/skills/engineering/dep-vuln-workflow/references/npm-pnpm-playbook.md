@@ -65,13 +65,14 @@ Commit in at least two independently revertible units: the security bump stands 
 
 | Upgrade | Watch out for |
 |---|---|
-| Next.js 15 → 16 | `middleware.ts` → `proxy.ts`; edge runtime removed |
+| Next.js 15 → 16 | `middleware` convention deprecated → `proxy` (Node.js runtime only; keep `middleware` if you need the edge runtime); synchronous Request API access removed |
 | Next.js 14 → 15 | `cookies()` / `headers()` / `params` / `searchParams` become async |
-| React 18 → 19 | `react-hooks/set-state-in-effect` new rule; `use()` hook; async transitions; ref-as-prop replaces `forwardRef` |
+| React 18 → 19 | `use()` hook; async transitions; ref-as-prop replaces `forwardRef` |
+| `eslint-plugin-react-hooks` bumps | Newer recommended configs add rules such as `set-state-in-effect`; new lint errors can appear with no React bump |
 | TypeScript → 6.0 | `baseUrl` deprecated; stricter type narrowing; `ignoreDeprecations: "6.0"` escape hatch |
 | TypeScript → 5.0 | `decorators` native syntax; `const` type params; module resolution changes |
-| ESLint → 9 | `.eslintrc` removed, flat config only |
-| ESLint → 10 | Node 20.19+/22.13+ required; some legacy plugins break |
+| ESLint → 9 | Flat config (`eslint.config.*`) is the default; `.eslintrc` deprecated (opt back in with `ESLINT_USE_FLAT_CONFIG=false`) |
+| ESLint → 10 | `.eslintrc` format removed; Node 20.19+/22.13+/24+ required; deprecated `context` / `SourceCode` methods removed, so some legacy plugins break |
 
 ## Peer-Dep Trap (Concrete Example)
 

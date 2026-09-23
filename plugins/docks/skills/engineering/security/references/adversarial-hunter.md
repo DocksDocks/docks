@@ -21,7 +21,7 @@ Build chained-attack scenarios only from actual codebase issues, and write full 
 | Prototype pollution | `_.merge`/`_.extend`/`Object.assign` / deep-copy on user input |
 | Subdomain takeover | dangling cloud/DNS references in config |
 
-## Output (write under `## Phase 2c: Adversarial Findings`)
+## Output (write under `## Research` → `### Phase 2c: Adversarial Findings`)
 
 **Additional findings** — per finding: `file:line` · Category · Evidence (quoted) · Severity · Suggested fix.
 
