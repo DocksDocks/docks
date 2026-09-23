@@ -14,7 +14,7 @@
 - [Java / `@SuppressWarnings`](#java-suppresswarnings)
 - [Anti-pattern checklist](#anti-pattern-checklist)
 
-Reference for when a suppression IS genuinely justified (per the parent SKILL.md decision tree, after fixes #1–#3 have been ruled out). **Every suppression below MUST include a same-line reason** — a sentence naming the concrete, irreducible cause (third-party type bug + filed issue link, hardware quirk, platform constraint, generic erasure round-trip, etc.). "Speed", "later", or "I'll fix it next sprint" are not reasons.
+Reference for when a suppression IS genuinely justified (per the parent SKILL.md decision tree, after fixes #1–#3 have been ruled out). **Every suppression below MUST include a same-line reason** — a sentence naming the concrete, irreducible cause (third-party type bug + filed issue link, hardware quirk, platform constraint, generic erasure round-trip, etc.). "Speed", "later", or "I'll fix it next sprint" are not reasons. Use each tool's own reason syntax: ESLint takes `-- reason`; mypy, ruff, pylint, and shellcheck take a second comment, `# reason`. A `--` after a mypy, pylint, or shellcheck directive breaks the directive (mypy: invalid `type: ignore`; pylint: `unknown-option-value`; shellcheck: SC1073).
 
 ## Universal scope rule
 
@@ -54,7 +54,7 @@ console.log(state)
 
 | Syntax | Scope | Notes |
 |---|---|---|
-| `// @ts-expect-error <reason>` | Next line | **Preferred** — TS warns if the error goes away, forcing re-evaluation |
+| `// @ts-expect-error <reason>` | Next line | **Preferred** — TS reports an error (TS2578) if the suppressed error goes away, forcing re-evaluation |
 | `// @ts-ignore <reason>` | Next line | Silent — TS never re-evaluates; drift-prone |
 | `// @ts-nocheck` | Whole file | Strongest; use only for generated files |
 | `compilerOptions.skipLibCheck` in `tsconfig.json` | Project-wide for `.d.ts` files | Common but wide — document why |
@@ -76,7 +76,7 @@ When the suppression is no longer needed, `@ts-expect-error` becomes a compile e
 | `[mypy-foo.*]` `ignore_errors = true` in `mypy.ini` / `pyproject.toml` | Module-path glob |
 
 ```python
-result: dict = json.loads(raw)  # type: ignore[no-untyped-call]  -- stdlib stub gap, see python/typeshed#42
+result: dict = json.loads(raw)  # type: ignore[no-untyped-call]  # stdlib stub gap, see python/typeshed#42
 ```
 
 Always include the error code in brackets — `# type: ignore` alone silences ALL mypy errors on the line, which masks new issues.
@@ -91,7 +91,7 @@ Always include the error code in brackets — `# type: ignore` alone silences AL
 | `[tool.ruff.lint.per-file-ignores]` in `pyproject.toml` | Path-glob → rule-list |
 
 ```python
-x = a_very_long_variable_name + another_long_name * yet_another_factor  # noqa: E501  -- formula matches paper notation exactly
+x = a_very_long_variable_name + another_long_name * yet_another_factor  # noqa: E501  # formula matches paper notation exactly
 ```
 
 ## pylint (Python)
@@ -101,10 +101,10 @@ x = a_very_long_variable_name + another_long_name * yet_another_factor  # noqa: 
 | `# pylint: disable=invalid-name` | Same line |
 | `# pylint: disable-next=invalid-name` | Next line only |
 | `# pylint: disable=invalid-name` at file top | Whole file |
-| `[tool.pylint.<message-control>]` `disable=invalid-name` | Project-wide |
+| `[tool.pylint."messages control"]` `disable = ["invalid-name"]` in `pyproject.toml` | Project-wide |
 
 ```python
-X = compute_constant()  # pylint: disable=invalid-name  -- protocol constant name fixed by RFC 7519
+X = compute_constant()  # pylint: disable=invalid-name  # protocol constant name fixed by RFC 7519
 ```
 
 ## clippy (Rust)
@@ -147,7 +147,7 @@ _, _ = file.Write(buf) //nolint:errcheck // best-effort log flush at shutdown
 | `disable=SC2086` in `.shellcheckrc` | Project-wide |
 
 ```bash
-# shellcheck disable=SC2086  -- word-splitting deliberate: array elements stay as separate args
+# shellcheck disable=SC2086 # word-splitting deliberate: array elements stay as separate args
 cmd $args
 ```
 

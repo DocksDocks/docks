@@ -149,7 +149,7 @@ Use `# pragma: no cover` sparingly (and follow `lint-no-suppressions` discipline
 
 ## Common Gotchas
 
-- **`async def` test with no marker → silently skipped** by pytest-asyncio in non-auto mode. Add the marker or enable auto mode.
+- **`async def` test that no async plugin handles → fails (pytest ≥ 8.4) or warns and skips (older pytest).** With pytest-asyncio in strict mode, add the `@pytest.mark.asyncio` marker or enable auto mode.
 - **Patch target is import location, not definition.** Patching `requests.get` doesn't affect `from requests import get` in another module — patch `that_module.get`.
 - **Fixture in same file overrides one in conftest.py.** Surprising precedence; rename if you want both available.
 - **`scope="session"` fixtures with database state** leak across tests. Use transactions + rollback or `scope="function"` for DB.

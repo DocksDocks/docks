@@ -1,14 +1,8 @@
-# Node template — the pair + the root section
+# Node template — the AGENTS.md node + the root section
 
-## CLAUDE.md (every node, verbatim)
+## One file per node
 
-The entire file is one line:
-
-```markdown
-@AGENTS.md
-```
-
-No frontmatter, no heading, nothing else. Any CLAUDE.md that isn't exactly this breaks Claude Code's descendant discovery. The `@AGENTS.md` import resolves relative to the file's own directory.
+A node is `<folder>/AGENTS.md` and nothing else. Do not write a `CLAUDE.md` beside it. Claude Code (v2.1.277+) lazy-loads a subdirectory's AGENTS.md when it reads a file there, but only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the working directory or above. Codex reads the AGENTS.md files from the project root down to the working directory once, at session start; it does not load a node below the working directory, so the agent must open it from the root routing table. A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md. `audit` reports every legacy CLAUDE.md and routes it to `multi-tool-bridge`; context-tree never edits or deletes one.
 
 ## AGENTS.md skeleton
 
@@ -19,58 +13,65 @@ No frontmatter, no heading, nothing else. Any CLAUDE.md that isn't exactly this 
 editing.>
 
 ## Conventions
-<The rules that govern this folder — restated, not referenced. Tables and
-BAD/GOOD beat prose. Anchor code by `path` — `symbol` — purpose
-(verify: `command`), never by bare `path:NN` line numbers; give every
-volatile fact (count, floor, version) its re-derivation command.>
+<The rules owned by this folder, stated in full. Tables and BAD/GOOD beat
+prose. Anchor code by `path` — `symbol` — purpose (verify: `command`), never
+by bare `path:NN` line numbers. For a volatile fact (count, version, size,
+date), never write the value: write the identity + the rule that produces it
++ (verify: `command`).>
+
+## Owned elsewhere
+<One line per fact this folder depends on but does not own: what it is + the
+owning file as a repo-root-relative backticked path, e.g.
+"Validation commands: `scripts/AGENTS.md`". Never copy the fact.>
 
 ## Gotchas
 <Concrete corrections specific to this folder, if any.>
 
-Pointers here name concepts, not coordinates — if a path or symbol has moved,
-trust the stated purpose and re-locate it (grep the symbol) before acting;
-treat `verify:` commands as the source of truth for volatile values.
+Pointers here name concepts, not coordinates — if a path or symbol moved,
+trust the stated purpose and re-locate it (grep the symbol) before acting.
 
 <!-- machine-readable drift aid — `audit` reads `sources:` to scope its content check -->
 ## tree (metadata)
-- refreshed: YYYY-MM-DD
-- sources: <every file this node's claims cite — the cited-sources floor `audit` pre-filters on>
+- sources: <every file this node's claims cite — `audit` pre-filters on this list>
 ```
 
-Keep it ≤500 lines (Anthropic doc max; distinct from the SKILL.md 310 sweet spot). If it grows past that, the folder probably needs to split.
+Keep it ≤500 lines (kit policy, enforced by the kit's checks — not an Anthropic doc limit; distinct from the SKILL.md 310 sweet spot). If it grows past that, the folder probably needs to split.
 
-## Self-sufficiency checklist (run before writing each node)
+## Pre-write checklist (run before writing each node)
 
-- [ ] No "see root", "refer to parent", or "as described elsewhere" pointers
-- [ ] Every rule a reader needs to edit here is stated in THIS file
-- [ ] No live `path:NN` line anchors — durable anchors + `verify:` cues on volatile facts; the stale-tolerance line is present
+- [ ] Every rule owned by this folder is stated in THIS file (actionable when it is the only file loaded)
+- [ ] Every fact owned elsewhere is a backticked repo-root-relative path, not a copy (no `duplicated-fact`)
+- [ ] No "see root", "refer to parent", or "as described elsewhere" without a path; every backticked path resolves (no `dead-pointer`)
+- [ ] No volatile value: no line number, live count, version, size, score, or date, no "currently" / "now has" / "recently" — identity + rule + `verify:` command instead (no `volatile-value`)
+- [ ] No hand-kept list of things that change unless a check compares it with disk (no `unchecked-list`)
+- [ ] No live `path:NN` line anchors — durable anchors only; the stale-tolerance line is present
 - [ ] Every "X enforces/automates/blocks Y" claim carries a cue that EXERCISES the behavior (should-fail probe), not an existence check — or the claim is cut
 - [ ] Reads correctly if it's the ONLY context file loaded (the `--continue` test)
-- [ ] CLAUDE.md sibling exists and is `@AGENTS.md`-only
+- [ ] No `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in this folder or above it (a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md; report it for `multi-tool-bridge`)
 - [ ] AGENTS.md ≤500 lines
 - [ ] `## tree` `sources:` lists every file this node's claims cite (so `audit` can verify them)
 
 ## Root "Context tree" section
 
-Insert into the root `AGENTS.md` (not CLAUDE.md — keep CLAUDE.md thin):
+Insert into the root `AGENTS.md`:
 
 ```markdown
 ## Context tree
 
-Per-folder conventions live in nested `AGENTS.md` + `CLAUDE.md` pairs and
-load lazily (Codex walks AGENTS.md; Claude Code descendant-loads CLAUDE.md).
-Edit the node, not this list, when a folder's rules change.
+Per-folder conventions live in nested `AGENTS.md` nodes. Claude Code loads a
+folder's AGENTS.md when it reads a file there; Codex loads only the nodes from
+the root down to its working directory, so open the node for the folder you
+edit from this table. Do not add CLAUDE.md files: a CLAUDE.md without an
+`@AGENTS.md` import makes Claude read it instead of AGENTS.md. Edit the node,
+not this list, when a folder's rules change. `context-tree audit` checks this
+table against the AGENTS.md files on disk.
 
 | Node | Governs |
 |---|---|
-| `docs/` | plan-record routing + issue-body contract |
-| `plugins/docks/skills/` | skill authoring + scoring |
-| `plugins/plan-lifecycle/skills/` | plan-lifecycle skill authoring |
-| `scripts/` | validator / CI tooling contract |
-| `.github/` | CI workflow triggers |
+| `<folder>/AGENTS.md` | <one-line purpose> |
 ```
 
-The list is breadcrumbs only — the authoritative content is in each node, so the root stays sparse. Re-derive the current set with `find . -name CLAUDE.md -not -path "*/node_modules/*"` (every hit except the root file is a node).
+This table is the one allowed hand-kept list: it is the single home of the routing fact, and `audit` compares it with disk (a node missing from the table is an orphan; a row whose path does not exist is a `dead-pointer`). Row rule, shared by every checker in the kit: a routed node is a table row, under any heading, whose first cell is the node path in backticks — `` `<folder>/AGENTS.md` ``. An `@` inside the backticks (`` `@<folder>/AGENTS.md` ``) is tolerated: a code span is not imported; checkers strip it. Never write a bare `@<folder>/AGENTS.md` outside backticks: that is an eager import, and Claude loads the node into every session (`audit` reports it as `eager-import`). Fill the table from `find . \( -path ./.git -o -path '*/node_modules' \) -prune -o -name AGENTS.md -print` (every hit except `./AGENTS.md` is a node). Each row is a pointer only; the rules live in the node, so the root stays sparse.
 
 ## Per-section relocation table (the approval gate)
 

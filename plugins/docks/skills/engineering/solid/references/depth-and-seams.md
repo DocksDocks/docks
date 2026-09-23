@@ -1,6 +1,19 @@
 # Depth, Seams, and the Deletion Test
 
-Deep reference for the "deepening opportunity" trigger in the parent `SKILL.md`. Use these terms exactly when proposing or reviewing structural refactors — vocabulary drift ("component," "service," "API," "boundary") makes every review longer and every conversation looser. Adapted from Matt Pocock's `improve-codebase-architecture` skill (`github.com/mattpocock/skills` — `docs/engineering/improve-codebase-architecture.md`, MIT).
+Deep reference for the three-tests constraint in the parent `SKILL.md`. Use these terms exactly when proposing or reviewing structural refactors — vocabulary drift ("component," "service," "API," "boundary") makes every review longer and every conversation looser. Adapted from Matt Pocock's `codebase-design` skill (`github.com/mattpocock/skills` — `skills/engineering/codebase-design/SKILL.md` and its `DEEPENING.md`, MIT).
+
+## Contents
+
+- [When this applies](#when-this-applies)
+- [Vocabulary lock — use exactly](#vocabulary-lock--use-exactly)
+- [The three tests](#the-three-tests)
+- [When applying the three tests to SOLID violations](#when-applying-the-three-tests-to-solid-violations)
+- [Dependency categories — how to test across the seam](#dependency-categories--how-to-test-across-the-seam)
+- [Testing strategy: replace, don't layer](#testing-strategy-replace-dont-layer)
+- [Rejected framings (don't use these)](#rejected-framings-dont-use-these)
+- [Relationships (one-line ontology)](#relationships-one-line-ontology)
+- [Gotchas](#gotchas)
+- [References](#references)
 
 ## When this applies
 
@@ -55,10 +68,29 @@ Corollary: an in-memory test fake **counts as the second adapter** if you write 
 | Smell | Apply the test | Resolution |
 |---|---|---|
 | File > 300 LOC, two change axes share it (S) | Deletion test on the smaller axis — if deleting it concentrates complexity into one new module, split. If it scatters complexity, the original module was the right home; the LOC count is not the violation. | Split only if deletion concentrates. |
-| Switch with 5+ arms (O) | Two adapters? If only the current dispatcher uses each branch, the strategy map is hypothetical seam. If a second consumer (test fixture, alternate dispatcher) also picks branches by key, real seam — strategy map. | Real seam → strategy map. Hypothetical → leave switch. |
+| Switch with 5+ arms (O) | First ask what the proposal adds. A same-module Strategy Map (`Record<key, fn>` next to the dispatcher) adds no new interface and no adapter — it is an in-process change (category 1 below), so the two-adapter test does not apply. Apply the two-adapter test only when the proposal adds a new interface, class hierarchy, or module per variant: if only the current dispatcher picks branches, that seam is hypothetical; if a second consumer (test fixture, alternate dispatcher) also picks branches by key, it is real. | Growing switch → same-module strategy map. New interface / hierarchy / per-variant module → only on a real seam; otherwise keep the map in one module. |
 | Interface > 10 methods (I) | Interface IS test surface — do tests reach past the interface to set up just one method? That's an I-violation signal. If every test exercises ≥ half the methods, it's not an I-violation, it's just a wide interface. | Split when test reach exceeds what the test needs. |
 | Hard-coded SDK in business logic (D) | Two adapters? Real SDK in prod + a fake in tests is two real adapters → inject. Hypothetical "we might swap providers someday" is not. | Inject when a test fake is real, not aspirational. |
 | `instanceof` gating behaviour (L) | Interface IS test surface — if the switch on type IS the contract, the discriminated union *is* the interface. | Discriminated union + exhaustive switch (compiler enforces the contract). |
+
+## Dependency categories — how to test across the seam
+
+Before you deepen a cluster of shallow modules, classify each dependency. The category decides how the deepened module is tested across its seam.
+
+| Category | What it is | How to deepen and test |
+|---|---|---|
+| **1. In-process** | Pure computation, in-memory state, no I/O | Always deepenable. Merge the modules and test through the new interface directly. No adapter. |
+| **2. Local-substitutable** | Has a local test stand-in (PGLite for Postgres, an in-memory filesystem) | Deepenable if the stand-in exists. Run the stand-in in the test suite. The seam stays internal; no port at the module's external interface. |
+| **3. Remote but owned** (ports & adapters) | Your own services across a network boundary (internal APIs, microservices) | Define a **port** (interface) at the seam. The deep module owns the logic; inject the transport as an adapter — HTTP/gRPC/queue in production, in-memory in tests. |
+| **4. True external** | Third-party services you do not control (payment, SMS providers) | The deepened module takes the dependency as an injected port; tests supply a mock adapter. |
+
+Categories 3 and 4 satisfy the two-adapter rule by construction (production + test). Category 1 needs no seam at all; do not add a port to it.
+
+## Testing strategy: replace, don't layer
+
+- Once tests exist at the deepened module's interface, the old unit tests on the shallow modules are waste — delete them. Do not keep both layers.
+- Write the new tests at the deepened module's interface (test 2: the interface IS the test surface) and assert on observable outcomes, not internal state.
+- A test that must change when only the implementation changes is testing past the interface; rewrite it against the interface.
 
 ## Rejected framings (don't use these)
 
@@ -76,7 +108,7 @@ Corollary: an in-memory test fake **counts as the second adapter** if you write 
 
 ## Gotchas
 
-- **A deep module can be internally composed of small, mockable parts** — they just aren't part of the *external* interface. Internal seams are fine; they don't show up in the depth calculation.
+- **A deep module can be internally composed of small, mockable parts** — they just aren't part of the *external* interface. Internal seams are fine; they don't show up in the depth calculation. Do not expose an internal seam through the interface just because tests use it.
 - **"Shallow" is not an insult.** A genuinely tiny module (a `range(n)` utility) is shallow because the problem is shallow. The violation is shallow modules pretending to be deep — wrappers that exist to "abstract" but provide no leverage and no locality.
 - **The deletion test is run mentally, not literally.** You're asking "what would happen if this module didn't exist," not actually deleting code. The signal is "does complexity concentrate or scatter."
 - **The seam isn't free even when real.** Two adapters means the interface design tax is paid back; it doesn't mean the design is correct. The interface still has to express what both adapters need without leaking either's specifics.
@@ -86,4 +118,4 @@ Corollary: an in-memory test fake **counts as the second adapter** if you write 
 - Parent: `solid/SKILL.md` — apply these tests to every solid-violation entry before proposing a refactor.
 - Companion: `fix-workflow/references/feedback-loops.md` — when "no correct test seam exists" surfaces during a bug fix, that's the depth/seam signal escalating into a refactor.
 - Companion: `refactor/references/pre-verifier.md` Check 5 (Over-Engineering) — apply the deletion test + 2-adapter rule there to reject hypothetical-seam proposals.
-- Source attribution: vocabulary and three tests from Matt Pocock's `improve-codebase-architecture` skill (MIT, `github.com/mattpocock/skills/blob/main/docs/engineering/improve-codebase-architecture.md`), itself building on John Ousterhout's *A Philosophy of Software Design* (depth concept) and Michael Feathers' *Working Effectively with Legacy Code* (seam concept).
+- Source attribution: vocabulary and three tests from Matt Pocock's `codebase-design` skill (MIT, `https://github.com/mattpocock/skills/blob/main/skills/engineering/codebase-design/SKILL.md`; this vocabulary was first part of his `improve-codebase-architecture` skill); dependency categories and "replace, don't layer" from its companion `https://github.com/mattpocock/skills/blob/main/skills/engineering/codebase-design/DEEPENING.md`. Both build on John Ousterhout's *A Philosophy of Software Design* (depth concept) and Michael Feathers' *Working Effectively with Legacy Code* (seam concept).

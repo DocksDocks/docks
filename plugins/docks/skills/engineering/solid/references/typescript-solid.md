@@ -48,25 +48,27 @@ Tests now mock only the dependencies of the function under test — not the whol
 See parent SKILL.md for the canonical example. TS-specific extensions:
 
 ```ts
-// Discriminated record for type-safe dispatch + exhaustive default
-type EventKind = "user_invited" | "role_changed" | "permission_granted";
-type EventPayload =
-  | { kind: "user_invited";       actor: string; target: string }
-  | { kind: "role_changed";       actor: string; role: Role }
-  | { kind: "permission_granted"; actor: string; resource: string };
+// Correlated union (TypeScript 4.6+): one payload map drives the union and the dispatch table
+type PayloadMap = {
+  user_invited:       { actor: string; target: string };
+  role_changed:       { actor: string; role: Role };
+  permission_granted: { actor: string; resource: string };
+};
+type EventPayload<K extends keyof PayloadMap = keyof PayloadMap> =
+  { [P in K]: { kind: P } & PayloadMap[P] }[K];
 
-const FORMATTERS: { [K in EventPayload["kind"]]: (e: Extract<EventPayload, { kind: K }>) => string } = {
+const FORMATTERS: { [K in keyof PayloadMap]: (e: EventPayload<K>) => string } = {
   user_invited:       (e) => `${e.actor} invited ${e.target}`,
   role_changed:       (e) => `${e.actor} changed role to ${e.role}`,
   permission_granted: (e) => `${e.actor} granted ${e.resource}`,
 };
 
-function formatEvent(e: EventPayload): string {
-  return FORMATTERS[e.kind](e as never);
+function formatEvent<K extends keyof PayloadMap>(e: EventPayload<K>): string {
+  return FORMATTERS[e.kind](e); // no cast: the generic K keeps kind and payload correlated
 }
 ```
 
-The mapped-type signature means adding a new variant to `EventPayload` causes a compile error if the corresponding `FORMATTERS` entry is missing. **No `default:` swallow — the type system enforces exhaustiveness.**
+The mapped-type signature means adding a new key to `PayloadMap` causes a compile error if the corresponding `FORMATTERS` entry is missing. **No `default:` swallow and no `as` cast — the type system enforces exhaustiveness and checks the argument.** Pattern source: https://github.com/microsoft/TypeScript/pull/47109. If the correlated-union types are too heavy for the team, use an exhaustive `switch` (see L below) instead of a cast.
 
 ## L — Liskov Substitution
 
@@ -164,18 +166,19 @@ export class CheckoutService {
 ```
 
 ```ts
-// GOOD — interface as port, SDK adapter behind it
+// GOOD — interface as port, SDK adapter behind it; a factory closure, not a class
 interface PaymentGateway {
   charge(amount: number): Promise<{ id: string }>;
 }
-export class CheckoutService {
-  constructor(private gateway: PaymentGateway) {}
-  async charge(amount: number) {
-    return this.gateway.charge(amount);
-  }
+export function createCheckout(gateway: PaymentGateway) {
+  return {
+    charge: (amount: number) => gateway.charge(amount),
+  };
 }
 // composition root wires the Stripe adapter; tests pass a fake gateway
 ```
+
+Use a `class` with constructor injection only when a DI-container framework requires the shape (class gate case (c) in `type-safety-discipline` §9).
 
 Function-argument form (no DI container needed):
 

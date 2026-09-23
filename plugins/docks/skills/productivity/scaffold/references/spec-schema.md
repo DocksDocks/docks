@@ -6,6 +6,7 @@
 - [`plugin`](#plugin)
 - [`templated_files`](#templated_files)
 - [`tree_nodes`](#tree_nodes)
+- [Node template rules](#node-template-rules)
 - [`bundled_skills`](#bundled_skills)
 - [`scripts`](#scripts)
 - [`variables`](#variables)
@@ -17,10 +18,10 @@
 
 | Key | Type | Required | Purpose |
 |---|---|---|---|
-| `version` | int | yes | Schema version. Currently `1`. Seed refuses an unknown version. |
+| `version` | int | yes | Schema version. Seed accepts only the versions this skill documents (`1`) and refuses any other. |
 | `plugin` | map | yes | Plugin-level constants (`name_placeholder`, `license`). |
 | `templated_files` | list | yes | Variable-substituted files rendered into the new project (manifests, root AGENTS.md, Codex project agents). |
-| `tree_nodes` | list | yes | Context-tree node pairs to create. |
+| `tree_nodes` | list | yes | Context-tree nodes to create. |
 | `bundled_skills` | list | no | Skills copied verbatim from the source repo (pinned to its revision). |
 | `scripts` | list | no | Validator scripts copied verbatim into the new project's `scripts/`. |
 | `variables` | map | yes | Prompted values; each name is a `{{ token }}` usable in any template or path. |
@@ -60,11 +61,11 @@ Each entry is `{ path, <one seed source> }`. `path` may contain `{{ var }}` toke
 
 | Seed source | Meaning |
 |---|---|
-| `seed_from_skill: <skill-name>` | Run that bundled skill's bootstrap to populate the node (for `docs`, use `plan-workspace` to seed the plan label set plus `docs/AGENTS.md`, `docs/CLAUDE.md`, and `docs/PLAN.md`). |
-| `template: <file>` | Render `templates/<file>` into the node's `AGENTS.md`, then add the one-line `CLAUDE.md` (`@AGENTS.md`). |
+| `seed_from_skill: <skill-name>` | Run that bundled skill's bootstrap to populate the node (for `docs`, use `plan-workspace` to seed the plan label set plus `docs/AGENTS.md` and `docs/PLAN.md`). |
+| `template: <file>` | Render `templates/<file>` into the node's `AGENTS.md`. |
 | `seed: { type: self-reference }` | The folder documents the scaffold itself (e.g. `docs/scaffold`). |
 
-Every node is written as the **pair** `AGENTS.md` + `CLAUDE.md` (see the `context-tree` skill). `CLAUDE.md` is always exactly `@AGENTS.md`.
+Every node is a single `AGENTS.md` (see the `context-tree` skill). Never write a `CLAUDE.md`: a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md.
 
 ```yaml
 tree_nodes:
@@ -73,6 +74,21 @@ tree_nodes:
   - { path: "plugins/{{ plugin_name }}/skills", template: "node-templates/skills-AGENTS.md" }
   - { path: "scripts", template: "node-templates/scripts-AGENTS.md" }
 ```
+
+## Node template rules
+
+Every `AGENTS.md` a seed writes (root `templated_files` entry and each `tree_nodes` template) is a durable doc: agents read it as current state. Setup applies these rules when it creates a template; seed verification checks the rendered output.
+
+| Rule | Applies to | Check in seed mode |
+|---|---|---|
+| Carry the stale-tolerance line verbatim: "Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting." | every node | grep each `AGENTS.md` for the line |
+| State build/test/lint commands and name the file that defines them (e.g. `package.json` scripts). Repo-wide rules only. | root | read |
+| One `## Context tree` row per `tree_nodes` path: first cell `` `<path>/AGENTS.md` `` (an `@` inside the backticks is tolerated; a bare `@path` outside backticks is an eager import, do not use it) + one-line purpose. This table is the only list of nodes. | root | every nested `AGENTS.md` on disk is named; every named node exists |
+| Hold only the rules for editing files in the node's folder. A fact owned by another file (commands, repo-wide policy, generated data) is a backticked repo-root-relative path, not a copy. | nested nodes | every backticked path resolves |
+| No line-number anchors (`path:NN`), live versions, counts, sizes, dates, or "currently"/"recently". Name the file or config key that owns the value and add `(verify: <command>)`. | every node | grep for `path:NN` and the banned words |
+| No `CLAUDE.md` anywhere. A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md. | whole target | `git ls-files` for `CLAUDE.md` is empty |
+
+The seed-mode check commands are in the skill body (seed step 6).
 
 ## `bundled_skills`
 
@@ -85,11 +101,11 @@ bundled_skills:
   - { source: plugins/docks/skills/productivity/write-skill }
 ```
 
-The three plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context orchestration, and repository-grounded plan review. Scaffold generation does not create or review a plan. The read-only Codex wrappers are `plan-reviewer` and `code-reviewer`. Main context invokes `plan-manager` directly. Plans are GitHub issues, not tracked markdown files. Read `skills/productivity/plan-manager/references/plan-contract.md` inside the installed `plan-lifecycle` plugin for the v4 contract.
+The three plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context orchestration, and repository-grounded plan review. Scaffold generation does not create or review a plan. The read-only Codex wrappers are `plan-reviewer` and `code-reviewer`. Main context invokes `plan-manager` directly. Plans are GitHub issues, not tracked markdown files. Read `skills/productivity/plan-manager/references/plan-contract.md` inside the installed `plan-lifecycle` plugin for the plan contract.
 
 - `source` - path in the source repo. Setup must read these from the live repo rather than copying a stale example.
 - `destination` - optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.
-- Copied verbatim (pinned). Consumers update them later via `claude plugin update`.
+- Copied verbatim (pinned). A copy never re-syncs from the source repo. To update it, re-copy it from the source repo into the seeded project and release a new plugin version there; that project's consumers then receive it through `claude plugin update`.
 
 ## `scripts`
 

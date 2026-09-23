@@ -38,7 +38,7 @@ HTTP routes (GET/POST/PUT/PATCH/DELETE → handler), WebSocket handlers, CLI arg
 - **Inter-service**: which services trust each other without re-authentication.
 - **Third-party data**: where external data enters and how (or whether) it is validated.
 
-## Output (write under `## Phase 1: Discovery Results`)
+## Output (write under `## Research` → `### Phase 1: Discovery Results`)
 
 `Project Profile` · `File Map` (source dirs + counts) · `Security-Critical Areas` (by category, each with `file:line`) · `Entry Points` · `Trust Boundaries`.
 

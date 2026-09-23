@@ -7,16 +7,17 @@ prerequisites without rerunning the gate. Core owns the helper smoke in
 `scripts/tests/plan-cli.mjs`, the Docks trigger-collision audit, the
 plugin gates, and JavaScript quality. Manual
 dispatches run one full gate alongside the targeting contract
-before the same join. Tag pushes run one registry-resolved plugin gate; the join
+before the same join. Tag pushes run the repo lane, then one registry-resolved plugin gate; the join
 requires the targeting contract to be skipped there.
 
-`workflows/dependency-integrity.yml` is the only other workflow. It runs on a
-weekly schedule and on manual dispatch, installs with the frozen lockfile, and
-verifies registry signatures with `npm audit signatures`.
+`workflows/dependency-integrity.yml` runs on a weekly schedule and on manual
+dispatch, installs with the frozen lockfile, and verifies registry signatures
+with `npm audit signatures`. Re-derive the workflow set before relying on it
+(verify: `ls .github/workflows`).
 
 ## Trigger model
 
-Only three events trigger CI:
+Only three events trigger CI; `scripts/tests/ci-plugin-targeting.mjs` asserts the `on:` block of `workflows/ci.yml` (verify: `grep -n -A7 '^on:' .github/workflows/ci.yml`):
 - `pull_request` to main → resolve the diff into a shard set, run those shards plus the targeting contract, then require their unchanged `validate` join status before merge
 - `push` of tags matching `*--v*` — strictly resolve `<plugin>--v<version>` to a known plugin, then run the repo-wide shard over the released bytes followed by that plugin's gate (`release.mjs` waits for this authoritative result)
 - `workflow_dispatch` → run the full gate manually
@@ -50,11 +51,11 @@ lane list is duplicated in YAML.
 - `repo` (always runs): workflow YAML, marketplace catalogs, repo-wide guards
   (context tree, no-bespoke-gates, durable anchors, author tooling, observability,
   test-contract registry, unit tests), and the CI targeting contract. Cross-plugin
-  by nature and cheap (~10 s), so it is never skipped.
-- `core`: Docks and plan-lifecycle — their plugin gates, the plan CLI
-  contract, the bounded-workflows case, the plan-workspace-template comparison
-  between `docs/PLAN.md` and the plugin plan template for three skills and two
-  reviewer wrappers, collision audits, and JavaScript quality.
+  by nature and cheap, so it is never skipped.
+- `core`: every plugin whose descriptor declares `ciLane: 'core'` — each plugin's
+  owned author checks (the plan CLI helper smoke among them) and plugin gate, the
+  Docks trigger-collision audit, and JavaScript quality over its
+  `javascriptQuality` paths (verify: `grep -n "ciLane\|authorChecks" scripts/lib/plugins.mjs`).
 
 <constraint>
 Resolution fails **open**. A missing or unresolvable base SHA, an empty diff, a
@@ -80,7 +81,7 @@ accepts that expected skip.
 
 ## Cache behavior
 
-The workflow installs Bun with `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0`. The action reads Bun 1.4.0 from `packageManager`, needs no version input, and caches only the Bun executable. A separate official `actions/cache` step caches `~/.bun/install/cache`; its exact key binds runner identity, `bun.lock`, and `package.json`. Caches are hints only: frozen installs and `ci.mjs` gates decide correctness. `resolve-shards` restores no cache and installs no dependencies; it needs only a checkout and Node.
+The workflow installs Bun with `oven-sh/setup-bun`, pinned per the supply-chain rule below. The action reads the Bun version from `packageManager` in `package.json`, needs no version input, and caches only the Bun executable. A separate official `actions/cache` step caches `~/.bun/install/cache`; its exact key binds runner identity, `bun.lock`, and `package.json`. Caches are hints only: frozen installs and `ci.mjs` gates decide correctness. `resolve-shards` restores no cache and installs no dependencies; it needs only a checkout and Node. (verify: `grep -n "setup-bun@\|actions/cache@" .github/workflows/ci.yml`)
 
 ## Hosted cost capture
 
@@ -92,7 +93,7 @@ step's duration is its stamp minus the preceding stamp.
 
 `workflows/ci.yml` — `publish hosted timing artifact` — uploads
 `${{ runner.temp }}/docks-hosted-timings.jsonl` and `${{ runner.temp }}/docks-ci-timings.json` with the sole permitted
-uploader, `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1`. The `validate` job remains
+uploader, `actions/upload-artifact` at the SHA that `HOSTED_TIMING_UPLOAD_ACTION` in `scripts/tests/ci-plugin-targeting.mjs` pins; that test fails on any other artifact action. The `validate` job remains
 read-only; never add `contents: write`.
 
 ## Supply-chain hardening
@@ -100,11 +101,13 @@ read-only; never add `contents: write`.
 Mitigations against npm and GitHub Actions supply-chain attacks. Each is load-bearing — don't undo one to simplify a diff:
 
 <constraint>
-- **Pin every `uses:` to a 40-char commit SHA**, never a tag, with the version as a trailing comment (`actions/checkout@<sha> # v6.0.2`). A `@vN` tag is a moving target an attacker can republish; the tag-push run executes with `GITHUB_TOKEN`. SHA bumps are MANUAL — no update automation is configured (verify: `ls .github/dependabot.yml renovate.json` → neither exists); update the SHA + version comment together when bumping an action.
+- **Pin every `uses:` to a 40-char commit SHA**, never a tag, with the version as a trailing comment (`actions/checkout@<sha> # vX.Y.Z`). A `@vN` tag is a moving target an attacker can republish; the tag-push run executes with `GITHUB_TOKEN`. SHA bumps are MANUAL — no update automation is configured (verify: `ls .github/dependabot.yml renovate.json` → neither exists); update the SHA + version comment together when bumping an action (verify: `grep -n "uses:" .github/workflows/*.yml`).
 - **`permissions: contents: read`** at workflow scope — least privilege for validators and artifact builders.
-- **Dependency caches use official `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0`**, with the Bun key bound to `bun.lock` and `package.json`. Bun itself comes from `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0`, which reads the `packageManager` pin and caches only the executable.
-- **`claude-code` is pinned rather than installed globally**: it is an exact-version devDependency in `package.json` and hash-locked in `bun.lock`, including its eight platform-binary optional dependencies. `bunfig.toml` sets `minimumReleaseAge = 259200` seconds to quarantine fresh publishes; bump the dependency only to a version older than that quarantine.
+- **Dependency caches use the official `actions/cache`**, with the Bun key bound to `bun.lock` and `package.json`. Bun itself comes from `oven-sh/setup-bun`, which reads the `packageManager` pin and caches only the executable.
+- **`claude-code` is pinned rather than installed globally**: it is an exact-version devDependency in `package.json` and hash-locked in `bun.lock`, including its platform-binary optional dependencies. `minimumReleaseAge` in `bunfig.toml` quarantines fresh publishes (verify: `grep -n minimumReleaseAge bunfig.toml`); bump the dependency only to a version older than that quarantine.
 - **Lifecycle scripts are denied in `package.json` with `"trustedDependencies": []`.** The empty array is the only spelling that denies every lifecycle script. Omitting the field instead trusts Bun's built-in list, which includes `@anthropic-ai/claude-code`.
-- **The PR `core` lane and every non-PR `validate` execution** run `bun install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the approximately 230 MB CLI binary whose lifecycle script was denied, and put `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. The PR `validate` job is only the authoritative lane-result join. Node 24 remains the validator runtime; Bun is the package manager and script runner.
+- **Every PR validation shard, the targeting-contracts job, and every non-PR `validate` execution** run `bun install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the CLI binary whose lifecycle script was denied, and put `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. The PR `validate` job is only the authoritative lane-result join. Node is the validator runtime (version: root `AGENTS.md` Commands); Bun is the package manager and script runner.
 - **`npm audit signatures`** remains the non-blocking signature check after every install because Bun has no signature-verification equivalent.
 </constraint>
+
+Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.

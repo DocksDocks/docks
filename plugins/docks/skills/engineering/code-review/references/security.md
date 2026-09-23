@@ -6,27 +6,27 @@ Per-axis expansion of the parent SKILL.md Step 3 (security bucket). Load when tr
 
 Edition: OWASP Top 10:**2025** — re-verify A-numbers at <https://owasp.org/Top10/2025/> before citing (editions renumber). **Twin catalog:** the `security` skill's `references/vulnerability-scanner.md` OWASP-to-category map uses the same numbering — an edition renumber must land in both files in the same commit.
 
-| OWASP | Symptom in code | Severity floor | False-positive guard |
+| OWASP | Symptom in code | Starting severity | False-positive guard |
 |---|---|---|---|
 | A01:2025 Broken Access Control | Missing role/ownership check on a mutating endpoint; IDOR on `/resource/:id` | HIGH (CRITICAL if admin-scope) | Endpoint may be behind an upstream WAF / middleware — read the middleware chain |
 | A01:2025 SSRF (folded into Broken Access Control in 2025) | `fetch(user_input_url)` without allowlist; URL parsed but not validated; redirects followed | HIGH | Allowlist may exist at the HTTP client level — check the constructor |
 | A02:2025 Security Misconfiguration | Permissive CORS (`*`); debug mode in prod; default credentials; verbose error pages | MEDIUM-HIGH | Config may be env-gated — verify the prod path |
-| A03:2025 Software Supply Chain Failures (new in 2025; absorbs 2021's A06 Vulnerable Components + A08's supply-chain half) | Old dep with known CVE; lockfile pinned to a vulnerable version; compromised build/publish pipeline | Severity of the CVE | See `dep-vuln-workflow` exposure filter — build-time-only deps drop severity |
+| A03:2025 Software Supply Chain Failures (new in 2025; expands 2021's A06 Vulnerable and Outdated Components) | Old dep with known CVE; lockfile pinned to a vulnerable version; compromised build/publish pipeline | Severity of the CVE | See `dep-vuln-workflow` exposure filter — build-time-only deps drop severity |
 | A04:2025 Cryptographic Failures | Hardcoded key/secret; weak hash (MD5, SHA-1) for passwords; missing TLS; weak IV reuse | HIGH | Code may be a test fixture — check `.test.` / `tests/` / NODE_ENV gating |
 | A05:2025 Injection (SQL, command, log, prompt) | String concatenation into a query/shell/prompt; user input in `eval` / `exec` / `Function()` | CRITICAL if exploitable | ORM may parameterize; the concatenation may be a literal-only string |
 | A06:2025 Insecure Design | Trust boundary missing; auth flow with no rate limit; password reset accepting any email | HIGH | Often a class of bug, not a single line — name the trust boundary explicitly |
 | A07:2025 Authentication Failures | No rate limit on login; reusable session tokens; missing MFA on sensitive ops | HIGH | Rate limit may live in middleware/proxy/WAF — verify before reporting |
 | A08:2025 Software or Data Integrity Failures (deserialization) | `pickle.loads(user_input)`, `yaml.load` without `SafeLoader`, dynamic `import()` of user-controlled string | CRITICAL | Yaml may use `safe_load` despite the variable name |
-| A09:2025 Logging & Alerting Failures | Logging secrets/PII; no audit log on sensitive ops; no structured logs | MEDIUM | Logger may have a redactor — check the formatter config |
+| A09:2025 Security Logging & Alerting Failures | Logging secrets/PII; no audit log on sensitive ops; no structured logs | MEDIUM | Logger may have a redactor — check the formatter config |
 | A10:2025 Mishandling of Exceptional Conditions (new in 2025) | Blanket `catch` that fails open (error in an auth/authz check → request proceeds); swallowed exceptions on security-relevant ops; error paths skipping cleanup | HIGH if fail-open on an auth path, else MEDIUM | The broad catch may re-throw or fail closed further up — read the handler chain |
 
 ## Severity Calibration
 
-The 3 questions to ask BEFORE assigning severity:
+The 3 questions to ask BEFORE assigning severity. They adjust the starting severity from the table up or down:
 
 1. **Who can trigger it?** Anonymous internet → CRITICAL/HIGH. Authenticated user → HIGH/MEDIUM. Authenticated admin → MEDIUM/LOW. Only triggerable by code path that doesn't run in prod → DROP.
 2. **What do they get?** Full account takeover / DB exfiltration → CRITICAL. Single-user data leak → HIGH. Crash / DoS → MEDIUM. Information disclosure (stack trace) → LOW.
-3. **Is there a compensating control?** Upstream WAF blocks it → drop severity 1 tier. Already requires authn → drop severity 1 tier. The fix is one line → keep severity (you'll ship it anyway).
+3. **Is there a compensating control?** Upstream WAF blocks it → drop severity 1 tier. The authn requirement is already counted in (1) — do not drop again for it. The fix is one line → keep severity (you'll ship it anyway).
 
 If you can't answer (1) AND (2) concretely, drop the finding entirely. "Could theoretically" without a path is a false positive.
 
@@ -52,7 +52,7 @@ CRITICAL · Security · A05:2025 · src/api/search.ts:42
     drops the table. No WAF in front of this endpoint.
   Suggested fix: parameterize via `db('products').where('name', 'like', `%${q}%`)`
     or `db.raw('... LIKE ?', [`%${q}%`])`.
-  CVSS: 9.8 (AV:N/AC:L/PR:N/UI:N)
+  CVSS: 9.8 (CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H)
   OWASP: A05:2025 — Injection
 ```
 

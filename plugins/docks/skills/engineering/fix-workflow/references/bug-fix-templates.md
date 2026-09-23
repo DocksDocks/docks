@@ -4,7 +4,7 @@ Per-finding-type expansion of the parent SKILL.md Step 4 plan template. Load whe
 
 ## Reproduce Before Fix — The Test-First Contract
 
-Parent SKILL.md constraint #2: reproduce before fixing. This is the operational template.
+Parent SKILL.md constraint "Reproduce a reported bug BEFORE fixing it". This is the operational template.
 
 ```
 1. Find the smallest input that triggers the bug.
@@ -22,8 +22,8 @@ If you can't reach step 3 (test infrastructure missing, bug not triggerable in t
 | Bug type | Test layer |
 |---|---|
 | Pure function returning wrong output | Unit test next to the function (`foo.test.ts` / `test_foo.py`) |
-| Multi-module orchestration failure | Integration test, real dependencies (real DB, real network with `nock`/`vcr`) |
-| API endpoint contract bug | Endpoint-level test using supertest / pytest-httpx / `axios-mock-adapter` |
+| Multi-module orchestration failure | Integration test with real dependencies (real DB); HTTP recorded and replayed with `nock`/`vcr` |
+| API endpoint contract bug | Endpoint-level test that calls your own app: supertest / FastAPI `TestClient` or `httpx.ASGITransport` / Django test client |
 | Concurrency / race condition | Loom (Rust) / `pytest-asyncio` with explicit `asyncio.gather` / Go's `-race` flag |
 | UI behavior bug | Component test (RTL / Vitest browser mode) for state-driven bugs; Playwright/Cypress only for true cross-page flows |
 | Environment-specific (works locally, fails in prod) | Test the env-difference in isolation: env var, locale, timezone, file-system case |

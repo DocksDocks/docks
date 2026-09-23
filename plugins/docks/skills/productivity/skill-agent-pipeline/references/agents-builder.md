@@ -15,12 +15,11 @@ Before writing system-prompt content that references a library / framework / ext
 name: kebab-case-name
 description: <CSO, 3rd person, ≤1024 chars, includes scope exclusion>
 tools: <minimal — only what the agent needs>
-model: claude-opus-4-8
 maxTurns: 100   # volatile key — re-verify against the sub-agents doc (code.claude.com/docs/en/sub-agents) before emitting
 ---
 ```
 
-A plugin's own shipped `agents/` dir is the one exception: omit `model` there entirely. omp discovers plugin `agents/` dirs and treats any literal — `inherit` included — as a model ID, so the spawn dies with "No model selected". It does not read `.claude/agents/`, which is what this template emits, so the `model` line above is correct here and feeds the Codex model map in `codex-agents-builder.md`.
+Omit `model` by default. Claude Code defaults a missing `model` to `inherit`, and omp falls back to the parent session model, so omission is the only spelling both runtimes agree on. omp treats any literal — `inherit` included — as a model ID, so the spawn dies with "No model selected"; a pinned model ID also goes stale. Add `model` only when the user pins one; the value then feeds the Codex model map in `codex-agents-builder.md` (absent → omit `model` there too).
 
 ## System prompt structure (100–200 lines, excl. frontmatter)
 
@@ -35,11 +34,13 @@ Constraints at START, gotchas at END. Bullets/tables, no prose. Every claim has 
 | Action | Handling |
 |---|---|
 | regenerate | draft fresh file; back up original to `<name>.md.bak` (note in output) |
-| delete | draft a stub with `disable-model-invocation: true` + empty description — do NOT omit the file |
+| delete | list the file under "files to delete" in the plan with the reason; remove it in Phase 7 only after explicit user approval |
 
-## Output (write under `## Phase 5: Agents Plan`)
+## Output (write under `### Phase 5: Agents Plan`)
 
-Per agent: `### File: .claude/agents/<name>.md` + full content; then its Codex `.codex/agents/<name>.toml` twin per `codex-agents-builder.md` (for an `Agent`-dispatching agent the `.toml` still ships — note the `agents.max_depth: 1` single-level-dispatch caveat).
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
+
+Per agent: `#### File: .claude/agents/<name>.md`, then put the full content in a fenced block whose fence is longer than any fence inside the content (for example four backticks), so the plan helper ignores the file's own `##` headings; then its Codex `.codex/agents/<name>.toml` twin per `codex-agents-builder.md` (for an `Agent`-dispatching agent the `.toml` still ships — put its delegation in `developer_instructions` and flag nested delegation for the user to verify).
 
 ## Gotcha
 

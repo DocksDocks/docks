@@ -46,7 +46,7 @@ Prefer native `<dialog>.showModal()` — it implements this whole contract. Hand
 ```
 
 - Keys: Enter/Space/ArrowDown on the button opens and focuses the first item; Up/Down
-  move (wrapping); Escape closes and refocuses the button; Tab closes and moves on;
+  move (wrapping optional; without it, support Home/End); Escape closes and refocuses the button; Tab closes and moves on;
   typing a character jumps to the next item starting with it.
 - Checkable items: `role="menuitemcheckbox"` / `role="menuitemradio"` + `aria-checked`.
 - Trap: site navigation marked `role="menu"`. Navigation is `<nav>` + `<ul>` + links —

@@ -1,25 +1,25 @@
 ---
 name: write-skill
-description: "Use when authoring a new skill for the docks plugin skill tree or any kit that follows docks conventions — agentskills.io frontmatter, CSO description starting `Use when…`, ≤500-line body with 80-310 sweet spot, constraint blocks, BAD/GOOD pairs, `references/` extraction past 310 lines, near-miss trigger checks, `metadata.updated` bump, and the kit-CI / bundled `skill-guard.mjs` validation loop. Not for Anthropic's global `skill-creator` workflow (that handles evals/benchmarking)."
+description: "Use when authoring a new skill for the docks plugin skill tree or a kit that follows docks conventions. Guides the `Use when…` description, body size and `references/` split, constraint blocks, BAD/GOOD pairs, baseline and trigger checks, and the bundled `skill-guard.mjs` scorer and validators. Not for refreshing an existing skill after source changes (use skill-maintenance) or measured benchmarks and description optimization (Anthropic's skill-creator)."
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-08-20"
-  content_hash: "9d8a8f5b28b59e4524206fae705d9f4f434cebf0067ca6ddfa398c3006cc1b97"
+  updated: "2026-09-23"
+  content_hash: "98dea987f1c5a46fc58014f402179c341b22fa60c1fe4725e94c3a1e8d2549eb"
 ---
 
 # Write a Skill (docks conventions)
 
 The description is the only thing your agent sees when deciding which skill to load. Get it wrong and the skill never fires. Get it right and the body content barely matters.
 
-This skill encodes docks' specific authoring conventions — the 16-point scorer rubric in the bundled `scripts/skill-guard.mjs` (the single source the kit CI also scores with), the structural guards in `scripts/skills/guard.mjs`, the body sweet spot, the `<constraint>` block reward, the references/ extraction rule. Anthropic's `skill-creator` and Matt Pocock's `write-a-skill` (MIT, framing inspiration) are both generic; this one is docks-shaped.
+This skill encodes docks' specific authoring conventions — the 16-point scorer rubric in the bundled `scripts/skill-guard.mjs` (the single source the kit CI also scores with), the structural guards in `scripts/skills/guard.mjs`, the body sweet spot, the `<constraint>` block reward, the references/ extraction rule. Anthropic's `skill-creator` and Matt Pocock's former `write-a-skill` (MIT, framing inspiration) are both generic; this one is docks-shaped.
 
 <constraint>
-Description-first. The description is surfaced in the skill listing every session — it loads always, the body loads only on invocation. Spend disproportionate effort here. CSO rules: (1) starts with `Use when …` (2 pts), (2) ≤500 chars (2 pts; > 1000 = 0 pts; the guard hard-caps at 1024), (3) contains concrete trigger keywords ("Use when running bun audit, pnpm audit, …") rather than abstract capability prose, (4) zero slop words (`comprehensive`, `robust`, `elegant`, `seamless` — each occurrence costs 1 pt, max −2). Verify with `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also uses — before considering the description done.
+Description-first. The description is surfaced in the skill listing every session — it loads always, the body loads only on invocation. Spend disproportionate effort here. CSO rules: (1) starts with `Use when …` (2 pts), (2) ≤500 chars (2 pts; > 1000 = 0 pts; the guard hard-caps at 1024), (3) names the categories of user intent the skill serves and says what the skill does as well as when, with concrete nouns (commands, file types, error text) where they help, rather than abstract capability prose, (4) zero slop words (`comprehensive`, `robust`, `elegant`, `seamless` — each occurrence costs 1 pt, max −2). Do not grow a keyword list one missed query at a time: each added token fixes one query and widens the match surface for every near-miss. When a query misses, name the intent category it belongs to, then re-run the whole trigger check (see "Behavioral checks"). The description is done when the trigger check passes and `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` (the bundled scorer the kit CI also uses) gives its points.
 </constraint>
 
 <constraint>
-Body sweet spot: 80–310 lines (the bundled `skill-guard.mjs` scorer awards 2 pts here). ≤80 lines is allowed but loses the 2 pts. >310 is also allowed (≤500 hard cap per agentskills.io) but you're past Claude Code's post-compaction re-attachment window (5,000 tokens ≈ 310 lines), so content past that may be silently dropped after auto-compaction. When the body crosses ~280 lines, move detail into `references/<topic>.md` files (30–150 lines each) and leave a one-line pointer in the body. Pattern: see `react-component-patterns/SKILL.md` and its three references.
+Body sweet spot: 80–310 lines (the bundled `skill-guard.mjs` scorer awards 2 pts here). Under 80 lines is allowed but loses the 2 pts. Over 310 is also allowed (`skill-guard.mjs` fails past 500; agentskills.io recommends under 500) but you're past Claude Code's post-compaction re-attachment window (5,000 tokens ≈ 310 lines), so content past that may be silently dropped after auto-compaction. When the body crosses ~310 lines, move detail into `references/<topic>.md` files (30–150 lines each) and leave a one-line pointer in the body. Pattern: see `react-component-patterns/SKILL.md` and its `references/` folder.
 </constraint>
 
 <constraint>
@@ -70,22 +70,45 @@ metadata:
 | 8 | Code fence with language tag | 1 | ` ```ts `, ` ```bash `, etc. — not bare ` ``` ` |
 | 9 | Body 80–310 lines | 2 | sweet spot; either side loses the 2 pts |
 
-**Per-file floor (per category):** engineering 10, productivity 8 (`scripts/config/scoring.json`). CI fails any skill below its category floor. Aim for 14+ on new skills — leaves headroom when CSO rules tighten.
+**Per-file floor by category:** `scripts/config/scoring.json` (verify: `node -p "JSON.stringify(require('./scripts/config/scoring.json').skills)"`). CI fails any skill below its category floor. Aim for 14+ on new skills — leaves headroom when CSO rules tighten.
 
 ## The authoring loop
 
-1. **Draft the description.** Write 3 candidates. Verify ≤500 chars on each (`echo -n "$desc" | wc -m` — characters, not bytes; em-dashes inflate `wc -c` 3×). Pick the one with the most concrete trigger keywords (file types, command names, error messages, named patterns).
+0. **Record the gaps first.** Before you write anything, give 2–3 realistic prompts for the skill's job to a fresh agent that does not have the skill. Write down what it gets wrong or has to guess: missing project facts, wrong defaults, skipped steps. The skill content targets those gaps and nothing else, because content the agent already gets right costs context on every load and adds nothing. Keep the prompts and outputs: they are the "without" arm of the baseline check.
+1. **Draft the description.** Write 3 candidates. Verify ≤500 chars on each (`echo -n "$desc" | wc -m` — characters, not bytes; em-dashes inflate `wc -c` 3×). Pick the one that names the intent categories most clearly and says what the skill does as well as when.
 2. **Collision-check the triggers.** Write 3 realistic should-trigger prompts and 3 near-miss should-NOT-trigger prompts, then read the descriptions of the 2–3 sibling skills closest in domain: every near-miss must route cleanly to its sibling via a `Not for…` clause. The kit's `tests/skill-trigger-collision.mjs` catches gross keyword overlap mechanically (a pair sharing ≥5 positive-surface trigger tokens with no routing fails CI), but only this manual near-miss pass catches the subtle ones — this step is where collisions die. See "Near-miss negatives" below.
-3. **Draft the body** in `SKILL.md`. Target 80–310 lines. Include at least: one `<constraint>`, one BAD/GOOD pair, one table, one fenced code block with a language tag. Pick prescriptiveness per "Degrees of freedom" below.
-4. **Score check.** `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also scores with (one rubric, no mirror). Validate one skill: `node …/skill-guard.mjs validate <skill-dir>`. If < 14, find the missing point in the rubric.
-5. **Structural check.** Kit: `node scripts/skills/guard.mjs` (frontmatter for both runtimes + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
-6. **Targeted CI while iterating.** In a multi-plugin kit, run the owning plugin's gate after each meaningful change — in this kit, `node scripts/ci.mjs --plugin <changed-plugin>`. Do not rerun unrelated plugin gates during the edit loop.
-7. **Full CI once.** Run `node scripts/ci.mjs` at the final pre-commit/release gate, or earlier only when shared/repo-wide files changed. It must be green before commit.
-8. **Iterate.** Per the kit's literal-instruction culture, "score it" is a real instruction — don't ship until the score plateaus.
+3. **Draft the body** in `SKILL.md`. Target 80–310 lines. Aim each section at a gap from step 0. Include at least: one `<constraint>`, one BAD/GOOD pair, one table, one fenced code block with a language tag. Pick prescriptiveness per "Degrees of freedom" below.
+4. **Baseline check.** Re-run the step 0 prompts with the skill and compare (see "Behavioral checks"). A gap that stays open means the body does not reach it; fix the body, not the prompt.
+5. **Trigger check.** Run the query set against the description (see "Behavioral checks").
+6. **Score check.** `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also scores with (one rubric, no mirror). Validate one skill: `node …/skill-guard.mjs validate <skill-dir>`. If < 14, find the missing point in the rubric.
+7. **Structural check.** Kit: `node scripts/skills/guard.mjs` (frontmatter for both runtimes + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
+8. **Docs check.** Run the self-check in `references/durable-anchors.md` on the body and every reference. If the skill writes docs, check rows A–C of "Durable docs and agent-first output" below against the docs it emits; if it writes into a user repo, check row D too.
+9. **Targeted CI while iterating.** In a multi-plugin kit, run the owning plugin's gate after each meaningful change — in this kit, `node scripts/ci.mjs --plugin <changed-plugin>`. Do not rerun unrelated plugin gates during the edit loop.
+10. **Full CI once.** Run `node scripts/ci.mjs` at the final pre-commit/release gate, or earlier only when shared/repo-wide files changed. It must be green before commit.
+11. **Stop when the behavioral checks pass.** Ship when the baseline check shows the step 0 gaps closed and the trigger check passes. The score is a minimum, not the goal: meet the category floor, but do not add tables or constraint blocks only to gain points, because a format proxy does not tell you whether the agent behaves better.
+
+## Behavioral checks
+
+Two checks decide whether a skill works. Both use fresh agents: a subagent, or a new session in Claude Code, Codex, or OpenCode, with no authoring context. Neither check needs a Claude-only CLI. For measured trigger rates, repeated runs, and variance benchmarks in Claude Code, use Anthropic's `skill-creator` (anthropics/skills, Apache-2.0) as an optional tool; its eval set uses the same `query` / `should_trigger` fields as below.
+
+**Baseline check.** Use 2–3 realistic prompts (the step 0 prompts). Run each one in a fresh agent without the skill (for a rewrite: with the old version) and in a fresh agent with the new skill. Compare the pairs against assertions you write before you read the "with" outputs. The skill passes when the "with" runs close the recorded gaps and break nothing the "without" runs got right.
+
+**Trigger check.** Write 8–10 should-trigger queries and 8–10 near-miss should-not-trigger queries. Make them realistic and messy: file paths, typos, casual phrasing, no skill named. Near-misses share words with this skill but belong to a sibling (see "Near-miss negatives"). Hold back about a third of each set and do not tune the description against those; they decide the result.
+
+```json
+[
+  { "query": "bun audit says lodash is vulnerable, can you sort it out", "should_trigger": true },
+  { "query": "the lodash merge call in src/utils.ts is exploitable, patch it", "should_trigger": false }
+]
+```
+
+Judge each query in its own fresh session with the full skill listing installed, and record whether the agent loads the skill (the harness shows the skill invocation or a read of its SKILL.md). A cheaper proxy: give one fresh subagent the names and descriptions of all installed skills plus one query, and ask which skill it would load, or none. Count loads per set. The check passes when every held-back near-miss routes away and the held-back should-trigger queries load the skill with at most one miss. Fix a miss at the level of intent category, then re-run the whole set, because a fix aimed at one query often breaks a near-miss.
+
+**Assertions.** Each assertion must be checkable from the output and must cite its evidence (a quoted line, a file path, a command result). A pass needs that evidence; surface compliance, such as the right file name with empty content, fails. An assertion that a wrong output also passes is worse than none, because it reports a gap as closed. Test each assertion against the "without" output: if that output passes too, the assertion does not discriminate. Replace it or drop it. Do not force assertions onto subjective output; for that, compare the two outputs side by side.
 
 ## Fresh-instance QA (the Claude-A / Claude-B test)
 
-The author of a skill (or plan) can't see its own gaps — they fill them from memory the description and body never state. Standing QA: hand the finished artifact to a **fresh instance** with no authoring context (Claude-A authors, Claude-B reviews cold — in this kit, a fresh-context subagent). Claude-B does exactly one thing: act on the artifact using only what it says, and every place it has to guess is a handoff defect Claude-A could not perceive. This caught a 96→89 self-score inflation on the `cold-handoff-contract` plan that the in-context author had rated clean. Run it before shipping any skill, agent, or substantive plan — a fresh-context read finding no material gap is a stronger stop than the author's own re-read.
+The author of a skill (or plan) can't see its own gaps — they fill them from memory the description and body never state. Standing QA: hand the finished artifact to a **fresh instance** with no authoring context (Claude-A authors, Claude-B reviews cold — in this kit, a fresh-context subagent). Claude-B does exactly one thing: act on the artifact using only what it says, and every place it has to guess is a handoff defect Claude-A could not perceive. Run it before shipping any skill, agent, or substantive plan — a fresh-context read finding no material gap is a stronger stop than the author's own re-read.
 
 ## BAD / GOOD descriptions
 
@@ -97,7 +120,7 @@ description: A comprehensive, robust solution for working with dependencies in y
 description: "Use when running bun/pnpm/npm/yarn audit, pip-audit, cargo audit, or govulncheck; responding to a CVE/GHSA advisory; bumping framework majors (next/react/typescript/django/fastapi/tokio/axum); handling peer-dep or version-resolution conflicts after an upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; setting dependency-update cadence. Not for fixing the vulnerable code path itself (use fix-workflow) or full security audits (use security)."
 ```
 
-The good example fires reliably because every italicized phrase pattern-matches an actual moment the user will hit. The bad example matches nothing specific — Claude can't disambiguate it from any other dep-related skill.
+The good example fires reliably because each clause names a category of user intent (run an audit, answer an advisory, bump a major, resolve a conflict, set a cadence) and the concrete nouns only anchor those categories. The bad example matches nothing specific — Claude can't disambiguate it from any other dep-related skill. When the trigger check finds a miss, add or sharpen a category; do not append the missed query's words.
 
 ## Near-miss negatives (trigger collision)
 
@@ -106,17 +129,17 @@ The only valuable negative test is the near-miss: a prompt that shares keywords 
 | Near-miss prompt | Must route to | Via |
 |---|---|---|
 | "bun audit flags lodash, fix it" | dep-vuln-workflow, not fix-workflow | "Not for fixing the vulnerable code path itself" |
-| "pnpm audit flags lodash, fix it" | dep-vuln-workflow, not fix-workflow | "Not for fixing the vulnerable code path itself" |
+| "i renamed the source file, update the skill that cites it" | skill-maintenance, not write-skill | "Not for refreshing an existing skill after source changes" |
 | "add tests for the existing parser" | test-coverage, not tdd-workflow | "Not for test-first development" |
 | "review this diff for SQLi" | code-review, not security | "Not for full security audits" |
 
-If a near-miss has no clean route, the new skill's `Not for…` clause (or the sibling's) is missing a case — fix the description, not the prompt. For skills shipped at scale, Anthropic's `skill-creator` plugin automates this empirically (a 20-query train/test description-optimization loop); the manual check above is the cheap version that catches most collisions.
+If a near-miss has no clean route, the new skill's `Not for…` clause (or the sibling's) is missing a case — fix the description, not the prompt. These rows are also the seed for the near-miss half of the trigger check in "Behavioral checks".
 
 ## When to add `references/`
 
 | Trigger | Action |
 |---|---|
-| Body crosses ~280 lines OR you're about to add another ~50 | Pull the most-detailed section into `references/<topic>.md`. Keep a 1–2 line pointer in the body. |
+| Body crosses ~310 lines OR you're about to add another ~50 | Pull the most-detailed section into `references/<topic>.md`. Keep a 1–2 line pointer in the body. |
 | Multiple languages share the same principle but need per-language code | One body section explaining the principle, language-specific BAD/GOOD in `references/<lang>-<topic>.md`. Pattern: `solid/references/typescript-solid.md`, `…/rust-solid.md`. |
 | A scenario applies but is the exception, not the rule | `references/` keeps it out of the per-session-loaded body. |
 
@@ -156,15 +179,18 @@ Match prescriptiveness to fragility, not to how much you know about the task. Fr
 
 Writing ALWAYS/NEVER in caps is the yellow flag: state the consequence instead ("two-phase write, because a halt mid-relocation loses content"). A rule carrying its why survives paraphrase, model upgrades, and the edge cases the caps-lock version never anticipated.
 
-## Durable anchors (how skill bodies reference code)
+## Durable docs and agent-first output
 
-Skill bodies and `references/` are long-lived: they outlive the commit they cite, so a bare
-`path:42` line anchor is one edit away from misleading the next agent. Anchor by
-`` `path` — `symbol` — purpose (verify: `command`) `` instead; give every volatile fact
-(version, count, floor, path) the cue that re-derives it; keep `file:line` only inside
-clearly-fictional teaching examples and in point-in-time OUTPUT formats a skill documents
-(review findings, plan evidence). Full grammar, artifact-class table, and the inline
-self-check: [`references/durable-anchors.md`](references/durable-anchors.md).
+Skill bodies and `references/` are durable docs, and so is every AGENTS.md or README-style doc a skill writes into a user repo. Rules, BAD/GOOD pairs, and the inline self-check: [`references/durable-anchors.md`](references/durable-anchors.md). A skill that emits docs states the rules it needs inline in its own body. Check each row before shipping:
+
+| Check | Applies to | Pass when |
+|---|---|---|
+| A. Durable vs point-in-time | every skill that writes docs | durable outputs (AGENTS.md nodes, README-style docs, skills) follow B and C; point-in-time outputs (findings, plan evidence, audit records) carry a date and keep `file:line` |
+| B. One fact, one home | every skill that writes docs | each fact has one owning file; other files name it as a backticked repo-root-relative path; `@path` import only when the target must always be in context; a fact is copied only when it is deleted from its source |
+| C. Durable facts only | every skill that writes docs | no live `path:NN`, no bare version/count/size/date, no "currently"/"as of"/"recently", no hand list of changing things unless a check compares it with disk; each volatile value has `(verify: <command>)` or the rule that produces it; one stale-tolerance line per generated durable doc |
+| D. Agent-first | every skill that writes or changes files in a user repo | findable (a root AGENTS.md routes to every nested node and canonical location; skills in `.agents/skills/`, symlinked from `.claude/skills/`); fast to understand (root holds commands and repo-wide rules only, folder rules live in the folder AGENTS.md); trustworthy (C holds, behavior claims carry a probe); verifiable (the skill ends with a check an agent can run — commands, not prose); no CLAUDE.md files (one home for instructions; a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md) |
+
+A failed row is a defect in the skill, not in one output: fix the template or the instruction that produces the doc.
 
 ## Common authoring traps
 
@@ -175,7 +201,7 @@ self-check: [`references/durable-anchors.md`](references/durable-anchors.md).
 | BAD/GOOD pair is two snippets of similar code with no annotation | Add the `// BAD — <one-line reason>` and `// GOOD — <one-line reason>` comments; the agent pattern-matches on the comments |
 | Every paragraph wrapped in `<constraint>` | Demote to prose — past 3 constraints the scorer gives nothing, and the pattern stops signalling "non-negotiable" |
 | `name:` doesn't match directory name | Guard fails. Rename directory to match (kebab-case, `[a-z0-9-]+`, ≤64 chars). |
-| Forgot `metadata.updated` bump after editing | Bump to today (`date "+%Y-%m-%d"`) **only if content actually changed**. If this project documents `metadata.content_hash`, run its documented hash-sync command; otherwise do not add a hash or report missing Docks tooling. |
+| Forgot `metadata.updated` bump after editing | Do not bump it by hand. Run the project's content-hash backfill (see the bookkeeping constraint): it re-syncs `metadata.content_hash` and stamps `metadata.updated` in one write, and only when the hash differs. If the project has no hash tooling, do not add a hash or report missing Docks tooling. |
 | Body crossed 310 → just left it there | Move detail to `references/`. Past 310 lines, post-compaction re-attachment drops content silently. |
 | Used `comprehensive`/`robust`/`elegant`/`seamless` because it "reads better" | Each occurrence costs 1 pt. Rewrite or cut. |
 | Mixed terminology — "field"/"box"/"element" for the same thing | Pick one term and use it throughout; the model treats synonyms as potentially distinct concepts. |
@@ -189,9 +215,9 @@ A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no 
 
 ## When this skill does NOT apply
 
-- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.mjs` (model declared, "Not …" exclusion clause, anti-hallucination checks, 60-300 body). The root `AGENTS.md` `## Authoring agents` section is the source of truth for agents.
-- Modifying an existing skill — read it first, preserve constraint blocks, bump `metadata.updated`, re-score before commit.
+- Authoring an **agent** (not a skill) — different conventions live in `scripts/agents/score.mjs` (no `model` key, "Use when …" + "Not …" clauses, anti-hallucination checklist, 60–300 body). The root `AGENTS.md` `## Authoring agents` section is the source of truth for agents.
+- Modifying an existing skill — use `skill-maintenance`. Read the skill first, preserve constraint blocks, re-sync metadata with the project's content-hash backfill (never bump `metadata.updated` by hand), and re-score before commit.
 
 ## Source attribution
 
-Framing ("the description is the only thing your agent sees") adapted from Matt Pocock's `write-a-skill` (MIT, <https://github.com/mattpocock/skills/blob/main/skills/productivity/write-a-skill/SKILL.md>). Degrees-of-freedom and the near-miss negative idea adapted from Anthropic's skill authoring best practices (<https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>) and its `skill-creator` plugin. Body / rubric / loop are docks-specific — `skill-creator` covers evals and benchmarking; this one covers the kit conventions neither generic skill knows. The markdown + frontmatter + progressive-disclosure shape itself is convergent prior art: Google's Open Knowledge Format (OKF v0.1, Apache-2.0 — markdown files with YAML frontmatter; <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>, spec in <https://github.com/GoogleCloudPlatform/knowledge-catalog>) and Karpathy's LLM-Wiki pattern (raw sources / wiki / schema layers with Ingest–Query–Lint ops; <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>) standardize the same idea independently.
+Framing ("the description is the only thing your agent sees") adapted from Matt Pocock's `write-a-skill` (MIT; removed upstream in June 2026 and replaced by `writing-for-agents`, <https://github.com/mattpocock/skills/blob/main/skills/productivity/writing-for-agents/SKILL.md>). Last version: <https://github.com/mattpocock/skills/blob/ab7196a1584ac60688aeb63cf0b56a5114c4a6f3/skills/productivity/write-a-skill/SKILL.md>. Step 0, the baseline check, the trigger check (query set with `query` / `should_trigger`, held-back queries, intent categories over keyword lists), and the stop condition are paraphrased from Anthropic's `skill-creator` (Apache-2.0; <https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md>). The assertion rules (evidence per pass, surface compliance fails, non-discriminating assertions flagged) are paraphrased from its grader prompt (Apache-2.0; <https://github.com/anthropics/skills/blob/main/skills/skill-creator/agents/grader.md>). Degrees-of-freedom and the near-miss negative idea adapted from Anthropic's skill authoring best practices (<https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>) and its `skill-creator` plugin. Body / rubric / loop are docks-specific — `skill-creator` covers evals and benchmarking; this one covers the kit conventions neither generic skill knows. The markdown + frontmatter + progressive-disclosure shape itself is convergent prior art: Google's Open Knowledge Format (OKF v0.1, Apache-2.0 — markdown files with YAML frontmatter; <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>, spec in <https://github.com/GoogleCloudPlatform/knowledge-catalog>) and Karpathy's LLM-Wiki pattern (raw sources / wiki / schema layers with Ingest–Query–Lint ops; <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>) standardize the same idea independently.

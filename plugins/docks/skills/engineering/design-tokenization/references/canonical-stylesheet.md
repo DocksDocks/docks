@@ -8,7 +8,7 @@ Reference example of the single canonical stylesheet the design-tokenization ski
 
 @source "../components";
 @source "../app";
-@source "../shared";        /* dirs v4's auto-detection misses: gitignored, outside the stylesheet root */
+@source "../shared";        /* dirs v4's auto-detection misses: gitignored, outside the scan base (cwd, or source() on @import) */
 
 @custom-variant dark (&:is(.dark *));
 
@@ -26,9 +26,9 @@ Reference example of the single canonical stylesheet the design-tokenization ski
   --success: 142 71% 45%;
   --on-success: 0 0% 100%;
   /* Brand — vendor-fixed, never used for app surfaces */
-  --whatsapp: 142 70% 49%;        /* #25D366 */
+  --whatsapp: 142.4 70.2% 48.6%;  /* #25D366 — keep one decimal so the value round-trips to the vendor hex */
   --on-whatsapp: 0 0% 100%;
-  --stripe: 244 100% 67%;         /* #635BFF */
+  --stripe: 243 100% 67.8%;       /* #635BFF */
   --on-stripe: 0 0% 100%;
 }
 
@@ -45,9 +45,9 @@ Reference example of the single canonical stylesheet the design-tokenization ski
   --destructive-tint-border: 0 70% 30%;
   --success: 142 60% 50%;
   --on-success: 0 0% 100%;
-  --whatsapp: 142 70% 49%;        /* same — vendor-fixed */
+  --whatsapp: 142.4 70.2% 48.6%;  /* same — vendor-fixed */
   --on-whatsapp: 0 0% 100%;
-  --stripe: 244 100% 67%;         /* same — vendor-fixed */
+  --stripe: 243 100% 67.8%;       /* same — vendor-fixed */
   --on-stripe: 0 0% 100%;
 }
 

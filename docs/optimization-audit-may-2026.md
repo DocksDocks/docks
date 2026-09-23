@@ -1,5 +1,7 @@
 # `docks` Plugin Optimization Audit on Opus 4.7 — May 2026
 
+> **Historical record (May 2026).** The command orchestrators, the named subagents (for example `refactor-pre-verifier` and `security-synthesizer`), and the `scripts/*.sh` validators in this file no longer exist. Open tasks here are not live work. The current validators are `.mjs` scripts under `scripts/`; see `scripts/AGENTS.md` → "Validators".
+
 **Scope:** the `docks` plugin (repo: `~/projects/docks`, published as [DocksDocks/docks](https://github.com/DocksDocks/docks)) ships the multi-agent pipeline kit — command orchestrators, portable skills, specialized subagents, and the author-side validators under `scripts/skills/`, `scripts/agents/`, `scripts/tree/`, and `scripts/scaffold/`. Inventory shifts as the plugin evolves; use the filesystem and validators for the current roster. Consumer-facing pieces — settings.json, hooks, status line, sync — live in `public` and are tracked at `docs/roadmap/planned/optimization-audit-may-2026.md` in the [DocksDocks/public](https://github.com/DocksDocks/public) repo.
 
 ## TL;DR

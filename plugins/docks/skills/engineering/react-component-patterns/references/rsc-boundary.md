@@ -27,18 +27,18 @@ Deep reference for the React Server Components serialization boundary in Next.js
 
 ## What can and cannot cross Server→Client as props
 
-Authoritative source: <https://react.dev/reference/rsc/use-client> § Serializable types. Quote-for-quote, current at 2026-05.
+Authoritative source: <https://react.dev/reference/rsc/use-client> § Serializable types and § Caveats. The table paraphrases those sections. Rows marked *(local guidance)* are not in the React docs.
 
 | Crosses (serializable) | Does NOT cross |
 |---|---|
 | Primitives: `string`, `number`, `bigint`, `boolean`, `undefined`, `null`, globally-registered `Symbol.for(...)` | Locally-created symbols (`Symbol('x')`) |
 | `Array`, `Map`, `Set`, `TypedArray`, `ArrayBuffer`, `Date`, `Promise` | Classes and instances of any user-defined class |
 | Plain objects (object literals, only serializable properties) | Objects with a `null` prototype, or any non-built-in class instance |
-| Server Functions — functions in a `"use server"`-marked module or with a top-of-function `'use server'` directive | Regular functions, closures, methods, arrow functions |
-| Client or Server Component **elements** (JSX you have already rendered: `<Foo bar={1} />`) | Component **references** (the bare `Foo` identifier — `$$typeof` + `render` / `displayName` shape) |
-| Functions **exported from a `"use client"` module**, when passed Client→Client | The same functions, when re-routed via a Server Component → Client Component prop |
+| Server Functions — functions in a `"use server"`-marked module or with a top-of-function `'use server'` directive | Regular functions, closures, methods, arrow functions that are not exported from a `"use client"` module |
+| Client or Server Component **elements** (JSX you have already rendered: `<Foo bar={1} />`) | Component **references** that are not exported from a `"use client"` module (the bare `Foo` identifier — `$$typeof` + `render` / `displayName` shape) *(local guidance)* |
+| A function or component **exported from a `"use client"` module**, passed through unchanged (it crosses as a client reference) | An array or object built from `"use client"` exports (for example `[{ icon: Building2, onSelect }]`): it is neither a component nor a serializable value |
 
-The last row is the trap that produced the user-report error. Marking the file `"use client"` does not magically serialize its values when a Server Component picks them up and forwards them; it only puts the file in the client module graph for direct client imports.
+Rule: a Server Component can forward a value it imported from a `"use client"` module only when that value is a React component or a serializable value. Any other value throws. Marking a file `"use client"` does not serialize its exports; it only puts the file in the client module graph.
 
 ## The extraction trap (NAV_GROUPS-style)
 
@@ -63,7 +63,7 @@ export default function AppShell() {
 }
 ```
 
-Adding `"use client"` to `nav-groups.ts` does NOT fix it: the directive places the module in the client graph for **direct client imports**, but the Server Component is still importing the same exports and serializing them as props.
+Adding `"use client"` to `nav-groups.ts` does NOT fix it. `NAV_GROUPS` is an array of objects that holds component references and closures. It is neither a React component nor a serializable value, so the Server Component cannot forward it as a prop.
 
 ```tsx
 // GOOD — Client Component owns the import; Server is out of the loop
@@ -104,7 +104,7 @@ A Client Component takes `children: React.ReactNode`; the Server Component rende
 | Module contains icon refs / event closures / class instances, consumed only by Client UI | Pattern A — mark `"use client"`, never import from a Server Component |
 | Server-side data (DB row, config) consumed by Client UI | Pattern B — pass plain data only; strip non-serializable fields |
 | Need to nest a Server-rendered subtree inside a Client wrapper | Pattern C — accept `children` in the Client Component |
-| Need to pass a server-side mutation to a Client Component | `'use server'` Server Function — these are the only function refs that cross |
+| Need to pass a server-side mutation to a Client Component | `'use server'` Server Function. The only other function references that cross are exports of a `"use client"` module passed through unchanged; closures built in server code never cross |
 | Need React Context (theme, store, query client) on the server | Create a `"use client"` provider; render it from a layout that wraps `{children}` |
 
 ## Common Traps

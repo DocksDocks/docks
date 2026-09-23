@@ -4,8 +4,8 @@ description: "Use when a linter or type-checker flags an error; when tempted to 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-07-05"
-  content_hash: "7f290ca7856a268f99d89a549e821a9870ac92b5982f39c2450e32228ddbcb5a"
+  updated: "2026-09-23"
+  content_hash: "f84f8db840dac60cb80898571ddb7a00f63ca056bde41931a8e55887675208fe"
 ---
 
 # Never Suppress Lint / Type Errors
@@ -89,7 +89,7 @@ CI must enforce the suppression block too. Client-side hooks are bypassable with
 
 - **"It's legacy code" ≠ license to suppress.** If you're touching the line, fix it. If you're not, leave the pre-existing suppression untouched (the staged-diff scanner does the right thing — it only blocks NEW suppressions).
 - **`// TODO: fix this lint error`** is also a smell. If you can write the TODO comment, you can write the real fix.
-- **`@ts-ignore` vs `@ts-expect-error`** — prefer `@ts-expect-error` when a suppression is truly justified. TS will warn if the underlying error goes away (forcing removal), so the suppression can't drift silently.
+- **`@ts-ignore` vs `@ts-expect-error`** — prefer `@ts-expect-error` when a suppression is truly justified. TS reports an error (TS2578, unused directive) if the underlying error goes away, which forces removal, so the suppression can't drift silently.
 - **A bare suppression silences EVERYTHING, not one rule.** Bare `// eslint-disable-next-line` (no rule name) disables ALL rules on that line; bare `# noqa` silences every Python code; bare `# type: ignore` silences every mypy code (use `# type: ignore[code]`); bare `//nolint` (no `:linter`) silences every golangci linter. Always name the rule — it's the difference between a scoped exception and a blanket blindfold.
 - **Rust: prefer `#[expect(lint)]` over `#[allow(lint)]`** (stable since Rust 1.81) — the drift-detecting analog of `@ts-expect-error`: it warns when the lint stops firing, forcing the stale suppression out.
 
@@ -101,4 +101,4 @@ CI must enforce the suppression block too. Client-side hooks are bypassable with
 - mypy error codes (use the bracketed form): https://mypy.readthedocs.io/en/stable/error_code_list.html
 - ruff rule reference: https://docs.astral.sh/ruff/rules/
 - clippy lint list: https://rust-lang.github.io/rust-clippy/master/
-- golangci-lint `nolintlint` (set `require-explanation: true` to require a reason on `//nolint:`): https://golangci-lint.run/usage/linters/#nolintlint
+- golangci-lint `nolintlint` (set `require-explanation: true` to require a reason on `//nolint:`): https://golangci-lint.run/docs/linters/configuration/#nolintlint

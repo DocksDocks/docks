@@ -156,7 +156,7 @@ For HTTP, use `wiremock` or `mockito` to stand up a local server instead of mock
 ```bash
 cargo test                              # All tests + doctests
 cargo test --lib                        # Unit tests only
-cargo test --tests                      # Integration tests only
+cargo test --test '*'                   # Integration tests only (--tests also runs lib/bin unit tests)
 cargo test --doc                        # Doctests only
 cargo test parser::tests::parses_hours  # Single test by path
 cargo test -- --nocapture               # Show println! output
@@ -171,7 +171,7 @@ cargo install cargo-llvm-cov
 cargo llvm-cov --html                   # HTML report in target/llvm-cov/html/
 cargo llvm-cov --lcov --output-path lcov.info
 
-# cargo-tarpaulin (Linux/x86_64 only)
+# cargo-tarpaulin (ptrace engine: Linux x86_64; use --engine llvm elsewhere)
 cargo install cargo-tarpaulin
 cargo tarpaulin --out Html
 ```
@@ -182,7 +182,7 @@ cargo tarpaulin --out Html
 - **`#[cfg(test)]` excludes from non-test builds.** A helper imported only in tests must also be `#[cfg(test)]` or it'll be flagged as unused in `cargo build`.
 - **Integration tests can't access private items.** That's by design — integration tests use only the public API.
 - **Doctests run too.** A code block in a doc comment that compiles AND runs (the default) — use `ignore` or `no_run` for examples that shouldn't execute.
-- **Async tests without a runtime macro silently never run their body.** Always use `#[tokio::test]` or equivalent.
+- **`#[test]` on an `async fn` is a compile error** ("async functions cannot be used for tests"). Use `#[tokio::test]` or an equivalent runtime macro.
 
 ## Perf Tuning & Parallelism
 

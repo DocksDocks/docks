@@ -1,11 +1,11 @@
 ---
 name: skill-maintenance
-description: "Use when project-local SKILL.md files need validation or refresh after source changes, Codex skipped a skill due to invalid YAML or description over 1024 chars, .agents/skills and .claude/skills drift, or stale source_files/metadata.updated/content_hash require no-op maintenance. Not for authoring new Docks plugin skills (use write-skill), whole-set bootstrap/audit with agent emission (use skill-agent-pipeline), or prose docs."
+description: "Use when project-local SKILL.md files need validation or refresh after source changes, Codex skipped a skill due to invalid YAML or description over 1024 chars, .agents/skills and .claude/skills drift, stale source_files/metadata.updated/content_hash require no-op maintenance, or a skill rewrite needs a blind old-vs-new comparison. Not for authoring new Docks plugin skills (use write-skill), whole-set bootstrap/audit with agent emission (use skill-agent-pipeline), or prose docs."
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-08-25"
-  content_hash: "4e80cc6d2403b2923e3bb5b1e6eac684a7e4c25a5b149e45cbb9739b6b88b86c"
+  updated: "2026-09-23"
+  content_hash: "7208f28d8a7da0f88b12ba010e9b772d3d011a1c555f4dbb0bb58c993ba4bdf4"
 ---
 
 # Skill Maintenance
@@ -61,6 +61,26 @@ local behavior, and wait for explicit user approval before deleting files.
 7. **Verify loading.** Re-run the narrow validator or startup command available
    in the project, then list any residual risk.
 
+## Is the Rewrite Better? (optional)
+
+Use this step when a refresh rewrote instructions and the user asks whether
+the new version works better. A diff shows what changed; only agent runs show
+whether the change helps.
+
+1. Snapshot the old skill folder as the baseline, outside every skill root.
+2. Run the same 2-3 realistic prompts with the old and the new version, each
+   in a fresh agent or session (the write-skill "baseline check").
+3. Label the outputs A and B at random. A fresh judge agent that sees only the
+   prompt and the two outputs scores content and structure against a short
+   rubric and picks a winner. Ties are rare, because a tie gives no signal.
+4. An analyzer agent then sees both skills, both transcripts, and the mapping.
+   It explains why the winner won and lists ranked suggestions.
+5. Keep, revert, or revise from the result. Do not tune the skill to the test
+   prompts only.
+
+Judge and analyzer prompts, the rubric, and the decision table are in
+`references/blind-comparison.md`.
+
 ## Compatibility Matrix
 
 | Check | Codex | Claude Code | Fix |
@@ -72,6 +92,13 @@ local behavior, and wait for explicit user approval before deleting files.
 | `user-invocable` | tolerated metadata | useful convention | Keep boolean in Docks-style project skills |
 | `metadata.source_files` | optional | optional | Use for maintenance targeting when available |
 | Body length | keep lean | keep under 500 lines | Split detailed material into `references/` |
+| Frontmatter keys for Claude.ai `.skill` upload | n/a | n/a | Packaging and skill-creator `quick_validate` accept only `name`, `description`, `license`, `allowed-tools`, `metadata`, `compatibility`; strip every other key (in Docks skills, `user-invocable` and `paths`) from the packaged copy |
+
+The `.skill` row applies only to a copy made for upload. Keep `user-invocable`
+and `paths` in the source skill, because Docks-style tooling and Claude Code
+read them. Key allowlist source:
+https://github.com/anthropics/skills/blob/main/skills/skill-creator/scripts/quick_validate.py
+(Apache-2.0).
 
 ## Frontmatter Rules
 
@@ -102,7 +129,17 @@ description: "Use when editing routes: checkout, account, webhook, or fixing esl
 | Wrong sibling skill fires for a task | Compare both descriptions with near-miss prompts that share keywords | Sharpen triggers; route the near-miss via a "Not ..." clause |
 | Two body rules contradict each other | Read the full body (and its references) once end-to-end; list rule pairs giving incompatible instructions for the same case | Reconcile: keep the stricter or newer rule, scope or delete the other — never leave both |
 | Claim superseded by a newer source | Re-open each cited source/URL/doc; compare the claim against current behavior, not the version remembered at writing time | Update the claim and bump `metadata.updated`; drop citations that no longer support it |
+| Pressure language without a reason (caps MUST/NEVER, "CRITICAL") | Search the body for caps-lock imperatives; check each has a stated reason | State the rule once, plainly, with its reason |
+| History narrative (incident, PR, or session story) | Search for incident IDs, PR numbers, dates, "this caught" stories | Keep the rule, drop the story |
+| Enumerated trigger list in the description | Check whether the description grew one missed query at a time | Name categories of intent; confirm with the write-skill trigger check |
+| One-incident rule (a single stumble made permanent) | Ask whether the rule still prevents a repeat failure in current use | Generalize it or delete it; removal is a hypothesis, so re-run a baseline check |
 | Local maintenance skill exists | Compare to Docks plugin skill | Keep only if it adds project-specific rules |
+
+The four prompt-style rows above are spot checks for a skill already being
+maintained. For a sweep across the whole skill set, use skill-agent-pipeline's
+content audit. These rows adapt the prompt-audit guide of Anthropic's
+claude-api skill (Apache-2.0):
+https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/prompt-audit.md
 
 ## Idempotency Rules
 
@@ -165,3 +202,6 @@ generic checks — never hard-depend on it.
 Read `references/REFERENCES.md` when a maintenance run involves multi-tool
 skill roots, source-file targeting, local `skill-maintenance` cleanup, or a
 loader warning that is not fixed by quoting the description.
+
+Read `references/blind-comparison.md` when running the optional old-vs-new
+comparison.

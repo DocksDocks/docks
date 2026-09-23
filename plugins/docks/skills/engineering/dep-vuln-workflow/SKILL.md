@@ -4,8 +4,8 @@ description: Use when running bun/pnpm/npm/yarn audit, pip-audit, cargo audit, o
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "0e50c0d72dd4c8fae297e5a3875c6bed9411dda8303d3d13a146c2320d7445e7"
+  updated: "2026-09-23"
+  content_hash: "8655db8483888b6d0e6b85fbb49abef8df212ca148bdfc7d387da3b6248c92ab"
 ---
 
 # Dependency Vulnerability & Upgrade Workflow
@@ -55,7 +55,7 @@ Before bumping any framework / runtime / language major:
 
 1. **Breaking changes** — read the migration guide, not just the release notes.
 2. **Version-resolution compatibility** — every plugin/dep the project uses must satisfy the new major. Declared peer/version ranges sometimes lie (a plugin says it supports the new major but its internals call a removed API). Verify by upgrading and running the full check suite end-to-end.
-3. **Config migrations** — language/framework majors often deprecate config fields or tighten rules (e.g., TypeScript 6.0 deprecates `baseUrl`; React 19 adds new hook-rule enforcement; Pydantic v2 renames `Config` to `model_config`). Scan release notes for config / rule changes.
+3. **Config migrations** — language/framework majors often deprecate config fields or tighten rules (e.g., TypeScript 6.0 deprecates `baseUrl`; newer `eslint-plugin-react-hooks` recommended configs add rules such as `set-state-in-effect`; Pydantic v2 renames `Config` to `model_config`). Scan release notes for config / rule changes.
 
 ### When to roll back
 
@@ -107,7 +107,7 @@ Audit must report zero known vulnerabilities at the chosen severity floor. Ecosy
 
 | Trigger | Action |
 |---|---|
-| New CVE published for any direct dep | Patch within 48h |
+| New CVE published for any direct dep | Apply the exposure filter, then respond per Severity Triage |
 | Weekly | Audit + review what's outdated |
 | Monthly | Patch + minor upgrades bundled (hygiene commit) |
 | Quarterly | Evaluate pending major bumps against ecosystem readiness |
@@ -121,7 +121,7 @@ The lockfile (`bun.lock` / `pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` 
 ## Gotchas — Universal
 
 - **`--prod` / production-only flags** exclude dev/test/build deps from the audit view. Use them for runtime exposure; don't use them to silence dev-only vulns you should still patch.
-- **Peer / version-resolution warnings are signals, not noise.** "Unmet peer X@>=N: found N+1" means the plugin was never tested against N+1. Run the full check suite immediately.
+- **Peer / version-resolution warnings are signals, not noise.** "Unmet peer X@^N: found N+1" means the plugin does not declare support for N+1. Run the full check suite immediately.
 - **Major bumps usually require companion lockstep bumps** (renderer + types in JS, framework + runtime in Python, edition + tokio in Rust, module-path-suffix + module in Go). Missing one = silent type-only or runtime mismatch.
 
 ## References

@@ -3,7 +3,7 @@
 Draft complete `SKILL.md` bodies and `references/` files for every delta the categorizer proposed, using Phase 2b's `file:line` evidence — **converted to durable anchors** in what you emit (2b notes are point-in-time evidence; the skill you write outlives them).
 
 <constraint>
-References split is mandatory. If a drafted SKILL.md body would exceed 310 lines, move the most-detailed sections into `references/<topic>.md` (30–150 lines each) and leave a 1–2 line pointer in the body. Past ~310 lines, content falls outside the post-compaction re-attachment window and is silently dropped. The verifier (Phase 6) hard-fails a 310–500 line body with no `references/`.
+References split is mandatory. If a drafted SKILL.md body would exceed 310 lines, move the most-detailed sections into `references/<topic>.md` (30–150 lines each) and leave a 1–2 line pointer in the body. After compaction, Claude Code re-attaches only the first 5,000 tokens of each invoked skill (https://code.claude.com/docs/en/skills), and drops the rest without a warning. The kit chose 310 lines as a line budget that keeps a typical body inside that token budget; it is kit policy, not a documented line limit. The verifier (Phase 6) hard-fails a 310–500 line body with no `references/`.
 </constraint>
 
 <constraint>
@@ -15,7 +15,7 @@ Before documenting any library / framework / external API in a skill, fetch curr
 ```yaml
 ---
 name: <skill-name>
-description: "Use when <triggers>. Covers <5+ project-specific identifiers>."
+description: "Use when <triggers>. Covers <5+ project-specific identifiers>. Not for <near-miss work> (use <sibling-skill>)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -41,10 +41,13 @@ A generated skill outlives the commit it was written at, so bare `file:line` anc
 ```
 
 - Convert every 2b `file:line` note to this grammar; line numbers survive ONLY inside clearly-fictional teaching examples (paths that don't exist in the project).
-- Volatile facts (versions, counts, thresholds, ports, flag defaults) always carry their `verify:` command — a reader re-derives before relying.
+- Volatile facts (versions, counts, sizes, thresholds, ports, flag defaults) always carry their `verify:` command — a reader re-derives before relying. Prefer the RULE that produces a value ("must equal the highest file under `migrations/`") over the value.
+- No "currently", "as of today", "now has", or "recently" — state the rule, not the moment.
+- No hand-maintained enumerations of things that change (lists of routes, tables, skills, nodes). Name the directory or file that owns the set plus a `verify:` command that lists it (e.g. `ls src/routes/`).
+- One fact, one home: a fact owned by another file (an `AGENTS.md` node, a config file, another skill) gets a backticked repo-root-relative path, not a copy. Every pointer must resolve.
 - Behavior claims ("X enforces/validates/automates Y") get a cue that EXERCISES the behavior (a should-fail probe), never an existence check — a tool can exist and pass while doing less than the sentence says. Unprobeable behavior claims are omitted.
-- Include one stale-tolerance line in each generated body: "Pointers here name concepts, not coordinates — if a path or symbol has moved, trust the stated purpose and re-locate it (grep the symbol) before acting."
-- Self-check before handing to Phase 6: `grep -nE '[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+'` over the drafted files; any hit whose path exists in the project is a live line anchor — convert it.
+- Include one stale-tolerance line in each generated body, verbatim: "Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting."
+- Self-check before handing to Phase 6: `grep -nE '[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+'` over the drafted files; any hit whose path exists in the project is a live line anchor — convert it. Then `grep -nEi '\b(currently|as of today|now has|recently)\b'` — rewrite every hit outside a BAD example.
 
 ## Codex + Claude frontmatter rules
 
@@ -70,9 +73,11 @@ description: "Use when editing checkout routes, STRIPE_WEBHOOK_SECRET handling, 
 
 Prefer the plugin-provided `docks:skill-maintenance`. Create a local `skill-maintenance` only for project-specific behavior not covered by the plugin. If proposed: `pattern: reviewer`, body ≤100 lines, quoted description ≤1024 chars. Workflow: identify modified files → cross-reference skill `source_files` → update affected skills → bump `metadata.updated` ONLY when the skill's meaning changed (normalized body or any `references/*.md` differs). Re-running on an unchanged skill MUST be a no-op. Describe checks as inline read/search/list steps — do NOT reference kit-internal validators, which don't ship to downstream projects.
 
-## Output (write under `## Phase 3: Skills Plan`)
+## Output (write under `### Phase 3: Skills Plan`)
 
-Per skill, a delimited block: `### File: .claude/skills/<name>/SKILL.md` + full content, then each `### File: .../references/<topic>.md` + content.
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
+
+Per skill, a delimited block: `#### File: <skills-dir>/<name>/SKILL.md`, then each `#### File: .../references/<topic>.md`. Under each one, put the full content in a fenced block whose fence is longer than any fence inside the content (for example four backticks), so the plan helper ignores the file's own `##` headings. `<skills-dir>` is `.agents/skills` when that directory exists (a bridged project; `.claude/skills/<name>` stays a symlink to it), else `.claude/skills` — then recommend `multi-tool-bridge` in the report so Codex finds the skills too.
 
 ## Gotcha
 

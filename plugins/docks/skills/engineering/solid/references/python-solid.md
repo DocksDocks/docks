@@ -232,6 +232,6 @@ def checkout(amount: int, charge: Callable[[int], str]) -> str:
 ## See Also
 
 - `../SKILL.md` — universal Decision Tree + constraints + Common Traps
-- `type-safety-discipline` references/python-typing.md — NewType, TypeGuard, parse-don't-validate
+- `type-safety-discipline` references/python-typing.md — NewType, tagged unions + assert_never, parse-don't-validate
 - Python `Protocol` (PEP 544): https://peps.python.org/pep-0544/
 - `typing.assert_never` (Python 3.11+): https://docs.python.org/3/library/typing.html#typing.assert_never

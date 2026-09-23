@@ -23,7 +23,7 @@ A split/migration *adds* scaffolding (new headings, `@AGENTS.md` imports, siblin
 
 ## Template A — preservation constraint (top of body)
 
-Place near the top so it survives the 5,000-token post-compaction re-attachment window. Write it as a literal checklist (Opus 4.7/4.8 follow instructions literally). Readable as plain markdown so Codex (no XML weighting) still parses it.
+Place near the top so it survives the 5,000-token post-compaction re-attachment window. Write it as a literal checklist (literal-following models execute it step by step). Readable as plain markdown so Codex (no XML weighting) still parses it.
 
 ```markdown
 <constraint>
@@ -56,9 +56,10 @@ Pure POSIX + `grep`/`wc` (portable Linux + macOS). No Claude-only tools — Code
 ## Verification (run before reporting success — fail loud)
 
 # 1. Per-section presence: every source heading must appear in some destination.
-while IFS= read -r h; do
+# Strip the leading #s so a promoted/demoted heading (### → ##) still matches.
+grep -E '^#{1,3} ' "$SOURCE_BEFORE" | sed -E 's/^#{1,3} +//' | while IFS= read -r h; do
   grep -rqF "$h" <destination-files> || echo "LOST SECTION: $h"
-done < <(grep -E '^#{1,3} ' "$SOURCE_BEFORE")
+done
 
 # 2. Net-shrink tripwire (a split ADDS scaffolding → expect output >= input bytes).
 before=$(wc -c < "$SOURCE_BEFORE")

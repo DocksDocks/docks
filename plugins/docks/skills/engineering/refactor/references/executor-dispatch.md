@@ -8,7 +8,7 @@ the edits in an isolated git worktree and returns its diff for untrusted review.
 and subagent dispatch, which are Claude-Code-specific (per the kit's cross-tool
 rules). The default everywhere - and the only path off Claude - is the
 single-context implementation in the skill body. Use this mode only when the user
-asks for it (e.g. "implement 003 with a cheaper executor", "execute haiku").
+asks for it (e.g. "implement plan #42 with a cheaper executor", "execute haiku").
 
 ## Contents
 

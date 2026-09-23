@@ -23,7 +23,7 @@ lifecycle change.
 <constraint>
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
 Apply the durable-solution rule in the `plan-manager` skill's
-`references/plan-contract.md`; report an unrequested temporary fix in the relevant goal or Spec finding.
+`references/plan-contract.md`; report an unrequested temporary fix as `goal_fit`.
 Perform one review invocation and return one verdict. Never demand style,
 naming, formatting, line counts, more citations, additional probes, mutation
 tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
@@ -44,8 +44,7 @@ tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
    - `goal_fit`: The Steps, taken together, do not achieve `## Goal`, or a step
      contradicts the goal.
    - `research_gap`: A load-bearing research claim is unverified or conflicts
-     with repository facts, an obviously required source was not consulted, or
-     the chosen fix is temporary when a durable fix is reachable.
+     with repository facts, or an obviously required source was not consulted.
    - `security_risk`: The change introduces or ignores secret exposure,
      injection, an authorization gap, or a destructive irreversible operation
      without confirmation.

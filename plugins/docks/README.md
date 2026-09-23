@@ -26,25 +26,28 @@ When a `--plugin-dir` plugin shares a name with an installed marketplace plugin,
 
 ### Pipeline skills
 
-Each runs as one sequential pass in a single context. Approval gates through the `docs/plans/` lifecycle (the `plan-manager` skill from the companion `plan-lifecycle` plugin), not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`. The pipeline skills are `user-invocable` — trigger by name or natural language.
+Each runs as one sequential pass in a single context. Approval gates through GitHub-issue plans managed by the `plan-manager` skill from the companion `plan-lifecycle` plugin, not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`. The pipeline skills are `user-invocable` — trigger by name or natural language.
 
 | Skill | Pipeline |
 |---------|----------|
 | `security` | Discovery → Vulnerability Scan → Logic Analysis → Adversarial Hunt → Synthesizer (challenges every finding). Read-only; pipe findings to `fix-workflow`. |
-| `skill-agent-pipeline` | Detection → Exploration → \[Categorizer \| Pattern Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder (`.md` + `.toml`) → Verifier |
+| `skill-agent-pipeline` | Detection → Exploration → \[Categorizer \| Content-Accuracy Audit \| Pattern Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder (`.md` + `.toml`) → Verifier |
 | `refactor` | Exploration → \[Dead Code \| Duplication\] → SOLID Analyzer → Planner → Pre-Verifier → approve → implementation → Post-Verifier (catches NEW SOLID violations introduced while fixing old ones) |
 
 The bracketed phases are independent lenses — a runtime with parallel workers MAY run them concurrently, but the portable default is sequential.
 
 ### Skills
 
-Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-namespaced for invocation since they're model-invoked.
+Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfaces-feel-better`, which is also user-invocable). Names stay un-namespaced for invocation since they're model-invoked.
 
 | Skill | Use when |
 |---|---|
 | `tdd-workflow` | Test-first development; tests as spec for code that doesn't exist yet |
 | `test-coverage` | Adding tests to existing code; backfilling coverage |
 | `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
+| `accessibility` | Focus management, keyboard handling, ARIA roles/states, accessible names, live regions, landmarks, reduced motion — APG patterns, WCAG 2.2 |
+| `code-clarity` | Code that is hard to understand without narration — names, types, function boundaries, comments, docstrings, error messages, test names |
+| `commit-discipline` | Splitting work into atomic commits, commit messages, PR descriptions, squash vs merge vs rebase, fixup/autosquash cleanup |
 | `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `security` / `code-review` |
 | `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
 | `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
@@ -54,7 +57,7 @@ Auto-trigger on matching tasks (all `user-invocable: false`). Names stay un-name
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
 
-Plus `write-skill`, `multi-tool-bridge`, and `zoom-out` under `productivity/`.
+Plus `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `scaffold`, `skill-maintenance`, `write-skill`, and `zoom-out` under `productivity/`.
 
 ### Plan lifecycle (companion plugin)
 
@@ -82,7 +85,7 @@ Install it alongside docks:
 
 ## Why sequential, single-context?
 
-Earlier versions ran each pipeline as parallel Claude subagents. The kit now runs each pipeline as one sequential pass so the *same* skill works on every runtime. Plugin-shipped subagents remain Claude-only; Codex can use project-local `.codex/agents/*.toml` custom agents when explicitly delegated, with inline skill execution as the portable fallback. The plan file remains the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval artifact. Each pipeline still uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (written to the same plan file) before anything is applied.
+Earlier versions ran each pipeline as parallel Claude subagents. The kit now runs each pipeline as one sequential pass so the *same* skill works on every runtime. Plugin-shipped subagents remain Claude-only; Codex can use project-local `.codex/agents/*.toml` custom agents when explicitly delegated, with inline skill execution as the portable fallback. The plan issue (issue body + review comments) is the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval record. Each pipeline still uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (recorded in the same plan issue) before anything is applied.
 
 ## Validators (plugin-author tooling)
 

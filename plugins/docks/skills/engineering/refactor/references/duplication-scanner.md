@@ -20,7 +20,7 @@ Research-gate before any "modernization" / "deprecated API" / "outdated pattern"
 | 4 | Module organization | circular deps; barrel files re-exporting everything; relative vs alias inconsistency; many files importing the same set (missing shared module) |
 | 5 | Modernization | callbacks → async/await; `var` → `const`/`let`; class → function components; manual loops → array methods; deprecated APIs (research-gated) |
 
-## Output (write under `## Phase 2b: Duplication Findings`)
+## Output (write under `### Phase 2b: Duplication Findings` in `## Research`)
 
 `Duplicate Code` (list ALL instances per group + suggested consolidation) · `Extraction Candidates` (`file:line`, length, suggested fn) · `Component Reuse` (similar components + shared component/hook) · `Module Organization` (type + files + fix) · `Modernization` (`file:line`, current → modern, migration risk, **docs citation**).
 

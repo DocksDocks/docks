@@ -3,7 +3,7 @@
 Produce the final report by challenging, verifying, and consolidating every finding from Phases 2a–2c. This pass is what keeps the false-positive rate low.
 
 <constraint>
-Per-finding reproduction is mandatory. For each surviving finding: (1) re-search for the vulnerability *pattern itself* (not just the file path) and confirm it still appears at the cited `file:line`; (2) read 5+ lines of context and confirm the data-flow narrative holds; (3) for Critical/High, trace taint upward to a real input source (route handler / form / URL param / external API). DROP anything you cannot reproduce or whose taint path you cannot trace — log it under `## Dropped (failed reproduction)` with a reason.
+Per-finding reproduction is mandatory. For each surviving finding: (1) re-search for the vulnerability *pattern itself* (not just the file path) and confirm it still appears at the cited `file:line`; (2) read 5+ lines of context and confirm the data-flow narrative holds; (3) for Critical/High, trace taint upward to a real input source (route handler / form / URL param / external API). DROP anything you cannot reproduce or whose taint path you cannot trace — log it under `#### Dropped (failed reproduction)` inside this phase's subheading, with a reason.
 </constraint>
 
 <constraint>
@@ -18,9 +18,9 @@ Verify any remediation library API (helmet, cors, csrf-csrf, bcrypt, argon2, pas
 4. **Priority** — for Critical/High, confirm input reachability; downgrade where mitigations exist. Order by Exploitability > Impact > Ease of fix.
 5. **Consolidate** — accept survivors, group related issues, dedupe across the three phase-2 lenses.
 
-## Report (write under `## Phase 3: Security Audit Report`)
+## Report (write under `## Research` → `### Phase 3: Security Audit Report`)
 
-`Executive Summary` (counts + most-affected areas + action-required) · `Critical` · `High` · `Medium` · `Low/Informational` · `Logic Flaws & Edge Cases` · `OWASP Top 10 Coverage` (per-category verdict table A01–A10) · `Recommendations` (immediate / short-term / long-term) · `Files Requiring Review` · `Dropped (failed reproduction)`.
+Write each report part as a `####` subheading inside `### Phase 3: Security Audit Report` — never as a `##` heading, because the plan helper rejects any `##` heading outside its fixed sections: `#### Executive Summary` (counts + most-affected areas + action-required) · `#### Critical` · `#### High` · `#### Medium` · `#### Low/Informational` · `#### Logic Flaws & Edge Cases` · `#### OWASP Top 10 Coverage` (per-category verdict table A01–A10) · `#### Recommendations` (immediate / short-term / long-term) · `#### Files Requiring Review` · `#### Dropped (failed reproduction)`.
 
 Per finding: Title · Location `file:line` · CWE · Description · Exploitation (concrete) · Remediation (with verified code) · References.
 

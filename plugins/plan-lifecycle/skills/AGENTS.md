@@ -1,16 +1,15 @@
 # Authoring the plan-lifecycle skills (plugins/plan-lifecycle/skills/)
 
-This plugin ships exactly three skills - `productivity/plan-workspace`,
-`productivity/plan-manager`, and `productivity/plan-reviewer` - plus one
+This plugin ships the lifecycle skills named in Roles below, one
 `plan-manager/scripts/plan.mjs` lifecycle tool, one
-`plan-manager/references/plan-contract.md` contract reference, and two read-only
-reviewer wrappers at `../agents/plan-reviewer.md` and
-`../agents/code-reviewer.md`, with this source repository's matching
-`.codex/agents/plan-reviewer.toml` and `.codex/agents/code-reviewer.toml` pair.
+`plan-manager/references/plan-contract.md` contract reference, and the
+read-only reviewer wrappers named in Roles (verify:
+`ls plugins/plan-lifecycle/skills/productivity plugins/plan-lifecycle/agents`).
 It is self-versioned: manifests live in `.claude-plugin/` and `.codex-plugin/`,
-and `compatibility.json` is the closed declaration
-`{"schema":1,"minimum_docks_major":0}` verified by `test/selftest.mjs` against
-docks' parsed major. Do not replace it with prose or a same-major convention.
+and `compatibility.json` is a closed declaration (keys `schema` and
+`minimum_docks_major`) that `test/selftest.mjs` verifies against docks' parsed
+major (verify: `node plugins/plan-lifecycle/test/selftest.mjs`). Do not replace
+it with prose or a same-major convention.
 
 <constraint>
 During skill iteration, run the narrow validators relevant to the change. After
@@ -51,9 +50,9 @@ repairs and user decisions when review cannot progress;
 round. Two read-only reviewer wrappers ship: the plugin wrappers at
 `../agents/plan-reviewer.md` and `../agents/code-reviewer.md`, with this source
 repository's matching `.codex/agents/plan-reviewer.toml` and
-`.codex/agents/code-reviewer.toml` pair. `plugins/plan-lifecycle/agents/`
-deliberately carries no context-tree node (`claude plugin validate` lints every
-`agents/*.md` as a subagent, so a node pair there fails validation).
+`.codex/agents/code-reviewer.toml` pair. `plugins/plan-lifecycle/agents/` deliberately carries no
+context-tree node (`claude plugin validate` lints every `agents/*.md` as a
+subagent, so an `AGENTS.md` there fails validation).
 
 ## Plan-skill contract sync
 
@@ -66,18 +65,21 @@ Coordinate edits across those surfaces when concepts change. Refresh content
 hashes after all reference edits finish. `scripts/tests/plan-cli.mjs` exercises
 the helper's behavior; no test pins skill prose.
 
-## Fail-loud routing (four external routes)
+## Fail-loud routing (external routes)
 
-`refactor`, `security`, `context-tree`, and `skill-agent-pipeline` (docks) each
-carry one byte-identical prerequisite paragraph naming this plugin, so a
-runtime without `plan-lifecycle` stops instead of silently proceeding without
-a plan. `test/selftest.mjs` asserts the exact prerequisite paragraph text;
-change that paragraph only in lockstep across all four routes and the self-test.
+Every docks skill that routes into this lifecycle carries one byte-identical
+prerequisite paragraph naming this plugin, so a runtime without
+`plan-lifecycle` stops instead of silently proceeding without a plan. No check
+compares the copies. Change the paragraph only in lockstep across every copy
+(verify: `grep -rl 'Prerequisite: .plan-lifecycle. must be installed' plugins/docks`).
 
 ## Scoring and namespace
 
 Same rubric as every kit skill: `node
 plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score
---per-file plugins/plan-lifecycle/skills` - per-file floor productivity 8
-(`scripts/config/scoring.json`); agents floor 14. Skills surface as
-`plan-lifecycle:<name>` from `name` in `.claude-plugin/plugin.json`.
+--per-file plugins/plan-lifecycle/skills`. Per-file floors live in
+`scripts/config/scoring.json` (verify: `node scripts/config/read-floor.mjs skills productivity`;
+agents: `node scripts/config/read-floor.mjs agents`). Skills surface as
+`plan-lifecycle:<name>` from `name` in `plugins/plan-lifecycle/.claude-plugin/plugin.json`.
+
+Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.

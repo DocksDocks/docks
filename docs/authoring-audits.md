@@ -2,7 +2,7 @@
 
 This file tracks **deferred audits** of the plugin's skills and agents against authoritative authoring best-practices. The first audit (skills, May 2026) lives in this repo's git history; what's recorded below is what hasn't been done yet so a future session can pick it up cold.
 
-> **Historical record — inventory below predates v0.2.** The May 2026 audits ran against an older command / agent / skill inventory. The v0.2 rebalance (`a8a3ecc`) demoted `/fix`, `/review`, `/test`, `/human-docs`, `/roadmap-init` from commands to skills, changing the command / agent / skill mix. Hardcoded floors (for example, old fixed totals) also predate `93db77e`, which switched CI to count-derived floors (`N × per-file_floor`). For current inventory and floors, see `bash scripts/skills/score.sh --per-file`, `bash scripts/agents/score.sh --per-file`, and `scripts/AGENTS.md` → "Validators". The **pipelines-to-skills** re-architecture later removed commands entirely — `/docs`, `/refactor`, `/security` became cross-tool skills and command guard/score scripts were deleted, so the "commands body audit" section below is fully historical.
+> **Historical record — inventory below predates v0.2.** The May 2026 audits ran against an older command / agent / skill inventory. The v0.2 rebalance (`a8a3ecc`) demoted `/fix`, `/review`, `/test`, `/human-docs`, `/roadmap-init` from commands to skills, changing the command / agent / skill mix. Hardcoded floors (for example, old fixed totals) also predate `93db77e`, which switched CI to count-derived floors (`N × per-file_floor`). For current inventory and floors, see `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file`, `node scripts/agents/score.mjs --per-file plugins/plan-lifecycle/agents`, and `scripts/AGENTS.md` → "Validators". The **pipelines-to-skills** re-architecture later removed commands entirely — `/docs`, `/refactor`, `/security` became cross-tool skills and command guard/score scripts were deleted, so the "commands body audit" section below is fully historical.
 
 The starting point for any audit is `plugins/docks/skills/AGENTS.md` and `AGENTS.md` (frontmatter + description rules), plus the validators under `scripts/skills/` and `scripts/agents/`. Those cover the description layer; what's parked here is the **body / system-prompt layer**.
 
@@ -33,7 +33,7 @@ Conclusion: the research-gate scorer correctly gates this point on agents that p
 
 **No CLAUDE.md prose change needed** — the per-file ≥14 floor mechanically requires 2 constraint blocks (mandatory-only ceiling is exactly 14), so "every agent gets a 2nd role-specific constraint" is now enforced by the scorer rather than documentation.
 
-**Re-running this audit**: invariants from above carry forward; run `bash scripts/agents/score.sh --per-file | sort -k2 -n | head -20` to find the next sub-max cluster, then identify whether the gap is mechanical (research-gate, slop, missing constraint) or by-design.
+**Re-running this audit**: invariants from above carry forward; run `node scripts/agents/score.mjs --per-file plugins/plan-lifecycle/agents | sort -k2 -n | head -20` to find the next sub-max cluster, then identify whether the gap is mechanical (research-gate, slop, missing constraint) or by-design.
 
 ## Resolved: commands body audit (May 2026)
 
@@ -70,9 +70,9 @@ Both quirk fixes share the same shape: detect "feature-applicable by orchestrati
 ## When picking up either audit
 
 1. Re-fetch the source URLs above — Anthropic's docs evolve.
-2. Run `bash scripts/ci.sh` first to confirm green baseline.
-3. Run `bash scripts/skills/score.sh --per-file` and `bash scripts/agents/score.sh --per-file` to get current per-file scores.
+2. Run `node scripts/ci.mjs` first to confirm green baseline.
+3. Run `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file` and `node scripts/agents/score.mjs --per-file plugins/plan-lifecycle/agents` to get current per-file scores.
 4. Work through the audit checklist file-by-file.
 5. Apply low-risk fixes; list higher-risk recommendations for user review.
-6. Update `CLAUDE.md` with any new universally-applicable rules.
-7. Update `scripts/skills/score.sh` or `scripts/agents/score.sh` if the audit reveals a new mechanical check worth enforcing.
+6. Update the matching `AGENTS.md` node with any new universally-applicable rules.
+7. Update `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs` or `scripts/agents/score.mjs` if the audit reveals a new mechanical check worth enforcing.

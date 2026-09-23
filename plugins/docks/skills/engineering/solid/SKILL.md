@@ -4,8 +4,8 @@ description: Use when designing a module / service / class with multiple concern
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "8d1db580f817b4866a2d3b44505169749da88af65a42b7636fbddda47d0a7cfc"
+  updated: "2026-09-23"
+  content_hash: "21967495ba4496b81eba6325a7515c887010dbcfc132941b47712f6b739b5a77"
 ---
 
 # SOLID — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion
@@ -13,7 +13,7 @@ metadata:
 Five design pressures for keeping modules cohesive, extensible, and substitutable. Originally framed for OO, but each one applies to function-based code (TypeScript modules, Python packages, Go interfaces, Rust traits) — only the implementations change.
 
 <constraint>
-SOLID describes design pressure, not a checklist. Don't apply a principle until the smell it addresses appears: file > 300 LOC with mixed change axes, switch with 5+ arms, runtime type checks gating behavior, fat interface, hard-coded SDK. Premature application is over-engineering. Wait for the second use-site or the third change axis before splitting.
+SOLID describes design pressure, not a checklist. Don't apply a principle until the smell it addresses appears: file > 300 LOC with mixed change axes, switch with 5+ arms, runtime type checks gating behavior, fat interface, hard-coded SDK. Premature application is over-engineering. Wait for the second use-site or a second independent change axis before splitting.
 </constraint>
 
 <constraint>
@@ -21,7 +21,7 @@ Don't add classes / inheritance just to "make SOLID fit." If a codebase is funct
 </constraint>
 
 <constraint>
-The Strategy Map (the Open/Closed pattern in this skill) is code, not config. Never move map entries to JSON / YAML — you trade type safety, exhaustiveness checks, and tree-shaking for a "data-driven" win that becomes parallel duplication the moment a variant needs custom logic.
+The Strategy Map (the Open/Closed pattern in this skill) is code, not config. Never move map entries to JSON / YAML — you trade type safety and exhaustiveness checks for a "data-driven" win that becomes parallel duplication the moment a variant needs custom logic.
 </constraint>
 
 <constraint>
@@ -138,7 +138,7 @@ In codebases without a DI container, **function arguments are the abstraction**.
 | Wrong fix | Right fix |
 |---|---|
 | Add an `abstract class Formatter` and a subclass per variant | Strategy Map (`Record<string, (x: T) => U>`) — same Open/Closed property, no inheritance tax |
-| Move switch arms to `formatters.json` | Keep them as code; otherwise you lose exhaustiveness and tree-shaking |
+| Move switch arms to `formatters.json` | Keep them as code; otherwise you lose type safety and exhaustiveness |
 | Wrap every dependency in an interface "for testability" | Wrap only at the seam you actually want to swap (the SDK, the network, the clock) — and only when a second adapter (test fake, alt provider) actually exists |
 | Split a 200-line module into 4 × 50-line modules to "obey SRP" | Leave it; don't split until two genuinely independent change axes share the file |
 | Use `extends` / inheritance to share method implementations | Composition: extract a function, call it from both places |
@@ -152,4 +152,4 @@ In codebases without a DI container, **function arguments are the abstraction**.
 - Structural vocabulary + the three tests: `references/depth-and-seams.md`
 - Maintenance twin: the `refactor` skill's `references/solid-analyzer.md` carries a condensed copy of this per-principle rubric and of the TypeScript class-justification gate (canonical deep form in `type-safety-discipline`) — sync the twins in the same commit when either changes.
 - Uncle Bob's original SOLID essays: https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html
-- Depth/seam vocabulary adapted from Matt Pocock's `improve-codebase-architecture` skill (MIT): https://github.com/mattpocock/skills/blob/main/docs/engineering/improve-codebase-architecture.md
+- Depth/seam vocabulary, the three tests, dependency categories, and "replace, don't layer" adapted from Matt Pocock's `codebase-design` skill (MIT; the vocabulary was first part of his `improve-codebase-architecture` skill): https://github.com/mattpocock/skills/blob/main/skills/engineering/codebase-design/SKILL.md

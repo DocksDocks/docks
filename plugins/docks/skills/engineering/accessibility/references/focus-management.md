@@ -91,7 +91,7 @@ function onArrow(items, current, dir) {
 - Initial state: active item `tabindex="0"`, every other item `tabindex="-1"`.
 - Tab from outside lands on the active item (not the first item) — state survives leaving.
 - Pair with the matching state attribute (`aria-selected` on tabs, `aria-checked` on radios).
-- Home/End jump to first/last; whether arrows wrap is per-pattern (APG says menus wrap, tabs may).
+- Arrow wrapping is per-pattern. APG: tabs wrap (last → first, first → last). Menus may wrap; a menu that does not wrap must support Home/End. For tabs, Home/End are optional.
 
 ## `aria-activedescendant`
 

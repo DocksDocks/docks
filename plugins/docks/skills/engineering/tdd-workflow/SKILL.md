@@ -4,8 +4,8 @@ description: Use when the user asks for TDD, test-first, "write the test first t
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "d5b3326c92bf72d4023f5ff2726f459875158b33a77b566c4749169d825f1fd9"
+  updated: "2026-09-23"
+  content_hash: "238323e1eddc5ccf0ee61f3b63ba451a9b854894200740c003819cfad7c3370d"
 ---
 
 # Test-Driven Development Workflow
@@ -70,7 +70,7 @@ These run in order. Each phase has an explicit yield point — do not silently s
 4. If you want to change an assertion, that's a Phase 1 task on a new feature/spec, not a refactor.
 
 <constraint>
-Tests are read-only during Phases 3–5. If a test is wrong (typo, contradictory assertion, impossible-to-satisfy spec), STOP and escalate to the user. Do not silently rewrite a test to make it pass — that defeats the purpose of TDD and produces a spec the user did not approve.
+Test assertions are read-only during Phases 3–5; Phase 5 may refactor test structure only. If a test is wrong (typo, contradictory assertion, impossible-to-satisfy spec), STOP and escalate to the user. Do not silently rewrite a test to make it pass — that defeats the purpose of TDD and produces a spec the user did not approve.
 </constraint>
 
 <constraint>
@@ -83,7 +83,7 @@ Phase 2 (failing baseline) is mandatory. A test that passes on first run is brok
 |---|---|---|
 | Writing tests + implementation in the same edit | Skip Phase 2 because "tests will obviously fail" | Force Phase 1 to commit (or stage) before Phase 3 starts. Tests visible in `git diff` before any prod code change. |
 | Adding stub functions in Phase 1 "to make the test compile" | Add an empty `function foo() {}` stub | Tests can reference non-existent types/functions in Phase 1 — the compile error IS the failing baseline. |
-| A failing test in Phase 4 won't go green | Modify the test assertion to match current behavior | Tests are read-only in Phases 3–5. If the test is genuinely wrong, escalate to the user. |
+| A failing test in Phase 4 won't go green | Modify the test assertion to match current behavior | Test assertions are read-only in Phases 3–5. If the test is genuinely wrong, escalate to the user. |
 | Skipping Phase 2 ("tests will obviously fail") | Trust the obvious | Always run after Phase 1. The failing-mode shape is the contract that says "feature isn't there yet." |
 | Refactoring during Phase 3 ("while I'm here") | Mix refactor + new behavior | Save refactor for Phase 5. Refactoring is unsafe without all-green tests. |
 | Bundling multiple features into one TDD session | One big spec, one giant impl | One feature per TDD cycle. Commit between cycles. |
@@ -135,7 +135,7 @@ Some frameworks (e.g., older Jest, certain Python configurations) report "0 test
 
 Mitigations:
 - Run the test file directly, not the full suite, so import errors surface clearly
-- For TypeScript: run `tsc --noEmit` on the test file before running the suite — type errors show up cleanly there
+- For TypeScript: run `tsc --noEmit -p .` (or the project's typecheck script) and read the errors for the test file. Do not pass the test file to `tsc` directly: with input files on the command line, `tsc` ignores `tsconfig.json`
 - For Python: run `python -c "import path.to.test_module"` to surface import errors
 
 ## Why This Ordering Matters

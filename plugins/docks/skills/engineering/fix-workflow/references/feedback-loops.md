@@ -1,8 +1,22 @@
 # Feedback Loops — The Real Skill
 
-Deep reference for the Step 0 trigger in the parent `SKILL.md`. If you have a fast, deterministic, agent-runnable pass/fail signal for the bug, you will find the cause. Everything else — bisection, hypothesis testing, instrumentation, careful reading — just consumes that signal. No loop, no fix; staring at code without a loop is theatre.
+Deep reference for the Step 0 trigger in the parent `SKILL.md`. If you have a tight pass/fail signal for the bug — one that goes red on *this* bug — you will find the cause. Everything else — bisection, hypothesis testing, instrumentation, careful reading — just consumes that signal. No loop, no fix; staring at code without a loop is theatre.
 
-This file owes a debt to Matt Pocock's `diagnose` skill (`github.com/mattpocock/skills`, MIT) — the framing is his; the ranked menu and gotchas are adapted to docks conventions.
+This file owes a debt to Matt Pocock's `diagnosing-bugs` skill (formerly `diagnose`; `github.com/mattpocock/skills`, MIT) — the framing is his; the ranked menu and gotchas are adapted to docks conventions.
+
+## Contents
+
+- [When this applies](#when-this-applies)
+- [Redact first](#redact-first)
+- [The 10 ways to build a loop, ranked](#the-10-ways-to-build-a-loop-ranked)
+- [Tighten the loop](#tighten-the-loop)
+- [Non-deterministic bugs — raise the reproduction rate](#non-deterministic-bugs--raise-the-reproduction-rate)
+- [Exit check: tight and red-capable](#exit-check-tight-and-red-capable)
+- [Minimise](#minimise)
+- [When you genuinely cannot build a loop](#when-you-genuinely-cannot-build-a-loop)
+- [Anti-patterns](#anti-patterns)
+- [Gotchas](#gotchas)
+- [References](#references)
 
 ## When this applies
 
@@ -11,6 +25,10 @@ This file owes a debt to Matt Pocock's `diagnose` skill (`github.com/mattpocock/
 - A flaky test reproduces 5% of the time.
 - A perf regression that nobody can measure consistently.
 - You've been staring at the file for 10 minutes generating hypotheses without testing any.
+
+## Redact first
+
+Loop work shows commands, outputs, and captured artifacts. Replace every secret with `<REDACTED>` before you show it. Build loops that read credentials from environment variables, so the secret stays in the environment and never appears in a command or its output. Captured artifacts (HAR files, logs, request dumps) carry auth headers and tokens: quote only the lines that carry the signal. If the redacted output is not enough to diagnose the bug, say so and ask the user.
 
 ## The 10 ways to build a loop, ranked
 
@@ -27,11 +45,11 @@ Try in roughly this order — earlier methods are usually cheaper and sharper.
 9. **Differential loop.** Same input through old-version vs new-version (or two configs) and diff outputs.
 10. **HITL bash script (last resort).** If a human has to click, drive *them* with a structured loop (`scripts/hitl-loop.sh`-style) so captured output still feeds back to you. Plain "ask the user to try again" is not a loop.
 
-## Iterate on the loop itself
+## Tighten the loop
 
 Treat the loop as a product. Once you have *a* loop, ask:
 
-- **Faster?** Cache setup, skip unrelated init, narrow the test scope, use `--testPathPattern` / `-k` filters.
+- **Faster?** Cache setup, skip unrelated init, narrow the test scope, use path or name filters (Jest `--testPathPatterns` on Jest 30+, `--testPathPattern` before it; pytest `-k`).
 - **Sharper?** Assert on the specific symptom ("expected 200 OK, got 401"), not "didn't crash" / "exit code 0".
 - **More deterministic?** Pin the clock (`vi.useFakeTimers`, `freezegun`), seed RNG, isolate filesystem (`tmp_path`, `mktemp -d`), freeze network (record-replay, MSW), mock external services.
 
@@ -51,12 +69,29 @@ for i in {1..100}; do pnpm test session-expiry.test.ts || break; done
 # `cargo test -- --test-threads=1 --nocapture` for ordering issues.
 ```
 
+## Exit check: tight and red-capable
+
+Step 0 is done only when you can name **one command** (a script path, a test invocation, a curl) that you have **already run at least once** — show the invocation and its redacted output — and that is:
+
+- [ ] **Red-capable** — it drives the real bug code path and asserts the user's exact symptom, so it goes red on this bug and green once fixed. "Runs without erroring" does not qualify.
+- [ ] **Deterministic** — same verdict every run (flaky bugs: a pinned, high reproduction rate).
+- [ ] **Fast** — seconds, not minutes.
+- [ ] **Agent-runnable** — runs unattended; a human in the loop only through a structured HITL script (method 10).
+
+If you catch yourself reading code to build a theory before this command exists, stop: that is the failure this file prevents. No red-capable command, no Step 2.
+
+## Minimise
+
+Once the loop is red, shrink the repro to the smallest scenario that still goes red. Cut inputs, callers, config, data, and steps **one at a time**, and re-run the loop after each cut. Keep only what the failure needs.
+
+A minimal repro leaves fewer parts to suspect in Step 3 and becomes the clean regression test. Done when every remaining element is load-bearing: removing any one of them turns the loop green.
+
 ## When you genuinely cannot build a loop
 
 Stop and say so explicitly. List what you tried (which 3+ methods from the ranked menu, why each failed). Then ask the user for one of:
 
 - (a) Access to whatever environment reproduces it.
-- (b) A captured artifact — HAR file, log dump, core dump, screen recording with timestamps, sentry trace, OpenTelemetry span dump.
+- (b) A redacted captured artifact — HAR file, log dump, core dump, screen recording with timestamps, sentry trace, OpenTelemetry span dump.
 - (c) Permission to add temporary production instrumentation (with a removal commit pre-staged).
 
 Do **not** proceed to hypothesise without a loop. Generating hypotheses against no signal is how you "fix" three things, ship two new bugs, and never know which one of your changes actually mattered.
@@ -86,4 +121,4 @@ Do **not** proceed to hypothesise without a loop. Generating hypotheses against 
 - Parent: `fix-workflow/SKILL.md` — Step 0 (this constraint) and Step 2 (Reproduce, which consumes the loop you build here).
 - Companion: `tdd-workflow` — the regression test you write at Step 2 (Reproduce) follows the same red-green-refactor discipline.
 - Companion: `solid/references/depth-and-seams.md` — when "no correct seam exists" is the finding, that's an architecture signal.
-- Source attribution: framing from Matt Pocock's `diagnose` skill (MIT, `github.com/mattpocock/skills/blob/main/skills/engineering/diagnose/SKILL.md`).
+- Source attribution: framing from Matt Pocock's `diagnosing-bugs` skill (formerly `diagnose`; MIT, `https://github.com/mattpocock/skills/blob/main/skills/engineering/diagnosing-bugs/SKILL.md`). The original text of this file was adapted from the `diagnose` version pinned at `https://github.com/mattpocock/skills/blob/694fa30311e02c2639942308513555e61ee84a6f/skills/engineering/diagnose/SKILL.md`; the Redact rule, the exit check, and Minimise come from the current `diagnosing-bugs`.

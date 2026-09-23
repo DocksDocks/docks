@@ -4,14 +4,14 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "3c08cc3be5b2c17de11bc9ef12ef7f6be0b9810adcccbe41f57c73e801674766"
+  updated: "2026-09-23"
+  content_hash: "c9b9acc06f95e6536c3317e67375720a234ba0ffa52e60a6c1bb594455f2da46"
 ---
 
 # Fix Workflow
 
 <constraint>
-Step 0 — before anything else: build a feedback loop. If you have a fast, deterministic, agent-runnable pass/fail signal for the bug, you will find the cause — bisection, hypothesis testing, and instrumentation all just consume that signal. Without one, "fixing" is speculation. The full ranked menu of 10 loop-construction methods, plus iteration rules, non-deterministic-bug handling, and the "when you genuinely cannot build a loop" stop-and-ask procedure live in [`references/feedback-loops.md`](references/feedback-loops.md). Read it before Step 2 (Reproduce). Spend disproportionate effort here — a 2-second deterministic loop is a debugging superpower; a 90-second flaky one is barely better than nothing.
+Step 0 — before anything else: build a feedback loop. If you have a tight pass/fail signal for the bug — one that goes red on *this* bug — you will find the cause; bisection, hypothesis testing, and instrumentation all just consume that signal. Without one, "fixing" is speculation. The ranked menu of 10 loop-construction methods, the Redact rule, the tighten rules, non-deterministic-bug handling, the "tight / red-capable" exit check, and the "when you genuinely cannot build a loop" stop-and-ask procedure live in [`references/feedback-loops.md`](references/feedback-loops.md). Step 0 ends only when that exit check passes. Spend disproportionate effort here — a 2-second deterministic loop is a debugging superpower; a 90-second flaky one is barely better than nothing.
 </constraint>
 
 <constraint>
@@ -29,7 +29,7 @@ Tier fixes by blast radius. Tier 1 = local change, single file, has a test (low 
 ## When to Use
 
 - A bug is reported — user describes a failure mode, you want to find and fix root cause
-- A security finding (from `/security`, `code-review` skill, dependency advisory) needs a fix
+- A security finding (from the `security` skill, the `code-review` skill, or a dependency advisory) needs a fix
 - Dependency audit (`bun audit` / `pnpm audit` / `npm audit` / `pip-audit`) returns vulnerable packages
 - A linter / type-checker reports issues across a path and the user wants them resolved
 - Dead-code report (`knip` / `depcheck` / `ts-prune` / `vulture`) needs cleanup
@@ -74,6 +74,7 @@ This step consumes the feedback loop you built per the Step 0 constraint (`refer
 - If no test infrastructure: STOP and discuss with the user — adding a test framework is a separate task
 - Confirm the failure before continuing. "I think I see why this happens" is not reproduction.
 - For non-deterministic bugs: raise the reproduction rate before debugging (loop 100×, pin clock/RNG, freeze network). 1%-flake is not debuggable; 50% is. See `references/feedback-loops.md` § Non-deterministic bugs.
+- Once the loop is red, minimise the repro before Step 3 — see `references/feedback-loops.md` § Minimise.
 
 ### Step 3 — Discover (parallel by default)
 
@@ -119,7 +120,7 @@ For each finding, fill in this template before writing any code:
 
 Normalize upstream findings into these fields before planning. For a `security` finding, map `location` plus `evidence` to **Files/Before**, `remediation` to **After**, `CWE` plus `exploitation` to **Why/Blast radius**, and derive **Test strategy/Revert trigger** from the exploitation path and its narrowest deterministic signal. For a `code-review` line (`SEVERITY / category / locator / defect / fix`), map `locator` plus `defect` to **Files/Before**, `fix` to **After**, `SEVERITY` plus `category` and `defect` to **Why/Blast radius**, and derive **Test strategy/Revert trigger** from the defect's observable behavior.
 
-Route any fix with non-local effects through the `plan-lifecycle` skill's `plan-manager`; do not treat the local fix table as approval to bypass that lifecycle.
+Route any fix with non-local effects through the `plan-manager` skill (from the `plan-lifecycle` plugin); do not treat the local fix table as approval to bypass that lifecycle.
 Show the user the table grouped by tier. If the plan contains any Tier 2/3 fix, print it as your final message and end the turn — do not call Edit/Write until the user approves (a Tier-1-only plan may proceed directly).
 
 **For finding-type-specific test strategies and revert triggers**, load the matching reference file from the routing table above.
@@ -184,12 +185,13 @@ After all approved fixes land, run the full verification sweep (tests + lint + t
 - Re-Read every file:line before reporting a fix as applied
 - Run the test the plan named, capture actual output (not paraphrase) — claim "fixed" only on observed green
 - If git diff shows a change you didn't intend, that's a bug in your edit; revert and redo, don't accept it
-- The "revert trigger" line in the plan is binding — if that test fails, revert NOW, don't try to patch the patch (3-strike rule: stop after 3 failed attempts on the same file — diagnosis is likely wrong)
+- The "revert trigger" line in the plan is binding — if that test fails, revert immediately; do not patch the patch
+- 3-strike rule: after 3 failed fix attempts on the same file, stop and ask the user — the diagnosis is probably wrong
 
 ## References
 
 - Companion skills: `dep-vuln-workflow`, `lint-no-suppressions`, `code-review`, `tdd-workflow`
-- Companion pipeline skills: `security`, `refactor` (cross-tool pipelines — no slash command)
+- Companion pipeline skills: `security`, `refactor` (user-invocable pipeline skills)
 - Per-finding-type templates: `references/security-fix-templates.md`, `references/perf-fix-templates.md`, `references/bug-fix-templates.md`
 - Feedback-loop construction (Step 0): `references/feedback-loops.md`
-- Framing for feedback-loops.md adapted from Matt Pocock's `diagnose` skill (MIT): https://github.com/mattpocock/skills/blob/main/skills/engineering/diagnose/SKILL.md
+- Framing for feedback-loops.md adapted from Matt Pocock's `diagnosing-bugs` skill (formerly `diagnose`; MIT): https://github.com/mattpocock/skills/blob/main/skills/engineering/diagnosing-bugs/SKILL.md — the original text was adapted from the `diagnose` version pinned at https://github.com/mattpocock/skills/blob/694fa30311e02c2639942308513555e61ee84a6f/skills/engineering/diagnose/SKILL.md

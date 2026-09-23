@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // codex-facts.mjs — pin the Codex platform facts asserted by
-// skill-agent-pipeline. Author-side only; skips when absent.
+// skill-agent-pipeline to hard-coded sets. It does not fetch the Codex docs:
+// when the docs change, update codex-agents-builder.md and these sets together.
+// Author-side only; skips when absent.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -21,14 +23,48 @@ const fail = (m) => {
   errors += 1;
 };
 
-// 1. every gpt-5* token is a real Codex model id
-const CODEX_MODELS =
-  'gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna gpt-5.5 gpt-5.4 gpt-5.4-mini gpt-5.3-codex gpt-5.3-codex-spark gpt-5.2';
-const allowed = new Set(CODEX_MODELS.split(' '));
-const toks = [...new Set(doc.match(/\bgpt-5\.[A-Za-z0-9_-]+/g) || [])].sort();
-for (const tok of toks) {
-  if (!allowed.has(tok))
-    fail(`codex-agents-builder.md references unknown Codex model id '${tok}' (allowed: ${CODEX_MODELS})`);
+const setsEqual = (a, b) => a.size === b.size && [...a].every((v) => b.has(v));
+const show = (s) => [...s].sort().join(', ');
+
+// 1. model ids: every gpt-* token is a current or a retired id; the reference
+// lists each set exactly; emitted models (map + TOML example) are current only.
+const CURRENT_MODELS = new Set(['gpt-6-sol', 'gpt-6-luna', 'gpt-6-astra']);
+const RETIRED_MODELS = new Set(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2']);
+const modelTokens = (text) => new Set(text.match(/\bgpt-\d(?:[A-Za-z0-9._-]*[A-Za-z0-9])?/g) || []);
+
+for (const tok of modelTokens(doc)) {
+  if (!CURRENT_MODELS.has(tok) && !RETIRED_MODELS.has(tok))
+    fail(`codex-agents-builder.md references unknown Codex model id '${tok}'`);
+}
+
+function listedModels(prefix) {
+  const lines = doc.split('\n').filter((line) => line.startsWith(prefix));
+  if (lines.length !== 1) {
+    fail(`codex-agents-builder.md must contain exactly one line starting '${prefix}'`);
+    return new Set();
+  }
+  return new Set([...lines[0].matchAll(/`(gpt-[^`]+)`/g)].map((m) => m[1]));
+}
+const current = listedModels('Current Codex model IDs:');
+if (!setsEqual(current, CURRENT_MODELS))
+  fail(`current model list is {${show(current)}}; expected {${show(CURRENT_MODELS)}}`);
+const retired = listedModels('Retired or deprecated in Codex');
+if (!setsEqual(retired, RETIRED_MODELS))
+  fail(`retired model list is {${show(retired)}}; expected {${show(RETIRED_MODELS)}}`);
+
+const emitted = new Set();
+for (const line of doc.split('\n')) {
+  const cells = line.split('|').map((c) => c.trim());
+  if (/^`(opus|sonnet|haiku)`$/.test(cells[1] ?? '')) {
+    const m = (cells[2] ?? '').match(/^`(gpt-[^`]+)`$/);
+    if (m) emitted.add(m[1]);
+  }
+  const toml = line.match(/^model = "([^"]+)"/);
+  if (toml) emitted.add(toml[1]);
+}
+if (emitted.size === 0) fail('codex-agents-builder.md model map / example emits no model id');
+for (const id of emitted) {
+  if (!CURRENT_MODELS.has(id)) fail(`codex-agents-builder.md emits non-current model id '${id}'`);
 }
 
 function declaredValues(key) {
@@ -47,50 +83,41 @@ function declaredValues(key) {
   return new Set([...allowedValues.matchAll(/"([^"]+)"/g)].map((match) => match[1]));
 }
 
-// Required values belong to their schema declarations. A quoted echo elsewhere
-// in prose or an example does not document the allowed set.
-const reasoningEfforts = declaredValues('model_reasoning_effort');
-for (const v of ['minimal', 'low', 'medium', 'high', 'xhigh']) {
-  if (!reasoningEfforts.has(v))
-    fail(`codex-agents-builder.md missing model_reasoning_effort value "${v}" (set: minimal/low/medium/high/xhigh)`);
-}
-for (const line of doc.split('\n')) {
-  if (
-    line.includes('model_reasoning_effort') &&
-    line.includes('"none"') &&
-    !line.includes('plan_mode_reasoning_effort')
-  ) {
-    fail(
-      'codex-agents-builder.md lists "none" as a model_reasoning_effort value without re-scoping it to plan_mode_reasoning_effort (the only key where none remains valid)',
-    );
-  }
-}
+// 2. value sets: the schema row declares exactly the pinned set. A quoted echo
+// elsewhere in prose or an example does not document the allowed set.
+const REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+const efforts = declaredValues('model_reasoning_effort');
+if (!setsEqual(efforts, REASONING_EFFORTS))
+  fail(`model_reasoning_effort set is {${show(efforts)}}; expected {${show(REASONING_EFFORTS)}}`);
 
+const SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access']);
 const sandboxModes = declaredValues('sandbox_mode');
-for (const v of ['read-only', 'workspace-write', 'danger-full-access']) {
-  if (!sandboxModes.has(v)) fail(`codex-agents-builder.md missing sandbox_mode value '${v}'`);
-}
+if (!setsEqual(sandboxModes, SANDBOX_MODES))
+  fail(`sandbox_mode set is {${show(sandboxModes)}}; expected {${show(SANDBOX_MODES)}}`);
 
-// 4. nesting fact + discredited claim must not return
-if (!doc.includes('agents.max_depth'))
-  fail('codex-agents-builder.md must document the agents.max_depth nesting fact (single-level dispatch ports)');
-const sapHas = (() => {
-  const re = /cannot spawn subagents|subagents cannot spawn/i;
-  const stack = [SAP];
-  while (stack.length) {
-    const d = stack.pop();
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const full = path.join(d, e.name);
-      if (e.isDirectory()) stack.push(full);
-      else if (re.test(fs.readFileSync(full, 'utf8'))) return true;
+// 3. claims the Codex docs do not support must not return anywhere in the skill:
+// undocumented keys, and the "cannot spawn" portability claim.
+const BANNED = [
+  [/agents\.max_depth/, 'undocumented key agents.max_depth'],
+  [/job_max_runtime_seconds/, 'undocumented key agents.job_max_runtime_seconds'],
+  [/nickname_candidates/, 'undocumented key nickname_candidates'],
+  [/cannot spawn subagents|subagents cannot spawn/i, "unsupported 'cannot spawn subagents' claim"],
+];
+const stack = [SAP];
+while (stack.length) {
+  const d = stack.pop();
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const full = path.join(d, e.name);
+    if (e.isDirectory()) {
+      stack.push(full);
+      continue;
+    }
+    const text = fs.readFileSync(full, 'utf8');
+    for (const [re, what] of BANNED) {
+      if (re.test(text)) fail(`${path.relative(REPO_DIR, full)} states ${what}`);
     }
   }
-  return false;
-})();
-if (sapHas)
-  fail(
-    "skill-agent-pipeline revives the discredited 'cannot spawn subagents' claim — Codex allows depth-1 dispatch (agents.max_depth: 1)",
-  );
+}
 
 if (errors > 0) {
   console.error(`Guard FAILED: ${errors} Codex-fact drift error(s) in skill-agent-pipeline`);

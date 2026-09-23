@@ -1,6 +1,6 @@
 # JS/TS Dependency Workflow — Bun / pnpm / npm / yarn
 
-Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers severity triage, exposure filter, the 3 pre-flight checks, split strategy, and cadence — they apply unchanged. Load this file when the project ships JavaScript or TypeScript.
+Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers severity triage, exposure filter, the pre-flight checks, split strategy, and cadence — they apply unchanged. Load this file when the project ships JavaScript or TypeScript.
 
 ## Contents
 
@@ -65,13 +65,14 @@ Commit in at least two independently revertible units: the security bump stands 
 
 | Upgrade | Watch out for |
 |---|---|
-| Next.js 15 → 16 | `middleware.ts` → `proxy.ts`; edge runtime removed |
+| Next.js 15 → 16 | `middleware` convention deprecated → `proxy` (Node.js runtime only; keep `middleware` if you need the edge runtime); synchronous Request API access removed |
 | Next.js 14 → 15 | `cookies()` / `headers()` / `params` / `searchParams` become async |
-| React 18 → 19 | `react-hooks/set-state-in-effect` new rule; `use()` hook; async transitions; ref-as-prop replaces `forwardRef` |
+| React 18 → 19 | `use()` hook; async transitions; ref-as-prop replaces `forwardRef` |
+| `eslint-plugin-react-hooks` bumps | Newer recommended configs add rules such as `set-state-in-effect`; new lint errors can appear with no React bump |
 | TypeScript → 6.0 | `baseUrl` deprecated; stricter type narrowing; `ignoreDeprecations: "6.0"` escape hatch |
 | TypeScript → 5.0 | `decorators` native syntax; `const` type params; module resolution changes |
-| ESLint → 9 | `.eslintrc` removed, flat config only |
-| ESLint → 10 | Node 20.19+/22.13+ required; some legacy plugins break |
+| ESLint → 9 | Flat config (`eslint.config.*`) is the default; `.eslintrc` deprecated (opt back in with `ESLINT_USE_FLAT_CONFIG=false`) |
+| ESLint → 10 | `.eslintrc` format removed; Node 20.19+/22.13+/24+ required; deprecated `context` / `SourceCode` methods removed, so some legacy plugins break |
 
 ## Peer-Dep Trap (Concrete Example)
 
@@ -93,7 +94,7 @@ edge, so a dev-only path is visible without reading the manifest:
 - Every path goes through `devDependencies` only → not in the production bundle.
 - A path goes through a `dependencies` chain → in the bundle. Read the advisory to confirm you touch the vulnerable API.
 
-Concrete: a MODERATE `hono` vuln appeared as transitive via `shadcn>@modelcontextprotocol/sdk>hono`. `shadcn` CLI is build-time only — runtime exposure was zero. A `shadcn` minor bump still cleared the transitive without risk.
+A package that runs only at build time (a scaffolding CLI, a code generator) does not ship its transitive dependencies to runtime, even when it sits in `dependencies`. Check where the package runs, not only which manifest section lists it. Runtime exposure is zero, but still bump the parent package when a minor bump clears the transitive: the fix is low-risk and clears the audit.
 
 ## Suppression Trap — BAD / GOOD
 

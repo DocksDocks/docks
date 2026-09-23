@@ -141,5 +141,5 @@ If the framework supplies a DI container (Nest, Inversify), then class is the ri
 
 - TypeScript handbook — classes: <https://www.typescriptlang.org/docs/handbook/2/classes.html>
 - React 19 `use client` (class instances are non-serializable): <https://react.dev/reference/rsc/use-client>
-- Sister skill — `solid` (warns about Strategy-as-classes, god classes, deep `extends`): SKILL via `/solid`
+- Sister skill — the `solid` skill (warns about Strategy-as-classes, god classes, deep `extends`)
 - Sister reference — `react-component-patterns/references/rsc-boundary.md` (why class instances die at the RSC boundary)

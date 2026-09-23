@@ -11,8 +11,21 @@ No artifact may be reported accurate without stating how many claims were opened
 </constraint>
 
 <constraint>
-Per-finding reproduction is mandatory. Before a drift finding lands, re-open the cited source and confirm the mismatch at the current `file:line`. DROP anything you cannot reproduce under `## Dropped (failed reproduction)` with a reason.
+Per-finding reproduction is mandatory. Before a drift finding lands, re-open the cited source and confirm the mismatch at the current `file:line`. DROP anything you cannot reproduce under a `#### Dropped (failed reproduction)` block inside the Phase 2c subheading, with a reason.
 </constraint>
+
+## Contents
+
+- [What counts as a checkable claim](#what-counts-as-a-checkable-claim)
+- [Drift taxonomy (one verdict per claim)](#drift-taxonomy-one-verdict-per-claim)
+- [Procedure — per existing skill](#procedure--per-existing-skill-skillmd--every-referencesmd)
+- [Agents (existing) — same loop, lighter](#agents-existing--same-loop-lighter)
+- [Prompt-style sub-check](#prompt-style-sub-check-every-existing-skill-and-agent-body)
+- [2a reconciliation (feedback to the delta)](#2a-reconciliation-feedback-to-the-delta)
+- [Optional Claude-only acceleration](#optional-claude-only-acceleration-output-identical-non-normative)
+- [Output](#output-write-under--phase-2c-content-accuracy-audit)
+- [Gotcha](#gotcha)
+- [Sources](#sources)
 
 ## What counts as a checkable claim
 
@@ -52,22 +65,57 @@ Soft prose with no source anchor — heuristics, style advice ("prefer early ret
 
 Run the identical enumerate → verify → taxonomy over each on-disk agent body (`.claude/agents/*.md`). Audit the **logical** agent once — the `.codex/agents/*.toml` twin shares its prose, so don't double-count. A non-`CLEAN` agent escalates to **regenerate** in Phase 5 (agents are not part of the Phase 2a skills delta).
 
+## Prompt-style sub-check (every existing skill and agent body)
+
+Accuracy asks "does the text match the source?". This sub-check asks a second question: "does the text still help the model, or is it cruft from an older model or one bad session?". Run it in the same pass as the accuracy loop, over the same files. Its findings do not change the accuracy verdict above, because a skill can be accurate and still badly worded.
+
+Flag these patterns:
+
+| Pattern | Signal | Proposed rewrite |
+|---|---|---|
+| Pressure language with no reason | caps `MUST` / `NEVER` / `ALWAYS` / `CRITICAL` / `IMPORTANT`, `!!`, or several "critical" rules in one section, with no "because" near them | State the rule once, in normal case, with its reason. Current models follow instructions literally, so shouting makes them over-apply the rule. |
+| History narrative | past-tense stories, incident IDs, PR or issue numbers, plan names, pinned model names, "this caught X on plan Y" | State the current rule and drop the story. The rule gets its authority from the behavior it asks for, not from the incident. |
+| Enumerated trigger list in a description | a `description` that lists near-synonym queries or tools one by one, and that only grows in git history | Name the categories of intent. Keep concrete nouns (commands, file types) that route the skill. Check the result with a trigger check (see `write-skill`), not by adding tokens. |
+| Rule from one incident | a narrow special case that only one session needed | Find the provenance: `git log -L '/<rule text>/,+1:<file>'` or `git blame <file>` shows the commit that added the line. If the commit fixed one session's stumble, propose to generalize the rule into a principle or remove it. |
+| Volatile specifics | versions, counts, sizes, model names, or flags with no `verify:` command | Convert to the durable form that `references/skills-builder.md` § Durable anchors owns. Do not duplicate `line-anchor` findings from the taxonomy above. |
+
+Git history is allowed here only to find where a rule came from. It is still not evidence of accuracy (see the first constraint).
+
+**Keep list.** A grep hit is not a finding when the text is one of these:
+
+1. **Context is not cruft.** Facts only the author knows (audience, environment, quality bar, tool contracts, and the reasons for constraints) stay.
+2. **Length is not cruft.** Never propose a removal only because a section is long. The harm comes from specific outdated instructions.
+3. **Fragile operations keep exact scripts.** Where only one sequence is safe (destructive commands, auth, release, migrations), exact low-freedom text is correct.
+4. **Load-bearing turn-ending gates stay.** "Print the proposal as your final message and end the turn" is the only pause that works across runtimes. Do not soften it.
+5. **Calibrated urgency in trigger text can stay.** A description may be firm about when to load the skill, because skills tend to under-trigger. Flag shouting in bodies, not routing text.
+
+**Verdict shape.** Each finding is a proposal, not an edit. Record the file, the quoted text, the pattern, the provenance (commit or "unknown"), and a proposed rewrite. Prefer a rewrite over a bare removal when the rule still has a purpose. A removal is a hypothesis: before it lands, run a baseline check (see `write-skill`) on the old and the new text. If the old text gives better results, keep it or restore it in its simplest form.
+
+Output, under the `### Phase 2c` subheading after the accuracy table:
+
+| Artifact | Pattern | Evidence (quoted) | Provenance | Proposed rewrite |
+|---|---|---|---|---|
+
+Write "no prompt-style findings" when the table is empty. A clean result changes nothing.
+
 ## 2a reconciliation (feedback to the delta)
 
-After this phase, return to the `## Phase 2a` block and amend each non-`CLEAN` **skill** action inline: append `→ escalated by 2c: REFRESH|REWRITE (<top finding>)`. Route non-`CLEAN` **agents** to the Phase 5 regenerate list. The gate then reads one reconciled delta, not two conflicting ones.
+After this phase, return to the `### Phase 2a` block and amend each non-`CLEAN` **skill** action inline: append `→ escalated by 2c: REFRESH|REWRITE (<top finding>)`. For a skill with prompt-style findings, append `→ style: <n> findings` so Phase 3 applies the proposed rewrites. Route non-`CLEAN` **agents** to the Phase 5 regenerate list. The gate then reads one reconciled delta, not two conflicting ones.
 
 ## Optional Claude-only acceleration (output-identical, non-normative)
 
-On Claude Code only, the orchestrator MAY dispatch one read-only auditor per artifact in parallel and merge results into the single `## Phase 2c` heading — the output table MUST be byte-identical to the sequential procedure. This is a runtime accelerator, not part of the portable pipeline; other runtimes run the loop sequentially in this context. This is the most expensive phase by design — that cost is the point; it is the only one that catches pre-baseline drift, so never substitute a sample to make it cheaper.
+On Claude Code only, the orchestrator MAY dispatch one read-only auditor per artifact in parallel and merge results into the single `### Phase 2c` subheading — the output table MUST be byte-identical to the sequential procedure. This is a runtime accelerator, not part of the portable pipeline; other runtimes run the loop sequentially in this context. This is the most expensive phase by design — that cost is the point; it is the only one that catches pre-baseline drift, so never substitute a sample to make it cheaper.
 
-## Output (write under `## Phase 2c: Content-Accuracy Audit`)
+## Output (write under `### Phase 2c: Content-Accuracy Audit`)
+
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
 
 One row per skill and per agent:
 
 | Artifact | claims checked | confirmed | broken-ref | stale-snippet | fictional-api | drifted-desc | verdict |
 |---|---|---|---|---|---|---|---|
 
-Then a roll-up line — total claims checked / total drift / skills CLEAN·REFRESH·REWRITE / agents CLEAN·REGEN — and a `## Dropped (failed reproduction)` block. Every artifact gets a row even when CLEAN (with its non-zero claims-checked count); if the whole tree is clean, still write the table — never "no changes" without the counts.
+Then a roll-up line — total claims checked / total drift / skills CLEAN·REFRESH·REWRITE / agents CLEAN·REGEN — and a `#### Dropped (failed reproduction)` block. Every artifact gets a row even when CLEAN (with its non-zero claims-checked count); if the whole tree is clean, still write the table — never "no changes" without the counts.
 
 ## Gotcha
 
@@ -78,3 +126,9 @@ Then a roll-up line — total claims checked / total drift / skills CLEAN·REFRE
 | Bucketing a heuristic ("prefer early return") as `drifted-description` | Mark it `unverifiable` — only source-anchored assertions get a drift verdict |
 | Auditing the `.toml` twin separately from its `.md` | One logical agent, one audit — the prose is shared |
 | Reading git history to judge staleness | Pre-baseline drift predates every diff — judge against current source only |
+| Using `git blame` output as proof that a rule is accurate | Git history shows where a rule came from (prompt-style provenance), never whether it matches source |
+| Deleting every caps `NEVER` in a sweep | Keep-list items stay; each finding needs a pattern, a reason, and a proposed rewrite, and a removal needs a baseline check |
+
+## Sources
+
+The prompt-style sub-check adapts ideas from the `prompt-audit` guide in the Anthropic `claude-api` skill (Apache-2.0), paraphrased and narrowed to skill files: https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/prompt-audit.md

@@ -4,8 +4,8 @@ description: "Use when plan-manager needs a read-only pre-implementation review 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-09"
-  content_hash: "abedc144ec2e1910a1c56acc08f3e3d3a252f84eae3fad9066ab11cff487ff8d"
+  updated: "2026-09-23"
+  content_hash: "cb19f35edd60a3bdb778105b2abf77399e0d0d5ab397584cfea5454c4edb0ce7"
 ---
 
 # Plan Reviewer
@@ -35,7 +35,7 @@ citations, probes, tests, or acceptance rows without a load-bearing defect.
 | `security_risk` | The plan introduces or ignores a security risk or destructive action without confirmation |
 
 Apply the durable-solution rule in the `plan-manager` skill's
-`references/plan-contract.md`; report an unrequested temporary fix as goal_fit.
+`references/plan-contract.md`; report an unrequested temporary fix as `goal_fit`.
 Read enough surrounding code, callers, tests, and local instructions to verify
 claims. Check library and API claims against current official documentation.
 Do not demand additional sources when existing evidence establishes the claim.

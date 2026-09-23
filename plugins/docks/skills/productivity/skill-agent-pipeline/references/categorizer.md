@@ -29,7 +29,9 @@ For each uncovered knowledge area large enough to warrant one: name (kebab-case)
 
 If plugin `docks:skill-maintenance` is available, do NOT create a generic local `skill-maintenance` skill. If a local copy already exists, compare it for project-specific rules: when it adds none, PROPOSE REMOVAL — the plugin `docks:skill-maintenance` already maintains skills for BOTH Codex and Claude, so a generic local copy is redundant. The gate carries a `git rm -r .claude/skills/skill-maintenance/` (and `.agents/skills/...`) sentinel for the user to approve; never delete without approval. Keep a local copy only when the project needs maintenance behavior the plugin skill does not cover; if it exists but frontmatter drifted, propose a fix before any remove/keep decision.
 
-## Output (write under `## Phase 2a: Categorizer Proposals`)
+## Output (write under `### Phase 2a: Categorizer Proposals`)
+
+Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
 
 `Skill Audit` (per skill: 5-check results + action + reason) · `New Skill Proposals` · `Existing Skill Modifications` · `Maintenance Skill` · `Skipped Knowledge Areas`.
 

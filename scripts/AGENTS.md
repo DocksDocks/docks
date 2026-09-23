@@ -3,71 +3,41 @@
 These scripts validate and release the repo's plugins. They are **author-side only** — never shipped to consumers. All tooling is Node `.mjs` — including `release.mjs` (`--dry-run` supported) and the cross-tool `context-tree-nudge` PostToolUse hook; the repository ships no shell scripts of its own. `ci.mjs` is the local gate, and `.github/workflows/ci.yml` invokes that same gate in full or with its supported `--lane` or `--plugin` target; `ci-target.mjs` resolves both targets — a release tag to one plugin, and a pull-request diff to the shard set the matrix runs.
 
 <constraint>
-Run focused checks while implementing. For a final change owned by exactly one plugin, `node scripts/ci.mjs --plugin <name>` is the authoritative pre-commit, pre-push, and pre-release gate, including descriptor-owned author, source, and release contracts. Run full `node scripts/ci.mjs` only for repo-wide validation/tooling, shared multi-plugin infrastructure, registry or CI-topology changes, changes spanning plugins, or an explicit full-gate request. Reuse a green gate only while its validated implementation bytes are unchanged. Don't loosen validator floors to make a problematic file pass; fix the file.
+Gate choice (focused checks while implementing, `node scripts/ci.mjs --plugin <name>` for a change owned by one plugin, full `node scripts/ci.mjs` otherwise, reuse of a green gate) is repo-wide policy in the root `AGENTS.md` (Tool-agnostic rules). Don't loosen validator floors to make a problematic file pass; fix the file.
 </constraint>
 
 ## Multi-plugin model (`scripts/lib/plugins.mjs`)
 
-The repo hosts **multiple plugins** (`docks`, `plan-lifecycle`) under `plugins/`. `scripts/lib/plugins.mjs` is the **single source of truth**: a `PLUGINS` array of descriptors, each declaring paths + capabilities. **Adding a plugin = adding one descriptor** — no edits to `ci.mjs`/`release.mjs`.
+The repo hosts **multiple plugins** under `plugins/` (verify: `node scripts/ci.mjs --list`). `scripts/lib/plugins.mjs` is the **single source of truth**: a `PLUGINS` array of descriptors, each declaring paths + capabilities. **Adding a plugin = adding one descriptor** — no edits to `ci.mjs`/`release.mjs`.
 
-| Descriptor field | Meaning |
-|---|---|
-| `name` | marketplace + tag identity (`claude plugin tag` → `<name>--v<ver>`) |
-| `root` | plugin dir under the repo (`plugins/<name>`) |
-| `skills` | skills root, or `null` (skills-only checks self-skip when absent) |
-| `agents` | agents root, or `null` (agents guard+score run only when set) |
-| `codex` | `true` when a `.codex-plugin/` mirror + Codex marketplace entry ship |
-| `selftest` | path to a runnable self-test, or `null` |
-| `ciLane` | required pull-request shard ownership: `core` for every plugin. With `root`, this is the changed-path → shard mapping the PR matrix resolves against; `repo` is the always-on repo-wide shard and no plugin may claim it |
-| `extraJson` | extra JSON configs to validate (hooks/mcp/etc.) |
-| `authorChecks` | ordered repository author suites owned by the plugin (`idempotency` for Docks; `plan-reviewer`, which selects only the `plan-cli.mjs` helper smoke, for Docks and Plan Lifecycle; `[]` otherwise) |
-| `releaseContracts` | ordered production release-state/evidence contract tests owned by the plugin (`[]` when absent) |
-| `sourceChecks` | ordered source/process/smoke invocations owned by the plugin; each `{ path, args }` (`[]` when absent) |
-| `transformGuard` | run `transform-guard.mjs` (curated transformers) |
-| `release` | Closed, data-only release policy. Every plugin declares exactly `{ kind: 'generic', install }`. No callbacks, commands, safety gates, or ordering belong in descriptors. |
+The `Fields:` header comment in `scripts/lib/plugins.mjs` defines every descriptor field (verify: `sed -n '/^\/\/ Fields:/,/^import/p' scripts/lib/plugins.mjs`). Update that comment in the same change that adds or changes a field.
 
-`lib/plugin-release.mjs` owns ordinary release ordering behind `runGenericPluginRelease({ argv, repo, plugins, io })`. Its IO value is an exact closed adapter that carries sixteen filesystem, Git, Claude, GitHub, selected-CI, and logging operations. `release.mjs` composes the production operations. Descriptors remain inert policy data. The fifteenth operation, `wouldStageChange`, answers whether `git add` of release bytes would stage anything different from HEAD. Production hashes the proposed bytes with `git hash-object --path <file> --stdin`. It compares that hash with `git rev-parse --quiet --verify HEAD:<path>`. `--path` applies the same clean filters that `git add` applies. The probe never passes `-w`, so it never writes an object. The sixteenth operation, `tagPublished`, answers whether a release tag is already published: it checks the local ref, then asks origin, and refuses to guess when origin is unreachable. It is an adapter operation because reaching origin is IO. A caller that cannot stub it puts the network inside every test of the surrounding decision. The engine validates every policy before touching IO. It enforces dry-run no-mutation itself rather than trusting an adapter.
+`lib/plugin-release.mjs` owns ordinary release ordering behind `runGenericPluginRelease({ argv, repo, plugins, io })`. Its IO value is an exact closed adapter: the `IO_KEYS` list in `lib/plugin-release.mjs` names every filesystem, Git, Claude, GitHub, selected-CI, and logging operation (verify: `grep -n -A20 'const IO_KEYS' scripts/lib/plugin-release.mjs`). `release.mjs` composes the production operations. Descriptors remain inert policy data. The `wouldStageChange` operation answers whether `git add` of release bytes would stage anything different from HEAD. Production hashes the proposed bytes with `git hash-object --path <file> --stdin`. It compares that hash with `git rev-parse --quiet --verify HEAD:<path>`. `--path` applies the same clean filters that `git add` applies. The probe never passes `-w`, so it never writes an object. The `tagPublished` operation answers whether a release tag is already published: it checks the local ref, then asks origin, and refuses to guess when origin is unreachable. It is an adapter operation because reaching origin is IO. A caller that cannot stub it puts the network inside every test of the surrounding decision. The engine validates every policy before touching IO. It enforces dry-run no-mutation itself rather than trusting an adapter.
 
 `ci.mjs` is **registry-driven**. A full invocation runs repo-wide checks once (workflow YAML, both marketplace catalogs, tree/guard, durable anchors, author tooling, unit tests, and CI targeting), then selects every present plugin's shell hooks, repository author suites, and capability-driven `gatePlugin` work. `--plugin <name>` skips repo-wide sections and runs only the named plugin's owned author checks, target-derived shell lint, and plugin validation. When plan author checks apply, CI runs only the `scripts/tests/plan-cli.mjs` helper smoke. Trigger-collision checks audit Docks once.
 
-## Pull-request topology
+## Pull-request topology and plan checks
 
-The closed `core` pull-request lane selects plugins, not regression partitions.
-It owns the plan CLI helper smoke, the Docks and
-plan-lifecycle plugin gates, the Docks trigger-collision audit, and JavaScript
-quality. The always-on `repo` shard owns the repo-wide checks.
+Lane ownership, the shard set, and fail-open resolution are CI-workflow facts
+owned by `.github/AGENTS.md` (PR topology). The changed-path → shard mapping is
+`root` + `ciLane` in `scripts/lib/plugins.mjs`.
 
-The lane performs the frozen Bun install and materializes the pinned
-`claude-code` binary. Its result feeds the single authoritative
-`validate (scripts/ci.mjs)` join; manual dispatch remains one untargeted full
-gate, and a release tag remains one strictly resolved `--plugin <name>` gate.
-There is no regression partition, jobs-cap plumbing, mutation shard, or
-artifact handoff.
-
-Clear, low-risk work describable as one concrete diff with one bounded
-acceptance path goes straight to implementation. Canonical plans are reserved
-for multi-commit work, scheduling, cold handoff, unresolved approaches,
-cross-subsystem or public-contract changes, destructive or security-sensitive
-work, external effects, or an explicit plan request.
+The root `AGENTS.md` (Plans) decides when a change needs a canonical plan.
 
 The live plan author suite runs the helper smoke in `scripts/tests/plan-cli.mjs`
 against the shipped
 `plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs`.
-The canonical v4 contract lives in
+The canonical issue-body contract lives in
 `plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md`.
 
-The optional plan queue keeps issue numbers in `docs/PLAN-QUEUE.md`. It is an
-input to `plan.mjs next`, not a separate validator. The queue is only a discovery
-and prioritization view and grants no lifecycle or execution authority. These
-checks run inside the existing plan orchestration section, so the timing
-phase census is unchanged.
+`docs/PLAN-QUEUE.md` is a human note; `docs/AGENTS.md` owns its rules.
 
 ### Adding plugin N+1 (the whole checklist — no orchestrator edits)
 
-1. **Payload** at `plugins/<name>/` — `.claude-plugin/plugin.json` (+ `.codex-plugin/plugin.json` when it ships to Codex) and its `skills/`/`agents/`/`hooks/` dirs.
+1. **Payload** at `plugins/<name>/` — `plugins/<name>/.claude-plugin/plugin.json` (+ `plugins/<name>/.codex-plugin/plugin.json` when it ships to Codex) and its `skills/`/`agents/`/`hooks/` dirs.
 2. **One descriptor** appended to `PLUGINS` in `lib/plugins.mjs` — assign required `ciLane` ownership (`core`; a diff under `root` then selects that shard), declare only capabilities that exist (`agents`/`selftest` take `null`, `extraJson`/`authorChecks`/`releaseContracts` use `[]` when absent), and declare the exact data-only `release` policy.
 3. **Two catalog entries**: `.claude-plugin/marketplace.json` (name/source/version — version in lockstep with both manifests) and `.agents/plugins/marketplace.json` (local-source + policy block) for Codex.
-4. **Optional context node** (`plugins/<name>/AGENTS.md` + one-line `CLAUDE.md`) when the plugin carries conventions of its own — `tree/guard` enforces the pair; the durable-anchors guard scans it.
+4. **Optional context node** (a single `plugins/<name>/AGENTS.md`) when the plugin carries conventions of its own — `tree/guard` enforces the node contract; the durable-anchors guard scans it.
 5. Verify: `node scripts/ci.mjs --list` shows the plugin and full `node scripts/ci.mjs` is green. Every plugin uses the generic positional release command.
 
 Plugin behavior stays registry-driven: extend descriptor capabilities rather than adding orchestrator branches.
@@ -85,16 +55,21 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `skills/transform-guard.mjs` | curated transformers carry a preservation `<constraint>` + `## Verification`; pending-allowlist warns, regression fails | pass/warn |
 | `skills/no-author-scripts.mjs` | shipped SKILL.md + references/ + agent bodies must not name docks author scripts — incl. the `.mjs` entry points `scripts/ci.mjs`/`scripts/release.mjs` (verify: plant one in a non-allowlisted body → the guard must fail naming it; revert); allowlist: `scaffold`, `write-skill`. Takes `<skills-dir> [agents-dir]` args so `gatePlugin` scopes it per-plugin (agents scanned only when given) | pass/fail |
 | `skills/durable-anchors.mjs` | repo-wide (runs once): long-lived docs — every shipped skill body/reference + every AGENTS.md node outside docs/plans/ (point-in-time by contract) — carry no LIVE `file:line` anchors (a `path:NN` whose path resolves in the repo fails; fictional example paths pass by non-resolution). Fix = the durable grammar: `` `path` — `symbol` — purpose (verify: `command`) `` | pass/fail |
-| `agents/guard.mjs` | agent frontmatter, "Use when…"/"Not…" CSO, **no `model` key** (any literal — `inherit` included — reaches omp as a model ID and kills the spawn; Claude defaults to `inherit` anyway) | pass/fail |
-| `agents/score.mjs` | agent quality (max 15, reachable in any harness) | per-file ≥14 with one genuine point of slack; total = N×14 |
-| `tree/guard.mjs` | context-tree node pairs (AGENTS.md + one-line CLAUDE.md, ≤500) | pass/fail |
+| `agents/guard.mjs` | agent frontmatter, "Use when…"/"Not…" CSO, **no `model` key** (reason: root `AGENTS.md` (Authoring agents)) | pass/fail |
+| `agents/score.mjs` | agent quality (rubric maximum defined in the script) | per-file floor from `scoring.json` (verify: `node scripts/config/read-floor.mjs agents`); total = N × per-file floor |
+| `tree/guard.mjs` | context-tree nodes (AGENTS.md ≤500; no legacy CLAUDE.md; the root AGENTS.md routing table names every nested node and every row resolves; every backticked repo pointer — a `/` path whose first segment is a tracked top-level dir — resolves from the node's folder or the repo root; this table lists every `scripts/**/*.mjs` outside `lib/`, `tests/unit/`, and the non-validator entry points `release.mjs`/`ci-target.mjs`/`capture-tdd-red.mjs`, and every first-column `.mjs` path resolves from `scripts/` or the repo root) | pass/fail |
+| `plans/no-bespoke-gates.mjs` | shipped code carries no bespoke per-plan verification gate (an exported findings-accumulator that can pass vacuously) | pass/fail |
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
-| `tests/plan-cli.mjs` | smoke-tests the shipped v4 plan helper | pass/fail |
+| `tests/plan-cli.mjs` | smoke-tests the shipped plan helper (`plan.mjs`) | pass/fail |
 | `tests/ci-observability.mjs` | validates command timing records, wall-time reconstruction, and CI host metadata | pass/fail |
 | `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets | pass/fail |
+| `tests/author-tooling.mjs` | author-tool contracts: Biome rejects a syntax defect, combined skill validation, tree/guard operational failures, skills-guard spawn failure | pass/fail |
+| `tests/ci-plugin-targeting.mjs` | CI targeting and release contracts: shard selection, `ci.yml` trigger block, release module and dry-run safety (`--unit` in the gate) | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh`, via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |
+
+`tree/guard.mjs` compares this table with the scripts on disk: a validator script without a row fails, and a row whose script is missing fails. A `lib/` module may have a row but does not need one.
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package installed by `bun install --frozen-lockfile`.
 
@@ -113,7 +88,7 @@ private spool. Failed tasks retain complete stdout and stderr in an owned
 mode-`0700` temporary directory with mode-`0600` files, and print both exact
 paths before the gate reports failure.
 
-**Single-source scorer:** the 16-pt skill scorer lives ONCE, in the bundled `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs` (`score [--per-file]`). The kit's `ci.mjs` scores with that same shipped file over `plugins/docks/skills`, and consumers run it on their own skills (`validate` / `score`) — one rubric, no author-side mirror, no sync contract. Bundled `scripts/` aren't content-hashed; bump write-skill's `metadata.updated` when the rubric changes.
+**Single-source scorer:** the skill scorer lives ONCE, in the bundled `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs` (`score [--per-file]`; the script defines the rubric maximum). The kit's `ci.mjs` scores with that same shipped file over `plugins/docks/skills`, and consumers run it on their own skills (`validate` / `score`) — one rubric, no author-side mirror, no sync contract. Bundled `scripts/` aren't content-hashed; bump write-skill's `metadata.updated` when the rubric changes.
 
 `--timings-json` is observational. It changes no gate selection and no pass/fail
 status. The report includes `commands`, with one closed `CommandRecordV1` per
@@ -133,8 +108,8 @@ suite owner per normative contract. The validator computes discovered,
 registered, selected, and executed sets. It rejects unknown, duplicate, expired,
 ignored, or zero-selected entries. It never chooses tests or authorises
 deletions. Run the focused validators through the `test:observability` and
-`test:contracts` package scripts. Both validators run inside the gate's existing
-repo-wide guards section, so the phase census is unchanged.
+`test:contracts` package scripts. Both validators run inside the gate's
+repo-wide guards section.
 
 When one suite has multiple gate-selected cases, its selector joins the sorted case values with `|`, and
 `expected_min` records the number of distinct invocations.
@@ -163,7 +138,7 @@ For example, an 8 GB, 6-core swapless host with tmpfs `/tmp` prints
 ## Edit → release workflow
 
 1. Edit files inside the target plugin (`plugins/<name>/{skills,agents,…}/`).
-2. Run focused checks while iterating. Once the relevant implementation tree is final, use `node scripts/ci.mjs --plugin <name>` when exactly one plugin and its descriptor-owned tooling changed; use full `node scripts/ci.mjs` only for repo-wide, shared multi-plugin, registry/CI-topology, or multi-plugin changes. Plan-only lifecycle commits may reuse a green result while the validated implementation bytes remain unchanged.
+2. Run focused checks while iterating. Once the relevant implementation tree is final, run the smallest authoritative gate the root `AGENTS.md` (Tool-agnostic rules) names.
 3. Local Claude Code test (no push): `claude --plugin-dir ./plugins/<name>` (then `/reload-plugins`).
 4. PR to main → PR-CI gates the merge.
 5. After merge, release **one plugin** with the generic positional command: `node scripts/release.mjs [--plugin <name>] patch|minor|major|<X.Y.Z>` (`--dry-run` previews).
@@ -172,7 +147,7 @@ For example, an 8 GB, 6-core swapless host with tmpfs `/tmp` prints
 
 ```text
 final implementation tree → node scripts/ci.mjs --plugin <name>   (LAYER 1 — local, selected plugin)
-     → node scripts/release.mjs [--plugin <docks|plan-lifecycle>] <bump>   (one plugin)
+     → node scripts/release.mjs [--plugin <name>] <bump>   (one plugin)
         ├── runs ci.mjs -q --plugin <name> as the selected-plugin preflight
         ├── bumps THIS plugin's plugin.json (+ codex mirror) + its marketplace entry
         ├── commits + pushes  (chore(release): <name> v<version>)
@@ -184,9 +159,9 @@ final implementation tree → node scripts/ci.mjs --plugin <name>   (LAYER 1 —
 
 The release tag, not the manifest number, is the fact that a version was released. When manifests are already at this version, a re-cut stages nothing. The release tags existing HEAD instead of creating a commit. A dry run consults the clean-tree gate. On a dirty tree, it reports the refusal instead of forecasting a landing it cannot predict.
 
-The positional flow above is preserved for docks and plan-lifecycle, including its existing bump resolution, local and tag CI gates, commit/push/tag behavior, release notes, and read-only dry run.
+Every plugin uses this positional flow: bump resolution, local and tag CI gates, commit/push/tag, release notes, and a read-only dry run.
 
-GitHub pull requests resolve their diff into a shard set and run `node scripts/ci.mjs --lane <shard>` for each, then require the unchanged `validate` join status. `resolve-shards` maps changed paths onto plugin roots from `lib/plugins.mjs` and emits the matrix; the `repo` shard always runs, `core` runs when the diff implicates a plugin it owns, and every resolution failure — unresolvable base, empty diff, non-pull-request event, or a path outside every plugin root — falls open to both shards. `workflow_dispatch` runs one untargeted `node scripts/ci.mjs` full invocation. A release-tag push strictly resolves the tag's plugin identity, rejects malformed or unknown targets, and runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate; PR sharding never touches that path. The `repo` shard owns the repo-wide workflow, standalone catalog, tree/durable-anchor, and CI-targeting sections, so a plugin shard runs only the selected plugins' owned author checks, shell-hook lint, and plugin gates, including marketplace/version coherence. Targeted `--plugin` CI skips the repo-wide sections entirely. The Bun dependency cache only reduces repeated download work. Its contents are never validation evidence: the frozen lockfile, release preflight, and `ci.mjs` result remain authoritative.
+Pull-request sharding, manual dispatch, and tag-push CI behavior live in `.github/AGENTS.md`. PR sharding never touches the release path: tag CI runs the repo lane, then `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate (`.github/AGENTS.md` (Trigger model)), and targeted `--plugin` runs skip the repo-wide sections.
 
 <constraint>
 Before `node scripts/release.mjs`, run the smallest authoritative gate for the final implementation tree: `node scripts/ci.mjs --plugin <name>` for one plugin and its descriptor-owned tooling, otherwise full `node scripts/ci.mjs`. The selected release path reruns the same plugin gate before mutation, and tag CI reruns it authoritatively after push.
@@ -194,4 +169,6 @@ Before `node scripts/release.mjs`, run the smallest authoritative gate for the f
 
 ## Versioning
 
-Versions are **per-plugin and independent** — `docks` and `plan-lifecycle` bump separately, and the Claude marketplace catalog holds one entry per plugin (matched by `name`). Within a single plugin, both its `plugin.json`s (`.claude-plugin/`, `.codex-plugin/`) and its marketplace entry carry a `version` that must agree — `release.mjs` keeps that plugin's triple in lockstep, and `ci.mjs`'s per-plugin gate fails on disagreement; `claude plugin tag` validates it too. The Codex marketplace catalog has no plugin version field but is still validated for JSON shape. Without an explicit plugin `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `<name>--v<X.Y.Z>`, with the double-dash separator from `claude plugin tag`.
+Versions are **per-plugin and independent** — each plugin bumps separately, and the Claude marketplace catalog holds one entry per plugin (matched by `name`). Within a single plugin, both its `plugin.json`s (`.claude-plugin/`, `.codex-plugin/`) and its marketplace entry carry a `version` that must agree — `release.mjs` keeps that plugin's triple in lockstep, and `ci.mjs`'s per-plugin gate fails on disagreement; `claude plugin tag` validates it too (verify: bump one manifest's version alone → `node scripts/ci.mjs --plugin <name>` must fail on the disagreement; revert). The Codex marketplace catalog has no plugin version field but is still validated for JSON shape. Without an explicit plugin `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `<name>--v<X.Y.Z>`, with the double-dash separator from `claude plugin tag`.
+
+Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.

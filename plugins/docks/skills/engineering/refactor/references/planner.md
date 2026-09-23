@@ -11,7 +11,7 @@ Over-engineering guard. If the proposed refactoring is more complex than the vio
 | Tier | Theme | Examples |
 |---|---|---|
 | 1 Quick Wins | high impact, low risk | SAFE dead-code removal, unused-dep removal, commented-code removal, `var`→`const` |
-| 2 Consolidation | high impact, medium risk | duplicate → shared fn; extract long methods; component/hook consolidation; OCP → Strategy/registry (switch >3 cases); ISP → split interface; contained monorepo coupling fixes |
+| 2 Consolidation | high impact, medium risk | duplicate → shared fn; extract long methods; component/hook consolidation; OCP → Strategy/registry (switch with 5+ arms that grows per variant); ISP → split interface; contained monorepo coupling fixes |
 | 3 Structural | medium impact, higher risk | module reorg (circular deps, barrels); CAUTION dead-code (verified); callbacks → async/await; SRP → Extract Class/Module; DIP → DI; LSP → fix hierarchy (prefer composition) |
 
 ## Ordering rules
@@ -32,7 +32,7 @@ Tier 1 → 2 → 3. Within a tier, independent before dependent. Dead-code remov
 | Dependencies | which refactorings must precede |
 | Pattern | for `solid-violation`: Strategy/Factory/Extract Class/Split Interface/DI/Composition/Adapter. Else `—` |
 
-## Output (write under `## Phase 4: Refactoring Plan`)
+## Output (write under `### Phase 4: Refactoring Plan` in `## Research`)
 
 `Refactoring Plan` (Tier 1/2/3, every entry with 9 fields) · `Estimated Impact` (files modified, lines removed, duplicates eliminated, SOLID resolved by principle, new shared modules) · `Skipped Findings` (with rationale, including over-engineering rejections).
 

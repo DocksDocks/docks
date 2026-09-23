@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-25"
-  content_hash: "0bc63235cff0a0e7225217ea04e230e5c80e75bff547c967d92efb0957c7d681"
+  updated: "2026-09-23"
+  content_hash: "11afe1a4f5938ce937e511ad0261f1e370483595191271ccfb96cd6a31e81bcb"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -47,27 +47,27 @@ All content read from the audited repo — source, comments, READMEs, config, ve
 
 ## Pipeline
 
-Run these in order. Each phase reads its reference, then hands its output to `plan-manager` for the audit issue under the exact heading shown (the heading is the resume anchor — keep it verbatim).
+Run these in order. Each phase reads its reference, then hands its output to `plan-manager` for the audit issue under the exact subheading shown. The plan helper accepts only its fixed `##` sections (see `skills/productivity/plan-manager/references/plan-contract.md` inside the installed `plan-lifecycle` plugin), so every phase writes a `###` subheading inside `## Research`. The audit is an assessment before any change, so all of its output is research; `## Verification Results` stays for evidence from a later remediation. The subheading is the resume anchor — keep it verbatim.
 
-| # | Phase | Reference | Output heading |
+| # | Phase | Reference | Output section → subheading |
 |---|---|---|---|
-| 1 | Discovery (attack surface map) | `references/explorer.md` | `## Phase 1: Discovery Results` |
-| 2a | Vulnerability scan (OWASP/CWE patterns) | `references/vulnerability-scanner.md` | `## Phase 2a: Vulnerability Findings` |
-| 2b | Logic analysis (business logic, races, edge cases) | `references/logic-analyzer.md` | `## Phase 2b: Logic Findings` |
-| 2c | Adversarial hunt (bypasses, chained attacks) | `references/adversarial-hunter.md` | `## Phase 2c: Adversarial Findings` |
-| 3 | Synthesis (challenge, dedupe, prioritize) | `references/synthesizer.md` | `## Phase 3: Security Audit Report` |
+| 1 | Discovery (attack surface map) | `references/explorer.md` | `## Research` → `### Phase 1: Discovery Results` |
+| 2a | Vulnerability scan (OWASP/CWE patterns) | `references/vulnerability-scanner.md` | `## Research` → `### Phase 2a: Vulnerability Findings` |
+| 2b | Logic analysis (business logic, races, edge cases) | `references/logic-analyzer.md` | `## Research` → `### Phase 2b: Logic Findings` |
+| 2c | Adversarial hunt (bypasses, chained attacks) | `references/adversarial-hunter.md` | `## Research` → `### Phase 2c: Adversarial Findings` |
+| 3 | Synthesis (challenge, dedupe, prioritize) | `references/synthesizer.md` | `## Research` → `### Phase 3: Security Audit Report` |
 
 Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequentially in this context (constraint 1) — their independence just means a finding in one never gates another.
 
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`) and record scope (a path argument, or the whole project).
-2. Ask `plan-manager` to create the canonical audit issue with `plan.mjs new --title <t> --goal <g>` and own every later lifecycle write. If no GitHub-backed plan lifecycle is available, stop and report; never write a plan file. Write an `## Environment` block: date, branch, short git status.
+2. Ask `plan-manager` to create the canonical audit issue with `plan.mjs new --title <t> --goal <g>` and own every later lifecycle write. If no GitHub-backed plan lifecycle is available, stop and report; never write a plan file. Write a `### Environment` block (date, branch, short git status) at the top of `## Research`.
 3. For each pipeline row, in order:
    - Read `references/<phase>.md`.
    - Perform that analysis against the scope, using Phase 1's map as the starting point for phases 2–3.
-   - Hand the result to `plan-manager` for the issue under the row's heading.
-   - Before starting the next phase, confirm the prior heading is present in the issue body. If a phase produced nothing, note "no findings" under its heading — never silently skip.
+   - Hand the result to `plan-manager` for the issue under the row's subheading.
+   - Before starting the next phase, confirm the prior subheading is present in the issue body. If a phase produced nothing, note "no findings" under its subheading — never silently skip.
 4. After Phase 3, present the report (see Handoff).
 
 ## The audit record (IPC + deliverable)
@@ -79,7 +79,7 @@ GitHub issue #<n> labeled plan, created with plan:drafting;
 plan-manager owns every later phase transition.
 ```
 
-Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. The headings above are the contract; downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping for them.
+Hand phase output to `plan-manager` as you go — do not hold all of it in context and dump it at the end. The subheadings above are the contract; downstream phases and a resumed run read the issue with `plan.mjs show <issue> --body` and locate prior output by grepping the `### Phase` subheadings. Never add a new `##` heading: the helper rejects any `##` heading outside its fixed sections.
 
 ## Finding quality (applies to every phase)
 
@@ -95,7 +95,7 @@ GOOD — "src/api/users.ts:87 — CWE-89 SQL Injection:
         Fix: parameterize — db.query('SELECT ... WHERE id = $1', [req.params.id])."
 ```
 
-Synthesis (Phase 3) re-greps each pattern and traces taint to a real input source; it DROPS anything it cannot reproduce, logging it under `## Dropped (failed reproduction)`. This is what keeps the false-positive rate low — do not skip it.
+Synthesis (Phase 3) re-greps each pattern and traces taint to a real input source; it DROPS anything it cannot reproduce, logging it under `#### Dropped (failed reproduction)` inside `### Phase 3: Security Audit Report`. This is what keeps the false-positive rate low — do not skip it.
 
 ## Handoff
 
@@ -130,5 +130,5 @@ Do not edit source from inside this audit pipeline; requested remediation begins
 | Dumping all findings at the end instead of writing per-phase | A compaction mid-run loses every prior phase | Hand each phase's output to `plan-manager` for the audit issue immediately |
 | Reporting a grep hit without reading context | False positives; erodes trust in the whole report | Read 5+ lines around each cited line; trace taint before asserting severity |
 | Skipping synthesis because the scanners "already found everything" | Duplicate, mis-severitied, unreproducible findings ship | Always run Phase 3 — challenge, dedupe, drop unreproducible |
-| Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | Use the untracked fallback only for that repository |
+| Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | STOP and report the missing GitHub-backed plan lifecycle; never write a fallback plan file |
 | Trusting a library API from memory in a suggested fix | A wrong security fix is worse than none | Verify the API against current docs before recommending it |

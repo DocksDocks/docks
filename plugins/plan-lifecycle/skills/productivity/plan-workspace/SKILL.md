@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-09"
-  content_hash: "60059d6b6efaa3cdea571e4906546d6d3cc53e198077506cc89f5f29328cc9e9"
+  updated: "2026-09-23"
+  content_hash: "33e947296941bcf0ab2a82e3a7286193a4c9a470d74328f8acc95e17f0998d7d"
 ---
 
 # Plans Workspace
@@ -54,6 +54,14 @@ Legacy classification takes precedence over greenfield. Labels are not a
 bootstrap prerequisite: `new` creates the reserved labels when a plan is filed.
 Do not create a queue. Existing project queues remain outside this lifecycle.
 
+A legacy `docs/CLAUDE.md` is a second home for instructions. If it holds only
+`@AGENTS.md`, it is redundant generated scaffolding: report it and propose its
+removal. If it holds other content, report it as AMBIGUOUS_CUSTOM and leave it
+in place. A `CLAUDE.md` without an `@AGENTS.md` import makes Claude read it
+instead of `AGENTS.md`. A root `CLAUDE.md`, `.claude/CLAUDE.md`, or
+`CLAUDE.local.md` without that import hides every `AGENTS.md` below it, so the
+routing this skill writes would not load: report each one; do not remove it here.
+
 Before mutation, report each target, proposed action, and observed reason.
 For audit, that report is final.
 
@@ -64,8 +72,13 @@ For audit, that report is final.
    [`references/plan-md-template.md`](references/plan-md-template.md) into
    `docs/PLAN.md`. It is a short pointer to the canonical contract.
 3. Add routing to `docs/AGENTS.md` that tells agents to read `docs/PLAN.md`
-   before plan work. Preserve unrelated documentation rules. Write
-   `docs/CLAUDE.md` as `@AGENTS.md` with a trailing newline.
+   before plan work. Preserve unrelated documentation rules. Never create
+   `docs/CLAUDE.md`; Claude Code reads `docs/AGENTS.md` natively. Whether you
+   create `docs/AGENTS.md` or add routing to an existing one, make sure it
+   carries this line, and add it at the end if missing: "Pointers here name
+   concepts, not coordinates — if a path or symbol moved, trust the stated
+   purpose and re-locate it (grep the symbol) before acting." If the root
+   `AGENTS.md` has a node table, add a `docs/AGENTS.md` row to it.
 4. Add the root Plans section below without changing unrelated rules.
 5. Seed only missing Codex reviewer files from
    [`references/codex-agent-templates.md`](references/codex-agent-templates.md).
@@ -85,13 +98,16 @@ stops migration rather than becoming an inferred contract.
 
 Explicit refresh repairs only recognized stale generated surfaces. Reclassify
 before writing. CURRENT remains a no-op. Refresh never edits issue bodies.
+Migration and refresh delete a legacy `docs/CLAUDE.md` only when it holds only
+`@AGENTS.md`, and only after the pre-mutation report and user confirmation.
 
 ## Generated root Plans section
 
 ```markdown
 ## Plans
 
-Read `docs/PLAN.md` before plan work. The installed `plan-lifecycle` plugin's
+Read `docs/PLAN.md` before plan work; `docs/AGENTS.md` holds the docs-folder
+rules. The installed `plan-lifecycle` plugin's
 `plan-manager/references/plan-contract.md` is the canonical contract.
 Use `plan-workspace` for setup, main-context `plan-manager` for the six phases,
 and read-only `plan-reviewer` and `code-reviewer` wrappers for review.
@@ -102,10 +118,23 @@ Plan issues are the live records. Leave `docs/plans/finished/` frozen.
 
 ## Verification
 
-Check each changed section: standard pointer, docs routing, Claude shim, root
-routing, and both reviewer wrappers. If generated content shrinks, account for
-each removed section in the canonical reference or record why it was obsolete.
+Check each changed section: standard pointer, docs routing, absence of a
+legacy `docs/CLAUDE.md`, root routing, and both reviewer wrappers. If generated
+content shrinks, account for each removed section in the canonical reference or
+record why it was obsolete.
 Do not discard project-owned rules. Verify links resolve in the installed plugin.
+
+Run these checks from the repository root. Each must print the expected result:
+
+```bash
+test -s docs/PLAN.md && echo "PLAN.md present"
+grep -n 'docs/PLAN.md' docs/AGENTS.md          # docs routing
+grep -n 'docs/AGENTS.md' AGENTS.md             # root routes to the docs node
+grep -n '^## Plans' AGENTS.md                  # root Plans section
+grep -c 'Pointers here name concepts' docs/AGENTS.md   # 1 or more
+ls .codex/agents/plan-reviewer.toml .codex/agents/code-reviewer.toml
+find . \( -name CLAUDE.md -o -name CLAUDE.local.md \) -not -path './.git/*' -not -path '*/node_modules/*'   # no output
+```
 
 For migration, confirm each issue uses a user-restated title and goal, and
 read back its drafting state. Confirm no operation touched or inventoried
