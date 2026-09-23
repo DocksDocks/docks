@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-09-23"
-  content_hash: "e331b6f8bbc50ef32546958e92f3f23efeae76b8a4115143ad162e924176f530"
+  content_hash: "f1e3405c451c110a30aced1b75e29643a54bdb7bc3dfa5e37cbb44b957e919d0"
 ---
 
 # Agent-First Setup
@@ -25,7 +25,7 @@ Delegate, do not re-implement. For Step 1 and Step 2, load the named skill and f
 </constraint>
 
 <constraint>
-Every write stays behind the approval gate of the skill that owns it. When that skill says to print a proposal and end the turn, end the turn; resume this workflow only after the user replies. This skill adds no writes of its own. `audit` mode never writes: it runs Step 0, the owning skills' read-only modes, and Step 3, then reports. Step 3 reports findings; it never auto-fixes them.
+Every write stays behind the approval gate of the skill that owns it. When that skill says to print a proposal and end the turn, print the proposal and ask for approval with the current harness's question tool (see "Asking the user"); if the harness has no such tool, end the turn. Resume this workflow only after the user answers. This skill adds no writes of its own. `audit` mode never writes: it runs Step 0, the owning skills' read-only modes, and Step 3, then reports. Step 3 reports findings; it never auto-fixes them.
 </constraint>
 
 ## Modes
@@ -34,6 +34,19 @@ Every write stays behind the approval gate of the skill that owns it. When that 
 |---|---|---|
 | `agent-first-setup` (default) | Step 0 → Step 1 → Step 2 → Step 3 → Step 4 | only through the owning skills' approval gates |
 | `agent-first-setup audit` | Step 0 → read-only detection of Step 1 → `context-tree audit` → Step 3 → Step 4 | never |
+
+## Asking the user
+
+Ask every question through the question tool of the harness that runs this session. This includes approval gates, owner choices, and missing build, test, or lint commands. The tool blocks until the user answers and records the answer in the transcript. A question in plain reply text does neither.
+
+| Harness | Question tool |
+|---|---|
+| Oh My Pi (omp) | `ask` |
+| Claude Code | `AskUserQuestion` |
+| Codex | `request_user_input` (not in every Codex mode) |
+| OpenCode | `question` |
+
+Use the tool that your harness registers, even when it is not in this table. Put all open questions for one gate into one call. If no question tool is registered (for example, in a headless or print-mode run), do not invent a call: print the questions, take no write, and end the turn.
 
 ## When to Use
 
@@ -211,8 +224,12 @@ Below the table, list: files written by Step 1 and Step 2 (from their reports), 
 ```text
 BAD  — Step 1 copies the CLAUDE.md classification rules into this run and
        splits the file without the owning skill's approval table.
-GOOD — Load multi-tool-bridge, print its proposal table, end the turn, and
-       resume here after the user approves.
+GOOD — Load multi-tool-bridge, print its proposal table, ask for approval
+       with the harness question tool (omp `ask`, Claude Code
+       `AskUserQuestion`), and resume here after the user approves.
+
+BAD  — "Approve these changes? (yes/no)" as plain reply text.
+GOOD — The same question through the harness question tool, one call per gate.
 
 BAD  — C5 reports a line anchor, so the agent rewrites the node on the spot.
 GOOD — Report it as FINDING with the fix owner; context-tree refresh makes
