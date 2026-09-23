@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: generative-skill
   updated: "2026-09-23"
-  content_hash: "cf66172b3aa495791d6ba11b310f9c7e872bf88656648aa9810986ac11a738ca"
+  content_hash: "2aff9f473a5d6a4437458f75d76aed36316c0254bb982992aa61cfb0b0ec3d87"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -19,7 +19,7 @@ metadata:
 </constraint>
 
 <constraint>
-**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then ask for approval with the harness question tool (omp `ask`; Claude Code `AskUserQuestion`; Codex `request_user_input`, not in every mode; OpenCode `question`; else the tool the harness registers). Do not call Write/Edit until the user answers. Silence is not consent; an ambiguous answer re-shows the proposal. No question tool (headless, print mode)? Print the question as your final message and end the turn; do not invent a tool call. A plain-text "Approve?" in a reply is not a gate. Do NOT call `ExitPlanMode` (Claude-only).
+**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then ask for approval with the harness question tool (omp `ask`; Claude Code `AskUserQuestion`; Codex `request_user_input`, not in every mode; OpenCode `question`; else the tool the harness registers). Outside Codex Plan mode, the call can return without a user answer; an empty or default answer is not approval, so write nothing and end the turn. Do not call Write/Edit until the user answers. Silence is not consent; an ambiguous answer re-shows the proposal. No question tool (headless, print mode)? Print the question as your final message and end the turn; do not invent a tool call. A plain-text "Approve?" in a reply is not a gate. Do NOT call `ExitPlanMode` (Claude-only).
 </constraint>
 
 <constraint>
