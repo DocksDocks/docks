@@ -5,7 +5,7 @@
 // and a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md.
 // The root AGENTS.md routing table (rows naming `<dir>/AGENTS.md`, or `@<dir>/AGENTS.md`)
 // must name every nested node, and every row must resolve. Every backticked repo pointer in
-// a node must resolve, and scripts/AGENTS.md's validator table must match scripts on disk.
+// a node must resolve.
 // Usage: tree/guard.mjs [repo-root]
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -136,35 +136,6 @@ for (const dir of dirs) {
     if (fs.existsSync(path.join(dir, target)) || fs.existsSync(path.join(ROOT, target))) continue;
     fail(`${node} — dead pointer \`${token}\``);
   }
-}
-
-// scripts/AGENTS.md validator table: every validator script has a row, every row resolves.
-// lib/ holds shared modules (a lib validator may still have a row); tests/unit/ runs as one
-// suite; the allowlist names entry points that are not validators.
-const NON_VALIDATOR_SCRIPTS = new Set(['release.mjs', 'ci-target.mjs', 'capture-tdd-red.mjs']);
-const scriptsDir = path.join(ROOT, 'scripts');
-const scriptsAgents = path.join(scriptsDir, 'AGENTS.md');
-if (fs.existsSync(scriptsAgents)) {
-  const rows = new Set();
-  for (const line of readTreeFile(scriptsAgents).split('\n')) {
-    const first = line.match(/^\|\s*`([^`\s]+\.mjs)`\s*\|/);
-    if (first) rows.add(first[1]);
-  }
-  const onDisk = [];
-  (function walkScripts(dir) {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, e.name);
-      const rel = path.relative(scriptsDir, full).split(path.sep).join('/');
-      if (e.isDirectory()) {
-        if (e.name !== 'node_modules' && rel !== 'lib' && rel !== 'tests/unit') walkScripts(full);
-      } else if (e.isFile() && e.name.endsWith('.mjs') && !NON_VALIDATOR_SCRIPTS.has(rel)) onDisk.push(rel);
-    }
-  })(scriptsDir);
-  for (const rel of onDisk.sort())
-    if (!rows.has(rel)) fail(`scripts/${rel} — script missing from the scripts/AGENTS.md validator table`);
-  for (const rel of rows)
-    if (!fs.existsSync(path.join(scriptsDir, rel)) && !fs.existsSync(path.join(ROOT, rel)))
-      fail(`scripts/AGENTS.md table row \`${rel}\` — dead row (script missing)`);
 }
 
 if (errors > 0) {
