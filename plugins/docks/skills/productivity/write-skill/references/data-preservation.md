@@ -14,7 +14,7 @@ A split/migration *adds* scaffolding (new headings, `@AGENTS.md` imports, siblin
 2. **Account for every section.** Each source section must end up in some destination, or be **explicitly marked DROP** by the user at the gate. No silent omission.
 3. **Route MIXED content paragraph-by-paragraph.** When a section is part-keep/part-move, split on blank lines and route each paragraph; default the unclassified remainder to **STAY** in the source.
 4. **Show the plan, not just the targets.** The approval gate renders a `Section | Destination | Reason` table — never just a folder/file list. The user cannot catch a lost section they never see.
-5. **Turn-ending approval gate.** There is no runtime "pause" primitive for skills. The only enforceable pause is *ending the turn* (Template B).
+5. **Blocking approval gate.** The pause is a call to the harness question tool; the agent writes nothing until the user answers. If the harness has no question tool, the fallback is to *end the turn* (Template B).
 6. **Two-phase write for relocations.** Write the new destinations first and verify they parse; prune the source **only after** a second confirmation. A halt mid-way then leaves *duplicated* (recoverable) content, never *lost* content.
 7. **Copy verbatim when relocating.** Reformatting (heading level, list markers) is fine; **rewording is not**. Relocation must be content-preserving, not a paraphrase.
 8. **Back up before destructive writes.** `git stash push -u -m "<skill>-pre-<op>-<ISO>"` is a one-command recovery anchor when in a repo.
@@ -37,16 +37,22 @@ Place near the top so it survives the 5,000-token post-compaction re-attachment 
 </constraint>
 ```
 
-## Template B — turn-ending approval gate
+## Template B — blocking approval gate
 
 ```markdown
 <constraint>
-**Approval gate — turn-ending, not a soft pause.** At the "propose" step:
-print the Section→Destination table as your FINAL message and END THE TURN.
-Do NOT call Write/Edit/git-mv/Bash-write until the user replies. Silence is not
-consent; ambiguous replies → re-show the table. The next turn re-enters here.
+**Approval gate — blocking, not a soft pause.** At the "propose" step: print the
+Section→Destination table, then ask for approval with the harness question tool
+(omp `ask`; Claude Code `AskUserQuestion`; Codex `request_user_input`, not in
+every mode; OpenCode `question`; else the tool the harness registers). Batch all
+open questions into one call. No question tool (headless, print mode)? Print the
+question as your FINAL message and end the turn; do not invent a tool call.
+Do NOT call Write/Edit/git-mv/Bash-write until the user answers. Silence is not
+consent; ambiguous answers → re-show the table and ask again.
 </constraint>
 ```
+
+BAD: a plain-text "Approve? yes/no" at the end of a reply that keeps working, or when a question tool exists.
 
 ## Template C — inline verification block (copy into the skill, plain bash)
 

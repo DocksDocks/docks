@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-23"
-  content_hash: "c9b9acc06f95e6536c3317e67375720a234ba0ffa52e60a6c1bb594455f2da46"
+  content_hash: "d949902ebbffb2cf58a24bebb6e5420768447d880f70c539b46ad06b14681832"
 ---
 
 # Fix Workflow
@@ -121,7 +121,7 @@ For each finding, fill in this template before writing any code:
 Normalize upstream findings into these fields before planning. For a `security` finding, map `location` plus `evidence` to **Files/Before**, `remediation` to **After**, `CWE` plus `exploitation` to **Why/Blast radius**, and derive **Test strategy/Revert trigger** from the exploitation path and its narrowest deterministic signal. For a `code-review` line (`SEVERITY / category / locator / defect / fix`), map `locator` plus `defect` to **Files/Before**, `fix` to **After**, `SEVERITY` plus `category` and `defect` to **Why/Blast radius**, and derive **Test strategy/Revert trigger** from the defect's observable behavior.
 
 Route any fix with non-local effects through the `plan-manager` skill (from the `plan-lifecycle` plugin); do not treat the local fix table as approval to bypass that lifecycle.
-Show the user the table grouped by tier. If the plan contains any Tier 2/3 fix, print it as your final message and end the turn — do not call Edit/Write until the user approves (a Tier-1-only plan may proceed directly).
+Show the user the table grouped by tier. If the plan contains any Tier 2/3 fix, ask for approval with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`, or whatever question tool the harness registers). Put all open questions for this plan in one call. Do not call Edit/Write until the user approves. Silence is not consent; an ambiguous answer means show the table again. A plain-text "Approve? yes/no" in the reply is wrong when a question tool exists. If the harness has no question tool (for example, a headless or print-mode run), print the table as your final message and end the turn. Do not invent a tool call. A Tier-1-only plan may proceed directly.
 
 **For finding-type-specific test strategies and revert triggers**, load the matching reference file from the routing table above.
 

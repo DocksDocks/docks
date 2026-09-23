@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-09-23"
-  content_hash: "8697a24ec4b604903b2eead0ed20085215eb86d84fecbbff86dc54472cd139ee"
+  content_hash: "cc2fb9a0de5b99c74d91bf1dd129e945af6f1e5e0210e71776e59e445f03f3ff"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
