@@ -29,8 +29,10 @@ A fenced code block that teaches a BAD example is exempt inside a durable doc.
 
 ## B. One fact, one home
 
-1. Every fact has exactly one owning file. Other files name that file as a repo-root-relative
-   path in backticks (`scripts/AGENTS.md`) and do not restate the fact.
+1. Every fact has exactly one owning file. Other files name that file as a path in backticks
+   (`scripts/AGENTS.md`) and do not restate the fact. A path to another folder is
+   repo-root-relative, so an agent can open it from anywhere. A path inside the doc's own
+   folder may be folder-relative (in `scripts/AGENTS.md`, `tests/idempotency.mjs`).
 2. Use a plain backticked path by default. Use an `@path` import only when the target must
    always be in context: Claude expands `@` imports at load time, so each import costs
    context in every session.
@@ -38,7 +40,9 @@ A fenced code block that teaches a BAD example is exempt inside a durable doc.
 4. A node stays actionable alone. It states the rules an agent needs to edit files in ITS
    folder; the node owns those rules. Facts owned elsewhere (commands defined in another
    folder, repo-wide policy, generated data) are pointers, not copies.
-5. A pointer must resolve. A dead pointer is worse than a stale copy.
+5. A pointer must resolve: resolve it against the doc's own folder first, then the repo root.
+   A dead pointer is worse than a stale copy. A path that names a location in another
+   project (a consumer repo, an upstream repo) is not a pointer; say whose path it is or use a URL.
 
 ```markdown
 BAD  — (in api/AGENTS.md) Run lint with `pnpm lint --max-warnings 0`; the release

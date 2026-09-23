@@ -4,8 +4,8 @@ description: "Use when splitting work into small reviewable/atomic commits, deci
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "976d6d6824383ff2213244f57e58004fc0453c3eb487e5e4c2516aff46ca3f9b"
+  updated: "2026-09-23"
+  content_hash: "7b5fb2ca75a7ab21734bb0f35dfb418f67cf849b8ecd388fd4b6d6e20f0af21f"
 ---
 
 # Commit & PR Discipline
@@ -106,7 +106,7 @@ Closes #482
 
 ### Conventional Commits — where the repo uses them
 
-Current spec: **v1.0.0** (verified 2026-07-05; re-verify: <https://www.conventionalcommits.org>
+Spec: **v1.0.0** (re-verify: <https://www.conventionalcommits.org>
 — the homepage serves the latest version). Format:
 `<type>[optional scope][!]: <description>`, then optional body and footers.
 
@@ -115,10 +115,11 @@ Current spec: **v1.0.0** (verified 2026-07-05; re-verify: <https://www.conventio
 | `feat` | MINOR | new user-facing capability |
 | `fix` | PATCH | bug fix |
 | `feat!` / `fix!` or `BREAKING CHANGE:` footer | MAJOR | breaking API change — `!` after type/scope, or a `BREAKING CHANGE: <description>` footer (both spec-valid) |
-| `build` `chore` `ci` `docs` `style` `refactor` `perf` `test` | none | spec-recommended extras; no version effect unless marked breaking |
+| `build` `chore` `ci` `docs` `style` `refactor` `perf` `test` | none | allowed by the spec, not mandated; this list is what `@commitlint/config-conventional` (Angular convention) recommends; no version effect unless marked breaking |
 
-Footers follow git-trailer form (`Token: value`, hyphens in multi-word tokens —
-`Reviewed-by:`); `BREAKING-CHANGE` is synonymous with `BREAKING CHANGE`.
+Footers follow git-trailer form: `Token: value` or `Token #value` (e.g. `Closes #482`).
+Multi-word tokens use hyphens (`Reviewed-by:`); `BREAKING-CHANGE` is synonymous
+with `BREAKING CHANGE`.
 
 **Adopt the repo's convention, don't impose one.** Detect before writing:
 `git log --oneline -20` — if prefixes are in use, match them (types AND scopes in
@@ -140,12 +141,12 @@ git rebase -i --autosquash <base>   # explicit user confirmation required first
 git push --force-with-lease         # own PR branch; explicit confirmation required
 ```
 
-- `--autosquash` matches on the `fixup!`/`squash!` subject prefix against earlier
-  subjects or the given hash — always create fixups via `--fixup=<sha>`, never by
-  hand-typing `fixup!` (a paraphrased subject won't match).
-- `rebase.autoSquash=true` makes interactive rebases autosquash by default;
-  whether your Git also applies it to non-interactive rebases varies by version
-  (verify: `git rebase -h | grep -i autosquash`, or your installed `git-rebase(1)`).
+- `--autosquash` matches on the `fixup!`/`squash!`/`amend!` subject prefix
+  against earlier subjects or the given hash — always create fixups via
+  `--fixup=<sha>` (or `amend:`/`reword:`), never by hand-typing the prefix (a
+  paraphrased subject won't match).
+- `rebase.autoSquash=true` makes interactive rebases autosquash by default; for a
+  non-interactive rebase, pass `--autosquash` explicitly.
 - After explicit user confirmation, stacked branches may use
   `git rebase --update-refs` to force-update the other branches pointing at
   rebased commits (checked-out worktrees excluded).
@@ -159,10 +160,10 @@ Defer landing them to `plan-manager`, which must obtain fresh explicit user
 approval to "Merge now"; do not apply generic merge, squash, or rebase advice to
 those branches.
 
-GitHub's guidance (verified 2026-07-05; re-verify:
-<https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/getting-started/helping-others-review-your-changes>):
-"small, focused pull requests that fulfill a single purpose" — smaller PRs are
-reviewed faster, hide fewer bugs, and leave a clearer history. Working heuristic
+GitHub's guidance (re-verify:
+<https://docs.github.com/en/pull-requests/concepts/helping-others-review-your-changes>):
+"Small, focused pull requests are easier to review and safer to merge"; when a
+change grows large, split it into smaller PRs "that each serve one purpose". Working heuristic
 (judgment, not a sourced number): if a reviewer can't hold the diff in one
 sitting, or your description needs "also", split.
 
@@ -194,19 +195,20 @@ CI runs, but nobody is summoned.
 | Mechanical noise (rename, format, codegen) buries the behavioral diff | mechanical PR first — near-zero review cost — then the real change |
 | Two reviewers needed for two unrelated areas | one PR per area of ownership |
 | A risky core change + safe periphery | land periphery first; keep the risky diff small and alone |
-| Dependent changes stack up | stacked PRs, each targeting the previous branch; retarget as they merge (`--update-refs` keeps the stack rebased) |
+| Dependent changes stack up | stacked PRs, each targeting the previous branch; retarget as they merge (after explicit user confirmation, `--update-refs` keeps the stack rebased) |
 
 ## Squash vs merge vs rebase
 
-The three GitHub merge methods (verified 2026-07-05; re-verify:
-<https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/about-pull-request-merges>).
-Squash and rebase must be enabled per-repo; follow the repo's configured norm.
+The three GitHub merge methods (re-verify:
+<https://docs.github.com/en/pull-requests/reference/pull-request-merges>).
+Each method, merge commits included, can be allowed or disabled per repo, and a
+merge queue or ruleset can fix the method; follow the repo's configured norm.
 
 | Method | History result | Caveats |
 |---|---|---|
 | Merge commit (default) | all branch commits + a merge commit (`--no-ff`) | history keeps WIP noise unless the branch was curated — pairs with atomic-commit series worth preserving |
 | Squash and merge | one commit on the base branch | default message: single-commit PR → that commit's title+body; multi-commit → PR title + list of subjects (repo-configurable). **Continuing work on the squashed branch re-introduces its commits in the next PR and breeds conflicts** — start a fresh branch after squash-merge |
-| Rebase and merge | branch commits replayed linearly, no merge commit | **always rewrites committer info and SHAs** (unlike local `git rebase`); refused when conflicts exist |
+| Rebase and merge | branch commits replayed linearly, no merge commit | **always updates committer info and creates new SHAs**, even where a local rebase onto an ancestor keeps the committer; drops originally-empty commits; results are unsigned (no signature verification); not offered when GitHub can't rebase safely |
 
 Choosing: curated atomic commits deserve merge-commit or rebase (squash flattens
 the series you built); a messy WIP branch is exactly what squash is for — put the
@@ -231,17 +233,22 @@ required (use the project's CI/validators too, if present):
 
 ```bash
 git log --oneline @{upstream}..     # each subject: imperative, one idea, no "and"
-git rebase -i --exec 'npm test' @{upstream}   # after confirmation; green at every commit
+git rebase --exec '<project build+test+lint>' @{upstream}   # after confirmation; green at every commit
 git diff @{upstream}.. --stat       # size sanity: is this one reviewable unit?
 ```
 
 ## Sources
 
 - Conventional Commits v1.0.0 — <https://www.conventionalcommits.org> (spec version,
-  type/SemVer mapping, `!` and `BREAKING CHANGE` footer; fetched 2026-07-05).
+  type/SemVer mapping, `!` and `BREAKING CHANGE` footer, footer separators).
 - GitHub Docs, "Helping others review your changes" — small/focused/single-purpose,
-  self-review, review-order guidance (fetched 2026-07-05).
-- GitHub Docs, "About pull request merges" — squash default-message behavior,
-  squashed-branch re-inclusion caveat, rebase-merge committer/SHA rewrite (fetched 2026-07-05).
-- `git-rebase(1)` — `--autosquash`, `--fixup=amend:`/`reword:`, `rebase.autoSquash`,
-  `--update-refs` (fetched 2026-07-05; re-verify against your installed Git's man page).
+  self-review, review-order guidance.
+- GitHub Docs, "Pull request merges" and "About merge methods on GitHub" —
+  per-repo method settings, squashed-branch re-inclusion caveat, rebase-merge
+  committer/SHA, empty-commit, and signature caveats.
+- GitHub Docs, "Configuring commit squashing for pull requests" — squash
+  default-message behavior
+  (<https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/configuring-commit-squashing-for-pull-requests>).
+- `git-rebase(1)` — `--autosquash`, `rebase.autoSquash`, `--exec`, `--update-refs`;
+  `git-commit(1)` — `--fixup=amend:`/`reword:` (re-verify against your installed
+  Git's man pages).

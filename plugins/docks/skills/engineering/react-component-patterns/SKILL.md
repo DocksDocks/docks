@@ -10,7 +10,7 @@ paths:
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-23"
-  content_hash: "52ab700e000cc280f5fc3a286e17886a2a53de552e8bc003318d5bdb9a758eeb"
+  content_hash: "313ea19fbbdb16920d0a5f7565289c6fdf48da745ea821b06a3b6930a5b862c5"
 ---
 
 # React Component Patterns
@@ -53,7 +53,7 @@ const filtered = useMemo(() => items.filter(p), [items])
 // or, if cheap: const filtered = items.filter(p)
 ```
 
-The full anti-pattern → replacement table for effects lives in [`references/effects.md`](references/effects.md).
+This is the single home of the derived-state example. The full anti-pattern → replacement table for effects lives in [`references/effects.md`](references/effects.md).
 
 ## Decision Tree
 
@@ -62,8 +62,9 @@ The full anti-pattern → replacement table for effects lives in [`references/ef
 | Writing a `useEffect` or fixing a `react-hooks/*` lint error | `references/effects.md` |
 | "My component re-renders too many times" / "my effect runs twice" | `references/effects.md` |
 | Porting a class component with `componentDidMount` / `componentDidUpdate` | `references/effects.md` |
-| Adding `addEventListener` / `matchMedia` / `IntersectionObserver` / `ResizeObserver` | `references/effects.md` § Category 1 |
-| Adding `setTimeout` / `setInterval` for debouncing | `references/effects.md` § Category 3 |
+| Adding `addEventListener` / `IntersectionObserver` / `ResizeObserver` | `references/effects.md` § 1. Subscribing to a DOM / browser API event |
+| Reading `matchMedia` or other browser state | `references/effects.md` § `useSyncExternalStore` for media queries / browser state |
+| Adding `setTimeout` / `setInterval` for debouncing or polling | `references/effects.md` § Debounced value — one generic hook and § 3. Timers and async work tied to user input |
 | Building a primitive callers will compose differently (Tabs, Dialog, Accordion) | `references/composition.md` § Compound |
 | Existing shadcn/ui, Base UI, Radix, or project-local primitive covers the need | Reuse or extend its exported component; do not create a parallel primitive |
 | Explicitly establishing a new React/Tailwind system with no repository convention | Current shadcn/ui `base-*` style backed by Base UI; route token naming/theme work to `design-tokenization` |
