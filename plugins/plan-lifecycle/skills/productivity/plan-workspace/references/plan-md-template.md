@@ -1,7 +1,7 @@
 # Workspace plan pointer
 
-Copy the terminal fenced block to `docs/PLAN.md`. Route `docs/AGENTS.md` to it
-and set `docs/CLAUDE.md` to the single line `@AGENTS.md`.
+Copy the terminal fenced block to `docs/PLAN.md` and route `docs/AGENTS.md` to
+it. Do not create `docs/CLAUDE.md`.
 Do not copy the contract into a consuming repository. It stays at
 `skills/productivity/plan-manager/references/plan-contract.md` inside the
 installed `plan-lifecycle` plugin.

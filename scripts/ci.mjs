@@ -282,7 +282,7 @@ if (repoWide) {
 
   section('repo-wide guards');
   nodeOk(['scripts/tree/guard.mjs'])
-    ? ok('tree/guard passed (context-tree node pairs)')
+    ? ok('tree/guard passed (context-tree nodes)')
     : fail("tree/guard failed (run 'node scripts/tree/guard.mjs')");
   nodeOk(['scripts/plans/no-bespoke-gates.mjs'])
     ? ok('plans/no-bespoke-gates passed (no bespoke per-plan verification gate)')

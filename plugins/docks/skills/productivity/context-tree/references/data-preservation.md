@@ -1,10 +1,10 @@
 # Data preservation — root → nodes relocation
 
-Self-contained algorithm for `init` / `refresh` so no root section is lost when content moves into nodes. This is context-tree's own copy of the kit pattern (the author-facing template lives in `write-skill/references/data-preservation.md`; per the self-sufficiency doctrine each skill keeps its own copy rather than cross-linking a sibling).
+Self-contained algorithm for `init` / `refresh` so no root section is lost when content moves into nodes. This is context-tree's own copy of the kit pattern: skill references stay one level deep, so a skill does not link into a sibling skill's files.
 
 ## Why per-section, not a byte-percentage
 
-Relocation *adds* scaffolding — `@AGENTS.md` imports, a CLAUDE.md per node, node headings, the root breadcrumb table. So the total bytes written are normally **≥100%** of the original root. A "fail if output dropped > X%" check is therefore backwards: it's too lenient (a whole lost section hides under the added scaffolding) and triggers on the wrong cases. The real invariant is **every original section is accounted for**. Byte-delta is kept only as a coarse *net-shrink* tripwire.
+Relocation *adds* scaffolding — node headings, the `## tree` metadata, the root breadcrumb table. So the total bytes written are normally **≥100%** of the original root. A "fail if output dropped > X%" check is therefore backwards: it's too lenient (a whole lost section hides under the added scaffolding) and triggers on the wrong cases. The real invariant is **every original section is accounted for**. Byte-delta is kept only as a coarse *net-shrink* tripwire.
 
 ## Step-by-step
 
@@ -29,17 +29,18 @@ Render at the approval gate — alongside the node list — a row for EVERY sect
 | ## CI triggers                | .github/AGENTS.md            | CI config change axis          |
 | ## Repository purpose         | KEEP in root                 | cross-cutting; not folder-local |
 | ## Legacy notes               | DROP (user-confirmed)        | obsolete — explicit drop       |
+| scripts/CLAUDE.md             | DELETE (legacy stub)         | `@AGENTS.md` only; suppresses AGENTS.md loading |
 ```
 
-Defaults: anything you cannot confidently route → **KEEP in root** (never silently move or drop). `DROP` requires an explicit user mark. MIXED sections (part stays, part moves) split paragraph-by-paragraph; the unclassified remainder stays in root.
+Defaults: anything you cannot confidently route → **KEEP in root** (never silently move or drop). `DROP` requires an explicit user mark. A legacy CLAUDE.md gets a `DELETE (legacy stub)` row only when it holds nothing but `@AGENTS.md` / `@../AGENTS.md`; one with real content routes to `multi-tool-bridge`, not to this table. MIXED sections (part stays, part moves) split paragraph-by-paragraph; the unclassified remainder stays in root.
 
 Then **end the turn** and wait (the turn-ending approval gate). `--dry-run` stops here permanently.
 
 ### 3. Two-phase write
 
-**Phase A — nodes first, root untouched.** Write each `<folder>/AGENTS.md` + `CLAUDE.md`, copying the routed sections **verbatim** (reformatting heading levels / list markers is fine; rewording is not). Confirm each pair is well-formed (CLAUDE.md is `@AGENTS.md`-only). If you halt now, the root still has everything — worst case is duplication, which is recoverable. Loss is not.
+**Phase A — nodes first, root untouched.** Write each `<folder>/AGENTS.md`, copying the routed sections **verbatim** (reformatting heading levels / list markers is fine; rewording is not). Never write a `CLAUDE.md`. Confirm each AGENTS.md is non-empty and ≤500 lines. If you halt now, the root still has everything — worst case is duplication, which is recoverable. Loss is not.
 
-**Phase B — prune root last.** Show the exact lines to remove (the relocated sections), confirm, then delete them and insert the one-line breadcrumb per node. Never delete a section you cannot point to inside an already-written node.
+**Phase B — prune root last.** Show the exact lines to remove (the relocated sections), confirm, then delete them and insert the one-line breadcrumb per node. Delete the approved legacy stub CLAUDE.md files in this phase. Never delete a section you cannot point to inside an already-written node.
 
 ### 4. Verification (fail loud)
 
@@ -61,6 +62,6 @@ Any `LOST SECTION` (other than a user-confirmed `DROP`) or `NET SHRINK` line ⇒
 - [ ] Original root copied to `/tmp/root.before` before any write
 - [ ] Relocation table covers every `^#{1,3}` section; unclassified → KEEP in root
 - [ ] Turn ended at the gate; nothing written before the user replied
-- [ ] Phase A wrote nodes + the pair check passed BEFORE any root deletion
+- [ ] Phase A wrote nodes (no CLAUDE.md) + the node check passed BEFORE any root deletion
 - [ ] Phase B pruned root only after the second confirmation
 - [ ] Verification: zero `LOST SECTION` / `NET SHRINK` lines (DROPs excepted)

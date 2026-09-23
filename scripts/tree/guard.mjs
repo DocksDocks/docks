@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Guard: validate context-tree node pairs.
-// Every dir carrying AGENTS.md or CLAUDE.md must be a COMPLETE node:
-//   - both present (no half-pairs); CLAUDE.md is exactly the one-line `@AGENTS.md`;
-//   - AGENTS.md <= 500 lines. Usage: tree/guard.mjs [repo-root]
+// Guard: validate context-tree nodes.
+// A node is a directory carrying AGENTS.md; AGENTS.md must stay <= 500 lines.
+// Any CLAUDE.md (incl. .claude/CLAUDE.md) fails: it suppresses Claude Code's native
+// AGENTS.md loading. Usage: tree/guard.mjs [repo-root]
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -17,6 +17,7 @@ try {
 }
 
 const nodeDirs = new Set();
+const legacyClaude = [];
 (function walk(dir) {
   let entries;
   try {
@@ -26,10 +27,13 @@ const nodeDirs = new Set();
     process.exit(2);
   }
   for (const e of entries) {
-    if (e.name === '.git' || e.name === 'node_modules' || e.isSymbolicLink()) continue;
+    if (e.name === '.git' || e.name === 'node_modules') continue;
     const full = path.join(dir, e.name);
-    if (e.isDirectory()) walk(full);
-    else if (e.name === 'AGENTS.md' || e.name === 'CLAUDE.md') nodeDirs.add(dir);
+    // A symlinked CLAUDE.md suppresses AGENTS.md loading too, so check it before skipping links.
+    if (e.name === 'CLAUDE.md') legacyClaude.push(full);
+    else if (e.isSymbolicLink()) continue;
+    else if (e.isDirectory()) walk(full);
+    else if (e.name === 'AGENTS.md') nodeDirs.add(dir);
   }
 })(ROOT);
 
@@ -49,26 +53,15 @@ function readTreeFile(file) {
   }
 }
 
+for (const file of legacyClaude.sort()) {
+  fail(
+    `${path.relative(ROOT, file)} — legacy CLAUDE.md suppresses native AGENTS.md loading in Claude Code; move content to AGENTS.md or .claude/rules/ and delete it`,
+  );
+}
+
 for (const dir of dirs) {
   const rel = dir === ROOT ? '(root)' : path.relative(ROOT, dir);
   const agents = path.join(dir, 'AGENTS.md');
-  const claude = path.join(dir, 'CLAUDE.md');
-  if (!fs.existsSync(agents)) {
-    fail(`${rel} — CLAUDE.md present but AGENTS.md missing (half-pair)`);
-    continue;
-  }
-  if (!fs.existsSync(claude)) {
-    fail(`${rel} — AGENTS.md present but CLAUDE.md missing (invisible to Claude Code's walker)`);
-    continue;
-  }
-  const claudeBody = readTreeFile(claude)
-    .split('\n')
-    .filter((l) => !/^\s*$/.test(l))
-    .map((l) => l.replace(/\s+$/, ''))
-    .join('\n');
-  if (claudeBody !== '@AGENTS.md') {
-    fail(`${rel}/CLAUDE.md — must contain only '@AGENTS.md' (move any other content into AGENTS.md)`);
-  }
   const alines = (readTreeFile(agents).match(/\n/g) || []).length;
   if (alines > 500) fail(`${rel}/AGENTS.md — ${alines} lines (cap: 500). Split the folder or tighten.`);
 }

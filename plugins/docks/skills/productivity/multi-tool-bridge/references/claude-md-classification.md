@@ -1,25 +1,33 @@
-# CLAUDE.md Content Classification — Keyword Rules
+# Legacy CLAUDE.md Content Classification — Keyword Rules
 
 ## Contents
 
-- [CLAUDE-specific keyword set (any one hit → keep in CLAUDE.md)](#claude-specific-keyword-set-any-one-hit-keep-in-claudemd)
+- [Stub files — delete, no classification](#stub-files-delete-no-classification)
+- [CLAUDE-specific keyword set (any one hit → .claude/rules/claude-code.md)](#claude-specific-keyword-set-any-one-hit-clauderulesclaude-codemd)
 - [GENERIC content (move to AGENTS.md)](#generic-content-move-to-agentsmd)
 - [MIXED sections — splitting strategy](#mixed-sections-splitting-strategy)
-- [Heading hierarchy in the rewritten CLAUDE.md](#heading-hierarchy-in-the-rewritten-claudemd)
-- [Project CLAUDE.md location — `./CLAUDE.md` vs `./.claude/CLAUDE.md`](#project-claudemd-location-claudemd-vs-claudeclaudemd)
+- [Layout of the rules file](#layout-of-the-rules-file)
+- [Legacy locations — `./CLAUDE.md` and `./.claude/CLAUDE.md`](#legacy-locations-claudemd-and-claudeclaudemd)
+- [Nested legacy files — `<dir>/CLAUDE.md` and `<dir>/.claude/CLAUDE.md`](#nested-legacy-files-dirclaudemd-and-dirclaudeclaudemd)
 - [What about user-level CLAUDE.md?](#what-about-user-level-claudemd)
 - [Verification heuristic for the proposed split](#verification-heuristic-for-the-proposed-split)
 - [Sources](#sources)
 
-When an existing `CLAUDE.md` is present, the bridge skill must split it into:
+Claude Code v2.1.277+ reads `AGENTS.md` natively, but only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists. A legacy CLAUDE.md therefore suppresses AGENTS.md. The bridge skill moves its content out and deletes it:
 
-- **GENERIC** → moves to `AGENTS.md` (tool-agnostic instructions)
-- **CLAUDE-SPECIFIC** → stays in `CLAUDE.md` under a `## Claude Code` section
-- **MIXED** → propose split; default to STAY in CLAUDE.md when uncertain
+- **GENERIC** → moves to `AGENTS.md` (tool-agnostic instructions); for a nested file, to `<dir>/AGENTS.md`
+- **CLAUDE-SPECIFIC** → moves to `.claude/rules/claude-code.md` (loads alongside AGENTS.md; does not suppress it); for a nested file, to the path-scoped `.claude/rules/<dir-slug>.md`
+- **MIXED** → propose split; default to the file's rules destination when uncertain
 
-The split is presented to the user as a proposal table; **no rewrite happens without explicit approval**.
+The split is presented to the user as a proposal table; **no write or delete happens without explicit approval**. The skill never creates or rewrites a CLAUDE.md.
 
-## CLAUDE-specific keyword set (any one hit → keep in CLAUDE.md)
+## Stub files — delete, no classification
+
+A legacy CLAUDE.md that holds only `@AGENTS.md` or `@../AGENTS.md` (plus blank lines) is a stub from the earlier import workaround. It carries no content. Mark it `DELETE` in the action table and skip classification.
+
+In a non-stub file, a leading `@AGENTS.md` / `@../AGENTS.md` line is dropped, not moved; AGENTS.md now loads on its own.
+
+## CLAUDE-specific keyword set (any one hit → .claude/rules/claude-code.md)
 
 Path / directory references:
 - `.claude/`
@@ -80,49 +88,79 @@ Sections that match these categories with NO keyword hits from the list above:
 When a section contains both generic content and Claude-specific content (typical case: a `## Security` section that lists generic principles plus a Claude-specific "use Plan Mode for destructive ops" rule):
 
 1. Identify the paragraphs containing Claude-specific keywords.
-2. Propose: generic paragraphs → AGENTS.md; Claude-specific paragraphs → CLAUDE.md, possibly under a new sub-section.
-3. **Default-to-stay**: if a paragraph could go either way (e.g., "Always run tests before commit. In Claude Code, use the Bash tool with the test command.") and removing the Claude-specific clause would change meaning, KEEP it in CLAUDE.md and add the generic principle to AGENTS.md as a separate item.
-4. Never silently delete content. Every line in the original CLAUDE.md must end up either in AGENTS.md or in the new CLAUDE.md, with the user able to verify line-count parity.
+2. Propose: generic paragraphs → AGENTS.md; Claude-specific paragraphs → `.claude/rules/claude-code.md`, possibly under a new sub-section.
+3. **Default to the rules file**: if a paragraph could go either way (e.g., "Always run tests before commit. In Claude Code, use the Bash tool with the test command.") and removing the Claude-specific clause would change meaning, put it in `.claude/rules/claude-code.md` and add the generic principle to AGENTS.md as a separate item.
+4. Never silently delete content. Every section of the legacy CLAUDE.md must end up in its AGENTS.md or rules destination, unless the user explicitly marks it `DROP`.
 
-## Heading hierarchy in the rewritten CLAUDE.md
+## Layout of the rules file
 
-```markdown
-@AGENTS.md
-
-## Claude Code
-
-<!-- All Claude-specific content kept from the original, optionally under
-sub-headings preserved from the original (### Subagents, ### Plan Mode, etc.) -->
-```
-
-If nothing Claude-specific survives the split, CLAUDE.md becomes a one-line file:
+New file (no `paths:` frontmatter, so it loads every session):
 
 ```markdown
-@AGENTS.md
+# Claude Code
+
+<!-- Claude-specific sections moved from the legacy CLAUDE.md, verbatim,
+with sub-headings preserved (### Subagents, ### Plan Mode, etc.) -->
 ```
 
-(A symlink `CLAUDE.md -> AGENTS.md` is also officially supported by Claude Code per the memory docs, but the bridge skill defaults to the `@AGENTS.md` import form so the user can add Claude-specific content later without restructuring.)
+Existing `.claude/rules/claude-code.md`: append, never overwrite:
 
-## Project CLAUDE.md location — `./CLAUDE.md` vs `./.claude/CLAUDE.md`
+```markdown
+## Migrated from CLAUDE.md
 
-A project CLAUDE.md is recognized at EITHER `./CLAUDE.md` OR `./.claude/CLAUDE.md`. When both exist they are both loaded and **concatenated** by Claude Code — neither takes precedence. Implications for the bridge:
+<!-- approved sections, verbatim -->
+```
 
-- **Detect both.** Classify whichever exists; if both exist, classify the union and warn before rewriting either, so a rule in one file isn't silently duplicated or contradicted by the other.
-- **Rewrite target = root `./CLAUDE.md`** by default (conventional, team-visible, committed). Create it there when neither exists.
-- **Relative-import gotcha.** `@path` imports resolve relative to the file containing them, so `@AGENTS.md` is correct only in root `./CLAUDE.md`. If the target is `./.claude/CLAUDE.md`, the import must be `@../AGENTS.md` (an `@AGENTS.md` there resolves to the non-existent `.claude/AGENTS.md`).
-- **Never consolidate two files silently.** When both exist, wire the import into root `./CLAUDE.md` and leave `./.claude/CLAUDE.md` in place; merge only on explicit user approval.
+A keeper that applies only to some paths MAY go in its own rules file with `paths:` frontmatter, on user approval. Other files under `.claude/rules/` stay untouched.
+
+If nothing Claude-specific survives the split, write no rules file.
+
+## Legacy locations — `./CLAUDE.md` and `./.claude/CLAUDE.md`
+
+A legacy CLAUDE.md can live at `./CLAUDE.md`, `./.claude/CLAUDE.md`, or both. Claude Code loads and concatenates both. Implications for the bridge:
+
+- **Detect both.** Classify whichever exists; if both exist, classify the union so a rule in one file is not duplicated or contradicted by the other.
+- **Delete both** after their content is written to AGENTS.md and the rules file. Delete last, never first.
+- **`CLAUDE.local.md`** also suppresses AGENTS.md. It is personal: report it, do not touch it.
+
+## Nested legacy files — `<dir>/CLAUDE.md` and `<dir>/.claude/CLAUDE.md`
+
+A legacy CLAUDE.md below the root loads only when Claude reads a file in `<dir>`, and it suppresses `<dir>/AGENTS.md`. Classify it with the same keyword rules, but keep its folder scope in the destinations:
+
+| Content | Destination | Write rule |
+|---|---|---|
+| Stub (`@AGENTS.md` / `@../AGENTS.md` only) | none | `DELETE` |
+| GENERIC | `<dir>/AGENTS.md` | create if missing; else append a `## Migrated from CLAUDE.md` section; never overwrite |
+| CLAUDE-SPECIFIC | `.claude/rules/<dir-slug>.md` at the project root | create with `paths:` frontmatter; else append a `## Migrated from <dir>/CLAUDE.md` section; never overwrite |
+
+`<dir-slug>` is `<dir>` with `/` replaced by `-` (`packages/api` → `packages-api.md`). For `<dir>/.claude/CLAUDE.md`, `<dir>` is the parent of `.claude/`. If `CLAUDE.md` and `.claude/CLAUDE.md` both exist in one folder, classify their union, as at the root. Files in different folders are classified separately.
+
+`paths:` frontmatter is a YAML list of glob patterns. A rules file with `paths:` loads only when Claude works with a file that matches one of the globs, so the migrated keepers keep the folder scope the nested CLAUDE.md had:
+
+```markdown
+---
+paths:
+  - "packages/api/**"
+---
+
+# packages/api
+
+<!-- Claude-specific sections moved from packages/api/CLAUDE.md, verbatim -->
+```
+
+Quote each glob. Do not change the `paths:` of an existing rules file; append the sections only. A nested file never goes to `.claude/rules/claude-code.md`: that file has no `paths:` and loads in every session.
 
 ## What about user-level CLAUDE.md?
 
-This skill scopes to the **project-level** CLAUDE.md only. User-level CLAUDE.md (`~/.claude/CLAUDE.md`) and managed-policy CLAUDE.md are out of scope — they often contain personal/org settings that don't generalize and shouldn't be bridged to the project repo.
+This skill scopes to the **project-level** CLAUDE.md only. User-level CLAUDE.md (`~/.claude/CLAUDE.md`) and managed-policy CLAUDE.md are out of scope. They do not suppress project AGENTS.md, and they often hold personal/org settings that do not belong in the project repo.
 
 ## Verification heuristic for the proposed split
 
-The primary check is **per-section presence** (the same contract as the skill's Anti-Hallucination block): after the rewrite, every `^#{1,3}` section of the source CLAUDE.md must appear in the new CLAUDE.md or the new AGENTS.md — a missing section that wasn't an explicit user `DROP` means content was lost. Pair it with a **net-shrink tripwire**: the split adds scaffolding (the `@AGENTS.md` import line, the `## Claude Code` heading), so combined `lines_after` must be ≥ `lines_before`; any net shrink → STOP, restore from the Step 5 backup. A byte-/line-percentage floor is NOT the loss check — scaffolding keeps output ≥100% of input, so a dropped section hides under it.
+The primary check is **per-section presence** (the same contract as the skill's Anti-Hallucination block): after the move, every `^#{1,3}` section of each non-stub legacy CLAUDE.md, root and nested, must appear in its approved destination (`AGENTS.md`, `<dir>/AGENTS.md`, `.claude/rules/claude-code.md`, or `.claude/rules/<dir-slug>.md`). A missing section that was not an explicit user `DROP` means content was lost: STOP and restore from the Step 5 backup. Pair it with a **net-shrink tripwire**: per legacy file, the moved lines in its AGENTS.md plus its rules file must be ≥ the source lines minus the dropped import line, if any. A byte-/line-percentage floor is NOT the loss check — added headings hide a dropped section.
 
-Secondary duplication tripwire only: if `lines_after > lines_before * 1.15`, STOP and check whether a section landed in BOTH files — the ~15% tolerance covers the import line, blank-line normalization, and minor heading adjustments, but flags accidental double-placement.
+Secondary duplication tripwire only: if the moved lines exceed the source by more than ~15%, STOP and check whether a section landed in BOTH files. The tolerance covers new headings, blank-line normalization, and minor heading adjustments.
 
 ## Sources
 
-- <https://code.claude.com/docs/en/memory> — confirms (2026-05-27) the facts this file relies on: a project CLAUDE.md is valid at EITHER `./CLAUDE.md` OR `./.claude/CLAUDE.md`; all discovered memory files are **concatenated** (neither overrides the other); `@path` imports resolve **relative to the file containing the import** (so `@../AGENTS.md` is required inside `.claude/CLAUDE.md`); a `CLAUDE.md -> AGENTS.md` symlink is officially supported.
+- <https://code.claude.com/docs/en/memory> — section "AGENTS.md" (checked 2026-09-23): Claude Code v2.1.277+ reads AGENTS.md natively; any `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in the directory or above suppresses it; `.claude/rules/*.md` and `~/.claude/CLAUDE.md` load alongside AGENTS.md; a CLAUDE.md holding only `@AGENTS.md` can be removed. Section "Path-specific rules": a `.claude/rules/` file with `paths:` frontmatter (a YAML list of globs) loads only when Claude works with a matching file.
 - <https://code.claude.com/docs/en/settings> — the `.claude/` directory, plugin/marketplace, and tool/permission primitives behind the CLAUDE-specific keyword set above.

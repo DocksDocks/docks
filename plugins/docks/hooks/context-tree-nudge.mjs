@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 //   - Codex apply_patch       -> `*** Add|Update|Delete File: <path>` headers
 //                                inside tool_input.command (repo-relative)
 // Emits hookSpecificOutput.additionalContext only when an edited path is inside
-// a node (a non-root folder with AGENTS.md + CLAUDE.md). Always exits 0 — a hook
+// a node (a non-root folder with an AGENTS.md). Always exits 0 — a hook
 // must never break the session.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -57,7 +57,7 @@ for (const p of paths) {
   let dir = path.dirname(abs);
   while (dir && dir !== '/') {
     if (dir === repoRoot) break; // nudge sub-folder nodes only, not root
-    if (fs.existsSync(path.join(dir, 'AGENTS.md')) && fs.existsSync(path.join(dir, 'CLAUDE.md'))) {
+    if (fs.existsSync(path.join(dir, 'AGENTS.md'))) {
       const rel = path.relative(repoRoot, dir);
       if (!nodes.includes(rel)) nodes.push(rel);
       break;

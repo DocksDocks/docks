@@ -112,7 +112,6 @@ function testTreeGuardOperationalFailures() {
     const agents = path.join(unreadableRoot, 'AGENTS.md');
     fs.mkdirSync(unreadableRoot);
     fs.writeFileSync(agents, '# Fixture\n');
-    fs.writeFileSync(path.join(unreadableRoot, 'CLAUDE.md'), '@AGENTS.md\n');
     fs.chmodSync(agents, 0);
     let unreadable;
     try {
@@ -123,6 +122,19 @@ function testTreeGuardOperationalFailures() {
     assertStarted(unreadable);
     assert.equal(unreadable.status, 2);
     assert.match(unreadable.stderr, new RegExp(`^FAIL: cannot read tree file ${agents}: `));
+
+    // A lone AGENTS.md is a complete node; any legacy CLAUDE.md fails the guard.
+    const nodeRoot = path.join(fixtureRoot, 'node');
+    fs.mkdirSync(path.join(nodeRoot, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(nodeRoot, 'AGENTS.md'), '# Fixture\n');
+    const lone = runNode(TREE_GUARD, [nodeRoot]);
+    assertStarted(lone);
+    assert.equal(lone.status, 0, lone.stderr);
+    fs.writeFileSync(path.join(nodeRoot, '.claude', 'CLAUDE.md'), '@../AGENTS.md\n');
+    const legacy = runNode(TREE_GUARD, [nodeRoot]);
+    assertStarted(legacy);
+    assert.equal(legacy.status, 1);
+    assert.match(legacy.stderr, /^FAIL: \.claude\/CLAUDE\.md — legacy CLAUDE\.md suppresses native AGENTS\.md loading/);
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
