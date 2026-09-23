@@ -1,6 +1,6 @@
 # Go Dependency Workflow — govulncheck / go list -u
 
-Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers severity triage, exposure filter, the 3 pre-flight checks, split strategy, and cadence — they apply unchanged. Load this file when the project ships Go.
+Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers severity triage, exposure filter, the pre-flight checks, split strategy, and cadence — they apply unchanged. Load this file when the project ships Go.
 
 ## Audit & Upgrade Commands
 

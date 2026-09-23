@@ -9,8 +9,8 @@ paths:
   - "**/*.js"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "cce28baced98fd4e6497765f24d432543231613c3187eaddeb48dd2f91cd9a08"
+  updated: "2026-09-23"
+  content_hash: "52ab700e000cc280f5fc3a286e17886a2a53de552e8bc003318d5bdb9a758eeb"
 ---
 
 # React Component Patterns
@@ -38,7 +38,7 @@ React 19 made `ref` a regular prop on function components — `forwardRef` is no
 </constraint>
 
 <constraint>
-In Next.js App Router, a Server Component must never forward a non-serializable value (function, class instance, JSX component reference like a `lucide-react` icon) as a prop to a Client Component. Marking the shared file `"use client"` does not fix it — the Server Component still serializes the value at the boundary. The fix is to remove the Server Component from the import chain (Client owns the import) or to project to plain data before passing. See [`references/rsc-boundary.md`](references/rsc-boundary.md).
+In Next.js App Router, a Server Component must never forward a non-serializable value (function, class instance, JSX component reference like a `lucide-react` icon) as a prop to a Client Component. The one function exception is a Server Function (`"use server"`), which React passes as a reference. Marking the shared file `"use client"` does not fix it — the Server Component still serializes the value at the boundary. The fix is to remove the Server Component from the import chain (Client owns the import) or to project to plain data before passing. See [`references/rsc-boundary.md`](references/rsc-boundary.md).
 </constraint>
 
 ## Quick BAD/GOOD — derived state via effect

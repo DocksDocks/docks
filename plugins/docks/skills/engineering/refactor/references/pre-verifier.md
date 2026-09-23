@@ -10,7 +10,7 @@ Per-finding reproduction (every entry, not a sample). Dead-code: search the symb
 
 | # | Check | What |
 |---|---|---|
-| 1 | Reference accuracy | spot-check 5+ `file:line` refs by reading; confirm the described issue is really there |
+| 1 | Reference accuracy | read every `file:line` ref in the plan; confirm the described issue is really there |
 | 2 | Safety | CAUTION dead-code dynamic-import check thorough; export changes have no external consumers; consolidations truly interchangeable; modernizations preserve return types/error semantics |
 | 3 | Dependency ordering | dependencies correct; no Tier-1 change breaks a Tier-2 change; file-grouped changes safe sequentially |
 | 4 | Completeness | no high-impact finding dropped without reason; test strategies actually runnable |
@@ -26,5 +26,5 @@ Per-finding reproduction (every entry, not a sample). Dead-code: search the symb
 
 | Gotcha | Fix |
 |---|---|
-| Spot-checking only 1–2 refs | Read 5+; the plan's accuracy is the gate's whole job |
+| Spot-checking a sample of refs | Read every ref; the plan's accuracy is the gate's whole job |
 | Passing a finding you couldn't reproduce | Drop it explicitly — unreproduced findings poison the implementation phase |

@@ -6,7 +6,7 @@ Per-axis expansion of the parent SKILL.md Step 3 (performance bucket). Load when
 
 ### Database / ORM
 
-| Symptom in code | What's wrong | Severity floor |
+| Symptom in code | What's wrong | Starting severity |
 |---|---|---|
 | `users.forEach(async u => await loadOrders(u.id))` | N+1 — one query per user | HIGH |
 | `.findOne({ where: { email } })` with no index on `email` | Full table scan per call | HIGH if hot path |
@@ -16,7 +16,7 @@ Per-axis expansion of the parent SKILL.md Step 3 (performance bucket). Load when
 
 ### Hot Path / Loop
 
-| Symptom | What's wrong | Severity floor |
+| Symptom | What's wrong | Starting severity |
 |---|---|---|
 | `const arr = []; for (...) arr.push(...)` in tight loop with known size | Repeated grow + copy; pre-size or use typed array | LOW-MEDIUM |
 | `JSON.parse(JSON.stringify(obj))` to clone in a request handler | O(n) clone on every request; structured clone or shallow ok | MEDIUM |
@@ -25,7 +25,7 @@ Per-axis expansion of the parent SKILL.md Step 3 (performance bucket). Load when
 
 ### Async / IO
 
-| Symptom | What's wrong | Severity floor |
+| Symptom | What's wrong | Starting severity |
 |---|---|---|
 | `fs.readFileSync` on the request path | Blocks the event loop | HIGH |
 | Missing `await` on an async call that returns a promise | Silent unhandled rejection; race conditions | HIGH |
@@ -34,7 +34,7 @@ Per-axis expansion of the parent SKILL.md Step 3 (performance bucket). Load when
 
 ### Frontend / Render
 
-| Symptom | What's wrong | Severity floor |
+| Symptom | What's wrong | Starting severity |
 |---|---|---|
 | New object/array literal in render: `<Foo opts={{x: 1}} />` | New reference every render → child re-renders | MEDIUM |
 | Function defined in render passed as prop without `useCallback` | Same as above; child re-renders on every parent render | LOW-MEDIUM |
@@ -46,10 +46,10 @@ Per-axis expansion of the parent SKILL.md Step 3 (performance bucket). Load when
 
 | Question | If yes → | If no → |
 |---|---|---|
-| Does this run on a hot path (request handler, render, animation)? | Keep severity floor | Drop 1 tier |
-| Does it scale with user input (N items) where N can be ≥1000? | Keep severity floor | Drop 1 tier |
+| Does this run on a hot path (request handler, render, animation)? | Keep starting severity | Drop 1 tier |
+| Does it scale with user input (N items) where N can be ≥1000? | Keep starting severity | Drop 1 tier |
 | Is there an observed perf regression (benchmark, profiler, user report)? | Bump 1 tier (now it's measurable, not theoretical) | Cap at HIGH |
-| Does it block other operations (event loop, main thread, DB lock)? | Keep severity floor | Drop 1 tier |
+| Does it block other operations (event loop, main thread, DB lock)? | Keep starting severity | Drop 1 tier |
 
 A perf finding without a measurement is theoretical — cap at HIGH and mark "verify with profile."
 

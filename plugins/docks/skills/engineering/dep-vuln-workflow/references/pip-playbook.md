@@ -1,6 +1,6 @@
 # Python Dependency Workflow — pip-audit / poetry / pipenv / uv
 
-Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers severity triage, exposure filter, the 3 pre-flight checks, split strategy, and cadence — they apply unchanged. Load this file when the project ships Python.
+Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers severity triage, exposure filter, the pre-flight checks, split strategy, and cadence — they apply unchanged. Load this file when the project ships Python.
 
 ## Audit & Upgrade Commands
 
@@ -10,7 +10,7 @@ pip install pip-audit
 pip-audit                                   # Scan current env
 pip-audit -r requirements.txt               # Scan a requirements file
 pip-audit --fix                             # Apply non-breaking fixes
-pip-audit --strict                          # Fail on any finding (CI use)
+pip-audit --strict                          # Fail if any dependency cannot be collected (CI use)
 pip-audit -f json                           # Machine-readable
 
 # poetry
@@ -79,7 +79,7 @@ If a suppression is genuinely justified, always use the bracketed form: `# type:
 - **`safety` vs `pip-audit`.** Safety has a broader DB (commercial tier); pip-audit is PyPA-official and free. Run both if security posture matters.
 - **Wheel hash pinning** (`--hash=sha256:...`) is most secure but breaks `pip-audit --fix`. Reserved for high-assurance environments.
 - **Pydantic v1/v2 coexistence.** Bridge packages let monorepos migrate piecemeal. Audit BOTH versions; v1 vulns still apply to anything still pinned to v1.
-- **`pip-audit` exit codes.** Non-zero on findings — usable directly in CI without `--strict` if you want soft failure mode.
+- **`pip-audit` exit codes.** Exit `1` when it finds a known vulnerability, `0` when it finds none — usable directly in CI. You cannot suppress this exit code; use `--ignore-vuln ID` for an accepted finding. `--strict` does not change this rule: it also fails the audit when dependency collection fails for any package.
 - **`uv.lock` vs `poetry.lock`** — different formats, equally authoritative. Commit whichever your tool produces; never both.
 
 ## See Also

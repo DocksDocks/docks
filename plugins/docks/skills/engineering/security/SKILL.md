@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-25"
-  content_hash: "0bc63235cff0a0e7225217ea04e230e5c80e75bff547c967d92efb0957c7d681"
+  updated: "2026-09-23"
+  content_hash: "f0eed50f1ca930440d15d658c560f8d95e7793be1ad7dbdd98ed132d230514f6"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -130,5 +130,5 @@ Do not edit source from inside this audit pipeline; requested remediation begins
 | Dumping all findings at the end instead of writing per-phase | A compaction mid-run loses every prior phase | Hand each phase's output to `plan-manager` for the audit issue immediately |
 | Reporting a grep hit without reading context | False positives; erodes trust in the whole report | Read 5+ lines around each cited line; trace taint before asserting severity |
 | Skipping synthesis because the scanners "already found everything" | Duplicate, mis-severitied, unreproducible findings ship | Always run Phase 3 — challenge, dedupe, drop unreproducible |
-| Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | Use the untracked fallback only for that repository |
+| Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | STOP and report the missing GitHub-backed plan lifecycle; never write a fallback plan file |
 | Trusting a library API from memory in a suggested fix | A wrong security fix is worse than none | Verify the API against current docs before recommending it |

@@ -19,7 +19,7 @@ Per-axis expansion of the parent SKILL.md Step 3 (maintainability / AI-slop buck
 
 ### Dead Code
 
-| Symptom | Severity floor |
+| Symptom | Starting severity |
 |---|---|
 | Exported function with zero in-repo callers (no test, no usage) — verified via `grep -r` on the symbol | LOW-MEDIUM |
 | Unreachable branch — `if (false)` / `if (NODE_ENV === 'never')` | LOW |
@@ -32,7 +32,7 @@ False-positive guard: a public package export may have no in-repo callers becaus
 
 ### Duplication
 
-| Symptom | Severity floor |
+| Symptom | Starting severity |
 |---|---|
 | Same 10+ line block in 3+ files | MEDIUM |
 | Same regex / magic string / config object in 2+ files | LOW-MEDIUM |

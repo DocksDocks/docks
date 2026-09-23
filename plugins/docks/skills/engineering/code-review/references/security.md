@@ -6,7 +6,7 @@ Per-axis expansion of the parent SKILL.md Step 3 (security bucket). Load when tr
 
 Edition: OWASP Top 10:**2025** — re-verify A-numbers at <https://owasp.org/Top10/2025/> before citing (editions renumber). **Twin catalog:** the `security` skill's `references/vulnerability-scanner.md` OWASP-to-category map uses the same numbering — an edition renumber must land in both files in the same commit.
 
-| OWASP | Symptom in code | Severity floor | False-positive guard |
+| OWASP | Symptom in code | Starting severity | False-positive guard |
 |---|---|---|---|
 | A01:2025 Broken Access Control | Missing role/ownership check on a mutating endpoint; IDOR on `/resource/:id` | HIGH (CRITICAL if admin-scope) | Endpoint may be behind an upstream WAF / middleware — read the middleware chain |
 | A01:2025 SSRF (folded into Broken Access Control in 2025) | `fetch(user_input_url)` without allowlist; URL parsed but not validated; redirects followed | HIGH | Allowlist may exist at the HTTP client level — check the constructor |
@@ -22,11 +22,11 @@ Edition: OWASP Top 10:**2025** — re-verify A-numbers at <https://owasp.org/Top
 
 ## Severity Calibration
 
-The 3 questions to ask BEFORE assigning severity:
+The 3 questions to ask BEFORE assigning severity. They adjust the starting severity from the table up or down:
 
 1. **Who can trigger it?** Anonymous internet → CRITICAL/HIGH. Authenticated user → HIGH/MEDIUM. Authenticated admin → MEDIUM/LOW. Only triggerable by code path that doesn't run in prod → DROP.
 2. **What do they get?** Full account takeover / DB exfiltration → CRITICAL. Single-user data leak → HIGH. Crash / DoS → MEDIUM. Information disclosure (stack trace) → LOW.
-3. **Is there a compensating control?** Upstream WAF blocks it → drop severity 1 tier. Already requires authn → drop severity 1 tier. The fix is one line → keep severity (you'll ship it anyway).
+3. **Is there a compensating control?** Upstream WAF blocks it → drop severity 1 tier. The authn requirement is already counted in (1) — do not drop again for it. The fix is one line → keep severity (you'll ship it anyway).
 
 If you can't answer (1) AND (2) concretely, drop the finding entirely. "Could theoretically" without a path is a false positive.
 

@@ -11,8 +11,8 @@ paths:
   - "**/*.py"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "66104d00a364bbfaabe0af5b0c3eee49a34bd48dc91939a40b713ec4d4e61f24"
+  updated: "2026-09-23"
+  content_hash: "ded6e4aa5353bc2cb39572b9585051ffff42d838356811f7fcd4be0f9b20e16e"
 ---
 
 # Type-Safety Discipline
@@ -153,7 +153,7 @@ This is the type-level version of the Liskov rule from `solid`: every variant sa
 
 **Equivalency:**
 - **Rust:** `enum Invite { User { id: UserId }, Guest { email: String, name: String } }` — canonical idiom. `match` narrows automatically and is exhaustive by default.
-- **Kotlin:** `sealed interface Invite { class User(val id: UserId): Invite; class Guest(val email: String, val name: String): Invite }`. `when (invite) { is User -> ...; is Guest -> ... }` narrows and is exhaustive when used as an expression.
+- **Kotlin:** `sealed interface Invite { class User(val id: UserId): Invite; class Guest(val email: String, val name: String): Invite }`. `when (invite) { is User -> ...; is Guest -> ... }` narrows and is exhaustiveness-checked in expression and statement form (see § 7).
 - **Python:** tagged dataclasses + `match` — `Invite = UserInvite | GuestInvite`; `match invite: case UserInvite(id): ...; case GuestInvite(email, name): ...`.
 
 ## 5. Branded types for IDs
@@ -205,7 +205,7 @@ const palette = {
 ```
 
 **Equivalency:**
-- **Rust:** `unsafe` and `mem::transmute` are the analogs — reserve for FFI or layout-compatible coercions. For primitive numeric coercion, `as` is fine; for type widening, refactor or use `From`/`TryFrom`.
+- **Rust:** `unsafe` and `mem::transmute` are not type-assertion escape hatches. FFI and layout-compatible coercions are legitimate `unsafe` uses, but they do not replace a type check; document the safety invariant on a `// SAFETY:` comment. For primitive numeric coercion, `as` is fine; for type widening, refactor or use `From`/`TryFrom`.
 - **Kotlin:** `as` is an unchecked cast (raises `ClassCastException` at runtime). `as?` is safer (null on failure). Prefer smart-casts via `is` or sealed `when`.
 - **Python:** `cast(T, x)` is a checker hint, not a runtime check. Use `isinstance()` for narrowing; Pydantic for parsing.
 

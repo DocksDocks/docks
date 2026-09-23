@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-23"
-  content_hash: "ec0c6e7f21fa94db9712828a412cc6b4f6ed2a2d4524a27b5537f25f915a0952"
+  content_hash: "66059cfaae9674e15ee174cb89894236917199343315e56f04d992a94fab93f6"
 ---
 
 # SOLID — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion
@@ -13,7 +13,7 @@ metadata:
 Five design pressures for keeping modules cohesive, extensible, and substitutable. Originally framed for OO, but each one applies to function-based code (TypeScript modules, Python packages, Go interfaces, Rust traits) — only the implementations change.
 
 <constraint>
-SOLID describes design pressure, not a checklist. Don't apply a principle until the smell it addresses appears: file > 300 LOC with mixed change axes, switch with 5+ arms, runtime type checks gating behavior, fat interface, hard-coded SDK. Premature application is over-engineering. Wait for the second use-site or the third change axis before splitting.
+SOLID describes design pressure, not a checklist. Don't apply a principle until the smell it addresses appears: file > 300 LOC with mixed change axes, switch with 5+ arms, runtime type checks gating behavior, fat interface, hard-coded SDK. Premature application is over-engineering. Wait for the second use-site or a second independent change axis before splitting.
 </constraint>
 
 <constraint>

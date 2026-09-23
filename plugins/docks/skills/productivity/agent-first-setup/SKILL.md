@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-09-23"
-  content_hash: "adfdb1a65c82c53a657b70cf742a26045e693b2211156690b1df6ed96edb0e81"
+  content_hash: "173e85c47e47eb22a8146235f6a51b51b15ce5f7b2bd15167bcd3186c59a869e"
 ---
 
 # Agent-First Setup
@@ -132,14 +132,16 @@ done
 ls_repo ':(glob)**/AGENTS.md' | while IFS= read -r f; do
   grep -qF 'Pointers here name concepts, not coordinates' "$f" || echo "FINDING C5 no stale-tolerance line: $f"
 done
-# C6 every skill description starts with "Use when"
+# C6 every skill description starts with "Use when" (block scalars `>`, `|`, `>-`, `|-` read the first indented line)
 ls_repo ':(glob)**/SKILL.md' | while IFS= read -r s; do
-  grep -m1 '^description:' "$s" | sed -E "s/^description:[[:space:]]*[\"']?//" | grep -q '^Use when' \
+  awk '/^description:[[:space:]]*[>|][-+]?[[:space:]]*$/ { blk = 1; next }
+       blk && NF { sub(/^[[:space:]]+/, ""); print; exit }
+       /^description:/ { sub(/^description:[[:space:]]*["'\'']?/, ""); print; exit }' "$s" | grep -q '^Use when' \
     || echo "FAIL C6 description does not start with 'Use when': $s"
 done
 ```
 
-Read each `FINDING` line before you report it. A line anchor on a fictional example path, a count that is a stated policy threshold, or a time phrase inside a quoted BAD example is not a defect: mark it `accepted` with the reason. A folded (`description: >`) scalar fails C6 even when its text is correct; read the parsed value before you call it a defect.
+Read each `FINDING` line before you report it. A line anchor on a fictional example path, a count that is a stated policy threshold, or a time phrase inside a quoted BAD example is not a defect: mark it `accepted` with the reason.
 
 ### Step 4 — Report
 

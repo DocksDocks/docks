@@ -1,6 +1,6 @@
 # Rust Dependency Workflow — cargo audit / cargo-outdated / cargo-deny
 
-Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers severity triage, exposure filter, the 3 pre-flight checks, split strategy, and cadence — they apply unchanged. Load this file when the project ships Rust.
+Ecosystem-specific layer to the parent SKILL.md (`../SKILL.md`). Parent covers severity triage, exposure filter, the pre-flight checks, split strategy, and cadence — they apply unchanged. Load this file when the project ships Rust.
 
 ## Audit & Upgrade Commands
 

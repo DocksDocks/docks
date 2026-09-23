@@ -34,7 +34,7 @@ Record exact availability — Phase 2 uses them tool-first, manual-second.
 
 ## Output (write under `## Phase 1: Exploration Results`)
 
-`Project Profile` · `File Map` (source dirs + counts) · `Existing Abstractions` (interfaces / hierarchies / DI, each `file:line`) · `Conventions` (relevant patterns from AGENTS.md / CLAUDE.md / project skills).
+`Project Profile` · `Analysis Tools` (each tool from the table above: available yes/no, with resolved path) · `File Map` (source dirs + counts) · `Existing Abstractions` (interfaces / hierarchies / DI, each `file:line`) · `Conventions` (relevant patterns from AGENTS.md / CLAUDE.md / project skills).
 
 ## Gotcha
 

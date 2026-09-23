@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-09-23"
-  content_hash: "6b9765cee1d19f8351dcf57c6908b1ca91eca47048786e3d46a5b810d1f7885c"
+  content_hash: "db8ac7ba8fdd5cd89a9b73825ab42a875fa064520f9c557fb8aa4a3812754545"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -67,7 +67,7 @@ Run in order. Each phase reads its reference, then hands its output to `plan-man
 4. **Agent track:** run Phases 4a→4b→5 on every runtime — they draft each agent in both `.claude/agents/*.md` and `.codex/agents/*.toml` form.
 5. Run Phase 6 (verifier). It validates skills and BOTH agent formats, plus cross-layer integrity, and grades any behavioral check of a drafted or refreshed skill (quoted evidence, no partial credit).
 6. Before starting each phase, confirm the prior heading is present. If a phase found nothing, write "no changes" under its heading — never silently skip.
-7. After Phase 6, present the plan (see Gate).
+7. After Phase 6, hand off the plan (see Review handoff + implementation).
 
 ## The plan record (IPC + deliverable)
 

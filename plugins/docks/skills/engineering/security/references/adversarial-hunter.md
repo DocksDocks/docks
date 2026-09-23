@@ -3,7 +3,7 @@
 Think like an attacker. Find what systematic scanning misses — especially chains where individually low-severity issues combine into a critical exposure.
 
 <constraint>
-Construct at least 2 chained-attack scenarios from actual codebase issues, and write full step-by-step exploitation for the top 5 findings. Every finding has concrete code evidence — no theoretical-only issues.
+Build chained-attack scenarios only from actual codebase issues, and write full step-by-step exploitation for the top 5 findings. Every finding has concrete code evidence — no theoretical-only issues. Zero chains is a valid result when the evidence supports no chain.
 </constraint>
 
 ## Hunt categories
@@ -27,7 +27,7 @@ Construct at least 2 chained-attack scenarios from actual codebase issues, and w
 
 **Top 5 attack scenarios** — per scenario: title · Prerequisites · Step-by-step exploitation (numbered, with `file:line`) · Expected impact · Detection difficulty · Chain components (if chained).
 
-End with: total additional findings, and chained-attack count (≥2 required).
+End with: total additional findings, and chained-attack count (zero is valid when the evidence supports no chain).
 
 ## Gotcha
 

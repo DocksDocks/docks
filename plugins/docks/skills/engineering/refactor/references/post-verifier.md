@@ -12,7 +12,7 @@ Per-finding reproduction before reporting. New SOLID violation: read the `file:l
 2. **Test suite**: `bun run test` / `npm test` / `pnpm test` / `pytest` / `cargo test` / `go test ./...` — capture full output.
 3. **Linter + type-checker**: `npx eslint` / `ruff check` / `golangci-lint`; `npx tsc --noEmit` / `mypy`.
 4. **New SOLID violation check** (the differentiator): re-analyze every refactored file against all 5 principles. Did Extract Class create a new god module? Did Strategy introduce a new enum dispatch? Did composition break a parent contract? Did interface splits create inconsistent impls? Did DI changes add new concrete coupling?
-5. **Compliance delta**: by identity `(file:line, principle)` — `surviving` = in both pre and post; `resolved` = pre not surviving; `new` = post not surviving.
+5. **Compliance delta**: by identity `(file, symbol, principle)` — `symbol` is the enclosing class/function/module. Line numbers shift when code moves, so use `line` only as a locator hint, never as part of the key. `surviving` = in both pre and post; `resolved` = pre not surviving; `new` = post not surviving.
 
 ## Output (write under `## Phase 8: Post-Verifier Results`)
 

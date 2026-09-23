@@ -32,12 +32,12 @@ Exported symbols cross-referenced with imports; files with zero inbound imports;
 
 ## Output (write under `## Phase 2a: Dead Code Findings`)
 
-Per finding: `file:line` · Category (unused export/dep/unreachable/orphaned/param/commented) · Safety tier · Evidence · Dynamic-import check (CAUTION items).
+Per finding: `file:line` · Category (unused export/dep/unreachable/orphaned/param/commented) · Safety tier · Evidence · Dynamic-reference check result (SAFE and CAUTION items).
 
 | | Example |
 |---|---|
 | BAD | "There are some unused functions." |
-| GOOD | "`src/utils/format.ts:45` — `formatCurrency()` — SAFE — zero importers (0 matches across src/)." |
+| GOOD | "`src/utils/format.ts:45` — `formatCurrency()` — SAFE — zero static importers (0 matches across src/); dynamic-reference check: 0 matches for `formatCurrency` in string lookups, `require`/`import()` calls, or registries." |
 
 End with counts: SAFE / CAUTION / DANGER, tool output yes/no.
 
