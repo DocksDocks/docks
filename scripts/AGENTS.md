@@ -27,13 +27,10 @@ The root `AGENTS.md` (Plans) decides when a change needs a canonical plan.
 The live plan author suite runs the helper smoke in `scripts/tests/plan-cli.mjs`
 against the shipped
 `plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs`.
-The canonical v4 contract lives in
+The canonical issue-body contract lives in
 `plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md`.
 
-The optional plan queue keeps issue numbers in `docs/PLAN-QUEUE.md`. It is an
-input to `plan.mjs next`, not a separate validator. The queue is only a discovery
-and prioritization view and grants no lifecycle or execution authority. These
-checks run inside the existing plan orchestration section.
+`docs/PLAN-QUEUE.md` is a human note; `docs/AGENTS.md` owns its rules.
 
 ### Adding plugin N+1 (the whole checklist — no orchestrator edits)
 
@@ -58,9 +55,9 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `skills/transform-guard.mjs` | curated transformers carry a preservation `<constraint>` + `## Verification`; pending-allowlist warns, regression fails | pass/warn |
 | `skills/no-author-scripts.mjs` | shipped SKILL.md + references/ + agent bodies must not name docks author scripts — incl. the `.mjs` entry points `scripts/ci.mjs`/`scripts/release.mjs` (verify: plant one in a non-allowlisted body → the guard must fail naming it; revert); allowlist: `scaffold`, `write-skill`. Takes `<skills-dir> [agents-dir]` args so `gatePlugin` scopes it per-plugin (agents scanned only when given) | pass/fail |
 | `skills/durable-anchors.mjs` | repo-wide (runs once): long-lived docs — every shipped skill body/reference + every AGENTS.md node outside docs/plans/ (point-in-time by contract) — carry no LIVE `file:line` anchors (a `path:NN` whose path resolves in the repo fails; fictional example paths pass by non-resolution). Fix = the durable grammar: `` `path` — `symbol` — purpose (verify: `command`) `` | pass/fail |
-| `agents/guard.mjs` | agent frontmatter, "Use when…"/"Not…" CSO, **no `model` key** (any literal — `inherit` included — reaches omp as a model ID and kills the spawn; Claude defaults to `inherit` anyway) | pass/fail |
+| `agents/guard.mjs` | agent frontmatter, "Use when…"/"Not…" CSO, **no `model` key** (reason: root `AGENTS.md` (Authoring agents)) | pass/fail |
 | `agents/score.mjs` | agent quality (rubric maximum defined in the script) | per-file floor from `scoring.json` (verify: `node scripts/config/read-floor.mjs agents`); total = N × per-file floor |
-| `tree/guard.mjs` | context-tree nodes (AGENTS.md ≤500; no legacy CLAUDE.md; the root AGENTS.md routing table names every nested node and every row resolves) | pass/fail |
+| `tree/guard.mjs` | context-tree nodes (AGENTS.md ≤500; no legacy CLAUDE.md; the root AGENTS.md routing table names every nested node and every row resolves; every backticked repo pointer — a `/` path whose first segment is a tracked top-level dir — resolves from the node's folder or the repo root; this table lists every `scripts/**/*.mjs` outside `lib/`, `tests/unit/`, and the non-validator entry points `release.mjs`/`ci-target.mjs`/`capture-tdd-red.mjs`, and every first-column `.mjs` path resolves from `scripts/` or the repo root) | pass/fail |
 | `plans/no-bespoke-gates.mjs` | shipped code carries no bespoke per-plan verification gate (an exported findings-accumulator that can pass vacuously) | pass/fail |
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
@@ -72,7 +69,7 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `tests/ci-plugin-targeting.mjs` | CI targeting and release contracts: shard selection, `ci.yml` trigger block, release module and dry-run safety (`--unit` in the gate) | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh`, via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |
 
-This table is hand-kept: no check compares it with the scripts on disk. Re-derive the set before you rely on it (verify: `ls scripts/*/*.mjs scripts/*.mjs`).
+`tree/guard.mjs` compares this table with the scripts on disk: a validator script without a row fails, and a row whose script is missing fails. A `lib/` module may have a row but does not need one.
 
 `--per-file` prints `<category>/<name> <score>`. Total floors are count-derived (`artifact_count × per-file_floor`) — adding/removing an artifact moves the floor automatically. Per-file floors are the true gate. Skill frontmatter parsing uses Node + the npm `yaml` package installed by `bun install --frozen-lockfile`.
 
@@ -164,7 +161,7 @@ The release tag, not the manifest number, is the fact that a version was release
 
 Every plugin uses this positional flow: bump resolution, local and tag CI gates, commit/push/tag, release notes, and a read-only dry run.
 
-Pull-request sharding, manual dispatch, and tag-push CI behavior live in `.github/AGENTS.md`. PR sharding never touches the release path: tag CI runs `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate, and targeted `--plugin` runs skip the repo-wide sections.
+Pull-request sharding, manual dispatch, and tag-push CI behavior live in `.github/AGENTS.md`. PR sharding never touches the release path: tag CI runs the repo lane, then `node scripts/ci.mjs --plugin <name>` as the authoritative selected-plugin gate (`.github/AGENTS.md` (Trigger model)), and targeted `--plugin` runs skip the repo-wide sections.
 
 <constraint>
 Before `node scripts/release.mjs`, run the smallest authoritative gate for the final implementation tree: `node scripts/ci.mjs --plugin <name>` for one plugin and its descriptor-owned tooling, otherwise full `node scripts/ci.mjs`. The selected release path reruns the same plugin gate before mutation, and tag CI reruns it authoritatively after push.

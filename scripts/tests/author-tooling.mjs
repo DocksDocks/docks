@@ -134,7 +134,10 @@ function testTreeGuardOperationalFailures() {
     const legacy = runNode(TREE_GUARD, [nodeRoot]);
     assertStarted(legacy);
     assert.equal(legacy.status, 1);
-    assert.match(legacy.stderr, /^FAIL: \.claude\/CLAUDE\.md — legacy CLAUDE\.md suppresses native AGENTS\.md loading/);
+    assert.match(
+      legacy.stderr,
+      /^FAIL: \.claude\/CLAUDE\.md — legacy CLAUDE\.md: keep one home for instructions \(a CLAUDE\.md without an @AGENTS\.md import makes Claude read it instead of AGENTS\.md\)/,
+    );
 
     // The root routing table must name every nested node, and every row must resolve.
     const routeRoot = path.join(fixtureRoot, 'route');
@@ -151,6 +154,40 @@ function testTreeGuardOperationalFailures() {
     assert.equal(dead.status, 1);
     assert.match(dead.stderr, /^FAIL: AGENTS\.md table row `gone\/AGENTS\.md` — dead route/m);
     assert.doesNotMatch(dead.stderr, /not routed/);
+    // A first cell `@<dir>/AGENTS.md` routes the same node; the leading `@` is stripped.
+    fs.writeFileSync(path.join(routeRoot, 'AGENTS.md'), '| Node |\n|---|\n| `@sub/AGENTS.md` |\n');
+    const atRouted = runNode(TREE_GUARD, [routeRoot]);
+    assertStarted(atRouted);
+    assert.equal(atRouted.status, 0, atRouted.stderr);
+
+    // A backticked pointer whose first segment is a top-level dir must resolve from the
+    // node's folder or the repo root; other slash tokens are not pointers.
+    const pointerRoot = path.join(fixtureRoot, 'pointer');
+    fs.mkdirSync(path.join(pointerRoot, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(pointerRoot, 'AGENTS.md'), '| `docs/AGENTS.md` |\n');
+    fs.writeFileSync(path.join(pointerRoot, 'docs', 'AGENTS.md'), 'See `docs/guide.md`, and `npm/scope`.\n');
+    const deadPointer = runNode(TREE_GUARD, [pointerRoot]);
+    assertStarted(deadPointer);
+    assert.equal(deadPointer.status, 1);
+    assert.match(deadPointer.stderr, /^FAIL: docs\/AGENTS\.md — dead pointer `docs\/guide\.md`$/m);
+    assert.doesNotMatch(deadPointer.stderr, /npm\/scope/);
+    fs.mkdirSync(path.join(pointerRoot, 'docs', 'docs'));
+    fs.writeFileSync(path.join(pointerRoot, 'docs', 'docs', 'guide.md'), '# Guide\n');
+    const nodeRelative = runNode(TREE_GUARD, [pointerRoot]);
+    assertStarted(nodeRelative);
+    assert.equal(nodeRelative.status, 0, nodeRelative.stderr);
+
+    // Every validator script under scripts/ needs a row in the scripts/AGENTS.md table.
+    const tableRoot = path.join(fixtureRoot, 'table');
+    fs.mkdirSync(path.join(tableRoot, 'scripts', 'tree'), { recursive: true });
+    fs.writeFileSync(path.join(tableRoot, 'AGENTS.md'), '| `scripts/AGENTS.md` |\n');
+    fs.writeFileSync(path.join(tableRoot, 'scripts', 'AGENTS.md'), '| Script |\n|---|\n| `ci.mjs` |\n');
+    fs.writeFileSync(path.join(tableRoot, 'scripts', 'ci.mjs'), '');
+    fs.writeFileSync(path.join(tableRoot, 'scripts', 'tree', 'guard.mjs'), '');
+    const unlisted = runNode(TREE_GUARD, [tableRoot]);
+    assertStarted(unlisted);
+    assert.equal(unlisted.status, 1);
+    assert.match(unlisted.stderr, /^FAIL: scripts\/tree\/guard\.mjs — script missing from the scripts\/AGENTS\.md/m);
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
