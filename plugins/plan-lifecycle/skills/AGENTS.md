@@ -71,7 +71,7 @@ Every docks skill that routes into this lifecycle carries one byte-identical
 prerequisite paragraph naming this plugin, so a runtime without
 `plan-lifecycle` stops instead of silently proceeding without a plan. No check
 compares the copies. Change the paragraph only in lockstep across every copy
-(verify: `grep -rl 'Prerequisite: \`plan-lifecycle\` must be installed' plugins/docks`).
+(verify: `grep -rl 'Prerequisite: .plan-lifecycle. must be installed' plugins/docks`).
 
 ## Scoring and namespace
 

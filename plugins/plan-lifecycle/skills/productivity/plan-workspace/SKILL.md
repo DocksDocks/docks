@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-23"
-  content_hash: "45eee738493ac1bf703ff6ca9b02027342569a953a23a07a0320926b7cc06587"
+  content_hash: "33e947296941bcf0ab2a82e3a7286193a4c9a470d74328f8acc95e17f0998d7d"
 ---
 
 # Plans Workspace
@@ -54,12 +54,13 @@ Legacy classification takes precedence over greenfield. Labels are not a
 bootstrap prerequisite: `new` creates the reserved labels when a plan is filed.
 Do not create a queue. Existing project queues remain outside this lifecycle.
 
-A legacy `docs/CLAUDE.md` suppresses native `AGENTS.md` loading in Claude
-Code. If it holds only `@AGENTS.md`, it is stale generated scaffolding: report
-it and propose its removal. If it holds other content, report it as
-AMBIGUOUS_CUSTOM and leave it in place. A root `CLAUDE.md`, `.claude/CLAUDE.md`,
-or `CLAUDE.local.md` suppresses every `AGENTS.md` below it, so the routing this
-skill writes would not load: report each one; do not remove it here.
+A legacy `docs/CLAUDE.md` is a second home for instructions. If it holds only
+`@AGENTS.md`, it is redundant generated scaffolding: report it and propose its
+removal. If it holds other content, report it as AMBIGUOUS_CUSTOM and leave it
+in place. A `CLAUDE.md` without an `@AGENTS.md` import makes Claude read it
+instead of `AGENTS.md`. A root `CLAUDE.md`, `.claude/CLAUDE.md`, or
+`CLAUDE.local.md` without that import hides every `AGENTS.md` below it, so the
+routing this skill writes would not load: report each one; do not remove it here.
 
 Before mutation, report each target, proposed action, and observed reason.
 For audit, that report is final.
@@ -72,8 +73,9 @@ For audit, that report is final.
    `docs/PLAN.md`. It is a short pointer to the canonical contract.
 3. Add routing to `docs/AGENTS.md` that tells agents to read `docs/PLAN.md`
    before plan work. Preserve unrelated documentation rules. Never create
-   `docs/CLAUDE.md`; Claude Code reads `docs/AGENTS.md` natively. When you
-   create `docs/AGENTS.md`, end it with this line: "Pointers here name
+   `docs/CLAUDE.md`; Claude Code reads `docs/AGENTS.md` natively. Whether you
+   create `docs/AGENTS.md` or add routing to an existing one, make sure it
+   carries this line, and add it at the end if missing: "Pointers here name
    concepts, not coordinates — if a path or symbol moved, trust the stated
    purpose and re-locate it (grep the symbol) before acting." If the root
    `AGENTS.md` has a node table, add a `docs/AGENTS.md` row to it.

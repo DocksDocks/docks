@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-10"
-  content_hash: "1b2799245b4bf7d73f5aabe19c36ac7dfa267684aad3dcf0b930512854d38522"
+  updated: "2026-09-23"
+  content_hash: "6b3c1d81bccb34e936ffb49a8623557f3cc121f3dfd4438b0a9b048e7fd75bd4"
 ---
 
 # Plan Manager
@@ -125,16 +125,11 @@ before recording the blocker so repairs are not stranded.
 
 ## Landing and reporting
 
-After pass, commit and push remaining reviewed bytes. Create or update the
-closing pull request, whose body carries `Closes #<issue>`; a partial pull
-request carries plain `Refs #<issue>`. Without `Closes` the merge leaves no
-closing reference and archive cannot prove the landing. Compare its head and
-diff with the reviewed candidate; a mismatch invalidates the pass.
-Follow the canonical checks policy: wait up
-to five minutes for checks to appear, and never treat an empty result as success.
-Ask freshly for `Merge now` or `Leave pull request open`. Without a fresh merge
-answer, leave it open. Re-read the head and diff immediately before merging
-with `--match-head-commit`. Archive only after the approved merge lands.
+After pass, commit and push remaining reviewed bytes. Then create or update the
+closing pull request, wait for checks, ask freshly for `Merge now` or
+`Leave pull request open`, merge only on `Merge now`, and archive only after the
+approved merge lands. Follow the contract's closing-reference, checks, and merge
+policy in `references/plan-contract.md` (Landing and archive proof).
 
 Render the body only when the user names the plan and asks to see it. After a
 write, report the header and changed lines. Frozen history under
