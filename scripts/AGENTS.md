@@ -37,7 +37,7 @@ checks run inside the existing plan orchestration section.
 
 ### Adding plugin N+1 (the whole checklist — no orchestrator edits)
 
-1. **Payload** at `plugins/<name>/` — `.claude-plugin/plugin.json` (+ `.codex-plugin/plugin.json` when it ships to Codex) and its `skills/`/`agents/`/`hooks/` dirs.
+1. **Payload** at `plugins/<name>/` — `plugins/<name>/.claude-plugin/plugin.json` (+ `plugins/<name>/.codex-plugin/plugin.json` when it ships to Codex) and its `skills/`/`agents/`/`hooks/` dirs.
 2. **One descriptor** appended to `PLUGINS` in `lib/plugins.mjs` — assign required `ciLane` ownership (`core`; a diff under `root` then selects that shard), declare only capabilities that exist (`agents`/`selftest` take `null`, `extraJson`/`authorChecks`/`releaseContracts` use `[]` when absent), and declare the exact data-only `release` policy.
 3. **Two catalog entries**: `.claude-plugin/marketplace.json` (name/source/version — version in lockstep with both manifests) and `.agents/plugins/marketplace.json` (local-source + policy block) for Codex.
 4. **Optional context node** (a single `plugins/<name>/AGENTS.md`) when the plugin carries conventions of its own — `tree/guard` enforces the node contract; the durable-anchors guard scans it.

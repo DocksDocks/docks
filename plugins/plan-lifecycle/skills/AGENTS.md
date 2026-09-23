@@ -80,6 +80,6 @@ plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score
 --per-file plugins/plan-lifecycle/skills`. Per-file floors live in
 `scripts/config/scoring.json` (verify: `node scripts/config/read-floor.mjs skills productivity`;
 agents: `node scripts/config/read-floor.mjs agents`). Skills surface as
-`plan-lifecycle:<name>` from `name` in `.claude-plugin/plugin.json`.
+`plan-lifecycle:<name>` from `name` in `plugins/plan-lifecycle/.claude-plugin/plugin.json`.
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.

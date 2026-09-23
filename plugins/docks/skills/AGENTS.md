@@ -34,9 +34,9 @@ One-shot whole-repo setup and audit go through the `agent-first-setup` skill.
 
 1. **Lead with "Use when …"** — the guard enforces this prefix (verify: temporarily reword one description to drop the prefix → `node scripts/skills/guard.mjs` must fail on it; revert).
 2. **Key use case first** — Claude Code truncates the combined description in the listing (limit: Skills docs in `## Sources`); the first ~100 chars matter most.
-3. **≤500 chars** for full scorer credit; the hard cap is 1,024 (agentskills.io spec). Point values: write-skill's `scripts/skill-guard.mjs` (verify: `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file | grep <name>`).
+3. **≤500 chars** for full scorer credit; the hard cap is 1,024 (agentskills.io spec). Point values: `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs` (verify: `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file | grep <name>`).
 4. **Say what the skill does as well as when.** After the "Use when" trigger, name the job the skill does (for example "produces a tiered fix plan"). The agent picks a skill from the description alone, so a description with triggers but no job cannot be told apart from a neighbor. Move long "Covers X, Y, Z" enumerations into the body, but keep one clause that states the job. Source: the agentskills.io spec `description` field (`## Sources`).
-5. **Name categories of user intent; concrete nouns are fine.** "Use when running bun audit, pnpm audit, pip-audit…" beats "Use when working with dependency security", because commands and file types are what users type. But group them under the user intent they serve, and do not add one keyword per missed query: an ever-growing list overfits to the queries you saw, uses up the shared listing budget, and still misses the next phrasing. When a skill under-triggers, fix the intent category and confirm with the `write-skill` trigger check, not by adding tokens. Source: skill-creator `scripts/improve_description.py` (`## Sources`).
+5. **Name categories of user intent; concrete nouns are fine.** "Use when running bun audit, pnpm audit, pip-audit…" beats "Use when working with dependency security", because commands and file types are what users type. But group them under the user intent they serve, and do not add one keyword per missed query: an ever-growing list overfits to the queries you saw, uses up the shared listing budget, and still misses the next phrasing. When a skill under-triggers, fix the intent category and confirm with the `write-skill` trigger check, not by adding tokens. Source: upstream anthropics/skills skill-creator `improve_description.py` (`## Sources`).
 6. **No slop words** (`comprehensive`, `robust`, `elegant`, `seamless`) — each costs scorer points (`skill-guard.mjs`).
 7. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. `tests/skill-trigger-collision.mjs` fails an unrouted pair whose shared positive-surface trigger tokens reach its `OVERLAP_FAIL` threshold, but the subtle collisions still need the manual near-miss pass; `write-skill`'s near-miss table is the procedure.
 
@@ -122,7 +122,7 @@ Skills run in both runtimes; phrase for both. Sources: the Claude Code skills do
 
 ## Namespace
 
-Artifacts surface as `<plugin>:<name>` (e.g. `docks:security`, `docks:write-skill`) from `name` in `.claude-plugin/plugin.json`.
+Artifacts surface as `<plugin>:<name>` (e.g. `docks:security`, `docks:write-skill`) from `name` in `plugins/docks/.claude-plugin/plugin.json`.
 
 ## Sources
 
@@ -130,4 +130,4 @@ Artifacts surface as `<plugin>:<name>` (e.g. `docks:security`, `docks:write-skil
 - agentskills.io spec: <https://agentskills.io/specification>
 - Agent Skills best practices: <https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>
 - skill-creator `SKILL.md` (Apache-2.0): <https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md>
-- skill-creator `scripts/improve_description.py` (Apache-2.0): <https://github.com/anthropics/skills/blob/main/skills/skill-creator/scripts/improve_description.py>
+- upstream anthropics/skills skill-creator `improve_description.py` (Apache-2.0): <https://github.com/anthropics/skills/blob/main/skills/skill-creator/scripts/improve_description.py>
