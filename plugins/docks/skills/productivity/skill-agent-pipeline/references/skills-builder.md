@@ -15,7 +15,7 @@ Before documenting any library / framework / external API in a skill, fetch curr
 ```yaml
 ---
 name: <skill-name>
-description: "Use when <triggers>. Covers <5+ project-specific identifiers>."
+description: "Use when <triggers>. Covers <5+ project-specific identifiers>. Not for <near-miss work> (use <sibling-skill>)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -41,10 +41,13 @@ A generated skill outlives the commit it was written at, so bare `file:line` anc
 ```
 
 - Convert every 2b `file:line` note to this grammar; line numbers survive ONLY inside clearly-fictional teaching examples (paths that don't exist in the project).
-- Volatile facts (versions, counts, thresholds, ports, flag defaults) always carry their `verify:` command — a reader re-derives before relying.
+- Volatile facts (versions, counts, sizes, thresholds, ports, flag defaults) always carry their `verify:` command — a reader re-derives before relying. Prefer the RULE that produces a value ("must equal the highest file under `migrations/`") over the value.
+- No "currently", "as of today", "now has", or "recently" — state the rule, not the moment.
+- No hand-maintained enumerations of things that change (lists of routes, tables, skills, nodes). Name the directory or file that owns the set plus a `verify:` command that lists it (e.g. `ls src/routes/`).
+- One fact, one home: a fact owned by another file (an `AGENTS.md` node, a config file, another skill) gets a backticked repo-root-relative path, not a copy. Every pointer must resolve.
 - Behavior claims ("X enforces/validates/automates Y") get a cue that EXERCISES the behavior (a should-fail probe), never an existence check — a tool can exist and pass while doing less than the sentence says. Unprobeable behavior claims are omitted.
-- Include one stale-tolerance line in each generated body: "Pointers here name concepts, not coordinates — if a path or symbol has moved, trust the stated purpose and re-locate it (grep the symbol) before acting."
-- Self-check before handing to Phase 6: `grep -nE '[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+'` over the drafted files; any hit whose path exists in the project is a live line anchor — convert it.
+- Include one stale-tolerance line in each generated body, verbatim: "Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting."
+- Self-check before handing to Phase 6: `grep -nE '[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+'` over the drafted files; any hit whose path exists in the project is a live line anchor — convert it. Then `grep -nEi '\b(currently|as of today|now has|recently)\b'` — rewrite every hit outside a BAD example.
 
 ## Codex + Claude frontmatter rules
 
@@ -72,7 +75,7 @@ Prefer the plugin-provided `docks:skill-maintenance`. Create a local `skill-main
 
 ## Output (write under `## Phase 3: Skills Plan`)
 
-Per skill, a delimited block: `### File: .claude/skills/<name>/SKILL.md` + full content, then each `### File: .../references/<topic>.md` + content.
+Per skill, a delimited block: `### File: <skills-dir>/<name>/SKILL.md` + full content, then each `### File: .../references/<topic>.md` + content. `<skills-dir>` is `.agents/skills` when that directory exists (a bridged project; `.claude/skills/<name>` stays a symlink to it), else `.claude/skills` — then recommend `multi-tool-bridge` in the report so Codex finds the skills too.
 
 ## Gotcha
 

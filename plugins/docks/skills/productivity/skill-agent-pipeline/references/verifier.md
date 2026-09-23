@@ -11,11 +11,12 @@ Per-finding reproduction is mandatory. Before any finding lands in `## Issues to
 | Check | Rule |
 |---|---|
 | Frontmatter | valid YAML; `name` (lowercase+hyphens), quoted `description`, `user-invocable`, `metadata.pattern`, `source_files`, `updated` |
-| CSO | starts `Use when…`; ≥5 project-specific identifiers; ≤1024 chars; no angle brackets; no unquoted `: ` or `#` hazards |
+| CSO | starts `Use when…`; ends with a `Not for …` clause; ≥5 project-specific identifiers; ≤1024 chars; no angle brackets; no unquoted `: ` or `#` hazards |
 | Existing-skill cap | any ON-DISK skill whose parsed `description` >1024 chars that Phase 2a did NOT flag `rewrite-description` → **hard fail** (Codex silently skips an over-cap skill, so it never loads) |
 | Size | body ≤500 (hard cap). **Hard fail** 310–500 lines with NO references/ — split required |
 | Content accuracy | apply `references/content-auditor.md` to every drafted/refreshed skill — verify EVERY ref, code snippet, and asserted identifier against current source, **not a sample**. State claims-checked; pass only at zero unreproduced drift |
 | Durable anchors | `grep -nE '[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+'` over each drafted body + references/ — any hit whose path EXISTS in the project is a `line-anchor` finding: convert to the durable grammar (`path` — `symbol` — purpose — `verify:` command). Fictional example paths (no such file) pass. **Hard fail** a plan that ships live line anchors |
+| Durable facts | apply `references/skills-builder.md` § Durable anchors to each drafted body + references/: `grep -nEi '\b(currently\|as of today\|now has\|recently)\b'` hits outside a BAD example; a version, count, size, or port with no `verify:` command; a hand-maintained list of routes/tables/skills/nodes; a fact copied from an `AGENTS.md` node or config file instead of pointed at; a backticked path that does not resolve → `volatile-fact` finding. `grep -qF 'Pointers here name concepts, not coordinates'` must hit once per drafted `SKILL.md`. **Hard fail** a plan that ships any of these |
 | Maintenance skill | use plugin `docks:skill-maintenance` when available; local copy only for project-specific rules; `pattern: reviewer`, `user-invocable: false`; **hard fail** if body references kit-internal validators that do not ship downstream |
 | No prose-config edits | Phase 3 must contain no AGENTS.md / CLAUDE.md edits |
 

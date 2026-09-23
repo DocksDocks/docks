@@ -4,15 +4,15 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-08-20"
-  content_hash: "9d8a8f5b28b59e4524206fae705d9f4f434cebf0067ca6ddfa398c3006cc1b97"
+  updated: "2026-09-23"
+  content_hash: "d297b808cc95f459b0edd9ecd2d67acc119127b5b396099a881819b6a53ecbce"
 ---
 
 # Write a Skill (docks conventions)
 
 The description is the only thing your agent sees when deciding which skill to load. Get it wrong and the skill never fires. Get it right and the body content barely matters.
 
-This skill encodes docks' specific authoring conventions — the 16-point scorer rubric in the bundled `scripts/skill-guard.mjs` (the single source the kit CI also scores with), the structural guards in `scripts/skills/guard.mjs`, the body sweet spot, the `<constraint>` block reward, the references/ extraction rule. Anthropic's `skill-creator` and Matt Pocock's `write-a-skill` (MIT, framing inspiration) are both generic; this one is docks-shaped.
+This skill encodes docks' specific authoring conventions — the 16-point scorer rubric in the bundled `scripts/skill-guard.mjs` (the single source the kit CI also scores with), the structural guards in `scripts/skills/guard.mjs`, the body sweet spot, the `<constraint>` block reward, the references/ extraction rule. Anthropic's `skill-creator` and Matt Pocock's former `write-a-skill` (MIT, framing inspiration) are both generic; this one is docks-shaped.
 
 <constraint>
 Description-first. The description is surfaced in the skill listing every session — it loads always, the body loads only on invocation. Spend disproportionate effort here. CSO rules: (1) starts with `Use when …` (2 pts), (2) ≤500 chars (2 pts; > 1000 = 0 pts; the guard hard-caps at 1024), (3) contains concrete trigger keywords ("Use when running bun audit, pnpm audit, …") rather than abstract capability prose, (4) zero slop words (`comprehensive`, `robust`, `elegant`, `seamless` — each occurrence costs 1 pt, max −2). Verify with `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also uses — before considering the description done.
@@ -79,9 +79,10 @@ metadata:
 3. **Draft the body** in `SKILL.md`. Target 80–310 lines. Include at least: one `<constraint>`, one BAD/GOOD pair, one table, one fenced code block with a language tag. Pick prescriptiveness per "Degrees of freedom" below.
 4. **Score check.** `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also scores with (one rubric, no mirror). Validate one skill: `node …/skill-guard.mjs validate <skill-dir>`. If < 14, find the missing point in the rubric.
 5. **Structural check.** Kit: `node scripts/skills/guard.mjs` (frontmatter for both runtimes + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
-6. **Targeted CI while iterating.** In a multi-plugin kit, run the owning plugin's gate after each meaningful change — in this kit, `node scripts/ci.mjs --plugin <changed-plugin>`. Do not rerun unrelated plugin gates during the edit loop.
-7. **Full CI once.** Run `node scripts/ci.mjs` at the final pre-commit/release gate, or earlier only when shared/repo-wide files changed. It must be green before commit.
-8. **Iterate.** Per the kit's literal-instruction culture, "score it" is a real instruction — don't ship until the score plateaus.
+6. **Docs check.** Run the self-check in `references/durable-anchors.md` on the body and every reference. If the skill writes docs, check rows A–C of "Durable docs and agent-first output" below against the docs it emits; if it writes into a user repo, check row D too.
+7. **Targeted CI while iterating.** In a multi-plugin kit, run the owning plugin's gate after each meaningful change — in this kit, `node scripts/ci.mjs --plugin <changed-plugin>`. Do not rerun unrelated plugin gates during the edit loop.
+8. **Full CI once.** Run `node scripts/ci.mjs` at the final pre-commit/release gate, or earlier only when shared/repo-wide files changed. It must be green before commit.
+9. **Iterate.** Per the kit's literal-instruction culture, "score it" is a real instruction — don't ship until the score plateaus.
 
 ## Fresh-instance QA (the Claude-A / Claude-B test)
 
@@ -156,15 +157,18 @@ Match prescriptiveness to fragility, not to how much you know about the task. Fr
 
 Writing ALWAYS/NEVER in caps is the yellow flag: state the consequence instead ("two-phase write, because a halt mid-relocation loses content"). A rule carrying its why survives paraphrase, model upgrades, and the edge cases the caps-lock version never anticipated.
 
-## Durable anchors (how skill bodies reference code)
+## Durable docs and agent-first output
 
-Skill bodies and `references/` are long-lived: they outlive the commit they cite, so a bare
-`path:42` line anchor is one edit away from misleading the next agent. Anchor by
-`` `path` — `symbol` — purpose (verify: `command`) `` instead; give every volatile fact
-(version, count, floor, path) the cue that re-derives it; keep `file:line` only inside
-clearly-fictional teaching examples and in point-in-time OUTPUT formats a skill documents
-(review findings, plan evidence). Full grammar, artifact-class table, and the inline
-self-check: [`references/durable-anchors.md`](references/durable-anchors.md).
+Skill bodies and `references/` are durable docs, and so is every AGENTS.md or README-style doc a skill writes into a user repo. Rules, BAD/GOOD pairs, and the inline self-check: [`references/durable-anchors.md`](references/durable-anchors.md). A skill that emits docs states the rules it needs inline in its own body. Check each row before shipping:
+
+| Check | Applies to | Pass when |
+|---|---|---|
+| A. Durable vs point-in-time | every skill that writes docs | durable outputs (AGENTS.md nodes, README-style docs, skills) follow B and C; point-in-time outputs (findings, plan evidence, audit records) carry a date and keep `file:line` |
+| B. One fact, one home | every skill that writes docs | each fact has one owning file; other files name it as a backticked repo-root-relative path; `@path` import only when the target must always be in context; a fact is copied only when it is deleted from its source |
+| C. Durable facts only | every skill that writes docs | no live `path:NN`, no bare version/count/size/date, no "currently"/"as of"/"recently", no hand list of changing things unless a check compares it with disk; each volatile value has `(verify: <command>)` or the rule that produces it; one stale-tolerance line per generated durable doc |
+| D. Agent-first | every skill that writes or changes files in a user repo | findable (a root AGENTS.md routes to every nested node and canonical location; skills in `.agents/skills/`, symlinked from `.claude/skills/`); fast to understand (root holds commands and repo-wide rules only, folder rules live in the folder AGENTS.md); trustworthy (C holds, behavior claims carry a probe); verifiable (the skill ends with a check an agent can run — commands, not prose); no CLAUDE.md files (they suppress native AGENTS.md loading) |
+
+A failed row is a defect in the skill, not in one output: fix the template or the instruction that produces the doc.
 
 ## Common authoring traps
 
@@ -194,4 +198,4 @@ A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no 
 
 ## Source attribution
 
-Framing ("the description is the only thing your agent sees") adapted from Matt Pocock's `write-a-skill` (MIT, <https://github.com/mattpocock/skills/blob/main/skills/productivity/write-a-skill/SKILL.md>). Degrees-of-freedom and the near-miss negative idea adapted from Anthropic's skill authoring best practices (<https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>) and its `skill-creator` plugin. Body / rubric / loop are docks-specific — `skill-creator` covers evals and benchmarking; this one covers the kit conventions neither generic skill knows. The markdown + frontmatter + progressive-disclosure shape itself is convergent prior art: Google's Open Knowledge Format (OKF v0.1, Apache-2.0 — markdown files with YAML frontmatter; <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>, spec in <https://github.com/GoogleCloudPlatform/knowledge-catalog>) and Karpathy's LLM-Wiki pattern (raw sources / wiki / schema layers with Ingest–Query–Lint ops; <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>) standardize the same idea independently.
+Framing ("the description is the only thing your agent sees") adapted from Matt Pocock's `write-a-skill` (MIT; removed upstream in June 2026 and replaced by `writing-for-agents`, <https://github.com/mattpocock/skills/blob/main/skills/productivity/writing-for-agents/SKILL.md>). Last version: <https://github.com/mattpocock/skills/blob/ab7196a1584ac60688aeb63cf0b56a5114c4a6f3/skills/productivity/write-a-skill/SKILL.md>. Degrees-of-freedom and the near-miss negative idea adapted from Anthropic's skill authoring best practices (<https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>) and its `skill-creator` plugin. Body / rubric / loop are docks-specific — `skill-creator` covers evals and benchmarking; this one covers the kit conventions neither generic skill knows. The markdown + frontmatter + progressive-disclosure shape itself is convergent prior art: Google's Open Knowledge Format (OKF v0.1, Apache-2.0 — markdown files with YAML frontmatter; <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>, spec in <https://github.com/GoogleCloudPlatform/knowledge-catalog>) and Karpathy's LLM-Wiki pattern (raw sources / wiki / schema layers with Ingest–Query–Lint ops; <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>) standardize the same idea independently.

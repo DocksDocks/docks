@@ -1,11 +1,11 @@
 ---
 name: skill-agent-pipeline
-description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, caps, staleness, coverage gaps), ref/snippet accuracy audit vs current source, pattern extraction with evidence, SKILL.md + references/ authoring with durable anchors. Emits BOTH .claude/agents/*.md and .codex/agents/*.toml agents; phases gate through the plan lifecycle. Not for AGENTS.md nodes (use context-tree), single-skill refresh after source changes (use skill-maintenance), or README prose."
+description: "Use when bootstrapping or auditing a project's skills and agents — skill health (CSO descriptions, caps, staleness, coverage gaps), ref/snippet accuracy audit vs current source, pattern extraction with evidence, SKILL.md + references/ authoring with durable anchors. Emits BOTH .claude/agents/*.md and .codex/agents/*.toml agents; phases gate through the plan lifecycle. Not for AGENTS.md nodes (use context-tree), single-skill refresh after source changes (use skill-maintenance), one-shot full repo setup (use agent-first-setup), or README prose."
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-08-20"
-  content_hash: "52e3ffc598b62e85a4a974ecb0de6d7e37050168fbd5bb66a91dc036ce73273a"
+  updated: "2026-09-23"
+  content_hash: "b7138b472949b417d9ddc016f8c7dacee9232a2f69866c3d53d194a3b1a1c26a"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -36,7 +36,8 @@ Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-m
 
 | Situation | Use instead |
 |---|---|
-| AGENTS.md / CLAUDE.md context nodes | `context-tree` (README and other human prose are out of the kit's scope) |
+| AGENTS.md context nodes | `context-tree` (README and other human prose are out of the kit's scope) |
+| One-shot full repo setup (bridge + context tree + agent-first check) | `agent-first-setup` |
 | Writing one skill by hand | `write-skill` |
 | Multi-tool AGENTS.md ↔ skills symlink bridging | `multi-tool-bridge` |
 | Security / refactor analysis | `security` / `refactor` |
@@ -80,12 +81,12 @@ Hand phase output to `plan-manager` as you go — never hold all of it in contex
 
 ## Skill description quality (Phase 2a / 3)
 
-Every proposed description starts `Use when…`, is valid YAML when parsed as frontmatter, is ≤1024 chars, contains no angle brackets, and carries ≥5 identifiers specific to THIS project — exported names, config keys, env vars, error types, CLI commands, route patterns. Quote descriptions by default. Generic phrases ("module boundaries", "error handling") count for nothing.
+Every proposed description starts `Use when…`, ends with a `Not for …` clause (name the sibling skill to use instead when one exists), is valid YAML when parsed as frontmatter, is ≤1024 chars, contains no angle brackets, and carries ≥5 identifiers specific to THIS project — exported names, config keys, env vars, error types, CLI commands, route patterns. Quote descriptions by default. Generic phrases ("module boundaries", "error handling") count for nothing. Every drafted body follows the durable-fact rules in `references/skills-builder.md` § Durable anchors; Phase 6 hard-fails a body that breaks them.
 
 | | Example |
 |---|---|
 | BAD | "Use when working with the API and database operations in the project." |
-| GOOD | "Use when editing `routes/checkout.ts`, touching the `STRIPE_WEBHOOK_SECRET` env var, handling the `CartExpiredError`, or running `pnpm seed:orders` — covers the order-state machine and idempotency keys." |
+| GOOD | "Use when editing `routes/checkout.ts`, touching the `STRIPE_WEBHOOK_SECRET` env var, handling the `CartExpiredError`, or running `pnpm seed:orders` — covers the order-state machine and idempotency keys. Not for generic React UI work (use frontend-patterns)." |
 
 ## Review handoff + implementation
 

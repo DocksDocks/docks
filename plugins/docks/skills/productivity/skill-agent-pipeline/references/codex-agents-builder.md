@@ -61,7 +61,7 @@ Codex `.codex/agents/explorer.toml`:
 ```toml
 name = "explorer"
 description = "Use when gathering evidence before a change. Not for editing."
-model = "gpt-5.4"
+model = "gpt-5.6-terra"
 sandbox_mode = "read-only"
 developer_instructions = """
 <the Claude agent's markdown system-prompt body, verbatim>
