@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-23"
-  content_hash: "7427b8fccb715a57952db22e74c6b7ae492afe5fddb5fc5b4321be176afb72df"
+  content_hash: "fd02d74f6284a3307d416a986ba69c6fe08228df674ff7d37190229feb21a7ad"
 ---
 
 # Code Review
@@ -112,7 +112,7 @@ SEVERITY · CATEGORY · file:line
   Suggested fix: <one sentence or short snippet>
 ```
 
-Then ask "Apply fixes?" with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`, or whatever question tool the harness registers). Give four options: all / critical-only / specific findings / none. Do not call Edit/Write until the user answers. Silence is not consent. If the answer is ambiguous, show the findings again and ask again. Do not write "Apply fixes? yes/no" as plain reply text when a question tool exists. If the harness has no question tool (for example, a headless or print-mode run), print the question as your final message and end the turn. Do not invent a tool call.
+Then ask "Apply fixes?" with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`, or whatever question tool the harness registers). Outside Codex Plan mode, the call can return without a user answer; an empty or default answer is not approval, so write nothing and end the turn. Give four options: all / critical-only / specific findings / none. Do not call Edit/Write until the user answers. Silence is not consent. If the answer is ambiguous, show the findings again and ask again. Do not write "Apply fixes? yes/no" as plain reply text when a question tool exists. If the harness has no question tool (for example, a headless or print-mode run), print the question as your final message and end the turn. Do not invent a tool call.
 
 If the user approves fixes:
 

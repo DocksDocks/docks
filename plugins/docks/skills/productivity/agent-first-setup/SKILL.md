@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-09-23"
-  content_hash: "fc0de0d71755ed4ee2715bd9b9849e1083a54f331f8540cae2b09dc520c686af"
+  content_hash: "43b4144448b9d98303c79f78cf0b5f9707e9e4ec894b97b63fb350e9a27e2d25"
 ---
 
 # Agent-First Setup
@@ -43,10 +43,10 @@ Ask every question through the question tool of the harness that runs this sessi
 |---|---|
 | Oh My Pi (omp) | `ask` |
 | Claude Code | `AskUserQuestion` |
-| Codex | `request_user_input` (not in every Codex mode) |
+| Codex | `request_user_input` (not in every Codex mode; see the note below) |
 | OpenCode | `question` |
 
-Use the tool that your harness registers, even when it is not in this table. Put all open questions for one gate into one call. If no question tool is registered (for example, in a headless or print-mode run), do not invent a call: print the questions, take no write, and end the turn.
+Use the tool that your harness registers, even when it is not in this table. Outside Codex Plan mode, the call can return without a user answer; an empty or default answer is not approval, so write nothing and end the turn. Put all open questions for one gate into one call. If no question tool is registered (for example, in a headless or print-mode run), do not invent a call: print the questions, take no write, and end the turn.
 
 ## When to Use
 
