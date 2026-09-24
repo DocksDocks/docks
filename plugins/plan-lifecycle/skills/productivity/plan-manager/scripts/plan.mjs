@@ -15,7 +15,7 @@ const ACCEPTANCE_HEADER = '| ID | Command | Expected |';
 const ACCEPTANCE_SEPARATOR = '|---|---|---|';
 const PLAN_LABELS = ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked'];
 const ISSUE_FIELDS = 'number,title,body,state,stateReason,labels,assignees,url,createdAt,updatedAt';
-const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (gh api user --jq .login returned nothing)';
+const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (the GraphQL viewer.login lookup returned nothing)';
 const PAGE_INFO = 'pageInfo{hasNextPage endCursor}';
 const PULL_REQUEST_FIELDS = 'number url state mergedAt baseRefName repository{nameWithOwner}';
 const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
@@ -122,7 +122,7 @@ function pullRequestNodes(nodes) {
 function hasClosingKeyword(body, number, nameWithOwner) {
   const repo = nameWithOwner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(
-    String.raw`\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?\s+(?:#|${repo}#)${number}(?![A-Za-z0-9_])`,
+    String.raw`\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?[ \t]+(?:#|${repo}#)${number}(?![A-Za-z0-9_])`,
     'i',
   ).test(body);
 }

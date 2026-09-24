@@ -70,7 +70,6 @@ function run(...args) {
     cwd: scratch,
     encoding: 'utf8',
     env: childEnv,
-    timeout: 10_000,
   });
 }
 
@@ -501,6 +500,9 @@ try {
   });
   expectSuccess(run('archive', String(qualified.number)), 'archive qualified mixed-case keyword');
 
+  const tabSeparated = closedPlan('tab-separated closing keyword', { prBody: 'Resolves\t#ISSUE' });
+  expectSuccess(run('archive', String(tabSeparated.number)), 'archive tab-separated keyword');
+
   for (const [name, prBody] of [
     ['no closing keyword', 'Refs #ISSUE'],
     ['number prefix', 'Closes #ISSUE0'],
@@ -508,6 +510,8 @@ try {
     ['keyword prefix', 'notCloses #ISSUE'],
     ['issue URL', 'Closes https://github.com/DocksDocks/fixture/issues/ISSUE'],
     ['different repository', 'Fixes: Another/repo#ISSUE'],
+    ['keyword and reference in separate paragraphs', 'Closes:\n\n#ISSUE is still open'],
+    ['keyword and reference on separate lines', 'Closes\n#ISSUE'],
     ['null PR description', null],
   ]) {
     const unproven = closedPlan(name, { prBody });
