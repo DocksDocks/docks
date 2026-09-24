@@ -11,8 +11,8 @@ paths:
   - "**/*.py"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "a01a62ba0da5e342537b8e0993079468274edb4d0a16a098849144678088e63b"
+  updated: "2026-09-24"
+  content_hash: "6f68d95ea02cdca7a598bf0766ad605909283a7e7a5e14e53e577c7cc38ca03d"
 ---
 
 # Type-Safety Discipline
@@ -30,7 +30,7 @@ Primary examples below are in TypeScript. Each concept has a brief equivalency c
 - Choosing between object-shape vs sum-type representations: `interface`/`type` (TS), `struct`/`enum` (Rust), `data class`/`sealed interface` (Kotlin), `@dataclass`/tagged union (Python).
 - About to write `class Foo` in TypeScript — verify against § 9 below; the default is a function/closure unless one of three exceptions applies.
 - Tempted to widen with `any` / `Any` / `object`, leave a parameter untyped, or use an unchecked cast (`as Foo`, `unsafe`, `cast()`).
-- A string or number literal appearing in 2+ places.
+- A closed set of states, modes, or kinds needs a type, enum, or `Literal`.
 - Designing variant component props or an API response with multiple shapes.
 - Two ID-shaped values flow through the same code path (`UserId`, `OrgId`, `InvoiceId`).
 - Parsing external data: form input, API response, environment variables, JSON file.
@@ -41,7 +41,7 @@ Primary examples below are in TypeScript. Each concept has a brief equivalency c
 | Smell | Replace with | Why |
 |---|---|---|
 | `any` (TS), `Any?` (Kotlin), `Any` (Python) | typed-but-opaque (`unknown` / sealed type / `object`) + narrowing | Opacity preserves type-checker work; widening kills it |
-| Magic string literal in 2+ places | TS `type X = "a" \| "b"`; Rust `enum`; Kotlin `enum class`; Python `Literal["a", "b"]` | Single source of truth, rename-safe |
+| Raw string from a closed set of states, modes, or kinds | TS `type X = "a" \| "b"`; Rust `enum`; Kotlin `enum class`; Python `Literal["a", "b"]` | Compiler checks valid states and catches typos |
 | Plain object shape via `type` (TS) | `interface` (TS); `struct` (Rust); `data class` (Kotlin); `@dataclass` (Python) | Idiomatic shape declaration per language |
 | Optional-flag bag | Discriminated union (TS) / `enum` (Rust) / `sealed interface` (Kotlin) / tagged dataclasses + `match` (Python) | Invalid states unrepresentable |
 | `string` for both `userId` and `orgId` | Branded type (TS); newtype (Rust); `@JvmInline value class` (Kotlin); `NewType` (Python) | Compiler catches cross-entity mix-ups |
@@ -104,7 +104,7 @@ Interfaces support declaration merging and give clearer error messages on extens
 - **Kotlin:** `data class` for shapes (gets `equals`/`hashCode`/`copy` for free), `sealed interface` for sum types.
 - **Python:** `@dataclass` for shapes, `X | Y` (3.10+) for unions, tagged dataclasses + `match` for sum types.
 
-## 3. No magic literals — name them with a type
+## 3. Closed sets of states — name them with a type
 
 ```ts
 // BAD — "pending" / "active" / "cancelled" sprinkled across the codebase
@@ -126,7 +126,7 @@ type SubscriptionStatus = typeof STATUSES[number]
 - **Kotlin:** `enum class SubscriptionStatus { PENDING, ACTIVE, CANCELLED }`.
 - **Python:** `from typing import Literal; SubscriptionStatus = Literal["pending", "active", "cancelled"]` or `class SubscriptionStatus(StrEnum): PENDING = "pending"; ...` (3.11+).
 
-For numeric magic constants, gather them in a single config object — `as const` in TS, `const` in Rust/Kotlin, module-level `Final` in Python.
+For other repeated values and numeric constants, use `code-guardrails`.
 
 ## 4. Discriminated unions over optional-flag bags
 
@@ -278,7 +278,7 @@ Maintenance twin: this three-case gate is restated in `references/typescript-cla
 
 1. **Tempted to write `any` / `Any` / `object`?** → Use the typed-but-opaque equivalent and narrow. If the shape is dynamic, parse at the boundary.
 2. **Tempted to write `as Foo` / unchecked cast?** → 99% chance there's a type guard, smart-cast, or parser that does it without lying.
-3. **Same string literal in 2+ places?** → Extract to a type / enum / `Literal`.
+3. **Same state, mode, or kind from a closed set?** → Use a type / enum / `Literal`. For other repeated values and numeric constants, use `code-guardrails`.
 4. **Optional fields with "required when X" rules?** → Discriminated union / sum type.
 5. **Two ID-shaped values flowing through the same function?** → Brand them (TS branded, Rust newtype, Kotlin value class, Python `NewType`).
 6. **`switch` / `match` / `when` over a union?** → Use the exhaustiveness mechanism for your language.

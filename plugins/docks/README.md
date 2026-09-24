@@ -38,7 +38,7 @@ The bracketed phases are independent lenses — a runtime with parallel workers 
 
 ### Skills
 
-Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfaces-feel-better`, which is also user-invocable). Names stay un-namespaced for invocation since they're model-invoked.
+Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfaces-feel-better` and `code-guardrails`, which are also user-invocable). Names stay un-namespaced for invocation since they're model-invoked.
 
 | Skill | Use when |
 |---|---|
@@ -47,6 +47,7 @@ Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfa
 | `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
 | `accessibility` | Focus management, keyboard handling, ARIA roles/states, accessible names, live regions, landmarks, reduced motion — APG patterns, WCAG 2.2 |
 | `code-clarity` | Code that is hard to understand without narration — names, types, function boundaries, comments, docstrings, error messages, test names |
+| `code-guardrails` | Strict linter rules for TypeScript (oxlint, anti-slop), Rust, Swift, Python, and Bash — plus one mapped source for constants, values, and test data |
 | `commit-discipline` | Splitting work into atomic commits, commit messages, PR descriptions, squash vs merge vs rebase, fixup/autosquash cleanup |
 | `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `security` / `code-review` |
 | `design-tokenization` | Color/Tailwind work — semantic + brand tokens, no-hex, `:root`/`.dark` parity |
