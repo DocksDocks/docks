@@ -71,7 +71,7 @@ function parseJson(output, command) {
 }
 const ASSIGNEE_FIELDS = '... on Actor{login}';
 const LABELED_EVENT_FIELDS = '... on LabeledEvent{label{name}}';
-const CLOSED_EVENT_FIELDS = `... on ClosedEvent{closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS}} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
+const CLOSED_EVENT_FIELDS = `... on ClosedEvent{closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS} body} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
 
 function issueConnectionSelection(field, nodeFields, extraArgs = '', after = false) {
   return `${field}(first:100${after ? ',after:$after' : ''}${extraArgs}){nodes{${nodeFields}} ${PAGE_INFO}}`;
@@ -119,6 +119,14 @@ function pullRequestNodes(nodes) {
   return nodes;
 }
 
+function hasClosingKeyword(body, number, nameWithOwner) {
+  const repo = nameWithOwner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    String.raw`\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?\s+(?:#|${repo}#)${number}(?![A-Za-z0-9_])`,
+    'i',
+  ).test(body);
+}
+
 function issueNodes(issueNumber, initial, field, nodeFields, extraArgs = '') {
   const name = field.includes(':') ? field.split(':')[0] : field;
   const selection = issueConnectionSelection(field, nodeFields, extraArgs, true);
@@ -156,13 +164,6 @@ function readSnapshot(
             ? issueConnectionSelection('history:timelineItems', LABELED_EVENT_FIELDS, ',itemTypes:[LABELED_EVENT]')
             : '',
           archive ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}` : '',
-          archive
-            ? issueConnectionSelection(
-                'closing:closedByPullRequestsReferences',
-                PULL_REQUEST_FIELDS,
-                ',excludeUserLinked:true,includeClosedPrs:true',
-              )
-            : '',
         ].join(' ');
   const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
   const data = graphql(query, number === undefined ? {} : { number });
@@ -235,15 +236,6 @@ function readSnapshot(
   if (archive) {
     if (typeof repo.defaultBranchRef?.name !== 'string' || !Array.isArray(issue.latestClosure?.nodes))
       fail('gh api graphql returned malformed latest closure');
-    issue.closing = pullRequestNodes(
-      issueNodes(
-        number,
-        issue.closing,
-        'closing:closedByPullRequestsReferences',
-        PULL_REQUEST_FIELDS,
-        ',excludeUserLinked:true,includeClosedPrs:true',
-      ),
-    );
     const closer = issue.latestClosure.nodes.at(-1)?.closer;
     if (
       issue.latestClosure.nodes.length > 1 ||
@@ -870,11 +862,8 @@ function archivePlan(args, retired = false) {
     const defaultBranch = repository.defaultBranchRef.name;
     const references =
       issue.closer?.__typename === 'PullRequest'
-        ? issue.closing.some(
-            (pr) =>
-              pr.number === issue.closer.number &&
-              pr.repository?.nameWithOwner === issue.closer.repository?.nameWithOwner,
-          )
+        ? typeof issue.closer.body === 'string' &&
+          hasClosingKeyword(issue.closer.body, issue.number, repository.nameWithOwner)
           ? [issue.closer]
           : []
         : issue.closer?.__typename === 'Commit'

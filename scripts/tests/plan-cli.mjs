@@ -182,7 +182,7 @@ function edit(number, transform = (text) => text) {
   return run('edit', String(number), '--file', file);
 }
 
-function closedPlan(name, { status = 'done', manual = false, base = 'main' } = {}) {
+function closedPlan(name, { status = 'done', base = 'main', prBody } = {}) {
   const number = createPlan(name, body(status));
   const closer = {
     __typename: 'PullRequest',
@@ -191,13 +191,13 @@ function closedPlan(name, { status = 'done', manual = false, base = 'main' } = {
     state: 'MERGED',
     mergedAt: '2026-08-21T00:00:00Z',
     baseRefName: base,
+    body: prBody === undefined ? `Closes #${number}` : prBody?.replaceAll('ISSUE', String(number)),
     repository: { nameWithOwner: 'DocksDocks/fixture' },
   };
   updateIssue(number, (entry) => {
     entry.state = 'CLOSED';
     entry.stateReason = 'COMPLETED';
     entry.labels = ['plan', 'plan:ongoing'];
-    entry.closedByPullRequestsReferences = [{ ...closer, userLinked: manual }];
     entry.timelineItems = [{ closer }];
   });
   addIssueComment(number, '### Code review (round 2)\n\ncode-review: pass');
@@ -485,40 +485,39 @@ try {
   expectSuccess(archived, 'archive merged closer');
   assert.equal(archived.stdout.trim(), `plan #${landed.number} finished (closed by ${landed.closer.url})`);
   assert.deepEqual(issue(landed.number).labels, ['plan']);
-  const pagedReferences = closedPlan('closing reference beyond first page');
-  // The filtered latest closure wins over older closures and a later non-closure event.
-  updateIssue(pagedReferences.number, (entry) => {
+  // The latest actual closure wins over older closures and a later non-closure event.
+  const latestClosure = closedPlan('latest closure');
+  updateIssue(latestClosure.number, (entry) => {
     entry.timelineItems = [
-      { __typename: 'ClosedEvent', closer: { ...pagedReferences.closer, baseRefName: 'release' } },
-      { __typename: 'ClosedEvent', closer: pagedReferences.closer },
+      { __typename: 'ClosedEvent', closer: { ...latestClosure.closer, baseRefName: 'release' } },
+      { __typename: 'ClosedEvent', closer: latestClosure.closer },
       { __typename: 'LabeledEvent', label: { name: 'plan:ongoing' } },
     ];
-    entry.closedByPullRequestsReferences = [
-      ...Array.from({ length: 100 }, (_, index) => ({
-        number: 9000 + index,
-        state: 'MERGED',
-        mergedAt: '2026-08-21T00:00:00Z',
-        baseRefName: 'release',
-      })),
-      pagedReferences.closer,
-    ];
   });
-  updateState((state) => {
-    state.graphqlMissingCursor = { on: 'snapshot', field: 'closing' };
-  });
-  const brokenClosingPage = run('archive', String(pagedReferences.number));
-  assert.equal(brokenClosingPage.status, 1, 'a next page without a cursor cannot authorize archive');
-  assert.match(brokenClosingPage.stderr, /graphql/i);
-  assert.deepEqual(issue(pagedReferences.number).labels, ['plan', 'plan:ongoing']);
-  expectSuccess(run('archive', String(pagedReferences.number)), 'archive closing reference on second page');
-  assert.deepEqual(issue(pagedReferences.number).labels, ['plan']);
+  expectSuccess(run('archive', String(latestClosure.number)), 'archive latest closure');
 
-  const manual = closedPlan('manual link', { manual: true });
-  refuse(
-    run('archive', String(manual.number)),
-    'archive requires a closing pull request merged into DocksDocks/fixture:main',
-  );
-  assert.deepEqual(issue(manual.number).labels, ['plan', 'plan:ongoing'], 'a manual-only link cannot archive');
+  const qualified = closedPlan('qualified closing keyword', {
+    prBody: 'fIxEs: dOcKsDoCkS/FiXtUrE#ISSUE',
+  });
+  expectSuccess(run('archive', String(qualified.number)), 'archive qualified mixed-case keyword');
+
+  for (const [name, prBody] of [
+    ['no closing keyword', 'Refs #ISSUE'],
+    ['number prefix', 'Closes #ISSUE0'],
+    ['number suffix', 'Closes #ISSUEa'],
+    ['keyword prefix', 'notCloses #ISSUE'],
+    ['issue URL', 'Closes https://github.com/DocksDocks/fixture/issues/ISSUE'],
+    ['different repository', 'Fixes: Another/repo#ISSUE'],
+    ['null PR description', null],
+  ]) {
+    const unproven = closedPlan(name, { prBody });
+    refuse(
+      run('archive', String(unproven.number)),
+      'archive requires a closing pull request merged into DocksDocks/fixture:main',
+    );
+    assert.deepEqual(issue(unproven.number).labels, ['plan', 'plan:ongoing']);
+  }
+
   const commitClosed = closedPlan('commit closer beyond first association page');
   const commitOid = 'a'.repeat(40);
   updateState((state) => {
@@ -527,7 +526,6 @@ try {
       { __typename: 'ClosedEvent', closer: commitClosed.closer },
       { __typename: 'ClosedEvent', closer: { __typename: 'Commit', oid: commitOid } },
     ];
-    entry.closedByPullRequestsReferences = [];
     state.commits = [
       {
         oid: commitOid,
@@ -538,7 +536,7 @@ try {
             mergedAt: '2026-08-21T00:00:00Z',
             baseRefName: 'release',
           })),
-          commitClosed.closer,
+          { ...commitClosed.closer, body: null },
         ],
       },
     ];

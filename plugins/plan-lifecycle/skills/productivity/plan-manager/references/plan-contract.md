@@ -231,7 +231,7 @@ clean worktree. After setting ongoing, reuse or create the linked branch. Every
 Re-list after failure. Stop without a verified link.
 After code review passes, commit and push reviewed bytes and open a closing pull request.
 Only the pull request that lands the completed work carries `Closes #<issue>`; a partial
-one carries plain `Refs #<issue>`. The `Closes` keyword produces the closing reference
+one carries plain `Refs #<issue>`. The `Closes` keyword supplies the proof
 `archive` verifies, so a landing pull request without it leaves the plan unarchivable.
 Checks policy: wait up to five minutes for checks to appear, then wait for every
 check to complete. A failed or cancelled check blocks the merge question until the
@@ -242,5 +242,7 @@ records open. Merge with `--match-head-commit` for the reviewed head.
 A prior plan approval never authorizes merge.
 Archive requires finished status, terminal steps, and a trusted latest Code-review pass.
 Its latest closure must be a merged pull request into this repository's default branch,
-or a commit associated with such a merged pull request. Use `excludeUserLinked: true`.
+or a commit associated with such a merged pull request. A pull-request closer must
+carry a GitHub closing keyword for this issue in its description; a title or sidebar
+link is not proof.
 A merely linked pull request, another repository, or a non-default target is not proof.
