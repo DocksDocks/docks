@@ -10,7 +10,7 @@
 
 ## Recommended config
 
-Merge these entries into the existing `pyproject.toml`; do not replace its settings. Keep existing rule selections and add missing prefixes to `extend-select`. If `extend-select` exists, append missing prefixes to its list. Keep any stricter settings. Preserve other entries in `per-file-ignores`; add only the test patterns that match the project. The mypy section applies only when the project uses mypy.
+Merge these entries into the existing `pyproject.toml`; do not replace its settings. Keep existing rule selections and add missing prefixes to `extend-select`. If `extend-select` exists, append missing prefixes to its list. Keep any stricter settings. Do not add `PLR2004` to `per-file-ignores` for test files. Ask the user before you remove an existing test exception for it. The mypy section applies only when the project uses mypy.
 
 ```toml
 [tool.ruff.lint]
@@ -18,10 +18,6 @@ extend-select = ["E", "F", "B", "UP", "SIM", "PL", "RUF", "ERA", "T20", "ANN"]
 
 [tool.ruff.lint.pylint]
 allow-magic-value-types = []
-
-[tool.ruff.lint.per-file-ignores]
-"**/tests/**/*.py" = ["PLR2004"]
-"**/test_*.py" = ["PLR2004"]
 
 [tool.mypy]
 strict = true
@@ -35,7 +31,7 @@ strict = true
 | --- | --- | --- |
 | `PLR2004` | Unnamed numerical constants in comparisons. | Comparisons only; it does not find repeated values in assignments, calls, paths, keys, or units. |
 
-Ruff exempts common comparison values such as `0`, `1`, and `""`. The `allow-magic-value-types = []` setting removes type-based exemptions, including the default string and bytes exemptions; it does not remove the rule's common-value exemptions. Use `SKILL.md` § **Find scattered values** for values beyond comparison checks. The test-file exception permits literal expected values when a test checks a constant itself; use production constants for test inputs. Do not disable other rules in test files.
+Ruff exempts common comparison values such as `0`, `1`, and `""`. The `allow-magic-value-types = []` setting removes type-based exemptions, including the default string and bytes exemptions; it does not remove the rule's common-value exemptions. Use `SKILL.md` § **Find scattered values** for values beyond comparison checks. Keep `PLR2004` on in tests: a test compares with a named `Final` expected value, not an inline number.
 
 ## Constant map
 
@@ -68,7 +64,7 @@ def accept_upload(payload_bytes: int, state: UploadState) -> bool:
     return payload_bytes <= MAX_PAYLOAD_BYTES and state is UploadState.READY
 ```
 
-For tests, pass `MAX_PAYLOAD_BYTES` as an input. When the test checks the constant's value, compare it with the literal expected value.
+For tests, pass `MAX_PAYLOAD_BYTES` as an input. When the test checks the constant's value, compare it with a named expected value, such as `EXPECTED_MAX_PAYLOAD_BYTES: Final = 8_388_608`.
 
 ## Verify
 

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-24"
-  content_hash: "70480b909aa1ff89f73c60168a03d25bdd73ca1f171b2571c830b89091b34b06"
+  content_hash: "d7581cc74f6c4adf10f22114724c3294dd5e419cdf43242b311a132241619ca1"
 ---
 
 # Code Guardrails
@@ -37,10 +37,12 @@ A silent dependency or tool change is a change the user did not approve.
 </constraint>
 
 <constraint>
-In tests, import production constants for inputs and configuration. When a test
-checks a constant or a value computed from constants, write the expected result
-as a literal. An assertion such as `expect(MIB).toBe(1024 * KIB)` repeats the
-code under test, so it passes even when the definition is wrong.
+Keep the raw-number lint rule on in test files. In tests, import production
+constants for inputs and configuration. When a test checks a constant or a value
+computed from constants, put the expected result in a named literal constant.
+An assertion such as `expect(MIB).toBe(1024 * KIB)` repeats the code under test,
+so it passes even when the definition is wrong. A test-file exemption lets a copied
+limit such as `fileOfSize(10485761)` pass lint and drift from production.
 </constraint>
 
 ## When to use
@@ -154,11 +156,12 @@ or more places, with the count first. Change the `--include` globs to match the
 project languages, and add `--exclude-dir` for vendored or generated folders.
 
 ```bash
-# Numbers with 2 or more characters that appear 2 or more times.
+# Numbers that appear 2 or more times: hexadecimal, binary, and octal literals
+# as whole values, and decimal numbers with 2 or more characters.
 # Single digits are left out because they are mostly counters and indexes.
 grep -rhowE --include='*.ts' --include='*.rs' --include='*.swift' --include='*.py' --include='*.sh' \
   --exclude-dir=node_modules --exclude-dir=target --exclude-dir=.git \
-  '[0-9][0-9_.]+' . | sort | uniq -c | sort -rn | awk '$1 > 1'
+  '0[xXbBoO][0-9a-fA-F_]+|[0-9][0-9_.]+' . | sort | uniq -c | sort -rn | awk '$1 > 1'
 
 # Quoted strings of 4 or more characters that appear 2 or more times.
 grep -rhoE --include='*.ts' --include='*.rs' --include='*.swift' --include='*.py' --include='*.sh' \
@@ -166,9 +169,11 @@ grep -rhoE --include='*.ts' --include='*.rs' --include='*.swift' --include='*.py
   "[\"'][^\"'\$]{4,}[\"']" . | sort | uniq -c | sort -rn | awk '$1 > 1'
 ```
 
-The output is a list of candidates, not a list of defects. Short values such as
-`10`, `30`, or `60` produce many candidates; check each one that could be a limit,
-timeout, or size. Find its locations with `grep -rnw '<value>' .` and decide:
+The output is a list of candidates, not a list of defects. The checks include test
+files, so they also find a production value copied into a test constant. Short
+values such as `10`, `30`, or `60` produce many candidates; check each one that
+could be a limit, timeout, or size. Find its locations with `grep -rnw '<value>' .`
+and decide:
 
 | Finding | Action |
 |---|---|
@@ -181,8 +186,12 @@ timeout, or size. Find its locations with `grep -rnw '<value>' .` and decide:
 
 - Import production constants for inputs, limits, and configuration. If the limit
   changes, the test follows it.
-- Write expected results as literals when the test checks a constant or a
-  calculation. This is the only place a raw value is the correct choice.
+- Put each expected result in a named constant when the test checks a constant or
+  a calculation, such as `EXPECTED_MAX_UPLOAD_BYTES = 10_485_760`. This is the only
+  place a copied raw value is the correct choice, and the name says why it is there.
+- Keep the raw-number rule on in test files. Linters skip a literal that initializes
+  a named constant, so the rule still rejects inline values such as `10485761`.
+  SwiftLint always skips test code; for Swift tests, rely on the scan above.
 - Put shared fixtures and builders in one test-support module. Do not copy the same
   sample object into every test file.
 - Name a test value by its role: `validEmail`, `expiredToken`, not `data1`.
@@ -193,8 +202,9 @@ expect(MAX_UPLOAD_BYTES).toBe(10 * MIB);
 // BAD — a copy of the production limit that drifts when the limit changes
 expect(() => upload(fileOfSize(10485761))).toThrow();
 
-// GOOD — literal for the definition check, import for the behavior check
-expect(MAX_UPLOAD_BYTES).toBe(10_485_760);
+// GOOD — named literal for the definition check, import for the behavior check
+const EXPECTED_MAX_UPLOAD_BYTES = 10_485_760;
+expect(MAX_UPLOAD_BYTES).toBe(EXPECTED_MAX_UPLOAD_BYTES);
 expect(() => upload(fileOfSize(MAX_UPLOAD_BYTES + 1))).toThrow(UploadTooLargeError);
 ```
 
@@ -207,6 +217,7 @@ expect(() => upload(fileOfSize(MAX_UPLOAD_BYTES + 1))).toThrow(UploadTooLargeErr
 | Replace ESLint or Prettier with oxlint or oxfmt without a request | Add the rule to the tool the project uses; ask before a migration |
 | Name every literal, including `0` and `1` in loops | Name values that carry a meaning only |
 | Assume Rust and Bash linters catch raw values | They have no such rule; run "Find scattered values" |
+| Turn off the raw-number rule for test files | Keep it on; name expected literals as constants |
 
 ## Report
 

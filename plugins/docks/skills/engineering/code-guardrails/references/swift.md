@@ -55,14 +55,16 @@ force_try:
 `force_cast` and `force_try` are default rules with error severity.
 Keep them enabled at error severity; report any existing override that weakens or disables them.
 `no_magic_numbers` permits `0.0`, `1.0`, and `100.0` by default; the example removes `100.0` from that allowance.
-It skips `XCTestCase` and `QuickSpec` classes and Swift Testing `@Test` functions by default.
-Review any test coverage gap manually. Use production constants for test inputs and literal expected values when checking a constant itself.
+SwiftLint always skips test code for this rule: `XCTestCase` and `QuickSpec` subclasses, `@Test` functions, and `@Suite` types.
+No setting turns the rule on there, because the rule adds these classes to `test_parent_classes` itself.
+For Swift tests, run [Find scattered values](../SKILL.md#find-scattered-values); it includes test files.
+In tests, use production constants for inputs and a named `let` for each expected literal.
 
 ## Rules that catch raw values
 
 | Rule | Catches | Limits |
 |---|---|---|
-| [`no_magic_numbers`](https://realm.github.io/SwiftLint/no_magic_numbers.html) | Raw numeric expressions, such as an array index or limit. | It excludes declarations, default allowed values, and common test contexts. It does not check repeated strings. |
+| [`no_magic_numbers`](https://realm.github.io/SwiftLint/no_magic_numbers.html) | Raw numeric expressions, such as an array index or limit. | It excludes declarations, default allowed values, and all test code. It does not check repeated strings. |
 | [`force_unwrapping`](https://realm.github.io/SwiftLint/force_unwrapping.html) | Forced optional unwraps. | The example removes its default literal-initializer exceptions. It does not find raw values. |
 | [`implicitly_unwrapped_optional`](https://realm.github.io/SwiftLint/implicitly_unwrapped_optional.html) | Implicitly unwrapped optional types. | Its default mode excludes outlets; it does not find raw values. |
 | [`fatal_error_message`](https://realm.github.io/SwiftLint/fatal_error_message.html) | Missing or empty failure messages. | It does not judge message content or find raw values. |

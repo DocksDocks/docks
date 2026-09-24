@@ -23,8 +23,9 @@ Keep unrelated rules, plugins, ignores, and overrides.
 Add missing rules and never loosen a stricter setting.
 Use these keys inside `defineConfig({ ... })` for an existing `oxlint.config.ts`.
 Do not keep both config formats in one directory.
-The test override changes only `eslint/no-magic-numbers`.
-Adapt its globs to the project's test layout.
+Keep `eslint/no-magic-numbers` on in test files. Do not add an override that turns it off there.
+A test holds an expected literal in a named `const`; the rule does not report a `const` initializer.
+Remove an existing test-file override for this rule only after you ask the user.
 
 ```json
 {
@@ -50,13 +51,7 @@ Adapt its globs to the project's test layout.
     "typescript/no-explicit-any": "error",
     "typescript/no-unsafe-function-type": "error",
     "typescript/no-non-null-assertion": "error"
-  },
-  "overrides": [
-    {
-      "files": ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}", "**/__tests__/**/*.{ts,tsx}"],
-      "rules": { "eslint/no-magic-numbers": "off" }
-    }
-  ]
+  }
 }
 ```
 
