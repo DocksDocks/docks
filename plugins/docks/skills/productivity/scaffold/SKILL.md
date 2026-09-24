@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: generative-skill
   updated: "2026-09-24"
-  content_hash: "5f74dc12a9264571754bb7dcef65fe35f563f5fa2ae343506de965fc4fd7c0d8"
+  content_hash: "7bf6913ec04fb4f11b90c5e5b1a4758a596037249c3ce7e6536a03b75f5069a2"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -19,7 +19,7 @@ metadata:
 </constraint>
 
 <constraint>
-**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then ask for approval with the harness question tool (omp `ask`; Claude Code `AskUserQuestion`; Codex `request_user_input`, not in every mode; OpenCode `question`; else the tool the harness registers). By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, returns without waiting. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Do not call Write/Edit until the user answers. Silence is not consent; an ambiguous answer re-shows the proposal. No question tool (headless, print mode)? Print the question as your final message and end the turn; do not invent a tool call. A plain-text "Approve?" in a reply is not a gate. Do NOT call `ExitPlanMode` (Claude-only).
+**Approval gate before any write (cross-tool, NOT Plan Mode).** Both modes MUST show what will be written — setup shows the proposed spec; seed shows the full file manifest + every resolved variable value — then ask for approval with the harness question tool (omp `ask`; Claude Code `AskUserQuestion`; Codex `request_user_input`, not in every mode; OpenCode `question`; else the tool the harness registers). By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, sends the request as non-blocking (`isBlocking: false`), which the client may resolve without the user. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Do not call Write/Edit until the user answers. Silence is not consent; an ambiguous answer re-shows the proposal. No question tool (headless, print mode)? Print the question as your final message and end the turn; do not invent a tool call. A plain-text "Approve?" in a reply is not a gate. Do NOT call `ExitPlanMode` (Claude-only).
 </constraint>
 
 <constraint>
