@@ -193,7 +193,6 @@ function issueJson(issue) {
     labels: labels(issue.labels),
     assignees: assignees(issue.assignees),
     comments: (issue.comments ?? []).map((comment) => commentJson(comment, issue)),
-    closedByPullRequestsReferences: issue.closedByPullRequestsReferences ?? [],
   };
 }
 
@@ -214,7 +213,6 @@ const ISSUE_JSON_FIELDS = new Set([
   'url',
   'createdAt',
   'updatedAt',
-  'closedByPullRequestsReferences',
   'comments',
 ]);
 const PR_JSON_FIELDS = new Set([
@@ -285,6 +283,7 @@ if (group === 'api' && command === 'graphql') {
     return {
       number: reference.number,
       url: pullRequest?.url ?? reference.url ?? `https://github.com/${repo}/pull/${reference.number}`,
+      body: pullRequest?.body ?? reference.body ?? null,
       state: pullRequest?.state ?? reference.state ?? (pullRequest?.mergedAt || reference.mergedAt ? 'MERGED' : 'OPEN'),
       mergedAt: pullRequest?.mergedAt ?? reference.mergedAt ?? null,
       baseRefName: pullRequest?.baseRefName ?? reference.baseRefName ?? null,
@@ -378,23 +377,6 @@ if (group === 'api' && command === 'graphql') {
         payload[selection.alias] = { nodes: latest ? [{ closer: renderedCloser }] : [] };
       } else die(`unsupported timeline item types: ${types ?? '(missing)'}`);
     }
-    for (const selection of graphqlSelections(query, 'closedByPullRequestsReferences')) {
-      const onlyUserLinked = graphqlValue(selection.args.get('userLinkedOnly') ?? 'false', variables);
-      const excludeUserLinked = graphqlValue(selection.args.get('excludeUserLinked') ?? 'false', variables);
-      const includeClosedPrs = graphqlValue(selection.args.get('includeClosedPrs') ?? 'false', variables);
-      const references = (issue.closedByPullRequestsReferences ?? [])
-        .filter((reference) => !onlyUserLinked || reference.userLinked === true)
-        .filter((reference) => !excludeUserLinked || reference.userLinked !== true)
-        .map(pullRequestNode)
-        .filter((reference) => includeClosedPrs || reference.state === 'OPEN');
-      payload[selection.alias] = graphqlPage(references, selection, variables, [
-        'first',
-        'after',
-        'includeClosedPrs',
-        'excludeUserLinked',
-        'userLinkedOnly',
-      ]);
-    }
     repository.issue = payload;
   } else if (objectSelection.length) {
     const oid = graphqlValue(objectSelection[0].args.get('expression'), variables);
@@ -486,7 +468,6 @@ if (group === 'issue' && command === 'create') {
     createdAt: now,
     updatedAt: now,
     comments: [],
-    closedByPullRequestsReferences: [],
     events: [],
   };
   state.issues.push(issue);
