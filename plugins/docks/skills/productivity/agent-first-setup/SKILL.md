@@ -4,8 +4,8 @@ description: "Use when making a repository agent-first in one pass — root AGEN
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-09-23"
-  content_hash: "f0029f457661249e95b9d103b0ea54bec5cd3ffcc7fd2307af363e58fb750aef"
+  updated: "2026-09-24"
+  content_hash: "ecd2590118b29f6a4660a8321446238658f1378051f3fbacaaec03ba8f2e9110"
 ---
 
 # Agent-First Setup
@@ -43,10 +43,10 @@ Ask every question through the question tool of the harness that runs this sessi
 |---|---|
 | Oh My Pi (omp) | `ask` |
 | Claude Code | `AskUserQuestion` |
-| Codex | `request_user_input` (not in every Codex mode; see the note below) |
+| Codex | `request_user_input` (Plan mode by default; see the note below) |
 | OpenCode | `question` |
 
-Use the tool that your harness registers, even when it is not in this table. Outside Codex Plan mode, the call can return without a user answer; an empty or default answer is not approval, so write nothing and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Put all open questions for one gate into one call. If no question tool is registered (for example, in a headless or print-mode run), do not invent a call: print the questions, take no write, and end the turn.
+Use the tool that your harness registers, even when it is not in this table. By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, returns without waiting. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Put all open questions for one gate into one call. If no question tool is registered (for example, in a headless or print-mode run), do not invent a call: print the questions, take no write, and end the turn.
 
 ## When to Use
 

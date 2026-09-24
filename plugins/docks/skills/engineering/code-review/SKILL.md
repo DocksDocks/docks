@@ -4,8 +4,8 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "23c548e67c5949e350fd972468b8447e903570978280d536c56c56542683c613"
+  updated: "2026-09-24"
+  content_hash: "6481c99516a00a972c27146921a6d2ae9677639883796cecccc61611ed865900"
 ---
 
 # Code Review
@@ -112,7 +112,7 @@ SEVERITY · CATEGORY · file:line
   Suggested fix: <one sentence or short snippet>
 ```
 
-Then ask "Apply fixes?" with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`, or whatever question tool the harness registers). Outside Codex Plan mode, the call can return without a user answer; an empty or default answer is not approval, so write nothing and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Give four options: all / critical-only / specific findings / none. Do not call Edit/Write until the user answers. Silence is not consent. If the answer is ambiguous, show the findings again and ask again. Do not write "Apply fixes? yes/no" as plain reply text when a question tool exists. If the harness has no question tool (for example, a headless or print-mode run), print the question as your final message and end the turn. Do not invent a tool call.
+Then ask "Apply fixes?" with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`, or whatever question tool the harness registers). By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, returns without waiting. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Give four options: all / critical-only / specific findings / none. Do not call Edit/Write until the user answers. Silence is not consent. If the answer is ambiguous, show the findings again and ask again. Do not write "Apply fixes? yes/no" as plain reply text when a question tool exists. If the harness has no question tool (for example, a headless or print-mode run), print the question as your final message and end the turn. Do not invent a tool call.
 
 If the user approves fixes:
 
