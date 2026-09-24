@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-09-23"
-  content_hash: "37dd66584bbc469e3c75ec37f848a4a74cc11a2f76bc4e0a718cf39ed32ef070"
+  updated: "2026-09-24"
+  content_hash: "aa7295272164bbc5cc1ccfa943429804c0a012936b3f7d1bfd8ae49fe1de0d9f"
 ---
 
 # Write a Skill (docks conventions)

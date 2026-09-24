@@ -44,9 +44,10 @@ Place near the top so it survives the 5,000-token post-compaction re-attachment 
 **Approval gate — blocking, not a soft pause.** At the "propose" step: print the
 Section→Destination table, then ask for approval with the harness question tool
 (omp `ask`; Claude Code `AskUserQuestion`; Codex `request_user_input`, not in
-every mode; OpenCode `question`; else the tool the harness registers). Outside
-Codex Plan mode, the call can return without a user answer; an empty or default
-answer is not approval, so write nothing and end the turn. Codex takes at most
+every mode; OpenCode `question`; else the tool the harness registers). By
+default Codex offers the tool only in Plan mode; elsewhere the call errors or
+returns without waiting. An error, empty, or default result is not approval:
+write nothing and end the turn. Codex takes at most
 3 questions per call, and each needs options; split larger sets. Batch all
 open questions into one call. No question tool (headless, print mode)? Print the
 question as your FINAL message and end the turn; do not invent a tool call.
