@@ -35,9 +35,11 @@ False-positive guard: a public package export may have no in-repo callers becaus
 | Symptom | Starting severity |
 |---|---|
 | Same 10+ line block in 3+ files | MEDIUM |
-| Same regex / magic string / config object in 2+ files | LOW-MEDIUM |
+| Same regex / magic number or string / config object in 2+ files | LOW-MEDIUM |
 | Near-duplicates with 1-2 line diff that could be parameterized | LOW |
 | `if-else-if` chain of ≥5 branches mapping enum → behavior | MEDIUM |
+
+Fix for a repeated magic number or string: apply `code-guardrails` (one owning module per value, derived constants, imports instead of copies).
 
 False-positive guard: similarity isn't duplication. Two functions doing the same thing for different domains (user vs. order) may justify staying separate — coupling is worse than duplication when the change-frequency differs.
 

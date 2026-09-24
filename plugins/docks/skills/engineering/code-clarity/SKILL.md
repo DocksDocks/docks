@@ -4,8 +4,8 @@ description: "Use when code is hard to understand without narration; improving n
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-08-25"
-  content_hash: "84451e4b342b8bb8ff2fd3160c13d6298b0738ff0f5c03dcbb7bf7963c9a42f4"
+  updated: "2026-09-24"
+  content_hash: "1dafc5e1aed48b9f9a95c837935aeea0c9845f20e104ecdc2bada93115cdfcf8"
 ---
 
 # Code Clarity
@@ -74,8 +74,8 @@ that silently breaks a wire or file format is not a clarity improvement.
 Apply the smallest useful level first. Stop when the confusion is gone.
 
 1. Replace vague or overloaded names with domain vocabulary.
-2. Replace magic values and invalid optional-field combinations with existing
-   enums, newtypes, constructors, or parsers when the type pressure is real.
+2. Replace invalid optional-field combinations with existing enums, newtypes,
+   constructors, or parsers when the type pressure is real.
 3. Flatten control flow with early returns and exhaustive matching.
 4. Extract a function when it gives one operation a precise name and keeps its
    inputs/outputs narrow; keep tightly coupled state transitions together.
@@ -185,6 +185,7 @@ shorter files, more abstractions, or a higher raw test count.
 
 - `refactor`: dead code, duplication, modernization, and structural SOLID work.
 - `code-review`: bugs, security, performance, and general maintainability findings.
+- `code-guardrails`: lint rule setup and one mapped source for constants and values.
 - `type-safety-discipline`: identifier types, external parsing, tagged unions,
   exhaustiveness, and justified classes/newtypes.
 - `test-coverage`: behavior already exists and needs meaningful coverage.
