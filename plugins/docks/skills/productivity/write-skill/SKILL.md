@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-09-24"
-  content_hash: "aa7295272164bbc5cc1ccfa943429804c0a012936b3f7d1bfd8ae49fe1de0d9f"
+  content_hash: "fab05be9a14c1ccbe2d2def62d7b1c2c64732bec49b332216ddcbba4b35b0eef"
 ---
 
 # Write a Skill (docks conventions)

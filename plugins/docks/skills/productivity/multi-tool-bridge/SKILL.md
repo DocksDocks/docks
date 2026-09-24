@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-09-24"
-  content_hash: "47dfeecab88747bcf781c0ca9cd59dd94ac632573a19d98e31802881f9f50971"
+  content_hash: "c222893261d33a3ade616bb0cc7367cc0cb998885c696969f45ec193f7940a32"
 ---
 
 # Multi-Tool Agent Bridge
@@ -148,7 +148,7 @@ After classification (or in layouts without a legacy CLAUDE.md, where classifica
 
 `SURFACE ONLY` means: list with one-line summaries in the final report, do NOT touch. `HANDOFF` means: this skill does not write it; the report names the owning skill.
 
-**Approval gate** — print the Step 3 proposal table (when Step 3 ran) and this action table, then ask for approval with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`; use the tool the harness registers, even when it is not listed). By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, returns without waiting. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Batch every open question (approval, mixed-section splits) into one call. A plain-text "Approve? yes/no" in the reply is wrong when a question tool exists. If the harness registers no question tool (headless or print-mode runs), print the question as the final message and end the turn; do not invent a tool call. This is the only gate of the run. Do not call Write/Edit/`git mv`/`git rm`/`ln` until the user approves (or amends) both tables in their answer. Silence is not consent; an ambiguous answer re-shows the tables. With nothing to write (fully bridged), report the no-op and stop.
+**Approval gate** — print the Step 3 proposal table (when Step 3 ran) and this action table, then ask for approval with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`; use the tool the harness registers, even when it is not listed). By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, sends the request as non-blocking (`isBlocking: false`), which the client may resolve without the user. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Batch every open question (approval, mixed-section splits) into one call. A plain-text "Approve? yes/no" in the reply is wrong when a question tool exists. If the harness registers no question tool (headless or print-mode runs), print the question as the final message and end the turn; do not invent a tool call. This is the only gate of the run. Do not call Write/Edit/`git mv`/`git rm`/`ln` until the user approves (or amends) both tables in their answer. Silence is not consent; an ambiguous answer re-shows the tables. With nothing to write (fully bridged), report the no-op and stop.
 
 ### Step 5 — Apply
 

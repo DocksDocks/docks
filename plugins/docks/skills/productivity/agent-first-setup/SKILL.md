@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-09-24"
-  content_hash: "ecd2590118b29f6a4660a8321446238658f1378051f3fbacaaec03ba8f2e9110"
+  content_hash: "3ff20cb985f33d796cf288319a1a52bd59ef0dbde94bc3435e9f36b43852b072"
 ---
 
 # Agent-First Setup
@@ -46,7 +46,7 @@ Ask every question through the question tool of the harness that runs this sessi
 | Codex | `request_user_input` (Plan mode by default; see the note below) |
 | OpenCode | `question` |
 
-Use the tool that your harness registers, even when it is not in this table. By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, returns without waiting. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Put all open questions for one gate into one call. If no question tool is registered (for example, in a headless or print-mode run), do not invent a call: print the questions, take no write, and end the turn.
+Use the tool that your harness registers, even when it is not in this table. By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, sends the request as non-blocking (`isBlocking: false`), which the client may resolve without the user. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Put all open questions for one gate into one call. If no question tool is registered (for example, in a headless or print-mode run), do not invent a call: print the questions, take no write, and end the turn.
 
 ## When to Use
 
