@@ -70,6 +70,7 @@ function run(...args) {
     cwd: scratch,
     encoding: 'utf8',
     env: childEnv,
+    timeout: 10_000,
   });
 }
 
@@ -197,13 +198,36 @@ function closedPlan(name, { status = 'done', manual = false, base = 'main' } = {
     entry.stateReason = 'COMPLETED';
     entry.labels = ['plan', 'plan:ongoing'];
     entry.closedByPullRequestsReferences = [{ ...closer, userLinked: manual }];
-    entry.timelineItems = [{ closer: manual ? null : closer }];
+    entry.timelineItems = [{ closer }];
   });
   addIssueComment(number, '### Code review (round 2)\n\ncode-review: pass');
   return { number, closer };
 }
 
 try {
+  // Existing label metadata is not an input for new and must survive unchanged.
+  const existingLabels = {
+    plan: { color: '123456', description: 'Keep this color' },
+    'plan:drafting': { color: 'abcdef', description: 'Keep this description' },
+  };
+  updateState((state) => {
+    state.labels = structuredClone(existingLabels);
+  });
+  createPlan('labels already present');
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(loadState().labels).filter(([name]) => name in existingLabels)),
+    existingLabels,
+    'new creates missing labels without changing existing metadata',
+  );
+  assert.deepEqual(
+    Object.keys(loadState().labels).sort(),
+    ['plan', 'plan:blocked', 'plan:drafting', 'plan:ongoing', 'plan:planned'],
+    'new creates each missing plan label',
+  );
+  const allLabels = loadState().labels;
+  createPlan('all labels already present');
+  assert.deepEqual(loadState().labels, allLabels, 'repeating new leaves every existing label unchanged');
+
   // Normalization must reach the remote body, not just the local export.
   const irregular = body('Done')
     .replace('## Goal', '## goal')
@@ -262,6 +286,12 @@ try {
   });
   refuse(run('status', String(foreign), 'ongoing'), `plan #${foreign} is owned by other-agent`);
   assert.deepEqual(issue(foreign).labels, ['plan', 'plan:drafting']);
+  const pagedOwner = createPlan('owner beyond first page');
+  updateIssue(pagedOwner, (entry) => {
+    entry.assignees = [...Array(100).fill('plan-agent'), 'other-agent'];
+  });
+  refuse(run('status', String(pagedOwner), 'ongoing'), `plan #${pagedOwner} is owned by other-agent`);
+  assert.deepEqual(issue(pagedOwner).labels, ['plan', 'plan:drafting'], 'foreign owner on page two prevents writes');
 
   // A second read catches a writer that races the edit after provenance passes.
   const raced = createPlan('raced body');
@@ -273,6 +303,23 @@ try {
   });
   refuse(run('edit', String(raced), '--file', raceFile), 'plan issue changed remotely; re-read and retry');
   assert.equal(issue(raced).body, remoteBody);
+
+  // GraphQL may report HTTP-successful partial data; neither that nor missing data authorizes a write.
+  const graphqlFailure = createPlan('graphql failure');
+  updateState((state) => {
+    state.graphqlError = [{ message: 'partial snapshot' }];
+  });
+  const partial = run('status', String(graphqlFailure), 'ongoing');
+  assert.equal(partial.status, 1, 'GraphQL errors fail closed even with usable data');
+  assert.match(partial.stderr, /graphql/i);
+  assert.deepEqual(issue(graphqlFailure).labels, ['plan', 'plan:drafting']);
+  updateState((state) => {
+    state.graphqlMissingData = true;
+  });
+  const missingData = run('status', String(graphqlFailure), 'ongoing');
+  assert.equal(missingData.status, 1, 'missing GraphQL data fails closed');
+  assert.match(missingData.stderr, /graphql/i);
+  assert.equal(issue(graphqlFailure).body, body(), 'neither partial nor missing GraphQL data writes a body');
 
   // An arbitrary file cannot bypass export provenance.
   const provenance = createPlan('provenance');
@@ -318,6 +365,18 @@ try {
     'task text edit',
   );
   assert.match(issue(frozen).body, /Repair parser/);
+  const pagedHistory = createPlan('ongoing history beyond first page');
+  updateIssue(pagedHistory, (entry) => {
+    entry.events = [
+      ...Array.from({ length: 100 }, () => ({ event: 'labeled', label: { name: 'unrelated' } })),
+      { event: 'labeled', label: { name: 'plan:ongoing' } },
+    ];
+  });
+  refuse(
+    edit(pagedHistory, (text) => text.replace('| planned |', '| done |')),
+    'step state is frozen once work starts: step fix_parser status changed',
+  );
+  assert.equal(issue(pagedHistory).body, body(), 'a late history event freezes the original step state');
 
   // Labels cannot erase started work, but drafting can enter implementation.
   const transitions = createPlan('status transitions');
@@ -361,6 +420,32 @@ try {
   shown = run('show', String(reviews));
   expectSuccess(shown, 'timestamp review show');
   assert.match(shown.stdout, /^reviews: plan=pass code=fixes-required$/m);
+  const pagedReviews = createPlan('reviews beyond first page');
+  addIssueComment(pagedReviews, '## Code review\n\ncode-review: pass');
+  updateState((state) => {
+    const entry = state.issues.find((candidate) => candidate.number === pagedReviews);
+    for (let index = 0; index < 99; index += 1) {
+      const id = state.nextComment++;
+      entry.comments.push({
+        id,
+        body: 'Routine discussion.',
+        author: 'foreign-agent',
+        createdAt: new Date(Date.parse('2026-08-20T20:00:00Z') + id * 1000).toISOString(),
+      });
+    }
+  });
+  addIssueComment(pagedReviews, '## Code review\n\ncode-review: repair', 'plan-agent');
+  addIssueComment(pagedReviews, '## Code review\n\ncode-review: pass', 'foreign-agent');
+  const pagedShow = run('show', String(pagedReviews));
+  expectSuccess(pagedShow, 'show all review pages');
+  assert.match(pagedShow.stdout, /^reviews: plan=none code=fixes-required$/m, 'late trusted review wins');
+  updateState((state) => {
+    state.graphqlError = { on: 'page', errors: [{ message: 'comment page unavailable' }] };
+  });
+  const brokenReviewPage = run('show', String(pagedReviews));
+  assert.equal(brokenReviewPage.status, 1, 'a failed review page cannot produce a verdict');
+  assert.match(brokenReviewPage.stderr, /graphql/i);
+  assert.equal(brokenReviewPage.stdout, '');
 
   // Phase labels compare case-insensitively and are removed by their stored spelling.
   const mixedLabels = createPlan('mixed-case labels');
@@ -379,6 +464,20 @@ try {
   );
   refuse(run('status', String(mixedLabels), 'drafting'), 'illegal plan status transition: planned -> drafting');
   assert.deepEqual(issue(mixedLabels).labels, ['plan', 'plan:planned'], 'history keeps the plan out of drafting');
+  const pagedLabels = createPlan('phase label beyond first page');
+  const unrelatedLabels = Array.from({ length: 100 }, (_, index) => `topic:${index}`);
+  updateIssue(pagedLabels, (entry) => {
+    entry.labels = ['plan', ...unrelatedLabels, 'Plan:Drafting'];
+  });
+  const pagedLabelShow = run('show', String(pagedLabels));
+  expectSuccess(pagedLabelShow, 'show label on second page');
+  assert.match(pagedLabelShow.stdout, /· drafting ·/);
+  expectSuccess(run('status', String(pagedLabels), 'planned'), 'transition label on second page');
+  assert.deepEqual(
+    issue(pagedLabels).labels,
+    ['plan', ...unrelatedLabels, 'plan:planned'],
+    'phase repair preserves other labels and removes the stored spelling',
+  );
 
   // Archive needs terminal work, a trusted pass, and the actual merged closer.
   const landed = closedPlan('merged closer');
@@ -386,11 +485,72 @@ try {
   expectSuccess(archived, 'archive merged closer');
   assert.equal(archived.stdout.trim(), `plan #${landed.number} finished (closed by ${landed.closer.url})`);
   assert.deepEqual(issue(landed.number).labels, ['plan']);
+  const pagedReferences = closedPlan('closing reference beyond first page');
+  // The filtered latest closure wins over older closures and a later non-closure event.
+  updateIssue(pagedReferences.number, (entry) => {
+    entry.timelineItems = [
+      { __typename: 'ClosedEvent', closer: { ...pagedReferences.closer, baseRefName: 'release' } },
+      { __typename: 'ClosedEvent', closer: pagedReferences.closer },
+      { __typename: 'LabeledEvent', label: { name: 'plan:ongoing' } },
+    ];
+    entry.closedByPullRequestsReferences = [
+      ...Array.from({ length: 100 }, (_, index) => ({
+        number: 9000 + index,
+        state: 'MERGED',
+        mergedAt: '2026-08-21T00:00:00Z',
+        baseRefName: 'release',
+      })),
+      pagedReferences.closer,
+    ];
+  });
+  updateState((state) => {
+    state.graphqlMissingCursor = { on: 'snapshot', field: 'closing' };
+  });
+  const brokenClosingPage = run('archive', String(pagedReferences.number));
+  assert.equal(brokenClosingPage.status, 1, 'a next page without a cursor cannot authorize archive');
+  assert.match(brokenClosingPage.stderr, /graphql/i);
+  assert.deepEqual(issue(pagedReferences.number).labels, ['plan', 'plan:ongoing']);
+  expectSuccess(run('archive', String(pagedReferences.number)), 'archive closing reference on second page');
+  assert.deepEqual(issue(pagedReferences.number).labels, ['plan']);
+
   const manual = closedPlan('manual link', { manual: true });
   refuse(
     run('archive', String(manual.number)),
     'archive requires a closing pull request merged into DocksDocks/fixture:main',
   );
+  assert.deepEqual(issue(manual.number).labels, ['plan', 'plan:ongoing'], 'a manual-only link cannot archive');
+  const commitClosed = closedPlan('commit closer beyond first association page');
+  const commitOid = 'a'.repeat(40);
+  updateState((state) => {
+    const entry = state.issues.find((candidate) => candidate.number === commitClosed.number);
+    entry.timelineItems = [
+      { __typename: 'ClosedEvent', closer: commitClosed.closer },
+      { __typename: 'ClosedEvent', closer: { __typename: 'Commit', oid: commitOid } },
+    ];
+    entry.closedByPullRequestsReferences = [];
+    state.commits = [
+      {
+        oid: commitOid,
+        associatedPullRequests: [
+          ...Array.from({ length: 100 }, (_, index) => ({
+            number: 10000 + index,
+            state: 'MERGED',
+            mergedAt: '2026-08-21T00:00:00Z',
+            baseRefName: 'release',
+          })),
+          commitClosed.closer,
+        ],
+      },
+    ];
+  });
+  const commitArchive = run('archive', String(commitClosed.number));
+  expectSuccess(commitArchive, 'archive merged PR associated with commit on second page');
+  assert.equal(
+    commitArchive.stdout.trim(),
+    `plan #${commitClosed.number} finished (closed by ${commitClosed.closer.url})`,
+  );
+  assert.deepEqual(issue(commitClosed.number).labels, ['plan']);
+
   const wrongBase = closedPlan('wrong base', { base: 'release' });
   refuse(
     run('archive', String(wrongBase.number)),
@@ -410,6 +570,41 @@ try {
   addIssueComment(unapproved.number, '## Code review\n\ncode-review: repair\nFix data loss.');
   refuse(run('archive', String(unapproved.number)), 'archive requires Code-review: pass');
   assert.ok(issue(unapproved.number).labels.includes('plan:ongoing'));
+
+  // Retire repairs labels before closing; list retains its filtered open/closed view.
+  const listed = createPlan('listed drafting plan');
+  const unlisted = createPlan('issue without plan label');
+  updateIssue(unlisted, (entry) => {
+    entry.labels = ['other'];
+  });
+  const retiring = createPlan('retired plan');
+  updateIssue(retiring, (entry) => {
+    entry.assignees = [];
+  });
+  updateState((state) => {
+    state.labelRemovalErrorOnce = 'label removal unavailable';
+  });
+  refuse(
+    run('retire', String(retiring), '--reason', 'No longer needed'),
+    'gh issue edit failed: label removal unavailable',
+  );
+  assert.equal(issue(retiring).state, 'OPEN', 'a failed label repair cannot close the issue');
+  assert.deepEqual(issue(retiring).labels, ['plan', 'plan:drafting']);
+  const retired = run('retire', String(retiring), '--reason', 'No longer needed');
+  expectSuccess(retired, 'retire an unassigned plan');
+  assert.equal(retired.stdout.trim(), `plan #${retiring} retired`);
+  assert.equal(issue(retiring).state, 'CLOSED');
+  assert.equal(issue(retiring).stateReason, 'NOT_PLANNED');
+  assert.deepEqual(issue(retiring).labels, ['plan']);
+  assert.deepEqual(issue(retiring).assignees, ['plan-agent'], 'retire claims the plan in the label edit');
+  const draftingList = run('list', '--status', 'drafting');
+  expectSuccess(draftingList, 'list drafting plans');
+  assert.match(draftingList.stdout, new RegExp(`^drafting\\t#${listed}\\tlisted drafting plan$`, 'm'));
+  assert.doesNotMatch(draftingList.stdout, /issue without plan label/);
+  assert.doesNotMatch(draftingList.stdout, new RegExp(`\\t#${retiring}\\t`));
+  const retiredList = run('list', '--status', 'retired');
+  expectSuccess(retiredList, 'list retired plans');
+  assert.equal(retiredList.stdout.trim(), `retired\t#${retiring}\tretired plan`);
 
   // A terminal row cannot be reopened by the step command.
   const terminal = createPlan('terminal step', body('done'));
@@ -651,7 +846,7 @@ try {
   assert.equal(issue(numericId).body, once, 'a second normalization changes nothing');
 
   console.log(
-    'plan-cli smoke PASSED: normalization, v3 read, ownership, compare-before-write, provenance, step freeze, transitions, review trust, archive proof',
+    'plan-cli smoke PASSED: labels, snapshot paging, normalization, ownership, race, provenance, step freeze, transitions, review trust, archive proof, list, retire',
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

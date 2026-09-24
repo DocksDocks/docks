@@ -1,10 +1,11 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+
 const PLAN_STATUSES = new Set(['drafting', 'planned', 'ongoing', 'blocked']);
 const STEP_STATUSES = new Set(['planned', 'in-flight', 'done', 'blocked', 'skipped']);
 const STEP_EFFECTS = new Set(['local', 'probe', 'production_access', 'publish', 'push', 'release', 'deploy']);
@@ -15,8 +16,10 @@ const ACCEPTANCE_SEPARATOR = '|---|---|---|';
 const PLAN_LABELS = ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked'];
 const ISSUE_FIELDS = 'number,title,body,state,stateReason,labels,assignees,url,createdAt,updatedAt';
 const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (gh api user --jq .login returned nothing)';
-const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){ repository(owner:$owner,name:$name){ defaultBranchRef{ name } issue(number:$number){ closing: closedByPullRequestsReferences(first:100, after:$after, excludeUserLinked:true){ nodes{ number url state mergedAt baseRefName repository{ nameWithOwner } } pageInfo{ hasNextPage endCursor } } timelineItems(last:100, itemTypes:CLOSED_EVENT){ nodes{ ... on ClosedEvent{ closer{ __typename ... on Commit{ oid } ... on PullRequest{ number url state mergedAt baseRefName repository{ nameWithOwner } } } } } } } } }`;
-const ASSOCIATED_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$oid:String!,$after:String){ repository(owner:$owner,name:$name){ defaultBranchRef{ name } commit: object(expression:$oid){ ... on Commit{ associatedPullRequests(first:100, after:$after){ nodes{ number url state mergedAt baseRefName repository{ nameWithOwner } } pageInfo{ hasNextPage endCursor } } } } } }`;
+const PAGE_INFO = 'pageInfo{hasNextPage endCursor}';
+const PULL_REQUEST_FIELDS = 'number url state mergedAt baseRefName repository{nameWithOwner}';
+const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
+const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name}`).join(' ');
 function fail(message) {
   throw new Error(message);
 }
@@ -49,21 +52,15 @@ function runGh(argv) {
   }
   return result.stdout;
 }
-function resolveActingLogin() {
-  if (actingLogin !== undefined) return actingLogin;
-  const login = runGh(['api', 'user', '--jq', '.login']).trim();
-  if (!login) fail(ACTING_LOGIN_ERROR);
-  actingLogin = login;
-  return actingLogin;
-}
-function resolveRepository() {
-  try {
-    const output = runGh(['repo', 'view', '--json', 'nameWithOwner,visibility,defaultBranchRef']);
-    return JSON.parse(output);
-  } catch (error) {
-    if (error.message === 'gh is not installed or not on PATH') throw error;
-    fail(`no GitHub remote: ${error.message}`);
+function graphql(query, variables = {}) {
+  const argv = ['api', 'graphql', '-f', `query=${query}`, '-F', 'owner={owner}', '-F', 'name={repo}'];
+  for (const [key, value] of Object.entries(variables)) argv.push('-F', `${key}=${value}`);
+  const response = parseJson(runGh(argv), 'gh api graphql');
+  if (!response || (response.errors !== undefined && (!Array.isArray(response.errors) || response.errors.length))) {
+    fail(`gh api graphql returned errors: ${response?.errors?.[0]?.message ?? 'malformed errors'}`);
   }
+  if (!response.data || typeof response.data !== 'object') fail('gh api graphql returned missing data');
+  return response.data;
 }
 function parseJson(output, command) {
   try {
@@ -72,86 +69,192 @@ function parseJson(output, command) {
     fail(`${command} returned invalid JSON`);
   }
 }
-function repositoryCoordinates() {
-  const [owner, name, ...extra] = repository.nameWithOwner.split('/');
-  if (!owner || !name || extra.length > 0) fail(`invalid repository name: ${repository.nameWithOwner}`);
-  return { owner, name };
+const ASSIGNEE_FIELDS = '... on Actor{login}';
+const LABELED_EVENT_FIELDS = '... on LabeledEvent{label{name}}';
+const CLOSED_EVENT_FIELDS = `... on ClosedEvent{closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS}} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
+
+function issueConnectionSelection(field, nodeFields, extraArgs = '', after = false) {
+  return `${field}(first:100${after ? ',after:$after' : ''}${extraArgs}){nodes{${nodeFields}} ${PAGE_INFO}}`;
 }
-function archivePullRequestReferences(issueNumber) {
-  const { owner, name } = repositoryCoordinates();
-  const closing = [];
-  let closingCommitOid;
-  let closerPullRequest;
-  let defaultBranch;
-  let after;
-  let hasNextPage;
-  do {
-    const argv = [
-      'api',
-      'graphql',
-      '-f',
-      `query=${CLOSING_PULL_REQUESTS_QUERY}`,
-      '-F',
-      `owner=${owner}`,
-      '-F',
-      `name=${name}`,
-      '-F',
-      `number=${issueNumber}`,
-    ];
-    if (after !== undefined) argv.push('-F', `after=${after}`);
-    const response = parseJson(runGh(argv), 'gh api graphql');
-    const repo = response.data?.repository;
-    const issue = repo?.issue;
+
+function connectionNodes(initial, name, nextPage) {
+  const nodes = [];
+  const seen = new Set();
+  let connection = initial;
+  for (;;) {
     if (
-      !repo?.defaultBranchRef?.name ||
-      !issue ||
-      !Array.isArray(issue.closing?.nodes) ||
-      !Array.isArray(issue.timelineItems?.nodes)
-    ) {
-      fail('gh api graphql returned malformed closing pull request references');
-    }
-    defaultBranch = repo.defaultBranchRef.name;
-    closing.push(...issue.closing.nodes);
-    const latestClosure = issue.timelineItems.nodes.at(-1)?.closer;
-    closingCommitOid = latestClosure?.__typename === 'Commit' ? latestClosure.oid : undefined;
-    closerPullRequest = latestClosure?.__typename === 'PullRequest' ? latestClosure : undefined;
-    hasNextPage = issue.closing.pageInfo?.hasNextPage === true;
-    if (issue.closing.pageInfo?.endCursor != null) after = issue.closing.pageInfo.endCursor;
-  } while (hasNextPage);
-  return { closing, closingCommitOid, closerPullRequest, defaultBranch };
+      !connection ||
+      !Array.isArray(connection.nodes) ||
+      !connection.pageInfo ||
+      typeof connection.pageInfo.hasNextPage !== 'boolean' ||
+      !Object.hasOwn(connection.pageInfo, 'endCursor') ||
+      (connection.pageInfo.endCursor !== null && typeof connection.pageInfo.endCursor !== 'string') ||
+      connection.nodes.some((node) => !node || typeof node !== 'object')
+    )
+      fail(`gh api graphql returned malformed ${name}`);
+    nodes.push(...connection.nodes);
+    if (!connection.pageInfo.hasNextPage) return nodes;
+    const cursor = connection.pageInfo.endCursor;
+    if (typeof cursor !== 'string' || !cursor || seen.has(cursor))
+      fail(`gh api graphql returned malformed ${name} cursor`);
+    seen.add(cursor);
+    connection = nextPage(cursor);
+  }
 }
-function associatedPullRequests(commitOid) {
-  const { owner, name } = repositoryCoordinates();
-  const pullRequests = [];
-  let defaultBranch;
-  let after;
-  let hasNextPage;
-  do {
-    const argv = [
-      'api',
-      'graphql',
-      '-f',
-      `query=${ASSOCIATED_PULL_REQUESTS_QUERY}`,
-      '-F',
-      `owner=${owner}`,
-      '-F',
-      `name=${name}`,
-      '-F',
-      `oid=${commitOid}`,
-    ];
-    if (after !== undefined) argv.push('-F', `after=${after}`);
-    const response = parseJson(runGh(argv), 'gh api graphql');
-    const repo = response.data?.repository;
-    const connection = repo?.commit?.associatedPullRequests;
-    if (!repo?.defaultBranchRef?.name || !connection || !Array.isArray(connection.nodes)) {
-      fail('gh api graphql returned malformed associated pull requests');
+
+function pullRequestNodes(nodes) {
+  if (
+    nodes.some(
+      (pr) =>
+        !Number.isInteger(pr.number) ||
+        pr.number < 1 ||
+        typeof pr.url !== 'string' ||
+        typeof pr.state !== 'string' ||
+        (pr.mergedAt !== null && typeof pr.mergedAt !== 'string') ||
+        typeof pr.baseRefName !== 'string' ||
+        typeof pr.repository?.nameWithOwner !== 'string',
+    )
+  )
+    fail('gh api graphql returned malformed closing pull requests');
+  return nodes;
+}
+
+function issueNodes(issueNumber, initial, field, nodeFields, extraArgs = '') {
+  const name = field.includes(':') ? field.split(':')[0] : field;
+  const selection = issueConnectionSelection(field, nodeFields, extraArgs, true);
+  const query = `query($owner:String!,$name:String!,$number:Int!,$after:String!){repository(owner:$owner,name:$name){issue(number:$number){${selection}}}}`;
+  return connectionNodes(
+    initial,
+    name,
+    (after) => graphql(query, { number: issueNumber, after }).repository?.issue?.[name],
+  );
+}
+
+function associatedNodes(commit) {
+  if (typeof commit.oid !== 'string' || !commit.oid) fail('gh api graphql returned malformed closing commit');
+  const query = `query($owner:String!,$name:String!,$oid:String!,$after:String!){repository(owner:$owner,name:$name){commit:object(expression:$oid){... on Commit{associatedPullRequests(first:100,after:$after){${PULL_REQUEST_CONNECTION}}}}}}`;
+  return connectionNodes(
+    commit.associatedPullRequests,
+    'associated pull requests',
+    (after) => graphql(query, { oid: commit.oid, after }).repository?.commit?.associatedPullRequests,
+  );
+}
+
+function readSnapshot(
+  number,
+  { acting = false, labelLookup = false, comments = false, history = false, archive = false } = {},
+) {
+  const issueFields =
+    number === undefined
+      ? ''
+      : [
+          'number title body state stateReason url createdAt updatedAt',
+          issueConnectionSelection('labels', 'name'),
+          issueConnectionSelection('assignedActors', ASSIGNEE_FIELDS),
+          comments ? issueConnectionSelection('comments', 'body createdAt author{login}') : '',
+          history
+            ? issueConnectionSelection('history:timelineItems', LABELED_EVENT_FIELDS, ',itemTypes:[LABELED_EVENT]')
+            : '',
+          archive ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}` : '',
+          archive
+            ? issueConnectionSelection(
+                'closing:closedByPullRequestsReferences',
+                PULL_REQUEST_FIELDS,
+                ',excludeUserLinked:true,includeClosedPrs:true',
+              )
+            : '',
+        ].join(' ');
+  const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
+  const data = graphql(query, number === undefined ? {} : { number });
+  const repo = data.repository;
+  if (
+    !repo ||
+    typeof repo.nameWithOwner !== 'string' ||
+    !/^[^/]+\/[^/]+$/.test(repo.nameWithOwner) ||
+    typeof repo.visibility !== 'string'
+  )
+    fail('gh api graphql returned malformed repository');
+  repository = repo;
+  const login = data.viewer?.login;
+  if (acting && (typeof login !== 'string' || !login.trim())) fail(ACTING_LOGIN_ERROR);
+  if (labelLookup) {
+    const missingLabels = [];
+    for (const name of PLAN_LABELS) {
+      const label = repo[name.split(':').at(-1)];
+      if (label === undefined) fail('gh api graphql returned malformed repository labels');
+      if (label === null) missingLabels.push(name);
+      else if (typeof label.name !== 'string' || token(label.name) !== name)
+        fail('gh api graphql returned malformed repository labels');
     }
-    defaultBranch = repo.defaultBranchRef.name;
-    pullRequests.push(...connection.nodes);
-    hasNextPage = connection.pageInfo?.hasNextPage === true;
-    if (connection.pageInfo?.endCursor != null) after = connection.pageInfo.endCursor;
-  } while (hasNextPage);
-  return { pullRequests, defaultBranch };
+    return { missingLabels };
+  }
+  if (number === undefined) return {};
+  const issue = repo.issue;
+  if (
+    !issue ||
+    issue.number !== number ||
+    typeof issue.title !== 'string' ||
+    typeof issue.body !== 'string' ||
+    typeof issue.state !== 'string' ||
+    (issue.stateReason !== null && typeof issue.stateReason !== 'string') ||
+    typeof issue.url !== 'string' ||
+    typeof issue.createdAt !== 'string' ||
+    typeof issue.updatedAt !== 'string'
+  )
+    fail('gh api graphql returned malformed plan issue');
+  issue.labels = issueNodes(number, issue.labels, 'labels', 'name');
+  issue.assignees = issueNodes(number, issue.assignedActors, 'assignedActors', ASSIGNEE_FIELDS);
+  if (
+    issue.labels.some((label) => typeof label.name !== 'string') ||
+    issue.assignees.some((owner) => typeof owner.login !== 'string' || !owner.login)
+  )
+    fail('gh api graphql returned malformed plan issue labels or assignees');
+  if (comments) {
+    issue.comments = issueNodes(number, issue.comments, 'comments', 'body createdAt author{login}');
+    if (
+      issue.comments.some(
+        (comment) =>
+          typeof comment.body !== 'string' ||
+          !Number.isFinite(Date.parse(comment.createdAt)) ||
+          (comment.author !== null && typeof comment.author?.login !== 'string'),
+      )
+    )
+      fail('gh api graphql returned malformed issue comments');
+  }
+  if (history) {
+    issue.history = issueNodes(
+      number,
+      issue.history,
+      'history:timelineItems',
+      LABELED_EVENT_FIELDS,
+      ',itemTypes:[LABELED_EVENT]',
+    );
+    if (issue.history.some((event) => typeof event.label?.name !== 'string'))
+      fail('gh api graphql returned malformed label history');
+  }
+  if (archive) {
+    if (typeof repo.defaultBranchRef?.name !== 'string' || !Array.isArray(issue.latestClosure?.nodes))
+      fail('gh api graphql returned malformed latest closure');
+    issue.closing = pullRequestNodes(
+      issueNodes(
+        number,
+        issue.closing,
+        'closing:closedByPullRequestsReferences',
+        PULL_REQUEST_FIELDS,
+        ',excludeUserLinked:true,includeClosedPrs:true',
+      ),
+    );
+    const closer = issue.latestClosure.nodes.at(-1)?.closer;
+    if (
+      issue.latestClosure.nodes.length > 1 ||
+      (issue.latestClosure.nodes.length && (closer === undefined || (closer !== null && !closer.__typename)))
+    )
+      fail('gh api graphql returned malformed latest closure');
+    if (closer?.__typename === 'PullRequest') pullRequestNodes([closer]);
+    if (closer?.__typename === 'Commit') issue.associatedPullRequests = pullRequestNodes(associatedNodes(closer));
+    issue.closer = closer;
+  }
+  return { issue, login };
 }
 function parseIssueNumber(value) {
   const match = /^#?([1-9]\d*)$/.exec(String(value ?? ''));
@@ -161,28 +264,9 @@ function parseIssueNumber(value) {
 function issueView(number, fields = ISSUE_FIELDS, repo = repository.nameWithOwner) {
   return parseJson(runGh(['issue', 'view', String(number), '--json', fields, '--repo', repo]), 'gh issue view');
 }
-function issueComments(number) {
-  const { owner, name } = repositoryCoordinates();
-  const pages = parseJson(
-    runGh(['api', `repos/${owner}/${name}/issues/${number}/comments`, '--paginate', '--slurp']),
-    'gh api issue comments',
-  );
-  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
-    fail('gh api issue comments returned malformed comments');
-  }
-  return pages.flat();
-}
-function planWorkStarted(issue, recordStatus) {
+function workStarted(issue, recordStatus) {
   if (recordStatus !== 'drafting' && recordStatus !== 'planned') return true;
-  const { owner, name } = repositoryCoordinates();
-  const pages = parseJson(
-    runGh(['api', `repos/${owner}/${name}/issues/${issue.number}/events`, '--paginate', '--slurp']),
-    'gh api issue events',
-  );
-  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
-    fail('gh api issue events returned malformed events');
-  }
-  return pages.flat().some((event) => event?.event === 'labeled' && token(event?.label?.name ?? '') === 'plan:ongoing');
+  return issue.history.some((event) => token(event.label.name) === 'plan:ongoing');
 }
 function stateDirectory() {
   const base = process.env.XDG_STATE_HOME || path.join(process.env.HOME || os.homedir(), '.local', 'state');
@@ -357,7 +441,7 @@ function changedLines(before, after) {
 }
 const SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch', 'Open questions', 'Verification Results'];
 const MARKER = '<!-- plan-contract: v4 -->';
-let repository, actingLogin;
+let repository;
 const token = (value) => unquoteCode(value.trim()).toLowerCase();
 const stepId = (value) => token(value).replaceAll('-', '_');
 const terminal = (status) => ['done', 'skipped'].includes(status);
@@ -542,28 +626,23 @@ export function parseReviewComment(body) {
   return { kind, verdict };
 }
 function reviewVerdicts(issue) {
-  const owners = issue.assignees ?? [],
+  const owners = issue.assignees,
     verdicts = {};
-  const comments = issueComments(issue.number)
+  const comments = issue.comments
     .map((comment, index) => ({ comment, index }))
-    .sort(
-      (a, b) =>
-        (Date.parse(a.comment.createdAt ?? a.comment.created_at) || 0) -
-          (Date.parse(b.comment.createdAt ?? b.comment.created_at) || 0) || a.index - b.index,
-    );
+    .sort((a, b) => Date.parse(a.comment.createdAt) - Date.parse(b.comment.createdAt) || a.index - b.index);
   for (const { comment } of comments) {
     const review = parseReviewComment(comment.body);
-    if (owners.length === 1 && (comment.user?.login ?? comment.author?.login) === owners[0].login && review)
+    if (owners.length === 1 && comment.author?.login === owners[0].login && review)
       verdicts[review.kind] = review.verdict;
   }
   return verdicts;
 }
-function readPlanIssue(value, forWrite = false) {
-  const issue = issueView(parseIssueNumber(value));
+function readPlanIssue(value, forWrite = false, connections = {}) {
+  const { issue, login } = readSnapshot(parseIssueNumber(value), { acting: forWrite, ...connections });
   if (!/^\s*<!-- plan-contract: v[34] -->/i.test(issue.body)) fail(`unreadable plan contract: #${issue.number}`);
   if (forWrite) {
-    const login = resolveActingLogin(),
-      owners = (issue.assignees ?? []).map((owner) => owner.login);
+    const owners = issue.assignees.map((owner) => owner.login);
     const foreign = owners.find((owner) => owner !== login);
     if (foreign) fail(`plan #${issue.number} is owned by ${foreign}`);
     if (!owners.length) issue.claimLogin = login;
@@ -575,8 +654,8 @@ function createPlan(args) {
   if (!options['--title']?.trim() || !options['--goal']?.trim()) fail('new requires --title and --goal');
   const extras = options['--label'] ?? [];
   for (const label of extras) if (/^plan(?::|$)/i.test(label)) fail(`reserved label namespace: ${label}`);
-  resolveActingLogin();
-  for (const label of PLAN_LABELS) runGh(['label', 'create', label, '--force', '--repo', repository.nameWithOwner]);
+  const { missingLabels } = readSnapshot(undefined, { acting: true, labelLookup: true });
+  for (const label of missingLabels) runGh(['label', 'create', label, '--repo', repository.nameWithOwner]);
   const goalText = blankFencedRegions(options['--goal'])
     .split('\n')
     .map((masked, index) => {
@@ -614,7 +693,7 @@ function showPlan(args) {
   const [value, ...flags] = args;
   if (!value || flags.length > 1 || flags.some((flag) => flag !== '--body'))
     fail('show requires an issue and optional --body');
-  const { issue, status } = readPlanIssue(value),
+  const { issue, status } = readPlanIssue(value, false, { comments: true }),
     reviews = reviewVerdicts(issue);
   const metadata = `${headerStrip(issue, status)}\nreviews: plan=${reviews.plan ?? 'none'} code=${reviews.code ?? 'none'}`;
   if (flags.length) {
@@ -636,7 +715,7 @@ function editPlan(args) {
   const [value, ...flags] = args,
     file = parseOptions(flags, new Set(['--file']))['--file'];
   if (!file) fail('edit requires an issue and --file');
-  const { issue, parsed, status } = readPlanIssue(value, true),
+  const { issue, parsed, status } = readPlanIssue(value, true, { history: true }),
     origin = readOrigin(file);
   if (!origin)
     fail(
@@ -656,7 +735,7 @@ function editPlan(args) {
     if (seenIds.has(row.id)) fail(`duplicate step id after normalization: ${row.id}`);
     seenIds.add(row.id);
   }
-  if (planWorkStarted(issue, status)) {
+  if (workStarted(issue, status)) {
     refuseMalformedSteps(parsed);
     const frozen = (detail) => fail(`step state is frozen once work starts: ${detail}`),
       ids = new Set(parsed.steps.map((row) => row.id));
@@ -692,10 +771,10 @@ function setPlanStatus(args) {
   if (!PLAN_STATUSES.has(target)) fail(`unknown plan status: ${target}`);
   if (target === 'blocked' && (!options['--reason']?.trim() || /[\r\n]/.test(options['--reason'])))
     fail('blocked status requires --reason as single-line text');
-  const { issue, parsed, status } = readPlanIssue(value, true);
+  const { issue, parsed, status } = readPlanIssue(value, true, { history: true });
   if (String(issue.state).toUpperCase() === 'CLOSED')
     fail(`plan #${issue.number} is closed; status applies to open plans`);
-  if (planWorkStarted(issue, status) && !['ongoing', 'blocked'].includes(target))
+  if (workStarted(issue, status) && !['ongoing', 'blocked'].includes(target))
     fail(`illegal plan status transition: ${status} -> ${target}`);
   const content = parsed.sections.get('Open questions').replace(/^Blocked:[^\n]*\n?\s*/i, '');
   parsed.sections.set(
@@ -779,7 +858,7 @@ function archivePlan(args, retired = false) {
     options = parseOptions(flags, new Set(retired ? ['--reason'] : []));
   if (retired && (!options['--reason']?.trim() || /[\r\n]/.test(options['--reason'])))
     fail('retire requires a single-line --reason');
-  const { issue, parsed, status } = readPlanIssue(value, true);
+  const { issue, parsed, status } = readPlanIssue(value, true, retired ? {} : { comments: true, archive: true });
   if (retired && String(issue.state).toUpperCase() === 'CLOSED') fail(`cannot retire a ${status} plan`);
   if (!retired && status !== 'finished') fail(`archive requires finished status, found ${status}`);
   let closer;
@@ -788,12 +867,19 @@ function archivePlan(args, retired = false) {
     const unfinished = parsed.steps.find((row) => !terminal(row.status));
     if (unfinished) fail(`archive refused: non-terminal step ${unfinished.id}`);
     if (reviewVerdicts(issue).code !== 'pass') fail('archive requires Code-review: pass');
-    const { closingCommitOid, closerPullRequest, defaultBranch } = archivePullRequestReferences(issue.number);
-    const references = closerPullRequest
-      ? [closerPullRequest]
-      : closingCommitOid
-        ? associatedPullRequests(closingCommitOid).pullRequests
-        : [];
+    const defaultBranch = repository.defaultBranchRef.name;
+    const references =
+      issue.closer?.__typename === 'PullRequest'
+        ? issue.closing.some(
+            (pr) =>
+              pr.number === issue.closer.number &&
+              pr.repository?.nameWithOwner === issue.closer.repository?.nameWithOwner,
+          )
+          ? [issue.closer]
+          : []
+        : issue.closer?.__typename === 'Commit'
+          ? issue.associatedPullRequests
+          : [];
     closer = references.find(
       (pr) =>
         pr.state === 'MERGED' &&
@@ -837,7 +923,8 @@ function main([command, ...args]) {
   };
   if (!Object.hasOwn(commands, command))
     fail('usage: plan.mjs <new|show|export|edit|status|step|list|archive|retire> ...');
-  repository = resolveRepository();
+  repository = undefined;
+  if (command === 'list') readSnapshot();
   commands[command](args);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

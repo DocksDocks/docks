@@ -87,8 +87,8 @@ not authorize an effect. Finish dependencies before starting dependent work.
 
 ## Status, ownership, and frozen state
 
-`new` creates `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, and
-`plan:blocked` idempotently with `gh label create --force`. Each plan carries
+`new` creates missing `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, and
+`plan:blocked` with `gh label create` (without `--force`). Each plan carries
 `plan`. Open status comes from phase labels; closed status ignores them.
 
 | GitHub state | Derived status |
