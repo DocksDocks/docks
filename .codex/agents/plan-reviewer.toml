@@ -9,8 +9,8 @@ Use the project-local bundled agent when present; otherwise resolve the matching
 agent in the installed plan-lifecycle plugin. Stop if neither is available.
 Read the manager's supplied export; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
-Return one markdown block with no surrounding commentary. Start with a
-`### Plan review` heading and a `Plan-review:` verdict line.
+Return exactly one markdown block in the loaded agent's Output Format, with no
+surrounding commentary.
 The agent owns finding vocabulary, evidence checks, severity, and verdict rules.
 The manager owns fixes, publication, and lifecycle changes.
 """

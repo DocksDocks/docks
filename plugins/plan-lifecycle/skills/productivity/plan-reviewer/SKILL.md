@@ -4,14 +4,14 @@ description: "Use when plan-manager needs a read-only pre-implementation review 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "cb19f35edd60a3bdb778105b2abf77399e0d0d5ab397584cfea5454c4edb0ce7"
+  updated: "2026-10-18"
+  content_hash: "4d5bead3382a8bf1802bac3f62b3cf06306c0bdbb9f06d876b8b94e6bb71da04"
 ---
 
 # Plan Reviewer
 
 Review one pre-implementation plan round for the manager. Read the supplied
-issue number and exported plan path, then inspect repository evidence and
+issue number, exported plan path, and round number, then inspect repository evidence and
 current official documentation. Never fetch the issue or run commands.
 The manager owns questions, repairs, publication, and lifecycle changes.
 
@@ -34,8 +34,7 @@ citations, probes, tests, or acceptance rows without a load-bearing defect.
 | `research_gap` | A load-bearing claim lacks evidence, contradicts facts, or omits an obviously required source |
 | `security_risk` | The plan introduces or ignores a security risk or destructive action without confirmation |
 
-Apply the durable-solution rule in the `plan-manager` skill's
-`references/plan-contract.md`; report an unrequested temporary fix as `goal_fit`.
+Report a `goal_fit` finding when the plan uses a temporary workaround instead of the root-cause fix, leaves a caller on a replaced path, or keeps an obsolete path, unless Open questions record user approval.
 Read enough surrounding code, callers, tests, and local instructions to verify
 claims. Check library and API claims against current official documentation.
 Do not demand additional sources when existing evidence establishes the claim.
@@ -43,13 +42,26 @@ Coalesce symptoms that share a root cause.
 
 ## Verdict and output
 
-Use pass for no findings, repair for repository-resolvable findings, and blocked
-when a finding needs a user decision. Return exactly one markdown block with
-no surrounding commentary. Start with a `### Plan review` heading and include
-a `Plan-review:` verdict line. Give each finding its kind, precise locator,
-defect, and actionable fix in readable text. The canonical contract defines
-comment interpretation and trust; do not invent stricter byte rules.
-The manager posts the block unchanged as one issue comment.
+Use pass for no findings, repair for repository-resolvable findings, and blocked when a finding needs a user decision.
+
+Return exactly one markdown block with no surrounding commentary, in this shape:
+
+```markdown
+### Plan review round <N>
+
+Plan-review: <pass|repair|blocked>
+
+- research_gap - <locator> - <defect> - <fix>
+```
+
+- Use the round number that the manager supplies.
+- Write the verdict line as plain text on its own line. Do not add bold, a list
+  marker, a code span, or other words.
+- Start each finding line with `- goal_fit`, `- research_gap`, or
+  `- security_risk`. Then give the locator, the defect, and the fix.
+- Write `None.` in place of findings when the verdict is pass.
+- The manager posts the whole block unchanged as one issue comment. The plan
+  helper reads the verdict from these lines.
 
 ## BAD / GOOD
 

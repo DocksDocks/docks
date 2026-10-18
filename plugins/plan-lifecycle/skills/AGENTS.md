@@ -65,6 +65,13 @@ Coordinate edits across those surfaces when concepts change. Refresh content
 hashes after all reference edits finish. `scripts/tests/plan-cli.mjs` exercises
 the helper's behavior; no test pins skill prose.
 
+The reviewer agents and the `plan-reviewer` skill own the exact review block
+they return. Keep that block inside the comment rules in `plan-contract.md`
+(Phases and review comments). Keep the plan-review block identical in
+`../agents/plan-reviewer.md` and the `plan-reviewer` skill. The Codex templates,
+`.codex/agents/plan-reviewer.toml`, and `.codex/agents/code-reviewer.toml` point
+to the agent's Output Format and do not copy it.
+
 ## Fail-loud routing (external routes)
 
 Every docks skill that routes into this lifecycle carries one byte-identical
