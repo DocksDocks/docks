@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "33e947296941bcf0ab2a82e3a7286193a4c9a470d74328f8acc95e17f0998d7d"
+  updated: "2026-10-18"
+  content_hash: "666bb6231e8a3be9dc265b1d55c7c061bc1ee34c9a3d6739d982203f31768a77"
 ---
 
 # Plans Workspace
@@ -133,7 +133,7 @@ grep -n 'docs/AGENTS.md' AGENTS.md             # root routes to the docs node
 grep -n '^## Plans' AGENTS.md                  # root Plans section
 grep -c 'Pointers here name concepts' docs/AGENTS.md   # 1 or more
 ls .codex/agents/plan-reviewer.toml .codex/agents/code-reviewer.toml
-find . \( -name CLAUDE.md -o -name CLAUDE.local.md \) -not -path './.git/*' -not -path '*/node_modules/*'   # no output
+find . \( -name .git -o -name node_modules -o -path ./docs/plans/finished \) -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print   # no output
 ```
 
 For migration, confirm each issue uses a user-restated title and goal, and

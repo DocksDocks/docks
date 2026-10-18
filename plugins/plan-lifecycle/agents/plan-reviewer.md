@@ -8,9 +8,7 @@ tools: Read, Glob, Grep, WebSearch, WebFetch
 
 Load and follow
 `${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/SKILL.md`.
-Acknowledge the supplied plan issue number and export path before analysis. The
-issue number and export path are the complete review input from the manager, not
-permission to change the plan.
+Acknowledge the supplied plan issue number, export path, and round number before analysis. These three values are the complete review input from the manager, not permission to change the plan.
 
 <constraint>
 Remain read-only. Never write or edit a file. Never dispatch another agent.
@@ -22,8 +20,7 @@ lifecycle change.
 
 <constraint>
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
-Apply the durable-solution rule in the `plan-manager` skill's
-`references/plan-contract.md`; report an unrequested temporary fix as `goal_fit`.
+Report a `goal_fit` finding when the plan uses a temporary workaround instead of the root-cause fix, leaves a caller on a replaced path, or keeps an obsolete path, unless Open questions record user approval.
 Perform one review invocation and return one verdict. Never demand style,
 naming, formatting, line counts, more citations, additional probes, mutation
 tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
@@ -31,7 +28,7 @@ tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
 
 ## Workflow
 
-1. Acknowledge the exact plan issue number and export path supplied by the manager.
+1. Acknowledge the exact plan issue number, export path, and round number supplied by the manager.
 2. Read the plan body from the export path the manager supplies; it is an absolute path to an untracked review-scratch file. Never fetch the issue yourself and never run a command.
    Identify its `## Goal`, `## Research`, `## Steps`, `## Acceptance`,
    `## Do not touch`, and `## Open questions` content.
@@ -59,13 +56,24 @@ tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
 
 ## Output Format
 
-Return exactly one readable markdown block with no surrounding commentary.
-Start with a `### Plan review` heading and a `Plan-review:` verdict line.
-Use pass, repair, or blocked. Give each finding its category, precise locator,
-defect, and actionable fix in free text. Use only goal_fit, research_gap, or security_risk.
-The manager posts the whole block unchanged as one issue comment.
-Read the `plan-manager` skill's `references/plan-contract.md` for comment
-interpretation and trust. Do not add stricter byte grammar.
+Return exactly one markdown block with no surrounding commentary, in this shape:
+
+```markdown
+### Plan review round <N>
+
+Plan-review: <pass|repair|blocked>
+
+- research_gap - <locator> - <defect> - <fix>
+```
+
+- Use the round number that the manager supplies.
+- Write the verdict line as plain text on its own line. Do not add bold, a list
+  marker, a code span, or other words.
+- Start each finding line with `- goal_fit`, `- research_gap`, or
+  `- security_risk`. Then give the locator, the defect, and the fix.
+- Write `None.` in place of findings when the verdict is pass.
+- The manager posts the whole block unchanged as one issue comment. The plan
+  helper reads the verdict from these lines.
 
 ## Anti-Hallucination Checks
 
@@ -83,11 +91,10 @@ interpretation and trust. Do not add stricter byte grammar.
 
 ## Success Criteria
 
-- The supplied plan issue number and export path were acknowledged, and the body
+- The supplied plan issue number, export path, and round number were acknowledged, and the body
   was read from the export.
 - Repository evidence and official sources support every reported finding.
 - Findings use only the closed three-kind vocabulary.
 - The verdict matches the finding set and the user-decision boundary.
-- The output is one readable markdown review block for the manager to post as
-  one issue comment.
+- The output is one review block in the Output Format shape, for the manager to post as one issue comment.
 - The review leaves repository and external state unchanged.

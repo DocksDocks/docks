@@ -20,6 +20,8 @@ const PAGE_INFO = 'pageInfo{hasNextPage endCursor}';
 const PULL_REQUEST_FIELDS = 'number url state mergedAt baseRefName repository{nameWithOwner}';
 const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
 const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name}`).join(' ');
+const GH_MAX_BUFFER_MIB = 256;
+const PLAN_LIST_LIMIT = 500;
 function fail(message) {
   throw new Error(message);
 }
@@ -43,8 +45,10 @@ function labelNames(labels) {
   return (labels ?? []).map((label) => token(typeof label === 'string' ? label : label.name));
 }
 function runGh(argv) {
-  const result = spawnSync('gh', argv, { encoding: 'utf8' });
+  const result = spawnSync('gh', argv, { encoding: 'utf8', maxBuffer: GH_MAX_BUFFER_MIB * 1024 * 1024 });
   if (result.error?.code === 'ENOENT') fail('gh is not installed or not on PATH');
+  if (result.error?.code === 'ENOBUFS')
+    fail(`gh ${argv.slice(0, 2).join(' ')} output exceeded ${GH_MAX_BUFFER_MIB} MiB`);
   if (result.error) fail(`gh ${argv.slice(0, 2).join(' ')} failed: ${result.error.message}`);
   if (result.status !== 0) {
     const detail = result.stderr.trim() || `exit ${result.status}`;
@@ -150,8 +154,9 @@ function associatedNodes(commit) {
 
 function readSnapshot(
   number,
-  { acting = false, labelLookup = false, comments = false, history = false, archive = false } = {},
+  { acting = false, labelLookup = false, comments = false, history = false, archive = false, closure = false } = {},
 ) {
+  const readsClosure = closure || archive;
   const issueFields =
     number === undefined
       ? ''
@@ -163,7 +168,9 @@ function readSnapshot(
           history
             ? issueConnectionSelection('history:timelineItems', LABELED_EVENT_FIELDS, ',itemTypes:[LABELED_EVENT]')
             : '',
-          archive ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}` : '',
+          readsClosure
+            ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}`
+            : '',
         ].join(' ');
   const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
   const data = graphql(query, number === undefined ? {} : { number });
@@ -233,9 +240,10 @@ function readSnapshot(
     if (issue.history.some((event) => typeof event.label?.name !== 'string'))
       fail('gh api graphql returned malformed label history');
   }
-  if (archive) {
-    if (typeof repo.defaultBranchRef?.name !== 'string' || !Array.isArray(issue.latestClosure?.nodes))
-      fail('gh api graphql returned malformed latest closure');
+  if (archive && typeof repo.defaultBranchRef?.name !== 'string')
+    fail('gh api graphql returned malformed latest closure');
+  if (readsClosure) {
+    if (!Array.isArray(issue.latestClosure?.nodes)) fail('gh api graphql returned malformed latest closure');
     const closer = issue.latestClosure.nodes.at(-1)?.closer;
     if (
       issue.latestClosure.nodes.length > 1 ||
@@ -243,7 +251,10 @@ function readSnapshot(
     )
       fail('gh api graphql returned malformed latest closure');
     if (closer?.__typename === 'PullRequest') pullRequestNodes([closer]);
-    if (closer?.__typename === 'Commit') issue.associatedPullRequests = pullRequestNodes(associatedNodes(closer));
+    if (closer?.__typename === 'Commit') {
+      if (typeof closer.oid !== 'string' || !closer.oid) fail('gh api graphql returned malformed closing commit');
+      if (archive) issue.associatedPullRequests = pullRequestNodes(associatedNodes(closer));
+    }
     issue.closer = closer;
   }
   return { issue, login };
@@ -589,14 +600,31 @@ function printAdvice(text, status, extra = [], options = {}) {
     result.advice.push('Research is not filled after drafting.');
   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
 }
+// Reviewers write Markdown: read review keywords through emphasis, code marks, quotes, and list markers (#49).
+function reviewText(line) {
+  return line
+    .replace(/[*_`]/g, '')
+    .trim()
+    .replace(/^(?:>\s*)+/, '')
+    .replace(/^(?:[-+]|\d+[.)])\s+/, '')
+    .trim();
+}
+const REVIEW_HEADING = /^(?:#+\s*)?(plan|code) review/i;
+const REVIEW_VERDICT = /^(plan|code)[- ]review:\s*([a-z]+(?:-[a-z]+)*)/i;
+const severeFinding = (text) =>
+  /\[(?:critical|high)\]/i.test(text) ||
+  /^(?:critical|high)\s*:/i.test(text) ||
+  /^severity\s*:\s*(?:critical|high)\b/i.test(text);
 export function parseReviewComment(body) {
   if (typeof body !== 'string') return undefined;
-  const lines = body.trim().split(/\r?\n/),
-    heading = /^(?:#+\s*)?(plan|code) review/i.exec(lines[0]);
+  const lines = body.trim().split(/\r?\n/).map(reviewText);
+  const heading = REVIEW_HEADING.exec(lines[0]);
   if (!heading) return undefined;
   const kind = heading[1].toLowerCase();
-  const index = lines.findIndex((line, i) => i > 0 && /^(plan|code)[- ]review:\s*(\S+)/i.test(line));
-  const match = /^(plan|code)[- ]review:\s*(\S+)/i.exec(lines[index] ?? '');
+  const match = lines
+    .slice(1)
+    .map((line) => REVIEW_VERDICT.exec(line))
+    .find(Boolean);
   if (!match || match[1].toLowerCase() !== kind) return undefined;
   const alias = match[2].toLowerCase();
   let verdict = ['pass', 'ok', 'approved'].includes(alias)
@@ -609,12 +637,7 @@ export function parseReviewComment(body) {
         ? 'blocked'
         : undefined;
   if (!verdict) return undefined;
-  if (
-    kind === 'code' &&
-    verdict === 'pass' &&
-    lines.some((line) => /^\s*(?:[-*]\s+)?(?:\[(?:critical|high)\]|(?:critical|high):)/i.test(line))
-  )
-    verdict = 'fixes-required';
+  if (kind === 'code' && verdict === 'pass' && lines.some(severeFinding)) verdict = 'fixes-required';
   return { kind, verdict };
 }
 function reviewVerdicts(issue) {
@@ -681,11 +704,16 @@ function createPlan(args) {
   console.log(`plan created: #${number} ${url}`);
   printAdvice(source, 'drafting', [], { mode: options['--mode'] });
 }
+function describeCloser(closer) {
+  if (closer?.__typename === 'PullRequest') return closer.url;
+  if (closer?.__typename === 'Commit') return `commit ${closer.oid}`;
+  return 'an unknown closer';
+}
 function showPlan(args) {
   const [value, ...flags] = args;
   if (!value || flags.length > 1 || flags.some((flag) => flag !== '--body'))
     fail('show requires an issue and optional --body');
-  const { issue, status } = readPlanIssue(value, false, { comments: true }),
+  const { issue, parsed, status } = readPlanIssue(value, false, { comments: true, closure: true }),
     reviews = reviewVerdicts(issue);
   const metadata = `${headerStrip(issue, status)}\nreviews: plan=${reviews.plan ?? 'none'} code=${reviews.code ?? 'none'}`;
   if (flags.length) {
@@ -693,7 +721,13 @@ function showPlan(args) {
     process.stdout.write(issue.body);
   } else {
     console.log(metadata);
-    printAdvice(issue.body, status);
+    const unfinished = status === 'finished' ? parsed.steps.find((step) => !terminal(step.status)) : undefined;
+    const extra = unfinished
+      ? [
+          `plan is closed as completed while step ${unfinished.id} is ${unfinished.status}; closed by ${describeCloser(issue.closer)}; reopen the issue if work remains`,
+        ]
+      : [];
+    printAdvice(issue.body, status, extra);
   }
 }
 function refuseMalformedSteps(plan) {
@@ -792,10 +826,9 @@ function setStepStatus(args) {
   const row = parsed.steps.find((step) => step.id === stepId(id));
   if (!row) fail(`unknown step id: ${id}`);
   const current = row.status;
-  if (
-    (status === 'finished' && !terminal(target)) ||
-    (status !== 'finished' && terminal(current) && current !== target)
-  )
+  if (status === 'finished' && !terminal(target))
+    fail(`plan #${issue.number} is finished; reopen it before moving step ${row.id} to ${target}`);
+  if (status !== 'finished' && terminal(current) && current !== target)
     fail(`illegal step status transition: ${current} -> ${target}`);
   const advice = normalizePlan(issue.body).advice.filter((message) => message.startsWith('Mode defaulted')),
     unfinished = row.depends
@@ -828,7 +861,7 @@ function listPlans(args) {
       '--state',
       'all',
       '--limit',
-      '500',
+      String(PLAN_LIST_LIMIT),
       '--json',
       ISSUE_FIELDS.replace('body,', ''),
       '--repo',
@@ -836,6 +869,7 @@ function listPlans(args) {
     ]),
     'gh issue list',
   );
+  if (!Array.isArray(issues)) fail('gh issue list returned malformed issues');
   issues.sort(
     (a, b) =>
       Number(a.state.toUpperCase() === 'CLOSED') - Number(b.state.toUpperCase() === 'CLOSED') || a.number - b.number,
@@ -844,6 +878,7 @@ function listPlans(args) {
     const status = statusFromIssue(issue);
     if (!selected || status === token(selected)) console.log(`${status}\t#${issue.number}\t${issue.title}`);
   }
+  if (issues.length >= PLAN_LIST_LIMIT) console.log('advice: list stopped at 500 plans; more plans may exist');
 }
 function archivePlan(args, retired = false) {
   const [value, ...flags] = args,

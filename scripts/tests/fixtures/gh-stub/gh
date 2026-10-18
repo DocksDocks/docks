@@ -22,6 +22,18 @@ function die(message) {
   process.exit(1);
 }
 
+// Write stdout synchronously: process.exit() after console.log() truncates large responses.
+function emit(text) {
+  const buffer = Buffer.from(`${text}\n`);
+  for (let offset = 0; offset < buffer.length; ) {
+    try {
+      offset += fs.writeSync(1, buffer, offset);
+    } catch (error) {
+      if (error.code !== 'EAGAIN') throw error;
+    }
+  }
+}
+
 function values(flag) {
   const found = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -158,7 +170,7 @@ function respondGraphql(data, stage) {
     connection.pageInfo.endCursor = null;
     delete state.graphqlMissingCursor;
   }
-  console.log(JSON.stringify(response));
+  emit(JSON.stringify(response));
   save();
   process.exit(0);
 }
@@ -238,7 +250,7 @@ if (group === 'api' && commentsEndpoint) {
   const pages = [];
   for (let index = 0; index < comments.length; index += 100) pages.push(comments.slice(index, index + 100));
   if (pages.length === 0) pages.push([]);
-  console.log(JSON.stringify(pages));
+  emit(JSON.stringify(pages));
   save();
   process.exit(0);
 }
@@ -253,7 +265,7 @@ if (group === 'api' && eventsEndpoint) {
   const pages = [];
   for (let index = 0; index < events.length; index += 100) pages.push(events.slice(index, index + 100));
   if (pages.length === 0) pages.push([]);
-  console.log(JSON.stringify(pages));
+  emit(JSON.stringify(pages));
   save();
   process.exit(0);
 }
@@ -422,7 +434,7 @@ if (group === 'repo' && command === 'view') {
         visibility: 'PUBLIC',
         defaultBranchRef: defaultBranch ? { name: defaultBranch } : null,
       };
-  console.log(JSON.stringify(select(details, value('--json'))));
+  emit(JSON.stringify(select(details, value('--json'))));
   save();
   process.exit(0);
 }
@@ -443,7 +455,7 @@ if (group === 'label' && command === 'create') {
 
 if (group === 'label' && command === 'list') {
   const entries = Object.keys(state.labels).sort().map((name) => ({ name }));
-  console.log(JSON.stringify(entries.map((entry) => select(entry, value('--json')))));
+  emit(JSON.stringify(entries.map((entry) => select(entry, value('--json')))));
   save();
   process.exit(0);
 }
@@ -471,7 +483,7 @@ if (group === 'issue' && command === 'create') {
     events: [],
   };
   state.issues.push(issue);
-  console.log(issue.url);
+  emit(issue.url);
   save();
   process.exit(0);
 }
@@ -481,7 +493,7 @@ if (group === 'issue' && command === 'view') {
   const issue = issueByNumber(number);
   validateJsonFields(value('--json'), ISSUE_JSON_FIELDS);
   observeIssue(issue);
-  console.log(JSON.stringify(select(issueJson(issue), value('--json'))));
+  emit(JSON.stringify(select(issueJson(issue), value('--json'))));
   save();
   process.exit(0);
 }
@@ -527,7 +539,7 @@ if (group === 'issue' && command === 'list') {
     .filter((issue) => requestedState === 'all' || issue.state.toLowerCase() === requestedState)
     .slice(0, limit)
     .map((issue) => select(issueJson(issue), fields));
-  console.log(JSON.stringify(issues));
+  emit(JSON.stringify(issues));
   save();
   process.exit(0);
 }
@@ -549,7 +561,7 @@ if (group === 'pr' && command === 'view') {
   validateJsonFields(value('--json'), PR_JSON_FIELDS);
   const pullRequest = state.prs.find((entry) => entry.number === number && entry.repository === repo);
   if (!pullRequest) die(`pull request not found: ${repo}#${number}`);
-  console.log(JSON.stringify(select(pullRequest, value('--json'))));
+  emit(JSON.stringify(select(pullRequest, value('--json'))));
   save();
   process.exit(0);
 }

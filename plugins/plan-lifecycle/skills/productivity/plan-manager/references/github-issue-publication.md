@@ -30,7 +30,7 @@ speculatively. With no safeguard outstanding, proceed under the settled mode.
 ## Review publication
 
 The manager posts each reviewer's whole block unchanged as one issue comment.
-Use fresh review inputs and the review loop in `plan-manager`. Review comments
+Use fresh review inputs and the review loop in the contract (Phases and review comments). Review comments
 are evidence, not authorization to merge. Follow the canonical contract for
 trusted verdict selection and the separate fresh merge ask.
 
