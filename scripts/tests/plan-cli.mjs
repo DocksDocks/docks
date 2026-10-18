@@ -252,6 +252,42 @@ try {
     `${createHash('sha256').update(normalized.body).digest('hex')}\n`,
   );
 
+  // Machine path advice names each distinct path into a home, a mount, a named temporary or runtime directory,
+  // a Windows drive, or a network share. URL routes, portable system paths, and slash text get none (#71).
+  const machinePathAdvice = (text) =>
+    normalizePlan(body().replace('The parser loses mixed-case records.', text)).advice.filter((message) =>
+      message.startsWith('body contains an absolute machine path'),
+    );
+  const named = (...paths) => paths.map((found) => `body contains an absolute machine path: ${found}`);
+  for (const [text, expected] of [
+    ['Clone into /home/<user>/projects/x.', named('/home/<user>/projects/x')],
+    ['Open `/Users/<user>/src`.', named('/Users/<user>/src')],
+    ['Read /root/.ssh/config and /mnt/data/x', named('/root/.ssh/config', '/mnt/data/x')],
+    [
+      'Mounts /media/<user>/usb, /run/media/<user>/usb, /Volumes/Data/x',
+      named('/media/<user>/usb', '/run/media/<user>/usb', '/Volumes/Data/x'),
+    ],
+    ['Scratch `/tmp/<name>`, /var/tmp/x, /private/tmp/x', named('/tmp/<name>', '/var/tmp/x', '/private/tmp/x')],
+    [
+      'Temp /var/folders/ab/cd/T/x and /private/var/folders/ab/T/x',
+      named('/var/folders/ab/cd/T/x', '/private/var/folders/ab/T/x'),
+    ],
+    ['XDG_RUNTIME_DIR=/run/user/1000/bus', named('/run/user/1000/bus')],
+    [
+      'Windows C:\\Users\\<user>\\x, D:/work/x, \\\\server\\share\\x',
+      named('C:\\Users\\<user>\\x', 'D:/work/x', '\\\\server\\share\\x'),
+    ],
+    ['See [log](/home/<user>/log.txt) and file:///home/<user>/y', named('/home/<user>/log.txt', '/home/<user>/y')],
+    ['Twice /home/a/x, /home/a/x then /tmp/y;', named('/home/a/x', '/tmp/y')],
+    ['Routes /login/, `/wp-json/<namespace>/v1/items/123`, /search/transfer/user', []],
+    ['TMPDIR=/tmp node t.mjs, /usr/bin/php8.5, #!/usr/bin/env node, x > /dev/null', []],
+    ["Pick `A`/`B`, awk '/^## /{f=0}', __DIR__ . '/vendor/autoload.php'", []],
+    ['URLs https://example.com/home/a and ssh://host/home/a', []],
+    ['Portable ~/.local/state/docks/x, $HOME/x, bare /tmp, /tmp/ and /home/', []],
+    ["Regex `'\\\\d+\\\\.'`", []],
+  ])
+    assert.deepEqual(machinePathAdvice(text), expected, text);
+
   // Ids that differ only by case or dash collapse after normalization; the write refuses the collision.
   const collision = createPlan('id-collision');
   const collisionEdit = edit(collision, (text) =>
@@ -932,7 +968,7 @@ try {
   assert.match(limitedList.stdout, /^advice: list stopped at 500 plans; more plans may exist$/m);
 
   console.log(
-    'plan-cli smoke PASSED: labels, snapshot paging, normalization, ownership, race, provenance, step freeze, transitions, review trust, archive proof, list, retire, large output, Markdown review records, early closure, list limit',
+    'plan-cli smoke PASSED: labels, snapshot paging, normalization, ownership, race, provenance, step freeze, transitions, review trust, archive proof, list, retire, large output, Markdown review records, early closure, list limit, machine path advice',
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

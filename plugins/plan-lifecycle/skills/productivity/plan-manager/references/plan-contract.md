@@ -215,9 +215,14 @@ the current record holds such a row. A duplicate or unknown `##` heading blocks 
 Advice prints `advice: <text>` on stdout and exits 0. It covers absolute machine
 paths, `_Not researched yet._` after drafting, defaulted Mode, unknown Effect or
 Status, an unfinished dependency when a step moves to in-flight or done, and
-every non-local Effect as an in-session permission reminder. `show` also advises
-when a plan is closed as completed while a step is not terminal, and names the
-closer. `list` advises when it reaches 500 plans. Advice is not approval.
+every non-local Effect as an in-session permission reminder. A machine path
+points into a user or root home, a mount, a named temporary or runtime
+directory, a Windows drive, or a network share. Its advice is
+`body contains an absolute machine path: <path>`, once per distinct path.
+URL routes and portable system paths, such as `/usr/bin/env` or a bare `/tmp`,
+get no advice. `show` also advises when a plan is closed as completed while a
+step is not terminal, and names the closer. `list` advises when it reaches 500
+plans. Advice is not approval.
 
 Refusals exit 1. These stderr strings are exact, with angle brackets replaced:
 
