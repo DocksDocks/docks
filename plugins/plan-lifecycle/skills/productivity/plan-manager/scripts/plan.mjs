@@ -22,6 +22,11 @@ const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
 const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name}`).join(' ');
 const GH_MAX_BUFFER_MIB = 256;
 const PLAN_LIST_LIMIT = 500;
+// A machine path points into a user or root home, a mount, a named temporary or runtime directory,
+// a Windows drive, or a network share. URL routes, slash prose, and portable system paths such as
+// /usr/bin/env or a bare /tmp do not match (#71). The match runs to the next space or delimiter.
+const MACHINE_PATH =
+  /(?<=^|[\s("'`[{=:;,>]|file:\/\/)(?:\/(?:home|Users|root|mnt|media|Volumes|run\/(?:user|media))\/[^\s/`'")]|\/(?:private\/)?(?:tmp|var\/tmp)\/[^\s/`'")]|\/(?:private\/)?var\/folders\/|[A-Za-z]:[\\/]|\\\\[\w.$-]+\\[\w.$-])[^\s`'"()[\]{}|,;]*/gm;
 function fail(message) {
   throw new Error(message);
 }
@@ -562,12 +567,8 @@ export function normalizePlan(text, { mode: explicitMode } = {}) {
     ACCEPTANCE_SEPARATOR,
     table(sections.get('Acceptance') ?? '', ACCEPTANCE_HEADER).rows,
   );
-  if (
-    /(?:^|[\s("'`[{=:;,>])(?:\/(?!\/|\s|dev\/null\b)|[A-Za-z]:[\\/]|\\\\\S)/m.test(
-      cleaned.replace(/\]\([^)\n]*\)/g, ']()'),
-    )
-  )
-    advice.push('body contains an absolute machine path.');
+  const machinePaths = new Set(Array.from(cleaned.matchAll(MACHINE_PATH), ([match]) => match.replace(/[.:]+$/, '')));
+  for (const machinePath of machinePaths) advice.push(`body contains an absolute machine path: ${machinePath}`);
   return { body: render(sections), advice };
 }
 export function parsePlan(text) {
