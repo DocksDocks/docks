@@ -18,17 +18,23 @@ Resolve `skills/productivity/plan-manager/scripts/plan.mjs` within that installe
 A plan is a GitHub issue that records a goal, research, ordered work, and evidence.
 The issue number identifies it. GitHub owns title, assignees, labels, timestamps,
 and completion. Reviews live in comments. Do not track plan bodies in repository
-files. Frozen `docs/plans/finished/` history is not lifecycle input.
-Use direct implementation for one clear, reversible, low-risk local change with
-one bounded acceptance path. It creates no plan issue, reviewer, or automatic commit.
-Use a plan for explicit planning, multiple commits, cross-repository work, scheduling,
-cold handoff, unresolved decisions, public-contract or cross-subsystem changes,
-security-sensitive or destructive work, or a non-local effect.
-Settle Mode with the user. `plan-and-implement` authorizes the full lifecycle.
-`plan-only` stops after plan review. A defaulted Mode never authorizes implementation.
-Routine issue publication and landing use the settled mode, outside the Steps table.
-Solve the root cause with a durable solution. Complete the caller cutover.
-Remove obsolete paths. Do not substitute a temporary workaround without user approval.
+files. Frozen `docs/plans/finished/` history is not lifecycle input. Do not open
+or inventory it.
+
+Choose the path before any other work:
+
+| Path | Use it when |
+|---|---|
+| Direct implementation | One clear, reversible, low-risk local change has one bounded acceptance path. It creates no plan issue, reviewer, or automatic commit, and it needs no Mode. |
+| Plan | The work needs explicit planning, multiple commits, cross-repository work, scheduling, cold handoff, unresolved decisions, public-contract or cross-subsystem changes, security-sensitive or destructive work, or a non-local effect. |
+
+Settle Mode with the user before implementation. `plan-and-implement` authorizes
+the full lifecycle. `plan-only` stops after plan review. A defaulted Mode never
+authorizes implementation. The settled Mode also covers routine issue
+publication and landing work, which stay outside the Steps table.
+
+Durable solution: solve the root cause, move every caller to the new path, and
+remove obsolete paths. Use a temporary workaround only with user approval.
 The body starts with `<!-- plan-contract: v4 -->`, then a blank line. It has no
 frontmatter. Write these seven second-level sections in this order:
 
@@ -108,7 +114,7 @@ reason at the start of Open questions. Leaving blocked removes that line.
 
 An open plan must be ongoing for `step`. Its done and skipped steps are immutable.
 Other open step transitions are free. A finished plan permits only done or skipped
-targets for terminal repair. Other closed plans do not permit step transitions.
+targets for terminal repair. To move a step of a finished plan to another status, reopen the issue first. Other closed plans do not permit step transitions.
 
 After work starts, `edit` freezes each existing step's Id, display number,
 Depends, Effect, Status, and presence. Task, Files, and Done when remain editable.
@@ -126,15 +132,32 @@ The six phases are decide, draft, research, plan review, implement, and code rev
 lifecycle. Internal `plan-reviewer` reviews goal fit, research gaps, and security
 risk. The two read-only wrappers are `plan-reviewer` and `code-reviewer`.
 
-Use a fresh export for each plan review and a fresh diff for each code review.
-Post each review block as one issue comment. Stop on pass. On no progress, a
-surviving finding, or a round-5 non-pass, `ask` the user to continue or block.
+Run this review loop for plan review and for code review:
+
+1. Give each round fresh input: a fresh export, the issue number, and the round
+   number. Code review also gets a fresh diff.
+2. Post the returned block unchanged as one issue comment. Never store a review
+   in the body.
+3. Run `show <n>` and read the verdict. Stop on pass.
+4. Otherwise reproduce each finding. Fix confirmed defects, record evidence for
+   rejected findings, and start the next round.
+5. Ask the user to continue or block when a round makes no progress, the same
+   finding returns after a repair, round 5 does not pass, or dispatch fails again
+   without a relevant change. If no answer is available, record the reason and
+   block.
+
 Record user-only decisions in Open questions. Do not invent approval.
 
-An eligible comment starts on its first non-blank line with plan review or code
-review, without case sensitivity. Any heading level and suffix are allowed.
-A later verdict line uses `plan-review:` or `code-review:`; a space can replace
-the hyphen. Finding lines are free text.
+The helper finds review records in comments with these rules. The reviewer
+agents define the exact block they return, and that block follows these rules.
+
+- The first non-blank line names the kind: `plan review` or `code review`, in
+  any case, after optional `#` heading markers. Any suffix, such as `round 2`,
+  is allowed.
+- A later line holds the verdict: `plan-review:` or `code-review:`, then a
+  verdict word. A space can replace the hyphen.
+- On each line, the helper ignores Markdown emphasis (`*`, `_`), code marks,
+  blockquote markers, and list markers.
 
 | Verdict input | Plan result | Code result |
 |---|---|---|
@@ -142,12 +165,13 @@ the hyphen. Finding lines are free text.
 | `repair`, `changes`, `fixes-required` | `repair` | `fixes-required` |
 | `blocked` | `blocked` | `blocked` |
 
-A code pass derives as fixes-required when any finding line starts with a
-`critical` or `high` severity field, written `- [high]` or `high:`, in any case.
-Severity words inside finding prose do not count. Trust requires exactly
-one issue assignee and a comment author login equal to that assignee. The latest
-trusted eligible comment per kind wins, ordered by `createdAt`; API order breaks
-ties. Missing trusted reviews derive as none. There is no body verdict fallback.
+A code pass derives as fixes-required when any line contains `[critical]` or
+`[high]`, or starts with `critical:`, `high:`, `severity: critical`, or
+`severity: high`, in any case. A bare severity word inside finding prose does
+not count. Trust requires exactly one issue assignee and a comment author login
+equal to that assignee. The latest trusted eligible comment per kind wins,
+ordered by `createdAt`; API order breaks ties. Missing trusted reviews derive as
+none. There is no body verdict fallback.
 
 ## Helper commands and output
 
@@ -162,7 +186,7 @@ prefixed with `#`. The header strip is `#<n> · <status> · <title> · <url>`.
 | `edit <n> --file <path>` | Header strip, `changed: <k> line(s)`, `-old` and `+new` lines, then advice |
 | `status <n> <status> [--reason <text>]` | `plan #<n> status: <old> -> <new>` |
 | `step <n> <id> <status>` | `plan #<n> step <id>: <old> -> <new>` |
-| `list [--status <s>]` | `<status>\t#<n>\t<title>`; open first, then closed, each in ascending number order |
+| `list [--status <s>]` | `<status>\t#<n>\t<title>`; open first, then closed, each in ascending number order; prints advice when it reaches 500 plans |
 | `archive <n>` | `plan #<n> finished (closed by <pr-url>)`; removes stale phase labels |
 | `retire <n> --reason <t>` | `plan #<n> retired`; closes as not planned and removes phase labels |
 
@@ -191,7 +215,9 @@ the current record holds such a row. A duplicate or unknown `##` heading blocks 
 Advice prints `advice: <text>` on stdout and exits 0. It covers absolute machine
 paths, `_Not researched yet._` after drafting, defaulted Mode, unknown Effect or
 Status, an unfinished dependency when a step moves to in-flight or done, and
-every non-local Effect as an in-session permission reminder. Advice is not approval.
+every non-local Effect as an in-session permission reminder. `show` also advises
+when a plan is closed as completed while a step is not terminal, and names the
+closer. `list` advises when it reaches 500 plans. Advice is not approval.
 
 Refusals exit 1. These stderr strings are exact, with angle brackets replaced:
 
@@ -206,6 +232,7 @@ step state is frozen once work starts: <detail>
 plan #<n> is closed; status applies to open plans
 illegal plan status transition: <from> -> <to>
 illegal step status transition: <from> -> <to>
+plan #<n> is finished; reopen it before moving step <id> to <status>
 plan status is <status>; expected ongoing
 archive requires finished status, found <status>
 archive refused: non-terminal step <id>
@@ -224,25 +251,68 @@ reserved label namespace: <label>
 
 ## Landing and archive proof
 
-Before `gh issue develop --checkout`, require clean `git status --porcelain`.
-Never stash, move, or commit ambient work. Block with dirty paths or use an authorized
-clean worktree. After setting ongoing, reuse or create the linked branch. Every
-`gh issue develop` call includes `--repo`; creation uses `--base <default> --checkout`.
-Re-list after failure. Stop without a verified link.
-After code review passes, commit and push reviewed bytes and open a closing pull request.
-Only the pull request that lands the completed work carries `Closes #<issue>`; a partial
-one carries plain `Refs #<issue>`. The `Closes` keyword supplies the proof
-`archive` verifies, so a landing pull request without it leaves the plan unarchivable.
-Checks policy: wait up to five minutes for checks to appear, then wait for every
-check to complete. A failed or cancelled check blocks the merge question until the
-fix is reviewed. When the repository has no configured checks, treat the green local
-gate as the check result and say so in the merge question.
-Ask afresh: `Merge now` or `Leave pull request open`. Without `Merge now`, leave both
-records open. Merge with `--match-head-commit` for the reviewed head.
-A prior plan approval never authorizes merge.
+### Linked branch
+
+Set up the linked branch after the plan is ongoing and before any code change:
+
+1. Run `git status --porcelain`. Continue only when it prints nothing. Never
+   stash, move, or commit ambient work to make it clean.
+2. If the checkout is dirty, use a separate clean worktree only when the user
+   approves it in this session through `ask`. Otherwise block the plan and
+   report the dirty paths.
+3. Run `gh issue develop <n> --list --repo <owner/repo>`. Reuse a listed branch.
+4. If no branch is listed, run
+   `gh issue develop <n> --repo <owner/repo> --base <default> --checkout`.
+5. If a call fails, list again. Continue only when the list shows the branch.
+   Otherwise block the plan. Never work on an unlinked branch.
+
+### Pull requests
+
+Open every plan pull request from the linked branch, after code review passes.
+Commit and push only reviewed bytes.
+
+- The landing pull request completes the plan. Put `Closes #<issue>` on its own
+  line in the description. `archive` needs this keyword as proof.
+- A partial pull request lands part of the work. Put `Refs #<issue>` in the
+  description. GitHub still links it to the issue through the branch, so its
+  merge into the default branch closes the issue.
+
+For a partial pull request:
+
+1. Before the merge question, run
+   `gh pr view <pr> --repo <owner/repo> --json closingIssuesReferences`. If the
+   plan issue is listed, say in the merge question that the merge closes the
+   issue and that you will reopen it.
+2. After the merge, run `show <n>`. If the status is `finished`, run
+   `gh issue reopen <n> --repo <owner/repo> --comment "Reopened: partial pull request #<pr> closed this plan through its linked branch. Work continues."`.
+3. Run `show <n>` again. Continue only when the status is `ongoing`.
+
+### Checks and merge
+
+Wait up to five minutes for checks to appear. Then wait for every check to
+finish, for example with `gh pr checks <pr> --repo <owner/repo> --watch`. A
+failed or cancelled check blocks the merge question until its fix passes code
+review. If the repository has no configured checks, use the green local gate as
+the check result and say so in the merge question.
+
+Ask afresh with two options: `Merge now` and `Leave pull request open`. Without
+`Merge now`, leave the issue and the pull request open. Merge with
+`gh pr merge <pr> --repo <owner/repo> --match-head-commit <reviewed-head-sha>`
+and the merge-method flag that the repository allows. A prior plan approval
+never authorizes a merge.
+
+### Steps after the landing merge
+
+A step that must run after the merge, such as `deploy`, stays `planned` until
+the landing merge closes the issue. Then ask in session, run the step, and mark
+it `done` or `skipped` with `step`. A finished plan accepts only those targets.
+
+### Archive
+
+Run `archive <n>` after the landing merge, when every step is terminal.
 Archive requires finished status, terminal steps, and a trusted latest Code-review pass.
 Its latest closure must be a merged pull request into this repository's default branch,
 or a commit associated with such a merged pull request. A pull-request closer must
 carry a GitHub closing keyword for this issue in its description; a title or sidebar
-link is not proof.
-A merely linked pull request, another repository, or a non-default target is not proof.
+link is not proof. A merely linked pull request, another repository, or a non-default
+target is not proof.
