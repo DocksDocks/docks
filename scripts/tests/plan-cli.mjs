@@ -403,6 +403,18 @@ try {
       '### Code review round 1 - 2026-09-09\nCode-review: pass\n- [HIGH] src/api.mjs:3 - data loss - fix',
       { kind: 'code', verdict: 'fixes-required' },
     ],
+    ['**### Code review round 1**\n\n**Code-review: pass**', { kind: 'code', verdict: 'pass' }],
+    ['### Code review round 2\n\n**Code-review:** `pass`.', { kind: 'code', verdict: 'pass' }],
+    ['## **Plan review** round 1\n\n- Plan-review: _repair_', { kind: 'plan', verdict: 'repair' }],
+    [
+      '### Code review round 3\nCode-review: pass\n- **[HIGH]** src/example.mjs:1 - data loss - fix',
+      { kind: 'code', verdict: 'fixes-required' },
+    ],
+    [
+      '### Code review round 3\nCode-review: pass\n1. Bug [critical] src/example.mjs:1 - data loss - fix',
+      { kind: 'code', verdict: 'fixes-required' },
+    ],
+    ['### Code review round 3\nCode-review: pass\n> Severity: High', { kind: 'code', verdict: 'fixes-required' }],
   ];
   for (const [text, expected] of reviewCases) assert.deepEqual(parseReviewComment(text), expected);
   const reviews = createPlan('trusted reviews');
@@ -445,6 +457,12 @@ try {
   assert.equal(brokenReviewPage.status, 1, 'a failed review page cannot produce a verdict');
   assert.match(brokenReviewPage.stderr, /graphql/i);
   assert.equal(brokenReviewPage.stdout, '');
+
+  const boldReview = createPlan('bold review record');
+  addIssueComment(boldReview, '**### Code review round 1**\n\n**Code-review: pass**');
+  const boldShow = run('show', String(boldReview));
+  expectSuccess(boldShow, 'show bold review record');
+  assert.match(boldShow.stdout, /^reviews: plan=none code=pass$/m);
 
   // Phase labels compare case-insensitively and are removed by their stored spelling.
   const mixedLabels = createPlan('mixed-case labels');
@@ -572,6 +590,49 @@ try {
   addIssueComment(unapproved.number, '## Code review\n\ncode-review: repair\nFix data loss.');
   refuse(run('archive', String(unapproved.number)), 'archive requires Code-review: pass');
   assert.ok(issue(unapproved.number).labels.includes('plan:ongoing'));
+
+  const largeComments = closedPlan('large comment pages');
+  updateState((state) => {
+    const entry = state.issues.find((candidate) => candidate.number === largeComments.number);
+    for (let i = 0; i < 20; i += 1) {
+      const id = state.nextComment++;
+      entry.comments.push({
+        id,
+        body: `Evidence round ${i}\n${'x'.repeat(60000)}`,
+        author: 'plan-agent',
+        createdAt: new Date(Date.parse('2026-08-20T20:00:00Z') + id * 1000).toISOString(),
+      });
+    }
+  });
+  const largeShow = run('show', String(largeComments.number));
+  expectSuccess(largeShow, 'show large comment pages');
+  assert.match(largeShow.stdout, /^reviews: plan=none code=pass$/m);
+  const largeArchive = run('archive', String(largeComments.number));
+  expectSuccess(largeArchive, 'archive large comment pages');
+  assert.equal(
+    largeArchive.stdout.trim(),
+    `plan #${largeComments.number} finished (closed by ${largeComments.closer.url})`,
+  );
+
+  const partialMerge = closedPlan('closed by a partial merge', { status: 'in-flight' });
+  const partialShow = run('show', String(partialMerge.number));
+  expectSuccess(partialShow, 'show early closure');
+  assert.ok(
+    partialShow.stdout
+      .split(/\r?\n/)
+      .includes(
+        `advice: plan is closed as completed while step fix_parser is in-flight; closed by ${partialMerge.closer.url}; reopen the issue if work remains`,
+      ),
+  );
+  refuse(
+    run('step', String(partialMerge.number), 'fix_parser', 'in-flight'),
+    `plan #${partialMerge.number} is finished; reopen it before moving step fix_parser to in-flight`,
+  );
+  updateIssue(partialMerge.number, (entry) => {
+    entry.state = 'OPEN';
+    entry.stateReason = 'REOPENED';
+  });
+  expectSuccess(run('step', String(partialMerge.number), 'fix_parser', 'done'), 'finish step after reopen');
 
   // Retire repairs labels before closing; list retains its filtered open/closed view.
   const listed = createPlan('listed drafting plan');
@@ -847,8 +908,31 @@ try {
   expectSuccess(edit(numericId), 'second normalization');
   assert.equal(issue(numericId).body, once, 'a second normalization changes nothing');
 
+  updateState((state) => {
+    for (let i = 0; i < 500; i += 1) {
+      const number = state.nextIssue++;
+      state.issues.push({
+        number,
+        title: `bulk plan ${i}`,
+        body: '',
+        state: 'OPEN',
+        stateReason: null,
+        labels: ['plan', 'plan:drafting'],
+        assignees: ['plan-agent'],
+        url: `https://github.com/DocksDocks/fixture/issues/${number}`,
+        createdAt: '2026-08-20T20:00:00Z',
+        updatedAt: '2026-08-20T20:00:00Z',
+        comments: [],
+        events: [],
+      });
+    }
+  });
+  const limitedList = run('list');
+  expectSuccess(limitedList, 'list limit advice');
+  assert.match(limitedList.stdout, /^advice: list stopped at 500 plans; more plans may exist$/m);
+
   console.log(
-    'plan-cli smoke PASSED: labels, snapshot paging, normalization, ownership, race, provenance, step freeze, transitions, review trust, archive proof, list, retire',
+    'plan-cli smoke PASSED: labels, snapshot paging, normalization, ownership, race, provenance, step freeze, transitions, review trust, archive proof, list, retire, large output, Markdown review records, early closure, list limit',
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
