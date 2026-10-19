@@ -4,8 +4,8 @@ description: "Use when plan-manager needs a read-only pre-implementation review 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-18"
-  content_hash: "4d5bead3382a8bf1802bac3f62b3cf06306c0bdbb9f06d876b8b94e6bb71da04"
+  updated: "2026-10-19"
+  content_hash: "10bb17553f82450f69825d1f6b0e18b15ac9d76c135e0a38ce525f0fd5a9c7ee"
 ---
 
 # Plan Reviewer
@@ -43,6 +43,7 @@ Coalesce symptoms that share a root cause.
 ## Verdict and output
 
 Use pass for no findings, repair for repository-resolvable findings, and blocked when a finding needs a user decision.
+When Goal contains the line `Yolo: the user delegated every decision except the merge to the agent.`, the agent owns those decisions: return `repair`, not `blocked`, and name the option that the evidence supports.
 
 Return exactly one markdown block with no surrounding commentary, in this shape:
 

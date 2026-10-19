@@ -50,7 +50,7 @@ tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
 7. Select exactly one verdict:
    - `pass`: No findings exist.
    - `repair`: Every finding is resolvable from repository facts.
-   - `blocked`: At least one finding requires a user decision.
+   - `blocked`: At least one finding requires a user decision. When Goal contains the line `Yolo: the user delegated every decision except the merge to the agent.`, the agent owns those decisions: return `repair`, not `blocked`, and name the option that the evidence supports.
 8. Return one markdown review block. The manager posts the whole block as one
    issue comment. Do not repair the plan.
 

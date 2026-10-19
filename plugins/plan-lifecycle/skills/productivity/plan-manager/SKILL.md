@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-18"
-  content_hash: "fbe45ab00e8fe311e4b471d43e04cf4d24527bed1424bf7807f7dbd2d06cfa15"
+  updated: "2026-10-19"
+  content_hash: "39f14e113d57bf289cff3e5c82d7afabba0d2a67477b1f02dc23bead8152e5e5"
 ---
 
 # Plan Manager
@@ -28,6 +28,8 @@ Ask in-session immediately before running a non-local Effect step. Persisted
 intent is not permission. If confirmation is unavailable, block the step and
 plan with a reason. The settled mode covers routine issue publication and
 linked-branch landing work. Every merge needs a fresh `Merge now` answer.
+In a yolo run, the contract's Yolo runs section replaces every question in this
+skill except the merge question.
 </constraint>
 
 ## Resolve the helper

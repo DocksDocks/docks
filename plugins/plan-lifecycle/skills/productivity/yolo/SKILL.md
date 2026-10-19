@@ -1,0 +1,240 @@
+---
+name: yolo
+description: "Use when the user explicitly invokes yolo with a request and wants the whole plan lifecycle run without questions: issue, linked branch, codebase and web research, plan review, implementation with docks engineering skills, code review until pass, and a pull request, then one merge question with a run summary. Not for runs that need user checkpoints (use plan-manager), workspace setup (use plan-workspace), or production deploys, publishing, and releases."
+user-invocable: true
+disable-model-invocation: true
+metadata:
+  pattern: pipeline
+  updated: "2026-10-19"
+  content_hash: "e80d15cf90e21f7cbd05093c90b0936d7c8558b420bf28c814cb53b59e9f7e48"
+---
+
+# Yolo
+
+Run one user request through the whole plan lifecycle without questions. The
+user invokes this skill, and that invocation answers every routine lifecycle
+question before the merge. Ask the user once, after the pull request exists.
+
+Read these files from this skill's directory before you start. They are in the
+same installed `plan-lifecycle` plugin:
+
+- `../plan-manager/SKILL.md` owns the six phases.
+- `../plan-manager/references/plan-contract.md` owns the rules. Its Yolo runs
+  section replaces the contract questions for this run.
+- `../plan-manager/references/github-issue-publication.md` owns the preflight.
+
+Run the helper `../plan-manager/scripts/plan.mjs` from the target repository
+root. If these files are missing, stop and name the missing `plan-lifecycle`
+plugin.
+
+<constraint>
+Start only when the user's own message invokes yolo: `/plan-lifecycle:yolo`,
+`/skill:yolo`, `$yolo`, or a sentence that names the yolo skill. Otherwise stop
+and use `plan-manager`. Do not call `ask` before the merge question. The only
+exception is the stalled-review question in the contract's Yolo runs section.
+Resolve every unknown from the codebase, current official documentation on the
+web, or a throwaway experiment.
+</constraint>
+
+<constraint>
+Do not access production, deploy to production, publish, or release before the
+merge. Do not force-push or rewrite history. Do not stash, move, commit, or
+delete work that the user made. Do not merge without a fresh `Merge now` answer.
+Before each issue, comment, commit, or pull request write, remove secrets,
+tokens, credentials, private hostnames, environment values, and absolute machine
+paths. Name a secret by its variable name, not its value. The repository can be
+public, so treat every published word as public.
+</constraint>
+
+<constraint>
+Deliver the most durable solution to the goal behind the request. Fix the root
+cause, move every caller, and remove obsolete paths. Do not use a temporary
+workaround. Do not reduce scope without a record. When the request has a flaw,
+record a correction, do the durable alternative, and continue. A flaw is a
+wrong premise, a conflict with the repository, a security risk, or a weak
+practice.
+</constraint>
+
+## Run order
+
+| Phase | Yolo action | Done when |
+|---|---|---|
+| Decide | The path is a plan. The Mode is `plan-and-implement`. Ask nothing. | The goal fits in one sentence |
+| Draft | Run the preflight, create the issue, and set up the linked branch | `show <n>` reads drafting and the branch is listed |
+| Research | Follow Research and Engineering standards below | `status <n> planned` succeeds |
+| Plan review | Run Review loops below | `show <n>` reads `plan=pass` |
+| Implement | Follow plan-manager phase 5 with the docks skills below | Verification Results hold real results |
+| Code review | Run Review loops below | `show <n>` reads `code=pass` |
+| Land | Follow Landing below | The merge question has an answer, or no answer is possible |
+
+## Draft
+
+1. Run the publication preflight. If it fails, stop and create nothing.
+2. If the request would make an undisclosed vulnerability, credential location,
+   or other sensitive finding public, stop before any write. Report that a yolo
+   run never publishes sensitive findings. Suggest `plan-manager`.
+3. Write the goal: outcome, scope, and this exact delegation line.
+
+```text
+Yolo: the user delegated every decision except the merge to the agent.
+```
+
+4. Create the issue with `new --title <t> --goal <g> --mode plan-and-implement`.
+5. Set up the linked branch now, as the contract's Yolo runs section says.
+
+## Research
+
+Answer each open question in this order. Stop at the first step that settles it.
+
+1. Codebase: read callers, tests, configuration, and local instructions. Use
+   language server references before you change an exported symbol.
+2. Web: read current official documentation, release notes, specifications, or
+   upstream issues. Do this for every claim about a library, framework, API,
+   tool, standard, or version. Record each URL.
+3. Experiment: when sources disagree or say nothing, test the behavior in the
+   scratch directory `$(git rev-parse --git-path docks-review)/yolo-<n>/`.
+   Record the command and its output. Write the scratch expression, not its
+   absolute path.
+
+Record each decision in Research: the decision, its evidence, and the rejected
+options. A repository fact needs no web source. Every other claim needs one.
+
+Record each request correction under `### Request corrections` in Research:
+
+```text
+Asked: <what the request said>. Did: <what the run does>. Reason: <evidence>.
+```
+
+## Engineering standards
+
+Load each matching docks skill when the runtime has it. A runtime can show it as
+`docks:<name>` or as `<name>`. Read each matching skill during Research, before
+you write Steps. Under `### Engineering standards` in Research, record which
+skill each step applies. When a standard defines completion, put it in that
+step's `Done when`. Apply each step's skills again while you implement that
+step, and run the `code-review` self-review before code review round 1.
+
+| Work in a step | docks skill |
+|---|---|
+| New behavior specified by inputs and outputs | `tdd-workflow` |
+| Tests for code that already exists | `test-coverage` |
+| A bug, regression, or review finding | `fix-workflow` |
+| Module, class, or service boundaries | `solid` |
+| Names, comments, errors, and function size | `code-clarity` |
+| Identifier types, input parsing, tagged unions | `type-safety-discipline` |
+| A linter or type-checker error | `lint-no-suppressions` |
+| Lint rules or repeated literal values | `code-guardrails` |
+| Dependency upgrades or advisories | `dep-vuln-workflow` |
+| Commits and the pull request description | `commit-discipline` |
+| React components | `react-component-patterns` |
+| Colors, tokens, and themes | `design-tokenization` |
+| Keyboard, focus, and ARIA | `accessibility` |
+| Visual polish and motion | `make-interfaces-feel-better` |
+| Self-review before code review | `code-review` |
+
+Do not start `security`, `refactor`, or `skill-agent-pipeline`. Each one opens
+its own plan. Put that work into the Steps of this plan.
+
+When docks is not installed, apply these rules:
+
+- Write a test only for behavior that a consumer sees: results, boundaries,
+  errors, and transitions.
+- Do not test wiring, copies, forwarding, mock echoes, or source text. Do not
+  add a second test for the same path.
+- Fix each lint or type error. Do not add a suppression comment.
+- Reuse the pattern that the repository has. Do not add a second convention.
+- Leave no dead code, compatibility alias, or shim.
+
+## Review loops
+
+Use the contract's review loop with its Yolo runs ceiling. Dispatch the
+`plan-reviewer` and `code-reviewer` wrappers with fresh input in each round. If
+a wrapper is missing, dispatch a fresh read-only agent with the matching
+instructions. Post each returned block unchanged as one issue comment.
+
+| Verdict | Yolo action |
+|---|---|
+| Plan `repair` | Reproduce each finding, repair a fresh export, and review again |
+| Plan `blocked` | Decide the finding with Research, record the decision, and review again |
+| Code `fixes-required` | Fix each reproduced finding, rerun its proof, and review again |
+| Code `pass` with MEDIUM or LOW findings | Fix each reproduced finding and review again |
+| Code `pass` with no open finding | Go to Landing |
+
+Reject a finding only with evidence. Post that evidence as one issue comment
+whose first line is `Rejected review findings, round <k>`. Before you repair the
+same finding again, research it again and try a different approach.
+
+## Landing
+
+1. Commit the reviewed bytes on the linked branch.
+2. Fetch the default branch. If it is not an ancestor of `HEAD`, merge
+   `origin/<default>` into the linked branch. Do not rebase. Rerun acceptance,
+   and run a code-review round on the result. Commit each repair.
+3. Push the linked branch with a normal push.
+4. Write the run summary below to a file in the review scratch directory. End
+   it with `Closes #<n>` on its own line.
+5. Open the pull request with `gh pr create --repo <owner/repo> --base <default>
+   --head <branch> --title <title> --body-file <file>`.
+6. Wait for checks as the contract says. If a check fails, fix it, rerun
+   acceptance, review again, push, and wait again.
+7. Confirm that `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows
+   the reviewed head.
+8. Print the run summary. In the same response, ask one question:
+   `Merge pull request #<pr> into <default>?`, with the options `Merge now` and
+   `Leave pull request open`.
+9. On `Merge now`, merge and archive as the contract says. Ask separately
+   before each step that runs after the merge. If this run made a worktree,
+   run `git worktree remove -- <worktree>`, then `git worktree prune`.
+10. On any other answer, or when no answer is possible, leave the pull request
+    and the issue open. Report both links.
+
+## Run summary
+
+Keep the summary short. Use this shape:
+
+```markdown
+## Yolo run: #<n> <title>
+
+Pull request: <url>. Checks: <state>.
+
+### What changed
+- <behavior change> (`<path>`)
+
+### Decisions and corrections
+- <decision or request correction, with its evidence>
+
+### Reviews
+Plan review passed in round <k>. Code review passed in round <k>.
+Open findings: <MEDIUM or LOW findings left at the ceiling, or none>.
+
+### Verification
+- `<command>`: <result>
+
+### After merge
+- <steps that need their own question, or none>
+```
+
+## Recover after compaction
+
+The issue is the run record. Run `show <n>` for the status and verdicts. Run
+`gh issue develop <n> --list --repo <owner/repo>` for the branch. After the pull
+request exists, GitHub lists no branch there. Then run
+`gh issue view <n> --repo <owner/repo> --json closedByPullRequestsReferences`
+and read the pull request head. Run `git worktree list` for a worktree. Count
+review rounds from issue comments.
+
+## BAD / GOOD
+
+```text
+BAD: Ask the user which library to use during research.
+GOOD: Read the official docs, test both in scratch, and record the decision with its URL.
+
+BAD: Write the requested test that checks source text.
+GOOD: Record a correction and test the behavior that a consumer sees.
+
+BAD: Stop after code review round 5 and ask whether to continue.
+GOOD: Continue to the Yolo runs ceiling, then ask the one stalled-review question.
+
+BAD: Paste an error log that contains a token into the issue.
+GOOD: Remove the token and name its variable.
+```

@@ -42,7 +42,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. A node is a sing
 |---|---|
 | `docs/AGENTS.md` | plan-record routing, GitHub issue backend, frozen pre-GitHub archive |
 | `plugins/docks/skills/AGENTS.md` | skill authoring - description CSO, frontmatter, body rules, scoring |
-| `plugins/plan-lifecycle/skills/AGENTS.md` | plan-lifecycle skill authoring - the three lifecycle skills, contract sync, fail-loud routing |
+| `plugins/plan-lifecycle/skills/AGENTS.md` | plan-lifecycle skill authoring - the lifecycle skills and yolo, contract sync, fail-loud routing |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
 | `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |
 
@@ -77,6 +77,7 @@ Do not track plan bodies in repository files.
 
 Skill roles and reviewer wrappers are defined in `plugins/plan-lifecycle/skills/AGENTS.md` (Roles).
 Each non-local step needs an in-session `ask` immediately before it runs.
+A user-invoked `yolo` run replaces these asks with the contract's Yolo runs section and asks only before merge.
 Merge needs a fresh `Merge now` answer. Plan approval does not authorize merge.
 Read `skills/productivity/plan-manager/references/plan-contract.md` inside the
 installed `plan-lifecycle` plugin for the complete contract.
