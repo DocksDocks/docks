@@ -944,6 +944,31 @@ try {
   expectSuccess(edit(numericId), 'second normalization');
   assert.equal(issue(numericId).body, once, 'a second normalization changes nothing');
 
+  // A drafted plan enters planned or ongoing only after research replaces the placeholder (#78).
+  const unresearched = createPlan(
+    'unresearched plan',
+    body().replace('The parser loses mixed-case records.', '_Not researched yet._'),
+  );
+  refuse(run('status', String(unresearched), 'planned'), 'status planned requires a filled Research section');
+  refuse(run('status', String(unresearched), 'ongoing'), 'status ongoing requires a filled Research section');
+  assert.deepEqual(issue(unresearched).labels, ['plan', 'plan:drafting'], 'a refused status keeps the phase label');
+  expectSuccess(
+    run('status', String(unresearched), 'blocked', '--reason', 'Waiting for research'),
+    'an unresearched plan can still block',
+  );
+  const emptyResearch = createPlan('empty research', body().replace('The parser loses mixed-case records.', ''));
+  refuse(run('status', String(emptyResearch), 'planned'), 'status planned requires a filled Research section');
+  const quotedPlaceholder = createPlan(
+    'research quotes the placeholder',
+    body().replace(
+      'The parser loses mixed-case records.',
+      'A new plan holds `_Not researched yet._` until research is published.',
+    ),
+  );
+  const quotedStatus = run('status', String(quotedPlaceholder), 'planned');
+  expectSuccess(quotedStatus, 'research prose may quote the placeholder');
+  assert.doesNotMatch(quotedStatus.stdout, /Research is not filled/, 'quoted placeholder is not unfilled research');
+
   updateState((state) => {
     for (let i = 0; i < 500; i += 1) {
       const number = state.nextIssue++;

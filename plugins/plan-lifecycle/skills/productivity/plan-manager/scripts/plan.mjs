@@ -595,10 +595,16 @@ export function parsePlan(text) {
     acceptance: table(sections.get('Acceptance'), ACCEPTANCE_HEADER).rows,
   };
 }
+// A drafted plan holds this placeholder until research is published (#78).
+const RESEARCH_PLACEHOLDER = '_Not researched yet._';
+// Compare the whole section: research prose may quote the placeholder.
+function researchFilled(plan) {
+  const research = plan.sections.get('Research').trim();
+  return research !== '' && research !== RESEARCH_PLACEHOLDER;
+}
 function printAdvice(text, status, extra = [], options = {}) {
   const result = normalizePlan(text, options);
-  if (status !== 'drafting' && parsePlan(text).sections.get('Research').includes('_Not researched yet._'))
-    result.advice.push('Research is not filled after drafting.');
+  if (status !== 'drafting' && !researchFilled(parsePlan(text))) result.advice.push('Research is not filled after drafting.');
   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
 }
 // Reviewers write Markdown: read review keywords through emphasis, code marks, quotes, and list markers (#49).
@@ -679,7 +685,7 @@ function createPlan(args) {
       return /^ {0,3}##[ \t]/.test(masked) ? line.replace(/^( {0,3})##/, '$1###') : line;
     })
     .join('\n');
-  const source = `## Goal\n${goalText}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
+  const source = `## Goal\n${goalText}\n## Research\n${RESEARCH_PLACEHOLDER}\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
   const { body } = normalizePlan(source, { mode: options['--mode'] });
   const url = withBodyFile(body, (file) =>
     runGh([
@@ -803,6 +809,8 @@ function setPlanStatus(args) {
     fail(`plan #${issue.number} is closed; status applies to open plans`);
   if (workStarted(issue, status) && !['ongoing', 'blocked'].includes(target))
     fail(`illegal plan status transition: ${status} -> ${target}`);
+  if (['planned', 'ongoing'].includes(target) && !researchFilled(parsed))
+    fail(`status ${target} requires a filled Research section`);
   const content = parsed.sections.get('Open questions').replace(/^Blocked:[^\n]*\n?\s*/i, '');
   parsed.sections.set(
     'Open questions',
