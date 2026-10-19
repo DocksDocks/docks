@@ -82,10 +82,12 @@ Do not track plan bodies as repository files.
 | Main-context `plan-manager` skill | Decide, draft, research, plan review, implement, code review |
 | Internal `plan-reviewer` skill | Review goal fit, research gaps, and security risk |
 | Read-only `plan-reviewer` and `code-reviewer` wrappers | Run the two review roles |
+| Explicit-only `yolo` skill | Run the whole lifecycle without questions; ask only before merge |
 
 Settle Mode before implementation. `plan-only` stops after plan review;
 `plan-and-implement` permits the full lifecycle. A defaulted Mode permits no implementation.
 Each non-local step requires an in-session `ask` immediately before it runs.
+A user-invoked `yolo` run replaces these asks with the contract's Yolo runs section and asks only before merge.
 Merge requires a fresh `Merge now` answer. Without it, leave the pull request open.
 
 Read `skills/productivity/plan-manager/references/plan-contract.md` inside the
@@ -103,7 +105,7 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 │   │   ├── .claude-plugin/plugin.json
 │   │   ├── skills/                    ← cross-tool skills
 │   │   └── README.md                  ← plugin-facing docs
-│   └── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (three skills + plan.mjs + marker contract + two read-only reviewer wrappers)
+│   └── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (lifecycle skills + explicit-only yolo skill + plan.mjs + marker contract + two read-only reviewer wrappers)
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
 │   ├── skills/guard.mjs, agents/guard.mjs + score.mjs

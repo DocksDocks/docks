@@ -53,6 +53,10 @@ repository's matching `.codex/agents/plan-reviewer.toml` and
 `.codex/agents/code-reviewer.toml` pair. `plugins/plan-lifecycle/agents/` deliberately carries no
 context-tree node (`claude plugin validate` lints every `agents/*.md` as a
 subagent, so an `AGENTS.md` there fails validation).
+The explicit-only `yolo` skill is a user entry point. It runs `plan-manager`'s
+six phases under the contract's Yolo runs section and asks only the merge
+question. `disable-model-invocation` keeps Claude Code and omp from loading it
+on their own, and its `agents/openai.yaml` does the same for Codex.
 
 ## Plan-skill contract sync
 

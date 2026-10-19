@@ -1,6 +1,6 @@
 # Plan contract v4
 This is the canonical contract inside the installed `plan-lifecycle` plugin.
-Agents use its three lifecycle skills and this reference. The helper normalizes
+Agents use its lifecycle skills and this reference. The helper normalizes
 records and protects ownership, concurrent edits, step state, and archive proof.
 Resolve `skills/productivity/plan-manager/scripts/plan.mjs` within that installed plugin.
 ## Contents
@@ -12,6 +12,7 @@ Resolve `skills/productivity/plan-manager/scripts/plan.mjs` within that installe
 - [Helper commands and output](#helper-commands-and-output)
 - [Normalization, advice, and refusals](#normalization-advice-and-refusals)
 - [Landing and archive proof](#landing-and-archive-proof)
+- [Yolo runs](#yolo-runs)
 
 ## Record and mode
 
@@ -28,8 +29,9 @@ Choose the path before any other work:
 | Direct implementation | One clear, reversible, low-risk local change has one bounded acceptance path. It creates no plan issue, reviewer, or automatic commit, and it needs no Mode. |
 | Plan | The work needs explicit planning, multiple commits, cross-repository work, scheduling, cold handoff, unresolved decisions, public-contract or cross-subsystem changes, security-sensitive or destructive work, or a non-local effect. |
 
-Settle Mode with the user before implementation. `plan-and-implement` authorizes
-the full lifecycle. `plan-only` stops after plan review. A defaulted Mode never
+Settle Mode with the user before implementation. A yolo invocation settles the
+path and the Mode; see Yolo runs. `plan-and-implement` authorizes the full
+lifecycle. `plan-only` stops after plan review. A defaulted Mode never
 authorizes implementation. The settled Mode also covers routine issue
 publication and landing work, which stay outside the Steps table.
 
@@ -87,6 +89,7 @@ not just individual steps. Use repository-relative paths and portable commands.
 | `deploy` | Deploy a system |
 
 Every non-local step requires an in-session `ask` immediately before it runs.
+A yolo run uses the effect table in Yolo runs instead.
 Persisted Effect values record intent, not permission. If `ask` is unavailable,
 block the step and plan with a reason. Unknown tokens produce advice; they do
 not authorize an effect. Finish dependencies before starting dependent work.
@@ -129,7 +132,8 @@ compares remote state before writing and checks the body after an edit.
 
 The six phases are decide, draft, research, plan review, implement, and code review.
 `plan-workspace` maintains workspace routing. Main-context `plan-manager` owns the
-lifecycle. Internal `plan-reviewer` reviews goal fit, research gaps, and security
+lifecycle. The explicit-only `yolo` skill runs the same lifecycle under Yolo
+runs. Internal `plan-reviewer` reviews goal fit, research gaps, and security
 risk. The two read-only wrappers are `plan-reviewer` and `code-reviewer`.
 
 Run this review loop for plan review and for code review:
@@ -144,7 +148,7 @@ Run this review loop for plan review and for code review:
 5. Ask the user to continue or block when a round makes no progress, the same
    finding returns after a repair, round 5 does not pass, or dispatch fails again
    without a relevant change. If no answer is available, record the reason and
-   block.
+   block. A yolo run uses the round ceiling in Yolo runs instead.
 
 Record user-only decisions in Open questions. Do not invent approval.
 
@@ -264,7 +268,8 @@ Set up the linked branch after the plan is ongoing and before any code change:
    stash, move, or commit ambient work to make it clean.
 2. If the checkout is dirty, use a separate clean worktree only when the user
    approves it in this session through `ask`. Otherwise block the plan and
-   report the dirty paths.
+   report the dirty paths. A yolo run uses the worktree rule in Yolo runs
+   instead.
 3. Run `gh issue develop <n> --list --repo <owner/repo>`. Reuse a listed branch.
 4. If no branch is listed, run
    `gh issue develop <n> --repo <owner/repo> --base <default> --checkout`.
@@ -321,3 +326,93 @@ or a commit associated with such a merged pull request. A pull-request closer mu
 carry a GitHub closing keyword for this issue in its description; a title or sidebar
 link is not proof. A merely linked pull request, another repository, or a non-default
 target is not proof.
+
+## Yolo runs
+
+The user starts a yolo run by invoking the `yolo` skill with a request. The
+invocation settles the path as a plan and the Mode as `plan-and-implement`. It
+is the user's in-session answer for every routine action below, until the merge
+question. All other contract rules stay in force.
+
+| Contract question | Yolo rule |
+|---|---|
+| Path and Mode | Plan with `Mode: plan-and-implement` |
+| Non-local Effect step before the landing merge | The effect table below |
+| Dirty checkout at linked-branch setup | A separate clean worktree, without a question |
+| Review-loop continuation | The round ceiling below |
+| Plan-review `blocked` verdict | The manager decides with evidence |
+| Public disclosure of a sensitive finding | Stop before any write |
+
+### Delegation line
+
+The Goal of a yolo plan contains this exact line:
+
+`Yolo: the user delegated every decision except the merge to the agent.`
+
+The manager records each decision in Research with its evidence. Open questions
+holds only a `Blocked:` line. Reviewers treat a recorded decision as settled.
+
+### Effects before the landing merge
+
+| Effect | Yolo rule |
+|---|---|
+| `local` | Run |
+| `probe` | Run against a non-production target or a public read-only source |
+| `push` | Run only to the plan's linked branch |
+| `deploy` | Run only to a non-production environment |
+| `production_access`, `publish`, `release` | Do not run before the landing merge |
+
+A non-production target is one that repository configuration or documentation
+names local, development, dev, test, homolog, homologation, staging, or
+preview. Every other target is production. A step that the table does not
+permit stays `planned`. After the landing merge, it follows Steps after the
+landing merge. Effect advice from the helper is met for each effect that the
+table permits.
+
+### Linked branch timing
+
+Set up the linked branch right after `new`, before research. The status stays
+`drafting`. Run Linked branch item 1. When the checkout is clean, continue with
+items 3 to 5. When it is dirty, do not ask. Use these commands instead:
+
+1. If `gh issue develop <n> --list --repo <owner/repo>` lists no branch, run
+   `gh issue develop <n> --repo <owner/repo> --base <default>`.
+2. List again and read the branch name.
+3. Run `git fetch origin <branch>`.
+4. Run `git worktree add <worktree> <branch>`, where `<worktree>` is
+   `${XDG_DATA_HOME:-$HOME/.local/share}/agent-worktrees/<repository-name>/issue-<n>`.
+
+Do all later work in that worktree. Keep its path out of durable records.
+
+### Round ceiling
+
+Each review phase gets 10 rounds without a question. In code review, fix every
+reproduced finding of every severity before the next round. Reject a finding
+only with evidence. Post that evidence as one issue comment whose first line is
+`Rejected review findings, round <k>`.
+
+A phase stalls when round 10 ends without a pass, when the same finding returns
+after two different repairs, or when dispatch fails twice without a relevant
+change. When round 10 ends on a code-review pass that still lists MEDIUM or LOW
+findings, land, and list those findings in the run summary.
+
+On a stall, commit and push current work to the linked branch first, when code
+exists. Then ask once, with the options `Continue yolo` and `Leave plan
+blocked`. Keep the status unchanged while you ask, because the helper does not
+move a blocked plan back to `drafting` or `planned`. `Continue yolo` gives the
+phase 10 more rounds. On `Leave plan blocked`, or without an answer, set the
+status to `blocked` with the stall reason and report.
+
+### Merge question
+
+After checks pass, print the run summary that the `yolo` skill defines. Then ask
+the question in Checks and merge. Each step after the landing merge needs its
+own question.
+
+### Published text
+
+Before each issue, comment, commit, or pull request write, remove secrets,
+tokens, credentials, private hostnames, environment values, and absolute machine
+paths. Name a secret by its variable name, not its value. When the request would
+make an undisclosed vulnerability, credential location, or other sensitive
+finding public, stop before any write and report.

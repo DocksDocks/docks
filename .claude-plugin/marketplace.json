@@ -38,7 +38,7 @@
     {
       "name": "plan-lifecycle",
       "source": "./plugins/plan-lifecycle",
-      "description": "Cross-tool GitHub-issue plan lifecycle with marker-based plan bodies, a normalizing helper, comment-backed review records, implement-start linked branches, five-round plan and code review loops with user-authorized continuation, and two read-only reviewer wrappers.",
+      "description": "Cross-tool GitHub-issue plan lifecycle with marker-based plan bodies, a normalizing helper, comment-backed review records, implement-start linked branches, five-round plan and code review loops with user-authorized continuation, two read-only reviewer wrappers, and an explicit-only yolo skill that runs the whole lifecycle and asks only before merge.",
       "version": "0.12.1",
       "author": {
         "name": "Eduardo Marquez"

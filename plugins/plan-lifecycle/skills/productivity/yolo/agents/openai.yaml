@@ -1,0 +1,5 @@
+interface:
+  display_name: "yolo"
+  short_description: "Run the whole plan lifecycle; ask only before merge"
+policy:
+  allow_implicit_invocation: false
