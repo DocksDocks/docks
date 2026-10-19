@@ -969,6 +969,23 @@ try {
   expectSuccess(quotedStatus, 'research prose may quote the placeholder');
   assert.doesNotMatch(quotedStatus.stdout, /Research is not filled/, 'quoted placeholder is not unfilled research');
 
+  // A failed remote edit keeps the export valid, so the same file can be sent again (#78).
+  const retried = createPlan('retried edit');
+  const retryFile = exported(retried);
+  fs.writeFileSync(retryFile, fs.readFileSync(retryFile, 'utf8').replace('Not run.', 'Smoke passed.'));
+  const transientError = 'GraphQL: Something went wrong while executing your query';
+  updateState((state) => {
+    state.issueEditError = transientError;
+  });
+  const failedEdit = run('edit', String(retried), '--file', retryFile);
+  refuse(failedEdit, `gh issue edit failed: ${transientError}`);
+  assert.equal(failedEdit.stdout, '', 'a failed edit prints no result');
+  updateState((state) => {
+    delete state.issueEditError;
+  });
+  expectSuccess(run('edit', String(retried), '--file', retryFile), 'retry with the same export');
+  assert.match(issue(retried).body, /Smoke passed\./, 'the retry writes the edited body');
+
   updateState((state) => {
     for (let i = 0; i < 500; i += 1) {
       const number = state.nextIssue++;

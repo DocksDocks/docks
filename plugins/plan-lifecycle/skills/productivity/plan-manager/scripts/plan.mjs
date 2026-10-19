@@ -788,9 +788,10 @@ function editPlan(args) {
     });
   }
   fs.writeFileSync(file, body);
+  editIssueBodyIfUnchanged(issue, body);
+  // Refresh provenance only after the remote write, so a failed write can be retried with the same file (#78).
   fs.writeFileSync(originFile(file), `${bodyDigest(body)}\n`, { mode: 0o600 });
   fs.chmodSync(originFile(file), 0o600);
-  editIssueBodyIfUnchanged(issue, body);
   const changes = changedLines(issue.body, body);
   console.log(headerStrip(issue, status));
   console.log(`changed: ${changes.length} line(s)`);
