@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-19"
-  content_hash: "e6867e048cd1f0797f40b9ff421c5218ab143053f57ca3364f8f70036284078b"
+  content_hash: "1b340b83c04efe00e4f84cbe00194068eb65d659a319c31bbc5746d559a86829"
 ---
 
 # Yolo
@@ -196,7 +196,8 @@ can write the spec tests.
    empty stub to change a missing export into an assertion failure.
 3. Stage the spec tests with `git add`. Add this line to Verification Results:
    `Red baseline, step <id>: <command>: <k> failed, <m> passed`. When a missing
-   export stops a test file, write `<file> failed: missing <symbol>` for it.
+   export stops a test file, write `<file> failed: missing <symbol>` instead of
+   the counts for that file.
 4. Keep the staged spec tests unchanged while you write production code:
    `git diff -- <spec files>` prints nothing. When a spec test is wrong, record
    the reason in Verification Results, fix the test, and run the baseline again.
