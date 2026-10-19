@@ -232,7 +232,8 @@ rewrite never drops the row. Once work has started, `edit` also refuses while
 the current record holds such a row. A duplicate or unknown `##` heading blocks every body write; a retired `## Review` heading is dropped on the next write. An explicit `--mode` on `new` outranks any Mode line inside `--goal`; otherwise the last unfenced, unindented Mode line in Goal is the decision.
 
 Advice prints `advice: <text>` on stdout and exits 0. It covers absolute machine
-paths, a Research section that holds only `_Not researched yet._` after drafting,
+paths, a Research section that is empty or holds only `_Not researched yet._`
+after drafting,
 defaulted Mode, unknown Effect or Status, an unfinished dependency when a step
 moves to in-flight or done, two steps that share a Files path with no Depends
 chain, an `edit` that changes Goal, Research, Steps, Acceptance, or Do not touch
