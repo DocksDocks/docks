@@ -1007,6 +1007,21 @@ try {
     'only steps without a Depends chain get shared-path advice',
   );
 
+  // A plan-review pass covers the body that the reviewer read (#78).
+  const reviewed = createPlan('reviewed plan');
+  addIssueComment(reviewed, '### Plan review round 1\n\nPlan-review: pass\n\nNone.');
+  const resultsEdit = edit(reviewed, (text) => text.replace('Not run.', 'Smoke passed.'));
+  expectSuccess(resultsEdit, 'edit verification results after a plan pass');
+  assert.doesNotMatch(resultsEdit.stdout, /plan review passed before this edit/, 'evidence edits need no new round');
+  const researchEdit = edit(reviewed, (text) =>
+    text.replace('The parser loses mixed-case records.', 'The parser loses mixed-case records.\n\nDecision: keep the old date format.'),
+  );
+  expectSuccess(researchEdit, 'edit research after a plan pass');
+  assert.match(
+    researchEdit.stdout,
+    /^advice: plan review passed before this edit; changed sections: Research; run a new plan-review round before code that depends on them$/m,
+  );
+
   updateState((state) => {
     for (let i = 0; i < 500; i += 1) {
       const number = state.nextIssue++;
@@ -1031,7 +1046,7 @@ try {
   assert.match(limitedList.stdout, /^advice: list stopped at 500 plans; more plans may exist$/m);
 
   console.log(
-    'plan-cli smoke PASSED: labels, snapshot paging, normalization, ownership, race, provenance, step freeze, transitions, review trust, archive proof, list, retire, large output, Markdown review records, early closure, list limit, machine path advice',
+    'plan-cli smoke PASSED: labels, snapshot paging, normalization, ownership, race, provenance, step freeze, transitions, review trust, archive proof, list, retire, large output, Markdown review records, early closure, list limit, machine path advice, research gate, edit retry, shared files advice, re-review advice',
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

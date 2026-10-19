@@ -631,6 +631,11 @@ function printAdvice(text, status, extra = [], options = {}) {
   if (status !== 'drafting' && !researchFilled(parsePlan(text))) result.advice.push('Research is not filled after drafting.');
   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
 }
+// A plan-review pass covers the body that the reviewer read (#78).
+const PLANNED_WORK_SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch'];
+function plannedWorkChanges(before, after) {
+  return PLANNED_WORK_SECTIONS.filter((name) => before.sections.get(name) !== after.sections.get(name));
+}
 // Reviewers write Markdown: read review keywords through emphasis, code marks, quotes, and list markers (#49).
 function reviewText(line) {
   return line
@@ -772,7 +777,7 @@ function editPlan(args) {
   const [value, ...flags] = args,
     file = parseOptions(flags, new Set(['--file']))['--file'];
   if (!file) fail('edit requires an issue and --file');
-  const { issue, parsed, status } = readPlanIssue(value, true, { history: true }),
+  const { issue, parsed, status } = readPlanIssue(value, true, { history: true, comments: true }),
     origin = readOrigin(file);
   if (!origin)
     fail(
@@ -820,7 +825,13 @@ function editPlan(args) {
   console.log(headerStrip(issue, status));
   console.log(`changed: ${changes.length} line(s)`);
   for (const line of changes) console.log(line);
-  printAdvice(source, status);
+  const changedWork = reviewVerdicts(issue).plan === 'pass' ? plannedWorkChanges(parsed, incomingPlan) : [];
+  const rereview = changedWork.length
+    ? [
+        `plan review passed before this edit; changed sections: ${changedWork.join(', ')}; run a new plan-review round before code that depends on them`,
+      ]
+    : [];
+  printAdvice(source, status, rereview);
 }
 function setPlanStatus(args) {
   const [value, raw, ...flags] = args,
