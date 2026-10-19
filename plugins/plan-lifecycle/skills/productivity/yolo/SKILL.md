@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-19"
-  content_hash: "bae70cff6426e6c7c817ca2c52ababc2eab5ad90ac9a2e11932084a26dcbf0ac"
+  content_hash: "f170df2a5e8a3292ff3690d20a854f6a709d44d4532112e1be293d39c8aaca05"
 ---
 
 # Yolo
@@ -161,7 +161,7 @@ step, and check its rules again in the self-review.
 | A linter or type-checker error | `lint-no-suppressions` |
 | Lint rules or repeated literal values | `code-guardrails` |
 | Dependency upgrades or advisories | `dep-vuln-workflow` |
-| Commits and the pull request description | `commit-discipline` |
+| Commits | `commit-discipline` |
 | React components | `react-component-patterns` |
 | Colors, tokens, and themes | `design-tokenization` |
 | Keyboard, focus, and ARIA | `accessibility` |
@@ -263,8 +263,10 @@ same finding again, research it again and try a different approach.
    and run a code-review round on the result. Commit each repair.
 3. Push the linked branch with a normal push.
 4. Write the run summary from `references/run-summary.md` to a file in the
-   review scratch directory. Write `pending` for the pull request URL and the
-   checks. End the file with `Closes #<n>` on its own line.
+   review scratch directory. The run summary is the whole pull request
+   description; do not add the `commit-discipline` description sections. Write
+   `pending` for the pull request URL and the checks. End the file with
+   `Closes #<n>` on its own line.
 5. When `gh pr list --repo <owner/repo> --head <branch> --state open` shows a
    pull request, update its body with `gh pr edit <pr> --repo <owner/repo>
    --body-file <file>`. Otherwise open the pull request with `gh pr create
