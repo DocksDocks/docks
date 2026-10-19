@@ -520,6 +520,29 @@ function replaceTable(sections, name, header, separator, rows) {
   );
   sections.set(name, parsed.lines.join('\n'));
 }
+// Steps that edit the same path need a Depends order, or parallel work collides (#78).
+function sharedFilesAdvice(rows) {
+  const paths = rows.map(
+    (row) => new Set(row[3].split(',').map((part) => unquoteCode(part.trim())).filter((part) => part && part !== '-')),
+  );
+  const dependencies = new Map(
+    rows.map((row) => [row[0], row[4] === '-' ? [] : row[4].split(',').map((part) => part.trim())]),
+  );
+  const reaches = (from, to, seen = new Set()) => {
+    if (seen.has(from)) return false;
+    seen.add(from);
+    return (dependencies.get(from) ?? []).some((next) => next === to || reaches(next, to, seen));
+  };
+  const advice = [];
+  rows.forEach((row, index) => {
+    for (let other = index + 1; other < rows.length; other += 1) {
+      const shared = [...paths[index]].filter((entry) => paths[other].has(entry));
+      if (shared.length && !reaches(row[0], rows[other][0]) && !reaches(rows[other][0], row[0]))
+        advice.push(`steps ${row[1]} and ${rows[other][1]} share ${shared.join(', ')} with no Depends link`);
+    }
+  });
+  return advice;
+}
 export function normalizePlan(text, { mode: explicitMode } = {}) {
   const advice = [];
   const cleaned = text
@@ -559,6 +582,7 @@ export function normalizePlan(text, { mode: explicitMode } = {}) {
   };
   for (const row of rows)
     if (row.length === 8) row[4] = row[4] === '-' ? '-' : row[4].split(',').map(dependency).join(', ');
+  advice.push(...sharedFilesAdvice(rows.filter((row) => row.length === 8)));
   replaceTable(sections, 'Steps', STEPS_HEADER, STEPS_SEPARATOR, rows);
   replaceTable(
     sections,

@@ -986,6 +986,27 @@ try {
   expectSuccess(run('edit', String(retried), '--file', retryFile), 'retry with the same export');
   assert.match(issue(retried).body, /Smoke passed\./, 'the retry writes the edited body');
 
+  // Steps that edit the same path need a Depends chain, or parallel work collides (#78).
+  const sharedFiles = createPlan('shared files');
+  const sharedRows = [
+    '| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | planned | Records round-trip |',
+    '| 2 | parse_dates | Parse dates | `src/parser.mjs`, src/dates.mjs | - | local | planned | Dates parse |',
+    '| 3 | format_dates | Format dates | src/dates.mjs | parse_dates | local | planned | Dates format |',
+    '| 4 | print_dates | Print dates | src/dates.mjs | format_dates | local | planned | Dates print |',
+  ].join('\n');
+  const sharedEdit = edit(sharedFiles, (text) =>
+    text.replace(
+      '| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | planned | Records round-trip |',
+      sharedRows,
+    ),
+  );
+  expectSuccess(sharedEdit, 'edit with shared files');
+  assert.deepEqual(
+    sharedEdit.stdout.split('\n').filter((line) => line.includes(' share ')),
+    ['advice: steps fix_parser and parse_dates share src/parser.mjs with no Depends link'],
+    'only steps without a Depends chain get shared-path advice',
+  );
+
   updateState((state) => {
     for (let i = 0; i < 500; i += 1) {
       const number = state.nextIssue++;
