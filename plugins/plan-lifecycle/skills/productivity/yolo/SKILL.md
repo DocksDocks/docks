@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-19"
-  content_hash: "1be4ceb2ebcd6127d9baf6370963f649c8180db4179aee275e6037c7608f60cc"
+  content_hash: "16d68d162551ff8442c6b4516513498514f9e3933bd06784a3eb44452519becd"
 ---
 
 # Yolo
@@ -61,7 +61,7 @@ practice.
 |---|---|---|
 | Decide | Apply Existing plans and incomplete requests below. Otherwise the path is a new plan with Mode `plan-and-implement`. Ask nothing. | The run adopted a plan, or the goal fits in one sentence |
 | Draft | Skip when the run adopted a plan. Run the preflight, create the issue, and set up the linked branch | `show <n>` reads drafting and the branch is listed |
-| Research | Follow Research and Engineering standards below | `status <n> planned` succeeds, and no advice needs a decision |
+| Research | Follow Research and Engineering standards below | `status <n> planned` succeeds, or `show <n>` of an adopted plan already reads planned or ongoing. No advice needs a decision |
 | Plan review | Run Review loops below | `show <n>` reads `plan=pass` |
 | Implement | Follow plan-manager phase 5, Engineering standards (always with `code-clarity`), Red baseline, and Commits below | Verification Results hold real results, and the candidate is committed |
 | Code review | Run Review loops below | `show <n>` reads `code=pass` |
