@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-19"
-  content_hash: "f170df2a5e8a3292ff3690d20a854f6a709d44d4532112e1be293d39c8aaca05"
+  content_hash: "1be4ceb2ebcd6127d9baf6370963f649c8180db4179aee275e6037c7608f60cc"
 ---
 
 # Yolo
@@ -209,7 +209,9 @@ can write the spec tests.
    check, and the lint for its files.
 2. When you split finished work into commits, check each commit in a temporary
    worktree: `git worktree add --detach <path> <sha>`, run the checks, then
-   `git worktree remove -- <path>`.
+   `git worktree remove -- <path>`. `<path>` is
+   `${XDG_DATA_HOME:-$HOME/.local/share}/agent-worktrees/<repository-name>/check-<short-sha>`.
+   Do not put it under `/tmp` or inside `.git`.
 3. Before code review round 1, leave no staged, unstaged, or untracked change of
    the candidate.
 4. Add each review fix as a new commit. Do not amend, squash, or rebase.
@@ -219,7 +221,8 @@ can write the spec tests.
 
 When a required check fails on files that the plan does not change:
 
-1. Run the same check on `origin/<default>` in a temporary worktree.
+1. Run the same check on `origin/<default>` in a temporary worktree, as Commits
+   item 2 says.
 2. When it fails the same way there, it is a baseline failure. Record the
    command, the failing files, and the default-branch result in Verification
    Results. Do not fix it unless the Goal covers it.
