@@ -1014,7 +1014,10 @@ try {
   expectSuccess(resultsEdit, 'edit verification results after a plan pass');
   assert.doesNotMatch(resultsEdit.stdout, /plan review passed before this edit/, 'evidence edits need no new round');
   const researchEdit = edit(reviewed, (text) =>
-    text.replace('The parser loses mixed-case records.', 'The parser loses mixed-case records.\n\nDecision: keep the old date format.'),
+    text.replace(
+      'The parser loses mixed-case records.',
+      'The parser loses mixed-case records.\n\nDecision: keep the old date format.',
+    ),
   );
   expectSuccess(researchEdit, 'edit research after a plan pass');
   assert.match(
