@@ -67,11 +67,15 @@ Use these table headers:
 ```
 
 Each Steps row describes one bounded task. `#` is its display number. `Id` is
-its durable command identifier. `Files` defines scope. `Depends` is `-` or
+its durable command identifier. `Files` defines scope as comma-separated
+repository-relative paths; a path can be in backticks. `Depends` is `-` or
 comma-separated display numbers or ids. The helper resolves ids to display
-numbers on write. `Done when` names observable completion, not activity.
-Acceptance rows identify a command and its expected result. They cover the goal,
-not just individual steps. Use repository-relative paths and portable commands.
+numbers on write. Two steps that list the same path need a Depends chain
+between them, or one of them must own the shared edit. `Done when` names
+observable completion, not activity. Acceptance rows identify a command and its
+expected result. They cover the goal, not just individual steps. Acceptance also
+holds one row for each check that the repository instructions require for the
+paths in Files. Use repository-relative paths and portable commands.
 
 | Token | Meaning |
 |---|---|
@@ -115,6 +119,9 @@ may move to any open status. After it starts, only ongoing and blocked are legal
 targets. Status writes repair phase labels. Blocked requires a single-line
 reason at the start of Open questions. Leaving blocked removes that line.
 
+`planned` and `ongoing` require a filled Research section. The trimmed section
+must not be empty and must not equal `_Not researched yet._`.
+
 An open plan must be ongoing for `step`. Its done and skipped steps are immutable.
 Other open step transitions are free. A finished plan permits only done or skipped
 targets for terminal repair. To move a step of a finished plan to another status, reopen the issue first. Other closed plans do not permit step transitions.
@@ -149,6 +156,12 @@ Run this review loop for plan review and for code review:
    finding returns after a repair, round 5 does not pass, or dispatch fails again
    without a relevant change. If no answer is available, record the reason and
    block. A yolo run uses the round ceiling in Yolo runs instead.
+
+A plan pass covers the body that the reviewer read. After `plan=pass`, an edit
+that changes Goal, Research, Steps, Acceptance, or Do not touch needs a new
+plan-review round before you write code that depends on the change. Edits to
+Verification Results or Open questions, and `step` state changes, need no new
+round.
 
 Record user-only decisions in Open questions. Do not invent approval.
 
@@ -202,7 +215,9 @@ Scratch lives at `git rev-parse --git-path docks-review`, with directory mode
 0700. Export writes the body and a `.origin` sidecar containing its sha256 hex
 plus newline, with sidecar mode 0600. The digest detects staleness; it grants no
 permission. Edit validates provenance, normalizes the file, applies the freeze,
-and refreshes the sidecar before the remote write. Re-export after remote changes.
+writes the remote body, and then refreshes the sidecar. A failed remote write
+leaves the sidecar unchanged, so the same file stays valid for a retry.
+Re-export after remote changes.
 Keep scratch and machine paths out of durable records. No queue file is tool input.
 
 ## Normalization, advice, and refusals
@@ -217,9 +232,12 @@ rewrite never drops the row. Once work has started, `edit` also refuses while
 the current record holds such a row. A duplicate or unknown `##` heading blocks every body write; a retired `## Review` heading is dropped on the next write. An explicit `--mode` on `new` outranks any Mode line inside `--goal`; otherwise the last unfenced, unindented Mode line in Goal is the decision.
 
 Advice prints `advice: <text>` on stdout and exits 0. It covers absolute machine
-paths, `_Not researched yet._` after drafting, defaulted Mode, unknown Effect or
-Status, an unfinished dependency when a step moves to in-flight or done, and
-every non-local Effect as an in-session permission reminder. A machine path
+paths, a Research section that holds only `_Not researched yet._` after drafting,
+defaulted Mode, unknown Effect or Status, an unfinished dependency when a step
+moves to in-flight or done, two steps that share a Files path with no Depends
+chain, an `edit` that changes Goal, Research, Steps, Acceptance, or Do not touch
+after a trusted plan pass, and every non-local Effect as an in-session
+permission reminder. A machine path
 points into a user or root home, a mount, a named temporary or runtime
 directory, a Windows drive, or a network share. Its advice is
 `body contains an absolute machine path: <path>`, once per distinct path.
@@ -240,6 +258,7 @@ stale export: <path> was exported from a superseded body; run `plan.mjs export <
 step state is frozen once work starts: <detail>
 plan #<n> is closed; status applies to open plans
 illegal plan status transition: <from> -> <to>
+status <status> requires a filled Research section
 illegal step status transition: <from> -> <to>
 plan #<n> is finished; reopen it before moving step <id> to <status>
 plan status is <status>; expected ongoing
@@ -257,6 +276,24 @@ cannot retire a <status> plan
 blocked status requires --reason as single-line text
 reserved label namespace: <label>
 ```
+
+GitHub call failures exit 1 and print one of these messages on stderr. `edit`,
+`status`, and `step` print their stdout result only after the write succeeds.
+
+```text
+gh <command> <subcommand> failed: <gh stderr, or exit <code>>
+gh api graphql returned errors: <message>
+```
+
+A failure can be short-lived, such as
+`GraphQL: Something went wrong while executing your query`. After such a
+failure:
+
+1. Run `show <n>` and check whether the change is on the issue.
+2. If it is not, run the same command once more. For `edit`, use the same file.
+3. If it is, do not run the command again. Run `export <n>` before the next body
+   edit.
+4. If the second run fails, stop the phase and report the message.
 
 ## Landing and archive proof
 
@@ -337,6 +374,7 @@ question. All other contract rules stay in force.
 | Contract question | Yolo rule |
 |---|---|
 | Path and Mode | Plan with `Mode: plan-and-implement` |
+| Request that names an existing plan, or an incomplete request | The yolo skill's Existing plans and incomplete requests rule |
 | Non-local Effect step before the landing merge | The effect table below |
 | Linked-branch timing | Right after `new`, while the plan is drafting |
 | Dirty checkout at linked-branch setup | A separate clean worktree, without a question |

@@ -520,6 +520,29 @@ function replaceTable(sections, name, header, separator, rows) {
   );
   sections.set(name, parsed.lines.join('\n'));
 }
+// Steps that edit the same path need a Depends order, or parallel work collides (#78).
+function sharedFilesAdvice(rows) {
+  const paths = rows.map(
+    (row) => new Set(row[3].split(',').map((part) => unquoteCode(part.trim())).filter((part) => part && part !== '-')),
+  );
+  const dependencies = new Map(
+    rows.map((row) => [row[0], row[4] === '-' ? [] : row[4].split(',').map((part) => part.trim())]),
+  );
+  const reaches = (from, to, seen = new Set()) => {
+    if (seen.has(from)) return false;
+    seen.add(from);
+    return (dependencies.get(from) ?? []).some((next) => next === to || reaches(next, to, seen));
+  };
+  const advice = [];
+  rows.forEach((row, index) => {
+    for (let other = index + 1; other < rows.length; other += 1) {
+      const shared = [...paths[index]].filter((entry) => paths[other].has(entry));
+      if (shared.length && !reaches(row[0], rows[other][0]) && !reaches(rows[other][0], row[0]))
+        advice.push(`steps ${row[1]} and ${rows[other][1]} share ${shared.join(', ')} with no Depends link`);
+    }
+  });
+  return advice;
+}
 export function normalizePlan(text, { mode: explicitMode } = {}) {
   const advice = [];
   const cleaned = text
@@ -559,6 +582,7 @@ export function normalizePlan(text, { mode: explicitMode } = {}) {
   };
   for (const row of rows)
     if (row.length === 8) row[4] = row[4] === '-' ? '-' : row[4].split(',').map(dependency).join(', ');
+  advice.push(...sharedFilesAdvice(rows.filter((row) => row.length === 8)));
   replaceTable(sections, 'Steps', STEPS_HEADER, STEPS_SEPARATOR, rows);
   replaceTable(
     sections,
@@ -595,11 +619,22 @@ export function parsePlan(text) {
     acceptance: table(sections.get('Acceptance'), ACCEPTANCE_HEADER).rows,
   };
 }
+// A drafted plan holds this placeholder until research is published (#78).
+const RESEARCH_PLACEHOLDER = '_Not researched yet._';
+// Compare the whole section: research prose may quote the placeholder.
+function researchFilled(plan) {
+  const research = plan.sections.get('Research').trim();
+  return research !== '' && research !== RESEARCH_PLACEHOLDER;
+}
 function printAdvice(text, status, extra = [], options = {}) {
   const result = normalizePlan(text, options);
-  if (status !== 'drafting' && parsePlan(text).sections.get('Research').includes('_Not researched yet._'))
-    result.advice.push('Research is not filled after drafting.');
+  if (status !== 'drafting' && !researchFilled(parsePlan(text))) result.advice.push('Research is not filled after drafting.');
   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
+}
+// A plan-review pass covers the body that the reviewer read (#78).
+const PLANNED_WORK_SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch'];
+function plannedWorkChanges(before, after) {
+  return PLANNED_WORK_SECTIONS.filter((name) => before.sections.get(name) !== after.sections.get(name));
 }
 // Reviewers write Markdown: read review keywords through emphasis, code marks, quotes, and list markers (#49).
 function reviewText(line) {
@@ -679,7 +714,7 @@ function createPlan(args) {
       return /^ {0,3}##[ \t]/.test(masked) ? line.replace(/^( {0,3})##/, '$1###') : line;
     })
     .join('\n');
-  const source = `## Goal\n${goalText}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
+  const source = `## Goal\n${goalText}\n## Research\n${RESEARCH_PLACEHOLDER}\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
   const { body } = normalizePlan(source, { mode: options['--mode'] });
   const url = withBodyFile(body, (file) =>
     runGh([
@@ -742,7 +777,7 @@ function editPlan(args) {
   const [value, ...flags] = args,
     file = parseOptions(flags, new Set(['--file']))['--file'];
   if (!file) fail('edit requires an issue and --file');
-  const { issue, parsed, status } = readPlanIssue(value, true, { history: true }),
+  const { issue, parsed, status } = readPlanIssue(value, true, { history: true, comments: true }),
     origin = readOrigin(file);
   if (!origin)
     fail(
@@ -782,14 +817,21 @@ function editPlan(args) {
     });
   }
   fs.writeFileSync(file, body);
+  editIssueBodyIfUnchanged(issue, body);
+  // Refresh provenance only after the remote write, so a failed write can be retried with the same file (#78).
   fs.writeFileSync(originFile(file), `${bodyDigest(body)}\n`, { mode: 0o600 });
   fs.chmodSync(originFile(file), 0o600);
-  editIssueBodyIfUnchanged(issue, body);
   const changes = changedLines(issue.body, body);
   console.log(headerStrip(issue, status));
   console.log(`changed: ${changes.length} line(s)`);
   for (const line of changes) console.log(line);
-  printAdvice(source, status);
+  const changedWork = reviewVerdicts(issue).plan === 'pass' ? plannedWorkChanges(parsed, incomingPlan) : [];
+  const rereview = changedWork.length
+    ? [
+        `plan review passed before this edit; changed sections: ${changedWork.join(', ')}; run a new plan-review round before code that depends on them`,
+      ]
+    : [];
+  printAdvice(source, status, rereview);
 }
 function setPlanStatus(args) {
   const [value, raw, ...flags] = args,
@@ -803,6 +845,8 @@ function setPlanStatus(args) {
     fail(`plan #${issue.number} is closed; status applies to open plans`);
   if (workStarted(issue, status) && !['ongoing', 'blocked'].includes(target))
     fail(`illegal plan status transition: ${status} -> ${target}`);
+  if (['planned', 'ongoing'].includes(target) && !researchFilled(parsed))
+    fail(`status ${target} requires a filled Research section`);
   const content = parsed.sections.get('Open questions').replace(/^Blocked:[^\n]*\n?\s*/i, '');
   parsed.sections.set(
     'Open questions',

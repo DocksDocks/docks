@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-19"
-  content_hash: "10bb17553f82450f69825d1f6b0e18b15ac9d76c135e0a38ce525f0fd5a9c7ee"
+  content_hash: "52a28e27f3849805a5044e9c6f16c95320abca5f6ab4aa2f5a19c4645461b94f"
 ---
 
 # Plan Reviewer
@@ -35,6 +35,7 @@ citations, probes, tests, or acceptance rows without a load-bearing defect.
 | `security_risk` | The plan introduces or ignores a security risk or destructive action without confirmation |
 
 Report a `goal_fit` finding when the plan uses a temporary workaround instead of the root-cause fix, leaves a caller on a replaced path, or keeps an obsolete path, unless Open questions record user approval.
+Report a `goal_fit` finding when Acceptance lacks a check that the repository instructions require for the paths in the Steps Files cells.
 Read enough surrounding code, callers, tests, and local instructions to verify
 claims. Check library and API claims against current official documentation.
 Do not demand additional sources when existing evidence establishes the claim.

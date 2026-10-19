@@ -21,9 +21,11 @@ lifecycle change.
 <constraint>
 A plan-review finding is exactly one of `goal_fit`, `research_gap`, or `security_risk`; nothing else is a finding. A sufficient plan passes.
 Report a `goal_fit` finding when the plan uses a temporary workaround instead of the root-cause fix, leaves a caller on a replaced path, or keeps an obsolete path, unless Open questions record user approval.
+Report a `goal_fit` finding when Acceptance lacks a check that the repository instructions require for the paths in the Steps Files cells.
 Perform one review invocation and return one verdict. Never demand style,
 naming, formatting, line counts, more citations, additional probes, mutation
-tests, extra acceptance rows, cosmetic work, or restructuring for its own sake.
+tests, acceptance rows beyond the checks that repository instructions require,
+cosmetic work, or restructuring for its own sake.
 </constraint>
 
 ## Workflow

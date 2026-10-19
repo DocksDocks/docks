@@ -944,6 +944,87 @@ try {
   expectSuccess(edit(numericId), 'second normalization');
   assert.equal(issue(numericId).body, once, 'a second normalization changes nothing');
 
+  // A drafted plan enters planned or ongoing only after research replaces the placeholder (#78).
+  const unresearched = createPlan(
+    'unresearched plan',
+    body().replace('The parser loses mixed-case records.', '_Not researched yet._'),
+  );
+  refuse(run('status', String(unresearched), 'planned'), 'status planned requires a filled Research section');
+  refuse(run('status', String(unresearched), 'ongoing'), 'status ongoing requires a filled Research section');
+  assert.deepEqual(issue(unresearched).labels, ['plan', 'plan:drafting'], 'a refused status keeps the phase label');
+  expectSuccess(
+    run('status', String(unresearched), 'blocked', '--reason', 'Waiting for research'),
+    'an unresearched plan can still block',
+  );
+  const emptyResearch = createPlan('empty research', body().replace('The parser loses mixed-case records.', ''));
+  refuse(run('status', String(emptyResearch), 'planned'), 'status planned requires a filled Research section');
+  const quotedPlaceholder = createPlan(
+    'research quotes the placeholder',
+    body().replace(
+      'The parser loses mixed-case records.',
+      'A new plan holds `_Not researched yet._` until research is published.',
+    ),
+  );
+  const quotedStatus = run('status', String(quotedPlaceholder), 'planned');
+  expectSuccess(quotedStatus, 'research prose may quote the placeholder');
+  assert.doesNotMatch(quotedStatus.stdout, /Research is not filled/, 'quoted placeholder is not unfilled research');
+
+  // A failed remote edit keeps the export valid, so the same file can be sent again (#78).
+  const retried = createPlan('retried edit');
+  const retryFile = exported(retried);
+  fs.writeFileSync(retryFile, fs.readFileSync(retryFile, 'utf8').replace('Not run.', 'Smoke passed.'));
+  const transientError = 'GraphQL: Something went wrong while executing your query';
+  updateState((state) => {
+    state.issueEditError = transientError;
+  });
+  const failedEdit = run('edit', String(retried), '--file', retryFile);
+  refuse(failedEdit, `gh issue edit failed: ${transientError}`);
+  assert.equal(failedEdit.stdout, '', 'a failed edit prints no result');
+  updateState((state) => {
+    delete state.issueEditError;
+  });
+  expectSuccess(run('edit', String(retried), '--file', retryFile), 'retry with the same export');
+  assert.match(issue(retried).body, /Smoke passed\./, 'the retry writes the edited body');
+
+  // Steps that edit the same path need a Depends chain, or parallel work collides (#78).
+  const sharedFiles = createPlan('shared files');
+  const sharedRows = [
+    '| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | planned | Records round-trip |',
+    '| 2 | parse_dates | Parse dates | `src/parser.mjs`, src/dates.mjs | - | local | planned | Dates parse |',
+    '| 3 | format_dates | Format dates | src/dates.mjs | parse_dates | local | planned | Dates format |',
+    '| 4 | print_dates | Print dates | src/dates.mjs | format_dates | local | planned | Dates print |',
+  ].join('\n');
+  const sharedEdit = edit(sharedFiles, (text) =>
+    text.replace(
+      '| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | planned | Records round-trip |',
+      sharedRows,
+    ),
+  );
+  expectSuccess(sharedEdit, 'edit with shared files');
+  assert.deepEqual(
+    sharedEdit.stdout.split('\n').filter((line) => line.includes(' share ')),
+    ['advice: steps fix_parser and parse_dates share src/parser.mjs with no Depends link'],
+    'only steps without a Depends chain get shared-path advice',
+  );
+
+  // A plan-review pass covers the body that the reviewer read (#78).
+  const reviewed = createPlan('reviewed plan');
+  addIssueComment(reviewed, '### Plan review round 1\n\nPlan-review: pass\n\nNone.');
+  const resultsEdit = edit(reviewed, (text) => text.replace('Not run.', 'Smoke passed.'));
+  expectSuccess(resultsEdit, 'edit verification results after a plan pass');
+  assert.doesNotMatch(resultsEdit.stdout, /plan review passed before this edit/, 'evidence edits need no new round');
+  const researchEdit = edit(reviewed, (text) =>
+    text.replace(
+      'The parser loses mixed-case records.',
+      'The parser loses mixed-case records.\n\nDecision: keep the old date format.',
+    ),
+  );
+  expectSuccess(researchEdit, 'edit research after a plan pass');
+  assert.match(
+    researchEdit.stdout,
+    /^advice: plan review passed before this edit; changed sections: Research; run a new plan-review round before code that depends on them$/m,
+  );
+
   updateState((state) => {
     for (let i = 0; i < 500; i += 1) {
       const number = state.nextIssue++;
@@ -968,7 +1049,7 @@ try {
   assert.match(limitedList.stdout, /^advice: list stopped at 500 plans; more plans may exist$/m);
 
   console.log(
-    'plan-cli smoke PASSED: labels, snapshot paging, normalization, ownership, race, provenance, step freeze, transitions, review trust, archive proof, list, retire, large output, Markdown review records, early closure, list limit, machine path advice',
+    'plan-cli smoke PASSED: labels, snapshot paging, normalization, ownership, race, provenance, step freeze, transitions, review trust, archive proof, list, retire, large output, Markdown review records, early closure, list limit, machine path advice, research gate, edit retry, shared files advice, re-review advice',
   );
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
