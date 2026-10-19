@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-19"
-  content_hash: "1b340b83c04efe00e4f84cbe00194068eb65d659a319c31bbc5746d559a86829"
+  content_hash: "bae70cff6426e6c7c817ca2c52ababc2eab5ad90ac9a2e11932084a26dcbf0ac"
 ---
 
 # Yolo
@@ -263,13 +263,19 @@ same finding again, research it again and try a different approach.
    and run a code-review round on the result. Commit each repair.
 3. Push the linked branch with a normal push.
 4. Write the run summary from `references/run-summary.md` to a file in the
-   review scratch directory. End it with `Closes #<n>` on its own line.
-5. Open the pull request with `gh pr create --repo <owner/repo> --base <default>
-   --head <branch> --title <title> --body-file <file>`.
+   review scratch directory. Write `pending` for the pull request URL and the
+   checks. End the file with `Closes #<n>` on its own line.
+5. When `gh pr list --repo <owner/repo> --head <branch> --state open` shows a
+   pull request, update its body with `gh pr edit <pr> --repo <owner/repo>
+   --body-file <file>`. Otherwise open the pull request with `gh pr create
+   --repo <owner/repo> --base <default> --head <branch> --title <title>
+   --body-file <file>`.
 6. Wait for checks as the contract says. If a check fails, fix it, rerun
    acceptance, review again, push, and wait again.
 7. Confirm that `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows
-   the reviewed head.
+   the reviewed head. Write the pull request URL and the check result into the
+   summary file. Then update the body with `gh pr edit <pr> --repo <owner/repo>
+   --body-file <file>`.
 8. Print the run summary. In the same response, ask one question:
    `Merge pull request #<pr> into <default>?`, with the options `Merge now` and
    `Leave pull request open`.
