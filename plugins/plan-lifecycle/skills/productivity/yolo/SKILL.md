@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-19"
-  content_hash: "de46ac4e51667352f4b120ff3fb6ac7636ef713fd825667c3d6a381f7f538d0e"
+  content_hash: "e6867e048cd1f0797f40b9ff421c5218ab143053f57ca3364f8f70036284078b"
 ---
 
 # Yolo
@@ -190,10 +190,13 @@ The main context owns the red baseline of each `tdd-workflow` step. A subagent
 can write the spec tests.
 
 1. Write the spec tests before the production code of the step.
-2. Run them. Each new test must fail on an assertion, not on an import, setup,
-   or syntax error.
+2. Run them. Each new test must fail because the behavior is missing: on an
+   assertion, or on an export or symbol that this step adds. A failure from any
+   other import, setup, or syntax error is not a red baseline. Do not add an
+   empty stub to change a missing export into an assertion failure.
 3. Stage the spec tests with `git add`. Add this line to Verification Results:
-   `Red baseline, step <id>: <command>: <k> failed, <m> passed`.
+   `Red baseline, step <id>: <command>: <k> failed, <m> passed`. When a missing
+   export stops a test file, write `<file> failed: missing <symbol>` for it.
 4. Keep the staged spec tests unchanged while you write production code:
    `git diff -- <spec files>` prints nothing. When a spec test is wrong, record
    the reason in Verification Results, fix the test, and run the baseline again.
