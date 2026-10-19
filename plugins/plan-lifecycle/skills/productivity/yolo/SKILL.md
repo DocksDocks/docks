@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-19"
-  content_hash: "e80d15cf90e21f7cbd05093c90b0936d7c8558b420bf28c814cb53b59e9f7e48"
+  content_hash: "60d809dee20db8430222e943110dbff3e144540bd5655de8bb90fe62bf878be0"
 ---
 
 # Yolo
@@ -218,10 +218,10 @@ Open findings: <MEDIUM or LOW findings left at the ceiling, or none>.
 
 The issue is the run record. Run `show <n>` for the status and verdicts. Run
 `gh issue develop <n> --list --repo <owner/repo>` for the branch. After the pull
-request exists, GitHub lists no branch there. Then run
-`gh issue view <n> --repo <owner/repo> --json closedByPullRequestsReferences`
-and read the pull request head. Run `git worktree list` for a worktree. Count
-review rounds from issue comments.
+request exists, GitHub lists no branch there. Then read the pull request number
+from `gh issue view <n> --repo <owner/repo> --json closedByPullRequestsReferences`,
+and read the branch from `gh pr view <pr> --repo <owner/repo> --json headRefName`.
+Run `git worktree list` for a worktree. Count review rounds from issue comments.
 
 ## BAD / GOOD
 
