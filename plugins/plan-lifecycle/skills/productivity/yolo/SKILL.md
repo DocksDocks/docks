@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-19"
-  content_hash: "2a9caa57cb098e931ca6b7bf9425a45ff9d6d2ab5b92281957d0a4da5dd4f58a"
+  content_hash: "c88bf4293b208fa56f085e1be92738f8e87a55e4e23c64f2c401b11cef0e5942"
 ---
 
 # Yolo
@@ -221,8 +221,8 @@ can write the spec tests.
 
 When a required check fails on files that the plan does not change:
 
-1. Run the same check on `origin/<default>` in a temporary worktree, as Commits
-   item 2 says.
+1. Run `git fetch origin <default>`. Then run the same check on
+   `origin/<default>` in a temporary worktree, as Commits item 2 says.
 2. When it fails the same way there, it is a baseline failure. Record the
    command, the failing files, and the default-branch result in Verification
    Results. Do not fix it unless the Goal covers it.
