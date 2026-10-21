@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-10-19"
-  content_hash: "df849a65ed166954017addd24fe9ed277fc24db6e99e4cf601a98f24ebe450b8"
+  updated: "2026-10-21"
+  content_hash: "ebf4d1d091f01934dd8c0f88536c85f430a208218cfbe27ba2ac2a92ff3bce4f"
 ---
 
 # Yolo
@@ -32,14 +32,17 @@ Start only when the user's own message invokes yolo: `/plan-lifecycle:yolo`,
 `/skill:yolo`, `$yolo`, or a sentence that names the yolo skill. Otherwise stop
 and use `plan-manager`. Do not call `ask` before the merge question. The only
 exception is the stalled-review question in the contract's Yolo runs section.
-Resolve every unknown from the codebase, current official documentation on the
-web, or a throwaway experiment.
+After the merge, each production cleanup in the contract's Teardown needs its
+own question. Resolve every unknown from the codebase, current official
+documentation on the web, or a throwaway experiment.
 </constraint>
 
 <constraint>
 Do not access production, deploy to production, publish, or release before the
 merge. Do not force-push or rewrite history. Do not stash, move, commit, or
 delete work that the user made. Do not merge without a fresh `Merge now` answer.
+Do not run a production cleanup without its own question. This invocation does
+not answer it.
 Before each issue, comment, commit, or pull request write, remove secrets,
 tokens, credentials, private hostnames, environment values, and absolute machine
 paths. Name a secret by its variable name, not its value. The repository can be
@@ -262,6 +265,10 @@ Reject a finding only with evidence. Post that evidence as one issue comment
 whose first line is `Rejected review findings, round <k>`. Before you repair the
 same finding again, research it again and try a different approach.
 
+When a review phase stalls at the ceiling and the answer is `Leave plan
+blocked`, or no answer is possible, run the contract's Teardown for an exit
+without a merge. The contract's Round ceiling also says this.
+
 ## Landing
 
 1. Confirm that `git status --porcelain` prints nothing. The reviewed head is
@@ -273,8 +280,8 @@ same finding again, research it again and try a different approach.
 4. Write the run summary from `references/run-summary.md` to a file in the
    review scratch directory. The run summary is the whole pull request
    description; do not add the `commit-discipline` description sections. Write
-   `pending` for the pull request URL and the checks. End the file with
-   `Closes #<n>` on its own line.
+   `pending` for the pull request URL and the checks. Include Kept resources,
+   as the template says. End the file with `Closes #<n>` on its own line.
 5. When `gh pr list --repo <owner/repo> --head <branch> --state open` shows a
    pull request, update its body with `gh pr edit <pr> --repo <owner/repo>
    --body-file <file>`. Otherwise open the pull request with `gh pr create
@@ -288,22 +295,17 @@ same finding again, research it again and try a different approach.
    --body-file <file>`.
 8. Print the run summary. In the same response, ask one question:
    `Merge pull request #<pr> into <default>?`, with the options `Merge now` and
-   `Leave pull request open`.
-9. On `Merge now`, merge and archive as the contract says. Then clean up:
-   - If this run made a worktree, run `git worktree remove -- <worktree>`, then
-     `git worktree prune`.
-   - If this run used the user's checkout and `git status --porcelain` prints
-     nothing, run `git switch <default>` and
-     `git pull --ff-only origin <default>`.
-   - Keep the merged local branch. Name it in the final report as a branch that
-     the user can delete.
-
-   Ask separately before each plan step that runs after the merge.
+   `Leave pull request open`. The `Merge now` option states the teardown, as the
+   contract's Checks and merge says, including `git branch -d <branch>`.
+9. On `Merge now`, merge and archive as the contract says. Then run the
+   contract's Teardown and report Kept resources. Ask separately before each
+   plan step that runs after the merge and before each production cleanup.
 10. On any other answer, or when no answer is possible, leave the pull request
-    and the issue open. Report both links.
+    and the issue open. Run Teardown's exit without a merge. Report both links
+    and Kept resources.
 11. When the message that answers the merge question also starts a new yolo
     run, finish this run first: merge or leave open as the answer says, then
-    archive and clean up. Then start the new run.
+    archive and run Teardown. Then start the new run.
 
 ## Run summary
 

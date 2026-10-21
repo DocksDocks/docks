@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-19"
-  content_hash: "be9d0c5997d69513c763f52251e48bb6c7fce9ff24d14a706d639ba1a3c6c3bc"
+  updated: "2026-10-21"
+  content_hash: "37cfc75fba999189e56e877a1cb3ad02be4e26c5e3f289bd83e1d3e3f08a427b"
 ---
 
 # Plan Manager
@@ -27,9 +27,11 @@ Deliver the durable solution that the contract defines.
 Ask in-session immediately before running a non-local Effect step. Persisted
 intent is not permission. If confirmation is unavailable, block the step and
 plan with a reason. The settled mode covers routine issue publication and
-linked-branch landing work. Every merge needs a fresh `Merge now` answer.
-In a yolo run, the contract's Yolo runs section replaces every question in this
-skill except the merge question.
+linked-branch landing work. Every merge needs a fresh `Merge now` answer. A
+production cleanup in the contract's Teardown needs its own in-session
+question, also in a yolo run. In a yolo run, the contract's Yolo runs section
+replaces every question in this skill except the merge question and a
+production cleanup question.
 </constraint>
 
 ## Resolve the helper
@@ -132,7 +134,8 @@ evidenced CRITICAL or HIGH defect before the next round. A pass can carry MEDIUM
 and LOW findings. The posted comment is their record; do not change reviewed
 bytes for them. Resolve unreadable input before you request a verdict. If you
 block after implementation, commit and push current work to the linked branch
-before you record the blocker, so repairs are not stranded.
+before you record the blocker, so repairs are not stranded. Then run the
+contract's Teardown for an exit without a merge.
 
 Done when: `show <n>` reports `code=pass`.
 
@@ -141,14 +144,18 @@ Done when: `show <n>` reports `code=pass`.
 After code review passes, follow the contract's Landing and archive proof:
 commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
-on `Merge now`. After a partial merge, reopen the issue as the contract states.
-Archive only after the landing merge, when every step is terminal.
+on `Merge now`. The `Merge now` option states the teardown, as the contract's
+Checks and merge says. After a partial merge, reopen the issue as the contract
+states. Archive only after the landing merge, when every step is terminal.
+After archive, run the contract's Teardown. Without `Merge now`, run Teardown's
+exit without a merge. Report Kept resources in both cases.
 
 Render the body only when the user names the plan and asks to see it. After a
 write, report the header strip and changed lines.
 
-Done when: `archive <n>` prints `plan #<n> finished (closed by <pr-url>)`, or
-the user chose `Leave pull request open` and you reported the open pull request.
+Done when: `archive <n>` prints `plan #<n> finished (closed by <pr-url>)` and
+you reported Kept resources, or the user chose `Leave pull request open` and
+you reported the open pull request and Kept resources.
 
 ## BAD / GOOD
 
@@ -161,4 +168,7 @@ GOOD: Verify the reviewed head and obtain a fresh Merge now answer.
 
 BAD: Merge a partial pull request and trust `Refs #<issue>` to keep the issue open.
 GOOD: Say that the merge closes the issue, merge on `Merge now`, reopen it, and confirm `show` reads ongoing.
+
+BAD: Run `git branch -D` after `git branch -d` refuses.
+GOOD: Keep the branch and list it under Kept resources.
 ```

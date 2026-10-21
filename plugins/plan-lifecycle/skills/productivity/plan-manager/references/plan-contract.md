@@ -98,6 +98,10 @@ Persisted Effect values record intent, not permission. If `ask` is unavailable,
 block the step and plan with a reason. Unknown tokens produce advice; they do
 not authorize an effect. Finish dependencies before starting dependent work.
 
+A non-production target is one that repository configuration or documentation
+names local, development, dev, test, homolog, homologation, staging, or
+preview. Every other target is production.
+
 ## Status, ownership, and frozen state
 
 `new` creates missing `plan`, `plan:drafting`, `plan:planned`, `plan:ongoing`, and
@@ -343,8 +347,13 @@ failed or cancelled check blocks the merge question until its fix passes code
 review. If the repository has no configured checks, use the green local gate as
 the check result and say so in the merge question.
 
-Ask afresh with two options: `Merge now` and `Leave pull request open`. Without
-`Merge now`, leave the issue and the pull request open. Merge with
+Ask afresh with two options: `Merge now` and `Leave pull request open`. The
+`Merge now` option states the teardown that follows the merge: the processes
+and stacks to stop, the worktree to remove, the local branch to delete with
+`git branch -d <branch>`, and each remote non-production resource to clean up.
+A `Merge now` answer confirms that teardown, including the branch delete.
+Without `Merge now`, leave the issue and the pull request open, and run
+Teardown's exit without a merge. Merge with
 `gh pr merge <pr> --repo <owner/repo> --match-head-commit <reviewed-head-sha>`
 and the merge-method flag that the repository allows. A prior plan approval
 never authorizes a merge.
@@ -365,6 +374,84 @@ carry a GitHub closing keyword for this issue in its description; a title or sid
 link is not proof. A merely linked pull request, another repository, or a non-default
 target is not proof.
 
+### Teardown
+
+Teardown removes the resources that the plan created.
+
+From the first step, track each resource that the plan creates or starts:
+worktrees, local branches, servers, watchers, test runners, compose stacks, and
+remote resources made through SSH or a provider CLI. Stop a process or stack
+when the step or check that needed it ends. Never stop or remove a resource
+that the plan did not create.
+
+Run each compose command from the directory that started the stack, with the
+same `-p` and `-f` options. First record the volume names from the container
+mounts of the stack. Add the same options to `docker compose ps`, for example:
+
+```sh
+docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' $(docker compose ps -a -q)
+```
+
+This record includes anonymous volumes, which carry no project label. Then run
+`docker compose down`. Never add `--volumes`. List the recorded volumes under
+Kept resources.
+
+A partial pull request merge does not end the plan. Do not run teardown then.
+
+#### After archive
+
+Run these steps in order after `archive <n>` succeeds:
+
+1. Stop each process and compose stack that the plan started and that still
+   runs.
+2. Clean up each remote non-production resource that the merge question named.
+   Follow Production resources for every other remote resource.
+3. Run the next commands from the main worktree, not from the plan's worktree.
+   A removal from inside the worktree leaves the shell in a deleted directory.
+4. If the plan made a worktree, run `git worktree remove -- <worktree>`, then
+   `git worktree prune`. Never add `--force`. When git refuses because of
+   untracked or modified files or a lock, keep the worktree. List it with the
+   reason from git.
+5. If the plan used the user's checkout and `git status --porcelain` prints
+   nothing, run `git switch <default>` and `git pull --ff-only origin <default>`.
+6. Run `git branch -d <branch>`. When git refuses, keep the branch and list it.
+   Git refuses after a squash or rebase merge once the remote branch is gone.
+   Never run `git branch -D` or add `--force`, even when the git hint suggests it.
+7. Report Kept resources.
+
+#### Exit without a merge
+
+The plan can stop without the landing merge: on `Leave pull request open`, on a
+blocked plan, on a stalled yolo run, or without an answer. Then stop each local
+process and compose stack that the plan started, as above. Keep the worktree,
+the branch, and every remote resource. Report them under Kept resources with
+the reason, such as `pull request open` or `plan blocked`.
+
+#### Production resources
+
+Local resources on the workstation are development resources: worktrees, local
+branches, scratch files, local processes, and local compose stacks. Teardown
+removes them without a question. A remote resource that an agent reaches
+through SSH or a provider CLI is production, unless its target is
+non-production. Examples are `wrangler`, `kubectl`, and a remote Docker host.
+Steps, acceptance, and effects defines a non-production target. A command that
+names no non-production target acts on production, such as `wrangler delete`
+without `--env`.
+
+Teardown never stops, removes, undeploys, or deletes a production resource on
+its own. A production cleanup needs an in-session `ask` immediately before it.
+Keep such cleanups rare. A yolo invocation does not answer that question. When
+`ask` is unavailable, as in a subagent, do not run the cleanup. List the
+resource under Kept resources with the reason `production`.
+
+#### Kept resources
+
+List each resource that teardown keeps, with its reason, or write `none`. Name
+a worktree by its branch and directory name, a volume by its name, and a remote
+resource by its provider and name. Do not write absolute machine paths.
+`git worktree remove` also removes the review scratch of a linked worktree. The
+scratch directory of the main checkout stays.
+
 ## Yolo runs
 
 The user starts a yolo run by invoking the `yolo` skill with a request. The
@@ -382,6 +469,7 @@ question. All other contract rules stay in force.
 | Review-loop continuation | The round ceiling below |
 | Plan-review `blocked` verdict | The manager decides with evidence |
 | Public disclosure of a sensitive finding | Stop before any write |
+| Production cleanup in Teardown | Its own question, like a step after the landing merge |
 
 ### Delegation line
 
@@ -402,12 +490,10 @@ holds only a `Blocked:` line. Reviewers treat a recorded decision as settled.
 | `deploy` | Run only to a non-production environment |
 | `production_access`, `publish`, `release` | Do not run before the landing merge |
 
-A non-production target is one that repository configuration or documentation
-names local, development, dev, test, homolog, homologation, staging, or
-preview. Every other target is production. A step that the table does not
-permit stays `planned`. After the landing merge, it follows Steps after the
-landing merge. Effect advice from the helper is met for each effect that the
-table permits.
+Steps, acceptance, and effects defines a non-production target. A step that the
+table does not permit stays `planned`. After the landing merge, it follows
+Steps after the landing merge. Effect advice from the helper is met for each
+effect that the table permits.
 
 ### Linked branch timing
 
@@ -441,7 +527,8 @@ exists. Then ask once, with the options `Continue yolo` and `Leave plan
 blocked`. Keep the status unchanged while you ask, because the helper does not
 move a blocked plan back to `drafting` or `planned`. `Continue yolo` gives the
 phase 10 more rounds. On `Leave plan blocked`, or without an answer, set the
-status to `blocked` with the stall reason and report.
+status to `blocked` with the stall reason, run Teardown's exit without a merge,
+and report.
 
 ### Merge question
 
