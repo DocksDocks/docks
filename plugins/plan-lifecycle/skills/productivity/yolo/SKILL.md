@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-21"
-  content_hash: "ebf4d1d091f01934dd8c0f88536c85f430a208218cfbe27ba2ac2a92ff3bce4f"
+  content_hash: "127c523b2d0662e08d7ac64f8a11da0e173e2e56cfb605530c4491f5170abcea"
 ---
 
 # Yolo
@@ -304,8 +304,8 @@ without a merge. The contract's Round ceiling also says this.
     and the issue open. Run Teardown's exit without a merge. Report both links
     and Kept resources.
 11. When the message that answers the merge question also starts a new yolo
-    run, finish this run first: merge or leave open as the answer says, then
-    archive and run Teardown. Then start the new run.
+    run, finish this run first. On `Merge now`, follow step 9. On any other
+    answer, follow step 10. Then start the new run.
 
 ## Run summary
 
