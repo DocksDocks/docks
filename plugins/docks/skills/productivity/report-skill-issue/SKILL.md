@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-23"
-  content_hash: "19ba90829667b3ea0e8afcc739e417a9c2bb92317ed5267c2775ea01ff7dcdea"
+  content_hash: "07f2ea7eafb1f0da7c023c0fb549938ccd78ca33ad08bfe58a91b1cd52431e7c"
 ---
 
 # Report a Skill Issue
@@ -103,7 +103,7 @@ Write the host and the repository out in the argument, so that neither `GH_REPO`
 
 - Leave out the owner and the name of every remote.
 - Leave out the project's issue and pull request titles and its branch names.
-- Write its issue and pull request numbers without `#`, for example "issue 123 in a private repository". In a DocksDocks/docks issue, `#123` links to DocksDocks/docks#123, a different issue.
+- Write its issue and pull request numbers without `#` in prose, for example "issue 123 in a private repository". In a DocksDocks/docks issue, `#123` links to DocksDocks/docks#123, a different issue. GitHub does not link inside code spans and fenced blocks, so keep quoted output exact there.
 
 Look up every other repository that the draft names in the same way. It keeps its name only when the lookup prints `PUBLIC`. A repository on another host, or a failed lookup, counts as private. Without gh, every repository other than DocksDocks/docks counts as private.
 
