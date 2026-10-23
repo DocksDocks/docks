@@ -748,7 +748,12 @@ const severeFinding = (text) =>
 // quoted or list-item heading is prose, so a block that quotes an earlier round cannot open a block of its own. A
 // block's verdict is its first verdict line of that kind; later verdict-like lines are prose, such as a quoted
 // verdict of an earlier round. The most severe block verdict wins, so no block can hide another's failure.
-const REVIEW_BLOCK_HEADING = /^ {0,3}#+\s*(plan|code) review/i;
+// A heading line has `#` after at most three spaces, so a `*` list marker is not emphasis here; only the title after
+// the `#` markers is read through emphasis and code marks.
+function blockHeadingKind(rawLine) {
+  const heading = /^ {0,3}#+(.*)$/.exec(rawLine);
+  return heading && /^\s*(plan|code) review/i.exec(heading[1].replace(/[*_`]/g, ''))?.[1].toLowerCase();
+}
 const VERDICT_SEVERITY = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
 function verdictFor(kind, alias) {
   if (['pass', 'ok', 'approved'].includes(alias)) return 'pass';
@@ -765,8 +770,7 @@ export function parseReviewComment(body) {
   const blocks = [[]];
   for (const [index, line] of lines.entries()) {
     if (index === 0) continue;
-    const blockHeading = REVIEW_BLOCK_HEADING.exec(rawLines[index].replace(/[*_`]/g, ''));
-    if (blockHeading?.[1].toLowerCase() === kind) blocks.push([]);
+    if (blockHeadingKind(rawLines[index]) === kind) blocks.push([]);
     else blocks.at(-1).push(line);
   }
   const firstVerdict = (block) =>
