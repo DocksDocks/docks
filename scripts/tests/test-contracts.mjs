@@ -431,6 +431,80 @@ function bunToolchain(packageJson) {
   return `bun-${major}`;
 }
 
+const FIXTURE_ROOT = 'scripts/tests/fixtures';
+
+// Sorted repository-relative POSIX paths, so that evidence reads the same on each platform.
+function filesUnder(relativeDirectory) {
+  const absolute = path.join(REPO, relativeDirectory);
+  if (!fs.existsSync(absolute) || !fs.statSync(absolute).isDirectory()) return [];
+  const files = [];
+  for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
+    const relative = `${relativeDirectory}/${entry.name}`;
+    if (entry.isDirectory()) files.push(...filesUnder(relative));
+    else if (entry.isFile()) files.push(relative);
+  }
+  return files.sort();
+}
+
+function shebangInterpreter(source) {
+  const line = /^#!(?<line>[^\n]*)/u.exec(source)?.groups.line;
+  if (line === undefined) return null;
+  const [program, ...words] = line.trim().split(/\s+/u);
+  // `env` finds the interpreter on PATH, and its options and NAME=value words come before the interpreter.
+  const interpreter =
+    path.posix.basename(program) === 'env'
+      ? words.find((word) => !word.startsWith('-') && !word.includes('='))
+      : program;
+  return path.posix.basename(interpreter ?? '');
+}
+
+// A suite can run a fixture program, as the plan CLI cases run the fake gh from PATH. The suite then needs the
+// program's interpreter where it runs, so that interpreter is a runner of each suite that names the fixture.
+function fixturePrograms() {
+  const programs = [];
+  for (const fixture of filesUnder(FIXTURE_ROOT)) {
+    const absolute = path.join(REPO, fixture);
+    // Only an executable file runs through its #! line; a suite reads each other fixture as data.
+    if ((fs.statSync(absolute).mode & 0o111) === 0) continue;
+    const interpreter = shebangInterpreter(fs.readFileSync(absolute, 'utf8'));
+    if (interpreter === null) continue;
+    assert.ok(interpreter.length > 0, `${fixture} has a #! line with no interpreter; name the program that runs it`);
+    // A suite names the top folder of a fixture, which it can put on PATH, or a file at the fixture root. The match
+    // starts at `fixtures/`, because a suite can name the path from the repository root or from its own folder.
+    const [top] = fixture.slice(FIXTURE_ROOT.length + 1).split('/');
+    const escaped = `fixtures/${top}`.replace(/[\\^$.*+?()[\]{}|/]/gu, '\\$&');
+    programs.push({
+      fixture,
+      folder: `${FIXTURE_ROOT}/${top}`,
+      interpreter,
+      reference: new RegExp(String.raw`(?<![\w.-])${escaped}(?![\w.-])`, 'u'),
+    });
+  }
+  return programs;
+}
+
+// The files a suite runs: the suite file and, as for scripts/tests/plan-cli.mjs, the files in the folder of its name.
+function suiteFiles(suite) {
+  const caseFolder = suite.replace(/\.test\.mjs$|\.mjs$/u, '');
+  if (caseFolder === suite) return [suite];
+  return [suite, ...filesUnder(caseFolder).filter((file) => /\.[cm]?js$/u.test(file))];
+}
+
+function fixtureRunners(suite, programs) {
+  const runners = [];
+  for (const file of suiteFiles(suite)) {
+    const source = fs.readFileSync(path.join(REPO, file), 'utf8');
+    for (const { fixture, folder, interpreter, reference } of programs) {
+      if (!reference.test(source)) continue;
+      runners.push({
+        runner: interpreter,
+        source: `${file} names ${folder}, where ${fixture} runs with ${interpreter}`,
+      });
+    }
+  }
+  return runners;
+}
+
 const registry = readJson('scripts/config/test-contracts.json');
 const packageJson = readJson('package.json');
 const ciSource = fs.readFileSync(path.join(REPO, 'scripts/ci.mjs'), 'utf8');
@@ -458,7 +532,8 @@ const toolchainByRunner = new Map([
   ['node', nodeToolchain()],
   ['bun', bunToolchain(packageJson)],
 ]);
-const staleToolchains = [];
+const programs = fixturePrograms();
+const toolchainDifferences = [];
 for (const contract of registry.contracts) {
   const evidence = descriptorById.get(contract.id);
   assert.ok(evidence, `${contract.id} has no discovered selection evidence`);
@@ -472,13 +547,33 @@ for (const contract of registry.contracts) {
   );
   assert.ok(fs.existsSync(path.join(REPO, contract.owner.suite)), `${contract.id} owner suite does not exist`);
   assert.ok(evidence.runners.length > 0, `${contract.id} has no discovered runner`);
-  for (const runner of evidence.runners) {
+  const runners = [
+    ...evidence.runners.map((runner) => ({
+      runner,
+      source: `${evidence.runnerSource} runs ${evidence.suite} with ${runner}`,
+    })),
+    ...fixtureRunners(evidence.suite, programs),
+  ];
+  const sourcesByToolchain = new Map();
+  for (const { runner, source } of runners) {
     const toolchain = toolchainByRunner.get(runner);
-    assert.ok(toolchain, `${contract.id} runs with ${runner}, which has no known toolchain token`);
+    assert.ok(
+      toolchain,
+      `${contract.id} runs with ${runner}, which has no known toolchain token (${source}); map ${runner} to its pinned toolchain in toolchainByRunner`,
+    );
+    const sources = sourcesByToolchain.get(toolchain) ?? new Set();
+    sources.add(source);
+    sourcesByToolchain.set(toolchain, sources);
+  }
+  // An exact list, so that a toolchain which a runner needs cannot go missing, and one which nothing needs cannot stay.
+  for (const [toolchain, sources] of [...sourcesByToolchain].sort(([left], [right]) => left.localeCompare(right))) {
     if (!contract.toolchains.includes(toolchain)) {
-      staleToolchains.push(
-        `${contract.id}.toolchains must list ${toolchain}: ${evidence.runnerSource} runs ${evidence.suite} with ${runner}`,
-      );
+      toolchainDifferences.push(`${contract.id}.toolchains must list ${toolchain}: ${[...sources].join('; ')}`);
+    }
+  }
+  for (const toolchain of contract.toolchains) {
+    if (!sourcesByToolchain.has(toolchain)) {
+      toolchainDifferences.push(`${contract.id}.toolchains lists ${toolchain}, which no discovered runner needs`);
     }
   }
   selected.add(contract.id);
@@ -488,6 +583,10 @@ assert.ok(selected.size > 0, 'selected set must not be empty');
 for (const id of selected) assert.ok(registered.has(id), `selected contract is not registered: ${id}`);
 assertSetEqual(executed, selected, 'executed and selected sets differ');
 // Collected rather than asserted per row so one run names every stale contract.
-assert.deepEqual(staleToolchains, [], `contract toolchains omit the gate runner:\n${staleToolchains.join('\n')}`);
+assert.deepEqual(
+  toolchainDifferences,
+  [],
+  `contract toolchains differ from the discovered runners; make each row of scripts/config/test-contracts.json list exactly the toolchains that its runners need:\n${toolchainDifferences.join('\n')}`,
+);
 
 console.log(`PASS test_contracts contracts=${registered.size} discovered=${discovered.size} selected=${selected.size}`);

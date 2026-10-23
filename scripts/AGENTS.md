@@ -116,6 +116,11 @@ repo-wide guards section.
 When one suite has multiple gate-selected cases, its selector joins the sorted case values with `|`, and
 `expected_min` records the number of distinct invocations.
 
+Each row's `toolchains` must equal the toolchains of its discovered runners: the
+runners that `scripts/ci.mjs` uses for the suite, plus the `#!` interpreter of each
+executable fixture under `scripts/tests/fixtures/` that the suite's files name. A
+missing or an extra toolchain fails with the row id and the evidence.
+
 ### Host-derived resource envelope
 
 `scripts/lib/host-resources.mjs` sizes the gate to the host that actually runs it.
