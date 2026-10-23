@@ -53,6 +53,16 @@ function pullRequest(context, fields) {
   return graphql(context, query, { pr: PR });
 }
 
+// Repository.object for a commit that is associated with the seeded pull request, as the helper reads the pull
+// requests of a commit closer. `fields` is the selection set of the associatedPullRequests connection.
+function associatedPullRequests(context, fields) {
+  context.updateState((state) => {
+    state.commits = [{ oid: OID, associatedPullRequests: [{ number: PR }] }];
+  });
+  const query = `query($owner:String!,$name:String!,$oid:String!){repository(owner:$owner,name:$name){commit:object(expression:$oid){... on Commit{associatedPullRequests(first:100){${fields}}}}}}`;
+  return graphql(context, query, { oid: OID });
+}
+
 test('the fake gh returns only the selected fields of Repository.pullRequest', (t) => {
   const context = planCliContext(t);
   seedPullRequest(context);
@@ -74,15 +84,68 @@ test('the fake gh returns only the selected fields of a pull request closer', (t
   }
 });
 
+test('the fake gh returns only the selected fields of a closer for each aliased timeline connection', (t) => {
+  const context = planCliContext(t);
+  const { number, closer } = context.closedPlan('aliased closers');
+  // Each connection selects other fields of the same close, and GitHub answers each with its own selection.
+  const closures = (fields) => `timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{... on ClosedEvent{${fields}}}}`;
+  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){a:${closures('closer{... on PullRequest{number}}')} b:${closures('createdAt closer{... on PullRequest{url}}')}}}}`;
+  const { issue } = responseData(graphql(context, query, { number })).repository;
+  assert.deepEqual(issue.a, { nodes: [{ closer: { number: closer.number } }] });
+  // The stored close has no time, so the fake gh stamps it with the issue's last update.
+  assert.deepEqual(issue.b, { nodes: [{ createdAt: issue.updatedAt, closer: { url: closer.url } }] });
+});
+
 test('the fake gh returns only the selected fields of the pull requests associated with a commit', (t) => {
   const context = planCliContext(t);
   seedPullRequest(context);
-  context.updateState((state) => {
-    state.commits = [{ oid: OID, associatedPullRequests: [{ number: PR }] }];
-  });
-  const query = `query($owner:String!,$name:String!,$oid:String!){repository(owner:$owner,name:$name){commit:object(expression:$oid){... on Commit{associatedPullRequests(first:100){nodes{number}}}}}}`;
-  const data = responseData(graphql(context, query, { oid: OID }));
+  const data = responseData(associatedPullRequests(context, 'nodes{number}'));
   assert.deepEqual(data.repository.commit.associatedPullRequests.nodes, [{ number: PR }]);
+});
+
+test('the fake gh merges the repeated node selections of a connection', (t) => {
+  const context = planCliContext(t);
+  seedPullRequest(context);
+  const data = responseData(associatedPullRequests(context, 'nodes{number} nodes{url}'));
+  assert.deepEqual(data.repository.commit.associatedPullRequests, { nodes: [{ number: PR, url: PR_URL }] });
+});
+
+test('the fake gh gives the repository of a pull request its type', (t) => {
+  const context = planCliContext(t);
+  seedPullRequest(context);
+  const data = responseData(pullRequest(context, 'repository{__typename ... on Repository{nameWithOwner}}'));
+  assert.deepEqual(data.repository.pullRequest, {
+    repository: { __typename: 'Repository', nameWithOwner: 'DocksDocks/fixture' },
+  });
+});
+
+test('the fake gh merges the repeated selections of an object field', (t) => {
+  const context = planCliContext(t);
+  seedPullRequest(context);
+  const repository = { a: 'DocksDocks/fixture', b: 'DocksDocks/fixture' };
+  const data = responseData(pullRequest(context, 'repository{a:nameWithOwner} repository{b:nameWithOwner}'));
+  assert.deepEqual(data.repository.pullRequest, { repository });
+  // The selections also merge when two selections of the parent field hold them.
+  const nested = responseData(
+    associatedPullRequests(context, 'nodes{repository{a:nameWithOwner}} nodes{repository{b:nameWithOwner}}'),
+  );
+  assert.deepEqual(nested.repository.commit.associatedPullRequests, { nodes: [{ repository }] });
+});
+
+test('the fake gh refuses an object field without subfields', (t) => {
+  const context = planCliContext(t);
+  seedPullRequest(context);
+  // The bare field is in the selection set of the pull request, and also in the second of two `nodes` selections.
+  for (const result of [
+    pullRequest(context, 'number repository'),
+    associatedPullRequests(context, 'nodes{number} nodes{repository}'),
+  ]) {
+    assert.equal(result.status, 1);
+    assert.equal(
+      result.stderr,
+      "Field must have selections (field 'repository' has no selections. Did you mean 'repository { ... }'?)\n",
+    );
+  }
 });
 
 test('the fake gh returns an aliased pull request field only under its alias', (t) => {
