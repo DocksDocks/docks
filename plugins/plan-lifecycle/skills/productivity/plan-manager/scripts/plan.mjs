@@ -744,10 +744,11 @@ const severeFinding = (text) =>
   /^(?:critical|high)\s*:/i.test(text) ||
   /^severity\s*:\s*(?:critical|high)\b/i.test(text);
 // One comment can hold several blocks of the same kind, such as the lens blocks of one code-review round (#98).
-// A block starts at the first line or at a later Markdown heading that names the comment's review kind. Its verdict
-// is its first verdict line of that kind; later verdict-like lines are prose, such as a quoted verdict of an earlier
-// round. The most severe block verdict wins, so no block can hide another's failure.
-const REVIEW_BLOCK_HEADING = /^#+\s*(plan|code) review/i;
+// A block starts at the first line or at a later Markdown heading line that names the comment's review kind. A
+// quoted or list-item heading is prose, so a block that quotes an earlier round cannot open a block of its own. A
+// block's verdict is its first verdict line of that kind; later verdict-like lines are prose, such as a quoted
+// verdict of an earlier round. The most severe block verdict wins, so no block can hide another's failure.
+const REVIEW_BLOCK_HEADING = /^ {0,3}#+\s*(plan|code) review/i;
 const VERDICT_SEVERITY = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
 function verdictFor(kind, alias) {
   if (['pass', 'ok', 'approved'].includes(alias)) return 'pass';
@@ -756,13 +757,16 @@ function verdictFor(kind, alias) {
 }
 export function parseReviewComment(body) {
   if (typeof body !== 'string') return undefined;
-  const lines = body.trim().split(/\r?\n/).map(reviewText);
+  const rawLines = body.trim().split(/\r?\n/);
+  const lines = rawLines.map(reviewText);
   const heading = REVIEW_HEADING.exec(lines[0]);
   if (!heading) return undefined;
   const kind = heading[1].toLowerCase();
   const blocks = [[]];
-  for (const line of lines.slice(1)) {
-    if (REVIEW_BLOCK_HEADING.exec(line)?.[1].toLowerCase() === kind) blocks.push([]);
+  for (const [index, line] of lines.entries()) {
+    if (index === 0) continue;
+    const blockHeading = REVIEW_BLOCK_HEADING.exec(rawLines[index].replace(/[*_`]/g, ''));
+    if (blockHeading?.[1].toLowerCase() === kind) blocks.push([]);
     else blocks.at(-1).push(line);
   }
   const firstVerdict = (block) =>
