@@ -794,7 +794,7 @@ function readPlanIssue(value, forWrite = false, connections = {}) {
     // The write claims an unassigned plan for the acting viewer.
     if (!owners.length) issue.claimantId = viewerId;
   }
-  return { issue, parsed: parsePlan(issue.body), status: statusFromIssue(issue), labelIds };
+  return { issue, parsed: parsePlan(issue.body), status: statusFromIssue(issue), labelIds, login, viewerId };
 }
 function createPlan(args) {
   const options = parseOptions(args, new Set(['--title', '--goal', '--mode', '--label']), new Set(['--label']));
@@ -1133,11 +1133,16 @@ function closedByPullRequest(issue, pullRequest) {
     );
   return true;
 }
-// One write request reopens the plan, posts the contract comment, and claims an unassigned plan. Its last field
-// returns the stored state, which shows whether GitHub left the plan stuck.
-function writeReopen(issue, pr) {
-  const { id } = preWriteIssue(issue.number);
-  const claims = issue.claimantId !== undefined;
+// One write request reopens the plan, posts the contract comment, and claims an unassigned plan. A reopen compares no
+// body, so the pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and
+// the claim follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
+function writeReopen({ issue, login, viewerId }, pr) {
+  const { id, assignees } = preWriteIssue(issue.number);
+  if (assignees.some((owner) => typeof owner.login !== 'string' || !owner.login))
+    fail('gh issue view returned malformed plan issue');
+  const foreign = assignees.find((owner) => owner.login !== login);
+  if (foreign) fail(`plan #${issue.number} is owned by ${foreign.login}`);
+  const claims = assignees.length === 0;
   const stored = '{... on Issue{state stateReason}}';
   const fields = [
     'reopenIssue(input:{issueId:$issue}){clientMutationId}',
@@ -1154,7 +1159,7 @@ function writeReopen(issue, pr) {
       `issue=${id}`,
       '-f',
       `body=Reopened: partial pull request #${pr} closed this plan through its linked branch. Work continues.`,
-      ...(claims ? ['-f', `assignees[]=${issue.claimantId}`] : []),
+      ...(claims ? ['-f', `assignees[]=${viewerId}`] : []),
     ]);
   } catch (error) {
     // GitHub answers the reopen of a stuck plan with "Could not reopen the issue." (#90); the request is not retried.
@@ -1217,7 +1222,7 @@ function reopenPlan(args) {
     console.log(`plan #${number} is open: ${current.status}`);
     return;
   }
-  writeReopen(current.issue, pullRequest.number);
+  writeReopen(current, pullRequest.number);
 }
 function main([command, ...args]) {
   const commands = {

@@ -299,3 +299,23 @@ test('reopen refuses a plan that another login claims during the settle wait', (
   });
   assert.deepEqual(context.writes(), []);
 });
+
+test('reopen refuses a plan that another login claims after the settle-wait read, right before the write', (t) => {
+  const context = planCliContext(t);
+  const plan = context.partialMerge('claimed before the write');
+  // The claim lands after the read that follows the settle wait, so only the pre-write read can see it.
+  context.schedule(
+    plan.number,
+    { afterReads: 0, ...closedBy(plan.closer) },
+    { afterReads: 2, assignees: ['other-agent'] },
+  );
+  refuse(reopen(context, plan), `plan #${plan.number} is owned by other-agent`);
+  assert.deepEqual(context.waits(), [SETTLE_WAIT]);
+  assert.deepEqual(stored(context, plan.number), {
+    ...ONGOING,
+    state: 'CLOSED',
+    stateReason: 'COMPLETED',
+    assignees: ['other-agent'],
+  });
+  assert.deepEqual(context.writes(), []);
+});

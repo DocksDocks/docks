@@ -873,6 +873,8 @@ if (group === 'issue' && command === 'view') {
   const issue = issueByNumber(number);
   validateJsonFields(value('--json'), ISSUE_JSON_FIELDS);
   observeIssue(issue);
+  // `issue view` is not a GraphQL read, so it lands due changes without counting toward `afterReads`.
+  applyDueChanges(issue);
   // Real gh reads `labels(first:100)` for `issue view` (cli/cli api/query_builder.go), so it never
   // returns a label past the first 100.
   const view = issueJson(issue);
