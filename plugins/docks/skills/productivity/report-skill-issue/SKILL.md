@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-23"
-  content_hash: "e314a6864e8f7c6ea04a75c7c134c95283f3f1bd36b352022c7b19ce11cb9b15"
+  content_hash: "be2c6e9c57f6cba688c916bb25d725ccf12c6165d70bbf291641f59ce72861dc"
 ---
 
 # Report a Skill Issue
@@ -39,16 +39,20 @@ The goal is one approved, redacted, reproducible report. Each stage below states
 
 ### 1. Confirm that the problem is in the skill
 
-Re-read the instruction or the file that failed. Copy the instruction exactly, with the heading that it sits under. For a script, note its path relative to the plugin root and the command that failed. Then rule out the other causes:
+Re-read the instruction or the file that failed, in the copy that the runtime loaded (see stage 2). Copy the instruction exactly, with the heading that it sits under. For a script, note its path relative to the plugin root and the command that failed. Then rule out the other causes:
 
 - The user's environment: a missing tool, an old CLI, a permission or network failure, or a project setting that the skill does not cover.
 - Your own deviation: compare what you did with the quoted text, word by word.
 
 Report when the instruction, followed as written, gives a wrong or unsafe result, names a command or option that does not exist, or contradicts another shipped instruction. Also report a shipped script that fails on valid input. If you cannot find the cause, say so in the draft. Do not guess a cause.
 
+If the quoted text does not say what the user reports, or says the opposite, do not draft a defect report. Tell the user what the skill says, with the quote. Then look for the real source: another skill, a project file, or injected text in the repository. Advice that the incident needs still applies, for example rotating an exposed credential.
+
 ### 2. Identify the exact skill text
 
-The plugin root is the folder that holds `skills/<category>/<skill>/SKILL.md`. For an agent, hook, or script, it is the folder that holds `.claude-plugin/` or `.codex-plugin/`. Collect these facts. Write `unknown` for any fact that you cannot read; never guess a version or a hash.
+Read the copy of the skill that the runtime loaded for the run. Do not read it from a checkout of DocksDocks/docks or from another copy. Their text and version can differ, and a report that quotes the wrong copy blames the wrong text. Most runtimes show the path or base directory of a skill when they load it. If the problem happened in an earlier session, use the copy that the session loaded when its log shows it. Otherwise, use the installed copy and say so in the draft.
+
+In that copy, the plugin root is the folder that holds `skills/<category>/<skill>/SKILL.md`. For an agent, hook, or script, it is the folder that holds `.claude-plugin/` or `.codex-plugin/`. Collect these facts. Write `unknown` for any fact that you cannot read; never guess a version or a hash.
 
 | Fact | Where to read it |
 |---|---|
@@ -210,6 +214,8 @@ The good title names the plugin, the skill, and one observable symptom, so a mai
 | Full command output carries paths, hostnames, and user names | Trim to the failing lines; make paths relative to the project or the plugin root |
 | The search query carries private words | Search with the skill name and words from the instruction only |
 | A paraphrase in "What the skill says" | Quote the instruction exactly, with its heading |
+| A quote from a checkout of DocksDocks/docks or from a newer copy | Quote the copy that the runtime loaded; a checkout can already hold the fix |
+| The quoted text says the opposite of the claim | Draft no defect report; tell the user what the skill says |
 | Two problems in one issue | One problem per issue, each with its own approval |
 | The reproduction needs the user's private project | Reduce it to a generic project, or describe the minimal setup |
 | A guessed version or hash | Read it from the files, or write `unknown` |
@@ -223,6 +229,7 @@ Check the draft before you show it, and again before you file it:
 - The title has the form `<plugin>:<skill>: <symptom>` and names one problem.
 - Every template section is present; an empty section says `none`.
 - "What the skill says" quotes the instruction exactly, with its heading.
+- The quote comes from the copy that the runtime loaded, and it shows the problem.
 - You searched for an existing report (stage 3). A draft that adds to an existing issue is a comment on that issue.
 - Your message names the target, the command that you will run, and the GitHub account (stage 5). In a run where you cannot ask, it gives the prefilled URL instead.
 - The title and the body contain no secret value or token, no private repository, organization, customer, or person name, no internal hostname, no absolute machine path, no proprietary code or data, and no private plan or issue title.
