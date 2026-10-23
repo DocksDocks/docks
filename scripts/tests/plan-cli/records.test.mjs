@@ -59,6 +59,27 @@ test('edit writes the normalized body to the remote issue and to the export prov
   );
 });
 
+test('edit stores a body that quotes gh placeholder tokens unchanged, in one mutation request (#89)', (t) => {
+  const { run, loadState, issue, createPlan, exported } = planCliContext(t);
+  // The body travels as a gh `@file` field; gh would type-convert and placeholder-fill a plain -F value.
+  const quoting = createPlan('placeholder tokens');
+  const quoted = 'Run `gh api repos/{owner}/{repo}/branches/{branch}` or `gh api repos/:owner/:repo`.';
+  const file = exported(quoting);
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('Not run.', quoted));
+  const callsBefore = loadState().calls.length;
+  expectSuccess(run('edit', String(quoting), '--file', file), 'edit a body that quotes placeholder tokens');
+  const editCalls = loadState().calls.slice(callsBefore);
+  assert.deepEqual(
+    editCalls.map((call) => call.slice(0, 2).join(' ')),
+    ['api graphql', 'issue view', 'api graphql'],
+    'an edit sends the snapshot, the pre-write read, and one mutation request',
+  );
+  assert.equal(issue(quoting).body, body().replace('Not run.', quoted), 'the stored body keeps every token');
+  const shown = run('show', String(quoting), '--body');
+  expectSuccess(shown, 'show the body that quotes placeholder tokens');
+  assert.equal(shown.stdout, issue(quoting).body, 'show reads the stored body back unchanged');
+});
+
 test('machine path advice names each distinct machine path and skips routes, portable paths, and slash text', () => {
   // Machine path advice names each distinct path into a home, a mount, a named temporary or runtime directory,
   // a Windows drive, or a network share. URL routes, portable system paths, and slash text get none (#71).

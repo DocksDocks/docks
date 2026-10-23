@@ -14,12 +14,18 @@ const STEPS_SEPARATOR = '|---:|---|---|---|---|---|---|---|';
 const ACCEPTANCE_HEADER = '| ID | Command | Expected |';
 const ACCEPTANCE_SEPARATOR = '|---|---|---|';
 const PLAN_LABELS = ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked'];
-const ISSUE_FIELDS = 'number,title,body,state,stateReason,labels,assignees,url,createdAt,updatedAt';
 const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (the GraphQL viewer.login lookup returned nothing)';
 const PAGE_INFO = 'pageInfo{hasNextPage endCursor}';
 const PULL_REQUEST_FIELDS = 'number url state mergedAt baseRefName repository{nameWithOwner}';
 const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
-const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name}`).join(' ');
+const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name id}`);
+// The pre-write read returns the body to compare and the node ids that the write mutation needs.
+const PRE_WRITE_FIELDS = 'id,body,updatedAt,labels,assignees';
+// The last field of a write mutation returns the stored state that the post-write checks read.
+const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}} assignees(first:100){nodes{login}}`;
+// `list` reads the newest plans first, as `gh issue list` did, so the 500-plan cap keeps the same plans.
+const PLAN_LIST_ARGS = ',labels:["plan"],states:[OPEN,CLOSED],orderBy:{field:CREATED_AT,direction:DESC}';
+const PLAN_LIST_FIELDS = 'number title state stateReason labels(first:100){nodes{name}}';
 const GH_MAX_BUFFER_MIB = 256;
 const PLAN_LIST_LIMIT = 500;
 // A machine path points into a user or root home, a mount, a named temporary or runtime directory,
@@ -61,15 +67,19 @@ function runGh(argv) {
   }
   return result.stdout;
 }
-function graphql(query, variables = {}) {
-  const argv = ['api', 'graphql', '-f', `query=${query}`, '-F', 'owner={owner}', '-F', 'name={repo}'];
-  for (const [key, value] of Object.entries(variables)) argv.push('-F', `${key}=${value}`);
-  const response = parseJson(runGh(argv), 'gh api graphql');
+// Run `gh api graphql` with the given fields and return the response data.
+function graphqlData(fields) {
+  const response = parseJson(runGh(['api', 'graphql', ...fields]), 'gh api graphql');
   if (!response || (response.errors !== undefined && (!Array.isArray(response.errors) || response.errors.length))) {
     fail(`gh api graphql returned errors: ${response?.errors?.[0]?.message ?? 'malformed errors'}`);
   }
   if (!response.data || typeof response.data !== 'object') fail('gh api graphql returned missing data');
   return response.data;
+}
+function graphql(query, variables = {}) {
+  const fields = ['-f', `query=${query}`, '-F', 'owner={owner}', '-F', 'name={repo}'];
+  for (const [key, value] of Object.entries(variables)) fields.push('-F', `${key}=${value}`);
+  return graphqlData(fields);
 }
 function parseJson(output, command) {
   try {
@@ -86,7 +96,7 @@ function issueConnectionSelection(field, nodeFields, extraArgs = '', after = fal
   return `${field}(first:100${after ? ',after:$after' : ''}${extraArgs}){nodes{${nodeFields}} ${PAGE_INFO}}`;
 }
 
-function connectionNodes(initial, name, nextPage) {
+function connectionNodes(initial, name, nextPage, limit = Infinity) {
   const nodes = [];
   const seen = new Set();
   let connection = initial;
@@ -102,7 +112,7 @@ function connectionNodes(initial, name, nextPage) {
     )
       fail(`gh api graphql returned malformed ${name}`);
     nodes.push(...connection.nodes);
-    if (!connection.pageInfo.hasNextPage) return nodes;
+    if (!connection.pageInfo.hasNextPage || nodes.length >= limit) return nodes;
     const cursor = connection.pageInfo.endCursor;
     if (typeof cursor !== 'string' || !cursor || seen.has(cursor))
       fail(`gh api graphql returned malformed ${name} cursor`);
@@ -177,7 +187,7 @@ function readSnapshot(
             ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}`
             : '',
         ].join(' ');
-  const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
+  const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS.join(' ') : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
   const data = graphql(query, number === undefined ? {} : { number });
   const repo = data.repository;
   if (
@@ -189,19 +199,25 @@ function readSnapshot(
     fail('gh api graphql returned malformed repository');
   repository = repo;
   const login = data.viewer?.login;
+  const viewerId = data.viewer?.id;
   if (acting && (typeof login !== 'string' || !login.trim())) fail(ACTING_LOGIN_ERROR);
+  if (acting && (typeof viewerId !== 'string' || !viewerId)) fail('gh api graphql returned malformed viewer');
+  // Each plan label name maps to its node id, or to null when the repository lacks the label.
+  let labelIds;
   if (labelLookup) {
-    const missingLabels = [];
+    labelIds = new Map();
     for (const name of PLAN_LABELS) {
       const label = repo[name.split(':').at(-1)];
-      if (label === undefined) fail('gh api graphql returned malformed repository labels');
-      if (label === null) missingLabels.push(name);
-      else if (typeof label.name !== 'string' || token(label.name) !== name)
+      if (
+        label === undefined ||
+        (label !== null &&
+          (typeof label.name !== 'string' || token(label.name) !== name || typeof label.id !== 'string' || !label.id))
+      )
         fail('gh api graphql returned malformed repository labels');
+      labelIds.set(name, label?.id ?? null);
     }
-    return { missingLabels };
   }
-  if (number === undefined) return {};
+  if (number === undefined) return { labelIds };
   const issue = repo.issue;
   if (
     !issue ||
@@ -262,15 +278,12 @@ function readSnapshot(
     }
     issue.closer = closer;
   }
-  return { issue, login };
+  return { issue, login, viewerId, labelIds };
 }
 function parseIssueNumber(value) {
   const match = /^#?([1-9]\d*)$/.exec(String(value ?? ''));
   if (!match) fail(`invalid plan issue: ${value ?? '(missing)'}`);
   return Number(match[1]);
-}
-function issueView(number, fields = ISSUE_FIELDS, repo = repository.nameWithOwner) {
-  return parseJson(runGh(['issue', 'view', String(number), '--json', fields, '--repo', repo]), 'gh issue view');
 }
 function workStarted(issue, recordStatus) {
   if (recordStatus !== 'drafting' && recordStatus !== 'planned') return true;
@@ -297,44 +310,105 @@ function withBodyFile(body, callback) {
     fs.rmSync(temporary, { force: true });
   }
 }
-function editIssueBodyIfUnchanged(issue, after, labels = {}) {
-  const current = issueView(issue.number, 'body,updatedAt');
-  if (current.body !== issue.body) fail('plan issue changed remotely; re-read and retry');
-  withBodyFile(after, (bodyFile) => {
-    const argv = ['issue', 'edit', String(issue.number), '--body-file', bodyFile];
-    if (Object.hasOwn(issue, 'claimLogin')) {
-      if (!issue.claimLogin) fail(ACTING_LOGIN_ERROR);
-      argv.push('--add-assignee', '@me');
-    }
-    if (labels.add) argv.push('--add-label', labels.add);
-    for (const label of labels.remove ?? []) argv.push('--remove-label', label);
-    argv.push('--repo', repository.nameWithOwner);
-    runGh(argv);
-  });
-  const stored = issueView(issue.number, 'body,updatedAt');
-  if (stored.body !== after) fail('plan issue body differs after edit');
+// The pre-write read: the issue as GitHub stores it now, with the node ids that the write mutation needs.
+function preWriteIssue(number) {
+  const current = parseJson(
+    runGh(['issue', 'view', String(number), '--json', PRE_WRITE_FIELDS, '--repo', repository.nameWithOwner]),
+    'gh issue view',
+  );
+  const hasId = (node) => typeof node?.id === 'string' && node.id !== '';
+  if (
+    !hasId(current) ||
+    typeof current.body !== 'string' ||
+    !Array.isArray(current.labels) ||
+    !Array.isArray(current.assignees) ||
+    !current.labels.every((label) => hasId(label) && typeof label.name === 'string') ||
+    !current.assignees.every(hasId)
+  )
+    fail('gh issue view returned malformed plan issue');
+  return current;
 }
-function editIssueLabelsIfBodyUnchanged(issue, labels) {
-  const remove = labels.remove ?? [];
-  const claims = Object.hasOwn(issue, 'claimLogin');
-  if (remove.length === 0 && !labels.add && !claims) return;
-  const current = issueView(issue.number, 'body,updatedAt');
+// A status write can target a phase label that the repository lacks: create it as `new` does, then read its id.
+function createdLabelId(name) {
+  runGh(['label', 'create', name, '--repo', repository.nameWithOwner]);
+  const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){label(name:${JSON.stringify(name)}){name id}}}`;
+  const label = graphql(query).repository?.label;
+  if (typeof label?.name !== 'string' || token(label.name) !== name || typeof label.id !== 'string' || !label.id)
+    fail('gh api graphql returned malformed repository labels');
+  return label.id;
+}
+// A write is the pre-write read plus one GraphQL request (#89). GitHub runs its mutation fields in order:
+// updateIssue first, so the body and the claim of an unassigned plan land in one write; then discrete label
+// additions and removals, so a label that someone else adds meanwhile survives. The last field returns the
+// stored state, which the post-write checks read.
+function writeIssueIfUnchanged(issue, { body, add, remove = [], labelIds } = {}) {
+  const claims = issue.claimantId !== undefined;
+  if (body === undefined && !add && remove.length === 0 && !claims) return;
+  const current = preWriteIssue(issue.number);
   if (current.body !== issue.body) fail('plan issue changed remotely; re-read and retry');
-  const argv = ['issue', 'edit', String(issue.number)];
-  if (claims) {
-    if (!issue.claimLogin) fail(ACTING_LOGIN_ERROR);
-    argv.push('--add-assignee', '@me');
-  }
-  if (labels.add) argv.push('--add-label', labels.add);
-  for (const label of remove) argv.push('--remove-label', label);
-  argv.push('--repo', repository.nameWithOwner);
-  runGh(argv);
-  if (remove.length > 0 || labels.add) {
-    const stored = labelNames(issueView(issue.number, 'labels').labels);
-    if ((labels.add && !stored.includes(labels.add)) || remove.some((label) => stored.includes(token(label)))) {
-      fail('plan issue labels differ after edit');
+  const idLists = [];
+  const fields = [];
+  if (body !== undefined || claims) {
+    const input = ['id:$issue'];
+    if (body !== undefined) input.push('body:$body');
+    if (claims) {
+      idLists.push(['assignees', [...new Set([...current.assignees.map((owner) => owner.id), issue.claimantId])]]);
+      input.push('assigneeIds:$assignees');
     }
+    fields.push({ mutation: 'updateIssue', input: input.join(','), payload: 'issue' });
   }
+  if (add) {
+    idLists.push(['add', [labelIds.get(add) ?? createdLabelId(add)]]);
+    fields.push({ mutation: 'addLabelsToLabelable', input: 'labelableId:$issue,labelIds:$add', payload: 'labelable' });
+  }
+  const removed = new Set(remove.map(token));
+  const removeIds = current.labels.filter((label) => removed.has(token(label.name))).map((label) => label.id);
+  if (removeIds.length) {
+    idLists.push(['remove', removeIds]);
+    fields.push({
+      mutation: 'removeLabelsFromLabelable',
+      input: 'labelableId:$issue,labelIds:$remove',
+      payload: 'labelable',
+    });
+  }
+  // Nothing left to change: the pre-write read already shows every label to remove as absent.
+  if (!fields.length) return;
+  const declarations = [
+    '$issue:ID!',
+    ...(body === undefined ? [] : ['$body:String!']),
+    ...idLists.map(([name]) => `$${name}:[ID!]!`),
+  ];
+  const selections = fields.map(({ mutation, input, payload }, index) => {
+    const stored =
+      payload === 'issue' ? `issue{${STORED_ISSUE_FIELDS}}` : `labelable{... on Issue{${STORED_ISSUE_FIELDS}}}`;
+    return `${mutation}(input:{${input}}){${index === fields.length - 1 ? stored : 'clientMutationId'}}`;
+  });
+  const send = (bodyFile) =>
+    graphqlData([
+      '-f',
+      `query=mutation(${declarations.join(',')}){${selections.join(' ')}}`,
+      '-f',
+      `issue=${current.id}`,
+      // gh passes an @file field byte for byte; any other -F value gets type conversion and placeholder filling.
+      ...(bodyFile === undefined ? [] : ['-F', `body=@${bodyFile}`]),
+      ...idLists.flatMap(([name, ids]) => ids.flatMap((id) => ['-f', `${name}[]=${id}`])),
+    ]);
+  const data = body === undefined ? send() : withBodyFile(body, send);
+  const last = fields.at(-1);
+  const stored = data[last.mutation]?.[last.payload];
+  if (
+    typeof stored?.body !== 'string' ||
+    !Array.isArray(stored.labels?.nodes) ||
+    !Array.isArray(stored.assignees?.nodes)
+  )
+    fail('gh api graphql returned malformed stored plan issue');
+  if (body !== undefined && stored.body !== body) fail('plan issue body differs after edit');
+  if (!add && remove.length === 0) return;
+  const storedLabels = issueNodes(issue.number, stored.labels, 'labels', 'name');
+  if (storedLabels.some((label) => typeof label.name !== 'string')) fail('gh api graphql returned malformed labels');
+  const labels = labelNames(storedLabels);
+  if ((add && !labels.includes(add)) || remove.some((label) => labels.includes(token(label))))
+    fail('plan issue labels differ after edit');
 }
 function parseOptions(args, allowed, repeatable = new Set()) {
   const options = {};
@@ -523,7 +597,13 @@ function replaceTable(sections, name, header, separator, rows) {
 // Steps that edit the same path need a Depends order, or parallel work collides (#78).
 function sharedFilesAdvice(rows) {
   const paths = rows.map(
-    (row) => new Set(row[3].split(',').map((part) => unquoteCode(part.trim())).filter((part) => part && part !== '-')),
+    (row) =>
+      new Set(
+        row[3]
+          .split(',')
+          .map((part) => unquoteCode(part.trim()))
+          .filter((part) => part && part !== '-'),
+      ),
   );
   const dependencies = new Map(
     rows.map((row) => [row[0], row[4] === '-' ? [] : row[4].split(',').map((part) => part.trim())]),
@@ -628,7 +708,8 @@ function researchFilled(plan) {
 }
 function printAdvice(text, status, extra = [], options = {}) {
   const result = normalizePlan(text, options);
-  if (status !== 'drafting' && !researchFilled(parsePlan(text))) result.advice.push('Research is not filled after drafting.');
+  if (status !== 'drafting' && !researchFilled(parsePlan(text)))
+    result.advice.push('Research is not filled after drafting.');
   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
 }
 // A plan-review pass covers the body that the reviewer read (#78).
@@ -690,23 +771,28 @@ function reviewVerdicts(issue) {
   return verdicts;
 }
 function readPlanIssue(value, forWrite = false, connections = {}) {
-  const { issue, login } = readSnapshot(parseIssueNumber(value), { acting: forWrite, ...connections });
+  const { issue, login, viewerId, labelIds } = readSnapshot(parseIssueNumber(value), {
+    acting: forWrite,
+    ...connections,
+  });
   if (!/^\s*<!-- plan-contract: v[34] -->/i.test(issue.body)) fail(`unreadable plan contract: #${issue.number}`);
   if (forWrite) {
     const owners = issue.assignees.map((owner) => owner.login);
     const foreign = owners.find((owner) => owner !== login);
     if (foreign) fail(`plan #${issue.number} is owned by ${foreign}`);
-    if (!owners.length) issue.claimLogin = login;
+    // The write claims an unassigned plan for the acting viewer.
+    if (!owners.length) issue.claimantId = viewerId;
   }
-  return { issue, parsed: parsePlan(issue.body), status: statusFromIssue(issue) };
+  return { issue, parsed: parsePlan(issue.body), status: statusFromIssue(issue), labelIds };
 }
 function createPlan(args) {
   const options = parseOptions(args, new Set(['--title', '--goal', '--mode', '--label']), new Set(['--label']));
   if (!options['--title']?.trim() || !options['--goal']?.trim()) fail('new requires --title and --goal');
   const extras = options['--label'] ?? [];
   for (const label of extras) if (/^plan(?::|$)/i.test(label)) fail(`reserved label namespace: ${label}`);
-  const { missingLabels } = readSnapshot(undefined, { acting: true, labelLookup: true });
-  for (const label of missingLabels) runGh(['label', 'create', label, '--repo', repository.nameWithOwner]);
+  const { labelIds } = readSnapshot(undefined, { acting: true, labelLookup: true });
+  for (const [label, id] of labelIds)
+    if (id === null) runGh(['label', 'create', label, '--repo', repository.nameWithOwner]);
   const goalText = blankFencedRegions(options['--goal'])
     .split('\n')
     .map((masked, index) => {
@@ -817,7 +903,7 @@ function editPlan(args) {
     });
   }
   fs.writeFileSync(file, body);
-  editIssueBodyIfUnchanged(issue, body);
+  writeIssueIfUnchanged(issue, { body });
   // Refresh provenance only after the remote write, so a failed write can be retried with the same file (#78).
   fs.writeFileSync(originFile(file), `${bodyDigest(body)}\n`, { mode: 0o600 });
   fs.chmodSync(originFile(file), 0o600);
@@ -840,7 +926,7 @@ function setPlanStatus(args) {
   if (!PLAN_STATUSES.has(target)) fail(`unknown plan status: ${target}`);
   if (target === 'blocked' && (!options['--reason']?.trim() || /[\r\n]/.test(options['--reason'])))
     fail('blocked status requires --reason as single-line text');
-  const { issue, parsed, status } = readPlanIssue(value, true, { history: true });
+  const { issue, parsed, status, labelIds } = readPlanIssue(value, true, { history: true, labelLookup: true });
   if (String(issue.state).toUpperCase() === 'CLOSED')
     fail(`plan #${issue.number} is closed; status applies to open plans`);
   if (workStarted(issue, status) && !['ongoing', 'blocked'].includes(target))
@@ -853,9 +939,11 @@ function setPlanStatus(args) {
     `${target === 'blocked' ? `Blocked: ${options['--reason']}\n\n` : ''}${content}`.trim(),
   );
   const source = render(parsed.sections);
-  editIssueBodyIfUnchanged(issue, normalizePlan(source).body, {
+  writeIssueIfUnchanged(issue, {
+    body: normalizePlan(source).body,
     add: `plan:${target}`,
     remove: labelsToRemove(issue, target),
+    labelIds,
   });
   console.log(`plan #${issue.number} status: ${status} -> ${target}`);
   printAdvice(issue.body, target);
@@ -891,30 +979,29 @@ function setStepStatus(args) {
     parsed.steps.map((step) => Object.values(step)),
   );
   const source = render(parsed.sections);
-  editIssueBodyIfUnchanged(issue, normalizePlan(source).body);
+  writeIssueIfUnchanged(issue, { body: normalizePlan(source).body });
   console.log(`plan #${issue.number} step ${row.id}: ${current} -> ${target}`);
   printAdvice(source, status, advice);
 }
 function listPlans(args) {
   const selected = parseOptions(args, new Set(['--status']))['--status'];
-  const issues = parseJson(
-    runGh([
-      'issue',
-      'list',
-      '--label',
-      'plan',
-      '--state',
-      'all',
-      '--limit',
-      String(PLAN_LIST_LIMIT),
-      '--json',
-      ISSUE_FIELDS.replace('body,', ''),
-      '--repo',
-      repository.nameWithOwner,
-    ]),
-    'gh issue list',
-  );
-  if (!Array.isArray(issues)) fail('gh issue list returned malformed issues');
+  // One GraphQL query per 100 plans; like every snapshot, it names the repository through gh's {owner}/{repo}.
+  const query = `query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){${issueConnectionSelection('issues', PLAN_LIST_FIELDS, PLAN_LIST_ARGS, true)}}}`;
+  const page = (variables) => graphql(query, variables).repository?.issues;
+  const nodes = connectionNodes(page(), 'plan issues', (after) => page({ after }), PLAN_LIST_LIMIT);
+  if (
+    nodes.some(
+      (issue) =>
+        !Number.isInteger(issue.number) ||
+        typeof issue.title !== 'string' ||
+        typeof issue.state !== 'string' ||
+        (issue.stateReason !== null && typeof issue.stateReason !== 'string') ||
+        !Array.isArray(issue.labels?.nodes) ||
+        issue.labels.nodes.some((label) => typeof label?.name !== 'string'),
+    )
+  )
+    fail('gh api graphql returned malformed plan issues');
+  const issues = nodes.slice(0, PLAN_LIST_LIMIT).map((issue) => ({ ...issue, labels: issue.labels.nodes }));
   issues.sort(
     (a, b) =>
       Number(a.state.toUpperCase() === 'CLOSED') - Number(b.state.toUpperCase() === 'CLOSED') || a.number - b.number,
@@ -959,7 +1046,7 @@ function archivePlan(args, retired = false) {
     if (!closer)
       fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
   }
-  editIssueLabelsIfBodyUnchanged(issue, { remove: labelsToRemove(issue) });
+  writeIssueIfUnchanged(issue, { remove: labelsToRemove(issue) });
   if (retired)
     runGh([
       'issue',
@@ -993,7 +1080,6 @@ function main([command, ...args]) {
   if (!Object.hasOwn(commands, command))
     fail('usage: plan.mjs <new|show|export|edit|status|step|list|archive|retire> ...');
   repository = undefined;
-  if (command === 'list') readSnapshot();
   commands[command](args);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

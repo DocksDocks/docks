@@ -84,6 +84,18 @@ test('a phase label beyond the first label page is read and replaced, and other 
   );
 });
 
+test('status creates a phase label that the repository lacks and applies it', (t) => {
+  const { run, loadState, updateState, issue, createPlan } = planCliContext(t);
+  // The target phase label can be missing, for example after someone deleted it from the repository.
+  const unlabelled = createPlan('missing phase label');
+  updateState((state) => {
+    delete state.labels['plan:planned'];
+  });
+  expectSuccess(run('status', String(unlabelled), 'planned'), 'status with a missing phase label');
+  assert.ok(Object.hasOwn(loadState().labels, 'plan:planned'), 'the status write creates the missing label');
+  assert.deepEqual(issue(unlabelled).labels, ['plan', 'plan:planned']);
+});
+
 test('step refuses to reopen a terminal row', (t) => {
   const { run, issue, createPlan } = planCliContext(t);
   // A terminal row cannot be reopened by the step command.

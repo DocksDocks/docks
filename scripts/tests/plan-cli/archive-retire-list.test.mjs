@@ -102,7 +102,7 @@ test('retire repairs labels before it closes the issue, and list filters open an
   });
   refuse(
     run('retire', String(retiring), '--reason', 'No longer needed'),
-    'gh issue edit failed: label removal unavailable',
+    'gh api graphql failed: label removal unavailable',
   );
   assert.equal(issue(retiring).state, 'OPEN', 'a failed label repair cannot close the issue');
   assert.deepEqual(issue(retiring).labels, ['plan', 'plan:drafting']);

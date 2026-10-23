@@ -93,7 +93,7 @@ test('a failed remote edit keeps the export valid, so a retry with the same file
     state.issueEditError = transientError;
   });
   const failedEdit = run('edit', String(retried), '--file', retryFile);
-  refuse(failedEdit, `gh issue edit failed: ${transientError}`);
+  refuse(failedEdit, `gh api graphql failed: ${transientError}`);
   assert.equal(failedEdit.stdout, '', 'a failed edit prints no result');
   updateState((state) => {
     delete state.issueEditError;
