@@ -744,7 +744,10 @@ const severeFinding = (text) =>
   /^(?:critical|high)\s*:/i.test(text) ||
   /^severity\s*:\s*(?:critical|high)\b/i.test(text);
 // One comment can hold several blocks of the same kind, such as the lens blocks of one code-review round (#98).
-// Every verdict line of that kind counts, and the most severe verdict wins, so no block can hide another's failure.
+// A block starts at the first line or at a later Markdown heading that names the comment's review kind. Its verdict
+// is its first verdict line of that kind; later verdict-like lines are prose, such as a quoted verdict of an earlier
+// round. The most severe block verdict wins, so no block can hide another's failure.
+const REVIEW_BLOCK_HEADING = /^#+\s*(plan|code) review/i;
 const VERDICT_SEVERITY = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
 function verdictFor(kind, alias) {
   if (['pass', 'ok', 'approved'].includes(alias)) return 'pass';
@@ -757,13 +760,18 @@ export function parseReviewComment(body) {
   const heading = REVIEW_HEADING.exec(lines[0]);
   if (!heading) return undefined;
   const kind = heading[1].toLowerCase();
-  // A verdict line of the other kind is prose inside the block, for example a quoted plan verdict.
-  const verdicts = lines
-    .slice(1)
-    .map((line) => REVIEW_VERDICT.exec(line))
-    .filter((match) => match && match[1].toLowerCase() === kind)
-    .map((match) => verdictFor(kind, match[2].toLowerCase()));
-  if (verdicts.length === 0 || verdicts.includes(undefined)) return undefined;
+  const blocks = [[]];
+  for (const line of lines.slice(1)) {
+    if (REVIEW_BLOCK_HEADING.exec(line)?.[1].toLowerCase() === kind) blocks.push([]);
+    else blocks.at(-1).push(line);
+  }
+  const firstVerdict = (block) =>
+    block.map((line) => REVIEW_VERDICT.exec(line)).find((match) => match?.[1].toLowerCase() === kind);
+  // A later block without a verdict line is a heading inside the previous block; the first block needs a verdict.
+  const matches = blocks.map(firstVerdict).filter((match, index) => match || index === 0);
+  if (!matches[0]) return undefined;
+  const verdicts = matches.map((match) => verdictFor(kind, match[2].toLowerCase()));
+  if (verdicts.includes(undefined)) return undefined;
   let verdict = verdicts.reduce((worst, next) => (VERDICT_SEVERITY[next] > VERDICT_SEVERITY[worst] ? next : worst));
   if (kind === 'code' && verdict === 'pass' && lines.some(severeFinding)) verdict = 'fixes-required';
   return { kind, verdict };
