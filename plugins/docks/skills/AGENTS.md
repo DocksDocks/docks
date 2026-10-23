@@ -104,7 +104,7 @@ rule and the command that finds every copy.
 
 ## Report section (every shipped skill)
 
-Every shipped skill of the docks and plan-lifecycle plugins ends with one byte-identical `## Report a problem with this skill` section, so an agent that uses a skill sees where and how to report a problem with it. The section points to the docks `report-skill-issue` skill. For a runtime without docks, it allows only a draft for the user, because the publication safeguards live in that skill. A new skill copies the section unchanged; a change to the section changes every copy in the same commit. Verify: `for f in plugins/docks/skills/*/*/SKILL.md plugins/plan-lifecycle/skills/*/*/SKILL.md; do sed -n '/^## Report a problem with this skill$/,$p' "$f" | sha256sum; done | sort | uniq -c` must print one line whose count equals the number of shipped skills.
+Every shipped skill of the docks and plan-lifecycle plugins ends with one byte-identical `## Report a problem with this skill` section, so an agent that uses a skill sees where and how to report a problem with it. The section points to the docks `report-skill-issue` skill. For a runtime without docks, it allows only a draft for the user, because the publication safeguards live in that skill. A new skill copies the section unchanged. The skills guard checks every copy against `scripts/config/report-section.md` (verify: `bun scripts/skills/guard.mjs plugins/docks/skills` and `bun scripts/skills/guard.mjs plugins/plan-lifecycle/skills`); a change to the section changes that file and every copy in the same commit.
 
 ## Cross-tool wording (Claude Code + Codex)
 
