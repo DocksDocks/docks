@@ -15,10 +15,10 @@ const RELEASE_TAG = new RegExp(`^([a-z0-9]+(?:-[a-z0-9]+)*)--v${SEMVER}$`);
 
 // Shard identity used by both `ci.mjs --lane <name>` and the pull-request matrix.
 // `repo` is the always-on shard: it carries every check that is not scoped to one
-// plugin (workflow YAML, the marketplace catalogs, the context-tree guard,
-// no-bespoke-gates, the test-contract registry, unit tests, the CI targeting
-// contract), so a pull request that skips every plugin shard still runs all of
-// them. `core` is the only plugin shard; each plugin declares it through its
+// plugin (workflow YAML, the marketplace catalogs, the context-tree guard, the
+// test-contract registry, unit tests, the CI targeting contract), so a pull
+// request that skips every plugin shard still runs all of them. `core` is the
+// only plugin shard; each plugin declares it through its
 // `ciLane`, and no plugin may declare `repo`.
 export const CI_LANES = Object.freeze(['repo', 'core']);
 export const REPO_WIDE_LANE = 'repo';
