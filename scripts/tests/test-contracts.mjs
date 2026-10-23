@@ -463,7 +463,8 @@ export function shebangInterpreter(source) {
   const pending = [...words];
   while (pending.length > 0) {
     const word = pending.shift();
-    if (word === '--') return path.posix.basename(pending[0] ?? '');
+    // `--` ends the options, but `env` still reads NAME=VALUE assignments after it.
+    if (word === '--') return path.posix.basename(pending.find((rest) => !/^[^=]+=/u.test(rest)) ?? '');
     if (word === '-' || word === '--ignore-environment') continue;
     if (word.startsWith('--')) {
       const [name, value] = word.split(/=(.*)/su);

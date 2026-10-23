@@ -329,6 +329,7 @@ function testShebangInterpreter() {
     ['#!/usr/bin/env -i FORCE_COLOR=0 node\n', 'node'],
     ['#!/usr/bin/env - --ignore-environment node\n', 'node'],
     ['#!/usr/bin/env -iu NODE_OPTIONS /opt/bun/bin/bun\n', 'bun'],
+    ['#!/usr/bin/env -S -- FORCE_COLOR=0 bun\n', 'bun'],
     ['#!/usr/bin/env -- bun\n', 'bun'],
     ['#!/usr/bin/env -S -u NODE_OPTIONS\n', ''],
     ['#!\n', ''],
