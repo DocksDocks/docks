@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -77,27 +77,45 @@ const baseEnv = { ...process.env };
 delete baseEnv.CARGO_TARGET_DIR;
 delete baseEnv.GITHUB_ACTIONS;
 
-const runCi = (mode) => {
-  const result = spawnSync(process.execPath, ['scripts/ci.mjs', '--plugin', TARGET], {
-    cwd: REPO,
-    encoding: 'utf8',
-    timeout: 180_000,
-    env: {
-      ...baseEnv,
-      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
-      DOCKS_SCORE_MODE: mode,
-    },
+// Each gate is a full `scripts/ci.mjs` run that spends seconds waiting on its children, so every
+// mode starts when the module loads and the runs overlap; each test awaits only its own mode.
+const runCi = (mode) =>
+  new Promise((resolve) => {
+    const child = spawn(process.execPath, ['scripts/ci.mjs', '--plugin', TARGET], {
+      cwd: REPO,
+      timeout: 180_000,
+      env: {
+        ...baseEnv,
+        PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        DOCKS_SCORE_MODE: mode,
+      },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding('utf8').on('data', (chunk) => {
+      stderr += chunk;
+    });
+    // A spawn failure resolves with a null status, as `spawnSync` reported it, and the error in the
+    // output, so the waiting test fails instead of hanging; a `close` after `error` is then a no-op.
+    child.on('error', (error) => resolve({ status: null, output: `${stdout}${stderr}${error.stack ?? error}` }));
+    child.on('close', (status) => resolve({ status, output: `${stdout}${stderr}` }));
   });
-  return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
-};
+
+const gates = new Map(['full', 'empty', 'subset', 'crash'].map((mode) => [mode, runCi(mode)]));
 
 const rx = (literal) => new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
-test.after(() => fs.rmSync(shimDir, { recursive: true, force: true }));
+test.after(async () => {
+  await Promise.all(gates.values());
+  fs.rmSync(shimDir, { recursive: true, force: true });
+});
 
 // The control case. Without it, a gate broken outright would satisfy every case below.
-test('a scorer covering every skill on disk keeps the gate green', () => {
-  const { status, output } = runCi('full');
+test('a scorer covering every skill on disk keeps the gate green', async () => {
+  const { status, output } = await gates.get('full');
   assert.equal(status, 0, output);
   assert.match(
     output,
@@ -108,8 +126,8 @@ test('a scorer covering every skill on disk keeps the gate green', () => {
   assert.match(output, rx(`${TARGET} skills per-file all clear`));
 });
 
-test('an empty score set fails the gate instead of reporting all clear', () => {
-  const { status, output } = runCi('empty');
+test('an empty score set fails the gate instead of reporting all clear', async () => {
+  const { status, output } = await gates.get('empty');
   assert.notEqual(status, 0);
   assert.match(
     output,
@@ -122,8 +140,8 @@ test('an empty score set fails the gate instead of reporting all clear', () => {
   assert.doesNotMatch(output, rx(`${TARGET} skills per-file all clear`));
 });
 
-test('a short score set fails the gate and names the unscored skill', () => {
-  const { status, output } = runCi('subset');
+test('a short score set fails the gate and names the unscored skill', async () => {
+  const { status, output } = await gates.get('subset');
   assert.notEqual(status, 0);
   assert.match(
     output,
@@ -135,8 +153,8 @@ test('a short score set fails the gate and names the unscored skill', () => {
   assert.doesNotMatch(output, rx(`${TARGET} skills per-file all clear`));
 });
 
-test('a scorer that exits non-zero fails the gate naming the command', () => {
-  const { status, output } = runCi('crash');
+test('a scorer that exits non-zero fails the gate naming the command', async () => {
+  const { status, output } = await gates.get('crash');
   assert.notEqual(status, 0);
   assert.match(output, rx(`${TARGET} skill scorer exited 3 — no score set to gate`));
   assert.match(

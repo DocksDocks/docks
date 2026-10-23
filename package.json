@@ -13,7 +13,7 @@
     "test:unit": "bun test --parallel=4 --timeout=180000 ./scripts/tests/unit/*.test.mjs",
     "test:observability": "bun scripts/tests/ci-observability.mjs",
     "test:contracts": "bun scripts/tests/test-contracts.mjs",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs' --test-coverage-exclude='**/scripts/tests/**' --test-coverage-exclude='**/plugins/**/test/**' scripts/tests/plan-cli.mjs"
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs' --test-coverage-exclude='**/scripts/tests/**' --test-coverage-exclude='**/plugins/**/test/**' scripts/tests/plan-cli/*.test.mjs"
   },
   "trustedDependencies": [],
   "devDependencies": {

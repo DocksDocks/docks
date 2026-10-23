@@ -183,7 +183,8 @@ function testTreeGuardOperationalFailures() {
 
 // scripts/AGENTS.md validator table: every validator script has a row, every row resolves.
 // lib/ holds shared modules (a lib validator may still have a row); tests/unit/ runs as one
-// suite; the allowlist names entry points that are not validators.
+// suite, and the tests/plan-cli/ case files run as one suite through the tests/plan-cli.mjs row;
+// the allowlist names entry points that are not validators.
 const NON_VALIDATOR_SCRIPTS = new Set(['release.mjs', 'ci-target.mjs', 'capture-tdd-red.mjs']);
 
 function validatorTableErrors(root) {
@@ -199,7 +200,8 @@ function validatorTableErrors(root) {
       const full = path.join(dir, e.name);
       const rel = path.relative(scriptsDir, full).split(path.sep).join('/');
       if (e.isDirectory()) {
-        if (e.name !== 'node_modules' && rel !== 'lib' && rel !== 'tests/unit') walkScripts(full);
+        if (e.name !== 'node_modules' && rel !== 'lib' && rel !== 'tests/unit' && rel !== 'tests/plan-cli')
+          walkScripts(full);
       } else if (e.isFile() && e.name.endsWith('.mjs') && !NON_VALIDATOR_SCRIPTS.has(rel)) onDisk.push(rel);
     }
   })(scriptsDir);

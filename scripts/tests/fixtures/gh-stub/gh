@@ -58,12 +58,50 @@ function issueByNumber(number) {
   return issue;
 }
 
+// Node ids are opaque to the helper, as on GitHub. An issue id names the issue number, a label id the
+// lowercase label name (repository labels are unique by case-insensitive name), and a user id the login.
+function issueNodeId(issue) {
+  return `I_${issue.number}`;
+}
+
+function labelNodeId(name) {
+  return `LA_${Buffer.from(name.toLowerCase(), 'utf8').toString('base64url')}`;
+}
+
+function userNodeId(login) {
+  return `U_${login}`;
+}
+
+function issueByNodeId(id) {
+  const issue = state.issues.find((entry) => issueNodeId(entry) === id);
+  if (!issue) die(`Could not resolve to a node with the global id of '${id}'`);
+  return issue;
+}
+
+function labelNameByNodeId(id) {
+  const name = /^LA_[\w-]+$/.test(id) ? Buffer.from(id.slice(3), 'base64url').toString('utf8') : '';
+  if (!name) die(`Could not resolve to a Label node with the global id of '${id}'`);
+  return name;
+}
+
+function loginByNodeId(id) {
+  if (!/^U_./.test(id)) die(`Could not resolve to a User node with the global id of '${id}'`);
+  return id.slice(2);
+}
+
+// The helper never sends an empty id list (an empty assigneeIds would unassign everyone), so refuse one.
+function nodeIds(value, field) {
+  if (!Array.isArray(value) || value.length === 0 || value.some((id) => typeof id !== 'string' || !id))
+    die(`${field} requires a non-empty list of ids`);
+  return value;
+}
+
 function labels(labels) {
-  return labels.map((name) => ({ name }));
+  return labels.map((name) => ({ id: labelNodeId(name), name }));
 }
 
 function assignees(logins) {
-  return (logins ?? []).map((login) => ({ login }));
+  return (logins ?? []).map((login) => ({ id: userNodeId(login), login }));
 }
 
 function select(object, fields) {
@@ -79,12 +117,48 @@ function validateJsonFields(fields, allowed) {
   }
 }
 
-function formFields(flag) {
+// `gh api graphql` fields as cli/cli pkg/cmd/api/fields.go reads them: gh reads every -f field before any -F
+// field. A -f value stays raw. An `@<path>` -F value is the file's bytes. Any other -F value becomes an
+// integer, true, false, or null, or else gets its {owner}, {repo}, {branch}, :owner, :repo, and :branch
+// placeholders filled from the repository. `key[]=value` fields build an array; a bare `key[]` is empty.
+function graphqlFields() {
+  const [owner, repo] = state.repo.nameWithOwner.split('/');
+  const placeholders = { owner, repo, branch: state.repo.defaultBranchRef?.name ?? 'main' };
+  const magicValue = (raw) => {
+    if (raw.startsWith('@')) {
+      try {
+        return fs.readFileSync(raw.slice(1), 'utf8');
+      } catch (error) {
+        die(`open ${raw.slice(1)}: ${error.code}`);
+      }
+    }
+    if (/^[+-]?\d+$/.test(raw)) return Number(raw);
+    if (raw === 'true' || raw === 'false') return raw === 'true';
+    if (raw === 'null') return null;
+    return raw.replace(
+      /:(owner|repo|branch)\b|\{([a-z]+)\}/g,
+      (match, colon, braced) => placeholders[colon ?? braced] ?? match,
+    );
+  };
   const fields = {};
-  for (const entry of values(flag)) {
-    const separator = entry.indexOf('=');
-    if (separator === -1) die(`${flag} requires name=value`);
-    fields[entry.slice(0, separator)] = entry.slice(separator + 1);
+  for (const [flag, magic] of [
+    ['-f', false],
+    ['-F', true],
+  ]) {
+    for (const entry of values(flag)) {
+      const separator = entry.indexOf('=');
+      const key = separator < 0 ? entry : entry.slice(0, separator);
+      const name = key.endsWith('[]') ? key.slice(0, -2) : key;
+      if (!name || /[[\]]/.test(name)) die(`invalid key: "${entry}"`);
+      if (separator < 0 && name === key) die(`field "${entry}" requires a value separator '=' character`);
+      const raw = separator < 0 ? undefined : entry.slice(separator + 1);
+      const value = magic && raw !== undefined ? magicValue(raw) : raw;
+      if (name === key) fields[name] = value;
+      else {
+        fields[name] = Array.isArray(fields[name]) ? fields[name] : [];
+        if (separator >= 0) fields[name].push(value);
+      }
+    }
   }
   return fields;
 }
@@ -111,21 +185,57 @@ function graphqlValue(expression, variables) {
   if (expression.startsWith('$')) return variables[expression.slice(1)];
   if (expression === 'true') return true;
   if (expression === 'false') return false;
+  if (expression === 'null') return null;
   if (/^\d+$/.test(expression)) return Number(expression);
   if (expression.startsWith('"')) return JSON.parse(expression);
+  if (expression.startsWith('[')) {
+    return splitArguments(expression.slice(1, -1)).map((item) => graphqlValue(item, variables));
+  }
+  if (expression.startsWith('{')) {
+    const entries = [...graphqlArguments(expression.slice(1, -1))];
+    return Object.fromEntries(entries.map(([key, item]) => [key, graphqlValue(item, variables)]));
+  }
   return expression;
 }
+
+// Split arguments, list items, or object fields on the commas outside nested lists, objects, and strings.
+function splitArguments(text) {
+  const parts = [];
+  let depth = 0;
+  let quoted = false;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (char === '\\') index += 1;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '[' || char === '{') depth += 1;
+    else if (char === ']' || char === '}') depth -= 1;
+    else if (char === ',' && depth === 0) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+function graphqlArguments(text) {
+  const args = new Map();
+  for (const argument of splitArguments(text)) {
+    const separator = argument.indexOf(':');
+    if (separator < 0) die(`invalid GraphQL argument: ${argument}`);
+    args.set(argument.slice(0, separator).trim(), argument.slice(separator + 1).trim());
+  }
+  return args;
+}
+
 function graphqlSelections(query, field) {
   const selections = [];
   const pattern = new RegExp(`(?:(\\w+)\\s*:\\s*)?${field}\\s*\\(([^)]*)\\)`, 'g');
   for (const match of query.matchAll(pattern)) {
-    const args = new Map();
-    for (const argument of match[2].split(',').map((part) => part.trim()).filter(Boolean)) {
-      const separator = argument.indexOf(':');
-      if (separator < 0) die(`invalid GraphQL argument: ${argument}`);
-      args.set(argument.slice(0, separator).trim(), argument.slice(separator + 1).trim());
-    }
-    selections.push({ alias: match[1] ?? field, args });
+    selections.push({ alias: match[1] ?? field, args: graphqlArguments(match[2]) });
   }
   return selections;
 }
@@ -175,6 +285,80 @@ function respondGraphql(data, stage) {
   process.exit(0);
 }
 
+// A mutation payload shows the issue as stored right after its own field ran, limited to what the field selects.
+function mutationPayload(field, object, issue, variables) {
+  const payload = { clientMutationId: null };
+  const opened = new RegExp(`\\b${object}\\s*\\{`).exec(field.selection);
+  if (!opened) return payload;
+  const selection = field.selection.slice(opened.index);
+  const stored = /\bbody\b/.test(selection) ? { body: issue.body } : {};
+  for (const page of graphqlSelections(selection, 'labels')) {
+    stored[page.alias] = graphqlPage(labels(issue.labels), page, variables, ['first', 'after']);
+  }
+  for (const page of graphqlSelections(selection, 'assignees')) {
+    stored[page.alias] = graphqlPage(assignees(issue.assignees), page, variables, ['first', 'after']);
+  }
+  payload[object] = stored;
+  return payload;
+}
+
+// GitHub runs the top-level fields of a mutation serially, in document order. updateIssue replaces the body
+// and the assignee list that its input names; the label mutations add or remove labels by node id.
+function respondMutation(query, variables) {
+  // The fault flags that faulted `gh issue edit` fault the write request before any field runs.
+  if (state.issueEditError) die(state.issueEditError);
+  const pattern = /(?:(\w+)\s*:\s*)?\b(updateIssue|addLabelsToLabelable|removeLabelsFromLabelable)\s*\(([^)]*)\)/g;
+  const matches = [...query.matchAll(pattern)];
+  if (matches.length === 0) die(`unsupported GraphQL mutation: ${query}`);
+  const fields = matches.map((match, index) => ({
+    alias: match[1] ?? match[2],
+    name: match[2],
+    input: graphqlValue(graphqlArguments(match[3]).get('input') ?? 'null', variables),
+    selection: query.slice(match.index + match[0].length, matches[index + 1]?.index ?? query.length),
+  }));
+  if (state.labelRemovalErrorOnce && fields.some((field) => field.name === 'removeLabelsFromLabelable')) {
+    const message = state.labelRemovalErrorOnce;
+    delete state.labelRemovalErrorOnce;
+    die(message);
+  }
+  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+  const data = {};
+  for (const field of fields) {
+    const { input } = field;
+    if (!input || typeof input !== 'object' || Array.isArray(input)) die(`${field.name} requires an input object`);
+    if (field.name === 'updateIssue') {
+      const issue = issueByNodeId(input.id);
+      for (const key of Object.keys(input)) {
+        if (!['id', 'body', 'assigneeIds'].includes(key)) die(`unsupported UpdateIssueInput field: ${key}`);
+      }
+      if (Object.hasOwn(input, 'body')) {
+        if (typeof input.body !== 'string') die('UpdateIssueInput.body must be a string');
+        issue.body = input.body;
+      }
+      if (Object.hasOwn(input, 'assigneeIds')) {
+        issue.assignees = [...new Set(nodeIds(input.assigneeIds, 'assigneeIds').map(loginByNodeId))];
+      }
+      touch(issue);
+      data[field.alias] = mutationPayload(field, 'issue', issue, variables);
+      continue;
+    }
+    const issue = issueByNodeId(input.labelableId);
+    const names = nodeIds(input.labelIds, 'labelIds').map(labelNameByNodeId);
+    if (field.name === 'addLabelsToLabelable') {
+      for (const name of names) {
+        const stored = Object.keys(state.labels).find((label) => same(label, name));
+        if (!stored) die(`Could not resolve to a Label node with the name '${name}'`);
+        if (!issue.labels.some((label) => same(label, stored))) issue.labels.push(stored);
+      }
+    } else {
+      issue.labels = issue.labels.filter((label) => !names.some((name) => same(name, label)));
+    }
+    touch(issue);
+    data[field.alias] = mutationPayload(field, 'labelable', issue, variables);
+  }
+  respondGraphql(data, 'mutation');
+}
+
 function commentJson(comment, issue) {
   const login = typeof comment.author === 'string' ? comment.author : comment.author?.login ?? comment.user?.login;
   return {
@@ -202,6 +386,7 @@ function apiCommentJson(comment, issue) {
 function issueJson(issue) {
   return {
     ...issue,
+    id: issueNodeId(issue),
     labels: labels(issue.labels),
     assignees: assignees(issue.assignees),
     comments: (issue.comments ?? []).map((comment) => commentJson(comment, issue)),
@@ -215,6 +400,7 @@ function touch(issue) {
 
 const [group, command] = args;
 const ISSUE_JSON_FIELDS = new Set([
+  'id',
   'number',
   'title',
   'body',
@@ -271,17 +457,15 @@ if (group === 'api' && eventsEndpoint) {
 }
 
 if (group === 'api' && command === 'graphql') {
-  const query = formFields('-f').query;
-  if (!query) die('graphql requires -f query=<query>');
-  const variables = formFields('-F');
-  const [owner, name] = state.repo.nameWithOwner.split('/');
-  if (variables.owner === '{owner}') variables.owner = owner;
-  if (variables.name === '{repo}') variables.name = name;
+  const { query, ...variables } = graphqlFields();
+  if (typeof query !== 'string' || !query) die('graphql requires -f query=<query>');
+  // A mutation addresses nodes by id, so it names no repository.
+  if (/^\s*mutation\b/.test(query)) respondMutation(query, variables);
   if (`${variables.owner}/${variables.name}` !== state.repo.nameWithOwner)
     die(`repository not found: ${variables.owner}/${variables.name}`);
   if (state.repoError) die(state.repoError);
   if (query.includes('viewer') && state.viewerError) die(state.viewerError);
-  const stage = query.includes('viewer') ? 'snapshot' : 'page';
+  const stage = query.includes('viewer') ? 'snapshot' : /\bissues\s*\(/.test(query) ? 'list' : 'page';
   const referenceRepo = (reference) =>
     (typeof reference.repository === 'string' ? reference.repository : reference.repository?.nameWithOwner) ??
     (reference.repository?.owner?.login && reference.repository?.name
@@ -324,9 +508,11 @@ if (group === 'api' && command === 'graphql') {
   }
 
   const issueSelection = graphqlSelections(query, 'issue');
+  const issuesSelection = graphqlSelections(query, 'issues');
   const objectSelection = graphqlSelections(query, 'object');
   const labelSelections = graphqlSelections(query, 'label');
-  if (issueSelection.length > 1 || objectSelection.length > 1) die('graphql selects multiple issues or objects');
+  if (issueSelection.length > 1 || issuesSelection.length > 1 || objectSelection.length > 1)
+    die('graphql selects multiple issues or objects');
   if (issueSelection.length) {
     const requestedNumber = graphqlValue(issueSelection[0].args.get('number'), variables);
     const issue = issueByNumber(Number(requestedNumber));
@@ -397,22 +583,52 @@ if (group === 'api' && command === 'graphql') {
     repository[objectSelection[0].alias] = {
       associatedPullRequests: commitAssociations(oid, association[0]),
     };
-  } else if (labelSelections.length) {
-    for (const selection of labelSelections) {
-      for (const argument of selection.args.keys()) {
-        if (argument !== 'name') die(`Unknown GraphQL argument: "${argument}"`);
-      }
-      const name = graphqlValue(selection.args.get('name'), variables);
-      const stored = Object.keys(state.labels).find((label) => label.toLowerCase() === name?.toLowerCase());
-      repository[selection.alias] = stored ? { name: stored } : null;
-    }
-  } else if (graphqlSelections(query, 'repository').length !== 1) {
+  } else if (issuesSelection.length) {
+    // Repository.issues: `labels` keeps issues that carry any named label; `states` and `orderBy` as on GitHub.
+    const [selection] = issuesSelection;
+    const argument = (name, fallback) => graphqlValue(selection.args.get(name) ?? fallback, variables);
+    const wanted = argument('labels', '[]').map((name) => name.toLowerCase());
+    const states = argument('states', '[OPEN,CLOSED]');
+    const order = argument('orderBy', '{field:CREATED_AT,direction:ASC}');
+    if (order.field !== 'CREATED_AT') die(`unsupported issue order: ${order.field}`);
+    const direction = order.direction === 'DESC' ? -1 : 1;
+    const labelPages = graphqlSelections(query, 'labels');
+    const matched = state.issues
+      .filter((issue) => wanted.length === 0 || issue.labels.some((label) => wanted.includes(label.toLowerCase())))
+      .filter((issue) => states.includes(issue.state.toUpperCase()))
+      .sort((a, b) => direction * (Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.number - b.number))
+      .map((issue) => {
+        const node = {
+          number: issue.number,
+          title: issue.title,
+          state: issue.state,
+          stateReason: issue.stateReason,
+        };
+        for (const page of labelPages) {
+          node[page.alias] = graphqlPage(labels(issue.labels), page, variables, ['first', 'after']);
+        }
+        return node;
+      });
+    repository[selection.alias] = graphqlPage(matched, selection, variables, [
+      'first',
+      'after',
+      'labels',
+      'states',
+      'orderBy',
+    ]);
+  } else if (labelSelections.length === 0 && graphqlSelections(query, 'repository').length !== 1) {
     die('graphql query selects no repository');
   }
-  respondGraphql(
-    { ...(query.includes('viewer') && { viewer: { login: state.viewerLogin ?? '' } }), repository },
-    stage,
-  );
+  for (const selection of labelSelections) {
+    for (const argument of selection.args.keys()) {
+      if (argument !== 'name') die(`Unknown GraphQL argument: "${argument}"`);
+    }
+    const name = graphqlValue(selection.args.get('name'), variables);
+    const stored = Object.keys(state.labels).find((label) => label.toLowerCase() === name?.toLowerCase());
+    repository[selection.alias] = stored ? { name: stored, id: labelNodeId(stored) } : null;
+  }
+  const viewer = { login: state.viewerLogin ?? '', id: state.viewerLogin ? userNodeId(state.viewerLogin) : null };
+  respondGraphql({ ...(query.includes('viewer') && { viewer }), repository }, stage);
 }
 
 if (group === 'api' && command === 'user') {
@@ -493,53 +709,10 @@ if (group === 'issue' && command === 'view') {
   const issue = issueByNumber(number);
   validateJsonFields(value('--json'), ISSUE_JSON_FIELDS);
   observeIssue(issue);
-  emit(JSON.stringify(select(issueJson(issue), value('--json'))));
-  save();
-  process.exit(0);
-}
-
-if (group === 'issue' && command === 'edit') {
-  const issue = issueByNumber(issueNumber());
-  if (state.issueEditError) die(state.issueEditError);
-  const bodyFile = value('--body-file');
-  const addedAssignees = values('--add-assignee');
-  const addedLabels = values('--add-label');
-  const removedLabels = values('--remove-label');
-  if (removedLabels.length > 0 && state.labelRemovalErrorOnce) {
-    const message = state.labelRemovalErrorOnce;
-    delete state.labelRemovalErrorOnce;
-    die(message);
-  }
-  if (!bodyFile && addedAssignees.length === 0 && addedLabels.length === 0 && removedLabels.length === 0)
-    die('issue edit requires a body, label, or assignee change');
-  if (bodyFile) issue.body = fs.readFileSync(bodyFile, 'utf8');
-  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
-  for (const name of removedLabels) issue.labels = issue.labels.filter((label) => !same(label, name));
-  for (const name of addedLabels) if (!issue.labels.some((label) => same(label, name))) issue.labels.push(name);
-  issue.assignees ??= [];
-  if (!state.dropEditAssignee) {
-    for (const login of addedAssignees.map((name) => name === '@me' ? state.viewerLogin : name)) {
-      if (!issue.assignees.includes(login)) issue.assignees.push(login);
-    }
-  }
-  touch(issue);
-  save();
-  process.exit(0);
-}
-
-if (group === 'issue' && command === 'list') {
-  if (!value('--state') || !value('--limit')) die('issue list requires explicit --state and --limit');
-  const requiredLabel = value('--label');
-  const requestedState = value('--state');
-  const limit = Number(value('--limit'));
-  const fields = value('--json');
-  validateJsonFields(fields, ISSUE_JSON_FIELDS);
-  const issues = state.issues
-    .filter((issue) => !requiredLabel || issue.labels.includes(requiredLabel))
-    .filter((issue) => requestedState === 'all' || issue.state.toLowerCase() === requestedState)
-    .slice(0, limit)
-    .map((issue) => select(issueJson(issue), fields));
-  emit(JSON.stringify(issues));
+  // Real gh reads `labels(first:100)` for `issue view` (cli/cli api/query_builder.go), so it never
+  // returns a label past the first 100.
+  const view = issueJson(issue);
+  emit(JSON.stringify(select({ ...view, labels: view.labels.slice(0, 100) }, value('--json'))));
   save();
   process.exit(0);
 }
