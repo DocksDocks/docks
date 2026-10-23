@@ -4,8 +4,8 @@ description: "Use when plan-manager needs a read-only pre-implementation review 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-19"
-  content_hash: "52a28e27f3849805a5044e9c6f16c95320abca5f6ab4aa2f5a19c4645461b94f"
+  updated: "2026-10-23"
+  content_hash: "9d25c91145ddc43666e1374476ed27494e901fbb7e938105701bfd3532a62f7d"
 ---
 
 # Plan Reviewer
@@ -85,3 +85,7 @@ verdict. Re-read each locator and confirm the proposed fix addresses a real
 defect. Trace load-bearing symbols to definitions and callers. Remove cosmetic
 preferences and duplicate findings. Confirm the output is one verdict block
 and that repository and external state remain unchanged.
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

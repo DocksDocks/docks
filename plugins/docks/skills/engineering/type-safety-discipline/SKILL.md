@@ -11,8 +11,8 @@ paths:
   - "**/*.py"
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-24"
-  content_hash: "6f68d95ea02cdca7a598bf0766ad605909283a7e7a5e14e53e577c7cc38ca03d"
+  updated: "2026-10-23"
+  content_hash: "064d110536a72180f3440b9f466e6328c22ed5a1418acf29a7c6137c6c94e615"
 ---
 
 # Type-Safety Discipline
@@ -308,3 +308,7 @@ Maintenance twin: this three-case gate is restated in `references/typescript-cla
 - Rust Book — newtype pattern: https://doc.rust-lang.org/book/ch20-03-advanced-types.html
 - Kotlin value classes: https://kotlinlang.org/docs/inline-classes.html
 - Python `typing.NewType`: https://docs.python.org/3/library/typing.html#newtype
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

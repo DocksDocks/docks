@@ -4,8 +4,8 @@ description: "Use when code is hard to understand without narration; improving n
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-24"
-  content_hash: "1dafc5e1aed48b9f9a95c837935aeea0c9845f20e104ecdc2bada93115cdfcf8"
+  updated: "2026-10-23"
+  content_hash: "1e0bd7d6d6e2c5e7bd59e09b9c672a842f11ec8a1120cb944af4418ec34b8297"
 ---
 
 # Code Clarity
@@ -192,3 +192,7 @@ shorter files, more abstractions, or a higher raw test count.
 - `tdd-workflow`: a new behavior contract should be written test-first.
 - `solid`: a demonstrated mixed change axis, fat Interface, growing dispatch,
   or concrete dependency needs a structural pattern.
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

@@ -4,7 +4,7 @@ description: "Use when building or reviewing UI components; fixing positioning t
 user-invocable: true
 metadata:
   pattern: upstream-adapted
-  updated: "2026-08-25"
+  updated: "2026-10-23"
   upstream:
     source: https://github.com/jakubkrehel/make-interfaces-feel-better
     license: MIT
@@ -15,7 +15,7 @@ metadata:
       - "2026-08-25: SKILL.md description and icons.md route accessibility semantics, keyboard, and ARIA work to accessibility"
       - "2026-08-25: SKILL.md and surfaces.md distinguish WCAG 2.2 Target Size (Minimum) AA 24×24px from 44×44px touch and 40×40px dense-desktop usability heuristics"
       - "2026-08-25: animations.md, surfaces.md, and typography.md add Contents tables required by docks reference hygiene"
-  content_hash: "7d94c2ea34fa0ed414aabda7aea4ee9484f364a37e93b5e6912a5c8030d0bcbe"
+  content_hash: "aff027c6dc1155504e6119e8c1ed271b57ac3bd68a6ccd1cada55f7db08ba894"
 ---
 
 # Details that make interfaces feel better
@@ -199,3 +199,7 @@ After the findings:
 2. **Verdict**: `Block` if any `HIGH` finding remains, `Needs changes` if only `MEDIUM` or `LOW` findings remain, and `Approve` only when no actionable findings remain. List every unverified check beside the verdict.
 
 When there are no findings, omit the findings table, state "No actionable interface-polish findings", report verification and rejected candidates, and end with `Approve`.
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

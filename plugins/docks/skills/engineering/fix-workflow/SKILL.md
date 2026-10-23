@@ -4,8 +4,8 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-24"
-  content_hash: "655b1d447db265b60d69707a5a43ca2092d34de790fb79d9d4cf6307e4402915"
+  updated: "2026-10-23"
+  content_hash: "e1d85256c77c5a5255502ea2bc8ecec68b5910e04df672ee3d2f85ab7eaaacfa"
 ---
 
 # Fix Workflow
@@ -195,3 +195,7 @@ After all approved fixes land, run the full verification sweep (tests + lint + t
 - Per-finding-type templates: `references/security-fix-templates.md`, `references/perf-fix-templates.md`, `references/bug-fix-templates.md`
 - Feedback-loop construction (Step 0): `references/feedback-loops.md`
 - Framing for feedback-loops.md adapted from Matt Pocock's `diagnosing-bugs` skill (formerly `diagnose`; MIT): https://github.com/mattpocock/skills/blob/main/skills/engineering/diagnosing-bugs/SKILL.md — the original text was adapted from the `diagnose` version pinned at https://github.com/mattpocock/skills/blob/694fa30311e02c2639942308513555e61ee84a6f/skills/engineering/diagnose/SKILL.md
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

@@ -4,8 +4,8 @@ description: "Use when a repo's root AGENTS.md grew too large and per-area conve
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-09-24"
-  content_hash: "97e3beb7f8b6de1d49c59b26c862cc5100cad6fef84de4992720223b9e24d680"
+  updated: "2026-10-23"
+  content_hash: "82b38008dd692113158159672e844c46d6dce3c62e1d616f16fb1805c342ccaa"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md
@@ -177,3 +177,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `"$SOURCE_BEFORE"`,
 - [`references/conflict-resolution.md`](references/conflict-resolution.md) — existing-file detection, drift/audit logic, merge-vs-overwrite, no-op refresh.
 - [`references/data-preservation.md`](references/data-preservation.md) — the section-inventory algorithm, per-section relocation table, two-phase write, and the verbatim verification snippet (self-contained; references stay one level deep).
 - Companion: `plan-manager` (create, review, execute, and finish a durable plan) · `skill-maintenance` (the update-only-when-meaning-changed discipline the refresh op mirrors) · `multi-tool-bridge` (owns every legacy CLAUDE.md write: migrate and delete; same split discipline).
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

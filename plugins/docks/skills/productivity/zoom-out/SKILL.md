@@ -4,8 +4,8 @@ description: "Use when tunneling in code-level detail and you need a system-leve
 user-invocable: true
 metadata:
   pattern: micro-skill
-  updated: "2026-09-23"
-  content_hash: "81f77792c9967fb2e6b1704f481eab86229e1162e253fc55096186f85bf2cda5"
+  updated: "2026-10-23"
+  content_hash: "887fe22d0fc356ee1dd1cf426422dbebd2226fbb0d814ee29025502fff0fef2a"
 ---
 
 # Zoom Out
@@ -93,3 +93,7 @@ your question restated:
 ## Source
 
 Pattern adapted from Matt Pocock's `zoom-out` skill (MIT; since removed upstream), pinned at its last version: <https://github.com/mattpocock/skills/blob/801a01cc7d265e06dd9dbcef5a4c471add05a0b3/skills/engineering/zoom-out/SKILL.md>. The upstream skill was a one-line prompt that relied on the project's domain glossary. This skill states the method inline, so it works without a glossary file.
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

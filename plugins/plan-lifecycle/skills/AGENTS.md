@@ -84,6 +84,12 @@ prerequisite paragraph naming this plugin, so a runtime without
 compares the copies. Change the paragraph only in lockstep across every copy
 (verify: `grep -rl 'Prerequisite: .plan-lifecycle. must be installed' plugins/docks`).
 
+## Report section
+
+Every skill here also ends with the shared report section, byte-identical
+across both plugins. `plugins/docks/skills/AGENTS.md` (Report section) owns
+the rule and its verify command.
+
 ## Scoring and namespace
 
 Same rubric as every kit skill: `node

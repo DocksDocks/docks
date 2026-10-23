@@ -4,8 +4,8 @@ description: Use when writing tests for code that ALREADY EXISTS — adding cove
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "f6c76c235a29f24268143102cfbb2edd0b344410dc14aa5f977b70981e33d76e"
+  updated: "2026-10-23"
+  content_hash: "fed3c74e671dbf24548ea2cc5949cacd500c9a0c497b68e21ea598ee8691668f"
 ---
 
 # Test Coverage Generation
@@ -171,3 +171,7 @@ The skills share the lint-loop 3-strike rule and the discipline of running tests
 - Companion skill: **tdd-workflow** — for test-first development (different ordering, tests as spec)
 - Per-framework conventions: `references/jest-vitest.md`, `references/pytest.md`, `references/cargo-test.md`, `references/go-test.md`, `references/junit.md`
 - Project conventions: always read one existing test file before writing the first new one — that's the project's actual style guide
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

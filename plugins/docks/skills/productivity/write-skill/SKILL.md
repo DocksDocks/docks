@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-10-23"
-  content_hash: "637c4dae9c986682675dc37480598f3734c313271253f95f1423b3571609de4b"
+  content_hash: "bf462a01341249d67ae1065d80333c7cfb60e760deef4dfad7c80ca67e81e8ae"
 ---
 
 # Write a Skill (docks conventions)
@@ -221,3 +221,7 @@ A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no 
 ## Source attribution
 
 Framing ("the description is the only thing your agent sees") adapted from Matt Pocock's `write-a-skill` (MIT; removed upstream in June 2026 and replaced by `writing-for-agents`, <https://github.com/mattpocock/skills/blob/main/skills/productivity/writing-for-agents/SKILL.md>). Last version: <https://github.com/mattpocock/skills/blob/ab7196a1584ac60688aeb63cf0b56a5114c4a6f3/skills/productivity/write-a-skill/SKILL.md>. Step 0, the baseline check, the trigger check (query set with `query` / `should_trigger`, held-back queries, intent categories over keyword lists), and the stop condition are paraphrased from Anthropic's `skill-creator` (Apache-2.0; <https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md>). The assertion rules (evidence per pass, surface compliance fails, non-discriminating assertions flagged) are paraphrased from its grader prompt (Apache-2.0; <https://github.com/anthropics/skills/blob/main/skills/skill-creator/agents/grader.md>). Degrees-of-freedom and the near-miss negative idea adapted from Anthropic's skill authoring best practices (<https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>) and its `skill-creator` plugin. Body / rubric / loop are docks-specific — `skill-creator` covers evals and benchmarking; this one covers the kit conventions neither generic skill knows. The markdown + frontmatter + progressive-disclosure shape itself is convergent prior art: Google's Open Knowledge Format (OKF v0.1, Apache-2.0 — markdown files with YAML frontmatter; <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>, spec in <https://github.com/GoogleCloudPlatform/knowledge-catalog>) and Karpathy's LLM-Wiki pattern (raw sources / wiki / schema layers with Ingest–Query–Lint ops; <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>) standardize the same idea independently.
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-10-21"
-  content_hash: "127c523b2d0662e08d7ac64f8a11da0e173e2e56cfb605530c4491f5170abcea"
+  updated: "2026-10-23"
+  content_hash: "1aa42cf114945d7281e40403f64a0e52f5b8dc5f416f150657e732184df03562"
 ---
 
 # Yolo
@@ -336,3 +336,7 @@ GOOD: Continue to the Yolo runs ceiling, then ask the one stalled-review questio
 BAD: Paste an error log that contains a token into the issue.
 GOOD: Remove the token and name its variable.
 ```
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

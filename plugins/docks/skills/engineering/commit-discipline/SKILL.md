@@ -4,8 +4,8 @@ description: "Use when splitting work into small reviewable/atomic commits, deci
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "7b5fb2ca75a7ab21734bb0f35dfb418f67cf849b8ecd388fd4b6d6e20f0af21f"
+  updated: "2026-10-23"
+  content_hash: "157a2715927032a78b2af3dba171e5255a49b11d7c4edd69d7159502871f359b"
 ---
 
 # Commit & PR Discipline
@@ -252,3 +252,7 @@ git diff @{upstream}.. --stat       # size sanity: is this one reviewable unit?
 - `git-rebase(1)` — `--autosquash`, `rebase.autoSquash`, `--exec`, `--update-refs`;
   `git-commit(1)` — `--fixup=amend:`/`reword:` (re-verify against your installed
   Git's man pages).
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

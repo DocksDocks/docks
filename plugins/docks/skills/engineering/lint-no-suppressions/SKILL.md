@@ -4,8 +4,8 @@ description: "Use when a linter or type-checker flags an error; when tempted to 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "f84f8db840dac60cb80898571ddb7a00f63ca056bde41931a8e55887675208fe"
+  updated: "2026-10-23"
+  content_hash: "b3715bdf00626f49c21f0ca95630e708afe95485495990f451fb75d192e926e2"
 ---
 
 # Never Suppress Lint / Type Errors
@@ -102,3 +102,7 @@ CI must enforce the suppression block too. Client-side hooks are bypassable with
 - ruff rule reference: https://docs.astral.sh/ruff/rules/
 - clippy lint list: https://rust-lang.github.io/rust-clippy/master/
 - golangci-lint `nolintlint` (set `require-explanation: true` to require a reason on `//nolint:`): https://golangci-lint.run/docs/linters/configuration/#nolintlint
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

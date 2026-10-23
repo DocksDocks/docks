@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-09-24"
-  content_hash: "051d96108813dc7a20b04b7a27c346e913680099028044d94ba60255534dae16"
+  updated: "2026-10-23"
+  content_hash: "adecb5d2163cfbdc270efe3b9cd2cf1feaeafa7e92b894fea3e0792f7eb8969e"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -150,3 +150,7 @@ No content loss outside the planned diff: every deletion must be a planned dead-
 | Flagging modernization from memory | Ships a backwards "fix" (e.g. Next.js `proxy.ts`) | Verify against current docs for the installed version |
 | Resolving one SOLID violation but adding another | Net-negative refactor ships | Phase 8 re-checks all 5 principles; revert on any new violation |
 | Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | Stop and report the missing GitHub remote; do not create a plan file |
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

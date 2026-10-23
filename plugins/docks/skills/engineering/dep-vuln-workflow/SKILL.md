@@ -4,8 +4,8 @@ description: Use when running bun/pnpm/npm/yarn audit, pip-audit, cargo audit, o
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "8655db8483888b6d0e6b85fbb49abef8df212ca148bdfc7d387da3b6248c92ab"
+  updated: "2026-10-23"
+  content_hash: "4da60cafda174ac480d497a05983897f90d616f8dc7dea73bd3cc804ce995ab4"
 ---
 
 # Dependency Vulnerability & Upgrade Workflow
@@ -132,3 +132,7 @@ The lockfile (`bun.lock` / `pnpm-lock.yaml` / `package-lock.json` / `yarn.lock` 
 - RustSec Advisory DB: https://rustsec.org/advisories/
 - PyPA Advisory DB: https://github.com/pypa/advisory-database
 - Go Vulnerability DB: https://pkg.go.dev/vuln/
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

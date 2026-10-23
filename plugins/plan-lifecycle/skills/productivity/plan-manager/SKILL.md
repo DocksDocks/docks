@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-23"
-  content_hash: "9033244710f826b6c8c48909fe7e5ba40173fb7688b81a17cfbf2e1c0f8b716d"
+  content_hash: "f1012e9255b604143194984ac7b6f482d506bf76b1722b44c3852b2416068bee"
 ---
 
 # Plan Manager
@@ -172,3 +172,7 @@ GOOD: Say that the merge closes the issue, merge on `Merge now`, run `reopen <n>
 BAD: Run `git branch -D` after `git branch -d` refuses.
 GOOD: Keep the branch and list it under Kept resources.
 ```
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

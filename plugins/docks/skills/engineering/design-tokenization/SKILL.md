@@ -4,8 +4,8 @@ description: "Use when working with colors, Tailwind classes, CSS variables, dar
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "df13bc6b4ad0edc5bdc9ce7a35bae32c80db8ef6a3d07a5760ff5ed5adccbb1d"
+  updated: "2026-10-23"
+  content_hash: "3c341f36e34da1d5c1d065b2caab992a96916ad6531f6c24b2cb12c606019161"
 ---
 
 # Design Tokenization
@@ -177,3 +177,7 @@ Four-step procedure. Don't skip the audit — proposing token names without seei
 - shadcn/ui design tokens: https://ui.shadcn.com/docs/theming (uses the `*-foreground` convention)
 - Brandfetch / logo.dev — verify official hex before adding a brand token
 - Companion skills: `accessibility` (semantics, keyboard behavior, and ARIA), `make-interfaces-feel-better` (visual polish), `lint-no-suppressions` (when CI greps feel "annoying" — fix the violation, don't disable)
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.
