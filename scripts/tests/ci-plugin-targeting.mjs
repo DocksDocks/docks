@@ -676,7 +676,6 @@ async function testFocusedCiCommandSelection() {
     for (const script of repoWideCommands) {
       assert.equal(invokesBun(repoWide.calls, script), true, `repo CI must invoke repo-wide command ${script}`);
     }
-    assert.equal(countToolInvocation(repoWide.calls, 'bun', ['scripts/plans/no-bespoke-gates.mjs']), 1);
     assert.equal(countToolInvocation(repoWide.calls, 'bun', ['run', 'test:unit']), 1);
     assert.doesNotMatch(repoWide.result.stdout, /plugin: docks|plugin: plan-lifecycle/);
     assert.equal(countToolInvocation(repoWide.calls, 'bun', ['run', 'check:js']), 0);

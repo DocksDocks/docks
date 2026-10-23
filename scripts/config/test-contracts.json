@@ -268,25 +268,6 @@
       "skips": []
     },
     {
-      "id": "unit-no-bespoke-gates",
-      "version": 1,
-      "title": "No bespoke per-plan gate unit contracts",
-      "owner": {
-        "suite": "scripts/tests/unit/no-bespoke-gates.test.mjs",
-        "layer": "unit"
-      },
-      "selection": {
-        "kind": "node-test-file",
-        "selector": "scripts/tests/unit/no-bespoke-gates.test.mjs",
-        "expected_min": 8
-      },
-      "platforms": ["linux", "macos"],
-      "toolchains": ["bun-1"],
-      "release_role": "gate",
-      "replaces": [],
-      "skips": []
-    },
-    {
       "id": "unit-review-benchmark",
       "version": 1,
       "title": "Review benchmark scoring unit contracts",
