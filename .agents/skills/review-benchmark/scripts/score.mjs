@@ -354,7 +354,21 @@ function readJudgments(judgments, byBlind, knownByCase) {
     if (!target.has(finding)) target.set(finding, new Set());
     target.get(finding).add(known);
   }
-  return { matched, unsure, ratings };
+  return { verdicts, matched, unsure, ratings };
+}
+
+// A candidate pair without an answer would count as a miss, so the report refuses judgments that skip one.
+// Answers for pairs that are not candidates stay allowed.
+function requireCandidateAnswers(pairsDoc, verdicts) {
+  const missing = pairsDoc.cases
+    .flatMap((entry) => entry.runs.flatMap((run) => run.pairs))
+    .map((pair) => `${pair.finding} ${pair.known}`)
+    .filter((pair) => !verdicts.has(pair))
+    .map((pair) => pair.replace(' ', ' and '));
+  if (missing.length === 0) return;
+  const shown = missing.slice(0, 10).join(', ');
+  const more = missing.length > 10 ? `, and ${missing.length - 10} more` : '';
+  fail(`judgments.json has no match answer for ${missing.length} candidate pairs of pairs.json: ${shown}${more}`);
 }
 
 // A known defect is unresolved in a run when the run did not find it and the judge answered `unknown` for a pair
@@ -418,6 +432,7 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
     runs.get(key).blocks.push(block);
   }
   const judged = readJudgments(judgments, byBlind, knownByCase);
+  requireCandidateAnswers(pairsDoc, judged.verdicts);
   for (const finding of findingsDoc.findings)
     runs.get(`${finding.case}/${finding.arm}/${finding.run}`).findings.push(finding);
   const runScores = [...runs.entries()]

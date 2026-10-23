@@ -48,4 +48,4 @@ Write `<ws>/judgments.json` in this shape:
 - Give one `matches` entry for each candidate pair in `pairs.json`. You may add an entry for another pair of a finding and a known defect of the same case when they match.
 - Give one `adjudications` entry for each finding without a `match` answer.
 - `verdict` is `match`, `no`, or `unknown`. `rating` is `valid`, `wrong`, or `unknown`.
-- Copy finding ids and known-defect ids exactly. The scoring script refuses an unknown id and two different answers for one pair or one finding.
+- Copy finding ids and known-defect ids exactly. The scoring script refuses an unknown id, two different answers for one pair or one finding, and a candidate pair without a `matches` entry.

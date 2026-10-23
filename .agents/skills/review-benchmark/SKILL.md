@@ -73,7 +73,7 @@ The baseline agents are the released `code-reviewer.md` and `plan-reviewer.md` o
 <ws>/findings.json  <ws>/pairs.json  <ws>/judgments.json  <ws>/report.md
 ```
 
-The snapshot is the reviewed tree without Git history; this skill folder is left out of it. Focus diffs split the changed paths by class:
+The snapshot is the reviewed tree without Git history. This skill folder holds the held-out answer keys, so the snapshot, every diff, and the changed-path list of the focus diffs leave it out. Focus diffs split the changed paths by class:
 
 | Path class | Rule | Focus diffs |
 |---|---|---|
@@ -111,7 +111,7 @@ A path can be in more than one class. When no changed path is in a lens's scope,
    node "$skill/scripts/score.mjs" report "$bench/dev"
    ```
 
-   Between `pairs` and `report`, dispatch one judge agent from another model family than the reviewers. Give it `references/judge.md`, the workspace path, and the cases path. The judge reads `pairs.json`, the key files, and the snapshots, and writes `judgments.json`. It does not read `findings.json` or the arm folders, because they name the arms.
+   Between `pairs` and `report`, dispatch one judge agent from another model family than the reviewers. Give it `references/judge.md`, the workspace path, and the cases path. The judge reads `pairs.json`, the key files, and the snapshots, and writes `judgments.json` with an answer for every candidate pair in `pairs.json`; `report` stops and names the pairs that have no answer. It does not read `findings.json` or the arm folders, because they name the arms.
 
    `report.md` has one summary row for each case and arm and one row for each run. The summary gives the mean, median, minimum, and maximum of recall; the mean of valid extras, wrong, unknown, unresolved, and unknown pairs per run; and the median, minimum, and maximum of seconds and tokens. Valid extras, wrong, unknown, and unjudged count the findings that match no known defect, by their adjudication rating. Unknown pairs counts every `unknown` answer of the judge for a pair of a finding of the run and a known defect. Such an answer can hide a missed match, or a valid extra that only repeats a found defect. Unresolved is the subset that can change recall: the known defects that the run did not find, where the judge answered `unknown` for a pair of the defect with a finding of the run. In a dev workspace, read the `unknown` pairs in `judgments.json` before the decision.
 5. Apply the decision rule in `results.md` to `report.md`. For a losing candidate, read the transcripts of its misses before the next dev iteration.

@@ -176,7 +176,7 @@ export function buildOpening(caseData, paths) {
     `Plan export: ${paths.plan}`,
     '',
     'Rules:',
-    '- The snapshot root holds the repository files for this review, without Git history. Read files only under the snapshot root and the files that this message names.',
+    '- The snapshot root holds the repository files for this review, without Git history. Take review evidence only from files under the snapshot root and the files that this message names. You may also read your own agent instructions and the skill and reference files that those instructions tell you to load.',
     '- Do not fetch GitHub issues or pull requests. The plan export is the plan issue body.',
     '- Run no commands.',
     '- Make no edits.',
@@ -278,25 +278,29 @@ const DIFF_FLAGS = [
   '--dst-prefix=b/',
 ];
 
+// The benchmark skill folder holds the held-out answer keys, so no reviewer input may contain it. The snapshot,
+// the changed-path list, and every diff use this one pathspec to leave the folder out.
+function hiddenPathspec(repo) {
+  return `:(exclude,literal)${path.relative(repo, SKILL_DIR).split(path.sep).join('/')}`;
+}
+
 function treeDiff(repo, from, to, paths) {
-  const args = ['diff', ...DIFF_FLAGS, from, to];
-  if (paths) args.push('--', ...paths.map((file) => `:(literal)${file}`));
+  const args = ['diff', ...DIFF_FLAGS, from, to, '--', hiddenPathspec(repo)];
+  if (paths) args.push(...paths.map((file) => `:(literal)${file}`));
   return git(repo, args);
 }
 
 function changedPaths(repo, from, to) {
-  const output = git(repo, ['diff', '--name-only', '-z', '--no-relative', '--no-renames', from, to]);
-  return output.toString().split('\0').filter(Boolean);
+  const args = ['diff', '--name-only', '-z', '--no-relative', '--no-renames', from, to, '--', hiddenPathspec(repo)];
+  return git(repo, args).toString().split('\0').filter(Boolean);
 }
 
-// Writes the files of the index to `snapshotDir`. The benchmark skill stays out of the snapshot,
-// because its held-out answer keys must never reach a reviewer.
+// Writes the files of the index, except the benchmark skill folder, to `snapshotDir`.
 function checkoutSnapshot(repo, env, snapshotDir) {
-  const skillPath = path.relative(repo, SKILL_DIR).split(path.sep).join('/');
-  const files = git(repo, ['ls-files', '-z'], { env })
+  const files = git(repo, ['ls-files', '-z', '--', hiddenPathspec(repo)], { env })
     .toString()
     .split('\0')
-    .filter((file) => file && !file.startsWith(`${skillPath}/`));
+    .filter(Boolean);
   const input = files.map((file) => `${file}\0`).join('');
   git(repo, ['checkout-index', '-f', `--prefix=${snapshotDir}${path.sep}`, '-z', '--stdin'], { env, input });
 }

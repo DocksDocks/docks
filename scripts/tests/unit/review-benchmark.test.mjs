@@ -550,15 +550,22 @@ test('the summary gives the median and the range of seconds and tokens, so one s
 test('report.md lists known-defect ids and no defect text', (t) => {
   const { ws, cases } = workspace(t);
   const { findings } = findingsCommand(ws);
-  pairsCommand(ws, cases);
+  const pairs = pairsCommand(ws, cases);
   const blind = Object.fromEntries(findings.map((finding) => [finding.id, finding.blind]));
+  const matches = [
+    { finding: blind['code-7/B0/run-1/full#1'], known: 'D1', verdict: 'match', reason: 'Same lock.' },
+    { finding: blind['code-7/C3/run-1/correctness#1'], known: 'D1', verdict: 'match', reason: 'Same lock.' },
+    { finding: blind['code-7/C3/run-1/correctness#3'], known: 'D2', verdict: 'match', reason: 'Same retry.' },
+    { finding: blind['plan-3/P0/run-1/plan#1'], known: 'K1', verdict: 'match', reason: 'Same step.' },
+  ];
+  // The judge answers every candidate pair, so each other candidate pair gets the answer `no`.
+  const answered = new Set(matches.map((entry) => `${entry.finding} ${entry.known}`));
+  for (const pair of pairs.cases.flatMap((entry) => entry.runs.flatMap((run) => run.pairs))) {
+    if (!answered.has(`${pair.finding} ${pair.known}`))
+      matches.push({ ...pair, verdict: 'no', reason: 'Other cause.' });
+  }
   put(ws, 'judgments.json', {
-    matches: [
-      { finding: blind['code-7/B0/run-1/full#1'], known: 'D1', verdict: 'match', reason: 'Same lock.' },
-      { finding: blind['code-7/C3/run-1/correctness#1'], known: 'D1', verdict: 'match', reason: 'Same lock.' },
-      { finding: blind['code-7/C3/run-1/correctness#3'], known: 'D2', verdict: 'match', reason: 'Same retry.' },
-      { finding: blind['plan-3/P0/run-1/plan#1'], known: 'K1', verdict: 'match', reason: 'Same step.' },
-    ],
+    matches,
     adjudications: [
       { finding: blind['code-7/C3/run-1/spec-and-tests#1'], rating: 'valid', reason: 'The check is weak.' },
       { finding: blind['code-7/C3/run-1/correctness#2'], rating: 'wrong', reason: 'The index is cached.' },
@@ -610,6 +617,21 @@ test('report refuses judgments with unknown ids or conflicting answers', () => {
       scoreRuns({ ...fixture, judgments: { matches: [], adjudications: [{ finding: first.blind, rating: 'maybe' }] } }),
     /rating maybe/,
   );
+});
+
+test('report refuses judgments that skip a candidate pair and names the missing pairs', () => {
+  const withCandidates = (fixture) => {
+    const pairs = fixture.findings.findings.map((finding) => ({ finding: finding.blind, known: 'D1' }));
+    fixture.pairs.cases[0].runs = [{ run: 'R-00000000', findings: [], pairs }];
+    return fixture;
+  };
+  const one = withCandidates(judgedArm(CODE_KNOWN.slice(0, 1), [[{ rating: 'valid' }]]));
+  const [finding] = one.findings.findings;
+  assert.throws(() => scoreRuns(one), new RegExp(`no match answer for 1 candidate pairs .*${finding.blind} and D1$`));
+  const answered = withCandidates(judgedArm(CODE_KNOWN.slice(0, 1), [[{ matches: { D1: 'no' }, rating: 'valid' }]]));
+  assert.equal(scoreRuns(answered).runs[0].validExtras, 1);
+  const many = withCandidates(judgedArm(CODE_KNOWN.slice(0, 1), [Array.from({ length: 12 }, () => ({}))]));
+  assert.throws(() => scoreRuns(many), /no match answer for 12 candidate pairs .*, and 2 more$/);
 });
 
 test('summarize takes the middle pair for an even count and gives nulls without values', () => {
