@@ -29,7 +29,7 @@ Bun runs this repository's tooling and is the package manager; its version is th
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)
 ├── .codex/agents/                    repo-local Codex reviewer wrappers (not plugin payload)
 ├── .claude/skills/                   Claude Code-visible symlinks → ../../.agents/skills/
-├── docs/                             plan routing and point-in-time records (rules: docs/AGENTS.md)
+├── docs/                             plan routing (rules: docs/AGENTS.md)
 ├── scripts/                          plugin-author tooling (NOT shipped to consumers)
 └── .github/workflows/                gh-side CI on PR + tag push
 ```
@@ -40,7 +40,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. A node is a sing
 
 | Node | Covers |
 |---|---|
-| `docs/AGENTS.md` | plan-record routing, GitHub issue backend, frozen pre-GitHub archive |
+| `docs/AGENTS.md` | plan-record routing, GitHub issue backend |
 | `plugins/docks/skills/AGENTS.md` | skill authoring - description CSO, frontmatter, body rules, scoring |
 | `plugins/plan-lifecycle/skills/AGENTS.md` | plan-lifecycle skill authoring - the lifecycle skills and yolo, contract sync, fail-loud routing |
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
