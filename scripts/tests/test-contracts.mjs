@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseDocument } from 'yaml';
 import { PLUGINS } from '../lib/plugins.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -140,8 +141,12 @@ function slug(value) {
     .toLowerCase();
 }
 
-function descriptor({ id, suite, kind, selector, selectedCount, executed }) {
-  return { id, suite, kind, selector, selectedCount, executed };
+function descriptor({ id, suite, kind, selector, selectedCount, executed, runners, runnerSource }) {
+  return { id, suite, kind, selector, selectedCount, executed, runners, runnerSource };
+}
+
+function distinctRunners(invocations = []) {
+  return [...new Set(invocations.map(({ runner }) => runner))].sort();
 }
 
 function unitDescriptors(packageJson) {
@@ -155,6 +160,7 @@ function unitDescriptors(packageJson) {
   assert.equal(typeof unitCommand, 'string', 'package.json must declare scripts.test:unit');
   // Only Bun's test runner registers the files' test() calls; `bun <file>` would run one file as a plain script.
   const executesUnitGlob = /^bun test\b/u.test(unitCommand) && unitCommand.includes('./scripts/tests/unit/*.test.mjs');
+  const unitRunner = unitCommand.trim().split(/\s+/u)[0];
   return unitFiles.map((file) => {
     const suite = `scripts/tests/unit/${file}`;
     const source = fs.readFileSync(path.join(REPO, suite), 'utf8');
@@ -166,6 +172,8 @@ function unitDescriptors(packageJson) {
       selector: suite,
       selectedCount,
       executed: executesUnitGlob,
+      runners: [unitRunner],
+      runnerSource: 'package.json scripts.test:unit',
     });
   });
 }
@@ -206,23 +214,59 @@ function executableCodePositions(source) {
   return positions;
 }
 
+// A plugin descriptor suite reaches the runner through gatePlugin's parameter, sometimes by way of a loop variable or
+// an argument array, so follow the nearest preceding binding back to the descriptor field it reads.
+function pluginDescriptorField(ciSource, codePositions, expression, position, pluginParameter) {
+  const [root, field] = expression.split('.');
+  if (root === pluginParameter) return field ?? null;
+  const bindingPattern = new RegExp(
+    String.raw`\b(?:const\s+${root}\s*=\s*\[\s*|for\s*\(\s*const\s+${root}\s+of\s+)(?<source>[A-Za-z_][\w.]*)`,
+    'gu',
+  );
+  let binding = null;
+  for (const candidate of ciSource.slice(0, position).matchAll(bindingPattern)) {
+    if (codePositions[candidate.index] === 1) binding = candidate;
+  }
+  if (binding === null) return null;
+  return pluginDescriptorField(ciSource, codePositions, binding.groups.source, binding.index, pluginParameter);
+}
+
 function gateInvocationArguments(ciSource) {
   const bySuite = new Map();
+  const byPluginField = new Map();
   const codePositions = executableCodePositions(ciSource);
-  const invocationPattern = /\b(?:node|bun)(?:Ok)?\(\[\s*['"](?<suite>[^'"]+\.mjs)['"](?<args>[^[]*?)\]\)/gu;
+  const pluginParameter = /\bfunction gatePlugin\((?<name>[A-Za-z_]\w*)\)/u.exec(ciSource)?.groups.name;
+  assert.ok(pluginParameter, 'scripts/ci.mjs must declare gatePlugin(<plugin>) to gate plugin descriptor suites');
+  const invocationPattern =
+    /\b(?<runner>node|bun)(?:Ok)?\((?:\[\s*(?:['"](?<suite>[^'"]+\.mjs)['"]|(?<expression>[A-Za-z_][\w.]*))(?<args>[^[]*?)\]|(?<variable>[A-Za-z_]\w*))\)/gu;
   for (const match of ciSource.matchAll(invocationPattern)) {
     if (codePositions[match.index] !== 1) continue;
+    const { runner, suite, expression, variable } = match.groups;
+    if (suite === undefined) {
+      const field = pluginDescriptorField(
+        ciSource,
+        codePositions,
+        expression ?? variable,
+        match.index,
+        pluginParameter,
+      );
+      if (field === null) continue;
+      const invocations = byPluginField.get(field) ?? [];
+      invocations.push({ runner, args: [] });
+      byPluginField.set(field, invocations);
+      continue;
+    }
     const args = [...match.groups.args.matchAll(/,\s*(['"])([^'"]*)\1/gu)].map((argument) => argument[2]);
-    const invocations = bySuite.get(match.groups.suite) ?? [];
-    invocations.push(args);
-    bySuite.set(match.groups.suite, invocations);
+    const invocations = bySuite.get(suite) ?? [];
+    invocations.push({ runner, args });
+    bySuite.set(suite, invocations);
   }
-  return bySuite;
+  return { bySuite, byPluginField };
 }
 
 function gateSelection(suite, invocations = []) {
-  const distinct = [...new Map(invocations.map((args) => [JSON.stringify(args), args])).values()].sort((left, right) =>
-    JSON.stringify(left).localeCompare(JSON.stringify(right)),
+  const distinct = [...new Map(invocations.map(({ args }) => [JSON.stringify(args), args])).values()].sort(
+    (left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)),
   );
   if (distinct.length === 0) return { selector: suite, selectedCount: 1 };
   if (distinct.length === 1) return { selector: [suite, ...distinct[0]].join(' '), selectedCount: 1 };
@@ -239,8 +283,7 @@ function gateSelection(suite, invocations = []) {
   return { selector, selectedCount: distinct.length };
 }
 
-function repoSuiteDescriptors(ciSource) {
-  const invocations = gateInvocationArguments(ciSource);
+function repoSuiteDescriptors({ bySuite: invocations }) {
   // The registry certifies commands the gate executes; a path in prose or diagnostics only names a suite.
   const paths = [...invocations.keys()].filter(
     (suite) =>
@@ -258,6 +301,8 @@ function repoSuiteDescriptors(ciSource) {
       selector: selectors.get(suite) ?? selection.selector,
       selectedCount: selection.selectedCount,
       executed: true,
+      runners: distinctRunners(invocations.get(suite)),
+      runnerSource: 'scripts/ci.mjs',
     });
   });
 }
@@ -272,7 +317,12 @@ function commandSelector(suite, args = []) {
   return [suite, ...args].join(' ');
 }
 
-function pluginDescriptors() {
+function pluginDescriptors({ byPluginField }) {
+  const runnersOf = (field) => {
+    const runners = distinctRunners(byPluginField.get(field));
+    assert.ok(runners.length > 0, `scripts/ci.mjs gatePlugin() never runs the plugin descriptor field ${field}`);
+    return runners;
+  };
   const discovered = [];
   for (const plugin of PLUGINS) {
     if (plugin.selftest) {
@@ -284,6 +334,8 @@ function pluginDescriptors() {
           selector: plugin.selftest,
           selectedCount: 1,
           executed: true,
+          runners: runnersOf('selftest'),
+          runnerSource: 'scripts/ci.mjs',
         }),
       );
     }
@@ -296,6 +348,8 @@ function pluginDescriptors() {
           selector: plugin.distributionContract,
           selectedCount: 1,
           executed: true,
+          runners: runnersOf('distributionContract'),
+          runnerSource: 'scripts/ci.mjs',
         }),
       );
     }
@@ -308,6 +362,8 @@ function pluginDescriptors() {
           selector: commandSelector(check.path, check.args),
           selectedCount: 1,
           executed: true,
+          runners: runnersOf('sourceChecks'),
+          runnerSource: 'scripts/ci.mjs',
         }),
       );
     }
@@ -320,6 +376,8 @@ function pluginDescriptors() {
           selector: suite,
           selectedCount: 1,
           executed: true,
+          runners: runnersOf('releaseContracts'),
+          runnerSource: 'scripts/ci.mjs',
         }),
       );
     }
@@ -337,15 +395,52 @@ function assertSetEqual(actual, expected, label) {
   );
 }
 
+// The registry's toolchain tokens must follow the gate: CI pins Node in the workflow and Bun in package.json, so a
+// suite whose runner changes, or a runtime major bump, makes every affected contract name the new runner.
+function nodeToolchain() {
+  const workflowPath = '.github/workflows/ci.yml';
+  const document = parseDocument(fs.readFileSync(path.join(REPO, workflowPath), 'utf8'));
+  assert.deepEqual(document.errors, [], `${workflowPath} must parse as YAML`);
+  const versions = new Set();
+  for (const [jobId, job] of Object.entries(document.toJS()?.jobs ?? {})) {
+    for (const step of job?.steps ?? []) {
+      if (typeof step?.uses !== 'string' || !step.uses.startsWith('actions/setup-node@')) continue;
+      const version = step.with?.['node-version'];
+      assert.ok(
+        version !== undefined && version !== null && String(version).length > 0,
+        `${workflowPath} job ${jobId} setup-node step must set node-version`,
+      );
+      versions.add(String(version));
+    }
+  }
+  assert.ok(versions.size > 0, `${workflowPath} must set node-version in a setup-node step`);
+  assert.equal(
+    versions.size,
+    1,
+    `${workflowPath} setup-node steps disagree on node-version: ${[...versions].sort().join(', ')}`,
+  );
+  const [version] = versions;
+  const major = /^v?(?<major>\d+)(?:\.|$)/u.exec(version)?.groups.major;
+  assert.ok(major, `${workflowPath} node-version must name a numeric major version: ${version}`);
+  return `node-${major}`;
+}
+
+function bunToolchain(packageJson) {
+  const major = /^bun@(?<major>\d+)\./u.exec(packageJson.packageManager ?? '')?.groups.major;
+  assert.ok(major, `package.json packageManager must pin bun@<major>.<minor>.<patch>: ${packageJson.packageManager}`);
+  return `bun-${major}`;
+}
+
 const registry = readJson('scripts/config/test-contracts.json');
 const packageJson = readJson('package.json');
 const ciSource = fs.readFileSync(path.join(REPO, 'scripts/ci.mjs'), 'utf8');
 validateRegistry(registry);
 
+const gateInvocations = gateInvocationArguments(ciSource);
 const discoveredDescriptors = [
   ...unitDescriptors(packageJson),
-  ...repoSuiteDescriptors(ciSource),
-  ...pluginDescriptors(),
+  ...repoSuiteDescriptors(gateInvocations),
+  ...pluginDescriptors(gateInvocations),
 ];
 const descriptorById = new Map();
 for (const discovered of discoveredDescriptors) {
@@ -359,6 +454,11 @@ assertSetEqual(registered, discovered, 'discovered and registered sets differ');
 
 const selected = new Set();
 const executed = new Set();
+const toolchainByRunner = new Map([
+  ['node', nodeToolchain()],
+  ['bun', bunToolchain(packageJson)],
+]);
+const staleToolchains = [];
 for (const contract of registry.contracts) {
   const evidence = descriptorById.get(contract.id);
   assert.ok(evidence, `${contract.id} has no discovered selection evidence`);
@@ -371,11 +471,23 @@ for (const contract of registry.contracts) {
     `${contract.id} selected ${evidence.selectedCount}, below expected minimum ${contract.selection.expected_min}`,
   );
   assert.ok(fs.existsSync(path.join(REPO, contract.owner.suite)), `${contract.id} owner suite does not exist`);
+  assert.ok(evidence.runners.length > 0, `${contract.id} has no discovered runner`);
+  for (const runner of evidence.runners) {
+    const toolchain = toolchainByRunner.get(runner);
+    assert.ok(toolchain, `${contract.id} runs with ${runner}, which has no known toolchain token`);
+    if (!contract.toolchains.includes(toolchain)) {
+      staleToolchains.push(
+        `${contract.id}.toolchains must list ${toolchain}: ${evidence.runnerSource} runs ${evidence.suite} with ${runner}`,
+      );
+    }
+  }
   selected.add(contract.id);
   if (evidence.executed) executed.add(contract.id);
 }
 assert.ok(selected.size > 0, 'selected set must not be empty');
 for (const id of selected) assert.ok(registered.has(id), `selected contract is not registered: ${id}`);
 assertSetEqual(executed, selected, 'executed and selected sets differ');
+// Collected rather than asserted per row so one run names every stale contract.
+assert.deepEqual(staleToolchains, [], `contract toolchains omit the gate runner:\n${staleToolchains.join('\n')}`);
 
 console.log(`PASS test_contracts contracts=${registered.size} discovered=${discovered.size} selected=${selected.size}`);
