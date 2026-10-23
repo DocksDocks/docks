@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-23"
-  content_hash: "b47f863afd7b99bac74a711c9e03c5c88e64975a8df0d218cd841dd223d5eb3b"
+  content_hash: "e314a6864e8f7c6ea04a75c7c134c95283f3f1bd36b352022c7b19ce11cb9b15"
 ---
 
 # Report a Skill Issue
@@ -112,13 +112,22 @@ rm -- "$body"
 
 If your shell does not keep variables between commands, use the path that `mktemp` printed. Use `--body-file`, not `--body`, because the shell can change backticks, `$`, and quotes in inline text. Do not add labels or assignees; the maintainer triages the issue.
 
-### Without gh
+### Without gh, or without a way to ask
 
-If `gh` is not installed, or `gh auth status` reports no login, do not install gh and do not ask for a token. Give the user a link that opens the new-issue form with the text filled in:
+Give a prefilled link when gh is missing or not logged in, or when the run cannot ask the user. Do not install gh, and do not ask for a token. The link opens the new-issue form with the text filled in:
 
 `https://github.com/DocksDocks/docks/issues/new?title=<url-encoded title>&body=<url-encoded body>`
 
-Encode the exact title and body that you show, unchanged, as URL query components, for example with `encodeURIComponent` in Node. If the full URL is longer than about 6,000 characters, give the title and the body as text instead, for the user to paste at `https://github.com/DocksDocks/docks/issues/new`. For a comment on an existing issue, give the text and the issue URL, `https://github.com/DocksDocks/docks/issues/<n>`. Show the draft and the link in the same message. The user files the issue from the form.
+Build the link with a script, not by hand, so that it holds the exact title and body that you show. Write the body to a temporary file as in stage 6, run one of these commands, and then remove the file:
+
+```bash
+# Node
+node -e 'const fs = require("fs"); const [t, f] = process.argv.slice(1); console.log("https://github.com/DocksDocks/docks/issues/new?title=" + encodeURIComponent(t) + "&body=" + encodeURIComponent(fs.readFileSync(f, "utf8")))' "<approved title>" "$body"
+# Python
+python3 -c 'import sys, urllib.parse as p; t, f = sys.argv[1:]; print("https://github.com/DocksDocks/docks/issues/new?title=" + p.quote(t, safe="") + "&body=" + p.quote(open(f, encoding="utf-8").read(), safe=""))' "<approved title>" "$body"
+```
+
+If the full URL is longer than about 6,000 characters, give the title and the body as text instead, for the user to paste at `https://github.com/DocksDocks/docks/issues/new`. For a comment on an existing issue, give the text and the issue URL, `https://github.com/DocksDocks/docks/issues/<n>`. Show the draft and the link in the same message. The user files the issue from the form.
 
 ## Security problems
 
