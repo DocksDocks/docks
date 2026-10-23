@@ -743,28 +743,28 @@ const severeFinding = (text) =>
   /\[(?:critical|high)\]/i.test(text) ||
   /^(?:critical|high)\s*:/i.test(text) ||
   /^severity\s*:\s*(?:critical|high)\b/i.test(text);
+// One comment can hold several blocks of the same kind, such as the lens blocks of one code-review round (#98).
+// Every verdict line of that kind counts, and the most severe verdict wins, so no block can hide another's failure.
+const VERDICT_SEVERITY = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
+function verdictFor(kind, alias) {
+  if (['pass', 'ok', 'approved'].includes(alias)) return 'pass';
+  if (['repair', 'changes', 'fixes-required'].includes(alias)) return kind === 'plan' ? 'repair' : 'fixes-required';
+  return alias === 'blocked' ? 'blocked' : undefined;
+}
 export function parseReviewComment(body) {
   if (typeof body !== 'string') return undefined;
   const lines = body.trim().split(/\r?\n/).map(reviewText);
   const heading = REVIEW_HEADING.exec(lines[0]);
   if (!heading) return undefined;
   const kind = heading[1].toLowerCase();
-  const match = lines
+  // A verdict line of the other kind is prose inside the block, for example a quoted plan verdict.
+  const verdicts = lines
     .slice(1)
     .map((line) => REVIEW_VERDICT.exec(line))
-    .find(Boolean);
-  if (!match || match[1].toLowerCase() !== kind) return undefined;
-  const alias = match[2].toLowerCase();
-  let verdict = ['pass', 'ok', 'approved'].includes(alias)
-    ? 'pass'
-    : ['repair', 'changes', 'fixes-required'].includes(alias)
-      ? kind === 'plan'
-        ? 'repair'
-        : 'fixes-required'
-      : alias === 'blocked'
-        ? 'blocked'
-        : undefined;
-  if (!verdict) return undefined;
+    .filter((match) => match && match[1].toLowerCase() === kind)
+    .map((match) => verdictFor(kind, match[2].toLowerCase()));
+  if (verdicts.length === 0 || verdicts.includes(undefined)) return undefined;
+  let verdict = verdicts.reduce((worst, next) => (VERDICT_SEVERITY[next] > VERDICT_SEVERITY[worst] ? next : worst));
   if (kind === 'code' && verdict === 'pass' && lines.some(severeFinding)) verdict = 'fixes-required';
   return { kind, verdict };
 }
