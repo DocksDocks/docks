@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-23"
-  content_hash: "be2c6e9c57f6cba688c916bb25d725ccf12c6165d70bbf291641f59ce72861dc"
+  content_hash: "19ba90829667b3ea0e8afcc739e417a9c2bb92317ed5267c2775ea01ff7dcdea"
 ---
 
 # Report a Skill Issue
@@ -17,7 +17,7 @@ DocksDocks/docks is a public repository. Anyone can read its issues and comments
 </constraint>
 
 <constraint>
-Keep private data out of the title and the body. Leave out secret values and tokens (name the variable only, for example `GH_TOKEN`), names of private repositories, organizations, customers, and people, internal hostnames and URLs, absolute machine paths (write a path relative to the project or the plugin root), proprietary code or data, and titles of private plans and issues. Describe each one generically instead, for example "a private repository" or "a plan issue in a private repository". A security problem is a skill, agent, hook, or script that exposes secrets, runs unsafe commands, or weakens access control. A security problem never goes into a public issue or comment, not even in redacted form. Give the user the draft and tell them to send it privately to the repository owner. If a credential was exposed, tell the user to rotate it now, whether or not they send the report.
+Keep private data out of the title and the body. Leave out secret values and tokens (name the variable only, for example `GH_TOKEN`), names of private repositories, organizations, customers, and people, internal hostnames and URLs, absolute machine paths (write a path relative to the project or the plugin root), proprietary code or data, and titles of private plans and issues. Describe each one generically instead, for example "a private repository" or "a plan issue in a private repository". Decide whether a repository is private with the lookup in stage 4, not from memory. A security problem is a skill, agent, hook, or script that exposes secrets, runs unsafe commands, or weakens access control. A security problem never goes into a public issue or comment, not even in redacted form. Give the user the draft and tell them to send it privately to the repository owner. If a credential was exposed, tell the user to rotate it now, whether or not they send the report.
 </constraint>
 
 ## Scope
@@ -91,6 +91,22 @@ gh issue view <n> --repo DocksDocks/docks --comments
 
 Fill the template below. Put one problem in each issue. If you found two problems, draft two reports and get approval for each. Keep the quote of the instruction exact. Trim command output to the lines that show the failure. Give times in UTC. Then check the draft against the redaction rule and the list in "Check before filing".
 
+#### Decide which repositories are public
+
+Before the draft names a repository, look up whether it is public. Start with the user's project. Resolve it from its remotes, not from gh's default repository. Run `git remote -v` in the project. Read the host, the owner, and the name from each remote URL. For example, `git@github.com:<owner>/<repo>.git` and `https://github.com/<owner>/<repo>.git` both give the host `github.com`, the owner `<owner>`, and the name `<repo>`. For each remote on `github.com`, run this lookup:
+
+```bash
+gh repo view github.com/<owner>/<repo> --json visibility --jq .visibility
+```
+
+Write the host and the repository out in the argument, so that neither `GH_REPO` nor `GH_HOST` changes the target. The project is public only when it has at least one remote, every remote is on `github.com`, and every lookup prints `PUBLIC`. No remote, a remote on another host, a URL that you cannot read, or a failed lookup makes the project private. For a private project:
+
+- Leave out the owner and the name of every remote.
+- Leave out the project's issue and pull request titles and its branch names.
+- Write its issue and pull request numbers without `#`, for example "issue 123 in a private repository". In a DocksDocks/docks issue, `#123` links to DocksDocks/docks#123, a different issue.
+
+Look up every other repository that the draft names in the same way. It keeps its name only when the lookup prints `PUBLIC`. A repository on another host, or a failed lookup, counts as private. Without gh, every repository other than DocksDocks/docks counts as private.
+
 ### 5. Get approval
 
 Show the user, as the final message of your turn:
@@ -103,18 +119,21 @@ Ask the user to approve or change the text, then end your turn. A security probl
 
 ### 6. File the approved text
 
-Write the approved body, unchanged, to a new temporary file. Run the scan from "Check before filing" on it. File it, remove the file, and give the user the URL that gh prints.
+Write the approved title and body, unchanged, to two new temporary files. Run the scans from "Check before filing" on them. File the text, remove both files, and give the user the URL that gh prints.
 
 ```bash
+title=$(mktemp)
 body=$(mktemp)
-# Write the approved body to "$body" with your file tool, then:
-gh issue create --repo DocksDocks/docks --title "<approved title>" --body-file "$body"
+# Write the approved title to "$title" and the approved body to "$body" with your file tool, then:
+gh issue create --repo DocksDocks/docks --title "$(cat "$title")" --body-file "$body"
 # Or, for a comment on an existing issue:
 gh issue comment <n> --repo DocksDocks/docks --body-file "$body"
-rm -- "$body"
+rm -- "$title" "$body"
 ```
 
-If your shell does not keep variables between commands, use the path that `mktemp` printed. Use `--body-file`, not `--body`, because the shell can change backticks, `$`, and quotes in inline text. Do not add labels or assignees; the maintainer triages the issue.
+If your shell does not keep variables between commands, use the paths that `mktemp` printed. Read the title from its file. Use `--body-file`, not `--body`. The shell can change backticks, `$`, and quotes in inline text, so gh could file a title or body that differs from the approved text. Bash does not expand the output of `$(cat "$title")` again, so the title arrives unchanged. Do not add labels or assignees; the maintainer triages the issue.
+
+If a filed issue or comment names a private repository or holds other private data, edit it to remove that text. GitHub keeps every earlier revision, and anyone who can read the issue can open it. No API call deletes a revision. Tell the user to delete the old revision in the web UI: open "edited" at the top of the text, choose the revision, and then choose "Delete revision from history". Only a user with write access to DocksDocks/docks can delete a revision.
 
 ### Without gh, or without a way to ask
 
@@ -122,13 +141,13 @@ Give a prefilled link when gh is missing or not logged in, or when the run canno
 
 `https://github.com/DocksDocks/docks/issues/new?title=<url-encoded title>&body=<url-encoded body>`
 
-Build the link with a script, not by hand, so that it holds the exact title and body that you show. Write the body to a temporary file as in stage 6, run one of these commands, and then remove the file:
+Build the link with a script, not by hand, so that it holds the exact title and body that you show. Write the title and the body to two temporary files as in stage 6, run one of these commands, and then remove both files. Each command strips one trailing newline from the title.
 
 ```bash
 # Node
-node -e 'const fs = require("fs"); const [t, f] = process.argv.slice(1); console.log("https://github.com/DocksDocks/docks/issues/new?title=" + encodeURIComponent(t) + "&body=" + encodeURIComponent(fs.readFileSync(f, "utf8")))' "<approved title>" "$body"
+node -e 'const fs = require("fs"); const [t, f] = process.argv.slice(1); const title = fs.readFileSync(t, "utf8").replace(/\r?\n$/, ""); console.log("https://github.com/DocksDocks/docks/issues/new?title=" + encodeURIComponent(title) + "&body=" + encodeURIComponent(fs.readFileSync(f, "utf8")))' "$title" "$body"
 # Python
-python3 -c 'import sys, urllib.parse as p; t, f = sys.argv[1:]; print("https://github.com/DocksDocks/docks/issues/new?title=" + p.quote(t, safe="") + "&body=" + p.quote(open(f, encoding="utf-8").read(), safe=""))' "<approved title>" "$body"
+python3 -c 'import sys, urllib.parse as p; t, f = sys.argv[1:]; t = open(t, encoding="utf-8").read(); t = t[:-1] if t.endswith("\n") else t; print("https://github.com/DocksDocks/docks/issues/new?title=" + p.quote(t, safe="") + "&body=" + p.quote(open(f, encoding="utf-8").read(), safe=""))' "$title" "$body"
 ```
 
 If the full URL is longer than about 6,000 characters, give the title and the body as text instead, for the user to paste at `https://github.com/DocksDocks/docks/issues/new`. For a comment on an existing issue, give the text and the issue URL, `https://github.com/DocksDocks/docks/issues/<n>`. Show the draft and the link in the same message. The user files the issue from the form.
@@ -213,6 +232,8 @@ The good title names the plugin, the skill, and one observable symptom, so a mai
 | A redacted secret still shows a prefix or a length (`ghp_1a2b...`) | Name the variable only (`GH_TOKEN`); show no part of the value |
 | Full command output carries paths, hostnames, and user names | Trim to the failing lines; make paths relative to the project or the plugin root |
 | The search query carries private words | Search with the skill name and words from the instruction only |
+| A branch name from a private project: `gh issue develop` names a branch after its issue title, so the name carries a private title | Leave the branch name out |
+| A `#123` from a private project: in a DocksDocks/docks issue, it links to DocksDocks/docks#123 | Write "issue 123" without `#` |
 | A paraphrase in "What the skill says" | Quote the instruction exactly, with its heading |
 | A quote from a checkout of DocksDocks/docks or from a newer copy | Quote the copy that the runtime loaded; a checkout can already hold the fix |
 | The quoted text says the opposite of the claim | Draft no defect report; tell the user what the skill says |
@@ -220,7 +241,7 @@ The good title names the plugin, the skill, and one observable symptom, so a mai
 | The reproduction needs the user's private project | Reduce it to a generic project, or describe the minimal setup |
 | A guessed version or hash | Read it from the files, or write `unknown` |
 | Local times in the timeline | Convert every time to UTC |
-| The temporary body file stays on disk | Remove the temporary file after filing |
+| A temporary title or body file stays on disk | Remove both temporary files after filing |
 
 ## Check before filing
 
@@ -232,17 +253,30 @@ Check the draft before you show it, and again before you file it:
 - The quote comes from the copy that the runtime loaded, and it shows the problem.
 - You searched for an existing report (stage 3). A draft that adds to an existing issue is a comment on that issue.
 - Your message names the target, the command that you will run, and the GitHub account (stage 5). In a run where you cannot ask, it gives the prefilled URL instead.
-- The title and the body contain no secret value or token, no private repository, organization, customer, or person name, no internal hostname, no absolute machine path, no proprietary code or data, and no private plan or issue title.
+- The title and the body contain no secret value or token, no private repository, organization, customer, or person name, no internal hostname, no absolute machine path, no proprietary code or data, and no private plan or issue title. The second and third scans below check the repository names.
+- For a private project, the title and the body contain no owner or name of its remotes, no branch name, and no `#` before its issue and pull request numbers (stage 4).
 - The problem is not a security problem. If it is, give a private draft only.
 - The user approved this exact title and body after they saw it.
 
-This scan prints nothing when the body file contains no machine path and no token-shaped string. Read the title for the same patterns.
+Run these scans on files that hold the title and the body, as in stage 6. The first scan prints nothing when the files contain no machine path and no token-shaped string.
 
 ```bash
-grep -nE '/home/[^/ ]+/|/Users/[^/ ]+/|[A-Za-z]:\\Users\\|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|AKIA[0-9A-Z]{16}|xox[abprs]-|BEGIN [A-Z ]*PRIVATE KEY' "$body"
+grep -nE '/home/[^/ ]+/|/Users/[^/ ]+/|[A-Za-z]:\\Users\\|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|AKIA[0-9A-Z]{16}|xox[abprs]-|BEGIN [A-Z ]*PRIVATE KEY' "$title" "$body"
 ```
 
-The scan finds only patterns. It does not find a private name or a hostname; read the text for those.
+The second scan prints each line that holds an owner or a repository name from the project's remotes (stage 4). Give one `-e` for each name. For a private project, it must print nothing.
+
+```bash
+grep -n -i -F -e '<owner>' -e '<repo>' "$title" "$body"
+```
+
+The third scan lists every GitHub repository reference. Look up each repository that it prints, as in stage 4. Remove each name that is not public, or describe it generically.
+
+```bash
+grep -noE 'github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+' "$title" "$body"
+```
+
+The scans find only patterns and the names that you give them. They do not find other private names, a hostname, a private title, a branch name, or a `#` before a number from a private project; read the text for those.
 
 ## Sources
 
@@ -250,6 +284,10 @@ The scan finds only patterns. It does not find a private name or a hostname; rea
 - `gh issue list`: <https://cli.github.com/manual/gh_issue_list>
 - `gh issue comment`: <https://cli.github.com/manual/gh_issue_comment>
 - Creating an issue from a URL query: <https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-an-issue>
+- `gh repo view`: <https://cli.github.com/manual/gh_repo_view>
+- gh environment variables (`GH_HOST`, `GH_REPO`): <https://cli.github.com/manual/gh_help_environment>
+- Autolinked references: <https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/autolinked-references-and-urls>
+- Edit history of a comment: <https://docs.github.com/en/communities/moderating-comments-and-conversations/tracking-changes-in-a-comment>
 
 ## Report a problem with this skill
 
