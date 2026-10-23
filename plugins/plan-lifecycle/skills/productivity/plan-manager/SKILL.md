@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-23"
-  content_hash: "7d8c5904f96e18cc5f4e2a00ea3674b58064ef46b4a94a0f4fdccf9f9e61c64b"
+  content_hash: "628301649f04f6e3f8c45e0c22ed76a524dfce07d2fa7dcdd80cfcd30ca5090a"
 ---
 
 # Plan Manager
@@ -86,9 +86,11 @@ Done when: `status <n> planned` succeeds and no advice needs a decision.
 
 Run the contract's review loop with `plan-reviewer`. For each round, export
 fresh input and dispatch `plan-reviewer` with the issue number, export path, and
-round number. If no wrapper exists, dispatch a fresh read-only reviewer with the
-`plan-reviewer` skill. Route a user-only decision through Open questions and
-`ask`. Never implement a repaired plan that has not passed review.
+round number. A re-review round after a repair may use the plan `delta` mode,
+as the contract's review loop allows. If no wrapper exists, dispatch a fresh
+read-only reviewer with the `plan-reviewer` skill. Route a user-only decision
+through Open questions and `ask`. Never implement a repaired plan that has not
+passed review.
 
 A plan-only run stops after the pass, at planned. Report the issue and verdict.
 Do not create a branch or implement without a new instruction.
@@ -109,9 +111,12 @@ Verification Results hold real acceptance results.
 
 ### 6. Code review
 
-Review the complete candidate: committed, staged, unstaged, and untracked
-changes since the merge base with the default branch. Build the diff in the
-review scratch directory:
+Run the contract's review loop with `code-reviewer`. The contract's Code-review
+rounds section picks the mode of each round and names its inputs. Before each
+round, commit the candidate on the linked branch, as that section says. Then
+build the full diff in the review scratch directory. It holds every change
+since the merge base with the default branch. Build it for every round, because
+the delta rule compares the delta diff with it:
 
 ```bash
 scratch=$(git rev-parse --git-path docks-review)
@@ -125,12 +130,20 @@ git ls-files --others --exclude-standard -z |
 ```
 
 `git diff --no-index` exits 1 when the files differ, so that exit status is
-expected here. In the dispatch message, name each changed path that is outside
-the Steps Files cells.
+expected here. A `panel` round also needs one focus diff per lens. A `delta`
+round gives its reviewer the delta diff instead of the full diff:
 
-Run the contract's review loop with `code-reviewer`. Give each round a fresh
-diff, a fresh plan export, the issue number, and the round number. Fix each
-evidenced CRITICAL or HIGH defect before the next round. A pass can carry MEDIUM
+```bash
+git diff --binary "$base" -- <paths> > "$scratch/code-review-<n>-round-<k>-<lens>.diff"
+git diff --binary <previous-reviewed-head> HEAD > "$scratch/code-review-<n>-round-<k>-delta.diff"
+```
+
+Dispatch the three lens reviewers of a `panel` round in one message, so they
+run at the same time. In each dispatch message, name each changed path that is
+outside the Steps Files cells. Post one comment per round, as the contract's
+review loop says.
+
+Fix each evidenced CRITICAL or HIGH defect before the next round. A pass can carry MEDIUM
 and LOW findings. The posted comment is their record; do not change reviewed
 bytes for them. Resolve unreadable input before you request a verdict. If you
 block after implementation, commit and push current work to the linked branch

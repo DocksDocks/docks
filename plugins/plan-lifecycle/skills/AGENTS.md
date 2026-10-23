@@ -47,7 +47,10 @@ the repository plan labels. Main-context `plan-manager` runs decide, draft,
 research, plan review, implement, and code review, with fresh review after
 repairs and user decisions when review cannot progress;
 `plan-reviewer` returns one read-only pre-implementation verdict block per
-round. Two read-only reviewer wrappers ship: the plugin wrappers at
+round; internal `code-reviewer` returns one read-only code-review block per
+reviewer, for one lens or for the changes of a delta round. The
+`code-reviewer` agent loads that skill the way the `plan-reviewer` agent loads
+its skill. Two read-only reviewer wrappers ship: the plugin wrappers at
 `../agents/plan-reviewer.md` and `../agents/code-reviewer.md`, with this source
 repository's matching `.codex/agents/plan-reviewer.toml` and
 `.codex/agents/code-reviewer.toml` pair. `plugins/plan-lifecycle/agents/` deliberately carries no
@@ -69,12 +72,14 @@ Coordinate edits across those surfaces when concepts change. Refresh content
 hashes after all reference edits finish. `scripts/tests/plan-cli.mjs` exercises
 the helper's behavior; no test pins skill prose.
 
-The reviewer agents and the `plan-reviewer` skill own the exact review block
+The reviewer agents and the reviewer skills own the exact review block
 they return. Keep that block inside the comment rules in `plan-contract.md`
 (Phases and review comments). Keep the plan-review block identical in
 `../agents/plan-reviewer.md` and the `plan-reviewer` skill. The Codex templates,
 `.codex/agents/plan-reviewer.toml`, and `.codex/agents/code-reviewer.toml` point
-to the agent's Output Format and do not copy it.
+to the agent's Output Format and do not copy it. A code-review round posts one
+comment that holds every lens block of that round (`plan-contract.md`, Phases
+and review comments).
 
 ## Fail-loud routing (external routes)
 

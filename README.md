@@ -81,7 +81,8 @@ Do not track plan bodies as repository files.
 | `plan-workspace` skill | Maintain workspace routing |
 | Main-context `plan-manager` skill | Decide, draft, research, plan review, implement, code review |
 | Internal `plan-reviewer` skill | Review goal fit, research gaps, and security risk |
-| Read-only `plan-reviewer` and `code-reviewer` wrappers | Run the two review roles |
+| Internal `code-reviewer` skill | Review code by lens: correctness, spec and tests, text and safety |
+| Read-only `plan-reviewer` and `code-reviewer` wrappers | Run the two review roles; a large code-review round runs three lens reviewers at once, and a round that only checks repairs reviews the changes alone |
 | Explicit-only `yolo` skill | Run the whole lifecycle without questions; ask only before merge |
 
 Settle Mode before implementation. `plan-only` stops after plan review;
@@ -105,7 +106,7 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 │   │   ├── .claude-plugin/plugin.json
 │   │   ├── skills/                    ← cross-tool skills
 │   │   └── README.md                  ← plugin-facing docs
-│   └── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (lifecycle skills + explicit-only yolo skill + plan.mjs + marker contract + two read-only reviewer wrappers)
+│   └── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (lifecycle skills + internal plan-reviewer and code-reviewer skills + explicit-only yolo skill + plan.mjs + marker contract + two read-only reviewer wrappers)
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
 │   ├── skills/guard.mjs, agents/guard.mjs + score.mjs

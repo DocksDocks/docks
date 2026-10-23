@@ -150,16 +150,28 @@ risk. The two read-only wrappers are `plan-reviewer` and `code-reviewer`.
 Run this review loop for plan review and for code review:
 
 1. Give each round fresh input: a fresh export, the issue number, and the round
-   number. Code review also gets a fresh diff.
-2. Post the returned block unchanged as one issue comment. Never store a review
-   in the body.
+   number. Code review also gets the fresh diffs that Code-review rounds names.
+2. Post the blocks that the round returned unchanged in one issue comment. Put
+   the lens blocks of a panel round in the lens order of Code-review rounds.
+   Never store a review in the body.
 3. Run `show <n>` and read the verdict. Stop on pass.
-4. Otherwise reproduce each finding. Fix confirmed defects, record evidence for
-   rejected findings, and start the next round.
+4. Otherwise reproduce each finding. Fix confirmed defects. Post the evidence
+   for rejected findings as one issue comment whose first line is
+   `Rejected review findings, round <k>`. Then start the next round.
 5. Ask the user to continue or block when a round makes no progress, the same
    finding returns after a repair, round 5 does not pass, or dispatch fails again
    without a relevant change. If no answer is available, record the reason and
    block. A yolo run uses the round ceiling in Yolo runs instead.
+
+Reviewers never fetch the issue. Save each posted round comment as
+`<phase>-<n>-round-<k>.md` and each rejection comment as
+`<phase>-<n>-round-<k>-rejected.md` in the review scratch directory, where
+`<phase>` is `plan-review` or `code-review`. A delta reviewer reads these files.
+
+A plan re-review after a repair may use the plan `delta` mode when the
+`plan-reviewer` skill offers it in its `references/delta.md`. Give that round
+the inputs that the file names. Otherwise each plan round reviews the whole
+export.
 
 A plan pass covers the body that the reviewer read. After `plan=pass`, an edit
 that changes Goal, Research, Steps, Acceptance, or Do not touch needs a new
@@ -173,10 +185,13 @@ The helper finds review records in comments with these rules. The reviewer
 agents define the exact block they return, and that block follows these rules.
 
 - The first non-blank line names the kind: `plan review` or `code review`, in
-  any case, after optional `#` heading markers. Any suffix, such as `round 2`,
-  is allowed.
-- A later line holds the verdict: `plan-review:` or `code-review:`, then a
-  verdict word. A space can replace the hyphen.
+  any case, after optional `#` heading markers. Any suffix, such as `round 2`
+  or `round 2, lens correctness`, is allowed.
+- A comment holds one or more review blocks. A block starts at the first line,
+  or at a later Markdown heading line (one or more `#`) that names the
+  comment's kind. A panel round comment holds one block per lens.
+- A verdict line holds `plan-review:` or `code-review:`, then a verdict word.
+  A space can replace the hyphen.
 - On each line, the helper ignores Markdown emphasis (`*`, `_`), code marks,
   blockquote markers, and list markers.
 
@@ -186,6 +201,15 @@ agents define the exact block they return, and that block follows these rules.
 | `repair`, `changes`, `fixes-required` | `repair` | `fixes-required` |
 | `blocked` | `blocked` | `blocked` |
 
+The verdict of a block is its first verdict line of the comment's kind. A later
+verdict line in the same block is prose, such as a quoted verdict of an earlier
+round. A verdict line of the other kind does not count. A later block without a
+verdict line is part of the block before it. The first block needs a verdict
+line; without one, the comment is not a review record. A block verdict line
+with a word outside the table makes the comment unreadable as a review, so it
+is not a review record. The most severe block verdict wins: `blocked`, then
+`repair` or `fixes-required`, then `pass`.
+
 A code pass derives as fixes-required when any line contains `[critical]` or
 `[high]`, or starts with `critical:`, `high:`, `severity: critical`, or
 `severity: high`, in any case. A bare severity word inside finding prose does
@@ -193,6 +217,62 @@ not count. Trust requires exactly one issue assignee and a comment author login
 equal to that assignee. The latest trusted eligible comment per kind wins,
 ordered by `createdAt`; API order breaks ties. Missing trusted reviews derive as
 none. There is no body verdict fallback.
+
+### Code-review rounds
+
+Before each code-review round, commit the candidate on the linked branch. That
+commit is the round's reviewed head. Name one mode in each dispatch:
+
+| Mode | Reviewers | Input |
+|---|---|---|
+| `full` | One `code-reviewer` that covers every lens | The full diff, the plan export, the issue number, and the round number |
+| `panel` | Three `code-reviewer` dispatches in one message, one per lens: `correctness`, `spec-and-tests`, `text-and-safety` | The full diff, a focus diff for the lens, the plan export, the issue number, and the round number |
+| `delta` | One `code-reviewer` | The delta diff, the previous round's comment file, the rejection comment file of that round if one exists, the plan export, the issue number, and the round number |
+
+The full diff holds the candidate since the merge base with the default branch.
+A focus diff holds the changed paths in the scope of its lens:
+
+| Changed path | Focus diff |
+|---|---|
+| Test path: under a `test`, `tests`, `spec`, `__tests__`, or `fixtures` folder, or with `.test.` or `.spec.` in its name | `spec-and-tests` |
+| Prose path: `.md`, `.txt`, or `.rst` | `text-and-safety` |
+| Configuration path: `.json`, `.yml`, `.yaml`, or `.toml` | `correctness` and `spec-and-tests` |
+| Every other path | `correctness` |
+
+A path that matches more than one row goes into each of their focus diffs. When
+no changed path falls in the scope of a lens, that lens gets the full diff as
+its focus diff. The delta diff runs from the previous round's reviewed head to
+the current reviewed head. The `code-reviewer` skill defines what each lens and
+the delta round check.
+
+Count the size of a diff as added plus removed lines, for example the sums of
+`git diff --numstat`. Round 1 is a `panel` round when the full diff changes 50
+or more lines. Below that, round 1 is a `full` round. A runtime that cannot run
+subagents at the same time uses `full`.
+
+Start every panel dispatch with the same shared text: the paths, the issue
+number, the round number, and the plan export. Put the lens line last, so the
+runtime can reuse the prompt prefix.
+
+A later round k is a `delta` round only when all of these hold:
+
+- Round k-1 completed: every reviewer of that round returned a block with a
+  verdict line for the round's reviewed head, and no block returned `blocked`.
+- Every change since that head repairs a finding of round k-1 or of the yolo
+  self-review.
+- The delta diff is at most half the size of the full diff.
+
+Otherwise round k is a `panel` or a `full` round by the size rule of round 1.
+A merge of the default branch into the linked branch always gets a `panel` or
+a `full` round.
+
+When a reviewer fails or returns no block with a verdict line, dispatch it
+again before you post the round. When a finding names a defect class, fix every
+instance of that class in the candidate in the same commit.
+
+Dispatch every lens and every delta round as the `code-reviewer` agent. A
+per-agent model setting, such as omp `task.agentModelOverrides.code-reviewer`
+or the `model` key of a Codex agent file, then applies to each of them.
 
 ## Helper commands and output
 
@@ -535,8 +615,7 @@ Do all later work in that worktree. Keep its path out of durable records.
 
 Each review phase gets 10 rounds without a question. In code review, fix every
 reproduced finding of every severity before the next round. Reject a finding
-only with evidence. Post that evidence as one issue comment whose first line is
-`Rejected review findings, round <k>`.
+only with evidence, posted as the review loop says.
 
 A phase stalls when round 10 ends without a pass, when the same finding returns
 after two different repairs, or when dispatch fails twice without a relevant

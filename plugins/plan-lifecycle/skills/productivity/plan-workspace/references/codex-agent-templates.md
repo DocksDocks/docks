@@ -18,7 +18,8 @@ developer_instructions = """
 Load and follow `plugins/plan-lifecycle/agents/plan-reviewer.md` as review instructions.
 Use the project-local bundled agent when present; otherwise resolve the matching
 agent in the installed plan-lifecycle plugin. Stop if neither is available.
-Read the manager's supplied export; never fetch the issue.
+Read the manager's supplied export and, in a delta round, the plan diff and the
+previous round's comment; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
 Return exactly one markdown block in the loaded agent's Output Format, with no
 surrounding commentary.
@@ -39,7 +40,8 @@ developer_instructions = """
 Load and follow `plugins/plan-lifecycle/agents/code-reviewer.md` as review instructions.
 Use the project-local bundled agent when present; otherwise resolve the matching
 agent in the installed plan-lifecycle plugin. Stop if neither is available.
-Read the manager's supplied export and complete-candidate diff; never fetch the issue.
+Read the manager's supplied export and diffs (the full, focus, or delta diff of the
+named round mode) and any previous-round files; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
 Return exactly one markdown block in the loaded agent's Output Format, with no
 surrounding commentary.
