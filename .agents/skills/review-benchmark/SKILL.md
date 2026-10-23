@@ -102,7 +102,7 @@ A path can be in more than one class. When no changed path is in a lens's scope,
    ```
 
    `--runtime claude` writes the agents to `.claude/agents/` instead of `.omp/agents/`; Claude Code loads them in a new session or after `/agents`. `prepare.mjs` stops with a message when a commit is missing (fetch it) or a patch does not apply.
-3. Dispatch. One message holds every prompt of one arm and run, one subagent per prompt file: the agent is the name on the first line, the task is the text after the empty line, and the task name is the one that `score.mjs names` prints for that file. Alternate the arms from message to message. Load changes round time, so keep the same load for every arm. Save each returned block as plain Markdown in `blocks/<reviewer>.md`; `score.mjs` also unwraps JSON-wrapped output from runtimes that return structured text. Fill `meta.json` with `score.mjs transcripts <ws> --omp-sessions <session folder>`, or write the seconds and tokens by hand.
+3. Dispatch. One message holds every prompt of one arm and run, one subagent per prompt file: the agent is the name on the first line, the task is the text after the empty line, and the task name is the one that `score.mjs names` prints for that file. The task name drops separators and case, so `names` and `transcripts` stop when two prompts get the same name (for example cases `code-7` and `code_7`); rename one case. Alternate the arms from message to message. Load changes round time, so keep the same load for every arm. Save each returned block as plain Markdown in `blocks/<reviewer>.md`; `score.mjs` also unwraps JSON-wrapped output from runtimes that return structured text. Fill `meta.json` with `score.mjs transcripts <ws> --omp-sessions <session folder>`, or write the seconds and tokens by hand.
 4. Score and judge:
 
    ```bash
@@ -112,6 +112,8 @@ A path can be in more than one class. When no changed path is in a lens's scope,
    ```
 
    Between `pairs` and `report`, dispatch one judge agent from another model family than the reviewers. Give it `references/judge.md`, the workspace path, and the cases path. The judge reads `pairs.json`, the key files, and the snapshots, and writes `judgments.json`. It does not read `findings.json` or the arm folders, because they name the arms.
+
+   `report.md` has one summary row for each case and arm and one row for each run. The summary gives the mean, median, minimum, and maximum of recall; the mean of valid extras, wrong, unknown, and unresolved per run; and the median, minimum, and maximum of seconds and tokens. Valid extras, wrong, unknown, and unjudged count the findings that match no known defect, by their adjudication rating. Unresolved counts the known defects that a run did not find, where the judge answered `unknown` for a pair of the defect with a finding of the run. Each unresolved defect can be a missed match. In a dev workspace, read its `unknown` pairs in `judgments.json` before the decision.
 5. Apply the decision rule in `results.md` to `report.md`. For a losing candidate, read the transcripts of its misses before the next dev iteration.
 6. After the dev iterations, prepare and run the held-out cases once in their own workspace, under the constraint above.
 7. Append the result tables, the commit, the baseline ref, the models, and the decision to `results.md`.

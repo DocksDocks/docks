@@ -343,20 +343,28 @@ function readJudgments(judgments, byBlind, knownByCase) {
     if (!RATINGS.has(entry.rating)) fail(`judgments.json has rating ${entry.rating}`);
     recordOnce(ratings, entry.finding, entry.rating, entry.finding);
   }
+  // `match` pairs count as found. `unknown` pairs stay, because a known defect that a run did not find can still
+  // hide behind one of them.
   const matched = new Map();
+  const unsure = new Map();
   for (const [pair, verdict] of verdicts) {
-    if (verdict !== 'match') continue;
+    const target = verdict === 'match' ? matched : verdict === 'unknown' ? unsure : null;
+    if (!target) continue;
     const [finding, known] = pair.split(' ');
-    if (!matched.has(finding)) matched.set(finding, new Set());
-    matched.get(finding).add(known);
+    if (!target.has(finding)) target.set(finding, new Set());
+    target.get(finding).add(known);
   }
-  return { matched, ratings };
+  return { matched, unsure, ratings };
 }
 
-function scoreRun(run, knownIds, matched, ratings, meta) {
+// A known defect is unresolved in a run when the run did not find it and the judge answered `unknown` for a pair
+// of it with at least one finding of the run.
+function scoreRun(run, knownIds, { matched, unsure, ratings }, meta) {
   const found = new Set();
+  const doubtful = new Set();
   const counts = { validExtras: 0, wrong: 0, unknown: 0, unjudged: 0 };
   for (const finding of run.findings) {
+    for (const id of unsure.get(finding.blind) ?? []) doubtful.add(id);
     const hits = matched.get(finding.blind);
     if (hits) {
       for (const id of hits) found.add(id);
@@ -384,6 +392,7 @@ function scoreRun(run, knownIds, matched, ratings, meta) {
     found: knownIds.filter((id) => found.has(id)),
     recall: knownIds.length ? found.size / knownIds.length : null,
     ...counts,
+    unresolved: knownIds.filter((id) => doubtful.has(id) && !found.has(id)).length,
     seconds,
     tokens,
     verdicts: run.blocks.map((block) => ({ reviewer: block.reviewer, verdict: block.verdict })),
@@ -402,11 +411,11 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
     if (!runs.has(key)) runs.set(key, { case: block.case, arm: block.arm, run: block.run, blocks: [], findings: [] });
     runs.get(key).blocks.push(block);
   }
-  const { matched, ratings } = readJudgments(judgments, byBlind, knownByCase);
+  const judged = readJudgments(judgments, byBlind, knownByCase);
   for (const finding of findingsDoc.findings)
     runs.get(`${finding.case}/${finding.arm}/${finding.run}`).findings.push(finding);
   const runScores = [...runs.entries()]
-    .map(([key, run]) => scoreRun(run, knownByCase.get(run.case), matched, ratings, metas[key]))
+    .map(([key, run]) => scoreRun(run, knownByCase.get(run.case), judged, metas[key]))
     .sort((a, b) => compare(a.case, b.case) || compare(a.arm, b.arm) || runNumber(a.run) - runNumber(b.run));
   const groups = new Map();
   for (const run of runScores) {
@@ -424,8 +433,9 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
     validExtras: mean(runsOfArm, 'validExtras'),
     wrong: mean(runsOfArm, 'wrong'),
     unknown: mean(runsOfArm, 'unknown'),
-    seconds: mean(runsOfArm, 'seconds'),
-    tokens: mean(runsOfArm, 'tokens'),
+    unresolved: mean(runsOfArm, 'unresolved'),
+    seconds: summarize(runsOfArm.map((run) => run.seconds)),
+    tokens: summarize(runsOfArm.map((run) => run.tokens)),
   }));
   return { summaries, runs: runScores };
 }
@@ -448,8 +458,13 @@ const SUMMARY_COLUMNS = [
   ['Valid extras mean', (entry) => ratio(entry.validExtras), true],
   ['Wrong mean', (entry) => ratio(entry.wrong), true],
   ['Unknown mean', (entry) => ratio(entry.unknown), true],
-  ['Seconds mean', (entry) => oneDecimal(entry.seconds), true],
-  ['Tokens mean', (entry) => whole(entry.tokens), true],
+  ['Unresolved mean', (entry) => ratio(entry.unresolved), true],
+  ['Seconds median', (entry) => oneDecimal(entry.seconds.median), true],
+  ['Seconds min', (entry) => oneDecimal(entry.seconds.min), true],
+  ['Seconds max', (entry) => oneDecimal(entry.seconds.max), true],
+  ['Tokens median', (entry) => whole(entry.tokens.median), true],
+  ['Tokens min', (entry) => whole(entry.tokens.min), true],
+  ['Tokens max', (entry) => whole(entry.tokens.max), true],
 ];
 const RUN_COLUMNS = [
   ['Case', (run) => run.case],
@@ -461,6 +476,7 @@ const RUN_COLUMNS = [
   ['Wrong', (run) => run.wrong, true],
   ['Unknown', (run) => run.unknown, true],
   ['Unjudged', (run) => run.unjudged, true],
+  ['Unresolved', (run) => run.unresolved, true],
   ['Seconds', (run) => oneDecimal(run.seconds), true],
   ['Tokens', (run) => whole(run.tokens), true],
   ['Round verdict', (run) => run.roundVerdict],
@@ -480,6 +496,7 @@ export function renderReport({ summaries, runs }) {
     '# Review benchmark report',
     '',
     'Recall is the number of known defects that at least one reviewer of a run found, divided by the known defects of the case.',
+    'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
     'Seconds is the slowest reviewer of a run. Tokens is the sum over the reviewers of a run. A dash means no value.',
     '',
     '## Summary',
@@ -502,6 +519,30 @@ export function dispatchName(caseId, arm, run, reviewer) {
       .map((part) => part[0].toUpperCase() + part.slice(1))
       .join('');
   return `${pascal(caseId)}${pascal(arm)}R${runNumber(run)}${pascal(reviewer)}`;
+}
+
+// Adds the dispatch name to each `{ caseId, arm, run, reviewer }` entry. The name drops separators and case, so
+// for example `code-7` and `code_7` give one name; two reviewers with one name would share one transcript.
+export function dispatchNames(dispatches) {
+  const owners = new Map();
+  return dispatches.map((dispatch) => {
+    const { caseId, arm, run, reviewer } = dispatch;
+    const name = dispatchName(caseId, arm, run, reviewer);
+    const owner = `${caseId}/${arm}/${run}/${reviewer}`;
+    if (owners.has(name) && owners.get(name) !== owner)
+      fail(`dispatch name collision: ${owners.get(name)} and ${owner} both give ${name}; rename a case or an arm`);
+    owners.set(name, owner);
+    return { ...dispatch, name };
+  });
+}
+
+// Every reviewer that has a prompt, in workspace order, with its dispatch name.
+function promptedDispatches(ws) {
+  return dispatchNames(
+    readWorkspace(ws).flatMap(({ caseId, arm, run, runDir, reviewers, prompts }) =>
+      reviewers.filter((reviewer) => prompts.has(reviewer)).map((reviewer) => ({ caseId, arm, run, runDir, reviewer })),
+    ),
+  );
 }
 
 // omp writes `<name>.jsonl`, `<parent>.<name>.jsonl` for a nested dispatch, and `<name>-<n>.jsonl` for a repeated
@@ -591,29 +632,29 @@ export function reportCommand(ws) {
 }
 
 export function namesCommand(ws) {
-  return readWorkspace(ws).flatMap((run) =>
-    run.reviewers
-      .filter((reviewer) => run.prompts.has(reviewer))
-      .map((reviewer) => ({
-        prompt: path.relative(ws, path.join(run.runDir, 'prompts', `${reviewer}.txt`)),
-        name: dispatchName(run.caseId, run.arm, run.run, reviewer),
-      })),
-  );
+  return promptedDispatches(ws).map(({ runDir, reviewer, name }) => ({
+    prompt: path.relative(ws, path.join(runDir, 'prompts', `${reviewer}.txt`)),
+    name,
+  }));
 }
 
-// Fills `seconds` and `tokens` in each run's meta.json and keeps every other field. It writes what it finds,
-// then fails with the names of the dispatches that have no transcript.
+// Fills `seconds` and `tokens` in each run's meta.json and keeps every other field. It checks every dispatch name
+// before it writes, writes what it finds, then fails with the names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
+  const byRun = new Map();
+  for (const dispatch of promptedDispatches(ws)) {
+    if (!byRun.has(dispatch.runDir)) byRun.set(dispatch.runDir, []);
+    byRun.get(dispatch.runDir).push(dispatch);
+  }
   const updated = [];
   const missing = [];
-  for (const run of readWorkspace(ws)) {
-    const metaFile = path.join(run.runDir, 'meta.json');
+  for (const [runDir, dispatches] of byRun) {
+    const metaFile = path.join(runDir, 'meta.json');
     const meta = fs.existsSync(metaFile) ? readJson(metaFile) : {};
     meta.reviewers ??= {};
     let changed = false;
-    for (const reviewer of run.reviewers.filter((name) => run.prompts.has(name))) {
-      const name = dispatchName(run.caseId, run.arm, run.run, reviewer);
+    for (const { reviewer, name } of dispatches) {
       const file = pickTranscript(files, name);
       if (!file) {
         missing.push(name);

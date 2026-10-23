@@ -7,6 +7,7 @@ import { focusesForPath } from '../../../.agents/skills/review-benchmark/scripts
 import {
   blindId,
   dispatchName,
+  dispatchNames,
   findingsCommand,
   namesCommand,
   pairsCommand,
@@ -438,10 +439,93 @@ test('run time is the slowest reviewer, tokens are the sum, and the round verdic
     { reviewer: 'spec-and-tests', verdict: 'fixes-required' },
     { reviewer: 'text-and-safety', verdict: 'pass' },
   ]);
-  assert.deepEqual([scores.summaries[1].seconds, scores.summaries[1].tokens], [115.25, 3500]);
+  assert.deepEqual(scores.summaries[1].seconds, { mean: 115.25, median: 115.25, min: 90, max: 140.5 });
+  assert.deepEqual(scores.summaries[1].tokens, { mean: 3500, median: 3500, min: 3500, max: 3500 });
   assert.equal(roundVerdict(['pass', 'repair', 'pass']), 'repair');
   assert.equal(roundVerdict(['pass', 'unreadable']), 'incomplete');
   assert.equal(roundVerdict([]), 'incomplete');
+});
+
+// One C3 arm of code-7 with the given known defects. Each run is a list of findings of one correctness block;
+// each finding is `{ matches: { D1: verdict }, rating }`, and a cost is `{ seconds, tokens }`.
+function judgedArm(known, runs, costs = []) {
+  const blocks = [];
+  const findings = [];
+  const judgments = { matches: [], adjudications: [] };
+  const metas = {};
+  for (const [index, list] of runs.entries()) {
+    const run = `run-${index + 1}`;
+    blocks.push({
+      case: 'code-7',
+      kind: 'code',
+      arm: 'C3',
+      run,
+      reviewer: 'correctness',
+      verdict: 'pass',
+      findings: 0,
+    });
+    if (costs[index]) metas[`code-7/C3/${run}`] = { reviewers: { correctness: costs[index] } };
+    for (const [n, { matches = {}, rating }] of list.entries()) {
+      const id = `code-7/C3/${run}/correctness#${n + 1}`;
+      const blind = blindId(id);
+      findings.push({ id, blind, case: 'code-7', arm: 'C3', run, reviewer: 'correctness', n: n + 1 });
+      for (const [knownId, verdict] of Object.entries(matches))
+        judgments.matches.push({ finding: blind, known: knownId, verdict, reason: 'Read the snapshot.' });
+      if (rating) judgments.adjudications.push({ finding: blind, rating, reason: 'Read the snapshot.' });
+    }
+  }
+  const pairs = { cases: [{ case: 'code-7', kind: 'code', known, runs: [] }] };
+  return { findings: { blocks, findings }, pairs, judgments, metas };
+}
+
+test('an unknown pair with a missed known defect counts as unresolved, and the finding keeps its rating', () => {
+  const scores = scoreRuns(judgedArm(CODE_KNOWN.slice(0, 1), [[{ matches: { D1: 'unknown' }, rating: 'valid' }]]));
+  const [run] = scores.runs;
+  assert.deepEqual([run.recall, run.validExtras, run.unknown, run.unjudged, run.unresolved], [0, 1, 0, 0, 1]);
+  assert.equal(scores.summaries[0].unresolved, 1);
+  const lines = renderReport(scores).split('\n');
+  assert.ok(
+    lines.includes('| code-7 | C3 | run-1 | 0.00 | - | 1 | 0 | 0 | 0 | 1 | - | - | pass | correctness: pass |'),
+  );
+});
+
+test('a finding that matches one known defect and has an unknown pair with a missed one leaves it unresolved', () => {
+  const scores = scoreRuns(judgedArm(CODE_KNOWN.slice(0, 2), [[{ matches: { D1: 'match', D2: 'unknown' } }]]));
+  const [run] = scores.runs;
+  assert.deepEqual([run.found, run.recall, run.unresolved], [['D1'], 0.5, 1]);
+});
+
+test('an unknown pair with a known defect that another finding of the run matches is not unresolved', () => {
+  const scores = scoreRuns(
+    judgedArm(CODE_KNOWN.slice(0, 2), [
+      [{ matches: { D1: 'match', D2: 'unknown' } }, { matches: { D2: 'match' } }],
+      [{ matches: { D2: 'unknown' }, rating: 'wrong' }],
+    ]),
+  );
+  const [first, second] = scores.runs;
+  assert.deepEqual([first.found, first.unresolved], [['D1', 'D2'], 0]);
+  assert.deepEqual([second.found, second.unresolved], [[], 1]);
+  assert.equal(scores.summaries[0].unresolved, 0.5);
+});
+
+test('the summary gives the median and the range of seconds and tokens, so one slow run does not move the median', () => {
+  const costs = [
+    { seconds: 100, tokens: 10 },
+    { seconds: 100, tokens: 10 },
+    { seconds: 400, tokens: 40 },
+  ];
+  const scores = scoreRuns(judgedArm(CODE_KNOWN, [[], [], []], costs));
+  const [summary] = scores.summaries;
+  assert.deepEqual(summary.seconds, { mean: 200, median: 100, min: 100, max: 400 });
+  assert.deepEqual(summary.tokens, { mean: 20, median: 10, min: 10, max: 40 });
+  const report = renderReport(scores);
+  assert.ok(
+    report.includes('| Seconds median | Seconds min | Seconds max | Tokens median | Tokens min | Tokens max |'),
+  );
+  assert.ok(report.includes('| 0.00 | 100.0 | 100.0 | 400.0 | 10 | 10 | 40 |'));
+  const open = scoreRuns(judgedArm(CODE_KNOWN, [[], []], [{ seconds: 50, tokens: null }]));
+  assert.deepEqual(open.summaries[0].seconds, { mean: 50, median: 50, min: 50, max: 50 });
+  assert.deepEqual(open.summaries[0].tokens, { mean: null, median: null, min: null, max: null });
 });
 
 test('report.md lists known-defect ids and no defect text', (t) => {
@@ -466,11 +550,11 @@ test('report.md lists known-defect ids and no defect text', (t) => {
   const report = fs.readFileSync(path.join(ws, 'report.md'), 'utf8');
   const lines = report.split('\n');
   for (const expected of [
-    '| code-7 | B0 | 1 | 3 | 0.33 | 0.33 | 0.33 | 0.33 | 0.00 | 0.00 | 0.00 | 61.5 | 4200 |',
-    '| code-7 | B0 | run-1 | 0.33 | D1 | 0 | 0 | 0 | 0 | 61.5 | 4200 | fixes-required | full: fixes-required |',
-    '| code-7 | C3 | run-1 | 0.67 | D1, D2 | 1 | 1 | 0 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
-    '| code-7 | C3 | run-2 | 0.00 | - | 0 | 0 | 0 | 3 | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
-    '| plan-3 | P0 | run-1 | 0.50 | K1 | 0 | 0 | 0 | 1 | - | - | repair | plan: repair |',
+    '| code-7 | B0 | 1 | 3 | 0.33 | 0.33 | 0.33 | 0.33 | 0.00 | 0.00 | 0.00 | 0.00 | 61.5 | 61.5 | 61.5 | 4200 | 4200 | 4200 |',
+    '| code-7 | B0 | run-1 | 0.33 | D1 | 0 | 0 | 0 | 0 | 0 | 61.5 | 4200 | fixes-required | full: fixes-required |',
+    '| code-7 | C3 | run-1 | 0.67 | D1, D2 | 1 | 1 | 0 | 0 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
+    '| code-7 | C3 | run-2 | 0.00 | - | 0 | 0 | 0 | 3 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
+    '| plan-3 | P0 | run-1 | 0.50 | K1 | 0 | 0 | 0 | 1 | 0 | - | - | repair | plan: repair |',
   ]) {
     assert.ok(lines.includes(expected), `report.md lacks ${expected}`);
   }
@@ -596,4 +680,30 @@ test('names command gives one dispatch name per prompt', (t) => {
   });
   assert.equal(new Set(names.map((entry) => entry.name)).size, names.length);
   assert.equal(dispatchName('code-delta-96', 'Cd', 'run-12', 'spec-and-tests'), 'CodeDelta96CdR12SpecAndTests');
+});
+
+test('dispatch names that collide stop the names and transcripts commands', (t) => {
+  const reviewer = (caseId) => ({ caseId, arm: 'C3', run: 'run-1', reviewer: 'correctness' });
+  assert.deepEqual(
+    dispatchNames([reviewer('code-7'), reviewer('code-8')]).map((entry) => entry.name),
+    ['Code7C3R1Correctness', 'Code8C3R1Correctness'],
+  );
+  const collision = /code-7\/C3\/run-1\/correctness and code_7\/C3\/run-1\/correctness both give Code7C3R1Correctness/;
+  assert.throws(() => dispatchNames([reviewer('code-7'), reviewer('code_7')]), collision);
+  const { ws } = workspace(t);
+  put(ws, 'code_7/case.json', { id: 'code_7', kind: 'code', split: 'dev' });
+  put(ws, 'code_7/B0/run-1/prompts/full.txt', 'agent: review-bench-baseline-code\n\nReview.\n');
+  const sessions = path.join(path.dirname(ws), 'sessions');
+  // A readable transcript, so only the name check keeps the command from writing meta.json.
+  const message = (role, second) => ({
+    type: 'message',
+    timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString(),
+    message: { role, usage: { input: 5, output: 1 } },
+  });
+  const lines = [message('user', 0), message('assistant', 9)].map((entry) => JSON.stringify(entry));
+  put(sessions, 'Code7B0R1Full.jsonl', lines.join('\n'));
+  const fullCollision = /code-7\/B0\/run-1\/full and code_7\/B0\/run-1\/full both give Code7B0R1Full/;
+  assert.throws(() => namesCommand(ws), fullCollision);
+  assert.throws(() => transcriptsCommand(ws, sessions), fullCollision);
+  assert.equal(fs.existsSync(path.join(ws, 'code-7/B0/run-1/meta.json')), false);
 });
