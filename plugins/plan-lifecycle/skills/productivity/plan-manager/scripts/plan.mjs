@@ -20,7 +20,7 @@ const PULL_REQUEST_FIELDS = 'number url state mergedAt baseRefName repository{na
 const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
 const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name id}`).join(' ');
 // The pre-write read returns the body to compare and the node ids that the write mutation needs.
-const PRE_WRITE_FIELDS = 'id,body,updatedAt,labels,assignees';
+const PRE_WRITE_FIELDS = 'id,body,updatedAt,assignees';
 // The last field of a write mutation returns the stored state that the post-write checks read.
 const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}}`;
 // `list` reads the newest plans first, as `gh issue list` did, so the 500-plan cap keeps the same plans.
@@ -88,6 +88,8 @@ function parseJson(output, command) {
     fail(`${command} returned invalid JSON`);
   }
 }
+// The snapshot pages every issue label with its node id, so a write removes labels from the complete list.
+const ISSUE_LABEL_FIELDS = 'name id';
 const ASSIGNEE_FIELDS = '... on Actor{login}';
 const LABELED_EVENT_FIELDS = '... on LabeledEvent{label{name}}';
 const CLOSED_EVENT_FIELDS = `... on ClosedEvent{closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS} body} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
@@ -177,7 +179,7 @@ function readSnapshot(
       ? ''
       : [
           'number title body state stateReason url createdAt updatedAt',
-          issueConnectionSelection('labels', 'name'),
+          issueConnectionSelection('labels', ISSUE_LABEL_FIELDS),
           issueConnectionSelection('assignedActors', ASSIGNEE_FIELDS),
           comments ? issueConnectionSelection('comments', 'body createdAt author{login}') : '',
           history
@@ -231,10 +233,10 @@ function readSnapshot(
     typeof issue.updatedAt !== 'string'
   )
     fail('gh api graphql returned malformed plan issue');
-  issue.labels = issueNodes(number, issue.labels, 'labels', 'name');
+  issue.labels = issueNodes(number, issue.labels, 'labels', ISSUE_LABEL_FIELDS);
   issue.assignees = issueNodes(number, issue.assignedActors, 'assignedActors', ASSIGNEE_FIELDS);
   if (
-    issue.labels.some((label) => typeof label.name !== 'string') ||
+    issue.labels.some((label) => typeof label.name !== 'string' || typeof label.id !== 'string' || !label.id) ||
     issue.assignees.some((owner) => typeof owner.login !== 'string' || !owner.login)
   )
     fail('gh api graphql returned malformed plan issue labels or assignees');
@@ -320,9 +322,7 @@ function preWriteIssue(number) {
   if (
     !hasId(current) ||
     typeof current.body !== 'string' ||
-    !Array.isArray(current.labels) ||
     !Array.isArray(current.assignees) ||
-    !current.labels.every((label) => hasId(label) && typeof label.name === 'string') ||
     !current.assignees.every(hasId)
   )
     fail('gh issue view returned malformed plan issue');
@@ -362,7 +362,7 @@ function writeIssueIfUnchanged(issue, { body, add, remove = [], labelIds } = {})
     fields.push({ mutation: 'addLabelsToLabelable', input: 'labelableId:$issue,labelIds:$add', payload: 'labelable' });
   }
   const removed = new Set(remove.map(token));
-  const removeIds = current.labels.filter((label) => removed.has(token(label.name))).map((label) => label.id);
+  const removeIds = issue.labels.filter((label) => removed.has(token(label.name))).map((label) => label.id);
   if (removeIds.length) {
     idLists.push(['remove', removeIds]);
     fields.push({
@@ -371,8 +371,6 @@ function writeIssueIfUnchanged(issue, { body, add, remove = [], labelIds } = {})
       payload: 'labelable',
     });
   }
-  // Nothing left to change: the pre-write read already shows every label to remove as absent.
-  if (!fields.length) return;
   const declarations = [
     '$issue:ID!',
     ...(body === undefined ? [] : ['$body:String!']),

@@ -12,6 +12,21 @@ test('archive finishes a plan with terminal work, a trusted pass, and the merged
   assert.deepEqual(issue(landed.number).labels, ['plan']);
 });
 
+test('archive removes a stale phase label beyond the first label page of an owned plan', (t) => {
+  const { run, issue, updateIssue, closedPlan } = planCliContext(t);
+  // The owned plan needs no claim, so the label removal is the whole write.
+  const pagedLabels = closedPlan('phase label beyond first page');
+  const unrelatedLabels = Array.from({ length: 100 }, (_, index) => `topic:${index}`);
+  updateIssue(pagedLabels.number, (entry) => {
+    entry.labels = ['plan', ...unrelatedLabels, 'plan:ongoing'];
+    entry.assignees = ['plan-agent'];
+  });
+  expectSuccess(run('archive', String(pagedLabels.number)), 'archive label on second page');
+  const stored = issue(pagedLabels.number);
+  assert.deepEqual(stored.labels, ['plan', ...unrelatedLabels]);
+  assert.ok(!stored.labels.some((label) => label.toLowerCase().startsWith('plan:')));
+});
+
 test('archive uses the latest actual closure over older closures and a later non-closure event', (t) => {
   const { run, updateIssue, closedPlan } = planCliContext(t);
   // The latest actual closure wins over older closures and a later non-closure event.

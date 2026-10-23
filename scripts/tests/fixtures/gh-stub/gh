@@ -709,7 +709,10 @@ if (group === 'issue' && command === 'view') {
   const issue = issueByNumber(number);
   validateJsonFields(value('--json'), ISSUE_JSON_FIELDS);
   observeIssue(issue);
-  emit(JSON.stringify(select(issueJson(issue), value('--json'))));
+  // Real gh reads `labels(first:100)` for `issue view` (cli/cli api/query_builder.go), so it never
+  // returns a label past the first 100.
+  const view = issueJson(issue);
+  emit(JSON.stringify(select({ ...view, labels: view.labels.slice(0, 100) }, value('--json'))));
   save();
   process.exit(0);
 }
