@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-23"
-  content_hash: "07f2ea7eafb1f0da7c023c0fb549938ccd78ca33ad08bfe58a91b1cd52431e7c"
+  content_hash: "ee85229f9cf5700ee20b94173fd09b9f22d257cff53e5b8eea72d81adda03f01"
 ---
 
 # Report a Skill Issue
@@ -103,7 +103,7 @@ Write the host and the repository out in the argument, so that neither `GH_REPO`
 
 - Leave out the owner and the name of every remote.
 - Leave out the project's issue and pull request titles and its branch names.
-- Write its issue and pull request numbers without `#` in prose, for example "issue 123 in a private repository". In a DocksDocks/docks issue, `#123` links to DocksDocks/docks#123, a different issue. GitHub does not link inside code spans and fenced blocks, so keep quoted output exact there.
+- Write its issue and pull request numbers without `#` in prose, for example "issue 123 in a private repository". In a DocksDocks/docks issue, `#123` links to DocksDocks/docks#123, a different issue. GitHub does not link `#123` inside code spans and fenced blocks, so a number there can keep its `#`. Still remove private owners, repository names, titles, and branch names from quoted output, and put a placeholder such as `<private-repo>` in their place.
 
 Look up every other repository that the draft names in the same way. It keeps its name only when the lookup prints `PUBLIC`. A repository on another host, or a failed lookup, counts as private. Without gh, every repository other than DocksDocks/docks counts as private.
 
@@ -133,7 +133,7 @@ rm -- "$title" "$body"
 
 If your shell does not keep variables between commands, use the paths that `mktemp` printed. Read the title from its file. Use `--body-file`, not `--body`. The shell can change backticks, `$`, and quotes in inline text, so gh could file a title or body that differs from the approved text. Bash does not expand the output of `$(cat "$title")` again, so the title arrives unchanged. Do not add labels or assignees; the maintainer triages the issue.
 
-If a filed issue or comment names a private repository or holds other private data, edit it to remove that text. GitHub keeps every earlier revision, and anyone who can read the issue can open it. No API call deletes a revision. Tell the user to delete the old revision in the web UI: open "edited" at the top of the text, choose the revision, and then choose "Delete revision from history". Only a user with write access to DocksDocks/docks can delete a revision.
+If a filed issue or comment names a private repository or holds other private data, edit it to remove that text. GitHub keeps every earlier revision, and anyone who can read the issue can open it. No API call deletes a revision. Tell the user to delete the old revision in the web UI: open "edited" at the top of the text, choose the revision, and then choose "Delete revision from history". The author of the text and users with write access to DocksDocks/docks can delete a revision.
 
 ### Without gh, or without a way to ask
 
@@ -233,7 +233,7 @@ The good title names the plugin, the skill, and one observable symptom, so a mai
 | Full command output carries paths, hostnames, and user names | Trim to the failing lines; make paths relative to the project or the plugin root |
 | The search query carries private words | Search with the skill name and words from the instruction only |
 | A branch name from a private project: `gh issue develop` names a branch after its issue title, so the name carries a private title | Leave the branch name out |
-| A `#123` from a private project: in a DocksDocks/docks issue, it links to DocksDocks/docks#123 | Write "issue 123" without `#` |
+| A `#123` in prose from a private project: in a DocksDocks/docks issue, it links to DocksDocks/docks#123 | Write "issue 123" without `#`; a number in quoted output can keep its `#`, but private names there become placeholders |
 | A paraphrase in "What the skill says" | Quote the instruction exactly, with its heading |
 | A quote from a checkout of DocksDocks/docks or from a newer copy | Quote the copy that the runtime loaded; a checkout can already hold the fix |
 | The quoted text says the opposite of the claim | Draft no defect report; tell the user what the skill says |
@@ -254,7 +254,7 @@ Check the draft before you show it, and again before you file it:
 - You searched for an existing report (stage 3). A draft that adds to an existing issue is a comment on that issue.
 - Your message names the target, the command that you will run, and the GitHub account (stage 5). In a run where you cannot ask, it gives the prefilled URL instead.
 - The title and the body contain no secret value or token, no private repository, organization, customer, or person name, no internal hostname, no absolute machine path, no proprietary code or data, and no private plan or issue title. The second and third scans below check the repository names.
-- For a private project, the title and the body contain no owner or name of its remotes, no branch name, and no `#` before its issue and pull request numbers (stage 4).
+- For a private project, the title and the body contain no owner or name of its remotes and no branch name, also in quoted output, and no `#` before its issue and pull request numbers in prose (stage 4).
 - The problem is not a security problem. If it is, give a private draft only.
 - The user approved this exact title and body after they saw it.
 
