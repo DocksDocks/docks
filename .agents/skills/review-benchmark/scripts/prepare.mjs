@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-// prepare.mjs builds review benchmark workspaces and the reviewer agent files of the arms.
+// prepare.mjs builds review benchmark workspaces and the reviewer agent files of the configurations.
 //
-//   node prepare.mjs case --case <case.json> --arms <B0,C3,...> --runs <k> --out <ws>
-//   node prepare.mjs agents --baseline-ref <git-ref> --model <selector> [--runtime omp|claude]
-//                           (--out <ws> | --baseline-dir <dir>)
-//   node prepare.mjs clean
+//   node prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
+//                           [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
+//   node prepare.mjs case --case <case.json> --arms <B0,C3,...> --runs <k> --out <ws> [--configs <list>]
+//                         [--project <dir>]
+//   node prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
+//   node prepare.mjs clean [--project <dir>]
 //
-// ../SKILL.md describes the case schema, the arms, and the workspace layout.
+// ../SKILL.md describes the case schema, the configurations, the arms, and the workspace layout.
 // The script uses Node built-ins and git only, so it runs on Node and on Bun.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -20,6 +22,29 @@ const PLUGIN_PATH = 'plugins/plan-lifecycle';
 const PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
 const BASELINE_MARKER = '.review-bench-ref';
 const RUNTIME_AGENT_DIRS = { omp: '.omp/agents', claude: '.claude/agents' };
+// Every file and setting that `agents` writes starts with this prefix, so `clean` finds them without a record.
+const GENERATED_PREFIX = 'review-bench-';
+// The list of configurations that `agents` wrote, in the agent folder of the runtime. `case` and `probe` read it.
+const CONFIGS_FILE = `${GENERATED_PREFIX}configs.json`;
+// omp reads this JSON file and merges `.omp/config.yml` over it, so the script edits its own entries without a
+// YAML parser and leaves the user's config files unchanged.
+const OMP_SETTINGS = '.omp/settings.json';
+// The frontmatter key and the levels that pin the effort of an agent in each runtime.
+const RUNTIME_EFFORTS = {
+  omp: { key: 'thinking-level', levels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+  claude: { key: 'effort', levels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+};
+// The OpenAI service tiers of omp (`tier.openai`). Only omp sets a tier per agent.
+const OMP_TIERS = ['none', 'auto', 'default', 'flex', 'scale', 'priority', 'ultrafast'];
+// The part of a configuration name that a tier adds. Every other tier adds `-<tier>`.
+const TIER_NAMES = { default: '', priority: '-fast' };
+// An omp model selector can carry an effort suffix. The grid takes the effort from --efforts only.
+const EFFORT_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max|auto|inherit)$/;
+// The probe is a case folder that score.mjs reads like a case: one run per configuration with one short prompt.
+const PROBE_CASE = { id: 'probe', kind: 'code' };
+const PROBE_ARM = 'C1';
+const PROBE_TASK =
+  'This message checks the reviewer setup. It is not a review. Read no files, run no tools, and load no skills. Reply with one line: `ready`.';
 const MAX_OUTPUT = 512 * 1024 * 1024;
 
 export const LENSES = ['correctness', 'spec-and-tests', 'text-and-safety'];
@@ -111,8 +136,52 @@ export function focusesForPath(filePath) {
   return focuses;
 }
 
-export function armAgent(kind, arm) {
-  return `review-bench-${ARMS[kind][arm].side}-${isPlanKind(kind) ? 'plan' : 'code'}`;
+export function agentName(side, role, config) {
+  return `${GENERATED_PREFIX}${side}-${role}-${config}`;
+}
+
+export function armAgent(kind, arm, config) {
+  return agentName(ARMS[kind][arm].side, isPlanKind(kind) ? 'plan' : 'code', config);
+}
+
+// The folder of an arm at one configuration. Arm names have no hyphen, so the folder name splits at its first one.
+export function armFolder(arm, config) {
+  return `${arm}-${config}`;
+}
+
+// A short model name for configuration names: the last path segment of the selector, in lower case.
+export function modelSlug(model) {
+  return model
+    .split('/')
+    .pop()
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// Every model at every effort with every tier. A name is the effort plus the part of the tier (`TIER_NAMES`; a
+// runtime without tiers adds nothing). With more than one model, the model slug comes first. The report uses the
+// names as column names, so the same lists always give the same names.
+export function buildConfigs({ models, efforts, tiers }) {
+  const configs = [];
+  for (const model of models) {
+    let prefix = '';
+    if (models.length > 1) {
+      const slug = modelSlug(model);
+      if (!slug) fail(`model ${model} gives no name for its configurations`);
+      prefix = `${slug}-`;
+    }
+    for (const effort of efforts) {
+      for (const tier of tiers) {
+        const suffix = tier === null ? '' : (TIER_NAMES[tier] ?? `-${tier}`);
+        configs.push({ name: `${prefix}${effort}${suffix}`, model, effort, tier });
+      }
+    }
+  }
+  const names = configs.map((config) => config.name);
+  const twice = names.find((name, index) => names.indexOf(name) !== index);
+  if (twice) fail(`two models give the configuration name ${twice}; give models with different last path segments`);
+  return configs;
 }
 
 export function validateCase(caseData) {
@@ -211,13 +280,13 @@ export function buildTail({ caseData, arm, reviewer, paths }) {
   return lines.join('\n');
 }
 
-export function buildPromptFile({ caseData, arm, reviewer, paths }) {
+export function buildPromptFile({ caseData, arm, config, reviewer, paths }) {
   const prompt = `${buildOpening(caseData, paths)}\n\n${buildTail({ caseData, arm, reviewer, paths })}\n`;
   const word = FORBIDDEN_PROMPT_WORDS.exec(prompt);
   if (word) {
     fail(`the ${arm} ${reviewer} prompt of case ${caseData.id} contains "${word[0]}"; choose an --out path without it`);
   }
-  return `agent: ${armAgent(caseData.kind, arm)}\n\n${prompt}`;
+  return `agent: ${armAgent(caseData.kind, arm, config)}\n\n${prompt}`;
 }
 
 // Replaces a `git diff --no-index` header, which names absolute paths, with a header for `name`.
@@ -227,14 +296,15 @@ export function relabelDiff(diffText, name) {
   return `--- a/${name}\n+++ b/${name}${diffText.slice(hunk)}`;
 }
 
-export function renderAgent(source, { name, model, pluginRoot }) {
+// Copies a plugin agent under `name` and pins its model and effort. `effortKey` is the effort key of the runtime.
+export function renderAgent(source, { name, model, effortKey, effort, pluginRoot }) {
   const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(source);
   if (!frontmatter) throw new Error('the agent file has no frontmatter');
-  const lines = frontmatter[1].split('\n').filter((line) => !line.startsWith('model:'));
+  const lines = frontmatter[1].split('\n').filter((line) => !/^(model|thinking-level|thinking|effort):/.test(line));
   const nameAt = lines.findIndex((line) => line.startsWith('name:'));
   if (nameAt < 0) throw new Error('the agent frontmatter has no name');
   const modelValue = /^[A-Za-z0-9][\w./+-]*$/.test(model) ? model : JSON.stringify(model);
-  lines.splice(nameAt, 1, `name: ${name}`, `model: ${modelValue}`);
+  lines.splice(nameAt, 1, `name: ${name}`, `model: ${modelValue}`, `${effortKey}: ${effort}`);
   const body = source.slice(frontmatter[0].length);
   return `---\n${lines.join('\n')}\n---\n${body}`.replaceAll(PLUGIN_ROOT_TOKEN, pluginRoot);
 }
@@ -313,15 +383,31 @@ function readJson(file) {
   }
 }
 
+function writeJson(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+}
+
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+// Splits a comma-separated option value. With `allowed`, each entry must be one of its values.
+function parseList(value, option, allowed) {
+  const items = value.split(',').map((item) => item.trim());
+  if (items.includes('')) fail(`${option} has an empty entry: ${value}`);
+  const other = allowed && items.find((item) => !allowed.includes(item));
+  if (other) fail(`${option} does not take ${other}; use ${allowed.join(', ')}`);
+  if (new Set(items).size !== items.length) fail(`${option} lists an entry twice: ${value}`);
+  return items;
+}
+
 function parseArms(value, kind) {
   if (!value) fail('case needs --arms, for example --arms B0,C3');
-  const arms = value.split(',').map((arm) => arm.trim());
+  const arms = parseList(value, '--arms');
   for (const arm of arms) {
     if (!Object.hasOwn(ARMS[kind], arm)) {
       fail(`arm ${arm} does not apply to ${kind} cases; use ${Object.keys(ARMS[kind]).join(', ')}`);
     }
   }
-  if (new Set(arms).size !== arms.length) fail(`--arms lists an arm twice: ${value}`);
   return arms;
 }
 
@@ -331,7 +417,17 @@ function parseRuns(value) {
   return runs;
 }
 
-function buildCaseWorkspace({ repo, caseData, casePath, caseDir, paths, prompts }) {
+// Writes the prompts, an empty blocks folder, and a meta.json that records the configuration of each run.
+function writeRuns(runs) {
+  for (const { dir, config, prompts } of runs) {
+    fs.mkdirSync(path.join(dir, 'prompts'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'blocks'), { recursive: true });
+    writeJson(path.join(dir, 'meta.json'), { config });
+    for (const { reviewer, text } of prompts) fs.writeFileSync(path.join(dir, 'prompts', `${reviewer}.txt`), text);
+  }
+}
+
+function buildCaseWorkspace({ repo, caseData, casePath, caseDir, paths, runs }) {
   const sourceDir = path.dirname(casePath);
   const source = (name) => {
     const file = path.join(sourceDir, name);
@@ -390,11 +486,7 @@ function buildCaseWorkspace({ repo, caseData, casePath, caseDir, paths, prompts 
     fs.writeFileSync(paths.planDiff, relabelDiff(result.stdout.toString(), 'plan.md'));
   }
 
-  for (const prompt of prompts) {
-    fs.mkdirSync(path.dirname(prompt.file), { recursive: true });
-    fs.mkdirSync(path.join(path.dirname(path.dirname(prompt.file)), 'blocks'), { recursive: true });
-    fs.writeFileSync(prompt.file, prompt.text);
-  }
+  writeRuns(runs);
 }
 
 function prepareCase(options, repo) {
@@ -406,29 +498,37 @@ function prepareCase(options, repo) {
     fail(`case file ${casePath} must be named ${caseData.id}.json`);
   const arms = parseArms(options.arms, caseData.kind);
   const runs = parseRuns(options.runs);
+  const configs = selectConfigs(options, repo);
   const caseDir = path.join(path.resolve(options.out), caseData.id);
   if (fs.existsSync(caseDir)) fail(`${caseDir} exists; remove it or choose another --out`);
   const paths = workspacePaths(caseDir, caseData);
 
-  const prompts = [];
-  for (const arm of arms) {
-    for (let run = 1; run <= runs; run += 1) {
-      for (const reviewer of ARMS[caseData.kind][arm].reviewers) {
-        prompts.push({
-          file: path.join(caseDir, arm, `run-${run}`, 'prompts', `${reviewer}.txt`),
-          text: buildPromptFile({ caseData, arm, reviewer, paths }),
+  const runFolders = [];
+  for (const config of configs) {
+    for (const arm of arms) {
+      for (let run = 1; run <= runs; run += 1) {
+        runFolders.push({
+          dir: path.join(caseDir, armFolder(arm, config.name), `run-${run}`),
+          config,
+          prompts: ARMS[caseData.kind][arm].reviewers.map((reviewer) => ({
+            reviewer,
+            text: buildPromptFile({ caseData, arm, config: config.name, reviewer, paths }),
+          })),
         });
       }
     }
   }
 
   try {
-    buildCaseWorkspace({ repo, caseData, casePath, caseDir, paths, prompts });
+    buildCaseWorkspace({ repo, caseData, casePath, caseDir, paths, runs: runFolders });
   } catch (error) {
     fs.rmSync(caseDir, { recursive: true, force: true });
     throw error;
   }
-  console.log(`prepared ${caseDir}: ${prompts.length} prompts for ${arms.join(', ')} x ${runs} runs`);
+  const prompts = runFolders.reduce((sum, run) => sum + run.prompts.length, 0);
+  console.log(
+    `prepared ${caseDir}: ${prompts} prompts for ${arms.join(', ')} x ${configs.length} configurations x ${runs} runs`,
+  );
 }
 
 // Extracts plugins/plan-lifecycle at `sha` into `dir`. A marker file records the commit,
@@ -453,11 +553,119 @@ function extractBaselinePlugin(repo, sha, dir) {
   fs.writeFileSync(marker, `${sha}\n`);
 }
 
+// omp reads project agents and project settings from the working folder of the session that dispatches the
+// reviewers. `--project` names that folder when it is not the repository of this script.
+function projectDir(options, repo) {
+  if (!options.project) return repo;
+  const dir = path.resolve(options.project);
+  if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) fail(`--project ${dir} is not a folder`);
+  return dir;
+}
+
+function parseModels(value) {
+  if (!value) fail('agents needs --model <selector>[,<selector>...]');
+  const models = parseList(value, '--model');
+  const suffixed = models.find((model) => EFFORT_SUFFIX.test(model));
+  if (suffixed) fail(`--model ${suffixed} has an effort suffix; give the effort with --efforts`);
+  return models;
+}
+
+function parseTiers(value, runtime) {
+  if (runtime === 'claude') {
+    if (value) fail('Claude Code sets no service tier per agent; omit --tiers with --runtime claude');
+    return [null];
+  }
+  if (!value) fail('agents needs --tiers <list>, for example --tiers priority,default');
+  return parseList(value, '--tiers', OMP_TIERS);
+}
+
+function readSettings(file) {
+  const settings = fs.existsSync(file) ? readJson(file) : {};
+  const valid =
+    isObject(settings) && isObject(settings.task ?? {}) && isObject(settings.task?.agentServiceTierOverrides ?? {});
+  if (!valid) fail(`${file} must hold an object, with objects at task and task.agentServiceTierOverrides`);
+  return settings;
+}
+
+// Adds one service-tier override per agent to the omp project settings and keeps every other setting.
+function writeTierOverrides(project, overrides) {
+  const file = path.join(project, OMP_SETTINGS);
+  const settings = readSettings(file);
+  settings.task = {
+    ...settings.task,
+    agentServiceTierOverrides: { ...settings.task?.agentServiceTierOverrides, ...overrides },
+  };
+  writeJson(file, settings);
+  console.log(`wrote ${Object.keys(overrides).length} tier overrides to ${file}`);
+}
+
+// Removes the tier overrides of the generated agents and tells whether it removed any. A settings file that holds no
+// other setting goes too.
+function removeTierOverrides(project) {
+  const file = path.join(project, OMP_SETTINGS);
+  if (!fs.existsSync(file)) return false;
+  const settings = readSettings(file);
+  const overrides = settings.task?.agentServiceTierOverrides ?? {};
+  const generated = Object.keys(overrides).filter((name) => name.startsWith(GENERATED_PREFIX));
+  if (generated.length === 0) return false;
+  for (const name of generated) delete overrides[name];
+  if (Object.keys(overrides).length === 0) delete settings.task.agentServiceTierOverrides;
+  if (Object.keys(settings.task).length === 0) delete settings.task;
+  if (Object.keys(settings).length === 0) fs.rmSync(file);
+  else writeJson(file, settings);
+  console.log(`removed ${generated.length} tier overrides from ${file}`);
+  return true;
+}
+
+function removeIfEmpty(dir) {
+  if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+}
+
+// Removes every file and setting that `agents` writes for any runtime. A folder that this call empties goes too.
+function removeGenerated(project) {
+  const changed = new Set();
+  if (removeTierOverrides(project)) changed.add(path.dirname(path.join(project, OMP_SETTINGS)));
+  for (const dir of Object.values(RUNTIME_AGENT_DIRS)) {
+    const agentDir = path.join(project, dir);
+    if (!fs.existsSync(agentDir)) continue;
+    const generated = fs
+      .readdirSync(agentDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.startsWith(GENERATED_PREFIX));
+    if (generated.length === 0) continue;
+    for (const entry of generated) fs.rmSync(path.join(agentDir, entry.name));
+    console.log(`removed ${generated.length} files from ${agentDir}`);
+    removeIfEmpty(agentDir);
+    changed.add(path.dirname(agentDir));
+  }
+  for (const dir of changed) removeIfEmpty(dir);
+}
+
+// The configurations that --configs names, in its order, or else every configuration that `agents` wrote.
+function selectConfigs(options, repo) {
+  const project = projectDir(options, repo);
+  const files = Object.values(RUNTIME_AGENT_DIRS)
+    .map((dir) => path.join(project, dir, CONFIGS_FILE))
+    .filter((file) => fs.existsSync(file));
+  if (files.length === 0) fail(`${project} has no configurations; run prepare.mjs agents with the same --project`);
+  if (files.length > 1) fail(`${files.join(' and ')} both exist; run prepare.mjs clean and then agents`);
+  const { configs } = readJson(files[0]);
+  if (!options.configs) return configs;
+  const known = configs.map((config) => config.name);
+  return parseList(options.configs, '--configs', known).map((name) => configs[known.indexOf(name)]);
+}
+
 function prepareAgents(options, repo) {
   if (!options['baseline-ref']) fail('agents needs --baseline-ref <git ref of the last release>');
-  if (!options.model) fail('agents needs --model <selector>');
   const runtime = options.runtime ?? 'omp';
   if (!Object.hasOwn(RUNTIME_AGENT_DIRS, runtime)) fail('--runtime must be omp or claude');
+  if (!options.efforts) fail('agents needs --efforts <list>, for example --efforts low,medium,high,xhigh');
+  const { key: effortKey, levels } = RUNTIME_EFFORTS[runtime];
+  const configs = buildConfigs({
+    models: parseModels(options.model),
+    efforts: parseList(options.efforts, '--efforts', levels),
+    tiers: parseTiers(options.tiers, runtime),
+  });
+  const project = projectDir(options, repo);
   let baselineDir;
   if (options['baseline-dir']) baselineDir = path.resolve(options['baseline-dir']);
   else if (options.out) baselineDir = path.resolve(options.out, '..', 'baseline-plugin');
@@ -465,61 +673,98 @@ function prepareAgents(options, repo) {
 
   const sha = resolveCommit(repo, options['baseline-ref'], '--baseline-ref');
   extractBaselinePlugin(repo, sha, baselineDir);
-  const agentDir = path.join(repo, RUNTIME_AGENT_DIRS[runtime]);
-  fs.mkdirSync(agentDir, { recursive: true });
+  const sources = [];
   for (const role of ['code', 'plan']) {
     const source = `${PLUGIN_PATH}/agents/${role}-reviewer.md`;
     const blob = runGit(repo, ['cat-file', 'blob', `${sha}:${source}`]);
     if (blob.status !== 0) fail(`${source} does not exist at ${options['baseline-ref']}`);
-    const agents = [
-      ['baseline', blob.stdout.toString(), baselineDir],
-      ['candidate', fs.readFileSync(path.join(repo, source), 'utf8'), path.join(repo, PLUGIN_PATH)],
-    ];
-    for (const [side, text, pluginRoot] of agents) {
-      const name = `review-bench-${side}-${role}`;
-      const file = path.join(agentDir, `${name}.md`);
-      fs.writeFileSync(file, renderAgent(text, { name, model: options.model, pluginRoot }));
-      console.log(`wrote ${file}`);
+    sources.push(
+      { side: 'baseline', role, text: blob.stdout.toString(), pluginRoot: baselineDir },
+      {
+        side: 'candidate',
+        role,
+        text: fs.readFileSync(path.join(repo, source), 'utf8'),
+        pluginRoot: path.join(repo, PLUGIN_PATH),
+      },
+    );
+  }
+
+  removeGenerated(project);
+  const agentDir = path.join(project, RUNTIME_AGENT_DIRS[runtime]);
+  fs.mkdirSync(agentDir, { recursive: true });
+  const overrides = {};
+  for (const config of configs) {
+    for (const { side, role, text, pluginRoot } of sources) {
+      const name = agentName(side, role, config.name);
+      const agent = renderAgent(text, { name, model: config.model, effortKey, effort: config.effort, pluginRoot });
+      fs.writeFileSync(path.join(agentDir, `${name}.md`), agent);
+      if (config.tier !== null) overrides[name] = config.tier;
     }
   }
+  writeJson(path.join(agentDir, CONFIGS_FILE), { configs });
+  const names = configs.map((config) => config.name).join(', ');
+  console.log(`wrote ${configs.length * sources.length} agent files to ${agentDir} for ${names}`);
+  if (runtime === 'omp') writeTierOverrides(project, overrides);
 }
 
-function cleanAgents(_options, repo) {
-  for (const dir of Object.values(RUNTIME_AGENT_DIRS)) {
-    const agentDir = path.join(repo, dir);
-    for (const side of ['baseline', 'candidate']) {
-      for (const role of ['code', 'plan']) {
-        const file = path.join(agentDir, `review-bench-${side}-${role}.md`);
-        if (!fs.existsSync(file)) continue;
-        fs.rmSync(file);
-        console.log(`removed ${file}`);
-      }
-    }
-  }
+// One run per configuration: the candidate code agent of the configuration gets a short task, so its transcript
+// shows the model, the effort, and the served tier at little cost.
+function prepareProbe(options, repo) {
+  if (!options.out) fail('probe needs --out <workspace dir>');
+  const configs = selectConfigs(options, repo);
+  const caseDir = path.join(path.resolve(options.out), PROBE_CASE.id);
+  if (fs.existsSync(caseDir)) fail(`${caseDir} exists; remove it or choose another --out`);
+  writeJson(path.join(caseDir, 'case.json'), PROBE_CASE);
+  writeRuns(
+    configs.map((config) => ({
+      dir: path.join(caseDir, armFolder(PROBE_ARM, config.name), 'run-1'),
+      config,
+      prompts: [{ reviewer: 'full', text: `agent: ${armAgent('code', PROBE_ARM, config.name)}\n\n${PROBE_TASK}\n` }],
+    })),
+  );
+  console.log(`prepared ${caseDir}: one prompt for each of ${configs.map((config) => config.name).join(', ')}`);
 }
+
+const PROJECT_OPTION = { project: { type: 'string' } };
 
 const COMMANDS = {
   case: {
     run: prepareCase,
-    options: { case: { type: 'string' }, arms: { type: 'string' }, runs: { type: 'string' }, out: { type: 'string' } },
+    options: {
+      case: { type: 'string' },
+      arms: { type: 'string' },
+      runs: { type: 'string' },
+      out: { type: 'string' },
+      configs: { type: 'string' },
+      ...PROJECT_OPTION,
+    },
   },
   agents: {
     run: prepareAgents,
     options: {
       'baseline-ref': { type: 'string' },
       model: { type: 'string' },
+      efforts: { type: 'string' },
+      tiers: { type: 'string' },
       runtime: { type: 'string' },
       out: { type: 'string' },
       'baseline-dir': { type: 'string' },
+      ...PROJECT_OPTION,
     },
   },
-  clean: { run: cleanAgents, options: {} },
+  probe: {
+    run: prepareProbe,
+    options: { out: { type: 'string' }, configs: { type: 'string' }, ...PROJECT_OPTION },
+  },
+  clean: { run: (options, repo) => removeGenerated(projectDir(options, repo)), options: PROJECT_OPTION },
 };
 
 const USAGE = `usage:
-  prepare.mjs case --case <case.json> --arms <list> --runs <k> --out <ws>
-  prepare.mjs agents --baseline-ref <git-ref> --model <selector> [--runtime omp|claude] (--out <ws> | --baseline-dir <dir>)
-  prepare.mjs clean`;
+  prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
+                     [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
+  prepare.mjs case --case <case.json> --arms <list> --runs <k> --out <ws> [--configs <list>] [--project <dir>]
+  prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
+  prepare.mjs clean [--project <dir>]`;
 
 function main(argv) {
   const [name, ...args] = argv;
