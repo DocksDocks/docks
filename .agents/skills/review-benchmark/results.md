@@ -125,3 +125,7 @@ The panel found more only on `code-96` (dev, 0.21 to 0.57 against 0.00 to 0.14 f
 ### Correction to the panel evidence (2026-10-23, plan review round 6)
 
 The entry above says that the panel tied on `code-89`. That holds for B1 and C3 it0 (0.67 each), not for C3 it2: with the new skill, the panel found more than one reviewer on both dev cases, `code-96` 0.21 against 0.14 for C1 it2 and `code-89` 0.83 against 0.67, where one of its two runs found two more defects. The decision stays: the panel buys a modest recall gain for about 88% more loop tokens, so it is an option for high-risk changes.
+
+### Decision change: the panel is the default again (2026-10-23)
+
+After the run, the user removed the token limit: more tokens are acceptable when the reviews find more defects or finish sooner. The panel found more defects than one reviewer (C3 it2 against C1 it2 on both dev cases; B1 against B0 on `code-96`) at about the same round time (C3 it2 136 to 151 s against C1 it2 116 to 158 s), so round 1 is a panel again for a diff of 50 or more changed lines. A user who wants to save tokens can ask for a full round. In later decisions, recall and round time decide; tokens are reported but do not block a change.

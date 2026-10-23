@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-23"
-  content_hash: "0bdf7e64e2b34dd729d83f6fd89bda1a59202470abbb117663e50c5898c57706"
+  content_hash: "e22b17a28add47410d1f25a72cc33e881175564ec4214e13b278f6cd89a55471"
 ---
 
 # Code Reviewer
@@ -69,7 +69,7 @@ A style, naming, or formatting preference without a concrete effect does not qua
 
 The dispatch names one mode.
 
-- `full`: cover every lens on the full diff with the rules of this skill. Load a lens reference only when a hunk needs its checklist, so the round stays fast.
+- `full`: cover every lens on the full diff with the rules of this skill. A full round serves small diffs, so load a lens reference only when a hunk needs its checklist.
 - `panel`: cover the one lens that the dispatch names, and load its reference from the table below.
 - `delta`: review the repairs since the previous round and settle each previous finding, with [references/delta.md](references/delta.md).
 

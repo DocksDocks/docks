@@ -82,7 +82,7 @@ Do not track plan bodies as repository files.
 | Main-context `plan-manager` skill | Decide, draft, research, plan review, implement, code review |
 | Internal `plan-reviewer` skill | Review goal fit, research gaps, and security risk |
 | Internal `code-reviewer` skill | Review code by lens: correctness, spec and tests, text and safety |
-| Read-only `plan-reviewer` and `code-reviewer` wrappers | Run the two review roles; a code-review round for a high-risk change can run three lens reviewers at once, and a round that only checks repairs reviews the changes alone |
+| Read-only `plan-reviewer` and `code-reviewer` wrappers | Run the two review roles; a large code-review round runs three lens reviewers at once, and a round that only checks repairs reviews the changes alone |
 | Explicit-only `yolo` skill | Run the whole lifecycle without questions; ask only before merge |
 
 Settle Mode before implementation. `plan-only` stops after plan review;
