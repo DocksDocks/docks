@@ -121,3 +121,7 @@ The "Panel policy: Kept" row above credited the delta rounds' savings to the pan
 | #96 code review (2 follow-ups) | 1.11 + 0.62 = 1.73 M | 2.64 + 0.62 = 3.26 M | +88% |
 
 The panel found more only on `code-96` (dev, 0.21 to 0.57 against 0.00 to 0.14 for one reviewer), tied on `code-89` and on held-out `code-H1` at the ceiling, and B1 beat C3 on dev, so the new prompt did not help a panel. Decision: round 1 is a single `full` reviewer by default; the panel stays an option for a change that the user or Research marks as high risk. The new code prompt, both delta modes, and the new plan prompt stay kept.
+
+### Correction to the panel evidence (2026-10-23, plan review round 6)
+
+The entry above says that the panel tied on `code-89`. That holds for B1 and C3 it0 (0.67 each), not for C3 it2: with the new skill, the panel found more than one reviewer on both dev cases, `code-96` 0.21 against 0.14 for C1 it2 and `code-89` 0.83 against 0.67, where one of its two runs found two more defects. The decision stays: the panel buys a modest recall gain for about 88% more loop tokens, so it is an option for high-risk changes.

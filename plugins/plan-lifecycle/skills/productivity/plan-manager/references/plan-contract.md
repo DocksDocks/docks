@@ -248,9 +248,9 @@ the delta round check.
 Round 1 is a `full` round. It is a `panel` round when the user asks for a
 panel or deep review, or when Research records the change as high risk with
 its reason, for example shipped code that handles ownership, credentials,
-publication, destructive actions, or retries against an external system. A
-panel costs about twice the tokens of a full round and found more defects only
-on hard changes in the plugin's benchmark, so it stays an option. A runtime
+publication, destructive actions, or retries against an external system. In
+the plugin's benchmark, a panel found somewhat more defects than one reviewer
+for about twice the tokens of a full round, so it stays an option. A runtime
 that cannot run subagents at the same time uses `full`. Count the size of a
 diff as added plus removed lines, for example the sums of `git diff --numstat`.
 
