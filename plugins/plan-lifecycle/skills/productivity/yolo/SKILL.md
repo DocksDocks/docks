@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-23"
-  content_hash: "d7516c726d2717ec7b7543afc332aacc872989893eaeab6ea1f0db4ee9e9b7d6"
+  content_hash: "f5441d1460626cad3f626630927cf160a321696c3aaba551d753e440a839b3d8"
 ---
 
 # Yolo
@@ -139,6 +139,10 @@ Asked: <what the request said>. Did: <what the run does>. Reason: <evidence>.
 Read the instruction files that apply to each path in the Files cells:
 `AGENTS.md`, `CLAUDE.md`, and `CONTRIBUTING.md` in that folder and its parent
 folders. Add one Acceptance row for each check that they require for the change.
+
+Decide whether code review round 1 is a `panel` round, as the contract's
+Code-review rounds says. When the change is high risk, record that in Research
+with its reason; otherwise round 1 is a `full` round.
 
 ## Engineering standards
 

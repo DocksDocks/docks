@@ -245,10 +245,14 @@ its focus diff. The delta diff runs from the previous round's reviewed head to
 the current reviewed head. The `code-reviewer` skill defines what each lens and
 the delta round check.
 
-Count the size of a diff as added plus removed lines, for example the sums of
-`git diff --numstat`. Round 1 is a `panel` round when the full diff changes 50
-or more lines. Below that, round 1 is a `full` round. A runtime that cannot run
-subagents at the same time uses `full`.
+Round 1 is a `full` round. It is a `panel` round when the user asks for a
+panel or deep review, or when Research records the change as high risk with
+its reason, for example shipped code that handles ownership, credentials,
+publication, destructive actions, or retries against an external system. A
+panel costs about twice the tokens of a full round and found more defects only
+on hard changes in the plugin's benchmark, so it stays an option. A runtime
+that cannot run subagents at the same time uses `full`. Count the size of a
+diff as added plus removed lines, for example the sums of `git diff --numstat`.
 
 Start every panel dispatch with the same shared text: the paths, the issue
 number, the round number, and the plan export. Put the lens line last, so the
@@ -262,9 +266,8 @@ A later round k is a `delta` round only when all of these hold:
   self-review.
 - The delta diff is at most half the size of the full diff.
 
-Otherwise round k is a `panel` or a `full` round by the size rule of round 1.
-A merge of the default branch into the linked branch always gets a `panel` or
-a `full` round.
+Otherwise round k is a full round of the same mode as round 1. A merge of the
+default branch into the linked branch always gets a full round.
 
 When a reviewer fails or returns no block with a verdict line, dispatch it
 again before you post the round. When a finding names a defect class, fix every

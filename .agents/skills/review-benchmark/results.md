@@ -110,3 +110,14 @@ Candidate iterations: `it0` is the first `code-reviewer` skill; `it1` stops a `f
 - B1 (old prompt, lens text in the dispatch) found more on dev than C3 (lens text in a reference that the reviewer loads): 0.62 against 0.52, driven by `code-96`. Next experiment: put each lens's scope sentences in the panel dispatch as well as in the reference, and compare with C3.
 - Two runs per arm detect only large differences; recall on `code-96` and `plan-96` varied between runs of one arm.
 - Reasoning effort changes both recall and time: benchmark 1 dispatched at the task tool's highest effort and took 250 to 577 s per lens, against 136 to 159 s here at the default effort. Compare arms only at one effort.
+
+### Correction to the panel decision (2026-10-23)
+
+The "Panel policy: Kept" row above credited the delta rounds' savings to the panel: its modeled loop paired a panel round 1 and delta follow-ups against B0 with full re-reviews. Delta rounds are a separate kept change that also follows a single reviewer, so the like-for-like loop pairs both policies with delta follow-ups (Cd, 0.31 M tokens each):
+
+| Loop | One reviewer (C1 it2) + delta | Panel (C3 it2) + delta | Panel extra |
+|---|---:|---:|---:|
+| #89 code review (1 follow-up) | 1.25 + 0.31 = 1.56 M | 2.62 + 0.31 = 2.93 M | +88% |
+| #96 code review (2 follow-ups) | 1.11 + 0.62 = 1.73 M | 2.64 + 0.62 = 3.26 M | +88% |
+
+The panel found more only on `code-96` (dev, 0.21 to 0.57 against 0.00 to 0.14 for one reviewer), tied on `code-89` and on held-out `code-H1` at the ceiling, and B1 beat C3 on dev, so the new prompt did not help a panel. Decision: round 1 is a single `full` reviewer by default; the panel stays an option for a change that the user or Research marks as high risk. The new code prompt, both delta modes, and the new plan prompt stay kept.
