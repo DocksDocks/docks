@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { parseDocument } from 'yaml';
 import { PLUGINS } from '../lib/plugins.mjs';
 
@@ -505,7 +506,12 @@ function fixtureRunners(suite, programs) {
   return runners;
 }
 
-const registry = readJson('scripts/config/test-contracts.json');
+// The gate checks the committed registry. A test can give `--registry <path>` to check a changed copy, so that it can
+// show that each check rejects the defect that it covers.
+const { values: options } = parseArgs({
+  options: { registry: { type: 'string', default: 'scripts/config/test-contracts.json' } },
+});
+const registry = JSON.parse(fs.readFileSync(path.resolve(REPO, options.registry), 'utf8'));
 const packageJson = readJson('package.json');
 const ciSource = fs.readFileSync(path.join(REPO, 'scripts/ci.mjs'), 'utf8');
 validateRegistry(registry);
