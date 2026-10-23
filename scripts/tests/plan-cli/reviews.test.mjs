@@ -89,6 +89,30 @@ test('only the first verdict line of each review block counts, so prose cannot h
       '### Plan review round 3\n\nPlan-review: pass\n\n- plan review notes for the next round\n\nNone.',
       { kind: 'plan', verdict: 'pass' },
     ],
+    // A quoted heading of an earlier round is prose, so its quoted verdict cannot open a block that wins.
+    [
+      '### Code review round 2, delta\n\nCode-review: pass\n\n## Previous findings\n\n> ### Code review round 1\n> Code-review: fixes-required\n\n## Standards\n\nNone.',
+      { kind: 'code', verdict: 'pass' },
+    ],
+    // A list item that holds a heading is prose too, also with a `*` marker, which is not emphasis here.
+    [
+      '### Plan review round 3\n\nPlan-review: pass\n\nNone.\n\n- ### Plan review round 2\n- Plan-review: repair',
+      { kind: 'plan', verdict: 'pass' },
+    ],
+    [
+      '### Code review round 2, delta\n\nCode-review: pass\n\n## Previous findings\n\n* ### Code review round 1\n* Code-review: fixes-required',
+      { kind: 'code', verdict: 'pass' },
+    ],
+    // An emphasized heading title still starts a block.
+    [
+      '### Code review round 1, lens correctness\n\nCode-review: pass\n\n### **Code review round 1, lens text-and-safety**\n\nCode-review: blocked\nMissing input: the focus diff.',
+      { kind: 'code', verdict: 'blocked' },
+    ],
+    // A heading indented by up to three spaces is still a Markdown heading, so its block counts.
+    [
+      '### Code review round 1, lens correctness\n\nCode-review: pass\n\n   ### Code review round 1, lens spec-and-tests\n\nCode-review: fixes-required',
+      { kind: 'code', verdict: 'fixes-required' },
+    ],
   ];
   for (const [text, expected] of cases) assert.deepEqual(parseReviewComment(text), expected, text);
 });

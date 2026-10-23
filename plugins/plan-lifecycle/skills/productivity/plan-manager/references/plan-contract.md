@@ -188,12 +188,13 @@ agents define the exact block they return, and that block follows these rules.
   any case, after optional `#` heading markers. Any suffix, such as `round 2`
   or `round 2, lens correctness`, is allowed.
 - A comment holds one or more review blocks. A block starts at the first line,
-  or at a later Markdown heading line (one or more `#`) that names the
-  comment's kind. A panel round comment holds one block per lens.
+  or at a later Markdown heading line (one or more `#`, indented by at most
+  three spaces) that names the comment's kind. A quoted or list-item heading
+  is prose and starts no block. A panel round comment holds one block per lens.
 - A verdict line holds `plan-review:` or `code-review:`, then a verdict word.
   A space can replace the hyphen.
 - On each line, the helper ignores Markdown emphasis (`*`, `_`), code marks,
-  blockquote markers, and list markers.
+  blockquote markers, and list markers when it reads a kind or a verdict.
 
 | Verdict input | Plan result | Code result |
 |---|---|---|
