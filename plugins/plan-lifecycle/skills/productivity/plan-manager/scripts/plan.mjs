@@ -18,11 +18,11 @@ const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (the GraphQL 
 const PAGE_INFO = 'pageInfo{hasNextPage endCursor}';
 const PULL_REQUEST_FIELDS = 'number url state mergedAt baseRefName repository{nameWithOwner}';
 const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
-const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name id}`);
+const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name id}`).join(' ');
 // The pre-write read returns the body to compare and the node ids that the write mutation needs.
 const PRE_WRITE_FIELDS = 'id,body,updatedAt,labels,assignees';
 // The last field of a write mutation returns the stored state that the post-write checks read.
-const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}} assignees(first:100){nodes{login}}`;
+const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}}`;
 // `list` reads the newest plans first, as `gh issue list` did, so the 500-plan cap keeps the same plans.
 const PLAN_LIST_ARGS = ',labels:["plan"],states:[OPEN,CLOSED],orderBy:{field:CREATED_AT,direction:DESC}';
 const PLAN_LIST_FIELDS = 'number title state stateReason labels(first:100){nodes{name}}';
@@ -187,7 +187,7 @@ function readSnapshot(
             ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}`
             : '',
         ].join(' ');
-  const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS.join(' ') : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
+  const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
   const data = graphql(query, number === undefined ? {} : { number });
   const repo = data.repository;
   if (
@@ -396,11 +396,7 @@ function writeIssueIfUnchanged(issue, { body, add, remove = [], labelIds } = {})
   const data = body === undefined ? send() : withBodyFile(body, send);
   const last = fields.at(-1);
   const stored = data[last.mutation]?.[last.payload];
-  if (
-    typeof stored?.body !== 'string' ||
-    !Array.isArray(stored.labels?.nodes) ||
-    !Array.isArray(stored.assignees?.nodes)
-  )
+  if (typeof stored?.body !== 'string' || !Array.isArray(stored.labels?.nodes))
     fail('gh api graphql returned malformed stored plan issue');
   if (body !== undefined && stored.body !== body) fail('plan issue body differs after edit');
   if (!add && remove.length === 0) return;
@@ -597,13 +593,7 @@ function replaceTable(sections, name, header, separator, rows) {
 // Steps that edit the same path need a Depends order, or parallel work collides (#78).
 function sharedFilesAdvice(rows) {
   const paths = rows.map(
-    (row) =>
-      new Set(
-        row[3]
-          .split(',')
-          .map((part) => unquoteCode(part.trim()))
-          .filter((part) => part && part !== '-'),
-      ),
+    (row) => new Set(row[3].split(',').map((part) => unquoteCode(part.trim())).filter((part) => part && part !== '-')),
   );
   const dependencies = new Map(
     rows.map((row) => [row[0], row[4] === '-' ? [] : row[4].split(',').map((part) => part.trim())]),
@@ -708,8 +698,7 @@ function researchFilled(plan) {
 }
 function printAdvice(text, status, extra = [], options = {}) {
   const result = normalizePlan(text, options);
-  if (status !== 'drafting' && !researchFilled(parsePlan(text)))
-    result.advice.push('Research is not filled after drafting.');
+  if (status !== 'drafting' && !researchFilled(parsePlan(text))) result.advice.push('Research is not filled after drafting.');
   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
 }
 // A plan-review pass covers the body that the reviewer read (#78).
