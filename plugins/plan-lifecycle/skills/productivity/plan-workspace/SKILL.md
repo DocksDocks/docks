@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-18"
-  content_hash: "666bb6231e8a3be9dc265b1d55c7c061bc1ee34c9a3d6739d982203f31768a77"
+  updated: "2026-10-23"
+  content_hash: "43e43336c020090188500830f3dec7b18929b47fa1bcc818cf6c478fecfb7c55"
 ---
 
 # Plans Workspace
@@ -151,3 +151,7 @@ GOOD: Report drift and wait for an explicit refresh request.
 BAD: Parse a legacy plan to create a fresh issue.
 GOOD: Preserve the file and use only the user's restated title and goal.
 ```
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

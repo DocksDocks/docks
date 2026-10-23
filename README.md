@@ -62,7 +62,7 @@ Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfa
 | `solid` | Generic SOLID for TS/Python/Go modules - strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate - TS primary; references for Rust/Kotlin/Python |
 
-The `productivity/` category contains `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `scaffold`, `skill-agent-pipeline`, `skill-maintenance`, `write-skill`, and `zoom-out`.
+The `productivity/` category contains `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-agent-pipeline`, `skill-maintenance`, `write-skill`, and `zoom-out`.
 
 ### Plan lifecycle (the `plan-lifecycle` plugin)
 

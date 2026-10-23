@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-23"
-  content_hash: "37cfc75fba999189e56e877a1cb3ad02be4e26c5e3f289bd83e1d3e3f08a427b"
+  content_hash: "7d8c5904f96e18cc5f4e2a00ea3674b58064ef46b4a94a0f4fdccf9f9e61c64b"
 ---
 
 # Plan Manager
@@ -145,8 +145,8 @@ After code review passes, follow the contract's Landing and archive proof:
 commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
 on `Merge now`. The `Merge now` option states the teardown, as the contract's
-Checks and merge says. After a partial merge, reopen the issue as the contract
-states. Archive only after the landing merge, when every step is terminal.
+Checks and merge says. After a partial merge, run `reopen <n> --pr <pr>` as the
+contract states. Archive only after the landing merge, when every step is terminal.
 After archive, run the contract's Teardown. Without `Merge now`, run Teardown's
 exit without a merge. Report Kept resources in both cases.
 
@@ -167,8 +167,12 @@ BAD: Merge because checks passed earlier.
 GOOD: Verify the reviewed head and obtain a fresh Merge now answer.
 
 BAD: Merge a partial pull request and trust `Refs #<issue>` to keep the issue open.
-GOOD: Say that the merge closes the issue, merge on `Merge now`, reopen it, and confirm `show` reads ongoing.
+GOOD: Say that the merge closes the issue, merge on `Merge now`, run `reopen <n> --pr <pr>`, and confirm `show` reads ongoing.
 
 BAD: Run `git branch -D` after `git branch -d` refuses.
 GOOD: Keep the branch and list it under Kept resources.
 ```
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

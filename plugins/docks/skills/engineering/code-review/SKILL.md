@@ -4,8 +4,8 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-24"
-  content_hash: "b79b459375711df7545e89d5b3745f1f387279f4a025c74565fec5d2bbb8d83c"
+  updated: "2026-10-23"
+  content_hash: "6957128707464720648cd7207b6cdaa6fceba4bcf22c4a176d79b07a24ed5351"
 ---
 
 # Code Review
@@ -211,3 +211,7 @@ MEDIUM · Maintainability · src/api/orders.ts:45-62
 - Pairs with: the `security` skill for OWASP Top 10 coverage with adversarial perspective; the `refactor` skill for SOLID and dead-code analysis at scale; `lint-no-suppressions` if your fix would otherwise involve silencing a linter rule
 - Per-axis finding catalogs: `references/security.md`, `references/perf.md`, `references/maintainability.md`
 - OWASP Top 10 vocabulary: https://owasp.org/Top10/
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

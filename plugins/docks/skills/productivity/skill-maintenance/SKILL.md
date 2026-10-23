@@ -4,8 +4,8 @@ description: "Use when project-local SKILL.md files need validation or refresh a
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-09-23"
-  content_hash: "7208f28d8a7da0f88b12ba010e9b772d3d011a1c555f4dbb0bb58c993ba4bdf4"
+  updated: "2026-10-23"
+  content_hash: "323204626f1f6a8a496618b0124f2dda83ea9ba322d2e325697bd094e1c719bd"
 ---
 
 # Skill Maintenance
@@ -205,3 +205,7 @@ loader warning that is not fixed by quoting the description.
 
 Read `references/blind-comparison.md` when running the optional old-vs-new
 comparison.
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

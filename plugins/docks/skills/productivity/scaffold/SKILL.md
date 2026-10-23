@@ -4,8 +4,8 @@ description: "Use when spinning up a new docks-style plugin project, or capturin
 user-invocable: true
 metadata:
   pattern: generative-skill
-  updated: "2026-09-24"
-  content_hash: "7bf6913ec04fb4f11b90c5e5b1a4758a596037249c3ce7e6536a03b75f5069a2"
+  updated: "2026-10-23"
+  content_hash: "0fbc2a1fc06e9cf2907c747227d679850414cf60e6bed143e7f6293db67b17b3"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it
@@ -135,3 +135,7 @@ plugins/acme-tools/.claude-plugin/plugin.json            ← plugin_name = "acme
 
 - [`references/spec-schema.md`](references/spec-schema.md) — full `spec.yaml` schema: every field, `seed_from_skill` vs `template` vs `bundled_skills`, `default_from`, variable rules.
 - Companion skills: `context-tree` (the nodes seed mode writes) · `plan-workspace`, `plan-manager`, and `plan-reviewer` (the exact bundled plan owners) · `write-skill` (author new skills in the seeded project).
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

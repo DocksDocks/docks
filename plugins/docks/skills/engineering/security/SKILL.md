@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-09-23"
-  content_hash: "11afe1a4f5938ce937e511ad0261f1e370483595191271ccfb96cd6a31e81bcb"
+  updated: "2026-10-23"
+  content_hash: "dd88c3cd2db8450e1c418b7652318877677763ccf9bcea87b8c22742bcb34a8d"
 ---
 
 # Security Audit (cross-tool pipeline)
@@ -132,3 +132,7 @@ Do not edit source from inside this audit pipeline; requested remediation begins
 | Skipping synthesis because the scanners "already found everything" | Duplicate, mis-severitied, unreproducible findings ship | Always run Phase 3 — challenge, dedupe, drop unreproducible |
 | Assuming a GitHub plan issue is available in a repository with no GitHub remote | The report cannot be filed | STOP and report the missing GitHub-backed plan lifecycle; never write a fallback plan file |
 | Trusting a library API from memory in a suggested fix | A wrong security fix is worse than none | Verify the API against current docs before recommending it |
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

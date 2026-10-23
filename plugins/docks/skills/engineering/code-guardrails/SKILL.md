@@ -4,8 +4,8 @@ description: "Use when setting up strict linter rules for TypeScript (oxlint, an
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-24"
-  content_hash: "d7581cc74f6c4adf10f22114724c3294dd5e419cdf43242b311a132241619ca1"
+  updated: "2026-10-23"
+  content_hash: "edb40fc49d952999cc51e8dcb7515e66ff7c17d813bee9a3388a1d71464a019a"
 ---
 
 # Code Guardrails
@@ -238,3 +238,7 @@ Then list the tools you did not install and the questions for the user.
 - Run the two checks in "Find scattered values" again. Each remaining repeated value
   must have a reason in the report.
 - Run the project tests. A moved constant must not change behavior.
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

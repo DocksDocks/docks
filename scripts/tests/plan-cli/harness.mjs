@@ -11,6 +11,11 @@ const GH_STUB_DIR = path.join(ROOT, 'scripts/tests/fixtures/gh-stub');
 // The state a repository reaches after its first `new`: every plan label exists as the fake gh
 // `label create` stores it. A case that depends on label metadata replaces this map itself.
 const PLAN_LABELS = ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked'];
+// The cases load this hook through `--import` so the waits of `reopen` return at once and get recorded.
+export const SKIP_WAITS = new URL('./skip-waits.mjs', import.meta.url).href;
+// A partial pull request merges at MERGED_AT, and GitHub records its close 2 s later, as it did for #89.
+const MERGED_AT = '2026-08-21T00:00:00Z';
+const CLOSED_AT = '2026-08-21T00:00:02Z';
 
 export function expectSuccess(result, label) {
   assert.equal(result.status, 0, `${label}: ${result.stderr}`);
@@ -62,6 +67,11 @@ export function body(status = 'planned') {
   ].join('\n');
 }
 
+// The change GitHub makes when `closer` closes a plan as completed, for a scheduled change of the fake gh.
+export function closedBy(closer, createdAt = CLOSED_AT) {
+  return { state: 'CLOSED', stateReason: 'COMPLETED', closedEvent: { closer, createdAt } };
+}
+
 // Each test gets its own scratch repository, fake gh state, and XDG_STATE_HOME, so tests share no
 // issue numbers, labels, or exports and the runner can execute case files in parallel.
 export function planCliContext(t) {
@@ -76,6 +86,7 @@ export function planCliContext(t) {
     fs.rmSync(stateHome, { recursive: true, force: true });
   });
   const statePath = path.join(scratch, 'gh-state.json');
+  const waitLog = path.join(scratch, 'waits.log');
   const initialized = spawnSync('git', ['init', '--quiet'], { cwd: scratch, encoding: 'utf8' });
   assert.equal(initialized.status, 0, initialized.stderr);
   const committed = spawnSync(
@@ -118,14 +129,26 @@ export function planCliContext(t) {
     PATH: `${GH_STUB_DIR}${path.delimiter}${process.env.PATH ?? ''}`,
     GH_STUB_STATE: statePath,
     XDG_STATE_HOME: stateHome,
+    PLAN_CLI_WAIT_LOG: waitLog,
   };
 
-  function run(...args) {
-    return spawnSync(process.execPath, [PLAN_CLI, ...args], {
+  // Node flags such as `['--import', SKIP_WAITS]` apply to this one helper process.
+  function runWith(nodeFlags, ...args) {
+    return spawnSync(process.execPath, [...nodeFlags, PLAN_CLI, ...args], {
       cwd: scratch,
       encoding: 'utf8',
       env: childEnv,
     });
+  }
+
+  function run(...args) {
+    return runWith([], ...args);
+  }
+
+  // The timeouts that the skip-waits hook received, in call order.
+  function waits() {
+    if (!fs.existsSync(waitLog)) return [];
+    return fs.readFileSync(waitLog, 'utf8').split('\n').filter(Boolean).map(Number);
   }
 
   function loadState() {
@@ -144,6 +167,21 @@ export function planCliContext(t) {
 
   function updateIssue(number, update) {
     updateState((state) => update(state.issues.find((entry) => entry.number === number)));
+  }
+
+  // The gh calls that write: GraphQL mutations and every non-api command other than `view` and `list`.
+  function writes() {
+    return loadState().calls.filter(([group, command, ...rest]) => {
+      if (group !== 'api') return !['view', 'list'].includes(command);
+      return command === 'graphql' && rest.some((argument) => /^query=\s*mutation\b/.test(argument));
+    });
+  }
+
+  // Each change lands once the fake gh has served `afterReads` GraphQL reads of the issue.
+  function schedule(number, ...changes) {
+    updateIssue(number, (entry) => {
+      entry.pendingChanges = [...(entry.pendingChanges ?? []), ...changes];
+    });
   }
 
   function addIssueComment(number, body, author = 'plan-agent') {
@@ -208,9 +246,37 @@ export function planCliContext(t) {
     return { number, closer };
   }
 
+  // An ongoing plan after the merge of a partial pull request that lists it in closingIssuesReferences.
+  // The plan still reads OPEN: a case schedules the close that GitHub records a while after the merge.
+  function partialMerge(name, { assignees = [], merged = true, closes = true } = {}) {
+    const number = createPlan(name, body('in-flight'));
+    const pr = 100 + number;
+    updateState((state) => {
+      const entry = state.issues.find((candidate) => candidate.number === number);
+      entry.labels = ['plan', 'plan:ongoing'];
+      entry.assignees = assignees;
+      state.prs.push({
+        number: pr,
+        url: `https://github.com/DocksDocks/fixture/pull/${pr}`,
+        state: merged ? 'MERGED' : 'OPEN',
+        mergedAt: merged ? MERGED_AT : null,
+        baseRefName: 'main',
+        repository: 'DocksDocks/fixture',
+        closingIssuesReferences: closes ? [number] : [],
+      });
+      // The call log then holds only what the case itself runs.
+      state.calls = [];
+    });
+    return { number, pr, closer: { __typename: 'PullRequest', number: pr } };
+  }
+
   return {
     scratch,
     run,
+    runWith,
+    waits,
+    writes,
+    schedule,
     loadState,
     updateState,
     issue,
@@ -220,5 +286,6 @@ export function planCliContext(t) {
     exported,
     edit,
     closedPlan,
+    partialMerge,
   };
 }

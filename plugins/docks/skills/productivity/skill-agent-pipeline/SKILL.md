@@ -4,8 +4,8 @@ description: "Use when bootstrapping or auditing a project's skills and agents �
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-09-23"
-  content_hash: "cc2fb9a0de5b99c74d91bf1dd129e945af6f1e5e0210e71776e59e445f03f3ff"
+  updated: "2026-10-23"
+  content_hash: "bdbbd27ba61ed89960c67b81f87a9f8ba4b0151e842f94b8cd434ddee3e3a3c1"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -143,3 +143,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from `/tmp/skill.before`, loc
 | Unquoted `description:` contains `: ` or `#` | Codex skips the skill with invalid YAML or silently truncated description | Quote every generated description |
 | Agent skill-references pointing at pre-split paths | Agents land with broken references | Phase 4–5 must reference Phase 3's proposed paths, not old ones |
 | Editing AGENTS.md / CLAUDE.md from this pipeline | Scope bleed; clobbers cross-tool config | Nested nodes and the routing table → `context-tree`; legacy CLAUDE.md, root `AGENTS.md`, symlinks → `multi-tool-bridge` |
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

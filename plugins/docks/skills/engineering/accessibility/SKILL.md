@@ -4,8 +4,8 @@ description: "Use when making UI accessible: focus trap + restore-on-close in mo
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "dbca450826300d1e4d88fd6331e04919988a6d33b77a59074cd569f940a98104"
+  updated: "2026-10-23"
+  content_hash: "5ef4ee5bbf865ad959c5c41fcec507c056878b618fab21a212750a29610a9c44"
 ---
 
 # Accessibility
@@ -212,3 +212,7 @@ Contrast criteria (1.4.x) audits route to `design-tokenization`.
 - APG patterns index: https://www.w3.org/WAI/ARIA/apg/patterns/ · Read Me First: https://www.w3.org/WAI/ARIA/apg/practices/read-me-first/
 - WCAG 2.2 changes: https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/
 - Companion skills: `design-tokenization` (contrast/tokens), `make-interfaces-feel-better` (motion values, hit areas), `react-component-patterns` (component APIs)
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

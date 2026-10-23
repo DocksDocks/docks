@@ -4,8 +4,8 @@ description: Use when setting up multi-tool agent compatibility in a project (Co
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-24"
-  content_hash: "c222893261d33a3ade616bb0cc7367cc0cb998885c696969f45ec193f7940a32"
+  updated: "2026-10-23"
+  content_hash: "cd3c4a37157329fe656c8d70c7964edee087c4417db46d392742e9ffe01046a2"
 ---
 
 # Multi-Tool Agent Bridge
@@ -298,3 +298,7 @@ Final report (markdown):
 - `references/agents-md-template.md` — the AGENTS.md scaffold (agents.md-spec-compliant) with its durable-fact fill rules, the `## Context tree` routing section (rows owned by `context-tree`), and the stale-tolerance line
 - `references/claude-md-classification.md` — keyword rules and section-by-section heuristics for splitting legacy CLAUDE.md content between AGENTS.md and `.claude/rules/`, including nested destinations and the `paths:` frontmatter format
 - Companion: when porting Claude subagents to Codex (`.claude/agents/*.md` → `.codex/agents/*.toml`), use the `skill-agent-pipeline` skill — its Phase 5 drafts every agent in BOTH formats; format mismatch and model-name translation make symlinks unsuitable. Out of scope here.
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

@@ -4,8 +4,8 @@ description: Use when designing a module / service / class with multiple concern
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-09-23"
-  content_hash: "21967495ba4496b81eba6325a7515c887010dbcfc132941b47712f6b739b5a77"
+  updated: "2026-10-23"
+  content_hash: "1a8f9e40c7f0d5ed0c837b5f6b318add3d49ab768d6b4657e33ea18b112b4e54"
 ---
 
 # SOLID — Single Responsibility, Open/Closed, Liskov, Interface Segregation, Dependency Inversion
@@ -153,3 +153,7 @@ In codebases without a DI container, **function arguments are the abstraction**.
 - Maintenance twin: the `refactor` skill's `references/solid-analyzer.md` carries a condensed copy of this per-principle rubric and of the TypeScript class-justification gate (canonical deep form in `type-safety-discipline`) — sync the twins in the same commit when either changes.
 - Uncle Bob's original SOLID essays: https://blog.cleancoder.com/uncle-bob/2014/05/08/SingleReponsibilityPrinciple.html
 - Depth/seam vocabulary, the three tests, dependency categories, and "replace, don't layer" adapted from Matt Pocock's `codebase-design` skill (MIT; the vocabulary was first part of his `improve-codebase-architecture` skill): https://github.com/mattpocock/skills/blob/main/skills/engineering/codebase-design/SKILL.md
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.

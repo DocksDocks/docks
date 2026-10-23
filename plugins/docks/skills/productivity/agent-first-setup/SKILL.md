@@ -4,8 +4,8 @@ description: "Use when making a repository agent-first in one pass — root AGEN
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-09-24"
-  content_hash: "3ff20cb985f33d796cf288319a1a52bd59ef0dbde94bc3435e9f36b43852b072"
+  updated: "2026-10-23"
+  content_hash: "34a8a3ebebbb12d223958f9db7c87c0e9f5c44bbeaadbffd068b38da0066c7de"
 ---
 
 # Agent-First Setup
@@ -265,3 +265,7 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 - Codex AGENTS.md discovery (project root down to the working directory): https://developers.openai.com/codex/guides/agents-md
 - Claude Code memory and native AGENTS.md support: https://code.claude.com/docs/en/memory
 - agentskills.io specification: https://agentskills.io/specification
+
+## Report a problem with this skill
+
+When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.
