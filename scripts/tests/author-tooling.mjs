@@ -5,12 +5,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { shebangInterpreter } from './test-contracts.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const BIOME = path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'biome.cmd' : 'biome');
 const VALIDATE_SKILLS = path.join(ROOT, 'scripts/lib/validate-skills.mjs');
 const TREE_GUARD = path.join(ROOT, 'scripts/tree/guard.mjs');
 const SKILLS_GUARD = path.join(ROOT, 'scripts/skills/guard.mjs');
+const TEST_CONTRACTS = path.join(ROOT, 'scripts/tests/test-contracts.mjs');
+const REPORT_SECTION = path.join(ROOT, 'scripts/config/report-section.md');
 
 function runNode(script, args, options = {}) {
   return spawnSync(process.execPath, [script, ...args], {
@@ -24,6 +27,10 @@ function runNode(script, args, options = {}) {
 function assertStarted(result) {
   assert.equal(result.error, undefined);
   assert.equal(result.signal, null);
+}
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function testBiomeRejectsSyntaxDefect() {
@@ -250,9 +257,158 @@ function testSkillsGuardSpawnFailure() {
   );
 }
 
+function runTestContracts(fixtureRoot, name, registry) {
+  const file = path.join(fixtureRoot, name);
+  fs.writeFileSync(file, `${JSON.stringify(registry, null, 2)}\n`);
+  return runNode(TEST_CONTRACTS, ['--registry', file]);
+}
+
+// The registry check must reject a row that does not list a toolchain that its suite needs, and a row that lists a
+// toolchain that nothing needs. Each negative case changes one row in a copy of the registry.
+function testTestContractToolchains() {
+  const registry = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts/config/test-contracts.json'), 'utf8'));
+  const passed = runNode(TEST_CONTRACTS, []);
+  assertStarted(passed);
+  assert.equal(passed.status, 0, passed.stderr);
+  assert.match(passed.stdout, /^PASS test_contracts /);
+
+  // The plan CLI suite runs with Node, and its cases run the fake gh, which runs with Bun.
+  const planCli = registry.contracts.find(({ id }) => id === 'repo-plan-cli');
+  assert.ok(planCli, 'the registry must hold the repo-plan-cli row');
+  const bunToken = planCli.toolchains.find((token) => token.startsWith('bun-'));
+  const nodeToken = planCli.toolchains.find((token) => token.startsWith('node-'));
+  assert.ok(bunToken && nodeToken, `repo-plan-cli must list a Bun and a Node toolchain: ${planCli.toolchains}`);
+  const bunOnly = registry.contracts.find(({ toolchains }) => toolchains.length === 1 && toolchains[0] === bunToken);
+  assert.ok(bunOnly, `the registry must hold a row that lists only ${bunToken}`);
+
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-contracts-'));
+  try {
+    const lacksBun = structuredClone(registry);
+    const lacksBunRow = lacksBun.contracts.find(({ id }) => id === planCli.id);
+    lacksBunRow.toolchains = lacksBunRow.toolchains.filter((token) => token !== bunToken);
+    const missing = runTestContracts(fixtureRoot, 'lacks-bun.json', lacksBun);
+    assertStarted(missing);
+    assert.notEqual(missing.status, 0);
+    assert.match(
+      `${missing.stdout}\n${missing.stderr}`,
+      new RegExp(
+        `repo-plan-cli\\.toolchains must list ${escapeRegExp(bunToken)}: .*scripts/tests/fixtures/gh-stub/gh runs with bun`,
+      ),
+    );
+
+    const listsNode = structuredClone(registry);
+    const listsNodeRow = listsNode.contracts.find(({ id }) => id === bunOnly.id);
+    listsNodeRow.toolchains = [bunToken, nodeToken].sort();
+    const extra = runTestContracts(fixtureRoot, 'lists-node.json', listsNode);
+    assertStarted(extra);
+    assert.notEqual(extra.status, 0);
+    // The line names the runners that discovery found, so that the reader sees why the row does not need the token.
+    const runnerEvidence = `\\(discovered: [^\\n]*\\b${escapeRegExp(bunOnly.owner.suite)} with bun\\b[^\\n]*\\)`;
+    assert.match(
+      `${extra.stdout}\n${extra.stderr}`,
+      new RegExp(
+        `${escapeRegExp(bunOnly.id)}\\.toolchains lists ${escapeRegExp(nodeToken)}, which no discovered runner needs ${runnerEvidence}`,
+      ),
+    );
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
+// A fixture program runs with the interpreter of its #! line, and that interpreter decides which toolchain a suite
+// needs. `env` reads its options, their operands, and NAME=VALUE words before the interpreter, so none of them is it.
+function testShebangInterpreter() {
+  const cases = [
+    ['#!/usr/bin/env bun\n', 'bun'],
+    ['#!/usr/local/bin/bun\n', 'bun'],
+    ['#!/usr/bin/env -S -u NODE_OPTIONS bun\n', 'bun'],
+    ['#!/usr/bin/env -S -uNODE_OPTIONS bun --smol\n', 'bun'],
+    ['#!/usr/bin/env --split-string=-u NODE_OPTIONS bun\n', 'bun'],
+    ['#!/usr/bin/env --unset=NODE_OPTIONS node\n', 'node'],
+    ['#!/usr/bin/env --unset NODE_OPTIONS node\n', 'node'],
+    ['#!/usr/bin/env -i FORCE_COLOR=0 node\n', 'node'],
+    ['#!/usr/bin/env - --ignore-environment node\n', 'node'],
+    ['#!/usr/bin/env -iu NODE_OPTIONS /opt/bun/bin/bun\n', 'bun'],
+    ['#!/usr/bin/env -S -- FORCE_COLOR=0 bun\n', 'bun'],
+    ['#!/usr/bin/env -- bun\n', 'bun'],
+    ['#!/usr/bin/env -S -u NODE_OPTIONS\n', ''],
+    ['#!\n', ''],
+    ['console.log(1);\n', null],
+  ];
+  for (const [source, interpreter] of cases) {
+    assert.equal(shebangInterpreter(source), interpreter, `interpreter of ${JSON.stringify(source)}`);
+  }
+}
+
+// Every docks skill must end with the canonical Report section. The cases change a full copy of the docks skills: the
+// copy passes the sub-guards that run before the Report check, so that each run gets to that check.
+function testSkillsGuardReportSection() {
+  const canonical = fs.readFileSync(REPORT_SECTION, 'utf8');
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-report-'));
+  try {
+    const skillsRoot = path.join(fixtureRoot, 'skills');
+    fs.cpSync(path.join(ROOT, 'plugins/docks/skills'), skillsRoot, { recursive: true });
+    const skillFiles = fs
+      .readdirSync(skillsRoot, { recursive: true })
+      .filter((relative) => path.basename(relative) === 'SKILL.md')
+      .sort();
+    assert.ok(skillFiles.length >= 2, `the fixture needs two skills, found ${skillFiles.length}`);
+    const originals = new Map(
+      skillFiles.map((relative) => [relative, fs.readFileSync(path.join(skillsRoot, relative), 'utf8')]),
+    );
+    for (const [relative, content] of originals)
+      assert.ok(content.endsWith(canonical), `${relative} must end with the canonical Report section`);
+    const write = (relative, content) => fs.writeFileSync(path.join(skillsRoot, relative), content);
+    const withoutSection = (relative) => originals.get(relative).slice(0, -canonical.length);
+    const failLine = (relative, reason) => new RegExp(`^FAIL: .*/${escapeRegExp(relative)}: ${reason}`, 'm');
+    const failedCount = (count) =>
+      new RegExp(`Guard FAILED: ${count} skill file\\(s\\) do not end with the canonical Report section\\n$`);
+
+    const unchanged = runNode(SKILLS_GUARD, [skillsRoot]);
+    assertStarted(unchanged);
+    assert.equal(unchanged.status, 0, unchanged.stderr);
+    assert.match(
+      unchanged.stdout,
+      /Guard PASSED: skills match Codex and Claude conventions and end with the canonical Report section\n$/,
+    );
+
+    const [missingSkill, changedSkill] = skillFiles;
+    write(missingSkill, withoutSection(missingSkill));
+    const missing = runNode(SKILLS_GUARD, [skillsRoot]);
+    assertStarted(missing);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, failLine(missingSkill, 'missing the Report section'));
+    assert.match(missing.stderr, failedCount(1));
+    write(missingSkill, originals.get(missingSkill));
+
+    // The byte goes before the last byte of the file, which is in the section.
+    const changedOriginal = originals.get(changedSkill);
+    write(changedSkill, `${changedOriginal.slice(0, -1)}x${changedOriginal.slice(-1)}`);
+    const changed = runNode(SKILLS_GUARD, [skillsRoot]);
+    assertStarted(changed);
+    assert.equal(changed.status, 1);
+    assert.match(changed.stderr, failLine(changedSkill, 'the Report section differs from'));
+    assert.match(changed.stderr, failedCount(1));
+
+    // No skill has the section: a check that only looks for a file that differs finds nothing to report here.
+    for (const relative of skillFiles) write(relative, withoutSection(relative));
+    const allMissing = runNode(SKILLS_GUARD, [skillsRoot]);
+    assertStarted(allMissing);
+    assert.equal(allMissing.status, 1);
+    for (const relative of skillFiles)
+      assert.match(allMissing.stderr, failLine(relative, 'missing the Report section'));
+    assert.match(allMissing.stderr, failedCount(skillFiles.length));
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 testBiomeRejectsSyntaxDefect();
 testCombinedSkillValidation();
 testTreeGuardOperationalFailures();
 testSkillsGuardSpawnFailure();
+testSkillsGuardReportSection();
+testTestContractToolchains();
+testShebangInterpreter();
 testValidatorTable();
 console.log('author tooling contracts passed');

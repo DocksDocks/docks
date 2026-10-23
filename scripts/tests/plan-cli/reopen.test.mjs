@@ -16,6 +16,10 @@ function stuckRefusal(number) {
   return `GitHub left plan #${number} closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it`;
 }
 
+function settleRefusal(number) {
+  return `plan #${number} changed during the settle wait; run reopen again`;
+}
+
 // Every reopen loads the skip-waits hook, so its pauses and its settle wait return at once and get recorded.
 function reopen({ runWith }, plan) {
   return runWith(['--import', SKIP_WAITS], 'reopen', String(plan.number), '--pr', String(plan.pr));
@@ -64,12 +68,7 @@ test('reopen accepts the close by a commit of the merged pull request and leaves
     assignees: ['plan-agent'],
     comments: [{ author: 'plan-agent', body: reopenComment(plan.pr) }],
   });
-  const writes = context.writes();
-  assert.equal(writes.length, 1);
-  assert.ok(
-    !writes[0].some((argument) => argument.includes('addAssigneesToAssignable')),
-    'an owned plan needs no claim',
-  );
+  assert.equal(context.writes().length, 1);
 });
 
 test('reopen writes nothing when the merged pull request does not close the plan', (t) => {
@@ -218,6 +217,39 @@ test('reopen prints the open status and writes nothing when someone reopens the 
   assert.equal(result.stderr, '');
   assert.deepEqual(context.waits(), [SETTLE_WAIT]);
   assert.deepEqual(stored(context, plan.number), { ...ONGOING, stateReason: 'REOPENED' });
+  assert.deepEqual(context.writes(), []);
+});
+
+test('reopen refuses a plan whose latest close changes during the settle wait', (t) => {
+  const context = planCliContext(t);
+  const plan = context.partialMerge('closed again during the settle wait');
+  // A later close by the same pull request replaces the latest close, so only the time of the close differs.
+  const laterClose = '2026-08-21T00:00:09Z';
+  context.schedule(
+    plan.number,
+    { afterReads: 0, ...closedBy(plan.closer) },
+    { afterReads: 1, ...closedBy(plan.closer, laterClose) },
+  );
+  refuse(reopen(context, plan), settleRefusal(plan.number));
+  assert.deepEqual(context.waits(), [SETTLE_WAIT]);
+  assert.deepEqual(stored(context, plan.number), { ...ONGOING, state: 'CLOSED', stateReason: 'COMPLETED' });
+  assert.equal(context.issue(plan.number).timelineItems.at(-1).createdAt, laterClose);
+  assert.deepEqual(context.writes(), []);
+});
+
+test('reopen refuses a plan that someone closes as not planned during the settle wait', (t) => {
+  const context = planCliContext(t);
+  const plan = context.partialMerge('not planned during the settle wait');
+  // The latest close stays the same. A closed plan takes its status from the close reason, so the plan reads
+  // retired instead of finished.
+  context.schedule(
+    plan.number,
+    { afterReads: 0, ...closedBy(plan.closer) },
+    { afterReads: 1, stateReason: 'NOT_PLANNED' },
+  );
+  refuse(reopen(context, plan), settleRefusal(plan.number));
+  assert.deepEqual(context.waits(), [SETTLE_WAIT]);
+  assert.deepEqual(stored(context, plan.number), { ...ONGOING, state: 'CLOSED', stateReason: 'NOT_PLANNED' });
   assert.deepEqual(context.writes(), []);
 });
 

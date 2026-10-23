@@ -231,28 +231,121 @@ function graphqlArguments(text) {
   return args;
 }
 
+// Each `<field>(...)` of a query, with its alias, its arguments, and the text of its selection set ('' if it has none).
 function graphqlSelections(query, field) {
   const selections = [];
-  const pattern = new RegExp(`(?:(\\w+)\\s*:\\s*)?${field}\\s*\\(([^)]*)\\)`, 'g');
+  const pattern = new RegExp(`(?:(\\w+)\\s*:\\s*)?${field}\\s*\\(([^)]*)\\)(\\s*\\{)?`, 'g');
   for (const match of query.matchAll(pattern)) {
-    selections.push({ alias: match[1] ?? field, args: graphqlArguments(match[2]) });
+    selections.push({
+      alias: match[1] ?? field,
+      args: graphqlArguments(match[2]),
+      fields: match[3] ? selectionSetAt(query, match.index + match[0].length) : '',
+    });
   }
   return selections;
 }
 
-// The fields that `... on <type>{...}` selects at its own level, without the text of nested selections.
-function ownFields(query, type) {
-  const opened = new RegExp(`\\.\\.\\.\\s*on\\s+${type}\\s*\\{`).exec(query);
-  if (!opened) return '';
-  let own = '';
+// The text of a selection set from `start`, the index after its opening brace, to its matching closing brace.
+function selectionSetAt(text, start) {
   let depth = 1;
-  for (let index = opened.index + opened[0].length; index < query.length && depth > 0; index += 1) {
-    const char = query[index];
-    if (char === '{') depth += 1;
-    else if (char === '}') depth -= 1;
-    else if (depth === 1) own += char;
+  for (let index = start; index < text.length; index += 1) {
+    if (text[index] === '{') depth += 1;
+    else if (text[index] === '}' && (depth -= 1) === 0) return text.slice(start, index);
   }
-  return own;
+  return text.slice(start);
+}
+
+// The fields that a selection set names at its own level, in query order. Each field has its response key (its alias,
+// or else its name), its name, its arguments, and the text of its nested selection set (null if it has none). An
+// inline fragment `... on <type>{...}` adds its fields only when <type> is `typename`, as GitHub applies only the
+// fragments that match the object. Commas are white space in GraphQL. Like `graphqlSelections`, this reads arguments up
+// to the first `)`.
+function selectionFields(selection, typename) {
+  const fields = [];
+  let index = 0;
+  const skipSpace = () => {
+    while (index < selection.length && /[\s,]/.test(selection[index])) index += 1;
+  };
+  const readName = () => {
+    const match = /^[_A-Za-z]\w*/.exec(selection.slice(index));
+    if (!match) die(`fake gh cannot read the GraphQL selection at: ${selection.slice(index)}`);
+    index += match[0].length;
+    skipSpace();
+    return match[0];
+  };
+  const readSet = () => {
+    const set = selectionSetAt(selection, index + 1);
+    index += set.length + 2;
+    return set;
+  };
+  for (skipSpace(); index < selection.length; skipSpace()) {
+    if (selection.startsWith('...', index)) {
+      index += 3;
+      skipSpace();
+      const on = readName();
+      const type = on === 'on' ? readName() : '';
+      if (!type || selection[index] !== '{')
+        die(`fake gh reads only inline fragments '... on <type>{...}': ${selection}`);
+      const set = readSet();
+      if (type === typename) fields.push(...selectionFields(set, typename));
+      continue;
+    }
+    const key = readName();
+    let name = key;
+    if (selection[index] === ':') {
+      index += 1;
+      skipSpace();
+      name = readName();
+    }
+    let fieldArgs = new Map();
+    if (selection[index] === '(') {
+      const end = selection.indexOf(')', index);
+      if (end < 0) die(`fake gh cannot read the GraphQL arguments of '${name}': ${selection}`);
+      fieldArgs = graphqlArguments(selection.slice(index + 1, end));
+      index = end + 1;
+      skipSpace();
+    }
+    fields.push({ key, name, args: fieldArgs, nested: selection[index] === '{' ? readSet() : null });
+  }
+  return fields;
+}
+
+// `object` as GitHub returns it for a selection set: only the fields that the set names at its own level, each under
+// its response key, and each object field only with the fields of its nested set. For `{landed: mergedAt}` GitHub
+// returns `landed` with the value of `mergedAt`, and no `mergedAt`. A fixture field that the query does not select must
+// not reach the helper, or a test passes for a query that GitHub would answer without that field. A stored function
+// gives the value of a field that reads its arguments, such as a connection; it gets the response key and arguments.
+function selectFields(object, selection) {
+  // GitHub merges the selections of one response key, and refuses a key that names two different fields. The merged
+  // field reads the arguments of its first selection; the fake gh does not compare the arguments.
+  const keys = new Map();
+  for (const field of selectionFields(selection, object.__typename)) {
+    const merged = keys.get(field.key);
+    if (merged && merged.name !== field.name)
+      die(`Field '${field.key}' has a field conflict: ${merged.name} or ${field.name}?`);
+    if (merged) merged.sets.push(field.nested);
+    else keys.set(field.key, { name: field.name, args: field.args, sets: [field.nested] });
+  }
+  const selected = {};
+  for (const [key, { name, args, sets }] of keys) {
+    // The caller adds the fields that the fixture object does not store.
+    if (!Object.hasOwn(object, name)) continue;
+    const stored = object[name];
+    const value = typeof stored === 'function' ? stored({ alias: key, args }) : stored;
+    selected[key] = selectValue(value, name, sets.filter(Boolean).join(' '));
+  }
+  return selected;
+}
+
+// The value of field `name` as GitHub returns it for `nested`, the merged text of the field's nested selection sets.
+// Each object in a list gets the same nested selection set.
+function selectValue(value, name, nested) {
+  if (Array.isArray(value)) return value.map((item) => selectValue(item, name, nested));
+  if (value === null || typeof value !== 'object') return value;
+  // GitHub refuses a query that selects an object field without its subfields.
+  if (!nested.trim())
+    die(`Field must have selections (field '${name}' has no selections. Did you mean '${name} { ... }'?)`);
+  return selectFields(value, nested);
 }
 
 function graphqlPage(nodes, selection, variables, allowed) {
@@ -596,33 +689,46 @@ if (group === 'api' && command === 'graphql') {
     (reference.repository?.owner?.login && reference.repository?.name
       ? `${reference.repository.owner.login}/${reference.repository.name}`
       : state.repo.nameWithOwner);
-  const pullRequestNode = (reference) => {
+  // A pull request, for a closer, an associated pull request, or Repository.pullRequest, with every field that the fake
+  // gh can return. `selectFields` then keeps the fields that the query selects. The nested repository has its type, so
+  // that `__typename` and `... on Repository{...}` read it as on GitHub.
+  const pullRequestObject = (reference) => {
     const repo = referenceRepo(reference);
     const pullRequest = (state.prs ?? []).find(
       (entry) => entry.number === reference.number && entry.repository === repo,
     );
+    const prState =
+      pullRequest?.state ?? reference.state ?? (pullRequest?.mergedAt || reference.mergedAt ? 'MERGED' : 'OPEN');
     return {
+      __typename: 'PullRequest',
       number: reference.number,
       url: pullRequest?.url ?? reference.url ?? `https://github.com/${repo}/pull/${reference.number}`,
       body: pullRequest?.body ?? reference.body ?? null,
-      state: pullRequest?.state ?? reference.state ?? (pullRequest?.mergedAt || reference.mergedAt ? 'MERGED' : 'OPEN'),
+      state: prState,
+      merged: prState === 'MERGED',
       mergedAt: pullRequest?.mergedAt ?? reference.mergedAt ?? null,
       baseRefName: pullRequest?.baseRefName ?? reference.baseRefName ?? null,
-      repository: { nameWithOwner: repo },
+      repository: { __typename: 'Repository', nameWithOwner: repo },
     };
   };
-  const commitAssociations = (oid, selection) => {
-    const commit = (state.commits ?? []).find(
-      (entry) => entry.oid === oid && (entry.repository ?? state.repo.nameWithOwner) === state.repo.nameWithOwner,
-    );
-    if (!commit) die(`commit not found: ${state.repo.nameWithOwner}@${oid}`);
-    return graphqlPage(
-      (commit.associatedPullRequests ?? []).map(pullRequestNode),
-      selection,
-      variables,
-      ['first', 'after'],
-    );
-  };
+  // A commit, for a closer or Repository.object. Its associatedPullRequests connection pages with the arguments of the
+  // field that selects it, and `selectFields` gives each page the fields that this field selects.
+  const commitObject = (oid) => ({
+    __typename: 'Commit',
+    oid,
+    associatedPullRequests: (selection) => {
+      const commit = (state.commits ?? []).find(
+        (entry) => entry.oid === oid && (entry.repository ?? state.repo.nameWithOwner) === state.repo.nameWithOwner,
+      );
+      if (!commit) die(`commit not found: ${state.repo.nameWithOwner}@${oid}`);
+      return graphqlPage(
+        (commit.associatedPullRequests ?? []).map((reference) => pullRequestObject(reference)),
+        selection,
+        variables,
+        ['first', 'after'],
+      );
+    },
+  });
   const repository = {
     nameWithOwner: state.repo.nameWithOwner,
     visibility: state.repo.visibility,
@@ -683,35 +789,21 @@ if (group === 'api' && command === 'graphql') {
         const latest = (issue.timelineItems ?? [])
           .filter((event) => event.__typename === 'ClosedEvent' || Object.hasOwn(event, 'closer'))
           .at(-1);
-        const closer = latest?.closer;
-        let renderedCloser = closer;
-        if (closer?.__typename === 'PullRequest') {
-          renderedCloser = { __typename: 'PullRequest', ...pullRequestNode(closer) };
-        }
-        if (closer?.__typename === 'Commit') {
-          const association = graphqlSelections(query, 'associatedPullRequests');
-          renderedCloser = {
-            __typename: 'Commit',
-            oid: closer.oid,
-            ...(association.length && {
-              associatedPullRequests: commitAssociations(closer.oid, association[0]),
-            }),
-          };
-        }
+        let closer = latest?.closer;
+        if (closer?.__typename === 'PullRequest') closer = pullRequestObject(closer);
+        else if (closer?.__typename === 'Commit') closer = commitObject(closer.oid);
         // GitHub stamps every close; a fixture close without a time reads as the issue's last update.
-        const stamped = /\bcreatedAt\b/.test(ownFields(query, 'ClosedEvent'));
-        const node = { ...(stamped && { createdAt: latest?.createdAt ?? issue.updatedAt }), closer: renderedCloser };
-        payload[selection.alias] = { nodes: latest ? [node] : [] };
+        const event = { __typename: 'ClosedEvent', createdAt: latest?.createdAt ?? issue.updatedAt, closer };
+        // Each connection reads its nodes with its own selection set, so two aliased connections can select different
+        // fields of the same close.
+        payload[selection.alias] = selectFields({ nodes: latest ? [event] : [] }, selection.fields);
       } else die(`unsupported timeline item types: ${types ?? '(missing)'}`);
     }
     repository.issue = payload;
   } else if (objectSelection.length) {
-    const oid = graphqlValue(objectSelection[0].args.get('expression'), variables);
-    const association = graphqlSelections(query, 'associatedPullRequests');
-    if (association.length !== 1) die('graphql object requires associatedPullRequests');
-    repository[objectSelection[0].alias] = {
-      associatedPullRequests: commitAssociations(oid, association[0]),
-    };
+    const [selection] = objectSelection;
+    const oid = graphqlValue(selection.args.get('expression'), variables);
+    repository[selection.alias] = selectFields(commitObject(oid), selection.fields);
   } else if (issuesSelection.length) {
     // Repository.issues: `labels` keeps issues that carry any named label; `states` and `orderBy` as on GitHub.
     const [selection] = issuesSelection;
@@ -774,15 +866,8 @@ if (group === 'api' && command === 'graphql') {
         },
       ]);
     }
-    const node = {
-      number,
-      url: pullRequest.url ?? `https://github.com/${state.repo.nameWithOwner}/pull/${number}`,
-      state: pullRequest.state,
-      merged: pullRequest.state === 'MERGED',
-      mergedAt: pullRequest.mergedAt ?? null,
-      baseRefName: pullRequest.baseRefName ?? null,
-    };
-    for (const page of graphqlSelections(query, 'closingIssuesReferences')) {
+    const node = selectFields(pullRequestObject({ number }), selection.fields);
+    for (const page of graphqlSelections(selection.fields, 'closingIssuesReferences')) {
       const references = (pullRequest.closingIssuesReferences ?? []).map((issueNumber) => ({
         number: issueNumber,
         repository: { nameWithOwner: state.repo.nameWithOwner },

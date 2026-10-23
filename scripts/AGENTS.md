@@ -48,7 +48,7 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | Script | Purpose | Floor |
 |---|---|---|
 | `ci.mjs` | the authoritative gate entry point — without `--plugin`, runs repo-wide checks once and gates every registry entry; `--plugin <name>` skips repo-wide sections and runs only that plugin's owned author checks, shell-hook lint, and `gatePlugin` validation (manifest/version coherence, `claude plugin validate`, Codex parity, and the checks below) | — |
-| `skills/guard.mjs` | runs the skill frontmatter validators (codex + claude via `lib/validate-skills.mjs`) + `codex-facts.mjs` + `refs-guard.mjs` | pass/fail |
+| `skills/guard.mjs` | runs the skill frontmatter validators (codex + claude via `lib/validate-skills.mjs`) + `codex-facts.mjs` + `refs-guard.mjs`, then checks that every `SKILL.md` ends with the Report section of `config/report-section.md`, byte for byte | pass/fail |
 | `lib/validate-skills.mjs` | skill frontmatter per runtime — name/description, 1024-char cap, no `#` truncation, CSO `Use when` prefix, `user-invocable`, `metadata.updated`, `references/` one level deep | pass/fail |
 | `skills/codex-facts.mjs` | pins canonical Codex model ids / `sandbox_mode` / `model_reasoning_effort` + the `agents.max_depth` fact in the skill-agent-pipeline refs (self-skips when absent) | pass/fail |
 | `skills/refs-guard.mjs` | reference hygiene: broken local `references/`/`assets/` links, orphan reference files, missing `## Contents` TOC on `references/*.md` > 100 lines with ≥3 doc-level headings | pass/fail |
@@ -65,8 +65,8 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
 | `tests/plan-cli.mjs` | runs the plan-CLI case files in `tests/plan-cli/` in parallel through Node's test runner against the shipped plan helper (`plan.mjs`) | pass/fail |
 | `tests/ci-observability.mjs` | validates command timing records, wall-time reconstruction, and CI host metadata | pass/fail |
-| `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets | pass/fail |
-| `tests/author-tooling.mjs` | author-tool contracts: Biome rejects a syntax defect, combined skill validation, tree/guard operational failures, skills-guard spawn failure; this table lists every `scripts/**/*.mjs` outside `lib/`, `tests/unit/`, `tests/plan-cli/`, and the non-validator entry points `release.mjs`/`ci-target.mjs`/`capture-tdd-red.mjs`, and every first-column `.mjs` path resolves from `scripts/` or the repo root | pass/fail |
+| `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets; `--registry <path>` checks another registry file (author-tooling uses it for the rejection cases) | pass/fail |
+| `tests/author-tooling.mjs` | author-tool contracts: Biome rejects a syntax defect, combined skill validation, tree/guard operational failures, skills-guard spawn failure, registry toolchain rejections, and skills-guard Report section rejections; this table lists every `scripts/**/*.mjs` outside `lib/`, `tests/unit/`, `tests/plan-cli/`, and the non-validator entry points `release.mjs`/`ci-target.mjs`/`capture-tdd-red.mjs`, and every first-column `.mjs` path resolves from `scripts/` or the repo root | pass/fail |
 | `tests/ci-plugin-targeting.mjs` | CI targeting and release contracts: shard selection, `ci.yml` trigger block, release module and dry-run safety (`--unit` in the gate) | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh`, via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |
 
@@ -115,6 +115,11 @@ repo-wide guards section.
 
 When one suite has multiple gate-selected cases, its selector joins the sorted case values with `|`, and
 `expected_min` records the number of distinct invocations.
+
+Each row's `toolchains` must equal the toolchains of its discovered runners: the
+runners that `scripts/ci.mjs` uses for the suite, plus the `#!` interpreter of each
+executable fixture under `scripts/tests/fixtures/` that the suite's files name. A
+missing or an extra toolchain fails with the row id and the evidence.
 
 ### Host-derived resource envelope
 
