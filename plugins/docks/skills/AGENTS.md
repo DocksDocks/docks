@@ -5,11 +5,11 @@ Skills are the cross-tool payload — every skill here surfaces in Claude Code, 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.
 
 <constraint>
-During skill iteration, run the narrow validators and checks relevant to the change. After a meaningful batch, you may run the owning plugin gate (`node scripts/ci.mjs --plugin docks` here); do not rerun unrelated plugins during the edit loop. Reserve full `node scripts/ci.mjs` for the final relevant implementation tree before commit, push, or release. Don't loosen validator floors to make a file pass; fix the file. The validator/CI contract lives in `scripts/AGENTS.md`.
+During skill iteration, run the narrow validators and checks relevant to the change. After a meaningful batch, you may run the owning plugin gate (`bun scripts/ci.mjs --plugin docks` here); do not rerun unrelated plugins during the edit loop. Reserve full `bun scripts/ci.mjs` for the final relevant implementation tree before commit, push, or release. Don't loosen validator floors to make a file pass; fix the file. The validator/CI contract lives in `scripts/AGENTS.md`.
 </constraint>
 
 <constraint>
-After changing a skill's meaning, run `node scripts/skills/content-hash.mjs --backfill`. It re-syncs `content_hash` and stamps `metadata.updated` in the same write, and it writes only when the hash actually differs — so a formatting-only or otherwise meaning-preserving edit leaves both fields alone and the recorded date keeps describing the last real change. That is the point: readers use `metadata.updated` to judge staleness, so the date must never be bumped by a formatting pass. CI's idempotency check fails if the stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
+After changing a skill's meaning, run `bun scripts/skills/content-hash.mjs --backfill`. It re-syncs `content_hash` and stamps `metadata.updated` in the same write, and it writes only when the hash actually differs — so a formatting-only or otherwise meaning-preserving edit leaves both fields alone and the recorded date keeps describing the last real change. That is the point: readers use `metadata.updated` to judge staleness, so the date must never be bumped by a formatting pass. CI's idempotency check fails if the stored `content_hash` drifts from the body + references. Editing only `updated:` does not change the hash.
 </constraint>
 
 <constraint>
@@ -32,7 +32,7 @@ One-shot whole-repo setup and audit go through the `agent-first-setup` skill.
 
 ## Description (the thing that gets matched)
 
-1. **Lead with "Use when …"** — the guard enforces this prefix (verify: temporarily reword one description to drop the prefix → `node scripts/skills/guard.mjs` must fail on it; revert).
+1. **Lead with "Use when …"** — the guard enforces this prefix (verify: temporarily reword one description to drop the prefix → `bun scripts/skills/guard.mjs` must fail on it; revert).
 2. **Key use case first** — Claude Code truncates the combined description in the listing (limit: Skills docs in `## Sources`); the first ~100 chars matter most.
 3. **≤500 chars** for full scorer credit; the hard cap is 1,024 (agentskills.io spec). Point values: `plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs` (verify: `node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file | grep <name>`).
 4. **Say what the skill does as well as when.** After the "Use when" trigger, name the job the skill does (for example "produces a tiered fix plan"). The agent picks a skill from the description alone, so a description with triggers but no job cannot be told apart from a neighbor. Move long "Covers X, Y, Z" enumerations into the body, but keep one clause that states the job. Source: the agentskills.io spec `description` field (`## Sources`).
@@ -71,7 +71,7 @@ Conciseness test: "would removing this line cause Claude to make mistakes? If no
 | Validation loop | do → run validator → fix → repeat |
 | `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each); a long reference with several headings needs a `## Contents` TOC (thresholds: `scripts/skills/refs-guard.mjs`, Anthropic best-practice) |
 | `scripts/` / `assets/` bundle | executable helpers every invocation would re-derive (execution is token-free) / copy-only output templates; neither is content-hashed — bump `metadata.updated` manually when they change |
-| Durable anchors | reference code as `` `path` — `symbol` — purpose (verify: `command`) ``, never a live `path:NN` line anchor. CI's repo-wide durable-anchors guard fails on any `path:NN` whose path resolves (verify: append a `<real-repo-path>:1` anchor to a body → `node scripts/skills/durable-anchors.mjs` exits 1 naming it; revert). Rules for volatile facts and behavior claims: `plugins/docks/skills/productivity/write-skill/references/durable-anchors.md` |
+| Durable anchors | reference code as `` `path` — `symbol` — purpose (verify: `command`) ``, never a live `path:NN` line anchor. CI's repo-wide durable-anchors guard fails on any `path:NN` whose path resolves (verify: append a `<real-repo-path>:1` anchor to a body → `bun scripts/skills/durable-anchors.mjs` exits 1 naming it; revert). Rules for volatile facts and behavior claims: `plugins/docks/skills/productivity/write-skill/references/durable-anchors.md` |
 
 Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). Past ~310, post-compaction re-attachment may silently drop content (Cross-tool wording, item 1).
 
@@ -116,7 +116,7 @@ Skills run in both runtimes; phrase for both. Sources: the Claude Code skills do
 
 ## Scoring
 
-`node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file | grep <name>` prints the skill's score; the rubric and its maximum live in that script. Per-file floor by category: `scripts/config/scoring.json` (verify: `node -p "JSON.stringify(require('./scripts/config/scoring.json').skills)"`). Aim 14+ on new skills. Structural gate: `node scripts/skills/guard.mjs`. To author a new skill from scratch, use the `write-skill` skill.
+`node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file | grep <name>` prints the skill's score; the rubric and its maximum live in that script. Per-file floor by category: `scripts/config/scoring.json` (verify: `bun -p "JSON.stringify(require('./scripts/config/scoring.json').skills)"`). Aim 14+ on new skills. Structural gate: `bun scripts/skills/guard.mjs`. To author a new skill from scratch, use the `write-skill` skill.
 
 **Single source, not a mirror:** the scorer lives ONCE in the bundled `write-skill/scripts/skill-guard.mjs` (`score` / `validate`), shipped so it runs in consumer repos AND used by this kit's own `ci.mjs` to score (`skill-maintenance` points at it too). There is no author-side `score.sh` to keep in sync — one rubric. Bundled `scripts/` sit outside the `content_hash` surface, so bump write-skill's `metadata.updated` when the rubric changes.
 

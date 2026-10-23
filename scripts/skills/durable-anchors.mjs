@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // durable-anchors.mjs — long-lived artifacts (shipped skill bodies/references,
 // AGENTS.md context nodes) must not carry LIVE file:line anchors: a `path:NN`
 // whose path resolves in this repo rots on the next edit above that line and

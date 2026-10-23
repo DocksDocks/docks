@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import fs from 'node:fs';
 import { CI_LANES, parseReleaseTag, resolveShardSelection } from './lib/ci-targeting.mjs';
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -153,7 +153,8 @@ function unitDescriptors(packageJson) {
     .sort();
   const unitCommand = packageJson.scripts?.['test:unit'];
   assert.equal(typeof unitCommand, 'string', 'package.json must declare scripts.test:unit');
-  const executesUnitGlob = unitCommand.includes('scripts/tests/unit/*.test.mjs');
+  // Only Bun's test runner registers the files' test() calls; `bun <file>` would run one file as a plain script.
+  const executesUnitGlob = /^bun test\b/u.test(unitCommand) && unitCommand.includes('./scripts/tests/unit/*.test.mjs');
   return unitFiles.map((file) => {
     const suite = `scripts/tests/unit/${file}`;
     const source = fs.readFileSync(path.join(REPO, suite), 'utf8');
@@ -208,7 +209,7 @@ function executableCodePositions(source) {
 function gateInvocationArguments(ciSource) {
   const bySuite = new Map();
   const codePositions = executableCodePositions(ciSource);
-  const invocationPattern = /\bnode(?:Ok)?\(\[\s*['"](?<suite>[^'"]+\.mjs)['"](?<args>[^[]*?)\]\)/gu;
+  const invocationPattern = /\b(?:node|bun)(?:Ok)?\(\[\s*['"](?<suite>[^'"]+\.mjs)['"](?<args>[^[]*?)\]\)/gu;
   for (const match of ciSource.matchAll(invocationPattern)) {
     if (codePositions[match.index] !== 1) continue;
     const args = [...match.groups.args.matchAll(/,\s*(['"])([^'"]*)\1/gu)].map((argument) => argument[2]);

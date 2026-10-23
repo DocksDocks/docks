@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-09-24"
-  content_hash: "fab05be9a14c1ccbe2d2def62d7b1c2c64732bec49b332216ddcbba4b35b0eef"
+  updated: "2026-10-23"
+  content_hash: "637c4dae9c986682675dc37480598f3734c313271253f95f1423b3571609de4b"
 ---
 
 # Write a Skill (docks conventions)
@@ -81,10 +81,10 @@ metadata:
 4. **Baseline check.** Re-run the step 0 prompts with the skill and compare (see "Behavioral checks"). A gap that stays open means the body does not reach it; fix the body, not the prompt.
 5. **Trigger check.** Run the query set against the description (see "Behavioral checks").
 6. **Score check.** `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also scores with (one rubric, no mirror). Validate one skill: `node …/skill-guard.mjs validate <skill-dir>`. If < 14, find the missing point in the rubric.
-7. **Structural check.** Kit: `node scripts/skills/guard.mjs` (frontmatter for both runtimes + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
+7. **Structural check.** Kit: `bun scripts/skills/guard.mjs` (frontmatter for both runtimes + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
 8. **Docs check.** Run the self-check in `references/durable-anchors.md` on the body and every reference. If the skill writes docs, check rows A–C of "Durable docs and agent-first output" below against the docs it emits; if it writes into a user repo, check row D too.
-9. **Targeted CI while iterating.** In a multi-plugin kit, run the owning plugin's gate after each meaningful change — in this kit, `node scripts/ci.mjs --plugin <changed-plugin>`. Do not rerun unrelated plugin gates during the edit loop.
-10. **Full CI once.** Run `node scripts/ci.mjs` at the final pre-commit/release gate, or earlier only when shared/repo-wide files changed. It must be green before commit.
+9. **Targeted CI while iterating.** In a multi-plugin kit, run the owning plugin's gate after each meaningful change — in this kit, `bun scripts/ci.mjs --plugin <changed-plugin>`. Do not rerun unrelated plugin gates during the edit loop.
+10. **Full CI once.** Run `bun scripts/ci.mjs` at the final pre-commit/release gate, or earlier only when shared/repo-wide files changed. It must be green before commit.
 11. **Stop when the behavioral checks pass.** Ship when the baseline check shows the step 0 gaps closed and the trigger check passes. The score is a minimum, not the goal: meet the category floor, but do not add tables or constraint blocks only to gain points, because a format proxy does not tell you whether the agent behaves better.
 
 ## Behavioral checks

@@ -48,8 +48,15 @@ exit 64
 );
 // The poll sleeps between attempts; a no-op keeps the 30-attempt exhaustion case fast.
 fs.writeFileSync(path.join(binDir, 'sleep'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-process.env.PATH = `${binDir}${path.delimiter}${process.env.PATH ?? ''}`;
-process.on('exit', () => fs.rmSync(stubRoot, { recursive: true, force: true }));
+// Restore PATH when this file's tests end: a runner that shares one process across test
+// files (`bun test`) would otherwise hand the stub `gh` and `sleep` to every later file.
+const inheritedPath = process.env.PATH;
+process.env.PATH = `${binDir}${path.delimiter}${inheritedPath ?? ''}`;
+test.after(() => {
+  if (inheritedPath === undefined) delete process.env.PATH;
+  else process.env.PATH = inheritedPath;
+  fs.rmSync(stubRoot, { recursive: true, force: true });
+});
 
 const io = createGenericPluginReleaseIo({ repo: REPO, plugins: PLUGINS });
 const run = (overrides) => ({

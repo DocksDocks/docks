@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Read per-file score floor from scripts/config/scoring.json.
 //   read-floor.mjs <kind> <category>   # categorized kinds (skills)
 //   read-floor.mjs <kind>              # flat kinds (agents)

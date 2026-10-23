@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Check plugin packaging and compatibility. The author smoke covers the helper.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

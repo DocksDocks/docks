@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Mechanical agent quality scorer. Max per-file: 15.
 // Output: single total, or `<name> <score>` per agent with --per-file.
 // Parse helpers shared via scripts/lib/skills-parse.mjs.

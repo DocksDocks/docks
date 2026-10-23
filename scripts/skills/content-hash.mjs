@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import crypto from 'node:crypto';
 // content-hash.mjs — deterministic skill content hash.
 // The hash covers a skill's MEANING: normalized frontmatter (excluding the

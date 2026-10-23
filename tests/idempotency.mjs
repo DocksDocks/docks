@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // idempotency.mjs — re-running the
 // skill-maintainer on unchanged skills is a no-op: the content hash is
 // deterministic, and every stored content_hash is in sync (--check-only exits 0).
@@ -8,7 +8,7 @@ import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const HASH = path.join(ROOT, 'scripts/skills/content-hash.mjs');
-const hash = (arg) => spawnSync('node', [HASH, arg], { encoding: 'utf8' });
+const hash = (arg) => spawnSync(process.execPath, [HASH, arg], { encoding: 'utf8' });
 let fail = 0;
 
 // 1. determinism — same input twice yields the same hash
@@ -27,7 +27,7 @@ if (!h1 || h1 !== h2) {
 } else console.log(`ok: deterministic hash (${sample})`);
 
 // 2. idempotency — the maintainer would bump nothing
-const check = spawnSync('node', [HASH, '--check-only'], { encoding: 'utf8' });
+const check = spawnSync(process.execPath, [HASH, '--check-only'], { encoding: 'utf8' });
 if ((check.status ?? 1) === 0) {
   const unchanged = (check.stdout.match(/^unchanged /gm) || []).length;
   const upstream = fs
@@ -41,7 +41,7 @@ if ((check.status ?? 1) === 0) {
 } else {
   console.log('FAIL: skills out of sync — maintainer would bump:');
   console.log((check.stdout.match(/^would-bump .*/gm) || []).map((l) => `  ${l}`).join('\n'));
-  console.log('  fix: node scripts/skills/content-hash.mjs --backfill  (and bump metadata.updated on changed skills)');
+  console.log('  fix: bun scripts/skills/content-hash.mjs --backfill  (and bump metadata.updated on changed skills)');
   fail = 1;
 }
 

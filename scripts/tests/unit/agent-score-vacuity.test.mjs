@@ -31,7 +31,7 @@ import path from 'node:path';
 const tool = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
 if (tool === 'claude') process.stdout.write('Validation passed\\n');
-if (tool === 'node' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
+if (tool === 'bun' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
 if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
   const root = args.at(-1);
   const rows = [];
@@ -47,7 +47,7 @@ if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skil
   }
   if (rows.length) process.stdout.write(\`\${rows.join('\\n')}\\n\`);
 }
-if (tool === 'node' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
+if (tool === 'bun' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
   const root = args.at(-1);
   const rows = fs
     .readdirSync(root)
@@ -72,7 +72,9 @@ const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-agent-score-vacuity
 for (const tool of ['node', 'bun', 'claude', 'shellcheck', 'cargo']) writeShim(shimDir, tool);
 
 // Make the parent gate observe either an empty agents directory or a declared root that does
-// not exist. Child checks are shimmed; the same hook is harmless in those short-lived processes.
+// not exist. The hook loads through a `--import` argument on the gate process only: Node and
+// Bun both accept that flag, but Bun ignores `--import` inside NODE_OPTIONS. Child checks are
+// shimmed, so they never need it.
 const fixtureHook = path.join(shimDir, 'payload-root-fixture.mjs');
 fs.writeFileSync(
   fixtureHook,
@@ -93,23 +95,27 @@ delete baseEnv.GITHUB_ACTIONS;
 delete baseEnv.NODE_OPTIONS;
 
 const runCi = (mode) => {
-  const result = spawnSync(process.execPath, ['scripts/ci.mjs', '--plugin', TARGET], {
-    cwd: REPO,
-    encoding: 'utf8',
-    timeout: 180_000,
-    env: {
-      ...baseEnv,
-      PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
-      DOCKS_AGENT_SCORE_MODE: mode,
-      ...(mode === 'empty-directory' || mode.startsWith('missing-')
-        ? {
-            NODE_OPTIONS: `--import=${fixtureHook}`,
-            DOCKS_MISSING_ROOT:
-              mode === 'missing-skills-root' ? SKILLS_ROOT : mode === 'missing-agents-root' ? AGENTS_ROOT : '',
-          }
-        : {}),
+  const needsFixture = mode === 'empty-directory' || mode.startsWith('missing-');
+  const result = spawnSync(
+    process.execPath,
+    [...(needsFixture ? [`--import=${fixtureHook}`] : []), 'scripts/ci.mjs', '--plugin', TARGET],
+    {
+      cwd: REPO,
+      encoding: 'utf8',
+      timeout: 180_000,
+      env: {
+        ...baseEnv,
+        PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        DOCKS_AGENT_SCORE_MODE: mode,
+        ...(needsFixture
+          ? {
+              DOCKS_MISSING_ROOT:
+                mode === 'missing-skills-root' ? SKILLS_ROOT : mode === 'missing-agents-root' ? AGENTS_ROOT : '',
+            }
+          : {}),
+      },
     },
-  });
+  );
   return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 };
 
@@ -151,7 +157,7 @@ test('an agent scorer that exits non-zero fails the gate naming the command', ()
   const { status, output } = runCi('crash');
   assert.notEqual(status, 0);
   assert.match(output, rx(`${TARGET} agent scorer exited 3 — no score set to gate`));
-  assert.match(output, rx(`node scripts/agents/score.mjs --per-file ${AGENTS_ROOT}`));
+  assert.match(output, rx(`bun scripts/agents/score.mjs --per-file ${AGENTS_ROOT}`));
   assert.doesNotMatch(output, rx(`${TARGET} agents per-file all ≥ 10`));
 });
 

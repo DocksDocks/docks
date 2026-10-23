@@ -131,17 +131,19 @@ Four validators mirror the kit-side conventions:
 
 ```bash
 bun install --frozen-lockfile
-node scripts/skills/guard.mjs    # Codex + Claude skill compatibility + reference hygiene
+bun scripts/skills/guard.mjs    # Codex + Claude skill compatibility + reference hygiene
 node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file   # skill quality score (max 16)
-node scripts/agents/guard.mjs    # frontmatter, "Use when…" / "Not…" CSO, no `model` key, tools declared, Workflow + Success Criteria
-node scripts/agents/score.mjs    # quality score (max 15) - no `model` key, tools declared, Workflow + Success Criteria
+bun scripts/agents/guard.mjs    # frontmatter, "Use when…" / "Not…" CSO, no `model` key, tools declared, Workflow + Success Criteria
+bun scripts/agents/score.mjs    # quality score (max 15) - no `model` key, tools declared, Workflow + Success Criteria
 ```
 
-Node 24 remains the validator runtime and matches CI's `node-version`; Bun 1.4.0 is the package manager pinned through `packageManager`.
+Bun runs this repository's own tooling: `scripts/`, `tests/`, and the plan-lifecycle selftest. Bun is also the package manager. Its version is the `packageManager` pin in `package.json`.
 
-`--per-file` on a scorer prints one `<name> <score>` line per item - useful for spotting drift after an edit. `node scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
+Node runs the shipped plugin files, also inside the gate, because consumers run them with `node`. The `skill-guard.mjs` scorer line above is one of them. Node's version is the `node-version` in `.github/workflows/ci.yml`.
 
-On a PR to `main`, CI runs only the shards the changed paths resolve to - the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks and plan-lifecycle tag independently), CI resolves the tag to one registry plugin, runs `node scripts/ci.mjs --lane repo` once over the released bytes, then runs `node scripts/ci.mjs --plugin <name>` as the authoritative gate. The `--plugin` gate alone skips repo-wide checks. See `.github/workflows/ci.yml`; full trigger model below.
+`--per-file` on a scorer prints one `<name> <score>` line per item - useful for spotting drift after an edit. `bun scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
+
+On a PR to `main`, CI runs only the shards the changed paths resolve to - the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks and plan-lifecycle tag independently), CI resolves the tag to one registry plugin, runs `bun scripts/ci.mjs --lane repo` once over the released bytes, then runs `bun scripts/ci.mjs --plugin <name>` as the authoritative gate. The `--plugin` gate alone skips repo-wide checks. See `.github/workflows/ci.yml`; full trigger model below.
 
 ## Versioning + releases
 
@@ -153,13 +155,13 @@ Versions are per plugin. Each plugin's `version` in `plugins/<name>/.claude-plug
 `scripts/release.mjs` releases one plugin per run and wraps the full dance in one command (`--plugin` defaults to `docks`; `--dry-run` previews the bump + manifest diff without tagging):
 
 ```bash
-node scripts/release.mjs patch                          # docks: 0.1.0 → 0.1.1
-node scripts/release.mjs minor                          # docks: 0.1.0 → 0.2.0
-node scripts/release.mjs --plugin plan-lifecycle major  # plan-lifecycle: 0.1.0 → 1.0.0
-node scripts/release.mjs --plugin docks 0.2.0           # explicit
+bun scripts/release.mjs patch                          # docks: 0.1.0 → 0.1.1
+bun scripts/release.mjs minor                          # docks: 0.1.0 → 0.2.0
+bun scripts/release.mjs --plugin plan-lifecycle major  # plan-lifecycle: 0.1.0 → 1.0.0
+bun scripts/release.mjs --plugin docks 0.2.0           # explicit
 ```
 
-The script runs `node scripts/ci.mjs --plugin <name>` as a preflight, bumps that plugin's Claude and Codex manifests plus its entry in the versioned Claude marketplace catalog, commits + pushes, runs `claude plugin tag --push` for the `<name>--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created - the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
+The script runs `bun scripts/ci.mjs --plugin <name>` as a preflight, bumps that plugin's Claude and Codex manifests plus its entry in the versioned Claude marketplace catalog, commits + pushes, runs `claude plugin tag --push` for the `<name>--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created - the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
 
 CI runs only on (a) PRs to main, (b) tag pushes matching `<plugin>--v<version>`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI - PR validation gates merges, tag-CI gates releases.
 

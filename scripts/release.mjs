@@ -1,8 +1,8 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // release.mjs — dispatch the generic plugin release lane.
 //
 // Generic positional lane (Docks and Plan Lifecycle):
-//   node scripts/release.mjs [--dry-run] [--plugin <name>] patch|minor|major|<X.Y.Z>
+//   bun scripts/release.mjs [--dry-run] [--plugin <name>] patch|minor|major|<X.Y.Z>
 //   (--plugin defaults to "docks")
 //
 // The shared dispatcher validates every closed release policy before running a

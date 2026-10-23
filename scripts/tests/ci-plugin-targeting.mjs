@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import assert from 'node:assert/strict';
 import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -328,14 +328,14 @@ const passThroughGit =
       shape.length === args.length && shape.every((token, index) => token === null || token === args[index]),
   ) &&
   !args.includes('-w');
-// The release runs the selected-plugin gate through \`node scripts/ci.mjs\`. Executing it here
+// The release runs the selected-plugin gate through \`bun scripts/ci.mjs\`. Executing it here
 // would spawn a descendant with the real PATH, and every git call that descendant makes would
-// escape this shim and its log, so the one Node argv the release is allowed to use is stubbed
+// escape this shim and its log, so the one Bun argv the release is allowed to use is stubbed
 // green instead. The gate is covered by the gate's own CI job. With no descendant left, the
 // three shapes above are the only way any git command runs at all, and anything else exits 97.
 const ciStub = ['-q', '--plugin'];
 const isSelectedCiGate =
-  tool === 'node' &&
+  tool === 'bun' &&
   args.length === 4 &&
   args[0].endsWith('/scripts/ci.mjs') &&
   args[1] === ciStub[0] &&
@@ -380,10 +380,10 @@ if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skil
   }
   if (rows.length) process.stdout.write(\`\${rows.join('\\n')}\\n\`);
 }
-if (tool === 'node' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
+if (tool === 'bun' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
   process.stdout.write('code-reviewer 14\\nplan-reviewer 14\\n');
 }
-if (tool === 'node' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
+if (tool === 'bun' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
 process.exit(0);
 `;
   fs.writeFileSync(path.join(directory, name), script, { mode: 0o755 });
@@ -471,10 +471,10 @@ async function testFocusedCiCommandSelection() {
       timingPath,
     };
   };
-  const invokesNode = (calls, script, expectedArg = null) =>
+  const invokesBun = (calls, script, expectedArg = null) =>
     calls.some(
       ({ tool, args: callArgs }) =>
-        tool === 'node' && callArgs[0] === script && (expectedArg === null || callArgs.includes(expectedArg)),
+        tool === 'bun' && callArgs[0] === script && (expectedArg === null || callArgs.includes(expectedArg)),
     );
   const countToolInvocation = (calls, tool, expectedArgs) =>
     calls.filter(
@@ -518,7 +518,7 @@ async function testFocusedCiCommandSelection() {
     assert.equal(targeted.result.status, 0, `${targeted.result.stdout}\n${targeted.result.stderr}`);
     for (const script of repoWideCommands) {
       assert.equal(
-        invokesNode(targeted.calls, script),
+        invokesBun(targeted.calls, script),
         false,
         `targeted CI must not invoke repo-wide command ${script}`,
       );
@@ -530,7 +530,7 @@ async function testFocusedCiCommandSelection() {
       /workflow YAML|marketplace catalogs|repo-wide guards|CI targeting contract/,
     );
     assert.equal(
-      invokesNode(targeted.calls, 'scripts/skills/guard.mjs', 'plugins/plan-lifecycle/skills'),
+      invokesBun(targeted.calls, 'scripts/skills/guard.mjs', 'plugins/plan-lifecycle/skills'),
       true,
       'targeted CI must retain the selected plugin gate',
     );
@@ -540,9 +540,9 @@ async function testFocusedCiCommandSelection() {
     const docksCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/docks/skills'];
     const planLifecycleCollisionArgv = ['tests/skill-trigger-collision.mjs', 'plugins/plan-lifecycle/skills'];
 
-    assert.equal(countToolInvocation(targeted.calls, 'node', planLifecycleCollisionArgv), 1);
+    assert.equal(countToolInvocation(targeted.calls, 'bun', planLifecycleCollisionArgv), 1);
     assert.equal(
-      countToolInvocation(targeted.calls, 'node', docksCollisionArgv),
+      countToolInvocation(targeted.calls, 'bun', docksCollisionArgv),
       0,
       'a Plan Lifecycle target must not run the Docks trigger-collision contract',
     );
@@ -559,7 +559,7 @@ async function testFocusedCiCommandSelection() {
         `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must run the plan CLI contract once`,
       );
       assert.equal(
-        countToolInvocation(selected.calls, 'node', docksCollisionArgv),
+        countToolInvocation(selected.calls, 'bun', docksCollisionArgv),
         1,
         `${ciArgs.length === 0 ? 'full' : 'Docks-targeted'} CI must audit Docks once`,
       );
@@ -588,16 +588,16 @@ async function testFocusedCiCommandSelection() {
       /workflow YAML|marketplace catalogs|repo-wide guards|CI targeting contract/,
     );
     for (const script of repoWideCommands) {
-      assert.equal(invokesNode(core.calls, script), false, `core CI must not invoke repo-wide command ${script}`);
+      assert.equal(invokesBun(core.calls, script), false, `core CI must not invoke repo-wide command ${script}`);
     }
     assert.match(core.result.stdout, /plan orchestration/);
     assert.match(core.result.stdout, /plugin: docks/);
     assert.match(core.result.stdout, /plugin: plan-lifecycle/);
     assert.doesNotMatch(core.result.stdout, /partition passed/);
     assert.equal(countToolInvocation(core.calls, 'node', planCliArgv), 1);
-    assert.equal(countToolInvocation(core.calls, 'node', docksCollisionArgv), 1);
-    assert.equal(countToolInvocation(core.calls, 'node', planLifecycleCollisionArgv), 1);
-    assert.equal(countToolInvocation(core.calls, 'node', ['plugins/plan-lifecycle/test/selftest.mjs']), 1);
+    assert.equal(countToolInvocation(core.calls, 'bun', docksCollisionArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'bun', planLifecycleCollisionArgv), 1);
+    assert.equal(countToolInvocation(core.calls, 'bun', ['plugins/plan-lifecycle/test/selftest.mjs']), 1);
 
     assert.equal(timedCore.result.status, 0, `${timedCore.result.stdout}\n${timedCore.result.stderr}`);
     assert.equal(countToolInvocation(timedCore.calls, 'bun', ['run', 'check:js']), 0);
@@ -644,13 +644,13 @@ async function testFocusedCiCommandSelection() {
       ['scripts/config/read-floor.mjs', 'agents'],
     ]) {
       assert.equal(
-        countToolInvocation(core.calls, 'node', floorArgs),
+        countToolInvocation(core.calls, 'bun', floorArgs),
         1,
         `core CI must read floor ${floorArgs.slice(1).join('/')} exactly once; observed ${JSON.stringify(observedFloorCalls)}`,
       );
     }
     assert.equal(
-      countToolInvocation(core.calls, 'node', [
+      countToolInvocation(core.calls, 'bun', [
         'scripts/agents/score.mjs',
         '--per-file',
         'plugins/plan-lifecycle/agents',
@@ -659,12 +659,12 @@ async function testFocusedCiCommandSelection() {
       'core CI must launch one per-file agent score command',
     );
     assert.equal(
-      countToolInvocation(core.calls, 'node', ['scripts/agents/score.mjs', 'plugins/plan-lifecycle/agents']),
+      countToolInvocation(core.calls, 'bun', ['scripts/agents/score.mjs', 'plugins/plan-lifecycle/agents']),
       0,
       'core CI must derive the agent total without a second score command',
     );
     assert.equal(
-      countToolInvocation(core.calls, 'node', ['scripts/agents/score.mjs', '--per-file', 'plugins/docks/agents']),
+      countToolInvocation(core.calls, 'bun', ['scripts/agents/score.mjs', '--per-file', 'plugins/docks/agents']),
       0,
       'docks no longer ships agents, so core CI must not score a docks agents dir',
     );
@@ -674,9 +674,9 @@ async function testFocusedCiCommandSelection() {
     // this census it stops running on a pull request that skips both plugin shards.
     assert.equal(repoWide.result.status, 0, `${repoWide.result.stdout}\n${repoWide.result.stderr}`);
     for (const script of repoWideCommands) {
-      assert.equal(invokesNode(repoWide.calls, script), true, `repo CI must invoke repo-wide command ${script}`);
+      assert.equal(invokesBun(repoWide.calls, script), true, `repo CI must invoke repo-wide command ${script}`);
     }
-    assert.equal(countToolInvocation(repoWide.calls, 'node', ['scripts/plans/no-bespoke-gates.mjs']), 1);
+    assert.equal(countToolInvocation(repoWide.calls, 'bun', ['scripts/plans/no-bespoke-gates.mjs']), 1);
     assert.equal(countToolInvocation(repoWide.calls, 'bun', ['run', 'test:unit']), 1);
     assert.doesNotMatch(repoWide.result.stdout, /plugin: docks|plugin: plan-lifecycle/);
     assert.equal(countToolInvocation(repoWide.calls, 'bun', ['run', 'check:js']), 0);
@@ -809,7 +809,7 @@ function genericReleaseIo(repo, options = {}) {
       return 'a'.repeat(40);
     },
     runSelectedCi(plugin, ciArgs) {
-      record('node', [path.join(repo, 'scripts/ci.mjs'), ...ciArgs]);
+      record('bun', [path.join(repo, 'scripts/ci.mjs'), ...ciArgs]);
       assert.equal(plugin.name, ciArgs.at(-1));
       return { status: 0, stdout: '', stderr: '' };
     },
@@ -904,7 +904,7 @@ async function testGenericReleaseModuleContract(
     assert.ok(
       fixture.calls.some(
         ({ tool, args: callArgs }) =>
-          tool === 'node' &&
+          tool === 'bun' &&
           callArgs[0] === path.join(ROOT, 'scripts/ci.mjs') &&
           callArgs.slice(1).join(' ') === `-q --plugin ${plugin.name}`,
       ),
@@ -1364,7 +1364,7 @@ async function testDryRunReleaseSafety() {
   fs.mkdirSync(shimDir, { mode: 0o700 });
   fs.writeFileSync(callLog, '', { mode: 0o600 });
   try {
-    for (const name of ['node', 'git', 'claude', 'gh']) writeReleaseShim(shimDir, name);
+    for (const name of ['node', 'bun', 'git', 'claude', 'gh']) writeReleaseShim(shimDir, name);
     const result = spawnSync(process.execPath, ['scripts/release.mjs', '--dry-run', '--plugin', 'docks', 'patch'], {
       cwd: ROOT,
       encoding: 'utf8',
@@ -1390,7 +1390,7 @@ async function testDryRunReleaseSafety() {
     assert.ok(
       calls.some(
         ({ tool, args: callArgs }) =>
-          tool === 'node' &&
+          tool === 'bun' &&
           callArgs[0] === path.join(ROOT, 'scripts/ci.mjs') &&
           callArgs.slice(1).join(' ') === '-q --plugin docks',
       ),
@@ -1398,11 +1398,18 @@ async function testDryRunReleaseSafety() {
     );
     // The structural safety claim: the gate argv is stubbed green, so no descendant process
     // exists with the real PATH, and therefore every git call the release makes had to match
-    // one of the three read-only shapes to run at all. A second Node argv would break that.
+    // one of the three read-only shapes to run at all. A second Bun argv would break that. The
+    // release runs nothing on Node, so the Node shim exists only to make a spawn that drifted
+    // back to it visible here.
     assert.deepEqual(
-      calls.filter(({ tool }) => tool === 'node').map(({ args: callArgs }) => callArgs.slice(1).join(' ')),
+      calls.filter(({ tool }) => tool === 'bun').map(({ args: callArgs }) => callArgs.slice(1).join(' ')),
       ['-q --plugin docks'],
-      'the release may run exactly one Node argv, the stubbed selected-plugin gate',
+      'the release may run exactly one Bun argv, the stubbed selected-plugin gate',
+    );
+    assert.deepEqual(
+      calls.filter(({ tool }) => tool === 'node'),
+      [],
+      'the release must spawn no Node argv at all',
     );
     assert.ok(
       calls.some(({ tool, args: callArgs }) => tool === 'git' && callArgs[0] === 'hash-object'),
@@ -1483,7 +1490,7 @@ async function testDryRunReleaseSafety() {
       assert.ok(
         pluginCalls.some(
           ({ tool, args: callArgs }) =>
-            tool === 'node' &&
+            tool === 'bun' &&
             callArgs[0] === path.join(ROOT, 'scripts/ci.mjs') &&
             callArgs.slice(1).join(' ') === `-q --plugin ${pluginName}`,
         ),
@@ -1931,7 +1938,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-ci-targeting-'));
 try {
   const githubOutput = path.join(tmp, 'github-output');
   const cli = spawnSync(
-    'node',
+    process.execPath,
     ['scripts/ci-target.mjs', 'release-tag', 'plan-lifecycle--v0.11.2', '--github-output', githubOutput],
     { cwd: ROOT, encoding: 'utf8' },
   );
@@ -1939,7 +1946,7 @@ try {
   assert.equal(cli.stdout, '');
   assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'mode=targeted\nplugin=plan-lifecycle\n');
 
-  const malformed = spawnSync('node', ['scripts/ci-target.mjs', 'release-tag', 'docks--v1.2.3;echo-owned'], {
+  const malformed = spawnSync(process.execPath, ['scripts/ci-target.mjs', 'release-tag', 'docks--v1.2.3;echo-owned'], {
     cwd: ROOT,
     encoding: 'utf8',
   });
@@ -1971,18 +1978,22 @@ try {
       RUNNER_ARCH: 'X64',
     };
     const [targeted, hosted] = await Promise.all([
-      execFileResult('node', ['scripts/ci.mjs', '--plugin', 'plan-lifecycle', '--timings-json', timingPath], {
+      execFileResult(process.execPath, ['scripts/ci.mjs', '--plugin', 'plan-lifecycle', '--timings-json', timingPath], {
         cwd: ROOT,
         encoding: 'utf8',
         env: hostFreeEnv,
         timeout: 120_000,
       }),
-      execFileResult('node', ['scripts/ci.mjs', '--plugin', 'plan-lifecycle', '--timings-json', hostedTimingPath], {
-        cwd: ROOT,
-        encoding: 'utf8',
-        env: hostedEnv,
-        timeout: 120_000,
-      }),
+      execFileResult(
+        process.execPath,
+        ['scripts/ci.mjs', '--plugin', 'plan-lifecycle', '--timings-json', hostedTimingPath],
+        {
+          cwd: ROOT,
+          encoding: 'utf8',
+          env: hostedEnv,
+          timeout: 120_000,
+        },
+      ),
     ]);
     assert.equal(targeted.status, 0, `${targeted.stdout}\n${targeted.stderr}`);
     assert.doesNotMatch(targeted.stdout, /skill-maintainer idempotency|plugin: docks/);
@@ -2173,7 +2184,7 @@ for (const name of [
 assert.equal(shardSteps[0].with['persist-credentials'], false);
 assert.equal(shardStep('setup Node 24').with['node-version'], '24');
 const shardGateRun = shardStep('run validation lane').run;
-assert.match(shardGateRun, /^node scripts\/ci\.mjs --lane "\$\{\{ matrix\.lane \}\}" --timings-json /u);
+assert.match(shardGateRun, /^bun scripts\/ci\.mjs --lane "\$\{\{ matrix\.lane \}\}" --timings-json /u);
 
 const targetingJob = validation.jobs['targeting-contracts'];
 assert.deepEqual(Object.keys(targetingJob), ['name', 'if', 'permissions', 'runs-on', 'timeout-minutes', 'steps']);
@@ -2221,7 +2232,7 @@ assert.deepEqual(targetingSteps[0], shardSteps[0]);
 assert.deepEqual(targetingStep('run non-unit plugin-targeting contracts'), {
   name: 'run non-unit plugin-targeting contracts',
   run:
-    `node scripts/tests/ci-plugin-targeting.mjs\n` +
+    `bun scripts/tests/ci-plugin-targeting.mjs\n` +
     `printf '{"step":"run non-unit plugin-targeting contracts","at_ms":%s}\\n'` +
     ` "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"\n`,
 });
@@ -2326,12 +2337,12 @@ assert.match(authoritativeGateRun, /if \[ "\$\{\{ github\.event_name \}\}" = "pu
 // asserting different things.
 const gateCoverage = assertAuthoritativeGateCoversReleasedBytes(authoritativeGateRun);
 assert.equal(gateCoverage.pushLegs, 1, 'the single release-tag push leg must be covered');
-assert.match(authoritativeGateRun, /DOCKS_CI_MEMO=0 node scripts\/ci\.mjs --lane repo/);
-assert.match(authoritativeGateRun, /node scripts\/ci\.mjs --plugin "\$\{\{ steps\.target\.outputs\.plugin \}\}"/);
+assert.match(authoritativeGateRun, /DOCKS_CI_MEMO=0 bun scripts\/ci\.mjs --lane repo/);
+assert.match(authoritativeGateRun, /bun scripts\/ci\.mjs --plugin "\$\{\{ steps\.target\.outputs\.plugin \}\}"/);
 // Each mutation is a way the release path could stop gating the bytes it publishes.
 // They run here so the assertion above is proven load-bearing rather than merely present.
-const repoLaneCall = 'DOCKS_CI_MEMO=0 node scripts/ci.mjs --lane repo';
-const untargetedCall = 'node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"';
+const repoLaneCall = 'DOCKS_CI_MEMO=0 bun scripts/ci.mjs --lane repo';
+const untargetedCall = 'bun scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"';
 for (const [label, mutated, expected] of [
   [
     'the push leg does not run the repo-wide shard',
@@ -2353,7 +2364,7 @@ for (const [label, mutated, expected] of [
   ],
   [
     'the repo-wide shard may be satisfied by a cached memo',
-    authoritativeGateRun.replace(repoLaneCall, 'node scripts/ci.mjs --lane repo'),
+    authoritativeGateRun.replace(repoLaneCall, 'bun scripts/ci.mjs --lane repo'),
     /DOCKS_CI_MEMO=0/,
   ],
   [
@@ -2364,14 +2375,14 @@ for (const [label, mutated, expected] of [
   [
     'the targeted plugin gate no longer has the last word',
     authoritativeGateRun.replace(
-      /( *)DOCKS_CI_MEMO=0 node scripts\/ci\.mjs --lane repo\n( *)(node scripts\/ci\.mjs --plugin [^\n]*\n)/,
+      /( *)DOCKS_CI_MEMO=0 bun scripts\/ci\.mjs --lane repo\n( *)(bun scripts\/ci\.mjs --plugin [^\n]*\n)/,
       (_matched, repoIndent, pluginIndent, pluginCall) => `${pluginIndent}${pluginCall}${repoIndent}${repoLaneCall}\n`,
     ),
     /last word/,
   ],
   [
     'the non-push leg is narrowed to one plugin',
-    authoritativeGateRun.replace(untargetedCall, 'node scripts/ci.mjs --plugin docks'),
+    authoritativeGateRun.replace(untargetedCall, 'bun scripts/ci.mjs --plugin docks'),
     /must run the untargeted gate/,
   ],
 ]) {
@@ -2685,7 +2696,7 @@ function testReleaseShimRefusalMatrix() {
   try {
     const callLog = path.join(shimRoot, 'calls.jsonl');
     fs.writeFileSync(callLog, '', { mode: 0o600 });
-    for (const name of ['node', 'git', 'claude', 'gh']) writeReleaseShim(shimRoot, name);
+    for (const name of ['node', 'bun', 'git', 'claude', 'gh']) writeReleaseShim(shimRoot, name);
     const invoke = (tool, args, options = {}) =>
       spawnSync(path.join(shimRoot, tool), args, {
         cwd: ROOT,
@@ -2714,7 +2725,7 @@ function testReleaseShimRefusalMatrix() {
       // the real PATH, whose git calls would bypass this shim entirely. The script path below
       // must not exist, so a regression back to executing this argv fails to load and is caught
       // here rather than quietly reintroducing the descendant.
-      ['node', [path.join(ROOT, 'no-such-directory/scripts/ci.mjs'), '-q', '--plugin', 'docks'], {}],
+      ['bun', [path.join(ROOT, 'no-such-directory/scripts/ci.mjs'), '-q', '--plugin', 'docks'], {}],
     ];
     for (const [tool, args, options] of allowed) {
       const result = invoke(tool, args, options);
@@ -2727,8 +2738,11 @@ function testReleaseShimRefusalMatrix() {
       ['git', ['update-ref', 'refs/heads/main', 'HEAD']],
       // A near miss must refuse too: the shapes match argument for argument, not by subcommand.
       ['git', ['status']],
-      ['node', ['-e', 'process.exit(0)']],
-      ['node', [path.join(ROOT, 'scripts/ci.mjs'), '--plugin', 'docks']],
+      ['bun', ['-e', 'process.exit(0)']],
+      ['bun', [path.join(ROOT, 'scripts/ci.mjs'), '--plugin', 'docks']],
+      // The gate shape is stubbed only on the runtime the release runs it under; the same argv
+      // on Node is refused like any other.
+      ['node', [path.join(ROOT, 'no-such-directory/scripts/ci.mjs'), '-q', '--plugin', 'docks']],
       ['claude', ['plugin', 'tag', '--push']],
       ['gh', ['release', 'create', 'docks--v9.9.9']],
     ];

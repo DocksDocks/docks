@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Guard: no bespoke per-plan verification gate.
 //
 // A plan invented an "accepted-class sweep": a gate with its own ledger schema, digest

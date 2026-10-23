@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // transform-guard.mjs — curated content-transforming
 // skills must carry a preservation <constraint> + a "## Verification" block, so a
 // future edit can't silently strip a transforming skill's data-loss guard.

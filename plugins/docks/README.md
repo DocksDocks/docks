@@ -96,7 +96,7 @@ Quality gates live in the marketplace repo's `scripts/` directory and are NOT sh
 - `scripts/skills/guard.mjs` + the bundled `write-skill/scripts/skill-guard.mjs` (`score`) — Codex + Claude compatibility and quality (max 16)
 - `scripts/agents/guard.mjs` / `scripts/agents/score.mjs` — structural + quality (max 15)
 
-`node scripts/ci.mjs` runs the full local gate. CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.
+`bun scripts/ci.mjs` runs the full local gate. CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.
 
 ## License
 

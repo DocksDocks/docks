@@ -1,10 +1,10 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // ci.mjs — local mirror of .github/workflows/ci.yml. Run before releasing.
 // REGISTRY-DRIVEN: repo-wide checks run once, then every plugin in
 // scripts/lib/plugins.mjs is gated through the same capability-driven
 // gatePlugin() (a check runs only when the descriptor declares that capability).
 // Adding a plugin = one registry entry; no edits here.
-// Usage: node scripts/ci.mjs [-q] [--memo] [--plugin <name> | --lane <name>] [--timings-json <path>] [--list]
+// Usage: bun scripts/ci.mjs [-q] [--memo] [--plugin <name> | --lane <name>] [--timings-json <path>] [--list]
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -125,19 +125,25 @@ const runCommand = (id, [command, ...args], commandOptions = {}) => {
     });
   }
 };
+// Author scripts run on Bun. plan-cli.mjs (which drives the shipped plan.mjs) and the
+// shipped skill scorer run on Node: consumers invoke those files with `node`, so the
+// gate must prove them there.
 const node = (args, options = {}) =>
   runCommand(`node ${args.join(' ')}`, ['node', ...args], { encoding: 'utf8', ...options });
-// A failing check must name its own cause. Every `nodeOk` site asserts success, so a
-// non-zero exit is always a defect worth reading: print the child's captured output
+const bun = (args, options = {}) =>
+  runCommand(`bun ${args.join(' ')}`, ['bun', ...args], { encoding: 'utf8', ...options });
+// A failing check must name its own cause. Every `nodeOk`/`bunOk` site asserts success,
+// so a non-zero exit is always a defect worth reading: print the child's captured output
 // rather than only the caller's one-line summary. Without this, a check that passes
 // locally and fails on a runner is undiagnosable except by bisecting through CI.
-const nodeOk = (args, options) => {
-  const result = node(args, options);
+const succeededOrPrintOutput = (result) => {
   if ((result.status ?? 1) === 0) return true;
   const detail = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
   if (detail) console.error(detail);
   return false;
 };
+const nodeOk = (args, options) => succeededOrPrintOutput(node(args, options));
+const bunOk = (args, options) => succeededOrPrintOutput(bun(args, options));
 const readJSON = (f) => {
   try {
     return JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -150,7 +156,7 @@ const floorCache = new Map();
 const floorOf = (kind, cat) => {
   const key = `${kind}/${cat ?? ''}`;
   if (floorCache.has(key)) return floorCache.get(key);
-  const result = node(['scripts/config/read-floor.mjs', kind, ...(cat ? [cat] : [])]);
+  const result = bun(['scripts/config/read-floor.mjs', kind, ...(cat ? [cat] : [])]);
   const parsed = result.status === 0 ? parseInt(result.stdout.trim(), 10) : null;
   const floor = Number.isInteger(parsed) ? parsed : null;
   floorCache.set(key, floor);
@@ -268,7 +274,7 @@ if (repoWide) {
         strict: true,
         uniqueKeys: true,
       });
-      doc.errors.length ? fail(`${workflowPath} YAML invalid`) : ok(`${workflowPath} parses (node yaml)`);
+      doc.errors.length ? fail(`${workflowPath} YAML invalid`) : ok(`${workflowPath} parses (yaml package)`);
     } catch {
       fail(`${workflowPath} YAML invalid`);
     }
@@ -281,30 +287,30 @@ if (repoWide) {
   else warn(`${CODEX_MARKETPLACE} missing — Codex distribution not configured (optional)`);
 
   section('repo-wide guards');
-  nodeOk(['scripts/tree/guard.mjs'])
+  bunOk(['scripts/tree/guard.mjs'])
     ? ok('tree/guard passed (context-tree nodes)')
-    : fail("tree/guard failed (run 'node scripts/tree/guard.mjs')");
-  nodeOk(['scripts/plans/no-bespoke-gates.mjs'])
+    : fail('tree/guard failed (run: bun scripts/tree/guard.mjs)');
+  bunOk(['scripts/plans/no-bespoke-gates.mjs'])
     ? ok('plans/no-bespoke-gates passed (no bespoke per-plan verification gate)')
-    : fail("plans/no-bespoke-gates failed (run 'node scripts/plans/no-bespoke-gates.mjs')");
-  nodeOk(['scripts/skills/durable-anchors.mjs'])
+    : fail('plans/no-bespoke-gates failed (run: bun scripts/plans/no-bespoke-gates.mjs)');
+  bunOk(['scripts/skills/durable-anchors.mjs'])
     ? ok('durable-anchors passed (no live file:line anchors in long-lived docs)')
-    : fail("durable-anchors failed (run 'node scripts/skills/durable-anchors.mjs')");
-  nodeOk(['scripts/tests/author-tooling.mjs'])
+    : fail('durable-anchors failed (run: bun scripts/skills/durable-anchors.mjs)');
+  bunOk(['scripts/tests/author-tooling.mjs'])
     ? ok('author tooling contracts passed')
-    : fail('author tooling contracts failed (run: node scripts/tests/author-tooling.mjs)');
-  nodeOk(['scripts/tests/ci-observability.mjs'])
+    : fail('author tooling contracts failed (run: bun scripts/tests/author-tooling.mjs)');
+  bunOk(['scripts/tests/ci-observability.mjs'])
     ? ok('CI observability contracts passed')
-    : fail('CI observability contracts failed (run: node scripts/tests/ci-observability.mjs)');
-  nodeOk(['scripts/tests/test-contracts.mjs'])
+    : fail('CI observability contracts failed (run: bun scripts/tests/ci-observability.mjs)');
+  bunOk(['scripts/tests/test-contracts.mjs'])
     ? ok('test-contract registry passed')
-    : fail('test-contract registry failed (run: node scripts/tests/test-contracts.mjs)');
+    : fail('test-contract registry failed (run: bun scripts/tests/test-contracts.mjs)');
   (runCommand('bun run test:unit', ['bun', 'run', 'test:unit'], { encoding: 'utf8' }).status ?? 1) === 0
     ? ok('unit tests passed')
     : fail('unit tests failed (run: bun run test:unit)');
 
   section('CI targeting contract');
-  const ciTargeting = node(['scripts/tests/ci-plugin-targeting.mjs', '--unit']);
+  const ciTargeting = bun(['scripts/tests/ci-plugin-targeting.mjs', '--unit']);
   if ((ciTargeting.status ?? 1) === 0) {
     ok('CI targeting, tag resolution, and cache contract passed');
   } else {
@@ -313,16 +319,16 @@ if (repoWide) {
       .filter(Boolean)
       .join('\n');
     fail(
-      `CI targeting contract failed (run: node scripts/tests/ci-plugin-targeting.mjs --unit)${detail ? `\n${detail}` : ''}`,
+      `CI targeting contract failed (run: bun scripts/tests/ci-plugin-targeting.mjs --unit)${detail ? `\n${detail}` : ''}`,
     );
   }
 }
 
 if (authorChecks.has('idempotency')) {
   section('skill-maintainer idempotency');
-  nodeOk(['tests/idempotency.mjs'])
+  bunOk(['tests/idempotency.mjs'])
     ? ok('skill content_hash determinism; maintainer re-run is a no-op')
-    : fail('skill-maintainer idempotency failed (run: node tests/idempotency.mjs)');
+    : fail('skill-maintainer idempotency failed (run: bun tests/idempotency.mjs)');
 }
 
 // shell lint — shellHooks(p) collects each plugin's hooks/*.sh plus a rust
@@ -331,7 +337,7 @@ if (authorChecks.has('idempotency')) {
 if (targets.length > 0) {
   section('shell lint');
   const bashFiles = targets.flatMap(shellHooks);
-  if (bashFiles.length === 0) ok('no bash to lint (all tooling is Node .mjs)');
+  if (bashFiles.length === 0) ok('no bash to lint (all tooling is .mjs)');
   else {
     const shellcheck = runCommand(
       `shellcheck -S warning ${bashFiles.join(' ')}`,
@@ -363,9 +369,9 @@ if (remainingCollisionTargets.length > 0) {
 if (collisionGroups.length > 0) {
   section('skill trigger collisions');
   for (const { label, roots } of collisionGroups) {
-    nodeOk(['tests/skill-trigger-collision.mjs', ...roots])
+    bunOk(['tests/skill-trigger-collision.mjs', ...roots])
       ? ok(`${label} no unrouted high-overlap skill pair`)
-      : fail(`${label} trigger-collision (node tests/skill-trigger-collision.mjs ${roots.join(' ')})`);
+      : fail(`${label} trigger-collision (bun tests/skill-trigger-collision.mjs ${roots.join(' ')})`);
   }
 }
 
@@ -428,9 +434,9 @@ function gatePlugin(p) {
     if (!fs.existsSync(p.agents)) {
       fail(`${p.name} declared agents root missing: ${p.agents}`);
     } else {
-      nodeOk(['scripts/agents/guard.mjs', p.agents])
+      bunOk(['scripts/agents/guard.mjs', p.agents])
         ? ok(`${p.name} agents/guard passed`)
-        : fail(`${p.name} agents/guard failed (run: node scripts/agents/guard.mjs ${p.agents})`);
+        : fail(`${p.name} agents/guard failed (run: bun scripts/agents/guard.mjs ${p.agents})`);
       const floor = floorOf('agents');
       const agentFiles = fs
         .readdirSync(p.agents)
@@ -438,8 +444,8 @@ function gatePlugin(p) {
         .sort();
       const onDisk = agentFiles.map((name) => name.replace(/\.md$/u, ''));
       const scoreArgs = ['scripts/agents/score.mjs', '--per-file', p.agents];
-      const scoreCommand = `node ${scoreArgs.join(' ')}`;
-      const scoreRun = node(scoreArgs);
+      const scoreCommand = `bun ${scoreArgs.join(' ')}`;
+      const scoreRun = bun(scoreArgs);
       if ((scoreRun.status ?? 1) !== 0) {
         const detail = `${scoreRun.stdout ?? ''}${scoreRun.stderr ?? ''}`.trim();
         if (detail) console.error(detail);
@@ -507,19 +513,19 @@ function gatePlugin(p) {
   }
 
   if (p.distributionContract) {
-    nodeOk([p.distributionContract])
+    bunOk([p.distributionContract])
       ? ok(`${p.name} distribution contract passed (${path.basename(p.distributionContract)})`)
-      : fail(`${p.name} distribution contract failed (run: node ${p.distributionContract})`);
+      : fail(`${p.name} distribution contract failed (run: bun ${p.distributionContract})`);
   }
 
   for (const check of p.sourceChecks ?? []) {
     const args = [check.path, ...(check.args ?? [])];
-    const outcome = node(args);
+    const outcome = bun(args);
     const label = args.join(' ');
     if ((outcome.status ?? 1) !== 0) {
       const detail = `${outcome.stdout ?? ''}${outcome.stderr ?? ''}`.trim();
       if (detail) console.error(detail);
-      fail(`${p.name} source check failed (run: node ${args.join(' ')})`);
+      fail(`${p.name} source check failed (run: bun ${args.join(' ')})`);
       continue;
     }
     // A source check may legitimately decline to run: a check whose host prerequisites are
@@ -532,15 +538,15 @@ function gatePlugin(p) {
   }
 
   for (const contract of p.releaseContracts ?? []) {
-    nodeOk([contract])
+    bunOk([contract])
       ? ok(`${p.name} release contract passed (${path.basename(contract)})`)
-      : fail(`${p.name} release contract failed (run: node ${contract})`);
+      : fail(`${p.name} release contract failed (run: bun ${contract})`);
   }
 
   if (p.selftest) {
-    nodeOk([p.selftest])
+    bunOk([p.selftest])
       ? ok(`${p.name} self-test passed (${path.basename(p.selftest)})`)
-      : fail(`${p.name} self-test failed (run: node ${p.selftest})`);
+      : fail(`${p.name} self-test failed (run: bun ${p.selftest})`);
   }
 }
 
@@ -560,20 +566,20 @@ function gateSkills(p, manifest) {
   }
   if (layoutOk) ok(`${p.name} skill categories declared in plugin.json all exist; no stray skills`);
 
-  nodeOk(['scripts/skills/guard.mjs', p.skills])
+  bunOk(['scripts/skills/guard.mjs', p.skills])
     ? ok(`${p.name} skill frontmatter valid`)
-    : fail(`${p.name} skill frontmatter invalid (node scripts/skills/guard.mjs ${p.skills})`);
+    : fail(`${p.name} skill frontmatter invalid (bun scripts/skills/guard.mjs ${p.skills})`);
   const naArgs = ['scripts/skills/no-author-scripts.mjs', p.skills, ...(p.agents ? [p.agents] : [])];
-  nodeOk(naArgs)
+  bunOk(naArgs)
     ? ok(`${p.name} no shipped skill/agent names docks author scripts`)
-    : fail(`${p.name} names docks author scripts (node ${naArgs.join(' ')})`);
-  nodeOk(['scripts/skills/content-hash.mjs', '--check-only', p.skills])
+    : fail(`${p.name} names docks author scripts (bun ${naArgs.join(' ')})`);
+  bunOk(['scripts/skills/content-hash.mjs', '--check-only', p.skills])
     ? ok(`${p.name} skill content_hash in sync`)
-    : fail(`${p.name} skill content_hash drift (node scripts/skills/content-hash.mjs --backfill ${p.skills})`);
+    : fail(`${p.name} skill content_hash drift (bun scripts/skills/content-hash.mjs --backfill ${p.skills})`);
   if (p.transformGuard)
-    nodeOk(['scripts/skills/transform-guard.mjs'])
+    bunOk(['scripts/skills/transform-guard.mjs'])
       ? ok(`repo-wide transform-guard passed (owned by ${p.name})`)
-      : fail(`repo-wide transform-guard failed (node scripts/skills/transform-guard.mjs)`);
+      : fail(`repo-wide transform-guard failed (bun scripts/skills/transform-guard.mjs)`);
 
   // The scorer's stdout is the ONLY input to both loops below, so a scorer that
   // crashed, was killed, wrote a diagnostic to stderr, or silently skipped skills

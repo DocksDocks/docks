@@ -8,11 +8,11 @@ This root file stays **repo-wide**. Per-area authoring details - skill/agent fro
 
 ```bash
 bun install --frozen-lockfile                         # one-time setup
-node scripts/ci.mjs --plugin <name>                  # authoritative gate for one plugin and its owned release tooling
-node scripts/ci.mjs                                  # full gate for repo-wide, shared, or multi-plugin changes
+bun scripts/ci.mjs --plugin <name>                   # authoritative gate for one plugin and its owned release tooling
+bun scripts/ci.mjs                                   # full gate for repo-wide, shared, or multi-plugin changes
 ```
 
-Node is the validator runtime; its version is the `node-version` in `.github/workflows/ci.yml`. Bun is the package manager; its version is the `packageManager` pin in `package.json` (verify: `grep -n node-version .github/workflows/ci.yml; grep -n packageManager package.json`).
+Bun runs this repository's tooling and is the package manager; its version is the `packageManager` pin in `package.json`. Node runs the shipped plugin files that the gate tests, because consumers run them with `node`; its version is the `node-version` in `.github/workflows/ci.yml` (verify: `grep -n node-version .github/workflows/ci.yml; grep -n packageManager package.json`).
 
 ## Repository scope
 
@@ -46,7 +46,7 @@ Per-area conventions load lazily from nested `AGENTS.md` nodes. A node is a sing
 | `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
 | `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |
 
-The table must name every `AGENTS.md` below the root, and every row must resolve. `scripts/tree/guard.mjs` enforces both, plus the node contract (size cap, no legacy `CLAUDE.md`) (verify: delete one row from a scratch copy, then run `node scripts/tree/guard.mjs <copy>`; it must fail naming the node). The `context-tree` skill (`plugins/docks/skills/productivity/context-tree/`) scaffolds, audits, and refreshes these nodes.
+The table must name every `AGENTS.md` below the root, and every row must resolve. `scripts/tree/guard.mjs` enforces both, plus the node contract (size cap, no legacy `CLAUDE.md`) (verify: delete one row from a scratch copy, then run `bun scripts/tree/guard.mjs <copy>`; it must fail naming the node). The `context-tree` skill (`plugins/docks/skills/productivity/context-tree/`) scaffolds, audits, and refreshes these nodes.
 
 ## Authoring agents
 
@@ -62,8 +62,8 @@ The `agents/` folder deliberately carries **no context-tree node** (hence its ab
 - **Description (CSO):** lead with "Use when …" AND include a "Not …" exclusion clause (both required by `scripts/agents/guard.mjs`); ≥80 and ≤500 chars; concrete triggers; no slop words.
 - **Frontmatter:** `name` (required, kebab-case, matches filename, no `anthropic`/`claude` substring); `description` (required, with the "Not …" clause); **no `model` key** - `scripts/agents/guard.mjs` rejects any value, `inherit` included. Claude Code resolves an omitted `model` through its subagent model order (ending at the main conversation model), and omp falls back to the parent session model, so omission is the only spelling both runtimes agree on; every literal (`inherit`, `sonnet`, `claude-*`) is handed to omp as a model ID, resolves to nothing, and kills the spawn with "No model selected" (a plugin agent carrying `model: inherit` fails to spawn; the identical file without the key runs). Consumers pin per-agent models their own way - Claude via `CLAUDE_CODE_SUBAGENT_MODEL` (a default below frontmatter; add `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` to override every subagent), omp via `task.agentModelOverrides.<agent>`. `tools` (allowlist; omitted = inherit all). For plugin-shipped agents, `hooks`/`mcpServers`/`permissionMode` are silently ignored for security - define the agent in the consuming project's own .claude/agents folder when you need those.
 - **Body:** hard cap 500 lines (`scripts/agents/guard.mjs`); scorer sweet spot 60–300 lines (`scripts/agents/score.mjs`). Same patterns as skills (`<constraint>` blocks - up to 2 rewarded - lookup tables, BAD/GOOD, gotchas, validation loop); structure as context-acknowledgment (step 1), then `## Workflow`, `## Output Format`, `## Anti-Hallucination Checks`, `## Success Criteria`.
-- **No author-script refs (consumer-safety):** a plugin-shipped agent body must not name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/agents/*`, `scripts/tree/*`, …) as a step - they don't ship to a consumer's project. Refer to "the project's CI / validators, if present", or make the check self-contained. `scripts/skills/no-author-scripts.mjs` scans agent bodies alongside shipped skills (verify: append a line naming `node scripts/ci.mjs` to a non-allowlisted skill body → the guard run must FAIL naming that file; revert).
-- **Validators:** `node scripts/agents/guard.mjs` (structural) + `node scripts/agents/score.mjs --per-file` (quality score; the rubric maximum is defined in `scripts/agents/score.mjs`). The per-file floor lives in `scripts/config/scoring.json` (verify: `node scripts/config/read-floor.mjs agents`). Use up to two `<constraint>` blocks when they express distinct load-bearing invariants, not to manage score slack. Both validators run inside `scripts/ci.mjs`; the validator table lives in `scripts/AGENTS.md`.
+- **No author-script refs (consumer-safety):** a plugin-shipped agent body must not name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/agents/*`, `scripts/tree/*`, …) as a step - they don't ship to a consumer's project. Refer to "the project's CI / validators, if present", or make the check self-contained. `scripts/skills/no-author-scripts.mjs` scans agent bodies alongside shipped skills (verify: append a line naming `bun scripts/ci.mjs` to a non-allowlisted skill body → the guard run must FAIL naming that file; revert).
+- **Validators:** `bun scripts/agents/guard.mjs` (structural) + `bun scripts/agents/score.mjs --per-file` (quality score; the rubric maximum is defined in `scripts/agents/score.mjs`). The per-file floor lives in `scripts/config/scoring.json` (verify: `bun scripts/config/read-floor.mjs agents`). Use up to two `<constraint>` blocks when they express distinct load-bearing invariants, not to manage score slack. Both validators run inside `scripts/ci.mjs`; the validator table lives in `scripts/AGENTS.md`.
 - **Sources:** [sub-agents](https://code.claude.com/docs/en/sub-agents) · [plugins-reference](https://code.claude.com/docs/en/plugins-reference).
 
 ## Plans
@@ -95,8 +95,8 @@ CI always runs `scripts/ci.mjs`: in full, per `--lane <shard>`, or per `--plugin
 
 ## Tool-agnostic rules
 
-- Run focused checks while implementing. Before committing, pushing, or releasing a change owned by exactly one plugin, run `node scripts/ci.mjs --plugin <name>`; that selected-plugin gate is authoritative for the plugin payload and its descriptor-owned author, source, and release-contract tooling.
-- Run full `node scripts/ci.mjs` for repo-wide validation/tooling, shared infrastructure used by multiple plugins, registry or CI-topology changes, changes spanning multiple plugins, and manual full-gate requests. Do not run it merely because a single-plugin release is imminent.
+- Run focused checks while implementing. Before committing, pushing, or releasing a change owned by exactly one plugin, run `bun scripts/ci.mjs --plugin <name>`; that selected-plugin gate is authoritative for the plugin payload and its descriptor-owned author, source, and release-contract tooling.
+- Run full `bun scripts/ci.mjs` for repo-wide validation/tooling, shared infrastructure used by multiple plugins, registry or CI-topology changes, changes spanning multiple plugins, and manual full-gate requests. Do not run it merely because a single-plugin release is imminent.
 - Reuse a green gate only while its validated implementation bytes are unchanged. A relevant source change requires rerunning the same smallest authoritative gate; plan-issue-only lifecycle changes do not.
 - Don't loosen validator floors to pass; fix the file instead
 - Manifest version numbers stay in lockstep per plugin; `scripts/AGENTS.md` (Versioning) owns the rule, its enforcement, and its verify command

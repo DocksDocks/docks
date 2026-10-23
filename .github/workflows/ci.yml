@@ -142,7 +142,7 @@ jobs:
           printf '{"step":"add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "run validation lane"
         run: |
-          node scripts/ci.mjs --lane "${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+          bun scripts/ci.mjs --lane "${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
           printf '{"step":"run validation lane","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "publish hosted timing artifact"
         if: always()
@@ -207,7 +207,7 @@ jobs:
           printf '{"step":"add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "run non-unit plugin-targeting contracts"
         run: |
-          node scripts/tests/ci-plugin-targeting.mjs
+          bun scripts/tests/ci-plugin-targeting.mjs
           printf '{"step":"run non-unit plugin-targeting contracts","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "publish hosted timing artifact"
         if: always()
@@ -242,7 +242,7 @@ jobs:
       - name: resolve CI target
         id: target
         if: github.event_name == 'push'
-        run: node scripts/ci-target.mjs release-tag "$GITHUB_REF_NAME" --github-output "$GITHUB_OUTPUT"
+        run: bun scripts/ci-target.mjs release-tag "$GITHUB_REF_NAME" --github-output "$GITHUB_OUTPUT"
       - name: "start hosted step timing"
         if: github.event_name != 'pull_request'
         run: |
@@ -292,10 +292,10 @@ jobs:
           # leg runs the repo-wide shard too — once, here, over the exact bytes being
           # released — and the targeted plugin gate still has the last word.
           if [ "${{ github.event_name }}" = "push" ]; then
-            DOCKS_CI_MEMO=0 node scripts/ci.mjs --lane repo
-            node scripts/ci.mjs --plugin "${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+            DOCKS_CI_MEMO=0 bun scripts/ci.mjs --lane repo
+            bun scripts/ci.mjs --plugin "${{ steps.target.outputs.plugin }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
           else
-            node scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
+            bun scripts/ci.mjs --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
           fi
           printf '{"step":"run the authoritative gate (scripts/ci.mjs)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "publish hosted timing artifact"

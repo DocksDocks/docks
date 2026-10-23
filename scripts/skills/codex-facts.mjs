@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // codex-facts.mjs — pin the Codex platform facts asserted by
 // skill-agent-pipeline to hard-coded sets. It does not fetch the Codex docs:
 // when the docs change, update codex-agents-builder.md and these sets together.

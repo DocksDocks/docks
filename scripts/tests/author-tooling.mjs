@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -243,7 +243,7 @@ function testSkillsGuardSpawnFailure() {
   assert.match(
     result.stderr,
     new RegExp(
-      `^FAIL: node ${path.join(ROOT, 'scripts/lib/validate-skills.mjs')} --runtime all ${target} could not start: .*ENOENT`,
+      `^FAIL: bun ${path.join(ROOT, 'scripts/lib/validate-skills.mjs')} --runtime all ${target} could not start: ENOENT \\(`,
     ),
   );
 }
