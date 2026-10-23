@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // agents/guard.mjs — structural validation of agent
 // markdown. Usage: agents/guard.mjs [path-or-file]
 import fs from 'node:fs';

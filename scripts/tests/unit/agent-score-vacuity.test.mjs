@@ -31,7 +31,7 @@ import path from 'node:path';
 const tool = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
 if (tool === 'claude') process.stdout.write('Validation passed\\n');
-if (tool === 'node' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
+if (tool === 'bun' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
 if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
   const root = args.at(-1);
   const rows = [];
@@ -47,7 +47,7 @@ if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skil
   }
   if (rows.length) process.stdout.write(\`\${rows.join('\\n')}\\n\`);
 }
-if (tool === 'node' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
+if (tool === 'bun' && args[0] === 'scripts/agents/score.mjs' && args[1] === '--per-file') {
   const root = args.at(-1);
   const rows = fs
     .readdirSync(root)
@@ -157,7 +157,7 @@ test('an agent scorer that exits non-zero fails the gate naming the command', ()
   const { status, output } = runCi('crash');
   assert.notEqual(status, 0);
   assert.match(output, rx(`${TARGET} agent scorer exited 3 — no score set to gate`));
-  assert.match(output, rx(`node scripts/agents/score.mjs --per-file ${AGENTS_ROOT}`));
+  assert.match(output, rx(`bun scripts/agents/score.mjs --per-file ${AGENTS_ROOT}`));
   assert.doesNotMatch(output, rx(`${TARGET} agents per-file all ≥ 10`));
 });
 

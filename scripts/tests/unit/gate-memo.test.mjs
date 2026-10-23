@@ -378,7 +378,7 @@ test('the cost summary ranks the full run and names the scope the tree actually 
       '     87.9%   320.5s  plugin: docks',
       '      6.5%    23.8s  plan orchestration',
       '      1.2%     4.2s  plugin: plan-lifecycle',
-      '  Cheaper next time: node scripts/ci.mjs --plugin plan-lifecycle — the only plugin this working tree touches.',
+      '  Cheaper next time: bun scripts/ci.mjs --plugin plan-lifecycle — the only plugin this working tree touches.',
     ].join('\n'),
   );
   // A failing gate still gets the cost breakdown: the operator about to re-run is
@@ -392,7 +392,7 @@ test('the advice follows the changed paths, never the dearest phase', () => {
   const advise = (scopes) => renderGateCost(FULL_RUN, { memoRequested: true, scopes }).split('\n').at(-1);
   assert.equal(
     advise(CHANGED_ONE),
-    '  Cheaper next time: node scripts/ci.mjs --plugin plan-lifecycle — the only plugin this working tree touches.',
+    '  Cheaper next time: bun scripts/ci.mjs --plugin plan-lifecycle — the only plugin this working tree touches.',
   );
   assert.doesNotMatch(advise(CHANGED_ONE), /--plugin docks\b/, 'never hand over a command for the untouched plugin');
 
@@ -403,7 +403,7 @@ test('the advice follows the changed paths, never the dearest phase', () => {
     many,
     '  This working tree touches 2 plugins (docks, plan-lifecycle); one --plugin run covers one of them, so no single invocation is both cheaper and complete.',
   );
-  assert.doesNotMatch(many, /node scripts\/ci\.mjs --plugin/, 'no copy-pasteable half-scope');
+  assert.doesNotMatch(many, /bun scripts\/ci\.mjs --plugin/, 'no copy-pasteable half-scope');
 
   // A change outside every plugin root: the full gate IS the right scope, and the
   // line must not push anyone off a gate they need.

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Guard: validate context-tree nodes.
 // A node is a directory carrying AGENTS.md; AGENTS.md must stay <= 500 lines.
 // Any CLAUDE.md (incl. .claude/CLAUDE.md) fails: this repo keeps one home for instructions,

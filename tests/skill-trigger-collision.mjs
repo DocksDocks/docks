@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // skill-trigger-collision.mjs — cross-skill trigger-overlap audit.
 //
 // No mechanical scorer can see two skills claiming the SAME trigger surface —
@@ -14,7 +14,7 @@
 // the real near-misses. Tune OVERLAP_FAIL only to admit a genuinely-new routed
 // pair — never to silence an unrouted collision.
 //
-// Usage: node tests/skill-trigger-collision.mjs [--report] [skills-root ...]
+// Usage: bun tests/skill-trigger-collision.mjs [--report] [skills-root ...]
 //   --report  print the full ranked overlap matrix (informational), always exit 0
 import fs from 'node:fs';
 import path from 'node:path';

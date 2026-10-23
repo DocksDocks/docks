@@ -357,7 +357,7 @@ export function renderGateCost(report, { memoRequested = false, top = 3, scopes 
       return '  Working tree is clean, so no targeted scope is cheaper; --memo is the only lever left (opt-in: a memo that enables itself can hide a stale pass).';
     }
     if (scopes.plugins.length === 1) {
-      return `  Cheaper next time: node scripts/ci.mjs --plugin ${scopes.plugins[0]} — the only plugin this working tree touches.`;
+      return `  Cheaper next time: bun scripts/ci.mjs --plugin ${scopes.plugins[0]} — the only plugin this working tree touches.`;
     }
     return `  This working tree touches ${scopes.plugins.length} plugins (${scopes.plugins.join(', ')}); one --plugin run covers one of them, so no single invocation is both cheaper and complete.`;
   };

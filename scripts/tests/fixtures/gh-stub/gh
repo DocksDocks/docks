@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 const fs = require('node:fs');
 
 const statePath = process.env.GH_STUB_STATE;

@@ -43,7 +43,7 @@ import path from 'node:path';
 const tool = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
 if (tool === 'claude') process.stdout.write('Validation passed\\n');
-if (tool === 'node' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
+if (tool === 'bun' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
 if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
   const root = args.at(-1);
   const rows = [];

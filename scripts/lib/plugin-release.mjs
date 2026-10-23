@@ -365,10 +365,10 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
     io.log('To recover:');
     io.log(`  1. Investigate: gh run view ${runId} --log-failed`);
     io.log('  2. Fix on a follow-up commit, then either:');
-    io.log(`       a) bump version again: node scripts/release.mjs --plugin ${plugin.name} patch`);
+    io.log(`       a) bump version again: bun scripts/release.mjs --plugin ${plugin.name} patch`);
     io.log('       b) or move the tag (loses immutability):');
     io.log(
-      `            git tag -d ${tag} && git push origin :refs/tags/${tag} && node scripts/release.mjs --plugin ${plugin.name} ${newVersion}`,
+      `            git tag -d ${tag} && git push origin :refs/tags/${tag} && bun scripts/release.mjs --plugin ${plugin.name} ${newVersion}`,
     );
     throw reportedFailure(`CI failed for ${tag}`);
   }
@@ -473,7 +473,7 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
       return capture('git', ['rev-parse', `${tag}^{commit}`]).stdout.trim();
     },
     runSelectedCi(_plugin, ciArgs) {
-      return spawnSync('node', [path.join(repo, 'scripts/ci.mjs'), ...ciArgs], { stdio: 'inherit' });
+      return spawnSync('bun', [path.join(repo, 'scripts/ci.mjs'), ...ciArgs], { stdio: 'inherit' });
     },
     // Reaching origin is IO, so it belongs in the closed set: a caller that cannot stub it
     // drags the network into every test of the surrounding decision. Behaviour is unchanged.

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // guard.mjs — run the combined skill frontmatter validator, the Codex-fact
 // drift guard, and the reference-hygiene guard. Usage: guard.mjs [skills-dir]
 import { spawnSync } from 'node:child_process';
@@ -9,11 +9,11 @@ const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
 const DIR = process.argv[2] || '';
 
 function run(args) {
-  const result = spawnSync('node', args, { stdio: 'inherit' });
-  const command = `node ${args.join(' ')}`;
+  const result = spawnSync('bun', args, { stdio: 'inherit' });
+  const command = `bun ${args.join(' ')}`;
   if (result.error) {
     // Lead with the errno code: it is the same on every runtime, while the message text is
-    // not (Node prints `spawnSync node ENOENT`, Bun prints `Executable not found in $PATH`).
+    // not (Node prints `spawnSync bun ENOENT`; Bun prints `Executable not found in $PATH`).
     console.error(
       `FAIL: ${command} could not start: ${result.error.code ?? 'unknown error'} (${result.error.message})`,
     );

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // refs-guard.mjs — reference-hygiene guard for skills. Three checks the
 // mechanical scorer and the YAML guards don't cover:
 //
@@ -19,7 +19,7 @@
 // (`docs/plans/_assets/…`) are NOT local links and are correctly ignored — only
 // link targets relative to THIS skill's dir are checked.
 //
-// Usage: node scripts/skills/refs-guard.mjs [skills-root ...]
+// Usage: bun scripts/skills/refs-guard.mjs [skills-root ...]
 import fs from 'node:fs';
 import path from 'node:path';
 import { findSkillFiles } from '../lib/skills-walk.mjs';

@@ -396,7 +396,7 @@ export const AUTHORITATIVE_GATE_STEP_NAME = 'run the authoritative gate (scripts
 
 const PUSH_EVENT_TEST = /github\.event_name\s*\}\}"\s*=\s*"push"/;
 
-// Every `node scripts/ci.mjs` invocation in the step's shell, each tagged with the
+// Every `bun scripts/ci.mjs` invocation in the step's shell, each tagged with the
 // event branch that reaches it. Conditions are tracked as a stack so an invocation
 // added to the wrong leg - or to no leg at all - is visible rather than averaged away.
 export function extractCiGateInvocations(runScript) {
@@ -424,14 +424,14 @@ export function extractCiGateInvocations(runScript) {
       stack.pop();
       continue;
     }
-    const invoked = /^(.*?)node\s+scripts\/ci\.mjs\b(.*)$/.exec(line);
+    const invoked = /^(.*?)bun\s+scripts\/ci\.mjs\b(.*)$/.exec(line);
     if (invoked === null) continue;
     // Only environment assignments may precede the command. Anything else - a `printf`
     // that merely prints the text, a wrapper that swallows the exit status - means the
     // line names the gate without running it, which is the whole failure mode here.
     if (!/^([A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s"']*)\s+)*$/.test(invoked[1]))
       throw new Error(
-        `${AUTHORITATIVE_GATE_STEP_NAME} names scripts/ci.mjs behind \`${invoked[1].trim()}\`, which does not run it`,
+        `${AUTHORITATIVE_GATE_STEP_NAME} names bun scripts/ci.mjs behind \`${invoked[1].trim()}\`, which does not run it`,
       );
     const eventFrames = stack.filter((frame) => PUSH_EVENT_TEST.test(frame.condition));
     const pushFrames = eventFrames.filter((frame) => !frame.elseSide);
@@ -446,7 +446,7 @@ export function extractCiGateInvocations(runScript) {
     });
   }
   if (stack.length !== 0) throw new Error(`${AUTHORITATIVE_GATE_STEP_NAME} leaves ${stack.length} \`if\` unclosed`);
-  if (invocations.length === 0) throw new Error(`${AUTHORITATIVE_GATE_STEP_NAME} never invokes scripts/ci.mjs`);
+  if (invocations.length === 0) throw new Error(`${AUTHORITATIVE_GATE_STEP_NAME} never invokes bun scripts/ci.mjs`);
   return invocations;
 }
 
@@ -458,7 +458,7 @@ export function assertAuthoritativeGateCoversReleasedBytes(runScript) {
   for (const invocation of invocations) {
     if (invocation.branch === 'unconditional')
       throw new Error(
-        `${AUTHORITATIVE_GATE_STEP_NAME} invokes scripts/ci.mjs outside any event branch: ${invocation.args}`,
+        `${AUTHORITATIVE_GATE_STEP_NAME} invokes bun scripts/ci.mjs outside any event branch: ${invocation.args}`,
       );
     if (invocation.branch === 'non-push') {
       // Manual dispatch runs the whole gate; a narrowing flag here would silently drop
