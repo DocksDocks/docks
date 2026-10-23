@@ -8,20 +8,20 @@ read-only reviewer wrappers named in Roles (verify:
 It is self-versioned: manifests live in `.claude-plugin/` and `.codex-plugin/`,
 and `compatibility.json` is a closed declaration (keys `schema` and
 `minimum_docks_major`) that `test/selftest.mjs` verifies against docks' parsed
-major (verify: `node plugins/plan-lifecycle/test/selftest.mjs`). Do not replace
+major (verify: `bun plugins/plan-lifecycle/test/selftest.mjs`). Do not replace
 it with prose or a same-major convention.
 
 <constraint>
 During skill iteration, run the narrow validators relevant to the change. After
 a meaningful batch, you may run the owning plugin gate
-(`node scripts/ci.mjs --plugin plan-lifecycle` here); reserve full
-`node scripts/ci.mjs` for the final implementation tree. Do not loosen validator
+(`bun scripts/ci.mjs --plugin plan-lifecycle` here); reserve full
+`bun scripts/ci.mjs` for the final implementation tree. Do not loosen validator
 floors to make a file pass; fix the file. The validator/CI contract lives in
 `scripts/AGENTS.md`.
 </constraint>
 
 <constraint>
-After changing a skill's meaning, run `node scripts/skills/content-hash.mjs
+After changing a skill's meaning, run `bun scripts/skills/content-hash.mjs
 --backfill plugins/plan-lifecycle/skills`. It re-syncs `content_hash` and stamps
 `metadata.updated` in the same write, and it writes only when the hash actually
 differs, so a formatting-only edit leaves both fields alone and the recorded date
@@ -89,8 +89,8 @@ compares the copies. Change the paragraph only in lockstep across every copy
 Same rubric as every kit skill: `node
 plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score
 --per-file plugins/plan-lifecycle/skills`. Per-file floors live in
-`scripts/config/scoring.json` (verify: `node scripts/config/read-floor.mjs skills productivity`;
-agents: `node scripts/config/read-floor.mjs agents`). Skills surface as
+`scripts/config/scoring.json` (verify: `bun scripts/config/read-floor.mjs skills productivity`;
+agents: `bun scripts/config/read-floor.mjs agents`). Skills surface as
 `plan-lifecycle:<name>` from `name` in `plugins/plan-lifecycle/.claude-plugin/plugin.json`.
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.
