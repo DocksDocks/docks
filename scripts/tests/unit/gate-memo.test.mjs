@@ -403,7 +403,7 @@ test('the advice follows the changed paths, never the dearest phase', () => {
     many,
     '  This working tree touches 2 plugins (docks, plan-lifecycle); one --plugin run covers one of them, so no single invocation is both cheaper and complete.',
   );
-  assert.doesNotMatch(many, /bun scripts\/ci\.mjs --plugin/, 'no copy-pasteable half-scope');
+  assert.doesNotMatch(many, /scripts\/ci\.mjs --plugin/, 'no copy-pasteable half-scope');
 
   // A change outside every plugin root: the full gate IS the right scope, and the
   // line must not push anyone off a gate they need.
