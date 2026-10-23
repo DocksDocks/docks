@@ -1,0 +1,100 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 3db5c8bb..9d851dc5 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -5,7 +5,7 @@ user-invocable: true
+ metadata:
+   pattern: tool-wrapper
+   updated: "2026-10-18"
+-  content_hash: "c26cc219831fc127c5e0a0319384b87c6db4b4cf5a1b4af2a0447589210c3542"
++  content_hash: "f4167ba68886f64b7a61dbc5ded9aad5669e1ee06cda848845d8d68397a40fd7"
+ ---
+ 
+ # Plan Manager
+@@ -116,8 +116,8 @@ git fetch origin <default>
+ base=$(git merge-base "origin/<default>" HEAD)
+ review_diff="$scratch/code-review-<n>-round-<k>.diff"
+ git diff --binary "$base" > "$review_diff"
+-git ls-files --others --exclude-standard -z |
+-  while IFS= read -r -d '' file; do git diff --no-index --binary -- /dev/null "$file"; done >> "$review_diff"
++for file in $(git ls-files --others --exclude-standard); do
++  git diff --no-index --binary -- /dev/null "$file"; done >> "$review_diff"
+ ```
+ 
+ `git diff --no-index` exits 1 when the files differ, so that exit status is
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 2dfc3721..0201f084 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -165,10 +165,10 @@ agents define the exact block they return, and that block follows these rules.
+ | `repair`, `changes`, `fixes-required` | `repair` | `fixes-required` |
+ | `blocked` | `blocked` | `blocked` |
+ 
+-A code pass derives as fixes-required when any line contains `[critical]` or
+-`[high]`, or starts with `critical:`, `high:`, `severity: critical`, or
+-`severity: high`, in any case. A bare severity word inside finding prose does
+-not count. Trust requires exactly one issue assignee and a comment author login
++A code pass derives as fixes-required when any line starts with `[critical]`,
++`[high]`, `critical:`, `high:`, `severity: critical`, or `severity: high`, in
++any case. A severity marker inside finding prose does not count, bracketed or
++not. Trust requires exactly one issue assignee and a comment author login
+ equal to that assignee. The latest trusted eligible comment per kind wins,
+ ordered by `createdAt`; API order breaks ties. Missing trusted reviews derive as
+ none. There is no body verdict fallback.
+@@ -255,14 +255,14 @@ reserved label namespace: <label>
+ 
+ Set up the linked branch after the plan is ongoing and before any code change:
+ 
+-1. Run `git status --porcelain`. Continue only when it prints nothing. Never
++1. Run `gh issue develop <n> --list --repo <owner/repo>`. Reuse a listed branch.
++2. If no branch is listed, run
++   `gh issue develop <n> --repo <owner/repo> --base <default> --checkout`.
++3. Run `git status --porcelain`. Continue only when it prints nothing. Never
+    stash, move, or commit ambient work to make it clean.
+-2. If the checkout is dirty, use a separate clean worktree only when the user
++4. If the checkout is dirty, use a separate clean worktree only when the user
+    approves it in this session through `ask`. Otherwise block the plan and
+    report the dirty paths.
+-3. Run `gh issue develop <n> --list --repo <owner/repo>`. Reuse a listed branch.
+-4. If no branch is listed, run
+-   `gh issue develop <n> --repo <owner/repo> --base <default> --checkout`.
+ 5. If a call fails, list again. Continue only when the list shows the branch.
+    Otherwise block the plan. Never work on an unlinked branch.
+ 
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index a4925d00..fb562988 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -47,9 +47,9 @@ function labelNames(labels) {
+ function runGh(argv) {
+   const result = spawnSync('gh', argv, { encoding: 'utf8', maxBuffer: GH_MAX_BUFFER_MIB * 1024 * 1024 });
+   if (result.error?.code === 'ENOENT') fail('gh is not installed or not on PATH');
++  if (result.error) fail(`gh ${argv.slice(0, 2).join(' ')} failed: ${result.error.message}`);
+   if (result.error?.code === 'ENOBUFS')
+     fail(`gh ${argv.slice(0, 2).join(' ')} output exceeded ${GH_MAX_BUFFER_MIB} MiB`);
+-  if (result.error) fail(`gh ${argv.slice(0, 2).join(' ')} failed: ${result.error.message}`);
+   if (result.status !== 0) {
+     const detail = result.stderr.trim() || `exit ${result.status}`;
+     fail(`gh ${argv.slice(0, 2).join(' ')} failed: ${detail}`);
+@@ -826,7 +826,7 @@ function setStepStatus(args) {
+   const row = parsed.steps.find((step) => step.id === stepId(id));
+   if (!row) fail(`unknown step id: ${id}`);
+   const current = row.status;
+-  if (status === 'finished' && !terminal(target))
++  if (status === 'finished' && !terminal(current))
+     fail(`plan #${issue.number} is finished; reopen it before moving step ${row.id} to ${target}`);
+   if (status !== 'finished' && terminal(current) && current !== target)
+     fail(`illegal step status transition: ${current} -> ${target}`);
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 9dee107c..a3f135a3 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -598,7 +598,7 @@ try {
+       const id = state.nextComment++;
+       entry.comments.push({
+         id,
+-        body: `Evidence round ${i}\n${'x'.repeat(60000)}`,
++        body: `Evidence round ${i}\n${'x'.repeat(50000)}`,
+         author: 'plan-agent',
+         createdAt: new Date(Date.parse('2026-08-20T20:00:00Z') + id * 1000).toISOString(),
+       });

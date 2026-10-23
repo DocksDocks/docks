@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-23"
-  content_hash: "1aa42cf114945d7281e40403f64a0e52f5b8dc5f416f150657e732184df03562"
+  content_hash: "d7516c726d2717ec7b7543afc332aacc872989893eaeab6ea1f0db4ee9e9b7d6"
 ---
 
 # Yolo
@@ -147,7 +147,8 @@ Load each matching docks skill when the runtime has it. A runtime can show it as
 you write Steps. Under `### Engineering standards` in Research, record which
 skill each step applies. When a standard defines completion, put it in that
 step's `Done when`. Apply each step's skills again while you implement that
-step, and run the `code-review` self-review before code review round 1.
+step. Run the `code-review` self-review during code review round 1, as Review
+loops says.
 
 Apply `code-clarity` to every step that changes code, tests, comments, or error
 messages, together with the other matching skills. Record it for each such
@@ -169,7 +170,7 @@ step, and check its rules again in the self-review.
 | Colors, tokens, and themes | `design-tokenization` |
 | Keyboard, focus, and ARIA | `accessibility` |
 | Visual polish and motion | `make-interfaces-feel-better` |
-| Self-review before code review | `code-review` |
+| Self-review during code review round 1 | `code-review` |
 
 Do not start `security`, `refactor`, or `skill-agent-pipeline`. Each one opens
 its own plan. Put that work into the Steps of this plan.
@@ -220,7 +221,8 @@ can write the spec tests.
    `git worktree remove -- <path>` and `git worktree prune`. `<path>` is
    `${XDG_DATA_HOME:-$HOME/.local/share}/agent-worktrees/<repository-name>/check-<short-sha>`.
    Do not put it under `/tmp` or inside `.git`.
-3. Before code review round 1, leave no staged, unstaged, or untracked change of
+3. Commit the candidate before each code-review round, as the contract's
+   Code-review rounds says. Leave no staged, unstaged, or untracked change of
    the candidate.
 4. Add each review fix as a new commit. Do not amend, squash, or rebase.
 5. The reviewed head is `HEAD` after the last passing code-review round.
@@ -241,13 +243,22 @@ When a required check fails on files that the plan does not change:
 Use the contract's review loop with its Yolo runs ceiling. Dispatch the
 `plan-reviewer` and `code-reviewer` wrappers with fresh input in each round. If
 a wrapper is missing, dispatch a fresh read-only agent with the matching
-instructions. Post each returned block unchanged as one issue comment.
+instructions. Post one comment per round, as the contract's review loop says.
+That comment counts as one round of the ceiling.
 
-Before code review round 1, run the `code-review` self-review with
-`code-clarity` on the full candidate diff. Post its findings as one issue
-comment whose first line is `Self-review`; write `No findings.` when it finds
-nothing. The helper does not read that comment as a review. Fix each finding
-with `fix-workflow`, commit the fixes, and then start round 1.
+Dispatch code review round 1 first. While it runs, run the `code-review`
+self-review with `code-clarity` on the full candidate diff. Post its findings
+as one issue comment whose first line is `Self-review`; write `No findings.`
+when it finds nothing. The helper does not read that comment as a review.
+
+After round 1 returns, fix the self-review findings together with the findings
+of round 1. Use `fix-workflow`, and commit the fixes. When a finding names a
+defect class, fix every instance, as the contract's Code-review rounds says.
+When the self-review found anything, review again, also when round 1 passed.
+That round is a `delta` round when the contract's Code-review rounds allows it.
+
+While any round runs, do the work that does not depend on its verdict, such as
+the acceptance records and the run summary draft.
 
 After `plan=pass`, an `edit` that changes Goal, Research, Steps, Acceptance, or
 Do not touch needs a new plan-review round before code that depends on it. The
@@ -258,12 +269,12 @@ helper prints advice for that case.
 | Plan `repair` | Reproduce each finding, repair a fresh export, and review again |
 | Plan `blocked` | Decide the finding with Research, record the decision, and review again |
 | Code `fixes-required` | Fix each reproduced finding, rerun its proof, and review again |
-| Code `pass` with MEDIUM or LOW findings | Fix each reproduced finding and review again |
+| Code `pass` with MEDIUM or LOW findings | Fix each reproduced finding and review again, as a `delta` round when the contract's Code-review rounds allows it |
 | Code `pass` with no open finding | Go to Landing |
 
-Reject a finding only with evidence. Post that evidence as one issue comment
-whose first line is `Rejected review findings, round <k>`. Before you repair the
-same finding again, research it again and try a different approach.
+Reject a finding only with evidence, posted as the contract's review loop says.
+Before you repair the same finding again, research it again and try a different
+approach.
 
 When a review phase stalls at the ceiling and the answer is `Leave plan
 blocked`, or no answer is possible, run the contract's Teardown for an exit
@@ -318,8 +329,9 @@ The issue is the run record. Run `show <n>` for the status and verdicts. Run
 request exists, GitHub lists no branch there. Then read the pull request number
 from `gh issue view <n> --repo <owner/repo> --json closedByPullRequestsReferences`,
 and read the branch from `gh pr view <pr> --repo <owner/repo> --json headRefName`.
-Run `git worktree list` for a worktree. Count review rounds from issue comments.
-A `Self-review` comment is not a review round.
+Run `git worktree list` for a worktree. Count review rounds from issue comments,
+as Review loops says. One round comment can hold several lens blocks. A
+`Self-review` comment is not a review round.
 
 ## BAD / GOOD
 

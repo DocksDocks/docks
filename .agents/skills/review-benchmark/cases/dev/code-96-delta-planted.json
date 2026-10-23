@@ -1,0 +1,21 @@
+{
+  "id": "code-96-delta-planted",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 96,
+  "round": 2,
+  "base": "e49e144d074ab14fd1c404a250d61ea05cdbb99a",
+  "delta_base": "6a3ef0e8627f9732d6f7a13dc4e4b5f5f33c2381",
+  "head": "b7fc4fefd29febf2c3b3c467be8faa5efd949a39",
+  "patch": "code-96-delta-planted.patch",
+  "plan": "plan96-code-r1-body.md",
+  "previous_review": "code-96-round-1-review.md",
+  "known": [
+    {
+      "id": "PD96-1",
+      "title": "readPlanIssue returns the acting viewer as `viewer` instead of `viewerId`, but writeReopen destructures `viewerId`, so reopening an unassigned plan sends assignees[]=undefined; the claim fails after the reopen and the comment may already be written, which leaves a reopened, unowned plan and a failed command",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:797; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:1139-1162",
+      "severity": "high"
+    }
+  ]
+}

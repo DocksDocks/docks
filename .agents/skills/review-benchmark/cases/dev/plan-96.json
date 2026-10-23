@@ -1,0 +1,47 @@
+{
+  "id": "plan-96",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 96,
+  "round": 1,
+  "repo_ref": "e49e144d074ab14fd1c404a250d61ea05cdbb99a",
+  "plan": "plan96-r1-body.md",
+  "known": [
+    {
+      "id": "P96-1",
+      "title": "the settle wait needs only the close event and counts from its createdAt; the #90 workaround waited about 10 s after seeing both CLOSED and the matching close event, so the two safeguards are not equivalent",
+      "locator": "Research > Decisions, decision 1 (plan96-r1-body.md:47-48); Research > Open issues (plan96-r1-body.md:18)",
+      "kind": "research_gap"
+    },
+    {
+      "id": "P96-2",
+      "title": "'no claim, because the reopen writes no body' contradicts the contract (mutations claim unassigned plans), and the plan has no fresh ownership read after the wait and before the reopen",
+      "locator": "Research > Decisions, decision 1 (plan96-r1-body.md:44, 48)",
+      "kind": "research_gap"
+    },
+    {
+      "id": "P96-3",
+      "title": "the no-docks fallback of the report section states only a minimum draft and the approval rule, so it cannot carry the public-destination warning, redaction rules, and the security-report prohibition of the missing skill",
+      "locator": "Research > Decisions, decisions 4-5 (plan96-r1-body.md:55-60); Steps, step 3 report_skill (plan96-r1-body.md:82)",
+      "kind": "security_risk"
+    },
+    {
+      "id": "P96-4",
+      "title": "acceptance a9 is a single dry run; it omits the required manual sibling-collision (near-miss routing) checks and the fresh-instance baseline comparison on the smallest target model",
+      "locator": "Acceptance, a9 (plan96-r1-body.md:99)",
+      "kind": "goal_fit"
+    },
+    {
+      "id": "P96-5",
+      "title": "release steps 5 and 6 declare Files 'none', but the release command writes and commits the plugin's Claude and Codex manifests and .claude-plugin/marketplace.json",
+      "locator": "Steps, steps 5-6 release_docks and release_plan_lifecycle, Files column (plan96-r1-body.md:84-85)",
+      "kind": "research_gap"
+    },
+    {
+      "id": "P96-6",
+      "title": "acceptance a7 runs the validator on a scratch copy of the registry, but the validator always reads the registry relative to its own script location, so the negative check never reads the altered copy",
+      "locator": "Acceptance, a7 (plan96-r1-body.md:97)",
+      "kind": "research_gap"
+    }
+  ]
+}

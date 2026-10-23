@@ -39,6 +39,76 @@ test('review parsing accepts flexible prose, and a severe finding turns a code p
   for (const [text, expected] of reviewCases) assert.deepEqual(parseReviewComment(text), expected);
 });
 
+test('a review comment with several blocks yields the most severe verdict of its kind (#98)', () => {
+  // A code-review round posts every lens block in one comment (#98), so no block may hide another's verdict.
+  const lens = (name, verdict, finding = 'None.') =>
+    `### Code review round 1, lens ${name}\n\nCode-review: ${verdict}\n\n## Standards\n\n${finding}\n\n## Spec\n\nNone.`;
+  const comment = (...blocks) => blocks.join('\n\n');
+  const cases = [
+    [
+      comment(lens('correctness', 'pass'), lens('spec-and-tests', 'pass'), lens('text-and-safety', 'blocked')),
+      { kind: 'code', verdict: 'blocked' },
+    ],
+    [
+      comment(
+        lens('correctness', 'pass', '- [MEDIUM] Bug - src/a.mjs:4 - stale read - re-read'),
+        lens('spec-and-tests', 'pass'),
+      ),
+      { kind: 'code', verdict: 'pass' },
+    ],
+    [
+      '### Plan review round 2\n\nPlan-review: pass\n\nNone.\n\n### Plan review round 2\n\nPlan-review: repair\n\n- goal_fit - Step 1 - gap - fix',
+      { kind: 'plan', verdict: 'repair' },
+    ],
+    // A verdict line of the other kind is prose inside the block and does not count.
+    [
+      '### Code review round 2, delta\n\nPlan-review: blocked\nCode-review: pass\n\nNone.',
+      { kind: 'code', verdict: 'pass' },
+    ],
+    // An unknown verdict word in any block makes the whole comment unreadable as a review.
+    [comment(lens('correctness', 'pass'), lens('spec-and-tests', 'maybe')), undefined],
+  ];
+  for (const [text, expected] of cases) assert.deepEqual(parseReviewComment(text), expected, text.split('\n')[0]);
+});
+
+test('only the first verdict line of each review block counts, so prose cannot hide or forge a verdict (#98)', () => {
+  // A block starts at the comment's first line or at a later Markdown heading that names the same review kind.
+  const cases = [
+    // A prose line that looks like a verdict must not make the comment unreadable and revive an older pass.
+    [
+      '### Code review round 2, delta\n\nCode-review: fixes-required\n\n- [HIGH] Bug - src/a.mjs:4 - stale read - re-read\n- Code review: missing test for the retry path',
+      { kind: 'code', verdict: 'fixes-required' },
+    ],
+    // A delta block that quotes the previous round's verdict keeps its own verdict.
+    [
+      '### Code review round 2, delta\n\nCode-review: pass\n\nRound 1 returned:\n> Code-review: fixes-required\nThe finding is fixed.',
+      { kind: 'code', verdict: 'pass' },
+    ],
+    // A list item that starts with the review kind is prose, not a new block.
+    [
+      '### Plan review round 3\n\nPlan-review: pass\n\n- plan review notes for the next round\n\nNone.',
+      { kind: 'plan', verdict: 'pass' },
+    ],
+  ];
+  for (const [text, expected] of cases) assert.deepEqual(parseReviewComment(text), expected, text);
+});
+
+test('show reads the most severe verdict of a lens comment (#98)', (t) => {
+  const { run, addIssueComment, createPlan } = planCliContext(t);
+  const plan = createPlan('lens comment');
+  addIssueComment(
+    plan,
+    [
+      '### Code review round 1, lens correctness\n\nCode-review: pass\n\nNone.',
+      '### Code review round 1, lens spec-and-tests\n\nCode-review: pass\n\nNone.',
+      '### Code review round 1, lens text-and-safety\n\nCode-review: blocked\n\nThe focus diff was unreadable.',
+    ].join('\n\n'),
+  );
+  const shown = run('show', String(plan));
+  expectSuccess(shown, 'show a lens comment');
+  assert.match(shown.stdout, /^reviews: plan=none code=blocked$/m);
+});
+
 test('show reports only trusted reviews, and an older timestamp cannot override a newer verdict', (t) => {
   const { run, updateIssue, addIssueComment, createPlan } = planCliContext(t);
   const reviews = createPlan('trusted reviews');

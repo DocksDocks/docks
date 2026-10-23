@@ -1,0 +1,29 @@
+{
+  "id": "plan-89",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 89,
+  "round": 1,
+  "repo_ref": "37852a890e9ce328a20522e69933afe6c222b5ae",
+  "plan": "plan89-r1-body.md",
+  "known": [
+    {
+      "id": "P89-1",
+      "title": "separate body, label, and claim mutations break the contract's same-write claim: GraphQL runs them serially with partial success, so the body can change while the later claim fails and leaves a modified, unassigned plan",
+      "locator": "Research > Decisions, decision 7(a) (plan89-r1-body.md:31); Steps, step 3 plan_helper_round_trips (plan89-r1-body.md:54)",
+      "kind": "goal_fit"
+    },
+    {
+      "id": "P89-2",
+      "title": "step 3 changes the shipped plan.mjs, which requires bumping metadata.updated in plan-manager/SKILL.md, but that file is in no step's Files",
+      "locator": "Steps, step 3 plan_helper_round_trips, Files column (plan89-r1-body.md:54)",
+      "kind": "goal_fit"
+    },
+    {
+      "id": "P89-3",
+      "title": "the plan moves the body from gh issue edit --body-file into a gh api graphql variable without saying how; the helper's graphql() passes values with -F, which fills {owner}/{repo}/{branch} placeholders and converts types, so a body that quotes such a token is stored rewritten",
+      "locator": "Research > Decisions, decision 7(a) (plan89-r1-body.md:31); Steps, step 3 plan_helper_round_trips (plan89-r1-body.md:54)",
+      "kind": "research_gap"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+# Plan review checklist
+
+These checks direct your attention to plan defects that reviews often miss.
+They do not limit the review. Report any defect that meets the finding bar in
+`SKILL.md`, also when no check below names it. Report a failed check only when
+the failure meets that bar. The kind after each check is the usual kind. Use
+the kind that fits the defect.
+
+## Steps
+
+- The Files cell of each step names every file that the step changes. Look for
+  manifests, lock files, generated hashes and indexes, docs, changelogs, and
+  tests that the change makes stale. (`goal_fit`)
+- Each Depends cell names every step whose output the step uses. Two steps that
+  list the same path have a Depends chain, or one of them owns the shared edit.
+  (`goal_fit`)
+- Each Effect cell matches what the step does. A step that pushes, publishes,
+  releases, deploys, or reaches production data does not carry `local`.
+  (`security_risk` when the cell hides a non-local effect, otherwise `goal_fit`)
+- Each Done when cell names an observable result that a reader can check, not
+  an activity. (`goal_fit`)
+
+## Acceptance
+
+- Acceptance holds a row for every check that the repository instruction files
+  (`AGENTS.md` and similar files) require for the paths in the Files cells.
+  Read the instruction files of each directory that a step touches, not only
+  the root file. (`goal_fit`)
+- Each command runs as written in the stated environment. The binary, the
+  flags, the paths, the working directory, and the runtime exist where the plan
+  runs the command, and the expected result is what the command prints or
+  returns. (`goal_fit`)
+
+## Research
+
+- Each load-bearing claim about the repository matches the repository: symbol
+  names, signatures, callers, and the instruction files. (`research_gap`)
+- Each load-bearing claim about a library, tool, runtime, or external API
+  matches current official documentation. Check the semantics too: ordering,
+  defaults, parameter handling, error behavior, and version limits.
+  (`research_gap`)
+- No unchecked assumption carries a step. A step that relies on a fact that
+  Research does not establish is a finding. (`research_gap`)
+
+## Whole plan
+
+- No step contradicts another step, the Goal, a recorded decision, or the Do
+  not touch section. Cite both lines. (`goal_fit`)
+- The plan keeps the invariants of the plan contract, which is
+  `plan-manager/references/plan-contract.md` in this plugin. Read the contract
+  when a step touches one of these areas. (`security_risk` or `goal_fit`)
+  - Ownership: the issue is the canonical plan record, a write refuses a
+    foreign assignee, and the manager owns plan edits, review publication, and
+    lifecycle changes.
+  - Publication safety: no secret, credential location, private data, or
+    sensitive finding becomes public without the confirmation that the contract
+    requires, and machine paths stay out of durable records.
+  - Confirmation: each destructive, publish, release, or other non-local effect
+    waits for the confirmation that the contract requires before it runs. In a
+    yolo run, the effect table of the contract's Yolo runs section applies.
