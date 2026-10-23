@@ -50,3 +50,63 @@ Plan review of #96 round 1 (case `plan-96`, 6 known findings):
 | Two lenses | 220 | 2.50 | 2 of 6 |
 
 A delta plan round on the round-2 body (case `plan-96-delta`) took 246 s and 0.81 M tokens, against 200 s and about 0.95 M tokens for the historical full round 2.
+
+## Run 2026-10-23: plan #98 candidates against the 0.16.0 reviewers
+
+Baseline ref `e09d273f` (plan-lifecycle 0.16.0). Every arm ran as an omp project agent on `openai-codex/gpt-6.1-sol` at the agent's default reasoning effort, two runs per arm, arms interleaved, dispatched through omp's eval `agent()`. A blind judge on another model family (the omp `task` agent) matched and adjudicated every finding. Seconds: first prompt to final answer, the slowest reviewer of a round. Tokens: input plus cached input plus cache writes plus output, summed over a round's reviewers. Every finding in every run was rated valid; no arm had a wrong finding.
+
+Candidate iterations: `it0` is the first `code-reviewer` skill; `it1` stops a `full` round from loading all three lens references (to cut its time); `it2` adds the coverage stance ("report every defect, also LOW; the manager reproduces each finding") and a shorter finding line. Iterations used the dev cases only.
+
+### Dev cases
+
+| Case | Arm | Recall (mean of 2) | Valid extras | Seconds | Tokens (M) |
+|---|---|---:|---:|---:|---:|
+| code-96 (7 known) | B0, one reviewer, old prompt | 0.00 | 0.0 | 126 | 1.03 |
+| code-96 | B1, panel, old prompt with lens text in the dispatch | 0.57 | 1.5 | 139 | 2.49 |
+| code-96 | C1 it0 / it1 / it2, one reviewer, new skill | 0.14 / 0.14 / 0.14 | 1.0 | 180 / 180 / 158 | 1.01 / 1.07 / 1.11 |
+| code-96 | C3 it0 / it2, panel, new skill | 0.36 / 0.21 | 1.0 | 156 / 149 | 2.61 / 2.64 |
+| code-89 (6 known) | B0 | 0.67 | 0.0 | 145 | 1.17 |
+| code-89 | B1 | 0.67 | 2.0 | 159 | 2.35 |
+| code-89 | C1 it0 / it1 / it2 | 0.67 / 0.67 / 0.67 | 0.0 | 217 / 167 / 139 | 1.37 / 1.16 / 1.25 |
+| code-89 | C3 it0 / it2 | 0.67 / 0.83 | 0.5 | 149 / 136 | 2.87 / 2.62 |
+| code-96-delta-planted (1 known) | B0, full re-review | 1.00 | 0.0 | 150 | 1.01 |
+| code-96-delta-planted | Cd, delta round | 1.00 | 0.0 | 85 | 0.30 |
+| code-96-delta-real (0 known) | B0, full re-review | - | 0.5 | 170 | 1.59 |
+| code-96-delta-real | Cd | - | 0.0 | 76 | 0.32 |
+| plan-96 (6 known) | P0, old prompt | 0.17 | 0.0 | 120 | 0.81 |
+| plan-96 | P1, new skill | 0.17 | 0.0 | 129 | 0.60 |
+| plan-89 (3 known) | P0 | 0.00 | 1.0 | 126 | 0.69 |
+| plan-89 | P1 | 0.17 | 0.5 | 103 | 0.49 |
+| plan-96-delta (0 known) | P0, full re-review | - | 0.0 | 104 | 0.90 |
+| plan-96-delta | Pd, delta round | - | 0.0 | 69 | 0.26 |
+| plan-96-delta-planted (1 known) | P0, full re-review | 0.00 | 0.0 | 139 | 0.95 |
+| plan-96-delta-planted | Pd | 1.00 | 0.0 | 74 | 0.27 |
+
+### Held-out cases (one run of the final candidates, keys closed until scoring)
+
+| Case | Arm | Recall (mean of 2) | Valid extras | Seconds | Tokens (M) |
+|---|---|---:|---:|---:|---:|
+| code-H1 (6 seeded) | B0 | 1.00 | 0.0 | 93 | 0.54 |
+| code-H1 | B1 | 1.00 | 1.0 | 148 | 1.40 |
+| code-H1 | C1 it2 | 1.00 | 0.0 | 116 | 0.52 |
+| code-H1 | C3 it2 | 1.00 | 1.5 | 151 | 1.54 |
+| plan-H1 (5 seeded) | P0 | 0.60 | 0.0 | 81 | 0.44 |
+| plan-H1 | P1 | 0.70 | 0.0 | 89 | 0.37 |
+
+### Decisions under the rule
+
+| Candidate | Evidence | Decision |
+|---|---|---|
+| Code prompt (C1 it2 against B0) | Dev recall 0.40 against 0.33; held-out 1.00 against 1.00; time +9% on dev and +24% on held-out; tokens +7% and -4%; no wrong findings | Kept |
+| Panel policy (C3 it2 against C1 it2) | Dev recall 0.52 against 0.40; held-out 1.00 against 1.00; modeled loop tokens +19% for #89 and -10% for #96, loop time -29% and -31% against B0 | Kept |
+| Code delta mode (Cd) | Planted repair defect caught 2 of 2, as by the full re-review; 43 to 55% less time and 70 to 80% fewer tokens | Kept |
+| Plan prompt (P1 against P0) | Dev recall 0.17 against 0.08; held-out 0.70 against 0.60; time -6% on dev and +9% on held-out; tokens -26% and -17% | Kept |
+| Plan delta mode (Pd) | Planted repair defect caught 2 of 2, against 0 of 2 for the full re-review; 34 to 47% less time and about 70% fewer tokens | Kept |
+
+### Limits and leads
+
+- `code-H1` sat at the ceiling: every arm found all 6 seeded defects, so it separates arms only by cost and extras. The next held-out code case needs harder defects, for example escaped defects from real plans.
+- The seeded `code-89` defects and the `plan-89` findings were known to the prompt author, and the lens texts of both B1 and the new skill name defect kinds that benchmark 1 found in `code-96`, so the dev cases favor both lens setups.
+- B1 (old prompt, lens text in the dispatch) found more on dev than C3 (lens text in a reference that the reviewer loads): 0.62 against 0.52, driven by `code-96`. Next experiment: put each lens's scope sentences in the panel dispatch as well as in the reference, and compare with C3.
+- Two runs per arm detect only large differences; recall on `code-96` and `plan-96` varied between runs of one arm.
+- Reasoning effort changes both recall and time: benchmark 1 dispatched at the task tool's highest effort and took 250 to 577 s per lens, against 136 to 159 s here at the default effort. Compare arms only at one effort.
