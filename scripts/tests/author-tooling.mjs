@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { shebangInterpreter } from './test-contracts.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const BIOME = path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'biome.cmd' : 'biome');
@@ -301,14 +302,40 @@ function testTestContractToolchains() {
     const extra = runTestContracts(fixtureRoot, 'lists-node.json', listsNode);
     assertStarted(extra);
     assert.notEqual(extra.status, 0);
+    // The line names the runners that discovery found, so that the reader sees why the row does not need the token.
+    const runnerEvidence = `\\(discovered: [^\\n]*\\b${escapeRegExp(bunOnly.owner.suite)} with bun\\b[^\\n]*\\)`;
     assert.match(
       `${extra.stdout}\n${extra.stderr}`,
       new RegExp(
-        `${escapeRegExp(bunOnly.id)}\\.toolchains lists ${escapeRegExp(nodeToken)}, which no discovered runner needs`,
+        `${escapeRegExp(bunOnly.id)}\\.toolchains lists ${escapeRegExp(nodeToken)}, which no discovered runner needs ${runnerEvidence}`,
       ),
     );
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
+// A fixture program runs with the interpreter of its #! line, and that interpreter decides which toolchain a suite
+// needs. `env` reads its options, their operands, and NAME=VALUE words before the interpreter, so none of them is it.
+function testShebangInterpreter() {
+  const cases = [
+    ['#!/usr/bin/env bun\n', 'bun'],
+    ['#!/usr/local/bin/bun\n', 'bun'],
+    ['#!/usr/bin/env -S -u NODE_OPTIONS bun\n', 'bun'],
+    ['#!/usr/bin/env -S -uNODE_OPTIONS bun --smol\n', 'bun'],
+    ['#!/usr/bin/env --split-string=-u NODE_OPTIONS bun\n', 'bun'],
+    ['#!/usr/bin/env --unset=NODE_OPTIONS node\n', 'node'],
+    ['#!/usr/bin/env --unset NODE_OPTIONS node\n', 'node'],
+    ['#!/usr/bin/env -i FORCE_COLOR=0 node\n', 'node'],
+    ['#!/usr/bin/env - --ignore-environment node\n', 'node'],
+    ['#!/usr/bin/env -iu NODE_OPTIONS /opt/bun/bin/bun\n', 'bun'],
+    ['#!/usr/bin/env -- bun\n', 'bun'],
+    ['#!/usr/bin/env -S -u NODE_OPTIONS\n', ''],
+    ['#!\n', ''],
+    ['console.log(1);\n', null],
+  ];
+  for (const [source, interpreter] of cases) {
+    assert.equal(shebangInterpreter(source), interpreter, `interpreter of ${JSON.stringify(source)}`);
   }
 }
 
@@ -381,5 +408,6 @@ testTreeGuardOperationalFailures();
 testSkillsGuardSpawnFailure();
 testSkillsGuardReportSection();
 testTestContractToolchains();
+testShebangInterpreter();
 testValidatorTable();
 console.log('author tooling contracts passed');
