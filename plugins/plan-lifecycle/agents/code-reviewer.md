@@ -41,15 +41,16 @@ Report a Spec finding when the change uses a temporary workaround instead of the
 4. Read the entire diff. Identify every touched file and changed boundary.
 5. Read the touched files around each hunk. Trace each changed function to its
    callers and callees, imports, tests, and error paths.
-6. Report every finding that meets this bar, in one pass. An empty review is a
-   valid result, and there is no limit on the number of findings.
+6. Report every defect that meets this bar, in one pass, also a `LOW` one. An
+   empty review is a valid result, and there is no limit on the number of
+   findings. The manager reproduces each finding before it acts, so report an
+   evidenced finding whose reach is uncertain and say what is uncertain.
    - It has a real effect on correctness, security, performance, or maintainability.
    - It is discrete and actionable.
    - The change introduces it, or the change relies on it.
-   - It does not rest on an unstated assumption. Mark an inferred step with the
-     word `inference`.
-   - It names the affected code and shows a triggering input or scenario, the
-     expected behavior, the actual behavior, and the affected callers.
+   - It names the affected code and the input or scenario that shows the
+     effect. State an assumption that the finding rests on, and mark an
+     inferred step with the word `inference`.
    - The plan does not record it as an intentional change. The plan's recorded
      decisions are settled. Report a conflict with one only as a Spec finding
      that cites the plan line and the code line.
@@ -126,7 +127,7 @@ Code-review: <pass|fixes-required|blocked>
 
 ## Standards
 
-- [HIGH] Bug - src/example.mjs:42 - <input or scenario>; expected <behavior>; actual <behavior>; affects <callers> - <fix> - class: <defect class>
+- [HIGH] Bug - src/example.mjs:42 - <the defect and the input or scenario that shows it> - <fix> - class: <defect class>
 
 ## Spec
 
