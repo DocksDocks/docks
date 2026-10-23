@@ -28,6 +28,12 @@ const PLAN_LIST_ARGS = ',labels:["plan"],states:[OPEN,CLOSED],orderBy:{field:CRE
 const PLAN_LIST_FIELDS = 'number title state stateReason labels(first:100){nodes{name}}';
 const GH_MAX_BUFFER_MIB = 256;
 const PLAN_LIST_LIMIT = 500;
+// `reopen` reads the plan up to REOPEN_READS times until GitHub records the close by the merged pull request. Between
+// reads it pauses for the next entry of REOPEN_PAUSES_MS, and the last entry repeats: about 60 s in all. Once the
+// close shows, it waits REOPEN_SETTLE_MS before it reads the plan again and writes (see sleep).
+const REOPEN_PAUSES_MS = [250, 500, 1000, 2000];
+const REOPEN_READS = 34;
+const REOPEN_SETTLE_MS = 10_000;
 // A machine path points into a user or root home, a mount, a named temporary or runtime directory,
 // a Windows drive, or a network share. URL routes, slash prose, and portable system paths such as
 // /usr/bin/env or a bare /tmp do not match (#71). The match runs to the next space or delimiter.
@@ -92,7 +98,7 @@ function parseJson(output, command) {
 const ISSUE_LABEL_FIELDS = 'name id';
 const ASSIGNEE_FIELDS = '... on Actor{login}';
 const LABELED_EVENT_FIELDS = '... on LabeledEvent{label{name}}';
-const CLOSED_EVENT_FIELDS = `... on ClosedEvent{closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS} body} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
+const CLOSED_EVENT_FIELDS = `... on ClosedEvent{createdAt closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS} body} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
 
 function issueConnectionSelection(field, nodeFields, extraArgs = '', after = false) {
   return `${field}(first:100${after ? ',after:$after' : ''}${extraArgs}){nodes{${nodeFields}} ${PAGE_INFO}}`;
@@ -267,10 +273,14 @@ function readSnapshot(
     fail('gh api graphql returned malformed latest closure');
   if (readsClosure) {
     if (!Array.isArray(issue.latestClosure?.nodes)) fail('gh api graphql returned malformed latest closure');
-    const closer = issue.latestClosure.nodes.at(-1)?.closer;
+    const latest = issue.latestClosure.nodes.at(-1);
+    const closer = latest?.closer;
     if (
       issue.latestClosure.nodes.length > 1 ||
-      (issue.latestClosure.nodes.length && (closer === undefined || (closer !== null && !closer.__typename)))
+      (issue.latestClosure.nodes.length &&
+        (closer === undefined ||
+          (closer !== null && !closer.__typename) ||
+          !Number.isFinite(Date.parse(latest.createdAt))))
     )
       fail('gh api graphql returned malformed latest closure');
     if (closer?.__typename === 'PullRequest') pullRequestNodes([closer]);
@@ -279,12 +289,13 @@ function readSnapshot(
       if (archive) issue.associatedPullRequests = pullRequestNodes(associatedNodes(closer));
     }
     issue.closer = closer;
+    issue.closedEventAt = latest?.createdAt;
   }
   return { issue, login, viewerId, labelIds };
 }
-function parseIssueNumber(value) {
+function parseIssueNumber(value, kind = 'plan issue') {
   const match = /^#?([1-9]\d*)$/.exec(String(value ?? ''));
-  if (!match) fail(`invalid plan issue: ${value ?? '(missing)'}`);
+  if (!match) fail(`invalid ${kind}: ${value ?? '(missing)'}`);
   return Number(match[1]);
 }
 function workStarted(issue, recordStatus) {
@@ -441,6 +452,19 @@ export function statusFromIssue(issue) {
     default:
       return 'unreadable';
   }
+}
+// A reopen that races GitHub's close can leave an issue closed with reason REOPENED, and GitHub then refuses every
+// state change on it, also in the web page (#90). The derived status stays `unreadable`.
+const STUCK_ADVICE =
+  'GitHub left this issue closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it, and record step results in an issue comment until then';
+function stuckClosed(issue) {
+  return String(issue.state).toUpperCase() === 'CLOSED' && String(issue.stateReason).toUpperCase() === 'REOPENED';
+}
+function refuseStuck(issue) {
+  if (stuckClosed(issue))
+    fail(
+      `GitHub left plan #${issue.number} closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it`,
+    );
 }
 function labelsToRemove(issue, target) {
   const names = (issue.labels ?? []).map((label) => (typeof label === 'string' ? label : label.name));
@@ -836,6 +860,7 @@ function showPlan(args) {
           `plan is closed as completed while step ${unfinished.id} is ${unfinished.status}; closed by ${describeCloser(issue.closer)}; reopen the issue if work remains`,
         ]
       : [];
+    if (stuckClosed(issue)) extra.push(STUCK_ADVICE);
     printAdvice(issue.body, status, extra);
   }
 }
@@ -1052,6 +1077,141 @@ function archivePlan(args, retired = false) {
       : `plan #${issue.number} finished (closed by ${closer.url ?? `https://github.com/${repository.nameWithOwner}/pull/${closer.number}`})`,
   );
 }
+// Block the process for `ms` milliseconds. A reopen 1 s after GitHub closed a plan for a merged pull request raced
+// that close and left the issue stuck closed with reason REOPENED (#90). So `reopen` pauses between its reads until
+// it sees the close, then waits REOPEN_SETTLE_MS for the close to settle before it writes.
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+// Pull request `number`: whether and when it merged, and whether it closes plan `planNumber` of this repository.
+function readPullRequest(number, planNumber) {
+  const references = (after) =>
+    issueConnectionSelection('closingIssuesReferences', 'number repository{nameWithOwner}', '', after);
+  const query = `query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){merged mergedAt ${references(false)}}}}`;
+  const repo = graphql(query, { pr: number }).repository;
+  const pullRequest = repo?.pullRequest;
+  if (
+    typeof repo?.nameWithOwner !== 'string' ||
+    typeof pullRequest?.merged !== 'boolean' ||
+    (pullRequest.merged && !Number.isFinite(Date.parse(pullRequest.mergedAt)))
+  )
+    fail('gh api graphql returned malformed pull request');
+  const pageQuery = `query($owner:String!,$name:String!,$pr:Int!,$after:String!){repository(owner:$owner,name:$name){pullRequest(number:$pr){${references(true)}}}}`;
+  const closed = connectionNodes(
+    pullRequest.closingIssuesReferences,
+    'closing issue references',
+    (after) => graphql(pageQuery, { pr: number, after }).repository?.pullRequest?.closingIssuesReferences,
+  );
+  if (closed.some((issue) => !Number.isInteger(issue.number) || typeof issue.repository?.nameWithOwner !== 'string'))
+    fail('gh api graphql returned malformed closing issue references');
+  return {
+    number,
+    merged: pullRequest.merged,
+    mergedAt: pullRequest.mergedAt,
+    closesPlan: closed.some(
+      (issue) => issue.number === planNumber && issue.repository.nameWithOwner === repo.nameWithOwner,
+    ),
+  };
+}
+// Whether the latest close of the plan came from the merged pull request, directly or through a commit associated
+// with it; false while that close predates the merge or the plan has none. Refuses a stuck plan and a close by
+// another closer after the merge.
+function closedByPullRequest(issue, pullRequest) {
+  refuseStuck(issue);
+  if (issue.closedEventAt === undefined || Date.parse(issue.closedEventAt) < Date.parse(pullRequest.mergedAt))
+    return false;
+  const { closer } = issue;
+  const isPullRequest = (candidate) =>
+    candidate.number === pullRequest.number && candidate.repository.nameWithOwner === repository.nameWithOwner;
+  const fromPullRequest =
+    closer?.__typename === 'PullRequest'
+      ? isPullRequest(closer)
+      : closer?.__typename === 'Commit' && pullRequestNodes(associatedNodes(closer)).some(isPullRequest);
+  if (!fromPullRequest)
+    fail(
+      `plan #${issue.number} was closed by ${describeCloser(closer)} after pull request #${pullRequest.number} merged; reopen it by hand only if that close was a mistake`,
+    );
+  return true;
+}
+// One write request reopens the plan, posts the contract comment, and claims an unassigned plan. Its last field
+// returns the stored state, which shows whether GitHub left the plan stuck.
+function writeReopen(issue, pr) {
+  const { id } = preWriteIssue(issue.number);
+  const claims = issue.claimantId !== undefined;
+  const stored = '{... on Issue{state stateReason}}';
+  const fields = [
+    'reopenIssue(input:{issueId:$issue}){clientMutationId}',
+    `addComment(input:{subjectId:$issue,body:$body}){${claims ? 'clientMutationId' : `subject${stored}`}}`,
+  ];
+  if (claims)
+    fields.push(`addAssigneesToAssignable(input:{assignableId:$issue,assigneeIds:$assignees}){assignable${stored}}`);
+  let data;
+  try {
+    data = graphqlData([
+      '-f',
+      `query=mutation($issue:ID!,$body:String!${claims ? ',$assignees:[ID!]!' : ''}){${fields.join(' ')}}`,
+      '-f',
+      `issue=${id}`,
+      '-f',
+      `body=Reopened: partial pull request #${pr} closed this plan through its linked branch. Work continues.`,
+      ...(claims ? ['-f', `assignees[]=${issue.claimantId}`] : []),
+    ]);
+  } catch (error) {
+    // GitHub answers the reopen of a stuck plan with "Could not reopen the issue." (#90); the request is not retried.
+    refuseStuck(readSnapshot(issue.number).issue);
+    throw error;
+  }
+  const payload = claims ? data.addAssigneesToAssignable?.assignable : data.addComment?.subject;
+  if (typeof payload?.state !== 'string' || (payload.stateReason !== null && typeof payload.stateReason !== 'string'))
+    fail('gh api graphql returned malformed stored plan issue');
+  const reopened = { ...issue, state: payload.state, stateReason: payload.stateReason };
+  refuseStuck(reopened);
+  if (String(reopened.state).toUpperCase() === 'CLOSED') fail('plan issue state differs after reopen');
+  console.log(`plan #${issue.number} reopened: ${statusFromIssue(reopened)}`);
+}
+// The reopen after a partial pull request closed the plan through its linked branch (#90).
+function reopenPlan(args) {
+  const [value, ...flags] = args,
+    pr = parseOptions(flags, new Set(['--pr']))['--pr'];
+  if (!value || !pr) fail('reopen requires an issue and --pr');
+  const number = parseIssueNumber(value),
+    pullRequest = readPullRequest(parseIssueNumber(pr, 'pull request'), number);
+  if (!pullRequest.merged) fail(`pull request #${pullRequest.number} is not merged`);
+  if (!pullRequest.closesPlan) {
+    console.log(`pull request #${pullRequest.number} does not close plan #${number}; nothing to reopen`);
+    return;
+  }
+  // Each read is a snapshot for the write: it checks ownership and decides the claim.
+  const read = () => readPlanIssue(number, true, { closure: true });
+  const isClosed = ({ issue }) => String(issue.state).toUpperCase() === 'CLOSED';
+  let observed = read();
+  for (let reads = 1; !closedByPullRequest(observed.issue, pullRequest); reads += 1) {
+    if (reads === REOPEN_READS)
+      fail(
+        `GitHub has not closed plan #${number} for pull request #${pullRequest.number} yet; run reopen again once it has`,
+      );
+    sleep(REOPEN_PAUSES_MS[Math.min(reads, REOPEN_PAUSES_MS.length) - 1]);
+    observed = read();
+  }
+  // A plan that reads open was reopened after that close. A closed plan gets the settle wait and one more read,
+  // and the write runs only when that read still shows the same close as completed.
+  let current = observed;
+  if (isClosed(observed)) {
+    sleep(REOPEN_SETTLE_MS);
+    current = read();
+    const sameClose =
+      closedByPullRequest(current.issue, pullRequest) &&
+      current.issue.closedEventAt === observed.issue.closedEventAt &&
+      describeCloser(current.issue.closer) === describeCloser(observed.issue.closer);
+    if (isClosed(current) && (current.status !== 'finished' || !sameClose))
+      fail(`plan #${number} changed during the settle wait; run reopen again`);
+  }
+  if (!isClosed(current)) {
+    console.log(`plan #${number} is open: ${current.status}`);
+    return;
+  }
+  writeReopen(current.issue, pullRequest.number);
+}
 function main([command, ...args]) {
   const commands = {
     new: createPlan,
@@ -1063,9 +1223,10 @@ function main([command, ...args]) {
     list: listPlans,
     archive: archivePlan,
     retire: (values) => archivePlan(values, true),
+    reopen: reopenPlan,
   };
   if (!Object.hasOwn(commands, command))
-    fail('usage: plan.mjs <new|show|export|edit|status|step|list|archive|retire> ...');
+    fail('usage: plan.mjs <new|show|export|edit|status|step|list|archive|retire|reopen> ...');
   repository = undefined;
   commands[command](args);
 }

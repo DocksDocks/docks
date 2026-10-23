@@ -240,6 +240,21 @@ function graphqlSelections(query, field) {
   return selections;
 }
 
+// The fields that `... on <type>{...}` selects at its own level, without the text of nested selections.
+function ownFields(query, type) {
+  const opened = new RegExp(`\\.\\.\\.\\s*on\\s+${type}\\s*\\{`).exec(query);
+  if (!opened) return '';
+  let own = '';
+  let depth = 1;
+  for (let index = opened.index + opened[0].length; index < query.length && depth > 0; index += 1) {
+    const char = query[index];
+    if (char === '{') depth += 1;
+    else if (char === '}') depth -= 1;
+    else if (depth === 1) own += char;
+  }
+  return own;
+}
+
 function graphqlPage(nodes, selection, variables, allowed) {
   for (const name of selection.args.keys()) {
     if (!allowed.includes(name)) die(`Unknown GraphQL argument: "${name}"`);
@@ -259,6 +274,31 @@ function observeIssue(issue) {
     touch(issue);
     delete state.remoteChange;
   }
+}
+
+// A scheduled change lands once the issue has served `afterReads` GraphQL reads, so the next request that
+// reads or writes the issue sees it: a close that GitHub records a while after a merge, or a change that
+// someone makes while the helper waits. A `closedEvent` becomes the latest ClosedEvent of the timeline.
+function applyDueChanges(issue) {
+  const reads = issue.graphqlReads ?? 0;
+  const due = (issue.pendingChanges ?? []).filter((change) => (change.afterReads ?? 0) <= reads);
+  if (due.length === 0) return;
+  issue.pendingChanges = issue.pendingChanges.filter((change) => !due.includes(change));
+  for (const change of due) {
+    const { closedEvent, ...fields } = change;
+    delete fields.afterReads;
+    Object.assign(issue, fields);
+    if (closedEvent) {
+      issue.timelineItems ??= [];
+      issue.timelineItems.push({ __typename: 'ClosedEvent', ...closedEvent });
+    }
+    touch(issue);
+  }
+}
+
+function readIssue(issue) {
+  applyDueChanges(issue);
+  issue.graphqlReads = (issue.graphqlReads ?? 0) + 1;
 }
 
 function respondGraphql(data, stage) {
@@ -285,29 +325,65 @@ function respondGraphql(data, stage) {
   process.exit(0);
 }
 
+// gh prints a GraphQL response that holds errors, reports the messages on stderr, and exits 1.
+function failGraphql(data, errors) {
+  emit(JSON.stringify({ data, errors }));
+  save();
+  console.error(`gh: ${errors.map((error) => error.message).join('\n')}`);
+  process.exit(1);
+}
+
+// The issue fields that a mutation payload can select, rendered as the issue stores them.
+const STORED_SCALARS = ['number', 'title', 'body', 'state', 'stateReason', 'url', 'createdAt', 'updatedAt'];
+
 // A mutation payload shows the issue as stored right after its own field ran, limited to what the field selects.
 function mutationPayload(field, object, issue, variables) {
   const payload = { clientMutationId: null };
   const opened = new RegExp(`\\b${object}\\s*\\{`).exec(field.selection);
   if (!opened) return payload;
   const selection = field.selection.slice(opened.index);
-  const stored = /\bbody\b/.test(selection) ? { body: issue.body } : {};
+  const stored = {};
+  for (const name of STORED_SCALARS) {
+    if (new RegExp(`\\b${name}\\b`).test(selection)) stored[name] = issue[name];
+  }
   for (const page of graphqlSelections(selection, 'labels')) {
     stored[page.alias] = graphqlPage(labels(issue.labels), page, variables, ['first', 'after']);
   }
-  for (const page of graphqlSelections(selection, 'assignees')) {
-    stored[page.alias] = graphqlPage(assignees(issue.assignees), page, variables, ['first', 'after']);
+  for (const connection of ['assignees', 'assignedActors']) {
+    for (const page of graphqlSelections(selection, connection)) {
+      stored[page.alias] = graphqlPage(assignees(issue.assignees), page, variables, ['first', 'after']);
+    }
+  }
+  for (const page of graphqlSelections(selection, 'comments')) {
+    const comments = (issue.comments ?? []).map((comment) => commentJson(comment, issue));
+    stored[page.alias] = graphqlPage(comments, page, variables, ['first', 'after']);
   }
   payload[object] = stored;
   return payload;
 }
 
+function requireInput(field, input, keys) {
+  for (const key of Object.keys(input)) if (!keys.includes(key)) die(`unsupported ${field.name} input field: ${key}`);
+  for (const key of keys) if (!Object.hasOwn(input, key)) die(`${field.name} requires input field ${key}`);
+}
+
 // GitHub runs the top-level fields of a mutation serially, in document order. updateIssue replaces the body
-// and the assignee list that its input names; the label mutations add or remove labels by node id.
+// and the assignee list that its input names; the label mutations add or remove labels by node id;
+// reopenIssue, addComment, and addAssigneesToAssignable reopen, comment as the viewer, and add assignees. A
+// field that fails resolves to null with an error, and the later fields still run.
 function respondMutation(query, variables) {
   // The fault flags that faulted `gh issue edit` fault the write request before any field runs.
   if (state.issueEditError) die(state.issueEditError);
-  const pattern = /(?:(\w+)\s*:\s*)?\b(updateIssue|addLabelsToLabelable|removeLabelsFromLabelable)\s*\(([^)]*)\)/g;
+  for (const issue of state.issues) applyDueChanges(issue);
+  const mutationNames = [
+    'updateIssue',
+    'addLabelsToLabelable',
+    'removeLabelsFromLabelable',
+    'reopenIssue',
+    'addComment',
+    'addAssigneesToAssignable',
+  ];
+  const pattern = new RegExp(String.raw`(?:(\w+)\s*:\s*)?\b(${mutationNames.join('|')})\s*\(([^)]*)\)`, 'g');
   const matches = [...query.matchAll(pattern)];
   if (matches.length === 0) die(`unsupported GraphQL mutation: ${query}`);
   const fields = matches.map((match, index) => ({
@@ -323,6 +399,7 @@ function respondMutation(query, variables) {
   }
   const same = (a, b) => a.toLowerCase() === b.toLowerCase();
   const data = {};
+  const errors = [];
   for (const field of fields) {
     const { input } = field;
     if (!input || typeof input !== 'object' || Array.isArray(input)) die(`${field.name} requires an input object`);
@@ -342,6 +419,53 @@ function respondMutation(query, variables) {
       data[field.alias] = mutationPayload(field, 'issue', issue, variables);
       continue;
     }
+    if (field.name === 'reopenIssue') {
+      requireInput(field, input, ['issueId']);
+      const issue = issueByNodeId(input.issueId);
+      // GitHub refuses every state change of an issue that it left closed with reason REOPENED (#90).
+      if (issue.state === 'CLOSED' && issue.stateReason === 'REOPENED') {
+        data[field.alias] = null;
+        errors.push({ path: [field.alias], message: 'Could not reopen the issue.' });
+        continue;
+      }
+      if (issue.state === 'CLOSED') {
+        // reopenLeavesClosed reproduces #90: a reopen that races GitHub's close leaves the issue stuck.
+        if (!state.reopenLeavesClosed) issue.state = 'OPEN';
+        issue.stateReason = 'REOPENED';
+        touch(issue);
+      }
+      data[field.alias] = mutationPayload(field, 'issue', issue, variables);
+      continue;
+    }
+    if (field.name === 'addComment') {
+      requireInput(field, input, ['subjectId', 'body']);
+      const issue = issueByNodeId(input.subjectId);
+      if (typeof input.body !== 'string' || !input.body) die('AddCommentInput.body must be a non-empty string');
+      touch(issue);
+      state.nextComment ??= 1;
+      const comment = {
+        id: state.nextComment++,
+        body: input.body,
+        author: state.viewerLogin,
+        createdAt: issue.updatedAt,
+      };
+      issue.comments ??= [];
+      issue.comments.push(comment);
+      data[field.alias] = {
+        ...mutationPayload(field, 'subject', issue, variables),
+        ...(/\bcommentEdge\s*\{/.test(field.selection) && { commentEdge: { node: commentJson(comment, issue) } }),
+      };
+      continue;
+    }
+    if (field.name === 'addAssigneesToAssignable') {
+      requireInput(field, input, ['assignableId', 'assigneeIds']);
+      const issue = issueByNodeId(input.assignableId);
+      const logins = nodeIds(input.assigneeIds, 'assigneeIds').map(loginByNodeId);
+      issue.assignees = [...new Set([...(issue.assignees ?? []), ...logins])];
+      touch(issue);
+      data[field.alias] = mutationPayload(field, 'assignable', issue, variables);
+      continue;
+    }
     const issue = issueByNodeId(input.labelableId);
     const names = nodeIds(input.labelIds, 'labelIds').map(labelNameByNodeId);
     if (field.name === 'addLabelsToLabelable') {
@@ -356,6 +480,7 @@ function respondMutation(query, variables) {
     touch(issue);
     data[field.alias] = mutationPayload(field, 'labelable', issue, variables);
   }
+  if (errors.length) failGraphql(data, errors);
   respondGraphql(data, 'mutation');
 }
 
@@ -517,6 +642,7 @@ if (group === 'api' && command === 'graphql') {
     const requestedNumber = graphqlValue(issueSelection[0].args.get('number'), variables);
     const issue = issueByNumber(Number(requestedNumber));
     if (stage === 'snapshot') observeIssue(issue);
+    readIssue(issue);
     const payload = {
       number: issue.number,
       title: issue.title,
@@ -572,7 +698,10 @@ if (group === 'api' && command === 'graphql') {
             }),
           };
         }
-        payload[selection.alias] = { nodes: latest ? [{ closer: renderedCloser }] : [] };
+        // GitHub stamps every close; a fixture close without a time reads as the issue's last update.
+        const stamped = /\bcreatedAt\b/.test(ownFields(query, 'ClosedEvent'));
+        const node = { ...(stamped && { createdAt: latest?.createdAt ?? issue.updatedAt }), closer: renderedCloser };
+        payload[selection.alias] = { nodes: latest ? [node] : [] };
       } else die(`unsupported timeline item types: ${types ?? '(missing)'}`);
     }
     repository.issue = payload;
@@ -626,6 +755,41 @@ if (group === 'api' && command === 'graphql') {
     const name = graphqlValue(selection.args.get('name'), variables);
     const stored = Object.keys(state.labels).find((label) => label.toLowerCase() === name?.toLowerCase());
     repository[selection.alias] = stored ? { name: stored, id: labelNodeId(stored) } : null;
+  }
+  // Repository.pullRequest: a merged pull request still lists the issues that it closes (checked on #95).
+  for (const selection of graphqlSelections(query, 'pullRequest')) {
+    for (const argument of selection.args.keys()) {
+      if (argument !== 'number') die(`Unknown GraphQL argument: "${argument}"`);
+    }
+    const number = graphqlValue(selection.args.get('number'), variables);
+    const pullRequest = (state.prs ?? []).find(
+      (entry) => entry.number === number && entry.repository === state.repo.nameWithOwner,
+    );
+    if (!pullRequest) {
+      failGraphql({ repository: { ...repository, [selection.alias]: null } }, [
+        {
+          type: 'NOT_FOUND',
+          path: ['repository', selection.alias],
+          message: `Could not resolve to a PullRequest with the number of ${number}.`,
+        },
+      ]);
+    }
+    const node = {
+      number,
+      url: pullRequest.url ?? `https://github.com/${state.repo.nameWithOwner}/pull/${number}`,
+      state: pullRequest.state,
+      merged: pullRequest.state === 'MERGED',
+      mergedAt: pullRequest.mergedAt ?? null,
+      baseRefName: pullRequest.baseRefName ?? null,
+    };
+    for (const page of graphqlSelections(query, 'closingIssuesReferences')) {
+      const references = (pullRequest.closingIssuesReferences ?? []).map((issueNumber) => ({
+        number: issueNumber,
+        repository: { nameWithOwner: state.repo.nameWithOwner },
+      }));
+      node[page.alias] = graphqlPage(references, page, variables, ['first', 'after']);
+    }
+    repository[selection.alias] = node;
   }
   const viewer = { login: state.viewerLogin ?? '', id: state.viewerLogin ? userNodeId(state.viewerLogin) : null };
   respondGraphql({ ...(query.includes('viewer') && { viewer }), repository }, stage);

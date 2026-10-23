@@ -210,6 +210,7 @@ prefixed with `#`. The header strip is `#<n> · <status> · <title> · <url>`.
 | `list [--status <s>]` | `<status>\t#<n>\t<title>`; open first, then closed, each in ascending number order; prints advice when it reaches 500 plans |
 | `archive <n>` | `plan #<n> finished (closed by <pr-url>)`; removes stale phase labels |
 | `retire <n> --reason <t>` | `plan #<n> retired`; closes as not planned and removes phase labels |
+| `reopen <n> --pr <pr>` | `plan #<n> reopened: <status>`; `plan #<n> is open: <status>` when the plan is already open again; `pull request #<pr> does not close plan #<n>; nothing to reopen` when that pull request does not close the plan |
 
 With `show --body`, only the body goes to stdout; both metadata lines go to stderr.
 Render a body for the user only when they name the plan and ask to see it.
@@ -248,7 +249,10 @@ directory, a Windows drive, or a network share. Its advice is
 `body contains an absolute machine path: <path>`, once per distinct path.
 URL routes and portable system paths, such as `/usr/bin/env` or a bare `/tmp`,
 get no advice. `show` also advises when a plan is closed as completed while a
-step is not terminal, and names the closer. `list` advises when it reaches 500
+step is not terminal, and names the closer. For an issue that GitHub left
+closed with reason `REOPENED`, `show` advises
+`GitHub left this issue closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it, and record step results in an issue comment until then`.
+The status of that issue stays `unreadable`. `list` advises when it reaches 500
 plans. Advice is not approval.
 
 Refusals exit 1. These stderr strings are exact, with angle brackets replaced:
@@ -280,6 +284,12 @@ retire requires a single-line --reason
 cannot retire a <status> plan
 blocked status requires --reason as single-line text
 reserved label namespace: <label>
+pull request #<pr> is not merged
+GitHub has not closed plan #<n> for pull request #<pr> yet; run reopen again once it has
+plan #<n> was closed by <closer> after pull request #<pr> merged; reopen it by hand only if that close was a mistake
+plan #<n> changed during the settle wait; run reopen again
+GitHub left plan #<n> closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it
+plan issue state differs after reopen
 ```
 
 GitHub call failures exit 1 and print one of these messages on stderr. `edit`,
@@ -335,9 +345,19 @@ For a partial pull request:
    `gh pr view <pr> --repo <owner/repo> --json closingIssuesReferences`. If the
    plan issue is listed, say in the merge question that the merge closes the
    issue and that you will reopen it.
-2. After the merge, run `show <n>`. If the status is `finished`, run
-   `gh issue reopen <n> --repo <owner/repo> --comment "Reopened: partial pull request #<pr> closed this plan through its linked branch. Work continues."`.
+2. After the merge, run `reopen <n> --pr <pr>`. The helper waits until GitHub
+   records the close by that pull request, then waits 10 s more. It reopens the
+   plan with the comment
+   `Reopened: partial pull request #<pr> closed this plan through its linked branch. Work continues.`,
+   claims an unassigned plan in the same write, and prints the status. Never
+   reopen the issue by hand right after the merge.
 3. Run `show <n>` again. Continue only when the status is `ongoing`.
+
+GitHub can leave an issue closed with reason `REOPENED`. It then refuses every
+state change on the issue, also in the web page (DocksDocks/docks#90). Do not
+retry the reopen. Record the remaining step results in one issue comment,
+report the plan as stuck, and ask the repository owner to contact GitHub
+Support. After GitHub repairs the issue, continue normally.
 
 ### Checks and merge
 
