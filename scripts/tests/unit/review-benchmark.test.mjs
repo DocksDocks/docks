@@ -191,6 +191,20 @@ test('parses plan findings and reads each block verdict through the plan helper'
   assert.equal(parseBlock(NO_VERDICT_BLOCK, 'code').verdict, 'unreadable');
   assert.equal(parseBlock(PLAN_PASS_BLOCK, 'code').verdict, 'unreadable');
   assert.equal(parseBlock(PLAN_PASS_BLOCK, 'plan').verdict, 'pass');
+  // Blocks returned JSON-wrapped, as an object with one string field or as a JSON string, parse as the plain block.
+  const passBlock = '### Code review round 1\n\nCode-review: pass\n\nNone.';
+  const shapes = [
+    [JSON.stringify({ review: passBlock }), 'pass', 0],
+    [JSON.stringify({ report: CORRECTNESS_BLOCK }), 'fixes-required', 3],
+    [JSON.stringify(passBlock), 'pass', 0],
+    [JSON.stringify(CORRECTNESS_BLOCK), 'fixes-required', 3],
+    [passBlock, 'pass', 0],
+    [CORRECTNESS_BLOCK, 'fixes-required', 3],
+  ];
+  for (const [text, verdict, count] of shapes) {
+    const parsed = parseBlock(text, 'code');
+    assert.deepEqual([parsed.verdict, parsed.findings.length], [verdict, count], text);
+  }
 });
 
 test('parseLocator reads paths, line ranges, and snapshot paths, and skips plan sections', () => {

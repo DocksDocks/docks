@@ -102,7 +102,7 @@ A path can be in more than one class. When no changed path is in a lens's scope,
    ```
 
    `--runtime claude` writes the agents to `.claude/agents/` instead of `.omp/agents/`; Claude Code loads them in a new session or after `/agents`. `prepare.mjs` stops with a message when a commit is missing (fetch it) or a patch does not apply.
-3. Dispatch. One message holds every prompt of one arm and run, one subagent per prompt file: the agent is the name on the first line, the task is the text after the empty line, and the task name is the one that `score.mjs names` prints for that file. Alternate the arms from message to message. Load changes round time, so keep the same load for every arm. Save each returned block unchanged as `blocks/<reviewer>.md`. Fill `meta.json` with `score.mjs transcripts <ws> --omp-sessions <session folder>`, or write the seconds and tokens by hand.
+3. Dispatch. One message holds every prompt of one arm and run, one subagent per prompt file: the agent is the name on the first line, the task is the text after the empty line, and the task name is the one that `score.mjs names` prints for that file. Alternate the arms from message to message. Load changes round time, so keep the same load for every arm. Save each returned block as plain Markdown in `blocks/<reviewer>.md`; `score.mjs` also unwraps JSON-wrapped output from runtimes that return structured text. Fill `meta.json` with `score.mjs transcripts <ws> --omp-sessions <session folder>`, or write the seconds and tokens by hand.
 4. Score and judge:
 
    ```bash

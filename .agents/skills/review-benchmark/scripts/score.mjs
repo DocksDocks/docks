@@ -159,10 +159,28 @@ export function parseFindings(text) {
   return findings;
 }
 
+// Some runtimes return the block JSON-wrapped: a JSON string, or an object whose one field is the block text.
+// Any other text, including other JSON, stays as it is.
+export function unwrapBlock(text) {
+  let value;
+  try {
+    value = JSON.parse(text.trim());
+  } catch {
+    return text;
+  }
+  if (typeof value === 'string') return value;
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const values = Object.values(value);
+    if (values.length === 1 && typeof values[0] === 'string') return values[0];
+  }
+  return text;
+}
+
 // The verdict comes from the plan helper. A block of the other review kind is unreadable for this case.
 export function parseBlock(text, family) {
-  const review = parseReviewComment(text);
-  return { verdict: review?.kind === family ? review.verdict : 'unreadable', findings: parseFindings(text) };
+  const block = unwrapBlock(text);
+  const review = parseReviewComment(block);
+  return { verdict: review?.kind === family ? review.verdict : 'unreadable', findings: parseFindings(block) };
 }
 
 export function roundVerdict(verdicts) {
