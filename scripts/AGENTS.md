@@ -24,7 +24,8 @@ owned by `.github/AGENTS.md` (PR topology). The changed-path → shard mapping i
 
 The root `AGENTS.md` (Plans) decides when a change needs a canonical plan.
 
-The live plan author suite runs the helper smoke in `scripts/tests/plan-cli.mjs`
+The live plan author suite is the set of plan-CLI case files in
+`scripts/tests/plan-cli/`. The `scripts/tests/plan-cli.mjs` entry runs them
 against the shipped
 `plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs`.
 The canonical issue-body contract lives in
@@ -62,10 +63,10 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
 | `config/read-floor.mjs` | reads per-file floors from `scoring.json` | — |
 | `tests/skill-trigger-collision.mjs` | cross-skill trigger-overlap audit — fails on a ≥5-token unrouted pair (`--report` prints the matrix) | pass/fail |
 | `tests/idempotency.mjs` | content-hash determinism + every stored hash in sync | pass/fail |
-| `tests/plan-cli.mjs` | smoke-tests the shipped plan helper (`plan.mjs`) | pass/fail |
+| `tests/plan-cli.mjs` | runs the plan-CLI case files in `tests/plan-cli/` in parallel through Node's test runner against the shipped plan helper (`plan.mjs`) | pass/fail |
 | `tests/ci-observability.mjs` | validates command timing records, wall-time reconstruction, and CI host metadata | pass/fail |
 | `tests/test-contracts.mjs` | validates the closed test-contract registry and its discovered, registered, selected, and executed sets | pass/fail |
-| `tests/author-tooling.mjs` | author-tool contracts: Biome rejects a syntax defect, combined skill validation, tree/guard operational failures, skills-guard spawn failure; this table lists every `scripts/**/*.mjs` outside `lib/`, `tests/unit/`, and the non-validator entry points `release.mjs`/`ci-target.mjs`/`capture-tdd-red.mjs`, and every first-column `.mjs` path resolves from `scripts/` or the repo root | pass/fail |
+| `tests/author-tooling.mjs` | author-tool contracts: Biome rejects a syntax defect, combined skill validation, tree/guard operational failures, skills-guard spawn failure; this table lists every `scripts/**/*.mjs` outside `lib/`, `tests/unit/`, `tests/plan-cli/`, and the non-validator entry points `release.mjs`/`ci-target.mjs`/`capture-tdd-red.mjs`, and every first-column `.mjs` path resolves from `scripts/` or the repo root | pass/fail |
 | `tests/ci-plugin-targeting.mjs` | CI targeting and release contracts: shard selection, `ci.yml` trigger block, release module and dry-run safety (`--unit` in the gate) | pass/fail |
 | shellcheck (target-selected) | `-S warning` over selected plugins' `hooks/*.sh`, via `shellHooks(p)`; a full invocation selects every plugin | pass/warn |
 
