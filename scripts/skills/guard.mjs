@@ -12,7 +12,11 @@ function run(args) {
   const result = spawnSync('node', args, { stdio: 'inherit' });
   const command = `node ${args.join(' ')}`;
   if (result.error) {
-    console.error(`FAIL: ${command} could not start: ${result.error.message}`);
+    // Lead with the errno code: it is the same on every runtime, while the message text is
+    // not (Node prints `spawnSync node ENOENT`, Bun prints `Executable not found in $PATH`).
+    console.error(
+      `FAIL: ${command} could not start: ${result.error.code ?? 'unknown error'} (${result.error.message})`,
+    );
     process.exit(1);
   }
   if (result.signal !== null || result.status === null) {

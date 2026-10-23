@@ -243,7 +243,7 @@ function testSkillsGuardSpawnFailure() {
   assert.match(
     result.stderr,
     new RegExp(
-      `^FAIL: node ${path.join(ROOT, 'scripts/lib/validate-skills.mjs')} --runtime all ${target} could not start: .*ENOENT`,
+      `^FAIL: node ${path.join(ROOT, 'scripts/lib/validate-skills.mjs')} --runtime all ${target} could not start: ENOENT \\(`,
     ),
   );
 }
