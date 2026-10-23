@@ -287,6 +287,7 @@ reserved label namespace: <label>
 pull request #<pr> is not merged
 GitHub has not closed plan #<n> for pull request #<pr> yet; run reopen again once it has
 plan #<n> was closed by <closer> after pull request #<pr> merged; reopen it by hand only if that close was a mistake
+plan #<n> was closed by <closer> before pull request #<pr> merged; reopen it by hand only if that close was a mistake
 plan #<n> changed during the settle wait; run reopen again
 GitHub left plan #<n> closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it
 plan issue state differs after reopen

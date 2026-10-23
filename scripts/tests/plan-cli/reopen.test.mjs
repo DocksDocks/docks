@@ -257,6 +257,30 @@ test('reopen refuses after 34 reads when GitHub never closes the plan for the me
   assert.deepEqual(context.writes(), []);
 });
 
+test('reopen refuses after 34 reads when another closer closed the plan before the pull request merged', (t) => {
+  const context = planCliContext(t);
+  const plan = context.partialMerge('closed before the merge');
+  const earlier = {
+    __typename: 'PullRequest',
+    number: plan.pr - 1,
+    url: `https://github.com/DocksDocks/fixture/pull/${plan.pr - 1}`,
+    state: 'MERGED',
+    mergedAt: '2026-08-20T22:00:00Z',
+    baseRefName: 'main',
+    repository: { nameWithOwner: 'DocksDocks/fixture' },
+  };
+  // GitHub cannot close a closed issue, so this merge adds no close, and "run reopen again" would loop forever.
+  context.schedule(plan.number, { afterReads: 0, ...closedBy(earlier, '2026-08-20T22:00:02Z') });
+  refuse(
+    reopen(context, plan),
+    `plan #${plan.number} was closed by ${earlier.url} before pull request #${plan.pr} merged; reopen it by hand only if that close was a mistake`,
+  );
+  assert.equal(context.issue(plan.number).graphqlReads, 34);
+  assert.deepEqual(context.waits(), [250, 500, 1000, ...Array(30).fill(2000)]);
+  assert.deepEqual(stored(context, plan.number), { ...ONGOING, state: 'CLOSED', stateReason: 'COMPLETED' });
+  assert.deepEqual(context.writes(), []);
+});
+
 test('reopen refuses a plan that another login claims during the settle wait', (t) => {
   const context = planCliContext(t);
   const plan = context.partialMerge('claimed during the settle wait');

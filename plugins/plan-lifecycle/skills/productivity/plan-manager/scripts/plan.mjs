@@ -1186,10 +1186,17 @@ function reopenPlan(args) {
   const isClosed = ({ issue }) => String(issue.state).toUpperCase() === 'CLOSED';
   let observed = read();
   for (let reads = 1; !closedByPullRequest(observed.issue, pullRequest); reads += 1) {
-    if (reads === REOPEN_READS)
+    if (reads === REOPEN_READS) {
+      // GitHub cannot close a closed issue, so a plan that still reads closed by an earlier close never gets the
+      // close from this merge; telling the caller to run reopen again would loop forever.
+      if (isClosed(observed))
+        fail(
+          `plan #${number} was closed by ${describeCloser(observed.issue.closer)} before pull request #${pullRequest.number} merged; reopen it by hand only if that close was a mistake`,
+        );
       fail(
         `GitHub has not closed plan #${number} for pull request #${pullRequest.number} yet; run reopen again once it has`,
       );
+    }
     sleep(REOPEN_PAUSES_MS[Math.min(reads, REOPEN_PAUSES_MS.length) - 1]);
     observed = read();
   }
