@@ -481,18 +481,37 @@ function judgedArm(known, runs, costs = []) {
 test('an unknown pair with a missed known defect counts as unresolved, and the finding keeps its rating', () => {
   const scores = scoreRuns(judgedArm(CODE_KNOWN.slice(0, 1), [[{ matches: { D1: 'unknown' }, rating: 'valid' }]]));
   const [run] = scores.runs;
-  assert.deepEqual([run.recall, run.validExtras, run.unknown, run.unjudged, run.unresolved], [0, 1, 0, 0, 1]);
-  assert.equal(scores.summaries[0].unresolved, 1);
+  assert.deepEqual(
+    [run.recall, run.validExtras, run.unknown, run.unjudged, run.unresolved, run.unknownPairs],
+    [0, 1, 0, 0, 1, 1],
+  );
+  assert.deepEqual([scores.summaries[0].unresolved, scores.summaries[0].unknownPairs], [1, 1]);
   const lines = renderReport(scores).split('\n');
   assert.ok(
-    lines.includes('| code-7 | C3 | run-1 | 0.00 | - | 1 | 0 | 0 | 0 | 1 | - | - | pass | correctness: pass |'),
+    lines.includes('| code-7 | C3 | run-1 | 0.00 | - | 1 | 0 | 0 | 0 | 1 | 1 | - | - | pass | correctness: pass |'),
   );
+});
+
+test('an unknown pair with a known defect that the run found counts as an unknown pair, not as unresolved', () => {
+  const scores = scoreRuns(
+    judgedArm(CODE_KNOWN.slice(0, 1), [
+      [{ matches: { D1: 'match' } }, { matches: { D1: 'unknown' }, rating: 'valid' }],
+    ]),
+  );
+  const [run] = scores.runs;
+  assert.deepEqual([run.recall, run.validExtras, run.unresolved, run.unknownPairs], [1, 1, 0, 1]);
+  assert.deepEqual([scores.summaries[0].unresolved, scores.summaries[0].unknownPairs], [0, 1]);
+  const lines = renderReport(scores).split('\n');
+  assert.ok(
+    lines.includes('| code-7 | C3 | run-1 | 1.00 | D1 | 1 | 0 | 0 | 0 | 0 | 1 | - | - | pass | correctness: pass |'),
+  );
+  assert.ok(lines.some((line) => line.includes('| Unresolved mean | Unknown pairs mean |')));
 });
 
 test('a finding that matches one known defect and has an unknown pair with a missed one leaves it unresolved', () => {
   const scores = scoreRuns(judgedArm(CODE_KNOWN.slice(0, 2), [[{ matches: { D1: 'match', D2: 'unknown' } }]]));
   const [run] = scores.runs;
-  assert.deepEqual([run.found, run.recall, run.unresolved], [['D1'], 0.5, 1]);
+  assert.deepEqual([run.found, run.recall, run.unresolved, run.unknownPairs], [['D1'], 0.5, 1, 1]);
 });
 
 test('an unknown pair with a known defect that another finding of the run matches is not unresolved', () => {
@@ -503,9 +522,9 @@ test('an unknown pair with a known defect that another finding of the run matche
     ]),
   );
   const [first, second] = scores.runs;
-  assert.deepEqual([first.found, first.unresolved], [['D1', 'D2'], 0]);
-  assert.deepEqual([second.found, second.unresolved], [[], 1]);
-  assert.equal(scores.summaries[0].unresolved, 0.5);
+  assert.deepEqual([first.found, first.unresolved, first.unknownPairs], [['D1', 'D2'], 0, 1]);
+  assert.deepEqual([second.found, second.unresolved, second.unknownPairs], [[], 1, 1]);
+  assert.deepEqual([scores.summaries[0].unresolved, scores.summaries[0].unknownPairs], [0.5, 1]);
 });
 
 test('the summary gives the median and the range of seconds and tokens, so one slow run does not move the median', () => {
@@ -550,11 +569,11 @@ test('report.md lists known-defect ids and no defect text', (t) => {
   const report = fs.readFileSync(path.join(ws, 'report.md'), 'utf8');
   const lines = report.split('\n');
   for (const expected of [
-    '| code-7 | B0 | 1 | 3 | 0.33 | 0.33 | 0.33 | 0.33 | 0.00 | 0.00 | 0.00 | 0.00 | 61.5 | 61.5 | 61.5 | 4200 | 4200 | 4200 |',
-    '| code-7 | B0 | run-1 | 0.33 | D1 | 0 | 0 | 0 | 0 | 0 | 61.5 | 4200 | fixes-required | full: fixes-required |',
-    '| code-7 | C3 | run-1 | 0.67 | D1, D2 | 1 | 1 | 0 | 0 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
-    '| code-7 | C3 | run-2 | 0.00 | - | 0 | 0 | 0 | 3 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
-    '| plan-3 | P0 | run-1 | 0.50 | K1 | 0 | 0 | 0 | 1 | 0 | - | - | repair | plan: repair |',
+    '| code-7 | B0 | 1 | 3 | 0.33 | 0.33 | 0.33 | 0.33 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 61.5 | 61.5 | 61.5 | 4200 | 4200 | 4200 |',
+    '| code-7 | B0 | run-1 | 0.33 | D1 | 0 | 0 | 0 | 0 | 0 | 0 | 61.5 | 4200 | fixes-required | full: fixes-required |',
+    '| code-7 | C3 | run-1 | 0.67 | D1, D2 | 1 | 1 | 0 | 0 | 0 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
+    '| code-7 | C3 | run-2 | 0.00 | - | 0 | 0 | 0 | 3 | 0 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
+    '| plan-3 | P0 | run-1 | 0.50 | K1 | 0 | 0 | 0 | 1 | 0 | 0 | - | - | repair | plan: repair |',
   ]) {
     assert.ok(lines.includes(expected), `report.md lacks ${expected}`);
   }

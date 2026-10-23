@@ -358,13 +358,18 @@ function readJudgments(judgments, byBlind, knownByCase) {
 }
 
 // A known defect is unresolved in a run when the run did not find it and the judge answered `unknown` for a pair
-// of it with at least one finding of the run.
+// of it with at least one finding of the run. `unknownPairs` counts every `unknown` pair answer of the run, also
+// those that cannot change recall, such as a finding that may repeat a known defect the run found.
 function scoreRun(run, knownIds, { matched, unsure, ratings }, meta) {
   const found = new Set();
   const doubtful = new Set();
+  let unknownPairs = 0;
   const counts = { validExtras: 0, wrong: 0, unknown: 0, unjudged: 0 };
   for (const finding of run.findings) {
-    for (const id of unsure.get(finding.blind) ?? []) doubtful.add(id);
+    for (const id of unsure.get(finding.blind) ?? []) {
+      doubtful.add(id);
+      unknownPairs += 1;
+    }
     const hits = matched.get(finding.blind);
     if (hits) {
       for (const id of hits) found.add(id);
@@ -393,6 +398,7 @@ function scoreRun(run, knownIds, { matched, unsure, ratings }, meta) {
     recall: knownIds.length ? found.size / knownIds.length : null,
     ...counts,
     unresolved: knownIds.filter((id) => doubtful.has(id) && !found.has(id)).length,
+    unknownPairs,
     seconds,
     tokens,
     verdicts: run.blocks.map((block) => ({ reviewer: block.reviewer, verdict: block.verdict })),
@@ -434,6 +440,7 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
     wrong: mean(runsOfArm, 'wrong'),
     unknown: mean(runsOfArm, 'unknown'),
     unresolved: mean(runsOfArm, 'unresolved'),
+    unknownPairs: mean(runsOfArm, 'unknownPairs'),
     seconds: summarize(runsOfArm.map((run) => run.seconds)),
     tokens: summarize(runsOfArm.map((run) => run.tokens)),
   }));
@@ -459,6 +466,7 @@ const SUMMARY_COLUMNS = [
   ['Wrong mean', (entry) => ratio(entry.wrong), true],
   ['Unknown mean', (entry) => ratio(entry.unknown), true],
   ['Unresolved mean', (entry) => ratio(entry.unresolved), true],
+  ['Unknown pairs mean', (entry) => ratio(entry.unknownPairs), true],
   ['Seconds median', (entry) => oneDecimal(entry.seconds.median), true],
   ['Seconds min', (entry) => oneDecimal(entry.seconds.min), true],
   ['Seconds max', (entry) => oneDecimal(entry.seconds.max), true],
@@ -477,6 +485,7 @@ const RUN_COLUMNS = [
   ['Unknown', (run) => run.unknown, true],
   ['Unjudged', (run) => run.unjudged, true],
   ['Unresolved', (run) => run.unresolved, true],
+  ['Unknown pairs', (run) => run.unknownPairs, true],
   ['Seconds', (run) => oneDecimal(run.seconds), true],
   ['Tokens', (run) => whole(run.tokens), true],
   ['Round verdict', (run) => run.roundVerdict],
@@ -497,6 +506,7 @@ export function renderReport({ summaries, runs }) {
     '',
     'Recall is the number of known defects that at least one reviewer of a run found, divided by the known defects of the case.',
     'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
+    'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a run. Tokens is the sum over the reviewers of a run. A dash means no value.',
     '',
     '## Summary',
