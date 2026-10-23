@@ -16,7 +16,7 @@
 //      output templates, whose sections live inside a verbatim code fence.
 //
 // Cross-skill prose mentions (`solid/references/x.md`) and runtime/consumer paths
-// (`docs/plans/_assets/…`) are NOT local links and are correctly ignored — only
+// (`docs/assets/…`) are NOT local links and are correctly ignored — only
 // link targets relative to THIS skill's dir are checked.
 //
 // Usage: bun scripts/skills/refs-guard.mjs [skills-root ...]

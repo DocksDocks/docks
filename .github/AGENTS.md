@@ -49,7 +49,7 @@ changed-path → shard mapping is `root` + `ciLane` in `scripts/lib/plugins.mjs`
 lane list is duplicated in YAML.
 
 - `repo` (always runs): workflow YAML, marketplace catalogs, repo-wide guards
-  (context tree, no-bespoke-gates, durable anchors, author tooling, observability,
+  (context tree, durable anchors, author tooling, observability,
   test-contract registry, unit tests), and the CI targeting contract. Cross-plugin
   by nature and cheap, so it is never skipped.
 - `core`: every plugin whose descriptor declares `ciLane: 'core'` — each plugin's

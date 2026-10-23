@@ -13,6 +13,3 @@ Use `plan-workspace` to maintain workspace routing, main-context `plan-manager`
 to run the lifecycle, and internal `plan-reviewer` for plan review.
 The two read-only wrappers are `plan-reviewer` and `code-reviewer`.
 If the plugin is missing, report that prerequisite. Do not invent a local copy.
-
-`docs/plans/finished/` is frozen pre-GitHub history, not lifecycle input.
-An optional `docs/PLAN-QUEUE.md` is a human note only. No helper reads it.

@@ -3,8 +3,8 @@
 // AGENTS.md context nodes) must not carry LIVE file:line anchors: a `path:NN`
 // whose path resolves in this repo rots on the next edit above that line and
 // then misleads. Fictional teaching paths (src/api/users.ts:87) don't resolve
-// and pass by construction. Point-in-time artifacts (docs/plans/, findings)
-// are out of scope — file:line is correct there.
+// and pass by construction. Point-in-time artifacts (findings) are out of
+// scope — file:line is correct there.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -12,9 +12,7 @@ const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'target', '.claude', '.codex']);
-// docs/plans is point-in-time by contract (plans cite file:line against a
-// pinned commit); every other AGENTS.md node is long-lived and in scope.
-const SKIP_PATHS = [path.join('docs', 'plans')];
+// Every AGENTS.md node is long-lived and in scope.
 
 function walk(dir, filter, out = []) {
   let entries;
@@ -26,16 +24,15 @@ function walk(dir, filter, out = []) {
   for (const e of entries) {
     if (e.isSymbolicLink()) continue;
     const full = path.join(dir, e.name);
-    const rel = path.relative(REPO_DIR, full);
     if (e.isDirectory()) {
-      if (!SKIP_DIRS.has(e.name) && !SKIP_PATHS.includes(rel)) walk(full, filter, out);
+      if (!SKIP_DIRS.has(e.name)) walk(full, filter, out);
     } else if (filter(full)) out.push(full);
   }
   return out;
 }
 
 // Scope: every shipped skill body/reference under plugins/*/skills/, plus every
-// AGENTS.md node outside docs/plans/.
+// AGENTS.md node.
 const skillDocs = walk(path.join(REPO_DIR, 'plugins'), (f) =>
   /\/skills\/.*(SKILL\.md|\/references\/[^/]+\.md)$/.test(f),
 );

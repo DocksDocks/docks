@@ -290,9 +290,6 @@ if (repoWide) {
   bunOk(['scripts/tree/guard.mjs'])
     ? ok('tree/guard passed (context-tree nodes)')
     : fail('tree/guard failed (run: bun scripts/tree/guard.mjs)');
-  bunOk(['scripts/plans/no-bespoke-gates.mjs'])
-    ? ok('plans/no-bespoke-gates passed (no bespoke per-plan verification gate)')
-    : fail('plans/no-bespoke-gates failed (run: bun scripts/plans/no-bespoke-gates.mjs)');
   bunOk(['scripts/skills/durable-anchors.mjs'])
     ? ok('durable-anchors passed (no live file:line anchors in long-lived docs)')
     : fail('durable-anchors failed (run: bun scripts/skills/durable-anchors.mjs)');
