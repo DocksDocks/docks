@@ -4,3 +4,5 @@
 .idea/
 .vscode/
 node_modules/
+/.omp/agents/review-bench-*.md
+/.claude/agents/review-bench-*.md
