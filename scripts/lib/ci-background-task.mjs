@@ -13,8 +13,8 @@ export const RUN_ORIGIN_NS = process.hrtime.bigint();
 // runs, which is the same defect with a smaller error bar. The launcher below is a separate OS
 // process, so the kernel schedules it independently of this loop. It measures its own child with one
 // monotonic clock and reports the lifetime; the parent only has to place that interval on its own
-// timeline. Verify: run a 1 s child behind a 2.5 s blocking `spawnSync` and read the recorded
-// duration (`bun test ./scripts/tests/unit/ci-background-task.test.mjs`).
+// timeline. Verify: run a 300 ms child behind a 1 s blocking `spawnSync` and read the recorded
+// duration (`bun test ./scripts/tests/unit/ci-background-task-blocked-lifetime.test.mjs`).
 const LAUNCHER_SOURCE = [
   "import { spawn } from 'node:child_process';",
   "import fs from 'node:fs';",

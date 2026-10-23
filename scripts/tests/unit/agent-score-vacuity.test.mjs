@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -94,37 +94,60 @@ delete baseEnv.CARGO_TARGET_DIR;
 delete baseEnv.GITHUB_ACTIONS;
 delete baseEnv.NODE_OPTIONS;
 
+// Each gate is a full `scripts/ci.mjs` run that spends seconds waiting on its children, so every
+// mode starts when the module loads and the runs overlap; each test awaits only its own mode.
 const runCi = (mode) => {
   const needsFixture = mode === 'empty-directory' || mode.startsWith('missing-');
-  const result = spawnSync(
-    process.execPath,
-    [...(needsFixture ? [`--import=${fixtureHook}`] : []), 'scripts/ci.mjs', '--plugin', TARGET],
-    {
-      cwd: REPO,
-      encoding: 'utf8',
-      timeout: 180_000,
-      env: {
-        ...baseEnv,
-        PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
-        DOCKS_AGENT_SCORE_MODE: mode,
-        ...(needsFixture
-          ? {
-              DOCKS_MISSING_ROOT:
-                mode === 'missing-skills-root' ? SKILLS_ROOT : mode === 'missing-agents-root' ? AGENTS_ROOT : '',
-            }
-          : {}),
+  return new Promise((resolve) => {
+    const child = spawn(
+      process.execPath,
+      [...(needsFixture ? [`--import=${fixtureHook}`] : []), 'scripts/ci.mjs', '--plugin', TARGET],
+      {
+        cwd: REPO,
+        timeout: 180_000,
+        env: {
+          ...baseEnv,
+          PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}`,
+          DOCKS_AGENT_SCORE_MODE: mode,
+          ...(needsFixture
+            ? {
+                DOCKS_MISSING_ROOT:
+                  mode === 'missing-skills-root' ? SKILLS_ROOT : mode === 'missing-agents-root' ? AGENTS_ROOT : '',
+              }
+            : {}),
+        },
       },
-    },
-  );
-  return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding('utf8').on('data', (chunk) => {
+      stderr += chunk;
+    });
+    // A spawn failure resolves with a null status, as `spawnSync` reported it, and the error in the
+    // output, so the waiting test fails instead of hanging; a `close` after `error` is then a no-op.
+    child.on('error', (error) => resolve({ status: null, output: `${stdout}${stderr}${error.stack ?? error}` }));
+    child.on('close', (status) => resolve({ status, output: `${stdout}${stderr}` }));
+  });
 };
+
+const gates = new Map(
+  ['full', 'missing-skills-root', 'missing-agents-root', 'empty-directory', 'crash', 'mismatch', 'non-finite'].map(
+    (mode) => [mode, runCi(mode)],
+  ),
+);
 
 const rx = (literal) => new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
-test.after(() => fs.rmSync(shimDir, { recursive: true, force: true }));
+test.after(async () => {
+  await Promise.all(gates.values());
+  fs.rmSync(shimDir, { recursive: true, force: true });
+});
 
-test('a scorer covering every agent on disk keeps the gate green', () => {
-  const { status, output } = runCi('full');
+test('a scorer covering every agent on disk keeps the gate green', async () => {
+  const { status, output } = await gates.get('full');
   assert.equal(status, 0, output);
   assert.match(
     output,
@@ -134,35 +157,35 @@ test('a scorer covering every agent on disk keeps the gate green', () => {
   );
   assert.match(output, rx(`${TARGET} agents per-file all ≥ 10`));
 });
-test('a missing declared skills root fails explicitly', () => {
-  const { status, output } = runCi('missing-skills-root');
+test('a missing declared skills root fails explicitly', async () => {
+  const { status, output } = await gates.get('missing-skills-root');
   assert.notEqual(status, 0);
   assert.match(output, rx(`${TARGET} declared skills root missing: ${SKILLS_ROOT}`));
 });
 
-test('a missing declared agents root fails explicitly', () => {
-  const { status, output } = runCi('missing-agents-root');
+test('a missing declared agents root fails explicitly', async () => {
+  const { status, output } = await gates.get('missing-agents-root');
   assert.notEqual(status, 0);
   assert.match(output, rx(`${TARGET} declared agents root missing: ${AGENTS_ROOT}`));
 });
 
-test('an empty declared agents directory fails instead of passing vacuously', () => {
-  const { status, output } = runCi('empty-directory');
+test('an empty declared agents directory fails instead of passing vacuously', async () => {
+  const { status, output } = await gates.get('empty-directory');
   assert.notEqual(status, 0);
   assert.match(output, rx(`${TARGET} declared agents root is empty — no agent score set to gate: ${AGENTS_ROOT}`));
   assert.doesNotMatch(output, rx(`${TARGET} agents per-file all ≥ 10`));
 });
 
-test('an agent scorer that exits non-zero fails the gate naming the command', () => {
-  const { status, output } = runCi('crash');
+test('an agent scorer that exits non-zero fails the gate naming the command', async () => {
+  const { status, output } = await gates.get('crash');
   assert.notEqual(status, 0);
   assert.match(output, rx(`${TARGET} agent scorer exited 3 — no score set to gate`));
   assert.match(output, rx(`bun scripts/agents/score.mjs --per-file ${AGENTS_ROOT}`));
   assert.doesNotMatch(output, rx(`${TARGET} agents per-file all ≥ 10`));
 });
 
-test('a same-size score set with a wrong row name fails corroboration', () => {
-  const { status, output } = runCi('mismatch');
+test('a same-size score set with a wrong row name fails corroboration', async () => {
+  const { status, output } = await gates.get('mismatch');
   assert.notEqual(status, 0);
   assert.match(
     output,
@@ -175,8 +198,8 @@ test('a same-size score set with a wrong row name fails corroboration', () => {
   assert.doesNotMatch(output, rx(`${TARGET} agents per-file all ≥ 10`));
 });
 
-test('a non-finite agent score fails before floor arithmetic', () => {
-  const { status, output } = runCi('non-finite');
+test('a non-finite agent score fails before floor arithmetic', async () => {
+  const { status, output } = await gates.get('non-finite');
   assert.notEqual(status, 0);
   assert.match(output, rx(`${TARGET} agent scorer produced non-finite score(s): ${EXPECTED[0]} NaN`));
   assert.doesNotMatch(output, rx(`${TARGET} agents per-file all ≥ 10`));

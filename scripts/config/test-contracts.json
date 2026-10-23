@@ -183,6 +183,44 @@
       "selection": {
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/ci-background-task.test.mjs",
+        "expected_min": 4
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-ci-background-task-blocked-lifetime",
+      "version": 1,
+      "title": "Ci Background Task blocked lifetime unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/ci-background-task-blocked-lifetime.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/ci-background-task-blocked-lifetime.test.mjs",
+        "expected_min": 1
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["node-24"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-ci-background-task-pipe-backpressure",
+      "version": 1,
+      "title": "Ci Background Task pipe backpressure unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/ci-background-task-pipe-backpressure.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/ci-background-task-pipe-backpressure.test.mjs",
         "expected_min": 1
       },
       "platforms": ["linux", "macos"],

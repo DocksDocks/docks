@@ -1,31 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { Writable } from 'node:stream';
 import test from 'node:test';
 import { beginCommand, startTask, summarizeCommands } from '../../lib/ci-background-task.mjs';
-
-function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-background-task-test-'));
-  const artifactRoot = path.join(root, 'artifacts');
-  fs.mkdirSync(artifactRoot);
-  let errors = '';
-  const errorStream = new Writable({
-    write(chunk, _encoding, callback) {
-      errors += chunk.toString();
-      callback();
-    },
-  });
-  return {
-    root,
-    artifactRoot,
-    errorStream,
-    errors: () => errors,
-    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
-  };
-}
+import { fixture } from './ci-background-task.fixture.mjs';
 
 function nodeDelay(milliseconds, exitCode = 0) {
   return [
@@ -33,128 +12,6 @@ function nodeDelay(milliseconds, exitCode = 0) {
     ['--input-type=module', '--eval', `setTimeout(() => process.exit(${exitCode}), ${milliseconds})`],
   ];
 }
-
-// The child reports its own lifetime, and the recorded duration must match that report. A wall-clock
-// constant would be wrong here: under load this host has been observed running a nominal one-second
-// child for 2.5 s, which is a true measurement, not a defect. Matching the child's self-report still
-// fails hard against await-lifetime accounting, because that reports the blocking window instead.
-test('background duration follows the child lifetime while the main thread is blocked', async () => {
-  const f = fixture();
-  try {
-    const tasks = [];
-    const commands = [];
-    const reportPath = path.join(f.root, 'child-lifetime.json');
-    const childSource = [
-      "import fs from 'node:fs';",
-      'const bootNs = process.hrtime.bigint();',
-      'setTimeout(() => {',
-      '  const selfMs = Number(process.hrtime.bigint() - bootNs) / 1e6;',
-      '  fs.writeFileSync(process.argv[1], JSON.stringify({ self_ms: selfMs }));',
-      '  process.exit(0);',
-      '}, 1000);',
-    ].join('\n');
-    const wallStartedAt = process.hrtime.bigint();
-    const pending = startTask(
-      'timed child',
-      process.execPath,
-      ['--input-type=module', '--eval', childSource, '--', reportPath],
-      {
-        tasks,
-        commands,
-        artifactRoot: f.artifactRoot,
-        errorStream: f.errorStream,
-      },
-    );
-
-    const blocker = spawnSync(
-      process.execPath,
-      ['--input-type=module', '--eval', 'const until = Date.now() + 2500; while (Date.now() < until) {}'],
-      { encoding: 'utf8' },
-    );
-    assert.equal(blocker.status, 0, blocker.stderr);
-    assert.equal(await pending, true);
-    const awaitedWallMs = Number((process.hrtime.bigint() - wallStartedAt) / 1_000_000n);
-    const childSelfMs = JSON.parse(fs.readFileSync(reportPath, 'utf8')).self_ms;
-
-    assert.equal(tasks.length, 1);
-    assert.ok(awaitedWallMs >= 2400, `blocking window collapsed: awaited ${awaitedWallMs} ms`);
-    assert.ok(
-      Math.abs(tasks[0].duration_ms - childSelfMs) <= 250,
-      `recorded ${tasks[0].duration_ms} ms but the child measured ${Math.round(childSelfMs)} ms`,
-    );
-    assert.ok(
-      tasks[0].duration_ms <= childSelfMs + 250,
-      `recorded ${tasks[0].duration_ms} ms is await-shaped against a ${Math.round(childSelfMs)} ms child`,
-    );
-    assert.ok(tasks[0].duration_ms <= awaitedWallMs, `recorded ${tasks[0].duration_ms} ms exceeds the awaited window`);
-    assert.equal(commands[0].duration_ms, tasks[0].duration_ms);
-  } finally {
-    f.cleanup();
-  }
-});
-
-// A chatty child must not be throttled by the orchestrator's blocked event loop. When the parent
-// relayed the child's output, one pipe buffer of backpressure suspended the child until the join
-// point, and the recorded lifetime became the blocking window. The full gate reproduced exactly
-// that: `bun run check:js` runs in about one second and was recorded at 356 s.
-//
-// Best-of-N on purpose, and the reason is a property of what is being measured. "The parent does
-// not FORCE serialization" is disproved by a single clean observation, whereas one slow
-// observation proves nothing: the blocker pins a core for its whole window, so on a loaded host
-// the kernel can legitimately starve the writer and the recorded lifetime approaches the block by
-// scheduling alone. That is what a single sample kept reporting here — 3013 ms against a 3000 ms
-// block — with the same bytes passing on the next run. A real regression reintroduces backpressure
-// deterministically and is throttled on EVERY attempt, so this still fails closed on the defect it
-// exists to catch while no longer failing on the machine's load. The threshold is unchanged.
-test('a child that outwrites one pipe buffer is not throttled by the blocked parent', async () => {
-  const chatty = [
-    'let written = 0;',
-    'const tick = () => {',
-    '  while (written < 8 * 1024) {',
-    '    written += 1;',
-    "    if (!process.stdout.write('x'.repeat(1024))) {",
-    "      process.stdout.once('drain', tick);",
-    '      return;',
-    '    }',
-    '  }',
-    '  process.exit(0);',
-    '};',
-    'tick();',
-  ].join('\n');
-
-  const attempts = [];
-  for (let attempt = 0; attempt < 3 && (attempts.length === 0 || attempts.at(-1) >= 1500); attempt += 1) {
-    const f = fixture();
-    try {
-      const tasks = [];
-      const commands = [];
-      const pending = startTask('chatty child', process.execPath, ['--input-type=module', '--eval', chatty], {
-        tasks,
-        commands,
-        artifactRoot: f.artifactRoot,
-        errorStream: f.errorStream,
-      });
-
-      const blocker = spawnSync(
-        process.execPath,
-        ['--input-type=module', '--eval', 'const until = Date.now() + 3000; while (Date.now() < until) {}'],
-        { encoding: 'utf8' },
-      );
-      assert.equal(blocker.status, 0, blocker.stderr);
-      assert.equal(await pending, true);
-      assert.equal(commands[0].status, 'passed');
-      attempts.push(tasks[0].duration_ms);
-    } finally {
-      f.cleanup();
-    }
-  }
-
-  assert.ok(
-    attempts.some((duration) => duration < 1500),
-    `an 8 MiB writer behind a 3 s block was throttled on every attempt (${attempts.join(' ms, ')} ms), ` +
-      'so the parent serializes it rather than the host merely being busy',
-  );
-});
 
 test('summarizeCommands accounts for concurrent background commands', async () => {
   const f = fixture();
