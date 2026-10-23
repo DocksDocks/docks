@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Scores review benchmark runs. `findings` parses the returned review blocks, `pairs` builds the judge input,
-// `report` turns the judgments and the run metadata into recall and cost tables, `transcripts` fills the run
-// metadata from omp subagent transcripts, and `names` prints the dispatch name of every prompt.
+// `report` turns the judgments and the run metadata into recall, cost, and configuration tables, `transcripts`
+// fills the run metadata from omp subagent transcripts, and `names` prints the dispatch name of every prompt.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,10 +9,11 @@ import { pathToFileURL } from 'node:url';
 import { parseReviewComment } from '../../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
 
 const USAGE =
-  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> | report <ws> | transcripts <ws> --omp-sessions <dir> | names <ws>';
+  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
 const CASE_KINDS = new Set(['code', 'code-delta', 'plan', 'plan-delta']);
 const REVIEWER_ORDER = ['full', 'correctness', 'spec-and-tests', 'text-and-safety', 'delta', 'plan'];
 const RUN_DIR = /^run-(\d+)$/;
+const ROUND_DIR = /^round-([1-9]\d*)$/;
 const CODE_FINDING = /^\s*[-*+]\s+(?:\*\*)?\[(critical|high|medium|low)\](?:\*\*)?\s*(.*)$/i;
 const PLAN_FINDING = /^\s*[-*+]\s+(?:\*\*|`)?(goal_fit|research_gap|security_risk)(?:\*\*|`)?(?=[\s:]|$)\s*:?\s*(.*)$/i;
 // Fields of a finding line are separated by a dash with spaces around it, so `plan-reviewer` and `12-30` stay whole.
@@ -33,6 +34,17 @@ const hash = (text) => createHash('sha256').update(text).digest('hex');
 const runNumber = (run) => Number(RUN_DIR.exec(String(run))?.[1] ?? run);
 const reviewerRank = (name) => (REVIEWER_ORDER.includes(name) ? REVIEWER_ORDER.indexOf(name) : REVIEWER_ORDER.length);
 const byReviewer = (a, b) => reviewerRank(a) - reviewerRank(b) || compare(a, b);
+// The path of a run below its arm folder, with its round folder when the run has round folders.
+const runPath = (run, round) => (round === undefined ? run : `${run}/round-${round}`);
+const distinct = (values) => [...new Set(values)];
+const sum = (values) => values.reduce((result, value) => result + value, 0);
+// The sum of the values, or null when one of them is not a number.
+const total = (values) => (values.every((value) => typeof value === 'number') ? sum(values) : null);
+// The first 10 items, then the count of the others.
+function listSome(items) {
+  const more = items.length > 10 ? `, and ${items.length - 10} more` : '';
+  return `${items.slice(0, 10).join(', ')}${more}`;
+}
 
 function readJson(file, hint = '') {
   if (!fs.existsSync(file)) fail(`${file} is missing${hint}`);
@@ -188,6 +200,22 @@ export function roundVerdict(verdicts) {
   return verdicts.reduce((worst, next) => (VERDICT_RANK[next] > VERDICT_RANK[worst] ? next : worst));
 }
 
+// A run folder holds the prompts and blocks of one review round, or one `round-<r>` folder per round with them.
+// The round folders start at round-1 and have no gap. A run without round folders gets the round `undefined`.
+function roundFolders(runDir) {
+  const rounds = directories(runDir)
+    .filter((name) => ROUND_DIR.test(name))
+    .map((name) => Number(ROUND_DIR.exec(name)[1]))
+    .sort((a, b) => a - b);
+  if (rounds.length === 0) return [{ round: undefined, dir: runDir }];
+  if (rounds.some((round, index) => round !== index + 1))
+    fail(`the round folders of ${runDir} must start at round-1 and have no gap`);
+  if (baseNames(path.join(runDir, 'prompts'), '.txt').length || baseNames(path.join(runDir, 'blocks'), '.md').length)
+    fail(`${runDir} has round folders and also its own prompts or blocks; keep them in the round folders only`);
+  return rounds.map((round) => ({ round, dir: path.join(runDir, `round-${round}`) }));
+}
+
+// One entry per review round of each run. `dir` holds the prompts, blocks, and meta.json of the round.
 export function readWorkspace(ws) {
   if (!fs.existsSync(ws)) fail(`workspace not found: ${ws}`);
   const runs = [];
@@ -202,9 +230,22 @@ export function readWorkspace(ws) {
       const runNames = directories(armDir).filter((name) => RUN_DIR.test(name));
       for (const run of runNames.sort((a, b) => runNumber(a) - runNumber(b))) {
         const runDir = path.join(armDir, run);
-        const prompts = baseNames(path.join(runDir, 'prompts'), '.txt');
-        const reviewers = [...new Set([...prompts, ...baseNames(path.join(runDir, 'blocks'), '.md')])].sort(byReviewer);
-        runs.push({ caseId: folder, caseData, family, arm, run, runDir, prompts: new Set(prompts), reviewers });
+        for (const { round, dir } of roundFolders(runDir)) {
+          const prompts = baseNames(path.join(dir, 'prompts'), '.txt');
+          const reviewers = [...new Set([...prompts, ...baseNames(path.join(dir, 'blocks'), '.md')])].sort(byReviewer);
+          runs.push({
+            caseId: folder,
+            caseData,
+            family,
+            arm,
+            run,
+            round,
+            runDir,
+            dir,
+            prompts: new Set(prompts),
+            reviewers,
+          });
+        }
       }
     }
   }
@@ -212,21 +253,43 @@ export function readWorkspace(ws) {
   return runs;
 }
 
+// The blocks and findings of a round folder get its `round`. A run without round folders is round 1: its blocks and
+// findings get no `round` field, so its finding ids do not change.
 export function collectFindings(ws) {
   const blocks = [];
   const findings = [];
-  for (const { caseId, caseData, family, arm, run, runDir, reviewers } of readWorkspace(ws)) {
+  for (const { caseId, caseData, family, arm, run, round, dir, reviewers } of readWorkspace(ws)) {
+    const inRound = round === undefined ? {} : { round };
     for (const reviewer of reviewers) {
-      const file = path.join(runDir, 'blocks', `${reviewer}.md`);
-      const block = { case: caseId, kind: caseData.kind, arm, run, reviewer, verdict: 'missing', findings: 0 };
+      const file = path.join(dir, 'blocks', `${reviewer}.md`);
+      const block = {
+        case: caseId,
+        kind: caseData.kind,
+        arm,
+        run,
+        ...inRound,
+        reviewer,
+        verdict: 'missing',
+        findings: 0,
+      };
       blocks.push(block);
       if (!fs.existsSync(file)) continue;
       const parsed = parseBlock(fs.readFileSync(file, 'utf8'), family);
       block.verdict = parsed.verdict;
       block.findings = parsed.findings.length;
       for (const [index, finding] of parsed.findings.entries()) {
-        const id = `${caseId}/${arm}/${run}/${reviewer}#${index + 1}`;
-        findings.push({ id, blind: blindId(id), case: caseId, arm, run, reviewer, n: index + 1, ...finding });
+        const id = `${caseId}/${arm}/${runPath(run, round)}/${reviewer}#${index + 1}`;
+        findings.push({
+          id,
+          blind: blindId(id),
+          case: caseId,
+          arm,
+          run,
+          ...inRound,
+          reviewer,
+          n: index + 1,
+          ...finding,
+        });
       }
     }
   }
@@ -245,47 +308,63 @@ export function pairWanted(family, finding, known) {
   return finding.files.some((file) => knownFiles.some((item) => sameFile(file.file, item.file)));
 }
 
-// The known defects of a case: inline in a development case, or in the `<id>.key.json` file of a held-out case.
-export function readKnown(casesDir, caseId, split) {
+function requireKnownList(caseId, known) {
+  if (!Array.isArray(known) || known.some((item) => typeof item?.id !== 'string'))
+    fail(`the known defects of ${caseId} must be a list of items with a string id`);
+  if (new Set(known.map((item) => item.id)).size !== known.length) fail(`${caseId} repeats a known defect id`);
+  return known;
+}
+
+const keyFile = (dir, caseId) => path.join(dir, `${caseId}.key.json`);
+
+// The known defects in `<dir>/<caseId>.key.json`: a list, or an object with a `known` list. The result is undefined
+// when the file does not exist. Every reader of a key file uses this function.
+export function readKey(dir, caseId) {
+  const file = keyFile(dir, caseId);
+  if (!fs.existsSync(file)) return undefined;
+  const key = readJson(file);
+  return requireKnownList(caseId, Array.isArray(key) ? key : key?.known);
+}
+
+// The known defects of a case: inline in a development case, or in the key file of a held-out case. With `keys`,
+// the key file is `<keys>/<id>.key.json`, and the key file next to the case file stays unread.
+export function readKnown(casesDir, caseId, split, keys) {
   const caseFile = [path.join(casesDir, split ?? '', `${caseId}.json`), path.join(casesDir, `${caseId}.json`)].find(
     (file) => fs.existsSync(file),
   );
   if (!caseFile) fail(`case file ${caseId}.json not found under ${casesDir}`);
   const data = readJson(caseFile);
-  let known = data.known;
-  if (known === undefined) {
-    const key = readJson(caseFile.replace(/\.json$/, '.key.json'), ` and ${caseFile} has no known defects`);
-    known = Array.isArray(key) ? key : key.known;
-  }
-  if (!Array.isArray(known) || known.some((item) => typeof item?.id !== 'string'))
-    fail(`the known defects of ${caseId} must be a list of items with a string id`);
-  if (new Set(known.map((item) => item.id)).size !== known.length) fail(`${caseId} repeats a known defect id`);
+  if (data.known !== undefined) return { kind: data.kind, known: requireKnownList(caseId, data.known) };
+  const keyDir = keys ?? path.dirname(caseFile);
+  const known = readKey(keyDir, caseId);
+  if (known === undefined) fail(`${keyFile(keyDir, caseId)} is missing and ${caseFile} has no known defects`);
   return { kind: data.kind, known };
 }
 
+// Each review round of a run is one judge run with its own label. A run without round folders keeps its label.
 export function buildPairs(findingsDoc, cases) {
   const result = new Map();
   const labels = new Map();
   const blinds = new Map();
-  const runEntry = (caseId, arm, run) => {
+  const runEntry = ({ case: caseId, arm, run, round }) => {
     if (!result.has(caseId)) {
       if (!cases[caseId]) fail(`no known defects for case ${caseId}`);
-      const { kind, known } = cases[caseId];
-      result.set(caseId, { case: caseId, kind, known, runs: new Map() });
+      const { kind, split, known } = cases[caseId];
+      result.set(caseId, { case: caseId, kind, split: split ?? null, known, runs: new Map() });
     }
-    const label = runLabel(caseId, arm, run);
-    const key = `${caseId}/${arm}/${run}`;
+    const label = runLabel(caseId, arm, runPath(run, round));
+    const key = `${caseId}/${arm}/${runPath(run, round)}`;
     if (labels.has(label) && labels.get(label) !== key) fail(`run label collision: ${key} and ${labels.get(label)}`);
     labels.set(label, key);
     const runs = result.get(caseId).runs;
     if (!runs.has(label)) runs.set(label, { run: label, findings: [], pairs: [] });
     return runs.get(label);
   };
-  for (const block of findingsDoc.blocks) runEntry(block.case, block.arm, block.run);
+  for (const block of findingsDoc.blocks) runEntry(block);
   for (const finding of findingsDoc.findings) {
     if (blinds.has(finding.blind)) fail(`finding id collision: ${finding.id} and ${blinds.get(finding.blind)}`);
     blinds.set(finding.blind, finding.id);
-    const target = runEntry(finding.case, finding.arm, finding.run);
+    const target = runEntry(finding);
     const { kind, known } = result.get(finding.case);
     const { severity, category, locator, text } = finding;
     target.findings.push({ finding: finding.blind, severity, category, locator, text });
@@ -298,6 +377,7 @@ export function buildPairs(findingsDoc, cases) {
     cases: sortedCases.map((entry) => ({
       case: entry.case,
       kind: entry.kind,
+      split: entry.split,
       known: entry.known,
       runs: [...entry.runs.values()]
         .sort((a, b) => compare(a.run, b.run))
@@ -315,7 +395,7 @@ export function summarize(values) {
   if (numbers.length === 0) return { mean: null, median: null, min: null, max: null };
   const middle = Math.floor(numbers.length / 2);
   return {
-    mean: numbers.reduce((sum, value) => sum + value, 0) / numbers.length,
+    mean: numbers.reduce((result, value) => result + value, 0) / numbers.length,
     median: numbers.length % 2 ? numbers[middle] : (numbers[middle - 1] + numbers[middle]) / 2,
     min: numbers[0],
     max: numbers.at(-1),
@@ -366,80 +446,189 @@ function requireCandidateAnswers(pairsDoc, verdicts) {
     .filter((pair) => !verdicts.has(pair))
     .map((pair) => pair.replace(' ', ' and '));
   if (missing.length === 0) return;
-  const shown = missing.slice(0, 10).join(', ');
-  const more = missing.length > 10 ? `, and ${missing.length - 10} more` : '';
-  fail(`judgments.json has no match answer for ${missing.length} candidate pairs of pairs.json: ${shown}${more}`);
+  fail(`judgments.json has no match answer for ${missing.length} candidate pairs of pairs.json: ${listSome(missing)}`);
 }
 
-// A known defect is unresolved in a run when the run did not find it and the judge answered `unknown` for a pair
-// of it with at least one finding of the run. `unknownPairs` counts every `unknown` pair answer of the run, also
-// those that cannot change recall, such as a finding that may repeat a known defect the run found.
-function scoreRun(run, knownIds, { matched, unsure, ratings }, meta) {
-  const found = new Set();
-  const doubtful = new Set();
-  let unknownPairs = 0;
-  const counts = { validExtras: 0, wrong: 0, unknown: 0, unjudged: 0 };
-  for (const finding of run.findings) {
+// A finding with neither a `match` answer nor a rating would count as unjudged, so the report stops on it, as it
+// stops on a candidate pair without an answer.
+function requireJudgedFindings(findingsDoc, judgments) {
+  const judged = new Set([
+    ...(judgments.matches ?? []).filter((entry) => entry.verdict === 'match').map((entry) => entry.finding),
+    ...(judgments.adjudications ?? []).map((entry) => entry.finding),
+  ]);
+  const open = findingsDoc.findings.map((finding) => finding.blind).filter((blind) => !judged.has(blind));
+  if (open.length === 0) return;
+  fail(`judgments.json has no match and no adjudication for ${open.length} findings: ${listSome(open)}`);
+}
+
+// Sorts findings by the judge's answers: the known defects that they found, the known defects of their `unknown`
+// pairs, the count of `unknown` pairs, and the ratings of the findings without a `match` answer.
+function judgeFindings(findings, { matched, unsure, ratings }) {
+  const result = {
+    found: new Set(),
+    doubtful: new Set(),
+    unknownPairs: 0,
+    validExtras: 0,
+    wrong: 0,
+    unknown: 0,
+    unjudged: 0,
+  };
+  for (const finding of findings) {
     for (const id of unsure.get(finding.blind) ?? []) {
-      doubtful.add(id);
-      unknownPairs += 1;
+      result.doubtful.add(id);
+      result.unknownPairs += 1;
     }
     const hits = matched.get(finding.blind);
     if (hits) {
-      for (const id of hits) found.add(id);
+      for (const id of hits) result.found.add(id);
       continue;
     }
     const rating = ratings.get(finding.blind);
-    if (rating === 'valid') counts.validExtras += 1;
-    else if (rating === 'wrong') counts.wrong += 1;
-    else if (rating === 'unknown') counts.unknown += 1;
-    else counts.unjudged += 1;
+    if (rating === 'valid') result.validExtras += 1;
+    else if (rating === 'wrong') result.wrong += 1;
+    else if (rating === 'unknown') result.unknown += 1;
+    else result.unjudged += 1;
   }
-  // A run's time is its slowest reviewer and its tokens are the sum; one reviewer without a value leaves both open.
-  const costs = run.blocks.map((block) => meta?.reviewers?.[block.reviewer]);
-  const seconds = costs.every((cost) => typeof cost?.seconds === 'number')
-    ? Math.max(...costs.map((cost) => cost.seconds))
-    : null;
-  const tokens = costs.every((cost) => typeof cost?.tokens === 'number')
-    ? costs.reduce((sum, cost) => sum + cost.tokens, 0)
-    : null;
+  return result;
+}
+
+// A round's time is its slowest reviewer and its tokens are the sum; one reviewer without a value leaves both open.
+// `found` lists the known defects that the findings of the round matched.
+function scoreRound(round, knownIds, judged, meta) {
+  const costs = round.blocks.map((block) => meta?.reviewers?.[block.reviewer]);
+  const { found, validExtras } = judgeFindings(round.findings, judged);
+  return {
+    round: round.round,
+    mode: meta?.mode ?? null,
+    seconds: costs.every((cost) => typeof cost?.seconds === 'number')
+      ? Math.max(...costs.map((cost) => cost.seconds))
+      : null,
+    tokens: total(costs.map((cost) => cost?.tokens)),
+    found: knownIds.filter((id) => found.has(id)),
+    validExtras,
+    fixerSeconds: typeof meta?.fixer?.seconds === 'number' ? meta.fixer.seconds : 0,
+    verdicts: round.blocks.map((block) => ({ reviewer: block.reviewer, verdict: block.verdict })),
+    verdict: roundVerdict(round.blocks.map((block) => block.verdict)),
+  };
+}
+
+// A run proves its configuration with the transcript facts of each reviewer. A run without a configuration has
+// nothing to prove. Each reviewer is `{ label, entry }`, where entry is its meta.json reviewer entry.
+function invalidReasons(config, reviewers) {
+  if (!config) return [];
+  const reasons = [];
+  for (const { label, entry } of reviewers) {
+    if (!Array.isArray(entry?.messages)) {
+      reasons.push(`${label}: no transcript facts`);
+      continue;
+    }
+    for (const model of distinct(entry.messages.map((message) => message.model))) {
+      if (model !== config.model) reasons.push(`${label}: model ${model}, not ${config.model}`);
+    }
+    if (entry.effort !== config.effort) reasons.push(`${label}: effort ${entry.effort}, not ${config.effort}`);
+    if (config.tier === null || config.tier === undefined) continue;
+    const ownMessages = entry.messages.filter((message) => message.model === config.model);
+    for (const tier of distinct(ownMessages.map((message) => message.servedTier))) {
+      if (tier !== config.tier) reasons.push(`${label}: served tier ${tier}, not ${config.tier}`);
+    }
+  }
+  return reasons;
+}
+
+// The transcript facts of the reviewers of a run, merged for the configuration table.
+function runFacts(entries) {
+  const proven = entries.filter((entry) => Array.isArray(entry?.messages));
+  const messages = proven.flatMap((entry) => entry.messages);
+  return {
+    models: distinct(messages.map((message) => message.model ?? null)),
+    efforts: distinct(proven.map((entry) => entry.effort ?? null)),
+    servedTiers: distinct(messages.map((message) => message.servedTier ?? null)),
+    sideCallTokens: sum(proven.flatMap((entry) => entry.sideCalls ?? []).map((call) => call.tokens ?? 0)),
+  };
+}
+
+// A run's time and tokens are the sums over its rounds; its found defects and finding counts cover every round; its
+// verdicts are those of its last round. A known defect is unresolved in a run when the run did not find it and the
+// judge answered `unknown` for a pair of it with at least one finding of the run. `unknownPairs` counts every
+// `unknown` pair answer of the run, also those that cannot change recall, such as a finding that may repeat a known
+// defect the run found.
+function scoreRun(run, caseEntry, judged, metas) {
+  const knownIds = caseEntry.known.map((item) => item.id);
+  const metaOf = (round) => metas[run.hasRounds ? `${run.key}/round-${round}` : run.key];
+  const config = metas[run.key]?.config ?? metaOf(1)?.config ?? null;
+  const rounds = [...run.rounds.values()].sort((a, b) => a.round - b.round);
+  const reviewers = rounds.flatMap((round) =>
+    round.blocks.map((block) => ({
+      label: run.hasRounds ? `round-${round.round}/${block.reviewer}` : block.reviewer,
+      entry: metaOf(round.round)?.reviewers?.[block.reviewer],
+    })),
+  );
+  const roundScores = rounds.map((round) => scoreRound(round, knownIds, judged, metaOf(round.round)));
+  const all = judgeFindings(
+    rounds.flatMap((round) => round.findings),
+    judged,
+  );
+  // A round is caused only by extra findings when the round before it found no known defect and had a valid extra.
+  const extraOnlyRounds = roundScores.filter(
+    (_, index) => index > 0 && roundScores[index - 1].found.length === 0 && roundScores[index - 1].validExtras > 0,
+  ).length;
+  const last = roundScores.at(-1);
   return {
     case: run.case,
     arm: run.arm,
     run: run.run,
+    split: caseEntry.split ?? null,
+    config,
+    invalid: invalidReasons(config, reviewers),
     known: knownIds.length,
-    found: knownIds.filter((id) => found.has(id)),
-    recall: knownIds.length ? found.size / knownIds.length : null,
-    ...counts,
-    unresolved: knownIds.filter((id) => doubtful.has(id) && !found.has(id)).length,
-    unknownPairs,
-    seconds,
-    tokens,
-    verdicts: run.blocks.map((block) => ({ reviewer: block.reviewer, verdict: block.verdict })),
-    roundVerdict: roundVerdict(run.blocks.map((block) => block.verdict)),
+    found: knownIds.filter((id) => all.found.has(id)),
+    recall: knownIds.length ? all.found.size / knownIds.length : null,
+    escaped: knownIds.filter((id) => !all.found.has(id)).length,
+    validExtras: all.validExtras,
+    wrong: all.wrong,
+    unknown: all.unknown,
+    unjudged: all.unjudged,
+    extraOnlyRounds,
+    unresolved: knownIds.filter((id) => all.doubtful.has(id) && !all.found.has(id)).length,
+    unknownPairs: all.unknownPairs,
+    seconds: total(roundScores.map((round) => round.seconds)),
+    tokens: total(roundScores.map((round) => round.tokens)),
+    fixerSeconds: sum(roundScores.map((round) => round.fixerSeconds)),
+    ...runFacts(reviewers.map((reviewer) => reviewer.entry)),
+    verdicts: last.verdicts,
+    roundVerdict: last.verdict,
+    rounds: roundScores,
   };
 }
 
-// metas maps `<case>/<arm>/<run>` to the content of that run's meta.json.
+// metas maps `<case>/<arm>/<run>` to the content of that run's meta.json, and `<case>/<arm>/<run>/round-<r>` to the
+// meta.json of a round folder. Summaries leave out invalid runs.
 export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, metas = {} }) {
+  const caseEntries = new Map(pairsDoc.cases.map((entry) => [entry.case, entry]));
   const knownByCase = new Map(pairsDoc.cases.map((entry) => [entry.case, entry.known.map((item) => item.id)]));
   const byBlind = new Map(findingsDoc.findings.map((finding) => [finding.blind, finding]));
   const runs = new Map();
+  const roundOf = ({ case: caseId, arm, run, round }) => {
+    const key = `${caseId}/${arm}/${run}`;
+    if (!runs.has(key)) runs.set(key, { key, case: caseId, arm, run, hasRounds: false, rounds: new Map() });
+    const entry = runs.get(key);
+    if (round !== undefined) entry.hasRounds = true;
+    const number = round ?? 1;
+    if (!entry.rounds.has(number)) entry.rounds.set(number, { round: number, blocks: [], findings: [] });
+    return entry.rounds.get(number);
+  };
   for (const block of findingsDoc.blocks) {
     if (!knownByCase.has(block.case)) fail(`pairs.json has no case ${block.case}; run score.mjs pairs first`);
-    const key = `${block.case}/${block.arm}/${block.run}`;
-    if (!runs.has(key)) runs.set(key, { case: block.case, arm: block.arm, run: block.run, blocks: [], findings: [] });
-    runs.get(key).blocks.push(block);
+    roundOf(block).blocks.push(block);
   }
   const judged = readJudgments(judgments, byBlind, knownByCase);
   requireCandidateAnswers(pairsDoc, judged.verdicts);
-  for (const finding of findingsDoc.findings)
-    runs.get(`${finding.case}/${finding.arm}/${finding.run}`).findings.push(finding);
-  const runScores = [...runs.entries()]
-    .map(([key, run]) => scoreRun(run, knownByCase.get(run.case), judged, metas[key]))
+  for (const finding of findingsDoc.findings) roundOf(finding).findings.push(finding);
+  const runScores = [...runs.values()]
+    .map((run) => scoreRun(run, caseEntries.get(run.case), judged, metas))
     .sort((a, b) => compare(a.case, b.case) || compare(a.arm, b.arm) || runNumber(a.run) - runNumber(b.run));
   const groups = new Map();
-  for (const run of runScores) {
+  for (const run of runScores.filter((entry) => entry.invalid.length === 0)) {
     const key = `${run.case}/${run.arm}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(run);
@@ -460,6 +649,83 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
     tokens: summarize(runsOfArm.map((run) => run.tokens)),
   }));
   return { summaries, runs: runScores };
+}
+
+// mulberry32: a small seeded generator, so that a report gives the same intervals each time.
+function seededRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let next = Math.imul(state ^ (state >>> 15), state | 1);
+    next ^= next + Math.imul(next ^ (next >>> 7), next | 61);
+    return ((next ^ (next >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// The quantile `share` of sorted values, with linear interpolation between the two nearest values.
+function quantile(sorted, share) {
+  const position = (sorted.length - 1) * share;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+}
+
+// A paired bootstrap over cases. Each case is `{ value, reference, weight = 1 }`, and the statistic of a set of
+// cases is sum(value - reference) / sum(weight). A resample draws as many cases as there are, with replacement.
+export function pairedBootstrap(cases, { seed = 1, resamples = 10000, level = 0.9 } = {}) {
+  const items = cases.map(({ value, reference, weight = 1 }) => ({ difference: value - reference, weight }));
+  const statistic = (sample) => {
+    const weight = sum(sample.map((item) => item.weight));
+    return weight === 0 ? null : sum(sample.map((item) => item.difference)) / weight;
+  };
+  const estimate = statistic(items);
+  if (estimate === null) return { estimate: null, low: null, high: null, cases: cases.length, resamples };
+  const random = seededRandom(seed);
+  const statistics = [];
+  for (let resample = 0; resample < resamples; resample += 1) {
+    let difference = 0;
+    let weight = 0;
+    for (let draw = 0; draw < items.length; draw += 1) {
+      const item = items[Math.floor(random() * items.length)];
+      difference += item.difference;
+      weight += item.weight;
+    }
+    if (weight !== 0) statistics.push(difference / weight);
+  }
+  statistics.sort((a, b) => a - b);
+  return {
+    estimate,
+    low: quantile(statistics, (1 - level) / 2),
+    high: quantile(statistics, (1 + level) / 2),
+    cases: cases.length,
+    resamples,
+  };
+}
+
+// Compares each answer of a second judge with the same answer of the first judge.
+export function judgeAgreement(judgments, second) {
+  const verdicts = new Map(
+    (judgments.matches ?? []).map((entry) => [`${entry.finding} ${entry.known}`, entry.verdict]),
+  );
+  const ratings = new Map((judgments.adjudications ?? []).map((entry) => [entry.finding, entry.rating]));
+  let answers = 0;
+  let agreed = 0;
+  for (const entry of second.matches ?? []) {
+    const pair = `${entry.finding} ${entry.known}`;
+    if (!verdicts.has(pair))
+      fail(`judgments-second.json answers ${entry.finding} and ${entry.known}, which judgments.json does not answer`);
+    if (!MATCH_VERDICTS.has(entry.verdict)) fail(`judgments-second.json has match verdict ${entry.verdict}`);
+    answers += 1;
+    if (verdicts.get(pair) === entry.verdict) agreed += 1;
+  }
+  for (const entry of second.adjudications ?? []) {
+    if (!ratings.has(entry.finding))
+      fail(`judgments-second.json answers ${entry.finding}, which judgments.json does not answer`);
+    if (!RATINGS.has(entry.rating)) fail(`judgments-second.json has rating ${entry.rating}`);
+    answers += 1;
+    if (ratings.get(entry.finding) === entry.rating) agreed += 1;
+  }
+  return { answers, agreed, rate: answers ? agreed / answers : null };
 }
 
 const decimals = (digits) => (value) => (value === null || value === undefined ? '-' : value.toFixed(digits));
@@ -514,15 +780,173 @@ function table(columns, entries) {
   ];
 }
 
-// The report holds numbers, verdicts, and known-defect ids only, so a held-out reader learns no defect text.
-export function renderReport({ summaries, runs }) {
+// The sum of a value over the runs, divided by the runs; null without runs.
+const perRun = (runs, value) => (runs.length ? sum(runs.map(value)) / runs.length : null);
+const joinValues = (values) =>
+  distinct(values.filter((value) => value !== null && value !== undefined))
+    .sort(compare)
+    .join(', ') || '-';
+
+// `<mode> <count>` in mode-name order. A round without a recorded mode counts as `-`.
+function modeCounts(rounds) {
+  const counts = new Map();
+  for (const { mode } of rounds) counts.set(mode ?? '-', (counts.get(mode ?? '-') ?? 0) + 1);
+  return (
+    [...counts]
+      .sort(([a], [b]) => compare(a, b))
+      .map(([mode, count]) => `${mode} ${count}`)
+      .join(', ') || '-'
+  );
+}
+
+// The rows of round `round`, over the runs that reached it.
+function roundRows(round) {
+  const reached = (runs) => runs.flatMap((run) => run.rounds.filter((entry) => entry.round === round));
+  const seconds = (runs) => summarize(reached(runs).map((entry) => entry.seconds));
+  return [
+    [`Round ${round} seconds median`, (runs) => oneDecimal(seconds(runs).median)],
+    [`Round ${round} seconds min`, (runs) => oneDecimal(seconds(runs).min)],
+    [`Round ${round} seconds max`, (runs) => oneDecimal(seconds(runs).max)],
+    [`Round ${round} modes`, (runs) => modeCounts(reached(runs))],
+    [`Round ${round} known found per run`, (runs) => ratio(perRun(reached(runs), (entry) => entry.found.length))],
+  ];
+}
+
+const PER_RUN_ROWS = [
+  ['Known found per run', (run) => run.found.length],
+  ['Escaped per run', (run) => run.escaped],
+  ['Valid extras per run', (run) => run.validExtras],
+  ['Extra-only rounds per run', (run) => run.extraOnlyRounds],
+  ['Wrong per run', (run) => run.wrong],
+  ['Unjudged per run', (run) => run.unjudged],
+  ['Unknown ratings per run', (run) => run.unknown],
+  ['Unknown pairs per run', (run) => run.unknownPairs],
+];
+
+// The known defects that the runs found, divided by their loop minutes.
+function foundPerMinute(runs) {
+  const seconds = total(runs.map((run) => run.seconds));
+  return seconds ? sum(runs.map((run) => run.found.length)) / (seconds / 60) : null;
+}
+
+// Each interval row: the measure, the value of a run, the weight of a case from its known defects, and the format.
+const INTERVAL_ROWS = [
+  ['Round 1 recall', (run) => run.rounds[0].found.length, (known) => known, ratio],
+  ['Escaped per 50 known', (run) => run.escaped, (known) => known / 50, ratio],
+  ['Loop seconds', (run) => run.seconds, () => 1, oneDecimal],
+];
+
+// The cases that both lists of runs ran, in case order. The value of a case is the mean over its runs.
+function pairedCases(runs, referenceRuns, value, weight) {
+  const meanByCase = (list) => {
+    const values = new Map();
+    for (const run of list) {
+      if (!values.has(run.case)) values.set(run.case, { known: run.known, values: [] });
+      values.get(run.case).values.push(value(run));
+    }
+    return new Map([...values].map(([caseId, entry]) => [caseId, { ...entry, mean: summarize(entry.values).mean }]));
+  };
+  const own = meanByCase(runs);
+  const reference = meanByCase(referenceRuns);
+  return [...own.keys()]
+    .filter((caseId) => reference.has(caseId))
+    .sort(compare)
+    .map((caseId) => ({
+      case: caseId,
+      value: own.get(caseId).mean,
+      reference: reference.get(caseId).mean,
+      weight: weight(own.get(caseId).known),
+    }))
+    .filter((entry) => entry.value !== null && entry.reference !== null);
+}
+
+function intervalRows(reference, runsOf) {
+  const referenceRuns = runsOf(reference);
+  return INTERVAL_ROWS.map(([measure, value, weight, format]) => [
+    `${measure} difference from ${reference}, 90% interval`,
+    (runs, name) => {
+      if (name === reference) return '-';
+      const { low, high } = pairedBootstrap(pairedCases(runs, referenceRuns, value, weight), { level: 0.9 });
+      return low === null ? '-' : `[${format(low)}, ${format(high)}]`;
+    },
+  ]);
+}
+
+// The default reference: of the columns with runs, the one with the fewest escaped defects per run; the first on a tie.
+function fewestEscaped(columns, runsOf) {
+  let best = null;
+  let bestEscaped = Infinity;
+  for (const name of columns) {
+    const escaped = perRun(runsOf(name), (run) => run.escaped);
+    if (escaped !== null && escaped < bestEscaped) [best, bestEscaped] = [name, escaped];
+  }
+  return best;
+}
+
+// One column per configuration name; a column holds the runs of that configuration in the case group.
+function configurationTable(groupRuns, columns, reference) {
+  const runsOf = (name) => groupRuns.filter((run) => run.config.name === name);
+  const base = reference ?? fewestEscaped(columns, runsOf);
+  const lastRound = Math.max(0, ...columns.flatMap((name) => runsOf(name).map((run) => run.rounds.length)));
+  const rounds = (runs) => summarize(runs.map((run) => run.rounds.length));
+  const median = (runs, field) => summarize(runs.map((run) => run[field])).median;
+  const rows = [
+    ['Runs', (runs) => runs.length],
+    ...Array.from({ length: lastRound }, (_, index) => roundRows(index + 1)).flat(),
+    ['Rounds median', (runs) => oneDecimal(rounds(runs).median)],
+    ['Rounds max', (runs) => whole(rounds(runs).max)],
+    ['Loop seconds median', (runs) => oneDecimal(median(runs, 'seconds'))],
+    ...PER_RUN_ROWS.map(([label, value]) => [label, (runs) => ratio(perRun(runs, value))]),
+    ['Tokens median', (runs) => whole(median(runs, 'tokens'))],
+    ['Side-call tokens median', (runs) => whole(median(runs, 'sideCallTokens'))],
+    ['Fixer seconds median', (runs) => oneDecimal(median(runs, 'fixerSeconds'))],
+    ['Model', (runs) => joinValues(runs.flatMap((run) => run.models))],
+    ['Effort', (runs) => joinValues(runs.flatMap((run) => run.efforts))],
+    ['Served tier', (runs) => joinValues(runs.flatMap((run) => run.servedTiers))],
+    ['Known found per loop minute', (runs) => ratio(foundPerMinute(runs))],
+    ...(base === null ? [] : intervalRows(base, runsOf)),
+  ];
+  return [
+    row(['Measure', ...columns]),
+    `|${['---', ...columns.map(() => '---:')].join('|')}|`,
+    ...rows.map(([label, cell]) => row([label, ...columns.map((name) => cell(runsOf(name), name))])),
+  ];
+}
+
+// One table per case group, in name order, from the valid runs that have a configuration. The columns are
+// `configs`, or the configuration names in run order.
+function configurationSections(runs, { configs, reference }) {
+  const configured = runs.filter((run) => run.config);
+  const columns = configs ?? distinct(configured.map((run) => run.config.name));
+  const groups = new Map();
+  for (const run of configured.filter((entry) => entry.invalid.length === 0)) {
+    const group = run.split ?? '-';
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(run);
+  }
+  return [...groups.keys()]
+    .sort(compare)
+    .flatMap((group) => [
+      `## Configurations: ${group}`,
+      '',
+      ...configurationTable(groups.get(group), columns, reference),
+      '',
+    ]);
+}
+
+// The report holds numbers, verdicts, configuration names, and known-defect ids only, so a held-out reader learns
+// no defect text.
+export function renderReport({ summaries, runs, agreement }, { configs, reference } = {}) {
+  const invalid = runs.filter((run) => run.invalid.length > 0);
   return [
     '# Review benchmark report',
     '',
     'Recall is the number of known defects that at least one reviewer of a run found, divided by the known defects of the case.',
     'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
-    'Seconds is the slowest reviewer of a run. Tokens is the sum over the reviewers of a run. A dash means no value.',
+    'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
+    'The Runs table lists every run. The summary and the configuration tables leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration.',
+    'A configuration table has one column per configuration in one case group. A round row covers the runs that reached that round. Extra-only rounds are rounds whose previous round found no known defect and had a valid extra finding. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran.',
     '',
     '## Summary',
     '',
@@ -532,6 +956,23 @@ export function renderReport({ summaries, runs }) {
     '',
     ...table(RUN_COLUMNS, runs),
     '',
+    ...(invalid.length === 0
+      ? []
+      : [
+          '## Invalid runs',
+          '',
+          ...invalid.map((run) => `- ${run.case}/${run.arm}/${run.run}: ${run.invalid.join('; ')}`),
+          '',
+        ]),
+    ...configurationSections(runs, { configs, reference }),
+    ...(agreement
+      ? [
+          '## Judge agreement',
+          '',
+          `The second judge agreed with ${agreement.agreed} of ${agreement.answers} answers (${ratio(agreement.rate)}).`,
+          '',
+        ]
+      : []),
   ].join('\n');
 }
 
@@ -561,10 +1002,15 @@ export function dispatchNames(dispatches) {
   });
 }
 
-// Every reviewer that has a prompt, in workspace order, with its dispatch name.
+// Every reviewer that has a prompt, in workspace order, with its dispatch name. The rounds of a run would share one
+// name, so a workspace with round folders stops here.
 function promptedDispatches(ws) {
+  const entries = readWorkspace(ws);
+  const withRounds = entries.find((entry) => entry.round !== undefined);
+  if (withRounds)
+    fail(`${path.relative(ws, withRounds.runDir)} has round folders, and round folders have no dispatch names`);
   return dispatchNames(
-    readWorkspace(ws).flatMap(({ caseId, arm, run, runDir, reviewers, prompts }) =>
+    entries.flatMap(({ caseId, arm, run, runDir, reviewers, prompts }) =>
       reviewers.filter((reviewer) => prompts.has(reviewer)).map((reviewer) => ({ caseId, arm, run, runDir, reviewer })),
     ),
   );
@@ -585,32 +1031,60 @@ export function pickTranscript(files, name) {
   return chosen[0]?.file;
 }
 
-// Seconds run from the first user message to the last assistant message. Tokens add uncached input, cache reads,
-// cache writes, and output over the assistant messages.
-export function parseTranscript(text, source = 'transcript') {
-  let first;
-  let last;
-  let tokens = 0;
+function transcriptEntries(text, source) {
+  const entries = [];
   for (const [index, line] of text.split('\n').entries()) {
     if (!line.trim()) continue;
-    let entry;
     try {
-      entry = JSON.parse(line);
+      entries.push(JSON.parse(line));
     } catch {
       fail(`${source} line ${index + 1} is not JSON`);
     }
+  }
+  return entries;
+}
+const usageTokens = (usage) => TOKEN_FIELDS.reduce((result, field) => result + (usage?.[field] ?? 0), 0);
+// `<provider>/<model>`, `<model>` without a provider, and null without a model.
+const modelId = ({ provider, model } = {}) => (model ? (provider ? `${provider}/${model}` : model) : null);
+
+// Seconds run from the first user message to the last assistant message. Tokens add uncached input, cache reads,
+// cache writes, and output over the assistant messages. With `model`, only the assistant messages of that model
+// count, so the messages of a fallback model stay out; with no message of `model`, seconds are null and tokens 0.
+// `model_usage` side calls never count.
+export function parseTranscript(text, source = 'transcript', model) {
+  let first;
+  let last;
+  let lastOfModel;
+  let tokens = 0;
+  for (const entry of transcriptEntries(text, source)) {
     if (entry.type !== 'message') continue;
     const time = Date.parse(entry.timestamp);
     if (entry.message?.role === 'user' && first === undefined) first = time;
-    if (entry.message?.role === 'assistant') {
-      last = time;
-      const usage = entry.message.usage ?? {};
-      tokens += TOKEN_FIELDS.reduce((sum, field) => sum + (usage[field] ?? 0), 0);
-    }
+    if (entry.message?.role !== 'assistant') continue;
+    last = time;
+    if (model !== undefined && model !== null && modelId(entry.message) !== model) continue;
+    lastOfModel = time;
+    tokens += usageTokens(entry.message.usage);
   }
   if (!Number.isFinite(first) || !Number.isFinite(last))
     fail(`${source} has no timestamped user message and assistant message`);
-  return { seconds: Math.round((last - first) / 100) / 10, tokens };
+  if (lastOfModel === undefined) return { seconds: null, tokens: 0 };
+  return { seconds: Math.round((lastOfModel - first) / 100) / 10, tokens };
+}
+
+// The configuration that a transcript shows: the last requested effort and OpenAI tier, the model and the served
+// tier of each assistant message, and the `model_usage` side calls of helper models.
+export function transcriptFacts(text, source = 'transcript') {
+  const facts = { effort: null, requestedTier: null, messages: [], sideCalls: [] };
+  for (const entry of transcriptEntries(text, source)) {
+    if (entry.type === 'thinking_level_change') facts.effort = entry.thinkingLevel ?? null;
+    else if (entry.type === 'service_tier_change') facts.requestedTier = entry.serviceTier?.openai ?? null;
+    else if (entry.type === 'model_usage')
+      facts.sideCalls.push({ model: modelId(entry), purpose: entry.purpose ?? null, tokens: usageTokens(entry.usage) });
+    else if (entry.type === 'message' && entry.message?.role === 'assistant')
+      facts.messages.push({ model: modelId(entry.message), servedTier: entry.message.serviceTier ?? null });
+  }
+  return facts;
 }
 
 function transcriptFiles(dir) {
@@ -630,29 +1104,60 @@ export function findingsCommand(ws) {
   return doc;
 }
 
-export function pairsCommand(ws, casesDir) {
+export function pairsCommand(ws, casesDir, { keys } = {}) {
   const findingsDoc = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const cases = {};
   for (const caseId of new Set(findingsDoc.blocks.map((block) => block.case))) {
-    cases[caseId] = readKnown(casesDir, caseId, readJson(path.join(ws, caseId, 'case.json')).split);
+    const { split } = readJson(path.join(ws, caseId, 'case.json'));
+    cases[caseId] = { ...readKnown(casesDir, caseId, split, keys), split };
   }
   const doc = buildPairs(findingsDoc, cases);
   writeJson(path.join(ws, 'pairs.json'), doc);
   return doc;
 }
 
-export function reportCommand(ws) {
+// A key that changed after `pairs` would score the runs against an old list of known defects.
+function requireCurrentKeys(pairsDoc, keys) {
+  const ids = (known) =>
+    known
+      .map((item) => item.id)
+      .sort(compare)
+      .join(', ') || 'none';
+  for (const entry of pairsDoc.cases) {
+    const key = readKey(keys, entry.case);
+    if (key === undefined || ids(key) === ids(entry.known)) continue;
+    fail(
+      `pairs.json is out of date for ${entry.case}: its key has ${ids(key)}, but pairs.json has ${ids(entry.known)}; run score.mjs pairs again`,
+    );
+  }
+}
+
+// The meta.json of each run, and of each round folder of a run with round folders, by the keys that scoreRuns reads.
+function readMetas(ws, blocks) {
+  const metas = {};
+  const read = (key) => {
+    const file = path.join(ws, ...key.split('/'), 'meta.json');
+    if (!(key in metas) && fs.existsSync(file)) metas[key] = readJson(file);
+  };
+  for (const block of blocks) {
+    read(`${block.case}/${block.arm}/${block.run}`);
+    if (block.round !== undefined) read(`${block.case}/${block.arm}/${runPath(block.run, block.round)}`);
+  }
+  return metas;
+}
+
+// Writes report.md. It stops before it writes when a key under `keys` changed after `pairs`, or when a finding has
+// neither a `match` answer nor an adjudication. `<ws>/judgments-second.json`, when it exists, gives the agreement.
+export function reportCommand(ws, { keys, configs } = {}) {
   const findings = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');
   const judgments = readJson(path.join(ws, 'judgments.json'), '; the judge writes it');
-  const metas = {};
-  for (const block of findings.blocks) {
-    const key = `${block.case}/${block.arm}/${block.run}`;
-    const file = path.join(ws, block.case, block.arm, block.run, 'meta.json');
-    if (!(key in metas) && fs.existsSync(file)) metas[key] = readJson(file);
-  }
-  const scores = scoreRuns({ findings, pairs, judgments, metas });
-  fs.writeFileSync(path.join(ws, 'report.md'), renderReport(scores));
+  if (keys) requireCurrentKeys(pairs, keys);
+  const scores = scoreRuns({ findings, pairs, judgments, metas: readMetas(ws, findings.blocks) });
+  requireJudgedFindings(findings, judgments);
+  const secondFile = path.join(ws, 'judgments-second.json');
+  if (fs.existsSync(secondFile)) scores.agreement = judgeAgreement(judgments, readJson(secondFile));
+  fs.writeFileSync(path.join(ws, 'report.md'), renderReport(scores, { configs }));
   return scores;
 }
 
@@ -663,8 +1168,10 @@ export function namesCommand(ws) {
   }));
 }
 
-// Fills `seconds` and `tokens` in each run's meta.json and keeps every other field. It checks every dispatch name
-// before it writes, writes what it finds, then fails with the names of the dispatches that have no transcript.
+// Fills each reviewer entry of a run's meta.json with the time and tokens of the assistant messages of the
+// configured model (`config.model`; every model without a configuration) and with the transcript facts, and keeps
+// every other field. It checks every dispatch name before it writes, writes what it finds, then fails with the
+// names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
   const byRun = new Map();
@@ -685,9 +1192,11 @@ export function transcriptsCommand(ws, sessionsDir) {
         missing.push(name);
         continue;
       }
+      const text = fs.readFileSync(file, 'utf8');
       meta.reviewers[reviewer] = {
         ...meta.reviewers[reviewer],
-        ...parseTranscript(fs.readFileSync(file, 'utf8'), file),
+        ...parseTranscript(text, file, meta.config?.model),
+        ...transcriptFacts(text, file),
       };
       updated.push(name);
       changed = true;
@@ -698,20 +1207,20 @@ export function transcriptsCommand(ws, sessionsDir) {
   return updated;
 }
 
-function parseOptions(args, allowed) {
+function parseOptions(args, { required = [], optional = [] }) {
   const options = {};
   for (let index = 0; index < args.length; index += 2) {
     const [flag, value] = [args[index], args[index + 1]];
-    if (!allowed.includes(flag) || value === undefined || value.startsWith('--')) fail(USAGE);
+    const known = required.includes(flag) || optional.includes(flag);
+    if (!known || value === undefined || value.startsWith('--')) fail(USAGE);
     options[flag] = value;
   }
-  for (const flag of allowed) if (!options[flag]) fail(USAGE);
+  for (const flag of required) if (!options[flag]) fail(USAGE);
   return options;
 }
 
 const COMMANDS = {
   findings: {
-    options: [],
     run: (ws) => {
       const { blocks, findings } = findingsCommand(ws);
       const missing = blocks.filter((block) => block.verdict === 'missing').length;
@@ -720,26 +1229,32 @@ const COMMANDS = {
     },
   },
   pairs: {
-    options: ['--cases'],
+    required: ['--cases'],
+    optional: ['--keys'],
     run: (ws, options) => {
-      const { cases } = pairsCommand(ws, options['--cases']);
+      const { cases } = pairsCommand(ws, options['--cases'], { keys: options['--keys'] });
       const count = cases.reduce(
-        (sum, entry) => sum + entry.runs.reduce((total, run) => total + run.pairs.length, 0),
+        (result, entry) => result + entry.runs.reduce((runTotal, run) => runTotal + run.pairs.length, 0),
         0,
       );
       return `pairs.json: ${count} candidate pairs in ${cases.length} cases`;
     },
   },
   report: {
-    options: [],
-    run: (ws) => `report.md: ${reportCommand(ws).runs.length} runs`,
+    optional: ['--keys', '--configs'],
+    run: (ws, options) => {
+      const configs = options['--configs']
+        ?.split(',')
+        .map((name) => name.trim())
+        .filter(Boolean);
+      return `report.md: ${reportCommand(ws, { keys: options['--keys'], configs }).runs.length} runs`;
+    },
   },
   transcripts: {
-    options: ['--omp-sessions'],
+    required: ['--omp-sessions'],
     run: (ws, options) => `meta.json: ${transcriptsCommand(ws, options['--omp-sessions']).length} reviewers updated`,
   },
   names: {
-    options: [],
     run: (ws) =>
       namesCommand(ws)
         .map(({ prompt, name }) => `${prompt}\t${name}`)
@@ -749,8 +1264,8 @@ const COMMANDS = {
 
 export function main([command, ws, ...args]) {
   if (!Object.hasOwn(COMMANDS, command) || !ws) fail(USAGE);
-  const { options, run } = COMMANDS[command];
-  return run(path.resolve(ws), parseOptions(args, options));
+  const { run, ...flags } = COMMANDS[command];
+  return run(path.resolve(ws), parseOptions(args, flags));
 }
 
 function invokedDirectly() {

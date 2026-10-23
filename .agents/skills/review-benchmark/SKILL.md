@@ -40,7 +40,7 @@ A case is `cases/<split>/<id>.json` plus the files it names in the same folder.
 | `rejection` | delta kinds | Optional rejection comment of the previous round |
 | `known` | dev only | Known defects: `id`, `title`, `locator`, and `severity` (code) or `kind` (plan) |
 
-A held-out case file has no `known` field. Only the judge reads `<id>.key.json`.
+A held-out case file has no `known` field. Only the judge reads `<id>.key.json`. While reviewers run, keep the held-out keys outside the repository, because a reviewer can search the checkout: for example in `$XDG_STATE_HOME/docks/review-bench/keys/` with mode 0700. Give that folder to `score.mjs pairs` and `score.mjs report` with `--keys <dir>`. `pairs` then reads `<dir>/<id>.key.json` for each case without `known`, and never the key file next to the case file. `report` stops when a key in that folder has other known-defect ids than `pairs.json`; run `pairs` again.
 
 To add a case, commit its inputs and add the case file. Turn each defect that escaped a real review into a new dev case: use the base, head, and plan of the round that missed it, and give the defect one `known` entry. A held-out case is built by an agent that does not change reviewer prompts, and that agent reports only paths and counts.
 
@@ -95,11 +95,21 @@ The baseline agents are the released `code-reviewer.md` and `plan-reviewer.md` o
   plan.diff   previous-review.md  rejection.md      (plan-delta)
   <arm>-<config>/run-<k>/prompts/<reviewer>.txt     line 1: agent: <name>, line 2 empty, then the prompt
   <arm>-<config>/run-<k>/blocks/<reviewer>.md       the returned review block
-  <arm>-<config>/run-<k>/meta.json                  {"config": {...}, "reviewers": {"<reviewer>": {"seconds": n, "tokens": n}}}
-<ws>/findings.json  <ws>/pairs.json  <ws>/judgments.json  <ws>/report.md
+  <arm>-<config>/run-<k>/meta.json                  {"config": {...}, "reviewers": {"<reviewer>": {...}}}
+  <arm>-<config>/run-<k>/round-<r>/                 one review round of a loop: prompts/, blocks/, meta.json
+<ws>/findings.json  <ws>/pairs.json  <ws>/judgments.json  <ws>/judgments-second.json  <ws>/report.md
 ```
 
-`case` writes `config` to each `meta.json`: the `name`, `model`, `effort`, and `tier` of the run's configuration. `score.mjs transcripts` adds `reviewers` and keeps `config`.
+`case` writes `config` to each `meta.json`: the `name`, `model`, `effort`, and `tier` of the run's configuration. `score.mjs transcripts` adds one entry per reviewer under `reviewers` and keeps every other field:
+
+| Field | Value |
+|---|---|
+| `seconds`, `tokens` | the time from the first user message to the last assistant message of `config.model`, and the tokens of the messages of `config.model`; without `config`, of every assistant message |
+| `effort`, `requestedTier` | the last requested effort (`thinking_level_change`) and the last requested OpenAI tier (`service_tier_change`) |
+| `messages` | the `model` and `servedTier` of each assistant message, in transcript order |
+| `sideCalls` | the `model`, `purpose`, and `tokens` of each `model_usage` record, for example a title call of a helper model; their tokens stay out of `tokens` |
+
+A run of several review rounds keeps each round in a `round-<r>` folder, from `round-1` without a gap, with its own `prompts/`, `blocks/`, and `meta.json`. A round `meta.json` can add `mode` (the round mode) and `fixer.seconds` (the time of the fix step after the round). `report` reads `config` from the run's `meta.json`, else from its `round-1/meta.json`. A run without round folders is round 1, and its finding ids and scores do not change. `names` and `transcripts` stop on a workspace with round folders, because the rounds of a run have no dispatch names of their own.
 
 The snapshot is the reviewed tree without Git history. This skill folder holds the held-out answer keys, so the snapshot, every diff, and the changed-path list of the focus diffs leave it out. Focus diffs split the changed paths by class:
 
@@ -131,7 +141,7 @@ The probe proves that each configuration reaches its reviewer. Run it after `age
    done
    ```
 
-A run used its configuration when its transcript shows these values. The same check applies to every benchmark run.
+A run used its configuration when its transcript shows these values. The same check applies to every benchmark run: `score.mjs transcripts` records the values in `meta.json`, and `report` checks them (see step 4 of the procedure).
 
 | Transcript entry | Field | Expected value |
 |---|---|---|
@@ -163,7 +173,7 @@ An assistant message from another model (for example after a usage fallback) or 
    ```
 
    Dispatch and check the probe (see Probe) before the cases. `prepare.mjs` stops with a message when a commit is missing (fetch it) or a patch does not apply.
-3. Dispatch from an omp session that runs in the `--project` folder of `agents`. One message holds every prompt of one arm folder and run, one subagent per prompt file: the agent is the name on the first line, the task is the text after the empty line, and the task name is the one that `score.mjs names` prints for that file. Do not set the `effort` field of a task: with `task.enableEffort`, it replaces the `thinking-level` of the agent. The task name drops separators and case, so `names` and `transcripts` stop when two prompts get the same name (for example cases `code-7` and `code_7`); rename one case. Alternate the arms and the configurations from message to message. Load changes round time, so keep the same load for every arm. Save each returned block as plain Markdown in `blocks/<reviewer>.md`; `score.mjs` also unwraps JSON-wrapped output from runtimes that return structured text. Fill `meta.json` with `score.mjs transcripts <ws> --omp-sessions <session folder>`, or write the seconds and tokens by hand. Check each transcript as the Probe section tells.
+3. Dispatch from an omp session that runs in the `--project` folder of `agents`. One message holds every prompt of one arm folder and run, one subagent per prompt file: the agent is the name on the first line, the task is the text after the empty line, and the task name is the one that `score.mjs names` prints for that file. Do not set the `effort` field of a task: with `task.enableEffort`, it replaces the `thinking-level` of the agent. The task name drops separators and case, so `names` and `transcripts` stop when two prompts get the same name (for example cases `code-7` and `code_7`); rename one case. Alternate the arms and the configurations from message to message. Load changes round time, so keep the same load for every arm. Save each returned block as plain Markdown in `blocks/<reviewer>.md`; `score.mjs` also unwraps JSON-wrapped output from runtimes that return structured text. Fill `meta.json` with `score.mjs transcripts <ws> --omp-sessions <session folder>`. A run with a `config` needs the transcript facts of each reviewer, so write seconds and tokens by hand only for a run without `config`. For another runtime than omp, write the same fields from its transcripts.
 4. Score and judge:
 
    ```bash
@@ -172,9 +182,17 @@ An assistant message from another model (for example after a usage fallback) or 
    node "$skill/scripts/score.mjs" report "$bench/dev"
    ```
 
-   Between `pairs` and `report`, dispatch one judge agent from another model family than the reviewers. Give it `references/judge.md`, the workspace path, and the cases path. The judge reads `pairs.json`, the key files, and the snapshots, and writes `judgments.json` with an answer for every candidate pair in `pairs.json`; `report` stops and names the pairs that have no answer. It does not read `findings.json` or the arm folders, because they name the arms.
+   For held-out cases, add `--keys <dir>` to `pairs` and `report` (see Cases). `--configs <name,...>` of `report` sets the columns of the configuration tables and their order; the default is the configuration names in run order.
 
-   `report.md` has one summary row for each case and arm and one row for each run. The summary gives the mean, median, minimum, and maximum of recall; the mean of valid extras, wrong, unknown, unresolved, and unknown pairs per run; and the median, minimum, and maximum of seconds and tokens. Valid extras, wrong, unknown, and unjudged count the findings that match no known defect, by their adjudication rating. Unknown pairs counts every `unknown` answer of the judge for a pair of a finding of the run and a known defect. Such an answer can hide a missed match, or a valid extra that only repeats a found defect. Unresolved is the subset that can change recall: the known defects that the run did not find, where the judge answered `unknown` for a pair of the defect with a finding of the run. In a dev workspace, read the `unknown` pairs in `judgments.json` before the decision.
+   Between `pairs` and `report`, dispatch one judge agent from another model family than the reviewers. Give it `references/judge.md`, the workspace path, and the cases path (and the keys folder, with `--keys`). The judge reads `pairs.json`, the key files, and the snapshots, and writes `judgments.json` with an answer for every candidate pair in `pairs.json` and a rating for every finding without a `match` answer. `report` stops and names the pairs that have no answer and the findings that have neither a `match` answer nor a rating. The judge does not read `findings.json` or the arm folders, because they name the arms.
+
+   Then spot-check the judge. Pick a random 10% of the `matches` and `adjudications` entries of `judgments.json`, and give their pairs and findings, without the answers, to a second judge from another model family than the first judge. It follows the Second judge section of `references/judge.md` and writes `judgments-second.json`. When that file exists, `report` compares each of its answers with the same answer of `judgments.json` and gives the agreement rate under Judge agreement. It stops when the second judge answers a pair or a finding that `judgments.json` does not answer.
+
+   `report.md` has one summary row for each case and arm and one row for each run. The summary gives the mean, median, minimum, and maximum of recall; the mean of valid extras, wrong, unknown, unresolved, and unknown pairs per run; and the median, minimum, and maximum of seconds and tokens. Valid extras, wrong, unknown, and unjudged count the findings that match no known defect, by their adjudication rating. Unknown pairs counts every `unknown` answer of the judge for a pair of a finding of the run and a known defect. Such an answer can hide a missed match, or a valid extra that only repeats a found defect. Unresolved is the subset that can change recall: the known defects that the run did not find, where the judge answered `unknown` for a pair of the defect with a finding of the run. In a dev workspace, read the `unknown` pairs in `judgments.json` before the decision. A run of several rounds adds the seconds and tokens of its rounds, and its recall and finding counts cover every round.
+
+   `report` checks each run that has a `config` against the transcript facts of each reviewer. The run is invalid when an assistant message comes from another model (for example after a usage fallback), when the requested effort is another one, when a message of the configured model shows another served tier (only for a configuration with a tier), or when a reviewer has no transcript facts. The Runs table keeps invalid runs; `## Invalid runs` names them with their reasons, and the summary and the configuration tables leave them out.
+
+   `## Configurations: <split>` gives one table per case group (`dev`, `heldout`) with one column per configuration, from the valid runs that have a `config`. Each round index gets the median, minimum, and maximum round seconds, the mode counts, and the known defects found per run that reached the round. Then come the rounds per run, the loop seconds (the sum of the round seconds), the known defects found and escaped per run, the valid extra and wrong findings per run, the extra-only rounds (rounds whose previous round found no known defect and had a valid extra), the unjudged and unknown answers, tokens, side-call tokens, fixer seconds, the model, effort, and served tier from the transcripts, and the known defects found per loop minute. The last three rows give the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran, for round 1 recall, escaped defects per 50 known defects, and loop seconds. The reference column has the fewest escaped defects per run (the first on a tie). The bootstrap draws 10,000 resamples of the cases with a fixed seed, so a rerun gives the same intervals.
 5. Apply the decision rule in `results.md` to `report.md`. For a losing candidate, read the transcripts of its misses before the next dev iteration.
 6. After the dev iterations, prepare and run the held-out cases once in their own workspace, under the constraint above.
 7. Append the result tables, the commit, the baseline ref, the configurations, and the decision to `results.md`.
