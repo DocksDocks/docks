@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Scores review benchmark runs. `findings` parses the returned review blocks, `pairs` builds the judge input,
-// `report` turns the judgments and the run metadata into recall, cost, and configuration tables, `transcripts`
-// fills the run metadata and the read scope of each reviewer from omp subagent transcripts, and `names` prints the
-// dispatch name of every prompt.
+// `report` turns the judgments and the run metadata into recall, cost, configuration or arm tables, and the
+// self-review lead, `transcripts` fills the run metadata and the read scope of each reviewer from omp subagent
+// transcripts, and `names` prints the dispatch name of every prompt.
 // `fixPlan` and `loopEnds` give the fix step of a review loop to `prepare.mjs loop`.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -14,7 +14,7 @@ import {
 } from '../../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
 
 const USAGE =
-  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
+  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...>] [--lead <folder,...> --lead-ref <folder>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
 const CASE_KINDS = new Set(['code', 'code-delta', 'plan', 'plan-delta']);
 const REVIEWER_ORDER = ['full', 'correctness', 'spec-and-tests', 'text-and-safety', 'delta', 'plan'];
 const RUN_DIR = /^run-(\d+)$/;
@@ -63,6 +63,15 @@ const BENCHMARK_REPOSITORY = { owner: 'docksdocks', names: new Set(['docks', 'do
 const LISTED_READS = 3;
 // An absolute path `<plugin root>/skills/[<folder>/]code-reviewer/SKILL.md` (or plan-reviewer) in an agent text.
 const REVIEWER_SKILL = /(?<=^|[\s`'"(<])(\/[^\s`'"]*?)\/skills\/(?:[^\s`'"/]+\/)?(?:code|plan)-reviewer\/SKILL\.md/g;
+// The name of the self-review agent of a configuration starts with this prefix (see prepare.mjs selfReviewAgent).
+export const SELF_REVIEW_AGENT_PREFIX = 'review-bench-selfreview-';
+// An absolute path `<project>/.omp/agents/<self-review agent>.md` (or `.claude/agents/`) in an agent text. The
+// self-review agent has no plugin root, so its text names its own agent file.
+const SELF_REVIEW_AGENT_FILE = new RegExp(
+  String.raw`(?<=^|[\s\x60'"(<])/[^\s\x60'"]*/\.(?:omp|claude)/agents/` +
+    String.raw`${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md(?=$|[\s\x60'")>])`,
+  'g',
+);
 
 function fail(message) {
   throw new Error(message);
@@ -1050,9 +1059,16 @@ function fewestEscaped(columns, runsOf) {
   return best;
 }
 
-const columnRuns = (runs) => (name) => runs.filter((run) => run.config.name === name);
+// The runs of each column; `columnOf` gives the column name of a run.
+const columnRuns = (runs, columnOf) => (name) => runs.filter((run) => columnOf(run) === name);
+const configColumn = (run) => run.config.name;
+const armColumn = (run) => run.arm;
+const casesOf = (runs) => new Set(runs.map((run) => run.case));
+const CASES_ROW = ['Cases', (list) => casesOf(list).size];
+// A cell that compares a column with the reference column; the reference column gets `-`.
+const besideReference = (reference, cell) => (list, name) => (name === reference ? '-' : cell(list));
 
-// One column per configuration name and one row per [label, cell]. A cell gets the runs of its column and the name.
+// One column per name and one row per [label, cell]. A cell gets the runs of its column and the name.
 function measureTable(rows, columns, runsOf) {
   return [
     row(['Measure', ...columns]),
@@ -1061,23 +1077,33 @@ function measureTable(rows, columns, runsOf) {
   ];
 }
 
+// The cases that a column and the reference column both ran. The interval rows pair only these cases.
+function sharedCasesRow(reference, runsOf) {
+  const referenceCases = casesOf(runsOf(reference));
+  const shared = (list) => [...casesOf(list)].filter((caseId) => referenceCases.has(caseId)).length;
+  return [`Cases shared with ${reference}`, besideReference(reference, shared)];
+}
+
 // The measures of the decision rule over all runs of a case group, with the intervals against the reference column.
-function decisionTable(runs, columns, reference) {
-  const runsOf = columnRuns(runs);
+// With `sharedCases`, the table also gives the cases of each column and the cases that it shares with the reference
+// column, because the columns can hold different cases.
+function decisionTable(runs, columns, columnOf, { reference, sharedCases }) {
+  const runsOf = columnRuns(runs, columnOf);
   const base = reference ?? fewestEscaped(columns, runsOf);
   const rows = [
     ['Runs', (list) => list.length],
+    ...(sharedCases ? [CASES_ROW] : []),
     ...KNOWN_ROWS.map(perRunRow),
     ['Escaped per 50 known', (list) => ratio(escapedPer50(list))],
     ...FACT_ROWS,
-    ...(base === null ? [] : intervalRows(base, runsOf)),
+    ...(base === null ? [] : [...(sharedCases ? [sharedCasesRow(base, runsOf)] : []), ...intervalRows(base, runsOf)]),
   ];
   return measureTable(rows, columns, runsOf);
 }
 
 // The loop runs of a case group. The fixer seconds median covers only the loops that ran a fixer.
-function loopTable(runs, columns) {
-  const runsOf = columnRuns(runs);
+function loopTable(runs, columns, columnOf) {
+  const runsOf = columnRuns(runs, columnOf);
   const lastRound = Math.max(0, ...runs.map((run) => run.rounds.length));
   const rounds = (list) => summarize(list.map((run) => run.rounds.length));
   const withFixer = (list) => list.filter((run) => run.rounds.some((round) => round.fixer));
@@ -1098,8 +1124,8 @@ function loopTable(runs, columns) {
 }
 
 // The single reviews of a case group: runs of one round without round folders.
-function singleReviewTable(runs, columns) {
-  const runsOf = columnRuns(runs);
+function singleReviewTable(runs, columns, columnOf) {
+  const runsOf = columnRuns(runs, columnOf);
   const seconds = (list) => summarize(list.map((run) => run.seconds));
   const rows = [
     ['Runs', (list) => list.length],
@@ -1112,37 +1138,131 @@ function singleReviewTable(runs, columns) {
   return measureTable(rows, columns, runsOf);
 }
 
-// One section per case group, in name order, from the valid runs that have a configuration of the columns. The
-// columns are `configs`, or the configuration names in run order. A section has a decision table over all its runs,
-// a code-loop table over its loop runs, and a single-review table over its other runs; a table without runs is left
-// out.
-function configurationSections(runs, { configs, reference }) {
-  const configured = runs.filter((run) => run.config);
-  const columns = configs ?? distinct(configured.map((run) => run.config.name));
+// The runs by case group (`-` for a case without a split), in group-name order.
+function bySplit(runs) {
   const groups = new Map();
-  for (const run of configured) {
-    if (run.invalid.length > 0 || !columns.includes(run.config.name)) continue;
+  for (const run of runs) {
     const group = run.split ?? '-';
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(run);
   }
-  return [...groups.keys()].sort(compare).flatMap((group) => {
-    const groupRuns = groups.get(group);
+  return [...groups].sort(([a], [b]) => compare(a, b));
+}
+
+// One section `## <title>: <split>` per case group, in name order, from the valid runs whose column (`columnOf`) is
+// one of `columns`. A section has a decision table over all its runs, a code-loop table over its loop runs, and a
+// single-review table over its other runs; a table without runs is left out.
+function comparisonSections(runs, { title, columns, columnOf, reference, sharedCases = false }) {
+  const shown = runs.filter((run) => run.invalid.length === 0 && columns.includes(columnOf(run)));
+  return bySplit(shown).flatMap(([group, groupRuns]) => {
     const loops = groupRuns.filter((run) => run.loop);
     const singles = groupRuns.filter((run) => !run.loop);
     const tables = [
-      [`Decision: ${group}`, groupRuns, () => decisionTable(groupRuns, columns, reference)],
-      [`Code loops: ${group}`, loops, () => loopTable(loops, columns)],
-      [`Single reviews: ${group}`, singles, () => singleReviewTable(singles, columns)],
+      [`Decision: ${group}`, groupRuns, () => decisionTable(groupRuns, columns, columnOf, { reference, sharedCases })],
+      [`Code loops: ${group}`, loops, () => loopTable(loops, columns, columnOf)],
+      [`Single reviews: ${group}`, singles, () => singleReviewTable(singles, columns, columnOf)],
     ].filter(([, tableRuns]) => tableRuns.length > 0);
     const lines = tables.flatMap(([heading, , render]) => [`### ${heading}`, '', ...render(), '']);
-    return [`## Configurations: ${group}`, '', ...lines];
+    return [`## ${title}: ${group}`, '', ...lines];
   });
 }
 
-// The report holds numbers, verdicts, configuration names, and known-defect ids only, so a held-out reader learns
-// no defect text.
-export function renderReport({ summaries, runs, agreement }, { configs, reference } = {}) {
+// The configuration sections: one column per configuration, from the runs that have a configuration. The columns are
+// `configs`, or the configuration names in run order.
+function configurationSections(runs, { configs, reference }) {
+  const configured = runs.filter((run) => run.config);
+  const columns = configs ?? distinct(configured.map(configColumn));
+  return comparisonSections(configured, { title: 'Configurations', columns, columnOf: configColumn, reference });
+}
+
+// The arm sections: one column per arm folder of `arms`, in that order. Arm folders can hold different cases, so the
+// decision table gives the cases of each column and the cases that it shares with the reference column.
+function armSections(runs, { arms, reference }) {
+  return comparisonSections(runs, { title: 'Arms', columns: arms, columnOf: armColumn, reference, sharedCases: true });
+}
+
+// Round 1 of a run: the run itself for a single review, the first round for a loop.
+const roundOne = (run) => run.rounds[0];
+
+// The known ids that round 1 of the runs found, by case. Each case of the runs has an entry, also without ids.
+function roundOneFound(runs) {
+  const found = new Map();
+  for (const run of runs) {
+    if (!found.has(run.case)) found.set(run.case, new Set());
+    for (const id of roundOne(run).found) found.get(run.case).add(id);
+  }
+  return found;
+}
+
+const byKnownId = (a, b) => a.localeCompare(b, 'en', { numeric: true });
+
+// `<case>: <id>, <id>; <case>: <id>` in case order, for the cases with ids; `-` without ids.
+function idsByCase(found) {
+  return (
+    [...found]
+      .filter(([, ids]) => ids.size > 0)
+      .sort(([a], [b]) => compare(a, b))
+      .map(([caseId, ids]) => `${caseId}: ${[...ids].sort(byKnownId).join(', ')}`)
+      .join('; ') || '-'
+  );
+}
+
+// The self-review lead of one case group: one column per lead folder and one for the reference folder. Each run
+// counts with its round 1 only, and a known defect counts as found when round 1 of at least one run found it. The
+// only-found row gives, for each case that the reference ran, the known defects that the column found and no
+// reference run found. The last row counts the cases of the column that the reference did not run.
+function leadTable(runs, columns, reference) {
+  const runsOf = columnRuns(runs, armColumn);
+  const referenceFound = roundOneFound(runsOf(reference));
+  const seconds = (list) => summarize(list.map((run) => roundOne(run).seconds));
+  const onlyFound = (list) =>
+    new Map(
+      [...roundOneFound(list)]
+        .filter(([caseId]) => referenceFound.has(caseId))
+        .map(([caseId, ids]) => [caseId, new Set([...ids].filter((id) => !referenceFound.get(caseId).has(id)))]),
+    );
+  const withoutReference = (list) => [...casesOf(list)].filter((caseId) => !referenceFound.has(caseId)).length;
+  const rows = [
+    ['Runs', (list) => list.length],
+    CASES_ROW,
+    ['Round 1 seconds median', (list) => oneDecimal(seconds(list).median)],
+    ['Round 1 seconds min', (list) => oneDecimal(seconds(list).min)],
+    ['Round 1 seconds max', (list) => oneDecimal(seconds(list).max)],
+    ['Known found in a run', (list) => idsByCase(roundOneFound(list))],
+    [`Known found that no ${reference} run found`, besideReference(reference, (list) => idsByCase(onlyFound(list)))],
+    [`Cases without a ${reference} run`, besideReference(reference, withoutReference)],
+  ];
+  return measureTable(rows, columns, runsOf);
+}
+
+// The self-review lead: the lead folders `lead` and the reference folder `leadRef`, one table per case group, from
+// the valid runs.
+function leadSection(runs, { lead, leadRef }) {
+  const columns = distinct([...lead, leadRef]);
+  const shown = runs.filter((run) => run.invalid.length === 0 && columns.includes(armColumn(run)));
+  return [
+    '## Self-review lead',
+    '',
+    `The reference is ${leadRef}. A column holds the valid runs of one arm folder in one case group. Each run counts with its round 1 only: a single review is one round, and a loop counts only its first round. The seconds are the round 1 seconds, the slowest reviewer of the round. Known found in a run lists the known defects that round 1 of at least one run found, as \`<case>: <ids>\`. The next row lists, for each case that ${leadRef} ran, the known defects that the column found and round 1 of no ${leadRef} run found. The cases that ${leadRef} did not run stay out of that row, and the last row counts them.`,
+    '',
+    ...bySplit(shown).flatMap(([group, groupRuns]) => [
+      `### Self-review lead: ${group}`,
+      '',
+      ...leadTable(groupRuns, columns, leadRef),
+      '',
+    ]),
+  ];
+}
+
+// The report holds numbers, verdicts, configuration names, arm folder names, and known-defect ids only, so a held-out
+// reader learns no defect text. `configs` and `arms` set the columns of the comparison tables, one or the other;
+// `lead` (lead folders) and `leadRef` (the reference folder) together add the self-review lead.
+export function renderReport({ summaries, runs, agreement }, { configs, arms, reference, lead, leadRef } = {}) {
+  if (configs && arms) fail('report takes --configs or --arms, not both');
+  if (Boolean(lead) !== Boolean(leadRef)) fail('report takes --lead and --lead-ref together');
+  const columnNote = arms
+    ? 'An arm table has one column per arm folder in one case group. Its decision table also gives the cases of each column and the cases that the column and the reference column both ran.'
+    : 'A configuration table has one column per configuration in one case group.';
   const invalid = runs.filter((run) => run.invalid.length > 0);
   return [
     '# Review benchmark report',
@@ -1151,8 +1271,8 @@ export function renderReport({ summaries, runs, agreement }, { configs, referenc
     'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
-    'The Runs table lists every run. The summary and the configuration tables leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration, or a reviewer that read a file outside the inputs of its run.',
-    'A configuration table has one column per configuration in one case group. The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds is the time of the fix steps of a loop, apart from the loop seconds; its median covers only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.',
+    'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration, or a reviewer that read a file outside the inputs of its run.',
+    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds is the time of the fix steps of a loop, apart from the loop seconds; its median covers only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
     '',
     '## Summary',
     '',
@@ -1170,7 +1290,8 @@ export function renderReport({ summaries, runs, agreement }, { configs, referenc
           ...invalid.map((run) => `- ${run.case}/${run.arm}/${run.run}: ${run.invalid.join('; ')}`),
           '',
         ]),
-    ...configurationSections(runs, { configs, reference }),
+    ...(arms ? armSections(runs, { arms, reference }) : configurationSections(runs, { configs, reference })),
+    ...(lead ? leadSection(runs, { lead, leadRef }) : []),
     ...(agreement
       ? [
           '## Judge agreement',
@@ -1331,11 +1452,13 @@ export function transcriptFacts(text, source = 'transcript') {
   return toolCalls.length ? { ...facts, toolCalls } : facts;
 }
 
-// The working directory of the session of a transcript and the plugin roots that the agent text of the session
-// names. omp records the agent text in the system prompt (a string or a list of strings) of the `session_init` entry.
+// The working directory of the session of a transcript, the plugin roots that the agent text of the session names,
+// and the self-review agent files that it names. omp records the agent text in the system prompt (a string or a list
+// of strings) of the `session_init` entry.
 function transcriptSession(text, source) {
   let cwd = null;
   const pluginRoots = new Set();
+  const agentFiles = new Set();
   for (const entry of transcriptEntries(text, source)) {
     if (entry.type === 'session' && cwd === null && typeof entry.cwd === 'string') cwd = entry.cwd;
     if (entry.type !== 'session_init') continue;
@@ -1344,8 +1467,9 @@ function transcriptSession(text, source) {
       .filter((part) => typeof part === 'string')
       .join('\n');
     for (const match of prompt.matchAll(REVIEWER_SKILL)) pluginRoots.add(match[1]);
+    for (const [file] of prompt.matchAll(SELF_REVIEW_AGENT_FILE)) agentFiles.add(file);
   }
-  return { cwd, pluginRoots: [...pluginRoots] };
+  return { cwd, pluginRoots: [...pluginRoots], agentFiles: [...agentFiles] };
 }
 
 // The folder itself or a path below it.
@@ -1354,10 +1478,11 @@ function isUnder(folder, target) {
   return relative === '' || !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
 }
 
-// The input folders of a run, the folders that a reviewer may read with every path below them, the plugin roots, and
-// the keys of the files that the case changes (see changedPathKeys). An input folder is the case folder, and the run
-// folder or each round folder up to `round`. The tree copies are those of the rounds up to `round`.
-function scopeRules(runDir, round, pluginRoots, changedFiles) {
+// The input folders of a run, the folders that a reviewer may read with every path below them, the plugin roots, the
+// agent files of the reviewer, and the keys of the files that the case changes (see changedPathKeys). An input folder
+// is the case folder, and the run folder or each round folder up to `round`. The tree copies are those of the rounds
+// up to `round`.
+function scopeRules(runDir, round, pluginRoots, agentFiles, changedFiles) {
   const armDir = path.dirname(runDir);
   const caseDir = path.dirname(armDir);
   const [caseId, arm, run] = [caseDir, armDir, runDir].map((dir) => path.basename(dir));
@@ -1371,6 +1496,7 @@ function scopeRules(runDir, round, pluginRoots, changedFiles) {
     inputDirs,
     folders: [...inputDirs.flatMap((dir) => INPUT_FOLDERS.map((name) => path.join(dir, name))), ...trees],
     pluginRoots,
+    agentFiles: agentFiles.map((file) => path.resolve(file)),
     changed: distinct(changedFiles.flatMap(changedPathKeys)),
   };
 }
@@ -1387,11 +1513,12 @@ function folderAllowed(target, { folders, pluginRoots }) {
   });
 }
 
-// An input file of an input folder, or a reviewer agent file of a plugin root.
-function fileAllowed(target, { inputDirs, pluginRoots }) {
+// An input file of an input folder, a reviewer agent file of a plugin root, or an agent file of the reviewer.
+function fileAllowed(target, { inputDirs, pluginRoots, agentFiles }) {
   const dir = path.dirname(target);
   const name = path.basename(target);
   if (inputDirs.includes(dir) && (INPUT_FILES.has(name) || name.endsWith('.diff'))) return true;
+  if (agentFiles.includes(target)) return true;
   return name.endsWith('-reviewer.md') && pluginRoots.some((root) => path.join(root, 'agents') === dir);
 }
 
@@ -1519,13 +1646,14 @@ function pathTargets(value) {
 // each once, as the reviewer wrote them without the read selector, in call order. `runDir` is
 // `<ws>/<case>/<arm folder>/run-<k>`; `round` is the number of a round folder, or undefined for a run without round
 // folders; `cwd` is the working directory of the session (null when unknown); `pluginRoots` are the plugin roots that
-// the agent text names. The function reads no file. A target is allowed when it is:
+// the agent text names; `agentFiles` are the agent files that the agent text names as its own (the self-review agent
+// has no plugin root). The function reads no file. A target is allowed when it is:
 // - under an input of the run: `snapshot/`, `prompts/`, a `*.diff` file, `plan.md`, `previous-review.md`, or
 //   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
 // - under the tree copy of the judge for a round of the run up to `round`;
-// - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, or a path under the code-reviewer or
-//   plan-reviewer skill folder of a plugin root. The reviewer cannot work without these files, so they stay allowed
-//   also when the case changes them;
+// - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, a path under the code-reviewer or
+//   plan-reviewer skill folder of a plugin root, or a file of `agentFiles`. The reviewer cannot work without these
+//   files, so they stay allowed also when the case changes them;
 // - an optional instruction read, when the case changes no file at its key (see below): the plan contract
 //   `<root>/skills/[<folder>/]plan-manager/references/plan-contract.md` of a plugin root (the plan-reviewer checklist
 //   tells the reviewer to read it in its own plugin); a path under the folder of the code-review, code-clarity,
@@ -1545,8 +1673,11 @@ function pathTargets(value) {
 // gives the keys of a changed path. A read is outside when its key overlaps the key of a changed path (see
 // keysOverlap). A glob gives the key of the folder before its first glob segment, so a glob that could match a changed
 // file is outside.
-export function readScope(toolCalls, { runDir, round, cwd = null, pluginRoots = [], changedFiles = [] }) {
-  const rules = scopeRules(path.resolve(runDir), round, pluginRoots, changedFiles);
+export function readScope(
+  toolCalls,
+  { runDir, round, cwd = null, pluginRoots = [], agentFiles = [], changedFiles = [] },
+) {
+  const rules = scopeRules(path.resolve(runDir), round, pluginRoots, agentFiles, changedFiles);
   const outside = new Set();
   for (const { name, path: value } of toolCalls) {
     if (typeof value !== 'string' || !value.trim()) {
@@ -1685,7 +1816,9 @@ function readMetas(ws, blocks) {
 
 // Writes report.md. It stops before it writes when a key under `keys` changed after `pairs`, or when a finding has
 // neither a `match` answer nor an adjudication. `<ws>/judgments-second.json`, when it exists, gives the agreement.
-export function reportCommand(ws, { keys, configs } = {}) {
+// `configs` or `arms` sets the columns of the comparison tables, and `lead` with `leadRef` adds the self-review lead
+// (see renderReport).
+export function reportCommand(ws, { keys, configs, arms, lead, leadRef } = {}) {
   const findings = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');
   const judgments = readJson(path.join(ws, 'judgments.json'), '; the judge writes it');
@@ -1694,7 +1827,7 @@ export function reportCommand(ws, { keys, configs } = {}) {
   requireJudgedFindings(findings.findings, judgments);
   const secondFile = path.join(ws, 'judgments-second.json');
   if (fs.existsSync(secondFile)) scores.agreement = judgeAgreement(judgments, readJson(secondFile));
-  fs.writeFileSync(path.join(ws, 'report.md'), renderReport(scores, { configs }));
+  fs.writeFileSync(path.join(ws, 'report.md'), renderReport(scores, { configs, arms, lead, leadRef }));
   return scores;
 }
 
@@ -1759,6 +1892,13 @@ export function transcriptsCommand(ws, sessionsDir) {
   return updated;
 }
 
+// A comma-separated list of names; undefined without a value.
+const nameList = (value) =>
+  value
+    ?.split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
+
 function parseOptions(args, { required = [], optional = [] }) {
   const options = {};
   for (let index = 0; index < args.length; index += 2) {
@@ -1793,13 +1933,16 @@ const COMMANDS = {
     },
   },
   report: {
-    optional: ['--keys', '--configs'],
+    optional: ['--keys', '--configs', '--arms', '--lead', '--lead-ref'],
     run: (ws, options) => {
-      const configs = options['--configs']
-        ?.split(',')
-        .map((name) => name.trim())
-        .filter(Boolean);
-      return `report.md: ${reportCommand(ws, { keys: options['--keys'], configs }).runs.length} runs`;
+      const scores = reportCommand(ws, {
+        keys: options['--keys'],
+        configs: nameList(options['--configs']),
+        arms: nameList(options['--arms']),
+        lead: nameList(options['--lead']),
+        leadRef: options['--lead-ref'],
+      });
+      return `report.md: ${scores.runs.length} runs`;
     },
   },
   transcripts: {

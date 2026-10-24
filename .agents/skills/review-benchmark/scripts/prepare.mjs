@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// prepare.mjs builds review benchmark workspaces, the reviewer and fixer agent files of the configurations, and the
-// rounds of review loops.
+// prepare.mjs builds review benchmark workspaces, the reviewer, self-review, and fixer agent files of the
+// configurations, and the rounds of review loops.
 //
 //   node prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
 //                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
@@ -28,6 +28,7 @@ import {
   loopEnds,
   readKnown,
   runLabel,
+  SELF_REVIEW_AGENT_PREFIX,
   unwrapBlock,
 } from './score.mjs';
 
@@ -99,13 +100,24 @@ export const LENSES = ['correctness', 'spec-and-tests', 'text-and-safety'];
 // the side.
 const MODE_REVIEWERS = { full: ['full'], panel: LENSES, delta: ['delta'] };
 
-// Arms per case kind. `side` selects the released (baseline) or the working-tree (candidate) agent.
+// The self-review of the plan manager before code-review round 1 (#98): one agent on the full diff, or one agent per
+// lens. Its reviewer names differ from the reviewer names of the code-review arms.
+const SELF_REVIEW = 'self-review';
+const SELF_REVIEW_LENSES = LENSES.map((lens) => `${SELF_REVIEW}-${lens}`);
+// The lens of a panel reviewer: a code-review lens, or a self-review lens without its prefix.
+const lensOf = (reviewer) =>
+  reviewer.startsWith(`${SELF_REVIEW}-`) ? reviewer.slice(SELF_REVIEW.length + 1) : reviewer;
+
+// Arms per case kind. `side` selects the released (baseline) or the working-tree (candidate) reviewer agent, or the
+// self-review agent. A self-review arm runs one review only, before code-review round 1, so it takes no --loop.
 export const ARMS = {
   code: {
     B0: { side: 'baseline', mode: 'full', reviewers: ['full'] },
     B1: { side: 'baseline', mode: 'panel', reviewers: LENSES },
     C1: { side: 'candidate', mode: 'full', reviewers: ['full'] },
     C3: { side: 'candidate', mode: 'panel', reviewers: LENSES },
+    S1: { side: SELF_REVIEW, mode: 'full', reviewers: [SELF_REVIEW] },
+    S3: { side: SELF_REVIEW, mode: 'panel', reviewers: SELF_REVIEW_LENSES },
   },
   'code-delta': {
     B0: { side: 'baseline', mode: 'full', reviewers: ['full'] },
@@ -130,13 +142,14 @@ const KIND_FIELDS = {
 };
 const FILE_FIELDS = ['plan', 'patch', 'previous_review', 'previous_body', 'rejection'];
 
-// The baseline agent does not know lenses, so a baseline panel dispatch describes them.
-const BASELINE_PANEL = [
+// Only the candidate skill defines the lenses. The baseline agent and the self-review agent do not know them, so their
+// panel prompts describe them.
+const PANEL_RULES = [
   'This round runs three reviewers at the same time, one per lens: correctness, spec-and-tests, and text-and-safety.',
   'Report only findings inside your lens. Write `None.` under an axis that your lens does not cover.',
   'The focus diff holds the changed paths of your lens. Read the full diff for context.',
 ];
-const BASELINE_LENS_SCOPE = {
+const LENS_SCOPE = {
   correctness: [
     'Your lens covers Bug and Performance findings in changed production code.',
     'Check wrong conditions, boundary and limit errors, error paths that hide or misreport failures, retries and partial failure, races, ordering and stale state, empty, null, and timeout states, resource bounds, state transitions, and messages or refusals that send the caller into a loop or a dead end.',
@@ -190,8 +203,14 @@ export function agentName(side, role, config) {
   return `${GENERATED_PREFIX}${side}-${role}-${config}`;
 }
 
+export function selfReviewAgent(config) {
+  return `${SELF_REVIEW_AGENT_PREFIX}${config}`;
+}
+
 export function armAgent(kind, arm, config) {
-  return agentName(ARMS[kind][arm].side, isPlanKind(kind) ? 'plan' : 'code', config);
+  const { side } = ARMS[kind][arm];
+  if (side === SELF_REVIEW) return selfReviewAgent(config);
+  return agentName(side, isPlanKind(kind) ? 'plan' : 'code', config);
 }
 
 // The folder of an arm at one configuration. Arm names have no hyphen, so the folder name splits at its first one.
@@ -335,21 +354,21 @@ export function buildOpening(caseData, paths, round = caseData.round) {
   ].join('\n');
 }
 
-// The mode's part of the prompt. Candidate skills define the modes and lenses, so a candidate tail only names them.
+// The mode's part of the prompt. Candidate skills define the modes and lenses, so a candidate tail only names them. A
+// panel tail of another agent describes the lens.
 export function buildTail({ caseData, side, mode, round, reviewer, paths }) {
   const lines = [`Round mode: ${mode}.`];
   if (mode === 'full') {
     if (!isPlanKind(caseData.kind)) lines.push(`Full diff: ${paths.fullDiff}`);
   } else if (mode === 'panel') {
-    if (side === 'baseline') lines.push(...BASELINE_PANEL);
-    lines.push(`Full diff: ${paths.fullDiff}`, `Focus diff: ${paths.focus[reviewer]}`);
-    if (side === 'baseline') {
-      lines.push(
-        ...BASELINE_LENS_SCOPE[reviewer],
-        `Use the heading \`### Code review round ${round}, lens ${reviewer}\`.`,
-      );
+    const lens = lensOf(reviewer);
+    const describe = side !== 'candidate';
+    if (describe) lines.push(...PANEL_RULES);
+    lines.push(`Full diff: ${paths.fullDiff}`, `Focus diff: ${paths.focus[lens]}`);
+    if (describe) {
+      lines.push(...LENS_SCOPE[lens], `Use the heading \`### Code review round ${round}, lens ${lens}\`.`);
     }
-    lines.push(`Lens: ${reviewer}`);
+    lines.push(`Lens: ${lens}`);
   } else {
     lines.push(
       isPlanKind(caseData.kind) ? `Plan diff: ${paths.planDiff}` : `Delta diff: ${paths.deltaDiff}`,
@@ -411,6 +430,48 @@ export function renderAgent(source, { name, model, effortKey, effort, pluginRoot
   lines.splice(nameAt, 1, `name: ${name}`, `model: ${modelValue}`, `${effortKey}: ${effort}`);
   const body = source.slice(frontmatter[0].length);
   return `---\n${lines.join('\n')}\n---\n${body}`.replaceAll(PLUGIN_ROOT_TOKEN, pluginRoot);
+}
+
+// The self-review agent `name` of a configuration, in the agent file `file`. It loads the docks code-review and
+// code-clarity skills through `skill://` URIs and has no plugin root, so its text names its own agent file: score.mjs
+// finds that file in the system prompt of the transcript and lets the agent read it (see readScope).
+function selfReviewSource(name, file) {
+  return `---
+name: ${name}
+description: Reviews a candidate diff with the docks code-review and code-clarity skills, as the plan manager does before code-review round 1, and returns one code-review block. Only for the review replays that prepare.mjs sets up.
+tools: Read, Glob, Grep
+---
+
+# Self-review
+
+You are the self-review of the plan manager before code-review round 1. Your agent file is \`${file}\`.
+
+1. Load \`skill://code-review\` and \`skill://code-clarity\`. Read these skills and their references only through \`skill://\` URIs.
+2. Apply both skills to the candidate diff that the task names. The plan export is the spec of the Spec axis of code-review.
+3. Do only the review steps of the skills. Do not write or edit a file, apply a fix, run a command, dispatch another agent, or ask a question.
+4. Follow the rules of the task. When the task names a lens, report only the findings of that lens.
+5. Return one block in the format below, with no text before or after it.
+
+\`\`\`markdown
+### Code review round <N>
+
+Code-review: <pass|fixes-required>
+
+## Standards
+
+- [HIGH] Bug - src/example.mjs:42 - <the defect, the input or scenario that shows it, and the fix>
+
+## Spec
+
+None.
+\`\`\`
+
+- Use the heading that the task names. When the task names no heading, use \`### Code review round <N>\` with the round of the task.
+- Write the verdict line once, as plain text on its own line. The verdict is \`fixes-required\` when a \`CRITICAL\` or \`HIGH\` finding stands, else \`pass\`.
+- Start each finding line with \`- [CRITICAL]\`, \`- [HIGH]\`, \`- [MEDIUM]\`, or \`- [LOW]\`. Then give the category, the locator, and the text, separated by \` - \`. Write a bracketed severity only at the start of a finding line.
+- Use the category \`Bug\`, \`Security\`, \`Performance\`, or \`Maintainability\` under \`## Standards\`, and \`Spec\` under \`## Spec\`. A code-clarity finding goes under \`## Standards\`.
+- Write \`None.\` under a section that has no findings.
+`;
 }
 
 function runGit(repo, args, { env, input } = {}) {
@@ -660,8 +721,11 @@ function buildCaseWorkspace({ repo, caseData, casePath, sources, caseDir, paths 
 }
 
 // With --loop, the size rule picks the mode of each round, so an arm gives only the side of the reviewer agent, and
-// two arms of one side would run the same loop.
-function requireOneArmPerSide(kind, arms) {
+// two arms of one side would run the same loop. The self-review runs once, before code-review round 1, so its arms
+// take no --loop.
+function checkLoopArms(kind, arms) {
+  const selfReview = arms.filter((arm) => ARMS[kind][arm].side === SELF_REVIEW);
+  if (selfReview.length) fail(`${selfReview.join(', ')} run one self-review before round 1; leave them out of --loop`);
   const bySide = new Map();
   for (const arm of arms) {
     const { side } = ARMS[kind][arm];
@@ -686,7 +750,7 @@ export function prepareCase(options, repo) {
     fail(`--loop takes code cases; ${caseData.id} is a ${caseData.kind} case`);
   }
   const arms = parseArms(options.arms, caseData.kind);
-  if (options.loop) requireOneArmPerSide(caseData.kind, arms);
+  if (options.loop) checkLoopArms(caseData.kind, arms);
   const runs = parseRuns(options.runs);
   const configs = selectConfigs(options, repo);
   const caseDir = path.join(path.resolve(options.out), caseData.id);
@@ -1181,7 +1245,7 @@ function selectConfigs(options, repo) {
   return parseList(options.configs, '--configs', known).map((name) => configs[known.indexOf(name)]);
 }
 
-function prepareAgents(options, repo) {
+export function prepareAgents(options, repo) {
   if (!options['baseline-ref']) fail('agents needs --baseline-ref <git ref of the last release>');
   const runtime = options.runtime ?? 'omp';
   if (!Object.hasOwn(RUNTIME_AGENT_DIRS, runtime)) fail('--runtime must be omp or claude');
@@ -1228,6 +1292,17 @@ function prepareAgents(options, repo) {
       fs.writeFileSync(path.join(agentDir, `${name}.md`), agent);
       if (config.tier !== null) overrides[name] = config.tier;
     }
+    // The self-review agent gets the model, effort, and tier of the reviewer agents of its configuration.
+    const selfReview = selfReviewAgent(config.name);
+    const selfReviewFile = path.join(agentDir, `${selfReview}.md`);
+    const selfReviewText = renderAgent(selfReviewSource(selfReview, selfReviewFile), {
+      name: selfReview,
+      model: config.model,
+      effortKey,
+      effort: config.effort,
+    });
+    fs.writeFileSync(selfReviewFile, selfReviewText);
+    if (config.tier !== null) overrides[selfReview] = config.tier;
   }
   const fixerAgent = renderAgent(FIXER_SOURCE, {
     name: FIXER_AGENT,
@@ -1239,7 +1314,7 @@ function prepareAgents(options, repo) {
   if (fixer.tier !== null) overrides[FIXER_AGENT] = fixer.tier;
   writeJson(path.join(agentDir, CONFIGS_FILE), { configs });
   const names = configs.map((config) => config.name).join(', ');
-  console.log(`wrote ${configs.length * sources.length} agent files to ${agentDir} for ${names}`);
+  console.log(`wrote ${configs.length * (sources.length + 1)} agent files to ${agentDir} for ${names}`);
   const fixerTier = fixer.tier === null ? '' : `, tier ${fixer.tier}`;
   console.log(`wrote the fixer agent ${FIXER_AGENT}: ${fixer.model}, effort ${fixer.effort}${fixerTier}`);
   if (runtime === 'omp') writeTierOverrides(project, overrides);

@@ -979,11 +979,11 @@ function roundWorkspace(t, runs) {
   return { ws, cases };
 }
 
-// Runs of `C1-<config>` arms, as scoreRuns gets them. `cases` maps a case id to its split, known ids, and kind
-// (default `code`). Each run is { case, config, rounds, single } with one run per case and config, and each round is
-// [seconds, tokens, mode, fixer seconds, answers]. A run has round folders; a run with `single: true` is a single
-// review: its one round has no round folder. An answer is a finding: the known id that it matches, or the rating of
-// a finding without a match.
+// Runs of `<arm>-<config>` arm folders, as scoreRuns gets them. `cases` maps a case id to its split, known ids, and
+// kind (default `code`). Each run is { case, config, arm, run, rounds, single }: arm defaults to `C1` and run to 1, so
+// without them a fixture has one run per case and config. Each round is [seconds, tokens, mode, fixer seconds,
+// answers]. A run has round folders; a run with `single: true` is a single review: its one round has no round folder.
+// An answer is a finding: the known id that it matches, or the rating of a finding without a match.
 function gridFixture(cases, runs) {
   const blocks = [];
   const findings = [];
@@ -992,8 +992,8 @@ function gridFixture(cases, runs) {
   for (const spec of runs) {
     const config = CONFIGS[spec.config];
     const kind = cases[spec.case].kind ?? 'code';
-    const arm = `C1-${config.name}`;
-    const run = 'run-1';
+    const arm = `${spec.arm ?? 'C1'}-${config.name}`;
+    const run = `run-${spec.run ?? 1}`;
     for (const [index, [seconds, tokens, mode, fixer, answers]] of spec.rounds.entries()) {
       const inRound = spec.single ? {} : { round: index + 1 };
       const folder = spec.single ? `${spec.case}/${arm}/${run}` : `${spec.case}/${arm}/${run}/round-${index + 1}`;
@@ -3142,4 +3142,481 @@ test('the decision table compares with the configuration that has the fewest esc
   ]) {
     assert.ok(decision.includes(row), `the decision table lacks ${row}`);
   }
+});
+
+// `report --arms <folder,...>` (renderReport option `arms`) replaces the configuration sections with `## Arms: <split>`
+// sections: the same tables, with one column per arm folder in the order of `arms`. The decision table adds the row
+// `Cases` after Runs, and the row `Cases shared with <reference>` before the interval rows: the cases that the column
+// and the reference column both ran (`-` in the reference column). `--configs` and `--arms` together fail.
+test('report --arms gives one column per arm folder and compares it with the arm that escapes the fewest', (t) => {
+  const round = (seconds, tokens, mode, fixer, answers) => [seconds, tokens, mode, fixer, answers];
+  const fixture = gridFixture(
+    {
+      'code-7': { split: 'dev', known: ['D1', 'D2'] },
+      'code-8': { split: 'dev', known: ['D1'] },
+    },
+    [
+      {
+        case: 'code-7',
+        config: 'xhigh-fast',
+        rounds: [round(100, 1000, 'full', 0, ['D1', 'D2']), round(20, 200, 'delta', 0, [])],
+      },
+      { case: 'code-8', config: 'xhigh-fast', rounds: [round(50, 500, 'full', 0, ['D1'])] },
+      {
+        case: 'code-7',
+        config: 'xhigh-fast',
+        arm: 'B0',
+        rounds: [
+          round(120, 1200, 'full', 0, ['D1']),
+          round(40, 400, 'delta', 0, ['D2']),
+          round(20, 200, 'delta', 0, []),
+        ],
+      },
+      { case: 'code-8', config: 'xhigh-fast', arm: 'B0', rounds: [round(60, 600, 'full', 0, [])] },
+    ],
+  );
+  const scores = scoreRuns(fixture);
+  const report = renderReport(scores, { arms: ['C1-xhigh-fast', 'B0-xhigh-fast'] });
+  assert.equal(report.includes('## Configurations: dev'), false);
+  // B0 escapes code-8/D1, so C1 is the reference. Round 1 of B0 finds only D1 of code-7; its round 2 finds D2.
+  assert.deepEqual(tableAfter(report, '## Arms: dev'), [
+    '| Measure | C1-xhigh-fast | B0-xhigh-fast |',
+    '|---|---:|---:|',
+    '| Runs | 2 | 2 |',
+    '| Cases | 2 | 2 |',
+    '| Known found per run | 1.50 | 1.00 |',
+    '| Escaped per run | 0.00 | 0.50 |',
+    '| Escaped per 50 known | 0.00 | 16.67 |',
+    `| Model | ${MODEL} | ${MODEL} |`,
+    '| Effort | xhigh | xhigh |',
+    '| Served tier | priority | priority |',
+    '| Cases shared with C1-xhigh-fast | - | 2 |',
+    '| Round 1 recall difference from C1-xhigh-fast, 90% interval | - | [-1.00, -0.50] |',
+    '| Escaped per 50 known difference from C1-xhigh-fast, 90% interval | - | [0.00, 50.00] |',
+    '| Loop seconds difference from C1-xhigh-fast, 90% interval | - | [10.0, 60.0] |',
+  ]);
+  assert.deepEqual(tableAfter(report, '### Decision: dev'), tableAfter(report, '## Arms: dev'));
+  assert.equal(tableAfter(report, '### Code loops: dev')[0], '| Measure | C1-xhigh-fast | B0-xhigh-fast |');
+  // --configs still puts both arms of the configuration in one column, without the case rows.
+  const byConfig = tableAfter(renderReport(scores, { configs: ['xhigh-fast'] }), '### Decision: dev');
+  assert.deepEqual(byConfig.slice(0, 3), ['| Measure | xhigh-fast |', '|---|---:|', '| Runs | 4 |']);
+  assert.equal(
+    byConfig.some((row) => row.startsWith('| Cases')),
+    false,
+  );
+  assert.throws(
+    () => renderReport(scores, { configs: ['xhigh-fast'], arms: ['C1-xhigh-fast'] }),
+    /^Error: report takes --configs or --arms, not both$/,
+  );
+  // The command line takes the same options.
+  const { ws, cases } = roundWorkspace(t, [
+    {
+      config: CONFIGS.low,
+      run: 1,
+      rounds: [
+        [FULL_BLOCK, 100, 1000, 'full'],
+        [PASS_ROUND, 40, 400, 'delta'],
+      ],
+    },
+    {
+      config: CONFIGS['low-fast'],
+      run: 1,
+      rounds: [
+        [FULL_BLOCK, 50, 500, 'full'],
+        [PASS_ROUND, 10, 100, 'delta'],
+      ],
+    },
+  ]);
+  findingsCommand(ws);
+  main(['pairs', ws, '--cases', cases]);
+  judgeAll(ws, (_, known) => (known === 'D1' ? 'match' : 'no'));
+  assert.throws(() => main(['report', ws, '--configs', 'low', '--arms', 'C1-low']), /not both$/);
+  assert.throws(() => main(['report', ws, '--lead', 'C1-low']), /^Error: report takes --lead and --lead-ref together$/);
+  assert.equal(
+    main(['report', ws, '--arms', 'C1-low-fast,C1-low', '--lead', 'C1-low', '--lead-ref', 'C1-low-fast']),
+    'report.md: 2 runs',
+  );
+  const written = fs.readFileSync(path.join(ws, 'report.md'), 'utf8');
+  assert.equal(tableAfter(written, '### Decision: dev')[0], '| Measure | C1-low-fast | C1-low |');
+  assert.equal(tableAfter(written, '### Self-review lead: dev')[0], '| Measure | C1-low | C1-low-fast |');
+});
+
+test('arm columns can hold different cases, and the decision table says how many cases each pair shares', () => {
+  const round = (seconds, tokens, mode, fixer, answers) => [seconds, tokens, mode, fixer, answers];
+  const single = (caseId, arm, seconds, answers) => ({
+    case: caseId,
+    config: 'xhigh-fast',
+    arm,
+    single: true,
+    rounds: [round(seconds, seconds * 10, null, 0, answers)],
+  });
+  const fixture = gridFixture(
+    {
+      'code-7': { split: 'dev', known: ['D1', 'D2'] },
+      'code-8': { split: 'dev', known: ['D1'] },
+      'code-9': { split: 'dev', known: ['D1'] },
+      'code-5': { split: 'heldout', known: ['D1'] },
+    },
+    [
+      // C1 loops ran every case. S1 single reviews did not run code-9, and S3 single reviews ran code-8 and code-9.
+      {
+        case: 'code-7',
+        config: 'xhigh-fast',
+        rounds: [
+          round(100, 1000, 'full', 0, ['D1']),
+          round(30, 300, 'delta', 0, ['D2']),
+          round(10, 100, 'delta', 0, []),
+        ],
+      },
+      {
+        case: 'code-8',
+        config: 'xhigh-fast',
+        rounds: [round(50, 500, 'full', 0, ['D1']), round(10, 100, 'delta', 0, [])],
+      },
+      { case: 'code-9', config: 'xhigh-fast', rounds: [round(40, 400, 'full', 0, [])] },
+      {
+        case: 'code-5',
+        config: 'xhigh-fast',
+        rounds: [round(45, 450, 'full', 0, ['D1']), round(15, 150, 'delta', 0, [])],
+      },
+      single('code-7', 'S1', 80, ['D1', 'D2']),
+      single('code-8', 'S1', 60, ['D1']),
+      single('code-5', 'S1', 55, []),
+      single('code-8', 'S3', 90, ['D1']),
+      single('code-9', 'S3', 70, ['D1']),
+    ],
+  );
+  const arms = ['C1-xhigh-fast', 'S1-xhigh-fast', 'S3-xhigh-fast'];
+  const report = renderReport(scoreRuns(fixture), { arms });
+  // In dev, S1 and S3 escape nothing; S1 is the first of them, so it is the reference. C1 shares code-7 and code-8
+  // with S1, and S3 shares code-8. S1 has no loop, so no column has a loop seconds interval.
+  assert.deepEqual(tableAfter(report, '### Decision: dev'), [
+    '| Measure | C1-xhigh-fast | S1-xhigh-fast | S3-xhigh-fast |',
+    '|---|---:|---:|---:|',
+    '| Runs | 3 | 2 | 2 |',
+    '| Cases | 3 | 2 | 2 |',
+    '| Known found per run | 1.00 | 1.50 | 1.00 |',
+    '| Escaped per run | 0.33 | 0.00 | 0.00 |',
+    '| Escaped per 50 known | 12.50 | 0.00 | 0.00 |',
+    `| Model | ${MODEL} | ${MODEL} | ${MODEL} |`,
+    '| Effort | xhigh | xhigh | xhigh |',
+    '| Served tier | priority | priority | priority |',
+    '| Cases shared with S1-xhigh-fast | 2 | - | 1 |',
+    '| Round 1 recall difference from S1-xhigh-fast, 90% interval | [-0.50, 0.00] | - | [0.00, 0.00] |',
+    '| Escaped per 50 known difference from S1-xhigh-fast, 90% interval | [0.00, 0.00] | - | [0.00, 0.00] |',
+    '| Loop seconds difference from S1-xhigh-fast, 90% interval | - | - | - |',
+  ]);
+  assert.ok(tableAfter(report, '### Code loops: dev').includes('| Runs | 3 | 0 | 0 |'));
+  const singles = tableAfter(report, '### Single reviews: dev');
+  assert.ok(singles.includes('| Runs | 0 | 2 | 2 |'));
+  assert.ok(singles.includes('| Seconds median | - | 70.0 | 80.0 |'));
+  // Each case group has its own reference: in heldout, S1 escapes code-5/D1, so C1 is the reference.
+  const heldout = tableAfter(report, '## Arms: heldout');
+  for (const row of [
+    '| Cases | 1 | 1 | 0 |',
+    '| Escaped per 50 known | 0.00 | 50.00 | - |',
+    '| Cases shared with C1-xhigh-fast | - | 1 | 0 |',
+    '| Round 1 recall difference from C1-xhigh-fast, 90% interval | - | [-1.00, -1.00] | - |',
+  ]) {
+    assert.ok(heldout.includes(row), `the heldout arm table lacks ${row}`);
+  }
+});
+
+// `report --lead <folder,...> --lead-ref <folder>` (renderReport options `lead` and `leadRef`) adds the section
+// `## Self-review lead` with one table `### Self-review lead: <split>` per case group: one column per lead folder,
+// then the reference folder, from the valid runs. Each run counts with its round 1 only. The only-found row lists, per
+// case that the reference ran, the known ids that the column found and round 1 of no reference run found, as
+// `<case>: <ids>` joined by "; ". Cases without a reference run stay out of that row and get a count.
+test('the self-review lead lists the known defects that only the lead found, against round 1 of the reference', () => {
+  const round = (seconds, tokens, mode, fixer, answers) => [seconds, tokens, mode, fixer, answers];
+  const single = (caseId, arm, run, seconds, answers) => ({
+    case: caseId,
+    config: 'xhigh-fast',
+    arm,
+    run,
+    single: true,
+    rounds: [round(seconds, seconds * 10, null, 0, answers)],
+  });
+  const fixture = gridFixture(
+    {
+      'code-7': { split: 'dev', known: ['D1', 'D2', 'D3'] },
+      'code-8': { split: 'dev', known: ['D1', 'D2'] },
+      'code-9': { split: 'dev', known: ['D1'] },
+    },
+    [
+      // The reference loops find code-7/D1 and code-7/D3 in round 1, and code-7/D2 only in round 2. They do not run
+      // code-9.
+      {
+        case: 'code-7',
+        config: 'xhigh-fast',
+        run: 1,
+        rounds: [
+          round(100, 1000, 'full', 0, ['D1']),
+          round(40, 400, 'delta', 0, ['D2']),
+          round(10, 100, 'delta', 0, []),
+        ],
+      },
+      {
+        case: 'code-7',
+        config: 'xhigh-fast',
+        run: 2,
+        rounds: [round(120, 1200, 'full', 0, ['D3']), round(20, 200, 'delta', 0, [])],
+      },
+      { case: 'code-8', config: 'xhigh-fast', run: 1, rounds: [round(80, 800, 'full', 0, [])] },
+      // An invalid run: its round 1 finds code-8/D2, but it does not count.
+      { case: 'code-8', config: 'xhigh-fast', run: 2, rounds: [round(30, 300, 'full', 0, ['D2'])] },
+      single('code-7', 'S1', 1, 60, ['D1', 'D2']),
+      single('code-7', 'S1', 2, 90, ['D3']),
+      single('code-8', 'S1', 1, 70, ['D2']),
+      single('code-9', 'S1', 1, 50, ['D1']),
+      single('code-7', 'S3', 1, 70, ['D2']),
+      single('code-8', 'S3', 1, 65, []),
+    ],
+  );
+  fixture.metas['code-8/C1-xhigh-fast/run-2/round-1'].reviewers.full.effort = 'high';
+  // S3 is a split arm: a second reviewer of its code-7 run takes 110 seconds, so that run takes 110 seconds.
+  fixture.findings.blocks.push({
+    case: 'code-7',
+    kind: 'code',
+    arm: 'S3-xhigh-fast',
+    run: 'run-1',
+    reviewer: 'self-review-spec-and-tests',
+    verdict: 'pass',
+    findings: 0,
+  });
+  const { reviewers } = fixture.metas['code-7/S3-xhigh-fast/run-1'];
+  reviewers['self-review-spec-and-tests'] = provenCost(CONFIGS['xhigh-fast'], 110, 100);
+  const scores = scoreRuns(fixture);
+  const report = renderReport(scores, { lead: ['S1-xhigh-fast', 'S3-xhigh-fast'], leadRef: 'C1-xhigh-fast' });
+  assert.ok(report.split('\n').includes('## Self-review lead'));
+  assert.deepEqual(tableAfter(report, '### Self-review lead: dev'), [
+    '| Measure | S1-xhigh-fast | S3-xhigh-fast | C1-xhigh-fast |',
+    '|---|---:|---:|---:|',
+    '| Runs | 4 | 2 | 3 |',
+    '| Cases | 3 | 2 | 2 |',
+    '| Round 1 seconds median | 65.0 | 87.5 | 100.0 |',
+    '| Round 1 seconds min | 50.0 | 65.0 | 80.0 |',
+    '| Round 1 seconds max | 90.0 | 110.0 | 120.0 |',
+    '| Known found in a run | code-7: D1, D2, D3; code-8: D2; code-9: D1 | code-7: D2 | code-7: D1, D3 |',
+    // code-7/D2 counts: the reference found it only in round 2. code-9 stays out: the reference did not run it.
+    '| Known found that no C1-xhigh-fast run found | code-7: D2; code-8: D2 | code-7: D2 | - |',
+    '| Cases without a C1-xhigh-fast run | 1 | 0 | - |',
+  ]);
+  // The lead section comes with the configuration sections; it does not replace them.
+  assert.ok(report.indexOf('## Configurations: dev') < report.indexOf('## Self-review lead'));
+  assert.throws(
+    () => renderReport(scores, { lead: ['S1-xhigh-fast'] }),
+    /^Error: report takes --lead and --lead-ref together$/,
+  );
+  assert.equal(renderReport(scores).includes('## Self-review lead'), false);
+});
+
+// Plan #100 step 6: API note for the self-review tests below (#98).
+//
+// New exports of prepare.mjs:
+// - prepareAgents(options, repo): the `agents` command. options holds the flags by long name, as parseArgs gives them.
+//   For each configuration it also writes the agent selfReviewAgent(<config>) = `review-bench-selfreview-<config>`,
+//   with the model, the effort, and the tier override of the reviewer agents of that configuration. Its agent text
+//   names the absolute path of its own agent file.
+// - selfReviewAgent(config) -> `review-bench-selfreview-<config>`.
+//
+// Changed exports:
+// - ARMS.code has S1 (reviewer `self-review`, a full-mode prompt) and S3 (reviewers `self-review-<lens>`, the panel
+//   prompt of the lens, with the lens description of a baseline lens). Both dispatch the self-review agent and take
+//   no --loop.
+// - readScope takes `agentFiles`, a list of absolute paths that the reviewer may read. transcriptsCommand gives the
+//   paths `<dir>/.omp/agents/review-bench-selfreview-<x>.md` and `<dir>/.claude/agents/review-bench-selfreview-<x>.md`
+//   that the system prompt of the `session_init` entry names.
+
+// The `key: value` lines of the frontmatter of an agent file.
+function frontmatter(file) {
+  const [, block] = /^---\n([\s\S]*?)\n---\n/.exec(readText(file));
+  return Object.fromEntries(
+    block.split('\n').map((line) => [line.slice(0, line.indexOf(':')), line.slice(line.indexOf(':') + 1).trim()]),
+  );
+}
+
+// Runs `agents` for the efforts low and high and the tiers priority and default on a git repository whose head holds
+// the reviewer agents that `agents` copies. It returns the project folder and its omp agent folder.
+function selfReviewAgents(t) {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  const project = path.join(root, 'project');
+  fs.mkdirSync(repo);
+  fs.mkdirSync(project);
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  for (const role of ['code', 'plan']) {
+    const agent = `---\nname: ${role}-reviewer\ndescription: Reviews.\ntools: Read, Glob, Grep\n---\n\n# Reviewer\n`;
+    put(repo, `plugins/plan-lifecycle/agents/${role}-reviewer.md`, agent);
+  }
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'agents');
+  const options = {
+    'baseline-ref': 'HEAD',
+    model: MODEL,
+    efforts: 'low,high',
+    tiers: 'priority,default',
+    'baseline-dir': path.join(root, 'baseline-plugin'),
+    project,
+  };
+  prepare.prepareAgents(options, repo);
+  return { root, project, agentDir: path.join(project, '.omp', 'agents') };
+}
+
+test('agents writes one self-review agent per configuration with the effort and tier of its reviewer agents', (t) => {
+  const { project, agentDir } = selfReviewAgents(t);
+  const { configs } = readJson(path.join(agentDir, 'review-bench-configs.json'));
+  assert.deepEqual(
+    configs.map((config) => config.name),
+    ['low-fast', 'low', 'high-fast', 'high'],
+  );
+  assert.deepEqual(
+    fs
+      .readdirSync(agentDir)
+      .filter((name) => name.startsWith('review-bench-selfreview-'))
+      .sort(),
+    configs.map((config) => `review-bench-selfreview-${config.name}.md`).sort(),
+  );
+  const overrides = readJson(path.join(project, '.omp', 'settings.json')).task.agentServiceTierOverrides;
+  for (const { name, model, effort, tier } of configs) {
+    const agent = prepare.selfReviewAgent(name);
+    const reviewer = `review-bench-candidate-code-${name}`;
+    assert.equal(agent, `review-bench-selfreview-${name}`);
+    const fields = frontmatter(path.join(agentDir, `${agent}.md`));
+    const reviewerFields = frontmatter(path.join(agentDir, `${reviewer}.md`));
+    assert.deepEqual([fields.name, fields.model, fields['thinking-level']], [agent, model, effort]);
+    assert.equal(reviewerFields.model, fields.model);
+    assert.equal(reviewerFields['thinking-level'], fields['thinking-level']);
+    assert.equal(overrides[agent], tier);
+    assert.equal(overrides[agent], overrides[reviewer]);
+  }
+  // clean removes the self-review agents and their tier overrides with the other generated files.
+  const script = path.join(import.meta.dirname, '../../../.agents/skills/review-benchmark/scripts/prepare.mjs');
+  const clean = spawnSync(process.execPath, [script, 'clean', '--project', project], { encoding: 'utf8' });
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.equal(fs.existsSync(path.join(project, '.omp')), false);
+});
+
+test('case --arms S1,S3 writes one self-review prompt on the full diff and one per lens on its focus diff', (t) => {
+  const { root, repo, base, head } = loopRepo(t);
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const project = path.join(root, 'project');
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low] });
+  const caseData = {
+    id: 'code-7',
+    kind: 'code',
+    split: 'dev',
+    issue: 7,
+    round: 1,
+    plan: 'code-7-plan.md',
+    base,
+    head,
+    known: [],
+  };
+  put(cases, 'dev/code-7.json', caseData);
+  put(cases, 'dev/code-7-plan.md', '# Plan 7\n');
+  const options = {
+    case: path.join(cases, 'dev', 'code-7.json'),
+    arms: 'S1,S3',
+    runs: '1',
+    out: ws,
+    configs: 'low',
+    project,
+  };
+  const caseDir = path.join(ws, 'code-7');
+  // The self-review runs once, before code-review round 1, so its arms take no --loop.
+  assert.throws(() => prepare.prepareCase({ ...options, loop: true }, repo), /S1, S3/);
+  assert.equal(fs.existsSync(caseDir), false);
+
+  prepare.prepareCase(options, repo);
+  const paths = prepare.workspacePaths(caseDir, caseData);
+  const opening = prepare.buildOpening(caseData, paths);
+  const runDir = (arm) => path.join(caseDir, `${arm}-low`, 'run-1');
+  // A prompt file is the agent line, an empty line, and the prompt.
+  const prompt = (arm, reviewer) => {
+    const [agent, empty, ...rest] = readText(path.join(runDir(arm), 'prompts', `${reviewer}.txt`)).split('\n');
+    assert.equal(empty, '');
+    return { agent, body: rest.join('\n') };
+  };
+  const promptOf = (arm, reviewer) =>
+    prepare.buildPromptFile({ caseData, arm, config: 'low', reviewer, paths }).split('\n').slice(2).join('\n');
+
+  assert.deepEqual(fs.readdirSync(path.join(runDir('S1'), 'prompts')), ['self-review.txt']);
+  const single = prompt('S1', 'self-review');
+  assert.equal(single.agent, 'agent: review-bench-selfreview-low');
+  assert.ok(single.body.startsWith(`${opening}\n\n`));
+  assert.ok(single.body.split('\n').includes(`Full diff: ${paths.fullDiff}`));
+  // S1 gets the prompt of a full code-review round.
+  assert.equal(single.body, promptOf('C1', 'full'));
+
+  assert.deepEqual(
+    fs.readdirSync(path.join(runDir('S3'), 'prompts')).sort(),
+    prepare.LENSES.map((lens) => `self-review-${lens}.txt`),
+  );
+  for (const lens of prepare.LENSES) {
+    const panel = prompt('S3', `self-review-${lens}`);
+    assert.equal(panel.agent, 'agent: review-bench-selfreview-low');
+    assert.ok(panel.body.startsWith(`${opening}\n\n`));
+    assert.ok(fs.existsSync(paths.focus[lens]));
+    assert.ok(panel.body.split('\n').includes(`Focus diff: ${paths.focus[lens]}`));
+    // Each S3 reviewer gets the prompt of a baseline panel lens, which describes the scope of the lens.
+    assert.equal(panel.body, promptOf('B1', lens));
+  }
+
+  // Both arms are single-round runs.
+  for (const arm of ['S1', 'S3']) {
+    assert.deepEqual(fs.readdirSync(runDir(arm)).sort(), ['blocks', 'meta.json', 'prompts']);
+    assert.deepEqual(readJson(path.join(runDir(arm), 'meta.json')), { config: CONFIGS.low });
+  }
+  assert.deepEqual(
+    namesCommand(ws).map((entry) => entry.name),
+    [
+      'Code7S1LowR1SelfReview',
+      'Code7S3LowR1SelfReviewCorrectness',
+      'Code7S3LowR1SelfReviewSpecAndTests',
+      'Code7S3LowR1SelfReviewTextAndSafety',
+    ],
+  );
+});
+
+test('transcripts lets a self-review agent read its own agent file and no other agent file', (t) => {
+  const { root, agentDir } = selfReviewAgents(t);
+  const ws = path.join(root, 'ws');
+  const sessions = path.join(root, 'sessions');
+  const caseDir = path.join(ws, 'code-7');
+  const run = path.join(caseDir, 'S1-low', 'run-1');
+  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+  put(caseDir, 'full.diff', '');
+  put(run, 'prompts/self-review.txt', 'agent: review-bench-selfreview-low\n\nReview.\n');
+  put(run, 'meta.json', { config: CONFIGS.low });
+  const own = path.join(agentDir, 'review-bench-selfreview-low.md');
+  const other = path.join(agentDir, 'review-bench-selfreview-high.md');
+  const reviewer = path.join(agentDir, 'review-bench-candidate-code-low.md');
+  const calls = [
+    ['read', { path: own }],
+    ['read', { path: `${own}:1-40` }],
+    ['read', { path: 'skill://code-review' }],
+    ['read', { path: 'skill://code-clarity/references/naming.md' }],
+    ['read', { path: path.join(run, 'prompts', 'self-review.txt') }],
+    ['read', { path: other }],
+    ['read', { path: reviewer }],
+  ];
+  // The system prompt of the transcript holds the text of the self-review agent.
+  const transcript = toolTranscript(30, calls, 'review-bench-selfreview-low')
+    .split('\n')
+    .map((line) => {
+      const entry = JSON.parse(line);
+      if (entry.type === 'session_init') entry.systemPrompt = ['You are a coding assistant.', readText(own)];
+      return JSON.stringify(entry);
+    })
+    .join('\n');
+  put(sessions, 'Code7S1LowR1SelfReview.jsonl', transcript);
+  assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7S1LowR1SelfReview']);
+  assert.deepEqual(readJson(path.join(run, 'meta.json')).reviewers['self-review'].readScope, {
+    outside: [other, reviewer],
+  });
+  // Without the agent file in the scope, the read of the own agent file is outside.
+  assert.deepEqual(score.readScope(reads(own), { runDir: run, cwd: LIVE }), { outside: [own] });
 });
