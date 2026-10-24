@@ -1222,8 +1222,8 @@ test('a run with round folders keeps scores and timing per round, and the report
 //   minus found), Valid extras, Extra-only rounds (rounds r >= 2 whose round r - 1 found no known defect and had a
 //   valid extra), Wrong, Unjudged, Unknown ratings, and Unknown pairs.
 // - Tokens median; Side-call tokens median (the sideCalls tokens of a run).
-// - Loops with a fixer: the loops with meta.fixer in a round. Fixer seconds median: over those loops only, the sum
-//   of meta.fixer.seconds over the rounds of a loop.
+// - Loops with a fixer: the loops with meta.fixer in a round. Fixer seconds median and Fixer tokens median: over those
+//   loops only, the sum of meta.fixer.seconds and the sum of meta.fixer.tokens over the rounds of a loop.
 // - Known found per loop minute: the known defects found by the loops, divided by their loop seconds / 60.
 // Single-review table, over the other runs: Seconds median, min, and max; the `... per run` rows without Extra-only
 // rounds; Tokens median.
@@ -1329,6 +1329,8 @@ test('the configuration table gives one column per configuration and the rows of
     // The high loop of code-8 ran no fixer, so the median covers only its code-7 loop.
     '| Loops with a fixer | 2 | 2 | 1 |',
     '| Fixer seconds median | 30.0 | 20.0 | 40.0 |',
+    // The fixers of this fixture record no tokens.
+    '| Fixer tokens median | 0 | 0 | 0 |',
     '| Known found per loop minute | 0.48 | 1.64 | 0.14 |',
   ]);
   // Every run of the grid is a loop, so no section has a single-review table.
@@ -2434,13 +2436,18 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
       rounds: [round(50, 500, 'full', 10, ['valid']), round(20, 200, 'delta', 0, [])],
     },
   ]);
+  // The fixer tokens of a loop are the sum over its rounds.
+  fixture.metas['code-7/C1-low/run-1/round-1'].fixer.tokens = 3000;
+  fixture.metas['code-7/C1-low/run-1/round-2'].fixer.tokens = 1000;
+  fixture.metas['code-7/C1-low-fast/run-1/round-1'].fixer.tokens = 500;
   const scores = scoreRuns(fixture);
-  // Rounds, review seconds (the sum of the round seconds), fixer seconds, tokens, found, escaped, valid extras, and
-  // extra-only rounds of each run.
+  // Rounds, review seconds (the sum of the round seconds), fixer seconds, fixer tokens, tokens, found, escaped, valid
+  // extras, and extra-only rounds of each run.
   const loop = (run) => [
     run.rounds.length,
     run.seconds,
     run.fixerSeconds,
+    run.fixerTokens,
     run.tokens,
     run.found,
     run.escaped,
@@ -2448,8 +2455,8 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
     run.extraOnlyRounds,
   ];
   assert.deepEqual(scores.runs.map(loop), [
-    [4, 170, 50, 1700, ['D1'], 1, 3, 2],
-    [2, 70, 10, 700, [], 2, 1, 1],
+    [4, 170, 50, 4000, 1700, ['D1'], 1, 3, 2],
+    [2, 70, 10, 500, 700, [], 2, 1, 1],
   ]);
   const table = tableAfter(renderReport(scores, { configs: ['low', 'low-fast'] }), '### Code loops: dev');
   for (const line of [
@@ -2463,6 +2470,7 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
     '| Extra-only rounds per run | 2.00 | 1.00 |',
     '| Tokens median | 1700 | 700 |',
     '| Fixer seconds median | 50.0 | 10.0 |',
+    '| Fixer tokens median | 4000 | 500 |',
   ]) {
     assert.ok(table.includes(line), `the configuration table lacks ${line}`);
   }
@@ -2496,8 +2504,7 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
 //     an earlier or the same round that `loop` wrote.
 //   - for each plugin root P: `P/agents/<name>-reviewer.md`, or a path under `P/skills/code-reviewer/`,
 //     `P/skills/plan-reviewer/`, `P/skills/<folder>/code-reviewer/`, or `P/skills/<folder>/plan-reviewer/`.
-//   - `skill://<name>` or `skill://<name>/...`, where name is code-review, code-clarity, code-reviewer, or
-//     plan-reviewer.
+//   - `skill://<name>` or `skill://<name>/...`, where name is code-review or code-clarity.
 //   - an `artifact://` URI.
 //   - an http or https URL that is not a page of the benchmark repository. The pages of the repository are the paths
 //     `/DocksDocks/docks` and below on github.com, www.github.com, and raw.githubusercontent.com, and
@@ -2615,8 +2622,6 @@ test('readScope allows the inputs of the run, the instructions of the reviewer, 
       `${LIVE_PLUGIN}/skills/productivity/plan-reviewer/references/checklist.md`,
       'skill://code-review/references/perf.md',
       'skill://code-clarity',
-      'skill://code-reviewer/SKILL.md',
-      'skill://plan-reviewer/references/delta.md',
       'artifact://12:1-40',
       'https://nodejs.org/api/fs.html',
       'https://github.com/nodejs/node/issues/1',
@@ -2860,10 +2865,10 @@ test('a reviewer that read outside its inputs makes the run invalid, also withou
 // - readScope also allows, for each plugin root P, the file `P/skills/plan-manager/references/plan-contract.md` or
 //   `P/skills/<folder>/plan-manager/references/plan-contract.md`: the plan-reviewer checklist tells the reviewer to
 //   read this contract in its own plugin. It also allows a path under
-//   `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/`, where skill is code-review, code-clarity,
-//   code-reviewer, or plan-reviewer, when the path as the reviewer wrote it has no `..` segment: a `skill://` URI of
-//   these skills can resolve to this installed copy. A glob follows the glob rule above. The other skills of the
-//   repository that holds P stay outside, because the reviewed repository has its own copy under `snapshot/`.
+//   `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/`, where skill is code-review or code-clarity,
+//   when the path as the reviewer wrote it has no `..` segment: a `skill://` URI of these skills can resolve to this
+//   installed copy. A glob follows the glob rule above. The other skills of the repository that holds P stay outside,
+//   because the reviewed repository has its own copy under `snapshot/`.
 
 test('readScope allows the plan contract of a plugin root and an installed cache copy of an allowed skill', () => {
   const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
@@ -3019,6 +3024,10 @@ test('the code-loop rows leave out single reviews, and the fixer median leaves o
       { case: 'plan-6', config: 'low', single: true, rounds: [round(100, 1000, null, 0, ['P1'])] },
     ],
   );
+  // Only the loops with a fixer have fixer tokens.
+  fixture.metas['code-7/C1-low/run-1/round-1'].fixer.tokens = 3000;
+  fixture.metas['code-7/C1-low-fast/run-1/round-1'].fixer.tokens = 2000;
+  fixture.metas['code-8/C1-low-fast/run-1/round-1'].fixer.tokens = 600;
   const scores = scoreRuns(fixture);
   const loops = scores.runs.filter((run) => run.loop).map((run) => `${run.case}/${run.arm}`);
   assert.deepEqual(loops, ['code-7/C1-low', 'code-7/C1-low-fast', 'code-8/C1-low', 'code-8/C1-low-fast']);
@@ -3074,6 +3083,8 @@ test('the code-loop rows leave out single reviews, and the fixer median leaves o
     // The low loop of code-8 ran no fixer: the median is 30.0, not the median 15.0 of 30 and 0.
     '| Loops with a fixer | 1 | 2 |',
     '| Fixer seconds median | 30.0 | 15.0 |',
+    // The same holds for the fixer tokens: the median is 3000, not the median 1500 of 3000 and 0.
+    '| Fixer tokens median | 3000 | 1300 |',
     '| Known found per loop minute | 0.27 | 1.80 |',
   ]);
   assert.deepEqual(tableAfter(report, '### Single reviews: dev'), [
@@ -3619,4 +3630,59 @@ test('transcripts lets a self-review agent read its own agent file and no other 
   });
   // Without the agent file in the scope, the read of the own agent file is outside.
   assert.deepEqual(score.readScope(reads(own), { runDir: run, cwd: LIVE }), { outside: [own] });
+});
+
+// Changed export:
+// - readScope puts these reads outside for every reviewer: a `skill://code-reviewer` or `skill://plan-reviewer` URI,
+//   with or without a path, and a path under the code-reviewer or plan-reviewer skill folder of a plugin cache copy.
+//   They resolve to the installed release, which can be another version than the arm. The own skill folder of a
+//   reviewer under its plugin root stays allowed. A `skill://` URI that leaves the code-review or code-clarity folder
+//   with `..` for another skill is outside too.
+// - For a reviewer with `agentFiles` (the self-review agent), a `skill://` URI of code-review or code-clarity and a
+//   path under these skill folders of a plugin cache copy are its own instructions. They stay allowed also when the
+//   case changes them.
+
+test('readScope puts the installed reviewer skills outside and exempts the own skills of the self-review agent', () => {
+  const lifecycleCache = '/home/user/.omp/plugins/cache/plugins/docks___plan-lifecycle___0.17.1/skills';
+  const docksCache = '/home/user/.omp/plugins/cache/plugins/docks___docks___0.21.0/skills';
+  const installed = [
+    'skill://code-reviewer',
+    'skill://code-reviewer/references/correctness.md',
+    'skill://plan-reviewer/SKILL.md',
+    'skill://code-review/../code-reviewer/SKILL.md',
+    `${lifecycleCache}/productivity/code-reviewer/SKILL.md`,
+    `${lifecycleCache}/productivity/plan-reviewer/references/checklist.md`,
+    `${lifecycleCache}/productivity/code-reviewer/references/*.md`,
+  ];
+  // Through these targets, a baseline reviewer reads the instructions of the installed release. Its own skill folder
+  // under its plugin root stays allowed.
+  const baseline = { runDir: `${SCOPE_CASE}/B0-low/run-1`, cwd: LIVE, pluginRoots: [BASELINE_PLUGIN] };
+  const baselineSkill = `${BASELINE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`;
+  assert.deepEqual(score.readScope(reads(...installed, baselineSkill), baseline), { outside: installed });
+  const candidate = { runDir: `${SCOPE_CASE}/C1-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  assert.deepEqual(score.readScope(reads(...installed), candidate), { outside: installed });
+
+  // A case that changes the code-clarity skill.
+  const changedFiles = ['plugins/docks/skills/engineering/code-clarity/SKILL.md'];
+  const clarity = [
+    'skill://code-clarity',
+    `${docksCache}/engineering/code-clarity/SKILL.md`,
+    `${docksCache}/engineering/code-clarity/*.md`,
+  ];
+  const selfReview = {
+    runDir: `${SCOPE_CASE}/S1-low/run-1`,
+    cwd: LIVE,
+    agentFiles: ['/work/project/.omp/agents/review-bench-selfreview-low.md'],
+    changedFiles,
+  };
+  // The self-review agent loads code-clarity as its own instructions, so the case-change rule does not apply.
+  assert.deepEqual(score.readScope(reads(...clarity), selfReview), { outside: [] });
+  // For a code reviewer, these reads are optional instruction reads, and the case changes their file.
+  assert.deepEqual(score.readScope(reads(...clarity), { ...candidate, changedFiles }), { outside: clarity });
+  // The installed reviewer skills and the copy of code-clarity in the live checkout stay outside for the self-review
+  // agent.
+  const liveClarity = `${LIVE}/plugins/docks/skills/engineering/code-clarity/SKILL.md`;
+  assert.deepEqual(score.readScope(reads(...installed, liveClarity), selfReview), {
+    outside: [...installed, liveClarity],
+  });
 });

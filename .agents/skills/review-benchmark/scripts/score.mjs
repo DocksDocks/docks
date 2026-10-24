@@ -34,8 +34,12 @@ const TOKEN_FIELDS = ['input', 'cacheRead', 'cacheWrite', 'output'];
 // `*.diff` files.
 const INPUT_FOLDERS = ['snapshot', 'prompts'];
 const INPUT_FILES = new Set(['plan.md', 'previous-review.md', 'rejection.md']);
+// The own skill folder of a reviewer of a plugin root has one of these names.
 const REVIEWER_SKILLS = new Set(['code-reviewer', 'plan-reviewer']);
-const ALLOWED_SKILLS = new Set(['code-review', 'code-clarity', ...REVIEWER_SKILLS]);
+// A reviewer may read these skills through a `skill://` URI or in an installed plugin cache copy. Both resolve to the
+// installed version of the skill. For a reviewer skill, that version can be another version than the one of the arm,
+// so the reviewer skills are not in the list. The self-review agent loads these skills as its own instructions.
+const ALLOWED_SKILLS = new Set(['code-review', 'code-clarity']);
 // The plan contract of a plugin root, as a path relative to its `skills/` folder, with its path from the skill folder
 // name on. The plan-reviewer checklist tells the reviewer to read this contract in its own plugin.
 const PLAN_CONTRACT = /^(?:[^/]+\/)?(plan-manager\/references\/plan-contract\.md)$/;
@@ -632,7 +636,7 @@ function judgeFindings(findings, { matched, unsure, ratings }) {
 
 // A round's time is its slowest reviewer and its tokens are the sum; one reviewer without a value leaves both open.
 // `found` lists the known defects that the findings of the round matched. `fixer` tells if the meta.json of the round
-// records a fix step after the round.
+// records a fix step after the round, and `fixerSeconds` and `fixerTokens` are the time and the tokens of that step.
 function scoreRound(round, knownIds, judged, meta) {
   const costs = round.blocks.map((block) => meta?.reviewers?.[block.reviewer]);
   const { found, validExtras } = judgeFindings(round.findings, judged);
@@ -647,6 +651,7 @@ function scoreRound(round, knownIds, judged, meta) {
     validExtras,
     fixer: Boolean(meta?.fixer),
     fixerSeconds: typeof meta?.fixer?.seconds === 'number' ? meta.fixer.seconds : 0,
+    fixerTokens: typeof meta?.fixer?.tokens === 'number' ? meta.fixer.tokens : 0,
     verdicts: round.blocks.map((block) => ({ reviewer: block.reviewer, verdict: block.verdict })),
     verdict: roundVerdict(round.blocks.map((block) => block.verdict)),
   };
@@ -748,6 +753,7 @@ function scoreRun(run, caseEntry, judged, metas) {
     seconds: total(roundScores.map((round) => round.seconds)),
     tokens: total(roundScores.map((round) => round.tokens)),
     fixerSeconds: sum(roundScores.map((round) => round.fixerSeconds)),
+    fixerTokens: sum(roundScores.map((round) => round.fixerTokens)),
     ...runFacts(reviewers.map((reviewer) => reviewer.entry)),
     verdicts: last.verdicts,
     roundVerdict: last.verdict,
@@ -1101,7 +1107,7 @@ function decisionTable(runs, columns, columnOf, { reference, sharedCases }) {
   return measureTable(rows, columns, runsOf);
 }
 
-// The loop runs of a case group. The fixer seconds median covers only the loops that ran a fixer.
+// The loop runs of a case group. The fixer seconds and fixer tokens medians cover only the loops that ran a fixer.
 function loopTable(runs, columns, columnOf) {
   const runsOf = columnRuns(runs, columnOf);
   const lastRound = Math.max(0, ...runs.map((run) => run.rounds.length));
@@ -1118,6 +1124,7 @@ function loopTable(runs, columns, columnOf) {
     ['Side-call tokens median', (list) => whole(median(list, 'sideCallTokens'))],
     ['Loops with a fixer', (list) => withFixer(list).length],
     ['Fixer seconds median', (list) => oneDecimal(median(withFixer(list), 'fixerSeconds'))],
+    ['Fixer tokens median', (list) => whole(median(withFixer(list), 'fixerTokens'))],
     ['Known found per loop minute', (list) => ratio(foundPerMinute(list))],
   ];
   return measureTable(rows, columns, runsOf);
@@ -1272,7 +1279,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
     'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration, or a reviewer that read a file outside the inputs of its run.',
-    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds is the time of the fix steps of a loop, apart from the loop seconds; its median covers only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
+    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
     '',
     '## Summary',
     '',
@@ -1481,7 +1488,7 @@ function isUnder(folder, target) {
 // The input folders of a run, the folders that a reviewer may read with every path below them, the plugin roots, the
 // agent files of the reviewer, and the keys of the files that the case changes (see changedPathKeys). An input folder
 // is the case folder, and the run folder or each round folder up to `round`. The tree copies are those of the rounds
-// up to `round`.
+// up to `round`. A reviewer with an agent file of its own is the self-review agent.
 function scopeRules(runDir, round, pluginRoots, agentFiles, changedFiles) {
   const armDir = path.dirname(runDir);
   const caseDir = path.dirname(armDir);
@@ -1497,6 +1504,7 @@ function scopeRules(runDir, round, pluginRoots, agentFiles, changedFiles) {
     folders: [...inputDirs.flatMap((dir) => INPUT_FOLDERS.map((name) => path.join(dir, name))), ...trees],
     pluginRoots,
     agentFiles: agentFiles.map((file) => path.resolve(file)),
+    selfReview: agentFiles.length > 0,
     changed: distinct(changedFiles.flatMap(changedPathKeys)),
   };
 }
@@ -1570,21 +1578,29 @@ function cacheKey(written, resolved) {
 
 // The key of a `skill://` URI of an allowed skill, or undefined for another URI: `skill://<skill>` reads
 // `<skill>/SKILL.md`, and `skill://<skill>/<rest>` reads `<skill>/<rest>`. A glob counts as the folder before its
-// first glob segment.
+// first glob segment. The skill name of the key comes after the `..` segments resolve, so a URI that leaves the
+// folder of an allowed skill for another skill gives no key.
 function skillUriKey(target) {
   const rest = target.slice(target.indexOf('://') + 3);
-  if (!ALLOWED_SKILLS.has(rest.split('/')[0])) return undefined;
   const segments = rest.split('/').filter(Boolean);
-  if (segments.length === 1) return `${segments[0]}/SKILL.md`;
+  if (segments.length === 1) return ALLOWED_SKILLS.has(segments[0]) ? `${segments[0]}/SKILL.md` : undefined;
   const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
   if (globAt !== -1) segments.length = globAt;
-  return path.posix.normalize(segments.join('/')).replace(/^\.$/, '');
+  const key = path.posix.normalize(segments.join('/'));
+  return ALLOWED_SKILLS.has(key.split('/')[0]) ? key : undefined;
 }
 
 // An optional instruction read with the key `key` is allowed when the case changes no file at that key. An undefined
 // key is no optional instruction read.
 function instructionAllowed(key, { changed }) {
   return key !== undefined && !changed.some((other) => keysOverlap(key, other));
+}
+
+// A read of an allowed skill through a `skill://` URI or an installed plugin cache copy, with the key `key` (undefined
+// for another read). The self-review agent loads these skills as its own instructions, so its reads of them stay
+// allowed also when the case changes them. For another reviewer, they are optional instruction reads.
+function skillReadAllowed(key, rules) {
+  return (rules.selfReview && key !== undefined) || instructionAllowed(key, rules);
 }
 
 // A relative path resolves against the working directory, so without one it is outside. A glob is allowed when the
@@ -1596,12 +1612,13 @@ function localPathAllowed(target, cwd, rules) {
   if (globAt === -1) {
     const resolved = path.resolve(cwd ?? path.sep, target);
     if (folderAllowed(resolved, rules) || fileAllowed(resolved, rules)) return true;
-    return instructionAllowed(contractKey(resolved, rules.pluginRoots) ?? cacheKey(target, resolved), rules);
+    if (instructionAllowed(contractKey(resolved, rules.pluginRoots), rules)) return true;
+    return skillReadAllowed(cacheKey(target, resolved), rules);
   }
   if (segments.slice(globAt).some((segment) => segment.includes('..'))) return false;
   const base = segments.slice(0, globAt).join('/') || (path.isAbsolute(target) ? path.sep : '.');
   const resolvedBase = path.resolve(cwd ?? path.sep, base);
-  return folderAllowed(resolvedBase, rules) || instructionAllowed(cacheKey(base, resolvedBase), rules);
+  return folderAllowed(resolvedBase, rules) || skillReadAllowed(cacheKey(base, resolvedBase), rules);
 }
 
 // A web page outside the benchmark repository. The pages of the repository can show the fixes of the corpus defects.
@@ -1627,7 +1644,7 @@ function targetAllowed(target, cwd, rules) {
   const scheme = uriScheme(target);
   if (scheme === undefined) return localPathAllowed(target, cwd, rules);
   if (scheme === 'artifact') return true;
-  if (scheme === 'skill') return instructionAllowed(skillUriKey(target), rules);
+  if (scheme === 'skill') return skillReadAllowed(skillUriKey(target), rules);
   return WEB_SCHEMES.has(scheme) && webPageAllowed(target);
 }
 
@@ -1652,18 +1669,22 @@ function pathTargets(value) {
 //   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
 // - under the tree copy of the judge for a round of the run up to `round`;
 // - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, a path under the code-reviewer or
-//   plan-reviewer skill folder of a plugin root, or a file of `agentFiles`. The reviewer cannot work without these
-//   files, so they stay allowed also when the case changes them;
+//   plan-reviewer skill folder of a plugin root, or a file of `agentFiles`. For the self-review agent (a reviewer with
+//   `agentFiles`), also a read of the code-review or code-clarity skill as below, because it loads these two skills as
+//   its own instructions. The reviewer cannot work without these files, so they stay allowed also when the case
+//   changes them;
 // - an optional instruction read, when the case changes no file at its key (see below): the plan contract
 //   `<root>/skills/[<folder>/]plan-manager/references/plan-contract.md` of a plugin root (the plan-reviewer checklist
-//   tells the reviewer to read it in its own plugin); a path under the folder of the code-review, code-clarity,
-//   code-reviewer, or plan-reviewer skill in an installed plugin cache copy,
-//   `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/`, without a `..` segment (a `skill://` URI of
-//   these skills can resolve to this copy); or a `skill://` URI of one of these four skills;
+//   tells the reviewer to read it in its own plugin); a path under the folder of the code-review or code-clarity skill
+//   in an installed plugin cache copy, `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/`, without
+//   a `..` segment (a `skill://` URI of these skills can resolve to this copy); or a `skill://` URI of one of these two
+//   skills;
 // - an `artifact://` URI (the spilled output of the reviewer);
 // - an http or https URL that is not a page of the benchmark repository.
 // Every other target is outside, also the other skills of the repository that holds a plugin root: the reviewed
-// repository has its own copy of them under `snapshot/`. A grep, glob, or find call without a path searches the working
+// repository has its own copy of them under `snapshot/`. A `skill://` URI or a plugin cache copy of the code-reviewer
+// or plan-reviewer skill is outside for every reviewer: it resolves to the installed version of the skill, which can be
+// another version than the reviewer skill of the arm. A grep, glob, or find call without a path searches the working
 // directory, so it gives the outside target `<name> without a path`; other calls without a path read no file.
 // The reviewer setup is newer than the cases. When a case changes the file of an optional instruction read, that read
 // shows a later version of a file under review, which can show the fix. `changedFiles` are the repository paths that
