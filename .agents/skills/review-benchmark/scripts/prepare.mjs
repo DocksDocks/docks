@@ -326,6 +326,7 @@ export function buildOpening(caseData, paths, round = caseData.round) {
     'Rules:',
     '- The snapshot root holds the repository files for this review, without Git history. Take review evidence only from files under the snapshot root and the files that this message names. You may also read your own agent instructions and the skill and reference files that those instructions tell you to load.',
     '- The working directory is not the snapshot, so give every Read, Grep, and Glob call an absolute path under the snapshot root or the absolute path of a file that this message names.',
+    '- The files of the reviewed repository, for example a skill or a contract that the plan names, are under the snapshot root. The folder that holds your agent and skill files is another version of the repository, so read only your own instruction files there.',
     '- Do not fetch GitHub issues or pull requests. The plan export is the plan issue body.',
     '- Run no commands.',
     '- Make no edits.',

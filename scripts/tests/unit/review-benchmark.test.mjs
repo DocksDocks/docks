@@ -807,11 +807,12 @@ test('dispatch names that collide stop the names and transcripts commands', (t) 
 //   `round` field, and its ids and meta key do not change. Dispatch names of round folders are for step 3.
 // - pairs.json: each case entry gets the `split` of its case.json. scoreRuns takes the case group from it.
 // - scoreRuns: each run gets `config` (meta.config of the run, or of its round 1, else null), `invalid` (a list of
-//   reasons; empty for a valid run), and `rounds`: one { round, mode, seconds, tokens, found, verdict } per round,
-//   in order. mode is meta.mode; seconds is the slowest reviewer; tokens is the sum; found lists the known ids
-//   that the round matched; verdict is roundVerdict of its blocks. The run's seconds and tokens are sums over its
-//   rounds; found, recall, and the finding counts cover all rounds; verdicts and roundVerdict are those of the last
-//   round. Summaries leave out invalid runs.
+//   reasons; empty for a valid run), `loop` (true when the run has round folders), and `rounds`: one { round, mode,
+//   seconds, tokens, found, verdict, fixer } per round, in order. mode is meta.mode; seconds is the slowest
+//   reviewer; tokens is the sum; found lists the known ids that the round matched; verdict is roundVerdict of its
+//   blocks; fixer is true when meta.fixer is set. The run's seconds and tokens are sums over its rounds; found,
+//   recall, and the finding counts cover all rounds; verdicts and roundVerdict are those of the last round.
+//   Summaries leave out invalid runs.
 // - Invalid run: only a run with `config` is checked. Each reviewer entry can give these reasons:
 //   `<reviewer>: model <m>, not <config.model>` for each other model in messages;
 //   `<reviewer>: effort <e>, not <config.effort>`;
@@ -822,11 +823,13 @@ test('dispatch names that collide stop the names and transcripts commands', (t) 
 // - renderReport(scores, { configs, reference } = {}) keeps the Summary and Runs tables and adds:
 //   `## Invalid runs`, only when there is an invalid run: one line `- <case>/<arm>/<run>: <reasons joined by "; ">`
 //   per invalid run;
-//   `## Configurations: <split>`: one table per case group, in name order, from the valid runs with a config (a case
-//   without `split` is in the group `-`). The columns are `configs` in that order (default: the config names in run
-//   order). `reference` is the base of the interval rows (default: of the columns with runs, the one with the
-//   fewest escaped per run; on a tie, the first). The test 'the configuration table ...' gives every row; the rows
-//   are defined above it;
+//   `## Configurations: <split>`: one section per case group, in name order, from the valid runs with a config of
+//   the columns (a case without `split` is in the group `-`). The columns are `configs` in that order (default: the
+//   config names in run order). A section holds `### Decision: <split>` over all its runs, `### Code loops: <split>`
+//   over its loop runs, and `### Single reviews: <split>` over its other runs; a table without runs is left out.
+//   `reference` is the base of the interval rows (default: of the columns with known defects, the one with the
+//   fewest escaped per 50 known; on a tie, the first). The test 'the configuration table ...' gives every row; the
+//   rows are defined above it;
 //   `## Judge agreement`, only when scores.agreement is set, with the line
 //   `The second judge agreed with <agreed> of <answers> answers (<rate with 2 decimals>).`
 // - reportCommand(ws, { keys, configs } = {}) returns the scores as today and also stops before it writes report.md:
@@ -976,10 +979,11 @@ function roundWorkspace(t, runs) {
   return { ws, cases };
 }
 
-// Runs of `C1-<config>` arms with review rounds, as scoreRuns gets them. `cases` maps a case id to its split and
-// known ids. Each run is { case, config, rounds } with one run per case and config, and each round is
-// [seconds, tokens, mode, fixer seconds, answers]. An answer is a finding: the known id that it matches, or the
-// rating of a finding without a match.
+// Runs of `C1-<config>` arms, as scoreRuns gets them. `cases` maps a case id to its split, known ids, and kind
+// (default `code`). Each run is { case, config, rounds, single } with one run per case and config, and each round is
+// [seconds, tokens, mode, fixer seconds, answers]. A run has round folders; a run with `single: true` is a single
+// review: its one round has no round folder. An answer is a finding: the known id that it matches, or the rating of
+// a finding without a match.
 function gridFixture(cases, runs) {
   const blocks = [];
   const findings = [];
@@ -987,31 +991,33 @@ function gridFixture(cases, runs) {
   const metas = {};
   for (const spec of runs) {
     const config = CONFIGS[spec.config];
+    const kind = cases[spec.case].kind ?? 'code';
     const arm = `C1-${config.name}`;
     const run = 'run-1';
     for (const [index, [seconds, tokens, mode, fixer, answers]] of spec.rounds.entries()) {
-      const round = index + 1;
+      const inRound = spec.single ? {} : { round: index + 1 };
+      const folder = spec.single ? `${spec.case}/${arm}/${run}` : `${spec.case}/${arm}/${run}/round-${index + 1}`;
       const verdict = answers.length ? 'fixes-required' : 'pass';
       blocks.push({
         case: spec.case,
-        kind: 'code',
+        kind,
         arm,
         run,
-        round,
+        ...inRound,
         reviewer: 'full',
         verdict,
         findings: answers.length,
       });
-      metas[`${spec.case}/${arm}/${run}/round-${round}`] = {
+      metas[folder] = {
         config,
         mode,
         ...(fixer ? { fixer: { seconds: fixer } } : {}),
         reviewers: { full: provenCost(config, seconds, tokens) },
       };
       for (const [n, answer] of answers.entries()) {
-        const id = `${spec.case}/${arm}/${run}/round-${round}/full#${n + 1}`;
+        const id = `${folder}/full#${n + 1}`;
         const blind = blindId(id);
-        findings.push({ id, blind, case: spec.case, arm, run, round, reviewer: 'full', n: n + 1 });
+        findings.push({ id, blind, case: spec.case, arm, run, ...inRound, reviewer: 'full', n: n + 1 });
         if (['valid', 'wrong', 'unknown'].includes(answer))
           judgments.adjudications.push({ finding: blind, rating: answer, reason: 'Read the snapshot.' });
         else judgments.matches.push({ finding: blind, known: answer, verdict: 'match', reason: 'Same cause.' });
@@ -1019,9 +1025,9 @@ function gridFixture(cases, runs) {
     }
   }
   const pairs = {
-    cases: Object.entries(cases).map(([id, { split, known }]) => ({
+    cases: Object.entries(cases).map(([id, { split, known, kind = 'code' }]) => ({
       case: id,
-      kind: 'code',
+      kind,
       split,
       known: known.map((knownId) => ({ id: knownId, title: `Hidden ${knownId}`, locator: 'src/sync.mjs:1' })),
       runs: [],
@@ -1175,7 +1181,7 @@ test('a run with round folders keeps scores and timing per round, and the report
     [200, 2000, ['D1'], 1 / 3, 1, 'pass'],
   );
   assert.equal(main(['report', ws, '--configs', 'low-fast,low']), 'report.md: 3 runs');
-  const table = tableAfter(fs.readFileSync(path.join(ws, 'report.md'), 'utf8'), '## Configurations: dev');
+  const table = tableAfter(fs.readFileSync(path.join(ws, 'report.md'), 'utf8'), '### Code loops: dev');
   for (const row of [
     '| Measure | low-fast | low |',
     '| Runs | 1 | 2 |',
@@ -1196,24 +1202,31 @@ test('a run with round folders keeps scores and timing per round, and the report
   }
 });
 
-// Rows of a configuration table. A column holds the valid runs of one configuration in one case group.
-// - Runs: the number of runs.
-// - Round <r> rows, for r from 1 to the highest round of the group, cover the runs that reached round r: seconds
+// Rows of the configuration tables. A column holds the valid runs of one configuration in one case group.
+// - Runs: the number of runs of the table.
+// Decision table, over all runs of the group:
+// - Known found per run, Escaped per run (known minus found), as below. Escaped per 50 known: the escaped defects of
+//   the runs, times 50, divided by the known defects of their cases.
+// - Model, Effort, Served tier: the different values of the transcript facts (messages[].model, effort,
+//   messages[].servedTier), joined by ", ".
+// - Interval rows: pairedBootstrap over the cases that the column and the reference both ran. The value of a case
+//   is the mean over its runs. Round 1 recall: value round-1 found, weight known. Escaped per 50 known: value
+//   escaped, weight known / 50. Loop seconds: value loop seconds, weight 1, over loop runs only. A cell is
+//   `[low, high]`; the reference column and a column without shared cases get `-`.
+// Code-loop table, over the loop runs (runs with round folders):
+// - Round <r> rows, for r from 1 to the highest round of the loops, cover the loops that reached round r: seconds
 //   median, min, and max (round seconds); modes (`<mode> <count>` in mode-name order, joined by ", "); known found
-//   per run (the known defects that round r found, divided by the runs that reached it).
-// - Rounds median and max: the rounds of a run. Loop seconds median: the sum of the round seconds of a run.
+//   per run (the known defects that round r found, divided by the loops that reached it).
+// - Rounds median and max: the rounds of a loop. Loop seconds median: the sum of the round seconds of a loop.
 // - `... per run`: the sum over the runs divided by the runs. Known found (by the end of the loop), Escaped (known
 //   minus found), Valid extras, Extra-only rounds (rounds r >= 2 whose round r - 1 found no known defect and had a
 //   valid extra), Wrong, Unjudged, Unknown ratings, and Unknown pairs.
-// - Tokens median; Side-call tokens median (the sideCalls tokens of a run); Fixer seconds median (the sum of
-//   meta.fixer.seconds over the rounds of a run; a round without `fixer` adds 0).
-// - Model, Effort, Served tier: the different values of the transcript facts (messages[].model, effort,
-//   messages[].servedTier), joined by ", ".
-// - Known found per loop minute: the known defects found by the runs, divided by their loop seconds / 60.
-// - Interval rows: pairedBootstrap over the cases that the column and the reference both ran. The value of a case
-//   is the mean over its runs. Round 1 recall: value round-1 found, weight known. Escaped per 50 known: value
-//   escaped, weight known / 50. Loop seconds: value loop seconds, weight 1. A cell is `[low, high]`; the reference
-//   column and a column without shared cases get `-`.
+// - Tokens median; Side-call tokens median (the sideCalls tokens of a run).
+// - Loops with a fixer: the loops with meta.fixer in a round. Fixer seconds median: over those loops only, the sum
+//   of meta.fixer.seconds over the rounds of a loop.
+// - Known found per loop minute: the known defects found by the loops, divided by their loop seconds / 60.
+// Single-review table, over the other runs: Seconds median, min, and max; the `... per run` rows without Extra-only
+// rounds; Tokens median.
 // - Formats: seconds and rounds median with 1 decimal; per-run, per-minute, recall, and escaped values with 2;
 //   counts and tokens whole; `-` for no value.
 test('the configuration table gives one column per configuration and the rows of each case group', () => {
@@ -1265,7 +1278,23 @@ test('the configuration table gives one column per configuration and the rows of
   const scores = scoreRuns(fixture);
   const configs = ['low', 'low-fast', 'high'];
   const report = renderReport(scores, { configs });
+  // The reference is low-fast, the column with the fewest escaped defects per 50 known defects.
   assert.deepEqual(tableAfter(report, '## Configurations: dev'), [
+    '| Measure | low | low-fast | high |',
+    '|---|---:|---:|---:|',
+    '| Runs | 2 | 2 | 2 |',
+    '| Known found per run | 1.00 | 1.50 | 0.50 |',
+    '| Escaped per run | 0.50 | 0.00 | 1.00 |',
+    '| Escaped per 50 known | 16.67 | 0.00 | 33.33 |',
+    `| Model | ${MODEL} | ${MODEL} | ${MODEL} |`,
+    '| Effort | low | low | high |',
+    '| Served tier | default | priority | default |',
+    '| Round 1 recall difference from low-fast, 90% interval | [-0.50, 0.00] | - | [-1.00, -0.50] |',
+    '| Escaped per 50 known difference from low-fast, 90% interval | [0.00, 25.00] | - | [25.00, 50.00] |',
+    '| Loop seconds difference from low-fast, 90% interval | [50.0, 90.0] | - | [110.0, 210.0] |',
+  ]);
+  assert.deepEqual(tableAfter(report, '### Decision: dev'), tableAfter(report, '## Configurations: dev'));
+  assert.deepEqual(tableAfter(report, '### Code loops: dev'), [
     '| Measure | low | low-fast | high |',
     '|---|---:|---:|---:|',
     '| Runs | 2 | 2 | 2 |',
@@ -1297,16 +1326,27 @@ test('the configuration table gives one column per configuration and the rows of
     '| Unknown pairs per run | 0.00 | 0.00 | 0.00 |',
     '| Tokens median | 1100 | 800 | 2900 |',
     '| Side-call tokens median | 181 | 0 | 0 |',
-    '| Fixer seconds median | 30.0 | 20.0 | 20.0 |',
-    `| Model | ${MODEL} | ${MODEL} | ${MODEL} |`,
-    '| Effort | low | low | high |',
-    '| Served tier | default | priority | default |',
+    // The high loop of code-8 ran no fixer, so the median covers only its code-7 loop.
+    '| Loops with a fixer | 2 | 2 | 1 |',
+    '| Fixer seconds median | 30.0 | 20.0 | 40.0 |',
     '| Known found per loop minute | 0.48 | 1.64 | 0.14 |',
-    '| Round 1 recall difference from low-fast, 90% interval | [-0.50, 0.00] | - | [-1.00, -0.50] |',
-    '| Escaped per 50 known difference from low-fast, 90% interval | [0.00, 25.00] | - | [25.00, 50.00] |',
-    '| Loop seconds difference from low-fast, 90% interval | [50.0, 90.0] | - | [110.0, 210.0] |',
   ]);
-  const heldout = tableAfter(report, '## Configurations: heldout');
+  // Every run of the grid is a loop, so no section has a single-review table.
+  assert.equal(report.includes('### Single reviews: '), false);
+  const heldout = tableAfter(report, '### Decision: heldout');
+  for (const row of [
+    '| Measure | low | low-fast | high |',
+    '| Runs | 1 | 1 | 0 |',
+    '| Escaped per run | 1.00 | 0.00 | - |',
+    '| Escaped per 50 known | 50.00 | 0.00 | - |',
+    '| Effort | low | low | - |',
+    '| Round 1 recall difference from low-fast, 90% interval | [-1.00, -1.00] | - | - |',
+    '| Escaped per 50 known difference from low-fast, 90% interval | [50.00, 50.00] | - | - |',
+    '| Loop seconds difference from low-fast, 90% interval | [20.0, 20.0] | - | - |',
+  ]) {
+    assert.ok(heldout.includes(row), `the heldout decision table lacks ${row}`);
+  }
+  const heldoutLoops = tableAfter(report, '### Code loops: heldout');
   for (const row of [
     '| Measure | low | low-fast | high |',
     '| Runs | 1 | 1 | 0 |',
@@ -1314,16 +1354,11 @@ test('the configuration table gives one column per configuration and the rows of
     '| Round 1 modes | full 1 | full 1 | - |',
     '| Round 1 known found per run | 0.00 | 1.00 | - |',
     '| Round 2 seconds median | - | 15.0 | - |',
-    '| Escaped per run | 1.00 | 0.00 | - |',
-    '| Effort | low | low | - |',
-    '| Round 1 recall difference from low-fast, 90% interval | [-1.00, -1.00] | - | - |',
-    '| Escaped per 50 known difference from low-fast, 90% interval | [50.00, 50.00] | - | - |',
-    '| Loop seconds difference from low-fast, 90% interval | [20.0, 20.0] | - | - |',
   ]) {
-    assert.ok(heldout.includes(row), `the heldout table lacks ${row}`);
+    assert.ok(heldoutLoops.includes(row), `the heldout code-loop table lacks ${row}`);
   }
   assert.equal(
-    heldout.some((row) => row.startsWith('| Round 3 ')),
+    heldoutLoops.some((row) => row.startsWith('| Round 3 ')),
     false,
   );
   assert.ok(report.indexOf('## Configurations: dev') < report.indexOf('## Configurations: heldout'));
@@ -2416,7 +2451,7 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
     [4, 170, 50, 1700, ['D1'], 1, 3, 2],
     [2, 70, 10, 700, [], 2, 1, 1],
   ]);
-  const table = tableAfter(renderReport(scores, { configs: ['low', 'low-fast'] }), '## Configurations: dev');
+  const table = tableAfter(renderReport(scores, { configs: ['low', 'low-fast'] }), '### Code loops: dev');
   for (const line of [
     '| Measure | low | low-fast |',
     '| Rounds median | 4.0 | 2.0 |',
@@ -2816,4 +2851,204 @@ test('a reviewer that read outside its inputs makes the run invalid, also withou
     ],
   );
   assert.equal(legacy.summaries[0].runs, 1);
+});
+
+// Changed export:
+// - readScope also allows, for each plugin root P, the file `P/skills/plan-manager/references/plan-contract.md` or
+//   `P/skills/<folder>/plan-manager/references/plan-contract.md`: the plan-reviewer checklist tells the reviewer to
+//   read this contract in its own plugin. It also allows a path under
+//   `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/`, where skill is code-review, code-clarity,
+//   code-reviewer, or plan-reviewer, when the path as the reviewer wrote it has no `..` segment: a `skill://` URI of
+//   these skills can resolve to this installed copy. A glob follows the glob rule above. The other skills of the
+//   repository that holds P stay outside, because the reviewed repository has its own copy under `snapshot/`.
+
+test('readScope allows the plan contract of a plugin root and an installed cache copy of an allowed skill', () => {
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  const cache = '/home/user/.omp/plugins/cache/plugins/docks___docks___0.21.0/skills';
+  const allowed = [
+    ...reads(
+      `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/plan-contract.md:120-160`,
+      `${LIVE_PLUGIN}/skills/plan-manager/references/plan-contract.md`,
+      `${cache}/engineering/code-review/references/security.md`,
+      `${cache}/code-clarity/SKILL.md:1-40`,
+    ),
+    { name: 'glob', path: `${cache}/engineering/code-review/references/*.md` },
+  ];
+  assert.deepEqual(score.readScope(allowed, scope), { outside: [] });
+  const outside = [
+    // The docks skills of the repository that holds the plugin root. The plans name them, but the copy of the reviewed
+    // repository is under the snapshot root.
+    `${LIVE}/plugins/docks/skills/engineering/code-review/references/perf.md`,
+    `${LIVE}/plugins/docks/skills/**/code-clarity/SKILL.md`,
+    // Only the plan contract file of a plugin root of the reviewer.
+    `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/other.md`,
+    `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/*.md`,
+    `${LIVE_PLUGIN}/skills/a/b/plan-manager/references/plan-contract.md`,
+    `${BASELINE_PLUGIN}/skills/productivity/plan-manager/references/plan-contract.md`,
+    // A cache copy of another skill, a path with a `..` segment, and a glob from a folder above the skill folders.
+    `${cache}/productivity/plan-manager/references/plan-contract.md`,
+    `${cache}/engineering/code-review/../code-clarity/SKILL.md`,
+    `${cache}/**/code-review/SKILL.md`,
+  ];
+  assert.deepEqual(score.readScope(reads(...outside), scope), { outside });
+});
+
+test('the code-loop rows leave out single reviews, and the fixer median leaves out loops without a fixer', () => {
+  const round = (seconds, tokens, mode, fixer, answers) => [seconds, tokens, mode, fixer, answers];
+  const fixture = gridFixture(
+    {
+      'code-7': { split: 'dev', known: ['D1', 'D2'] },
+      'code-8': { split: 'dev', known: ['D1'] },
+      'plan-3': { split: 'dev', known: ['P1', 'P2'], kind: 'plan' },
+      'code-5': { split: 'dev', known: ['D1'], kind: 'code-delta' },
+      'plan-6': { split: 'heldout', known: ['P1'], kind: 'plan-delta' },
+    },
+    [
+      // low: a loop with a fixer, a loop without a fixer, and two single reviews that take longer than each loop.
+      {
+        case: 'code-7',
+        config: 'low',
+        rounds: [round(100, 1000, 'full', 30, ['D1', 'valid']), round(40, 400, 'delta', 0, [])],
+      },
+      { case: 'code-8', config: 'low', rounds: [round(80, 800, 'full', 0, [])] },
+      { case: 'plan-3', config: 'low', single: true, rounds: [round(300, 3000, null, 0, ['P1', 'wrong'])] },
+      { case: 'code-5', config: 'low', single: true, rounds: [round(500, 5000, null, 0, ['D1'])] },
+      {
+        case: 'code-7',
+        config: 'low-fast',
+        rounds: [round(50, 500, 'full', 20, ['D1', 'D2']), round(10, 100, 'delta', 0, [])],
+      },
+      {
+        case: 'code-8',
+        config: 'low-fast',
+        rounds: [round(30, 300, 'full', 10, ['D1']), round(10, 100, 'delta', 0, [])],
+      },
+      { case: 'plan-3', config: 'low-fast', single: true, rounds: [round(200, 2000, null, 0, ['P1', 'P2'])] },
+      { case: 'code-5', config: 'low-fast', single: true, rounds: [round(400, 4000, null, 0, [])] },
+      { case: 'plan-6', config: 'low', single: true, rounds: [round(100, 1000, null, 0, ['P1'])] },
+    ],
+  );
+  const scores = scoreRuns(fixture);
+  const loops = scores.runs.filter((run) => run.loop).map((run) => `${run.case}/${run.arm}`);
+  assert.deepEqual(loops, ['code-7/C1-low', 'code-7/C1-low-fast', 'code-8/C1-low', 'code-8/C1-low-fast']);
+  const report = renderReport(scores, { configs: ['low', 'low-fast'] });
+  // The decision table covers the loops and the single reviews together.
+  const decision = tableAfter(report, '### Decision: dev');
+  assert.deepEqual(decision.slice(0, 9), [
+    '| Measure | low | low-fast |',
+    '|---|---:|---:|',
+    '| Runs | 4 | 4 |',
+    '| Known found per run | 0.75 | 1.25 |',
+    '| Escaped per run | 0.75 | 0.25 |',
+    '| Escaped per 50 known | 25.00 | 8.33 |',
+    `| Model | ${MODEL} | ${MODEL} |`,
+    '| Effort | low | low |',
+    '| Served tier | default | priority |',
+  ]);
+  const intervalLabels = decision.slice(9).map((row) => row.split(' | ')[0]);
+  assert.deepEqual(intervalLabels, [
+    '| Round 1 recall difference from low-fast, 90% interval',
+    '| Escaped per 50 known difference from low-fast, 90% interval',
+    '| Loop seconds difference from low-fast, 90% interval',
+  ]);
+  // Loops only: code-7 differs by 80 seconds and code-8 by 40. The single reviews, 100 seconds each, stay out.
+  assert.equal(decision[11], '| Loop seconds difference from low-fast, 90% interval | [40.0, 80.0] | - |');
+  assert.deepEqual(tableAfter(report, '### Code loops: dev'), [
+    '| Measure | low | low-fast |',
+    '|---|---:|---:|',
+    '| Runs | 2 | 2 |',
+    '| Round 1 seconds median | 90.0 | 40.0 |',
+    '| Round 1 seconds min | 80.0 | 30.0 |',
+    '| Round 1 seconds max | 100.0 | 50.0 |',
+    '| Round 1 modes | full 2 | full 2 |',
+    '| Round 1 known found per run | 0.50 | 1.50 |',
+    '| Round 2 seconds median | 40.0 | 10.0 |',
+    '| Round 2 seconds min | 40.0 | 10.0 |',
+    '| Round 2 seconds max | 40.0 | 10.0 |',
+    '| Round 2 modes | delta 1 | delta 2 |',
+    '| Round 2 known found per run | 0.00 | 0.00 |',
+    '| Rounds median | 1.5 | 2.0 |',
+    '| Rounds max | 2 | 2 |',
+    '| Loop seconds median | 110.0 | 50.0 |',
+    '| Known found per run | 0.50 | 1.50 |',
+    '| Escaped per run | 1.00 | 0.00 |',
+    '| Valid extras per run | 0.50 | 0.00 |',
+    '| Extra-only rounds per run | 0.00 | 0.00 |',
+    '| Wrong per run | 0.00 | 0.00 |',
+    '| Unjudged per run | 0.00 | 0.00 |',
+    '| Unknown ratings per run | 0.00 | 0.00 |',
+    '| Unknown pairs per run | 0.00 | 0.00 |',
+    '| Tokens median | 1100 | 500 |',
+    '| Side-call tokens median | 0 | 0 |',
+    // The low loop of code-8 ran no fixer: the median is 30.0, not the median 15.0 of 30 and 0.
+    '| Loops with a fixer | 1 | 2 |',
+    '| Fixer seconds median | 30.0 | 15.0 |',
+    '| Known found per loop minute | 0.27 | 1.80 |',
+  ]);
+  assert.deepEqual(tableAfter(report, '### Single reviews: dev'), [
+    '| Measure | low | low-fast |',
+    '|---|---:|---:|',
+    '| Runs | 2 | 2 |',
+    '| Seconds median | 400.0 | 300.0 |',
+    '| Seconds min | 300.0 | 200.0 |',
+    '| Seconds max | 500.0 | 400.0 |',
+    '| Known found per run | 1.00 | 1.00 |',
+    '| Escaped per run | 0.50 | 0.50 |',
+    '| Valid extras per run | 0.00 | 0.00 |',
+    '| Wrong per run | 0.50 | 0.00 |',
+    '| Unjudged per run | 0.00 | 0.00 |',
+    '| Unknown ratings per run | 0.00 | 0.00 |',
+    '| Unknown pairs per run | 0.00 | 0.00 |',
+    '| Tokens median | 4000 | 3000 |',
+  ]);
+  // The held-out group has single reviews only, so it has no code-loop table.
+  assert.equal(report.includes('### Code loops: heldout'), false);
+  assert.ok(tableAfter(report, '### Decision: heldout').includes('| Runs | 1 | 0 |'));
+  assert.ok(tableAfter(report, '### Single reviews: heldout').includes('| Runs | 1 | 0 |'));
+});
+
+test('the decision table compares with the configuration that has the fewest escaped defects per 50 known', () => {
+  const round = (seconds, tokens, mode, fixer, answers) => [seconds, tokens, mode, fixer, answers];
+  // Invalid runs can leave the configurations with different cases. low-fast escapes 1 of the 2 known defects of its
+  // 2 runs (0.50 per run, 25.00 per 50 known); low escapes 1 of the 4 known defects of its 1 run (1.00 per run, 12.50
+  // per 50 known). The reference is low, which is not the last column.
+  const fixture = gridFixture(
+    {
+      'code-7': { split: 'dev', known: ['D1', 'D2', 'D3', 'D4'] },
+      'code-8': { split: 'dev', known: ['D1'] },
+      'code-9': { split: 'dev', known: ['D1'] },
+    },
+    [
+      {
+        case: 'code-7',
+        config: 'low',
+        rounds: [round(100, 1000, 'full', 0, ['D1', 'D2', 'D3']), round(20, 200, 'delta', 0, [])],
+      },
+      { case: 'code-8', config: 'low-fast', rounds: [round(30, 300, 'full', 0, [])] },
+      {
+        case: 'code-9',
+        config: 'low-fast',
+        rounds: [round(30, 300, 'full', 0, ['D1']), round(10, 100, 'delta', 0, [])],
+      },
+      {
+        case: 'code-7',
+        config: 'high',
+        rounds: [round(180, 1800, 'full', 0, ['D1', 'D2']), round(20, 200, 'delta', 0, [])],
+      },
+    ],
+  );
+  const report = renderReport(scoreRuns(fixture), { configs: ['low-fast', 'low', 'high'] });
+  const decision = tableAfter(report, '### Decision: dev');
+  for (const row of [
+    '| Measure | low-fast | low | high |',
+    '| Runs | 2 | 1 | 1 |',
+    '| Escaped per run | 0.50 | 1.00 | 2.00 |',
+    '| Escaped per 50 known | 25.00 | 12.50 | 25.00 |',
+    // low-fast shares no case with low; high and low share code-7.
+    '| Round 1 recall difference from low, 90% interval | - | - | [-0.25, -0.25] |',
+    '| Escaped per 50 known difference from low, 90% interval | - | - | [12.50, 12.50] |',
+    '| Loop seconds difference from low, 90% interval | - | - | [80.0, 80.0] |',
+  ]) {
+    assert.ok(decision.includes(row), `the decision table lacks ${row}`);
+  }
 });

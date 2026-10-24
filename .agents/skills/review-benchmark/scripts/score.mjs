@@ -33,6 +33,14 @@ const INPUT_FOLDERS = ['snapshot', 'prompts'];
 const INPUT_FILES = new Set(['plan.md', 'previous-review.md', 'rejection.md']);
 const REVIEWER_SKILLS = new Set(['code-reviewer', 'plan-reviewer']);
 const ALLOWED_SKILLS = new Set(['code-review', 'code-clarity', ...REVIEWER_SKILLS]);
+// The plan contract of a plugin root, as a path relative to its `skills/` folder. The plan-reviewer checklist tells the
+// reviewer to read this contract in its own plugin.
+const PLAN_CONTRACT = /^(?:[^/]+\/)?plan-manager\/references\/plan-contract\.md$/;
+// The folder of an allowed skill, or a path below it, in an installed plugin cache copy. A `skill://` URI of an allowed
+// skill can resolve to this copy.
+const CACHE_SKILL = new RegExp(
+  `/plugins/cache/plugins/[^/]+/skills/(?:[^/]+/)?(?:${[...ALLOWED_SKILLS].join('|')})(?:/|$)`,
+);
 // These tools search the working directory when a call names no path.
 const SEARCH_TOOLS = new Set(['grep', 'glob', 'find']);
 const URI_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
@@ -603,7 +611,8 @@ function judgeFindings(findings, { matched, unsure, ratings }) {
 }
 
 // A round's time is its slowest reviewer and its tokens are the sum; one reviewer without a value leaves both open.
-// `found` lists the known defects that the findings of the round matched.
+// `found` lists the known defects that the findings of the round matched. `fixer` tells if the meta.json of the round
+// records a fix step after the round.
 function scoreRound(round, knownIds, judged, meta) {
   const costs = round.blocks.map((block) => meta?.reviewers?.[block.reviewer]);
   const { found, validExtras } = judgeFindings(round.findings, judged);
@@ -616,6 +625,7 @@ function scoreRound(round, knownIds, judged, meta) {
     tokens: total(costs.map((cost) => cost?.tokens)),
     found: knownIds.filter((id) => found.has(id)),
     validExtras,
+    fixer: Boolean(meta?.fixer),
     fixerSeconds: typeof meta?.fixer?.seconds === 'number' ? meta.fixer.seconds : 0,
     verdicts: round.blocks.map((block) => ({ reviewer: block.reviewer, verdict: block.verdict })),
     verdict: roundVerdict(round.blocks.map((block) => block.verdict)),
@@ -663,9 +673,10 @@ function runFacts(entries) {
   };
 }
 
-// A run's time and tokens are the sums over its rounds; its found defects and finding counts cover every round; its
-// verdicts are those of its last round. A known defect is unresolved in a run when the run did not find it and the
-// judge answered `unknown` for a pair of it with at least one finding of the run. `unknownPairs` counts every
+// A run is a loop when it has round folders (a `code` case built with `case --loop`); every other run is a single
+// review. A run's time and tokens are the sums over its rounds; its found defects and finding counts cover every
+// round; its verdicts are those of its last round. A known defect is unresolved in a run when the run did not find it
+// and the judge answered `unknown` for a pair of it with at least one finding of the run. `unknownPairs` counts every
 // `unknown` pair answer of the run, also those that cannot change recall, such as a finding that may repeat a known
 // defect the run found.
 function scoreRun(run, caseEntry, judged, metas) {
@@ -720,6 +731,7 @@ function scoreRun(run, caseEntry, judged, metas) {
     ...runFacts(reviewers.map((reviewer) => reviewer.entry)),
     verdicts: last.verdicts,
     roundVerdict: last.verdict,
+    loop: run.hasRounds,
     rounds: roundScores,
   };
 }
@@ -935,16 +947,32 @@ function roundRows(round) {
   ];
 }
 
-const PER_RUN_ROWS = [
+// Rows that divide the sum of a value over the runs by the runs.
+const KNOWN_ROWS = [
   ['Known found per run', (run) => run.found.length],
   ['Escaped per run', (run) => run.escaped],
-  ['Valid extras per run', (run) => run.validExtras],
-  ['Extra-only rounds per run', (run) => run.extraOnlyRounds],
+];
+const VALID_EXTRAS_ROW = ['Valid extras per run', (run) => run.validExtras];
+const EXTRA_ONLY_ROW = ['Extra-only rounds per run', (run) => run.extraOnlyRounds];
+const ANSWER_ROWS = [
   ['Wrong per run', (run) => run.wrong],
   ['Unjudged per run', (run) => run.unjudged],
   ['Unknown ratings per run', (run) => run.unknown],
   ['Unknown pairs per run', (run) => run.unknownPairs],
 ];
+const perRunRow = ([label, value]) => [label, (runs) => ratio(perRun(runs, value))];
+const median = (runs, field) => summarize(runs.map((run) => run[field])).median;
+const FACT_ROWS = [
+  ['Model', (runs) => joinValues(runs.flatMap((run) => run.models))],
+  ['Effort', (runs) => joinValues(runs.flatMap((run) => run.efforts))],
+  ['Served tier', (runs) => joinValues(runs.flatMap((run) => run.servedTiers))],
+];
+
+// The known defects that the runs did not find, per 50 known defects of their cases; null without known defects.
+function escapedPer50(runs) {
+  const known = sum(runs.map((run) => run.known));
+  return known ? (50 * sum(runs.map((run) => run.escaped))) / known : null;
+}
 
 // The known defects that the runs found, divided by their loop minutes.
 function foundPerMinute(runs) {
@@ -952,11 +980,12 @@ function foundPerMinute(runs) {
   return seconds ? sum(runs.map((run) => run.found.length)) / (seconds / 60) : null;
 }
 
-// Each interval row: the measure, the value of a run, the weight of a case from its known defects, and the format.
+// Each interval row: the measure, the value of a run, the weight of a case from its known defects, the format, and
+// the runs that the row compares. A single review has no loop, so the loop seconds row compares loop runs only.
 const INTERVAL_ROWS = [
-  ['Round 1 recall', (run) => run.rounds[0].found.length, (known) => known, ratio],
-  ['Escaped per 50 known', (run) => run.escaped, (known) => known / 50, ratio],
-  ['Loop seconds', (run) => run.seconds, () => 1, oneDecimal],
+  ['Round 1 recall', (run) => run.rounds[0].found.length, (known) => known, ratio, () => true],
+  ['Escaped per 50 known', (run) => run.escaped, (known) => known / 50, ratio, () => true],
+  ['Loop seconds', (run) => run.seconds, () => 1, oneDecimal, (run) => run.loop],
 ];
 
 // The cases that both lists of runs ran, in case order. The value of a case is the mean over its runs.
@@ -984,51 +1013,36 @@ function pairedCases(runs, referenceRuns, value, weight) {
 }
 
 function intervalRows(reference, runsOf) {
-  const referenceRuns = runsOf(reference);
-  return INTERVAL_ROWS.map(([measure, value, weight, format]) => [
-    `${measure} difference from ${reference}, 90% interval`,
-    (runs, name) => {
-      if (name === reference) return '-';
-      const { low, high } = pairedBootstrap(pairedCases(runs, referenceRuns, value, weight), { level: 0.9 });
-      return low === null ? '-' : `[${format(low)}, ${format(high)}]`;
-    },
-  ]);
+  return INTERVAL_ROWS.map(([measure, value, weight, format, compared]) => {
+    const referenceRuns = runsOf(reference).filter(compared);
+    return [
+      `${measure} difference from ${reference}, 90% interval`,
+      (runs, name) => {
+        if (name === reference) return '-';
+        const cases = pairedCases(runs.filter(compared), referenceRuns, value, weight);
+        const { low, high } = pairedBootstrap(cases, { level: 0.9 });
+        return low === null ? '-' : `[${format(low)}, ${format(high)}]`;
+      },
+    ];
+  });
 }
 
-// The default reference: of the columns with runs, the one with the fewest escaped defects per run; the first on a tie.
+// The default reference, the best configuration of the decision rule: of the columns with known defects, the one with
+// the fewest escaped defects per 50 known defects; the first on a tie.
 function fewestEscaped(columns, runsOf) {
   let best = null;
   let bestEscaped = Infinity;
   for (const name of columns) {
-    const escaped = perRun(runsOf(name), (run) => run.escaped);
+    const escaped = escapedPer50(runsOf(name));
     if (escaped !== null && escaped < bestEscaped) [best, bestEscaped] = [name, escaped];
   }
   return best;
 }
 
-// One column per configuration name; a column holds the runs of that configuration in the case group.
-function configurationTable(groupRuns, columns, reference) {
-  const runsOf = (name) => groupRuns.filter((run) => run.config.name === name);
-  const base = reference ?? fewestEscaped(columns, runsOf);
-  const lastRound = Math.max(0, ...columns.flatMap((name) => runsOf(name).map((run) => run.rounds.length)));
-  const rounds = (runs) => summarize(runs.map((run) => run.rounds.length));
-  const median = (runs, field) => summarize(runs.map((run) => run[field])).median;
-  const rows = [
-    ['Runs', (runs) => runs.length],
-    ...Array.from({ length: lastRound }, (_, index) => roundRows(index + 1)).flat(),
-    ['Rounds median', (runs) => oneDecimal(rounds(runs).median)],
-    ['Rounds max', (runs) => whole(rounds(runs).max)],
-    ['Loop seconds median', (runs) => oneDecimal(median(runs, 'seconds'))],
-    ...PER_RUN_ROWS.map(([label, value]) => [label, (runs) => ratio(perRun(runs, value))]),
-    ['Tokens median', (runs) => whole(median(runs, 'tokens'))],
-    ['Side-call tokens median', (runs) => whole(median(runs, 'sideCallTokens'))],
-    ['Fixer seconds median', (runs) => oneDecimal(median(runs, 'fixerSeconds'))],
-    ['Model', (runs) => joinValues(runs.flatMap((run) => run.models))],
-    ['Effort', (runs) => joinValues(runs.flatMap((run) => run.efforts))],
-    ['Served tier', (runs) => joinValues(runs.flatMap((run) => run.servedTiers))],
-    ['Known found per loop minute', (runs) => ratio(foundPerMinute(runs))],
-    ...(base === null ? [] : intervalRows(base, runsOf)),
-  ];
+const columnRuns = (runs) => (name) => runs.filter((run) => run.config.name === name);
+
+// One column per configuration name and one row per [label, cell]. A cell gets the runs of its column and the name.
+function measureTable(rows, columns, runsOf) {
   return [
     row(['Measure', ...columns]),
     `|${['---', ...columns.map(() => '---:')].join('|')}|`,
@@ -1036,25 +1050,83 @@ function configurationTable(groupRuns, columns, reference) {
   ];
 }
 
-// One table per case group, in name order, from the valid runs that have a configuration. The columns are
-// `configs`, or the configuration names in run order.
+// The measures of the decision rule over all runs of a case group, with the intervals against the reference column.
+function decisionTable(runs, columns, reference) {
+  const runsOf = columnRuns(runs);
+  const base = reference ?? fewestEscaped(columns, runsOf);
+  const rows = [
+    ['Runs', (list) => list.length],
+    ...KNOWN_ROWS.map(perRunRow),
+    ['Escaped per 50 known', (list) => ratio(escapedPer50(list))],
+    ...FACT_ROWS,
+    ...(base === null ? [] : intervalRows(base, runsOf)),
+  ];
+  return measureTable(rows, columns, runsOf);
+}
+
+// The loop runs of a case group. The fixer seconds median covers only the loops that ran a fixer.
+function loopTable(runs, columns) {
+  const runsOf = columnRuns(runs);
+  const lastRound = Math.max(0, ...runs.map((run) => run.rounds.length));
+  const rounds = (list) => summarize(list.map((run) => run.rounds.length));
+  const withFixer = (list) => list.filter((run) => run.rounds.some((round) => round.fixer));
+  const rows = [
+    ['Runs', (list) => list.length],
+    ...Array.from({ length: lastRound }, (_, index) => roundRows(index + 1)).flat(),
+    ['Rounds median', (list) => oneDecimal(rounds(list).median)],
+    ['Rounds max', (list) => whole(rounds(list).max)],
+    ['Loop seconds median', (list) => oneDecimal(median(list, 'seconds'))],
+    ...[...KNOWN_ROWS, VALID_EXTRAS_ROW, EXTRA_ONLY_ROW, ...ANSWER_ROWS].map(perRunRow),
+    ['Tokens median', (list) => whole(median(list, 'tokens'))],
+    ['Side-call tokens median', (list) => whole(median(list, 'sideCallTokens'))],
+    ['Loops with a fixer', (list) => withFixer(list).length],
+    ['Fixer seconds median', (list) => oneDecimal(median(withFixer(list), 'fixerSeconds'))],
+    ['Known found per loop minute', (list) => ratio(foundPerMinute(list))],
+  ];
+  return measureTable(rows, columns, runsOf);
+}
+
+// The single reviews of a case group: runs of one round without round folders.
+function singleReviewTable(runs, columns) {
+  const runsOf = columnRuns(runs);
+  const seconds = (list) => summarize(list.map((run) => run.seconds));
+  const rows = [
+    ['Runs', (list) => list.length],
+    ['Seconds median', (list) => oneDecimal(seconds(list).median)],
+    ['Seconds min', (list) => oneDecimal(seconds(list).min)],
+    ['Seconds max', (list) => oneDecimal(seconds(list).max)],
+    ...[...KNOWN_ROWS, VALID_EXTRAS_ROW, ...ANSWER_ROWS].map(perRunRow),
+    ['Tokens median', (list) => whole(median(list, 'tokens'))],
+  ];
+  return measureTable(rows, columns, runsOf);
+}
+
+// One section per case group, in name order, from the valid runs that have a configuration of the columns. The
+// columns are `configs`, or the configuration names in run order. A section has a decision table over all its runs,
+// a code-loop table over its loop runs, and a single-review table over its other runs; a table without runs is left
+// out.
 function configurationSections(runs, { configs, reference }) {
   const configured = runs.filter((run) => run.config);
   const columns = configs ?? distinct(configured.map((run) => run.config.name));
   const groups = new Map();
-  for (const run of configured.filter((entry) => entry.invalid.length === 0)) {
+  for (const run of configured) {
+    if (run.invalid.length > 0 || !columns.includes(run.config.name)) continue;
     const group = run.split ?? '-';
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(run);
   }
-  return [...groups.keys()]
-    .sort(compare)
-    .flatMap((group) => [
-      `## Configurations: ${group}`,
-      '',
-      ...configurationTable(groups.get(group), columns, reference),
-      '',
-    ]);
+  return [...groups.keys()].sort(compare).flatMap((group) => {
+    const groupRuns = groups.get(group);
+    const loops = groupRuns.filter((run) => run.loop);
+    const singles = groupRuns.filter((run) => !run.loop);
+    const tables = [
+      [`Decision: ${group}`, groupRuns, () => decisionTable(groupRuns, columns, reference)],
+      [`Code loops: ${group}`, loops, () => loopTable(loops, columns)],
+      [`Single reviews: ${group}`, singles, () => singleReviewTable(singles, columns)],
+    ].filter(([, tableRuns]) => tableRuns.length > 0);
+    const lines = tables.flatMap(([heading, , render]) => [`### ${heading}`, '', ...render(), '']);
+    return [`## Configurations: ${group}`, '', ...lines];
+  });
 }
 
 // The report holds numbers, verdicts, configuration names, and known-defect ids only, so a held-out reader learns
@@ -1069,7 +1141,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, referenc
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
     'The Runs table lists every run. The summary and the configuration tables leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration, or a reviewer that read a file outside the inputs of its run.',
-    'A configuration table has one column per configuration in one case group. A round row covers the runs that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds is the time of the fix steps of a loop, apart from the loop seconds. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran.',
+    'A configuration table has one column per configuration in one case group. The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds is the time of the fix steps of a loop, apart from the loop seconds; its median covers only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.',
     '',
     '## Summary',
     '',
@@ -1301,12 +1373,22 @@ function folderAllowed(target, { folders, pluginRoots }) {
   });
 }
 
-// An input file of an input folder, or a reviewer agent file of a plugin root.
+// An input file of an input folder, or a file of a plugin root: a reviewer agent file or the plan contract.
 function fileAllowed(target, { inputDirs, pluginRoots }) {
   const dir = path.dirname(target);
   const name = path.basename(target);
   if (inputDirs.includes(dir) && (INPUT_FILES.has(name) || name.endsWith('.diff'))) return true;
-  return name.endsWith('-reviewer.md') && pluginRoots.some((root) => path.join(root, 'agents') === dir);
+  return pluginRoots.some((root) => {
+    if (name.endsWith('-reviewer.md') && path.join(root, 'agents') === dir) return true;
+    const skills = path.join(root, 'skills');
+    return isUnder(skills, target) && PLAN_CONTRACT.test(path.relative(skills, target));
+  });
+}
+
+// A path under the folder of an allowed skill in an installed plugin cache copy. The path as the reviewer wrote it
+// must have no `..` segment.
+function cacheSkillAllowed(written, resolved) {
+  return !written.split('/').includes('..') && CACHE_SKILL.test(resolved);
 }
 
 // A relative path resolves against the working directory, so without one it is outside. A glob is allowed when the
@@ -1317,11 +1399,12 @@ function localPathAllowed(target, cwd, rules) {
   const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
   if (globAt === -1) {
     const resolved = path.resolve(cwd ?? path.sep, target);
-    return folderAllowed(resolved, rules) || fileAllowed(resolved, rules);
+    return folderAllowed(resolved, rules) || fileAllowed(resolved, rules) || cacheSkillAllowed(target, resolved);
   }
   if (segments.slice(globAt).some((segment) => segment.includes('..'))) return false;
   const base = segments.slice(0, globAt).join('/') || (path.isAbsolute(target) ? path.sep : '.');
-  return folderAllowed(path.resolve(cwd ?? path.sep, base), rules);
+  const resolvedBase = path.resolve(cwd ?? path.sep, base);
+  return folderAllowed(resolvedBase, rules) || cacheSkillAllowed(base, resolvedBase);
 }
 
 // A web page outside the benchmark repository. The pages of the repository can show the fixes of the corpus defects.
@@ -1370,13 +1453,19 @@ function pathTargets(value) {
 // - under an input of the run: `snapshot/`, `prompts/`, a `*.diff` file, `plan.md`, `previous-review.md`, or
 //   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
 // - under the tree copy of the judge for a round of the run up to `round`;
-// - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, or a path under the code-reviewer or
-//   plan-reviewer skill folder of a plugin root;
+// - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, a path under the code-reviewer or
+//   plan-reviewer skill folder of a plugin root, or the plan contract
+//   `<root>/skills/[<folder>/]plan-manager/references/plan-contract.md` of a plugin root (the plan-reviewer checklist
+//   tells the reviewer to read it in its own plugin);
+// - a path under the folder of the code-review, code-clarity, code-reviewer, or plan-reviewer skill in an installed
+//   plugin cache copy, `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/`, without a `..` segment
+//   (a `skill://` URI of these skills can resolve to this copy);
 // - a `skill://` URI of the code-review, code-clarity, code-reviewer, or plan-reviewer skill, or an `artifact://` URI
 //   (the spilled output of the reviewer);
 // - an http or https URL that is not a page of the benchmark repository.
-// Every other target is outside. A grep, glob, or find call without a path searches the working directory, so it gives
-// the outside target `<name> without a path`; other calls without a path read no file.
+// Every other target is outside, also the other skills of the repository that holds a plugin root: the reviewed
+// repository has its own copy of them under `snapshot/`. A grep, glob, or find call without a path searches the working
+// directory, so it gives the outside target `<name> without a path`; other calls without a path read no file.
 export function readScope(toolCalls, { runDir, round, cwd = null, pluginRoots = [] }) {
   const rules = scopeRules(path.resolve(runDir), round, pluginRoots);
   const outside = new Set();
