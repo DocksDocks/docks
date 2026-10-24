@@ -1323,13 +1323,15 @@ export function prepareAgents(options, repo) {
 
 // One run per configuration: the candidate code agent of the configuration gets a short task, so its transcript
 // shows the model, the effort, and the served tier at little cost. The task names the run folder, because
-// `score.mjs transcripts` takes only a transcript whose task names a path in the case folder.
+// `score.mjs transcripts` takes only a transcript whose task names a path in the case folder. The probe changes no
+// file, so its full.diff is empty: `transcripts` reads full.diff for the read scope of a code run.
 function prepareProbe(options, repo) {
   if (!options.out) fail('probe needs --out <workspace dir>');
   const configs = selectConfigs(options, repo);
   const caseDir = path.join(path.resolve(options.out), PROBE_CASE.id);
   if (fs.existsSync(caseDir)) fail(`${caseDir} exists; remove it or choose another --out`);
   writeJson(path.join(caseDir, 'case.json'), PROBE_CASE);
+  fs.writeFileSync(path.join(caseDir, 'full.diff'), '');
   writeRuns(
     configs.map((config) => {
       const dir = path.join(caseDir, armFolder(PROBE_ARM, config.name), 'run-1');

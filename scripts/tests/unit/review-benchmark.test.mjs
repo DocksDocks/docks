@@ -2897,6 +2897,63 @@ test('transcripts command writes the outside reads of each reviewer and leaves f
   });
 });
 
+test('transcripts on the probe workspace writes the effort and the served tier of each reviewer', (t) => {
+  const root = neutralScratch(t);
+  const ws = path.join(root, 'ws');
+  const sessions = path.join(root, 'sessions');
+  const project = path.join(root, 'project');
+  const configs = [CONFIGS['low-fast'], CONFIGS.high];
+  put(project, '.omp/agents/review-bench-configs.json', { configs });
+  const script = path.join(import.meta.dirname, '../../../.agents/skills/review-benchmark/scripts/prepare.mjs');
+  const probe = spawnSync(process.execPath, [script, 'probe', '--out', ws, '--project', project], { encoding: 'utf8' });
+  assert.equal(probe.status, 0, probe.stderr);
+  const caseDir = path.join(ws, 'probe');
+  // The probe changes no file, so its full.diff is empty.
+  assert.equal(readText(path.join(caseDir, 'full.diff')), '');
+  const runDir = (config) => path.join(caseDir, `C1-${config.name}`, 'run-1');
+  // One fake reviewer transcript per configuration: the task is the prompt of the probe, and the reviewer replies with
+  // one yield call and reads no file.
+  for (const [index, config] of configs.entries()) {
+    const [provider, model] = config.model.split('/');
+    const [, , ...task] = readText(path.join(runDir(config), 'prompts', 'full.txt')).split('\n');
+    const last = assistantLine(5 + index, provider, model, config.tier, { input: 90, output: 10 });
+    last.message.content = [
+      { type: 'text', text: 'ready' },
+      { type: 'toolCall', id: 'call-1', name: 'yield', arguments: { result: { data: 'ready' } } },
+    ];
+    const message = { role: 'user', content: [{ type: 'text', text: task.join('\n') }] };
+    const name = dispatchName('probe', `C1-${config.name}`, 'run-1', 'full');
+    put(
+      sessions,
+      `${name}.jsonl`,
+      jsonl([
+        { type: 'session', timestamp: isoAt(0), cwd: LIVE },
+        { type: 'thinking_level_change', timestamp: isoAt(0), thinkingLevel: config.effort },
+        { type: 'service_tier_change', timestamp: isoAt(0), serviceTier: { openai: config.tier } },
+        {
+          type: 'session_init',
+          timestamp: isoAt(0),
+          agent: `review-bench-candidate-code-${config.name}`,
+          systemPrompt: ['You are a coding assistant.'],
+          task: message.content[0].text,
+        },
+        { type: 'message', timestamp: isoAt(0), message },
+        last,
+      ]),
+    );
+  }
+  assert.deepEqual(transcriptsCommand(ws, sessions).sort(), ['ProbeC1HighR1Full', 'ProbeC1LowFastR1Full']);
+  for (const [index, config] of configs.entries()) {
+    assert.deepEqual(readJson(path.join(runDir(config), 'meta.json')), {
+      config,
+      reviewers: { full: { ...provenCost(config, 5 + index, 100), readScope: { outside: [] } } },
+    });
+  }
+  // The probe case is a code case like the others, so a code case without full.diff still stops transcripts.
+  fs.rmSync(path.join(caseDir, 'full.diff'));
+  assert.throws(() => transcriptsCommand(ws, sessions), /full\.diff is missing/);
+});
+
 test('a reviewer that read outside its inputs makes the run invalid, also without a configuration', () => {
   const config = CONFIGS['xhigh-fast'];
   const many = ['a', 'b', 'c', 'd', 'e'].map((name) => `${LIVE}/src/${name}.mjs`);
