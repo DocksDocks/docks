@@ -209,6 +209,7 @@ The best configuration is the one with the fewest escaped known defects at loop 
 | Side-call tokens median | 0 | 0 | 0 | 0 | 231778 | 0 | 482119 | 387837 |
 | Loops with a fixer | 20 | 23 | 22 | 20 | 21 | 22 | 22 | 22 |
 | Fixer seconds median | 75.0 | 70.6 | 96.7 | 90.7 | 98.2 | 91.8 | 126.5 | 152.6 |
+| Fixer tokens median | 453046 | 507405 | 594997 | 539923 | 560024 | 579273 | 920504 | 895093 |
 | Known found per loop minute | 0.49 | 0.73 | 0.41 | 0.64 | 0.16 | 0.36 | 0.10 | 0.19 |
 
 #### Single reviews
@@ -294,6 +295,7 @@ The second judge agreed with 402 of 418 answers (0.96).
 | Side-call tokens median | 0 | 0 | 0 | 0 | 136936 | 0 | 334809 | 182625 |
 | Loops with a fixer | 18 | 16 | 22 | 20 | 21 | 26 | 28 | 28 |
 | Fixer seconds median | 48.4 | 53.9 | 41.4 | 44.8 | 53.8 | 61.0 | 60.8 | 60.8 |
+| Fixer tokens median | 254379 | 214968 | 265957 | 239444 | 307809 | 286160 | 331467 | 315410 |
 | Known found per loop minute | 0.17 | 0.25 | 0.17 | 0.36 | 0.13 | 0.24 | 0.08 | 0.16 |
 
 #### Single reviews
@@ -368,3 +370,72 @@ tier:
       code-reviewer: priority
       plan-reviewer: priority
   ```
+
+### Setup comparisons at xhigh-fast (plan #100 step 6)
+
+#### What ran
+
+- Every arm ran at xhigh-fast: the model `openai-codex/gpt-6.1-sol`, the effort `xhigh`, and the `priority` tier. Each arm ran 3 times on each case. Each run is one round-1 review, not a loop.
+- Code arms: `B0`, `B1`, `C1`, `C3`, `S1`, and `S3` ran on the 10 held-out code cases.
+- Plan arms: `P0` ran on the 14 held-out plan cases. `P1` ran on the 13 plan cases apart from the plan-delta case `plan-33-r2`. `Pd` ran on `plan-33-r2` only.
+- The arms `B0`, `B1`, and `P0` use the released 0.16.0 agents. The arms `C1`, `C3`, `P1`, and `Pd` use the 0.17.1 agents.
+- The self-review arms `S1` and `S3` run an agent that loads the docks `code-review` and `code-clarity` skills, as the yolo self-review does. `S1` is one agent on the full diff. `S3` is one agent per lens on the focus diff of that lens.
+- The decision rule of plan #100 above decides each comparison. The reference of a comparison is the arm with fewer escaped known defects per 50 known. The other arm is not worse when the upper bound of its escaped-per-50 difference interval is below 2 and the lower bound of its round 1 recall difference interval is above -0.05.
+
+#### Comparisons
+
+Each cell with a slash gives the first arm, then the second arm. The interval columns give the 90% interval of the difference of the other arm from the reference. Seconds is the round 1 time of the slowest reviewer.
+
+| Comparison | Runs | Known found per run | Escaped per 50 known | Reference | Recall difference, 90% interval | Escaped per 50 known difference, 90% interval | Seconds median | Valid extras per run | Wrong per run | Tokens median |
+|---|---|---|---|---|---|---|---|---|---|---|
+| B0 (0.16.0 code, full) / C1 (0.17.1 code, full) | 29 / 30 | 0.28 / 0.40 | 45.88 / 43.94 | C1 | [-0.10, -0.01] | [0.51, 4.76] | 137.2 / 212.4 | 1.00 / 2.13 | 0.10 / 0.13 | 641780 / 777119 |
+| C1 (0.17.1 full) / C3 (0.17.1 panel) | 30 / 30 | 0.40 / 0.60 | 43.94 / 40.91 | C3 | [-0.10, 0.02] | [-0.79, 4.81] | 212.4 / 203.6 | 2.13 / 3.63 | 0.13 / 0.27 | 777119 / 1696123 |
+| B1 (0.16.0 agent, lens text in the dispatch) / C3 (0.17.1, lens text in a reference) | 30 / 30 | 0.57 / 0.60 | 41.41 / 40.91 | C3 | [-0.06, 0.10] | [-5.00, 2.78] | 189.9 / 203.6 | 3.03 / 3.63 | 0.30 / 0.27 | 1668114 / 1696123 |
+| S1 (self-review, one agent) / C3 | 30 / 30 | 0.50 / 0.60 | 42.42 / 40.91 | C3 | [-0.06, 0.02] | [-0.79, 2.78] | 184.8 / 203.6 | 1.63 / 3.63 | 0.23 / 0.27 | 618591 / 1696123 |
+| S3 (self-review, one agent per lens) / C3 | 30 / 30 | 0.67 / 0.60 | 39.90 / 40.91 | S3 | [-0.11, 0.02] | [-0.78, 5.26] | 198.1 / 203.6 | 4.57 / 3.63 | 0.57 / 0.27 | 1471180 / 1696123 |
+| S1 / S3 | 30 / 30 | 0.50 / 0.67 | 42.42 / 39.90 | S3 | [-0.11, -0.02] | [0.98, 5.26] | 184.8 / 198.1 | 1.63 / 4.57 | 0.23 / 0.57 | 618591 / 1471180 |
+| P0 (0.16.0 plan) / P1 (0.17.1 plan) | 39 / 39 | 0.85 / 0.69 | 27.70 / 32.00 | P0 | [-0.18, 0.02] | [-1.19, 8.89] | 126.3 / 153.7 | 0.87 / 1.00 | 0.13 / 0.08 | 614921 / 591010 |
+
+#### Decision under the rule
+
+| Comparison | Reference | Escaped-per-50 interval upper bound | Recall interval lower bound | Result | Decision |
+|---|---|---|---|---|---|
+| 0.16.0 against 0.17.1 code prompt (B0 against C1) | C1 | 4.76, not below 2 | -0.10, not above -0.05 | B0 is worse than C1. Both intervals exclude zero. | The 0.17.1 code prompt stays. |
+| Full reviewer against panel (C1 against C3) | C3 | 4.81, not below 2 | -0.10, not above -0.05 | C1 is not shown not worse than C3. | The panel stays for round 1. |
+| Lens text in the dispatch against in a reference (B1 against C3) | C3 | 2.78, not below 2 | -0.06, not above -0.05 | B1 is not shown not worse than C3 on the escaped bound and on the recall bound. | The lens text stays in a reference. B1 also uses the 0.16.0 agent, so this row does not separate the place of the lens text from the agent version. |
+| One self-reviewer against panel (S1 against C3) | C3 | 2.78, not below 2 | -0.06, not above -0.05 | S1 is not shown not worse than C3. | The self-review runs before code-review round 1 and does not replace it. See Leads from #98. |
+| Split self-review against panel (C3 against S3) | S3 | 5.26, not below 2 | -0.11, not above -0.05 | C3 is not shown not worse than S3. | The self-review runs before code-review round 1 and does not replace it. See Leads from #98. |
+| One self-reviewer against split self-review (S1 against S3) | S3 | 5.26, not below 2 | -0.11, not above -0.05 | S1 is worse than S3. Both intervals exclude zero. | See Leads from #98. |
+| 0.16.0 against 0.17.1 plan prompt (P1 against P0) | P0 | 8.89, not below 2 | -0.18, not above -0.05 | P0 has fewer escaped defects, and P1 is not shown not worse. Both intervals include zero, so the data also shows no proven loss. | The rule names P0 the better plan prompt. This plan does not change the plugins (they are under Do not touch), so the 0.17.1 plan prompt stays for now. Record this as a lead for a follow-up plan that examines what changed in the 0.17.x `plan-reviewer`. |
+
+#### Leads from #98
+
+- Self-review. The self-review keeps unique findings, so it stays. On the 10 code cases, S1 found 2 known defects in 2 cases that no C3 run found (`code-102-r3`: `B102-4`; `code-98-r1`: `B98-1`). S3 found 1 such defect (`code-98-r1`: `B98-1`).
+- Split self-review. S3 found more known defects than one self-reviewer: 0.67 against 0.50 per run, and S1 is worse than S3 under the rule. The round time is about the same: 198.1 s against 184.8 s median. But S3 has more wrong findings (0.57 against 0.23 per run) and more tokens (1471180 against 618591 median). Record this as a lead for a follow-up yolo change, because this plan does not change the plugins.
+- Unjudged stop. The report stops on a finding with neither a match nor an adjudication. Step 2 of this plan added this stop. No run in this benchmark stopped.
+- Extra findings of the report-every-LOW stance. See the held-out code-loop table of the grid entry above. `Valid extras per run` is 5.30 at xhigh-fast and 1.63 at low. `Extra-only rounds per run` is 1.03 at xhigh-fast and 0.57 at low.
+- Second judge. The second judge agreed with 402 of 418 answers on the dev cases (0.96) and with 606 of 611 answers on the held-out cases (0.99). The run of plan #98 rated every finding valid. In plan #100, wrong ratings are no longer zero. See the Wrong rows of the tables above.
+
+#### Invalid and discarded runs
+
+- Code arms: 1 of 180 runs is invalid. The `B0` reviewer of `code-35-pr36` run 3 read the case folder itself. The comparisons leave out this run, so `B0` has 29 runs.
+- Plan arms: 3 of 42 `P0` runs are invalid. Their reviewers read the omp harness documentation through `omp://`, on `plan-74-r1` (runs 1 and 2) and `plan-98-r1` (run 3). The comparisons leave out these runs, so `P0` has 39 runs.
+- An earlier step 6 code run (workspace `step6`) is discarded. In that run, 19 of 30 `B0` reviewers and 67 of 90 `B1` reviewers read the installed 0.17.1 `code-reviewer` skill through `skill://`. Version 0.16.0 had no such skill. The harness now marks such reads as reads outside the inputs, and the prompts forbid them. Every code arm ran again in workspace `step6b`. The code comparisons above come from `step6b`, and the plan comparisons come from `step6`.
+
+### Corpus (plan #100 step 7)
+
+The held-out keys and inputs are now in `cases/heldout/`: 24 key files and their fix patches. The held-out case files no longer list `external` inputs. So every case builds and scores without `--keys`.
+
+| |dev|held-out|
+|---|---|---|
+|Cases|18: code 8, code-delta 2, plan 6, plan-delta 2|24: code 10, plan 13, plan-delta 1|
+|Known defects|50: code 30, code-delta 1, plan 18, plan-delta 1|59: code 33, plan 25, plan-delta 1|
+|Code categories|code 13, test 11, shipped-skill-text 6, docs 1|code 16, shipped-skill-text 13, test 4|
+|Plan categories|research_gap 11, goal_fit 7, security_risk 1|goal_fit 14, research_gap 12|
+|Source: escaped|9|15|
+|Source: self-review|4|2|
+|Source: review rounds|30|42|
+|Source: seeded|7|0|
+
+- "Review rounds" groups the key sources `round`, `missed-by-round`, `single-lens`, `after-pass`, and `review-round`. Dev: 15, 7, 2, 5, and 1. Held-out: 20, 18, 3, 1, and 0.
+- The dev cases `code-96-delta-real` and `plan-96-delta` have no known defects. The planted defect of `plan-96-delta-planted` counts as seeded.
