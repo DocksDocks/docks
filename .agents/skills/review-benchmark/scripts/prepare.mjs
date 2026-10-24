@@ -100,8 +100,8 @@ const ROUND_FOLDER = /^round-([1-9]\d*)$/;
 
 export const LENSES = ['correctness', 'spec-and-tests', 'text-and-safety'];
 
-// The reviewers of each code-review round mode. In a loop, the round mode picks the reviewers; the arm gives the side
-// and the round policy (`policy`, see LOOP_POLICIES).
+// The reviewers of each code-review round mode. In a loop, the round mode picks the reviewers; the arm gives the side,
+// and the meta.json of the run gives the round policy (`policy`, see LOOP_POLICIES).
 const MODE_REVIEWERS = { full: ['full'], panel: LENSES, delta: ['delta'] };
 
 // The round policies of a review loop. `panel` tells if the size rule can give a `panel` round, and `delta` tells if a
@@ -126,9 +126,9 @@ const lensOf = (reviewer) =>
   reviewer.startsWith(`${SELF_REVIEW}-`) ? reviewer.slice(SELF_REVIEW.length + 1) : reviewer;
 
 // Arms per case kind. `side` selects the released (baseline) or the working-tree (candidate) reviewer agent, or the
-// self-review agent. `mode` and `reviewers` give the one review of a run without --loop. With --loop, `policy` gives
-// the round policy of the loop. A self-review arm runs one review only, before code-review round 1, so it has no
-// policy and takes no --loop.
+// self-review agent. `mode` and `reviewers` give the one review of a run without --loop. With --loop, `policy` is the
+// round policy that `case` records in the meta.json of each run. A self-review arm runs one review only, before
+// code-review round 1, so it has no policy and takes no --loop.
 export const ARMS = {
   code: {
     B0: { side: 'baseline', mode: 'full', reviewers: ['full'], policy: 'full' },
@@ -762,7 +762,7 @@ function checkLoopArms(kind, arms) {
 
 // The `case` command. `repo` is the git repository of the case commits. With `loop`, each run starts a review loop
 // in `run-<k>/round-1/`, whose mode the round policy of the arm picks, and the meta.json of the run records that
-// policy. `prepareLoop` builds the later rounds.
+// policy. `prepareLoop` builds the later rounds with the policy that this meta.json records.
 export function prepareCase(options, repo) {
   if (!options.case) fail('case needs --case <path to case.json>');
   if (!options.out) fail('case needs --out <workspace dir>');
@@ -982,10 +982,10 @@ function findingsOfDefect(findings, judgments, id) {
 
 // The `loop` command. It continues the review loop of one run of a code case after its last round folder, round k:
 // it repairs every finding of round k that stands (score.mjs fixPlan), commits the repaired tree as the reviewed
-// head of round k + 1, and writes round-<k+1>/ in the mode that roundMode gives for the round policy of the arm. It
-// returns that folder, or null when the loop ends. It stops before the fix step when round k did not complete or when
-// the judge did not answer a finding of round k. `repo` is the git repository of the case commits. ../SKILL.md,
-// Review loop, describes the files.
+// head of round k + 1, and writes round-<k+1>/ in the mode that roundMode gives for the round policy that the
+// meta.json of the run records. It returns that folder, or null when the loop ends. It stops before the fix step when
+// round k did not complete or when the judge did not answer a finding of round k. `repo` is the git repository of the
+// case commits. ../SKILL.md, Review loop, describes the files.
 export function prepareLoop(options, repo) {
   if (!options.run) fail('loop needs --run <ws>/<case>/<arm>-<config>/run-<k>');
   if (!options.cases) fail('loop needs --cases <cases dir>');
@@ -998,8 +998,7 @@ export function prepareLoop(options, repo) {
   if (!RUN_FOLDER.test(runName) || !armName.includes('-') || !fs.existsSync(path.join(caseDir, 'case.json')))
     fail(`--run must name a run folder <ws>/<case>/<arm>-<config>/run-<k>, not ${runDir}`);
   const caseData = validateCase(readJson(path.join(caseDir, 'case.json')));
-  const policy = ARMS.code[arm]?.policy;
-  if (caseData.kind !== 'code' || !policy) {
+  if (caseData.kind !== 'code' || !ARMS.code[arm]?.policy) {
     const loopArms = Object.keys(ARMS.code).filter((name) => ARMS.code[name].policy);
     fail(
       `loop takes the runs of the code arms ${loopArms.join(', ')}; ${caseId} is a ${caseData.kind} case and ${arm} is its arm`,
@@ -1008,12 +1007,20 @@ export function prepareLoop(options, repo) {
   const keys = keyFolder(caseData, options.keys);
   const label = `${caseId}/${armName}/${runName}`;
   const k = lastRound(runDir, label);
-  // `case --loop` records the round policy of the arm in the meta.json of the run. A loop that `case` built before the
-  // arms had round policies has no such record, and its rounds can follow other rules, so it cannot continue.
+  // The meta.json of the run records the round policy of the loop, and the later rounds follow it. `case --loop`
+  // records the policy of the arm. A loop that `case` built before the arms had round policies has no such record; it
+  // continues only after the operator records the policy that its rounds followed.
   const runMetaFile = path.join(runDir, 'meta.json');
-  if ((fs.existsSync(runMetaFile) ? readJson(runMetaFile).policy : undefined) !== policy) {
+  const policy = fs.existsSync(runMetaFile) ? readJson(runMetaFile)?.policy : undefined;
+  const policies = Object.keys(LOOP_POLICIES).join(', ');
+  if (policy === undefined) {
     fail(
-      `${label}/meta.json does not record the round policy ${policy} of arm ${arm}; build the loop again with case --loop`,
+      `${label}/meta.json records no round policy; build the loop again with case --loop, or record the policy that its rounds followed as { "policy": "<policy>" }, with <policy> one of ${policies}`,
+    );
+  }
+  if (!Object.hasOwn(LOOP_POLICIES, policy)) {
+    fail(
+      `${label}/meta.json records the unknown round policy ${JSON.stringify(policy)}; the round policies are ${policies}`,
     );
   }
   const roundLabel = `${label}/round-${k}`;

@@ -31,6 +31,9 @@ const MATCH_VERDICTS = new Set(['match', 'no', 'unknown']);
 const RATINGS = new Set(['valid', 'wrong', 'unknown']);
 // A round is as bad as its worst block, the rule that the plan helper applies to a comment with several blocks.
 const VERDICT_RANK = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
+// The verdicts of a block that holds a review. A block without one of them (`missing`, `unreadable`, or `blocked`)
+// holds no review, so its run is invalid (see invalidReasons).
+const REVIEW_VERDICTS = new Set(['pass', 'repair', 'fixes-required']);
 const TOKEN_FIELDS = ['input', 'cacheRead', 'cacheWrite', 'output'];
 // Read scope (see readScope). In each input folder of a run, a reviewer may read these folders and files and the
 // `*.diff` files.
@@ -722,11 +725,14 @@ function configReasons(setting, label, entry) {
 // (`fixerConfig`, from `prepare.mjs agents`) with the transcript facts of the fixer of each round that ran one; a run
 // without a configuration has no configuration to prove. A loop with a configuration and a fixer entry but without a
 // fixer setting cannot prove its fixer. Every run must show, by the `readScope` of each reviewer entry, that the
-// reviewer read only the inputs of the run. Each reviewer and each fixer is `{ label, entry }`, where entry is its
-// meta.json entry.
+// reviewer read only the inputs of the run, and must hold a review in the block of each reviewer of each round: a
+// block that is missing, unreadable, or `blocked` holds no review. The production loop does not post such a round, so
+// the run does not show the review of its arm. Each reviewer is `{ label, verdict, entry }` and each fixer is
+// `{ label, entry }`, where verdict is the verdict of the block and entry is the meta.json entry.
 function invalidReasons(config, reviewers, { fixerConfig = null, fixers = [] } = {}) {
   const reasons = [];
-  for (const { label, entry } of reviewers) {
+  for (const { label, verdict, entry } of reviewers) {
+    if (!REVIEW_VERDICTS.has(verdict)) reasons.push(`${label}: no review (${verdict})`);
     if (config) reasons.push(...configReasons(config, label, entry));
     const outside = entry?.readScope?.outside ?? [];
     if (outside.length) reasons.push(`${label}: read outside its inputs: ${listSome(outside, LISTED_READS)}`);
@@ -766,6 +772,7 @@ function scoreRun(run, caseEntry, judged, metas) {
   const reviewers = rounds.flatMap((round) =>
     round.blocks.map((block) => ({
       label: run.hasRounds ? `round-${round.round}/${block.reviewer}` : block.reviewer,
+      verdict: block.verdict,
       entry: metaOf(round.round)?.reviewers?.[block.reviewer],
     })),
   );
@@ -1343,7 +1350,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
     'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
-    'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration, or a reviewer that read a file outside the inputs of its run.',
+    'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration, runs with a reviewer that read a file outside the inputs of its run, and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
     `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
     '',
     '## Summary',

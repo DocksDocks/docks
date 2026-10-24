@@ -418,11 +418,20 @@ test('recall per run is the union over its reviewers, summarized by mean, median
   assert.equal(runs['C3/run-2'].recall, 1);
   assert.deepEqual(runs['C3/run-3'].found, []);
   assert.equal(runs['C3/run-3'].recall, 0);
+  // A blocked block and a missing block hold no review, so runs 2 and 3 of C3 are invalid and leave the summary.
+  assert.deepEqual(
+    scores.runs.map((run) => [`${run.arm}/${run.run}`, run.invalid]),
+    [
+      ['B0/run-1', []],
+      ['C3/run-1', []],
+      ['C3/run-2', ['correctness: no review (blocked)']],
+      ['C3/run-3', ['text-and-safety: no review (missing)']],
+    ],
+  );
   const [b0, c3] = scores.summaries;
   assert.deepEqual([b0.arm, b0.runs, b0.known, b0.recall], ['B0', 1, 3, { mean: 0, median: 0, min: 0, max: 0 }]);
-  assert.deepEqual([c3.arm, c3.runs, c3.known], ['C3', 3, 3]);
-  assert.ok(Math.abs(c3.recall.mean - 5 / 9) < 1e-12);
-  assert.deepEqual([c3.recall.median, c3.recall.min, c3.recall.max], [2 / 3, 0, 1]);
+  assert.deepEqual([c3.arm, c3.runs, c3.known], ['C3', 1, 3]);
+  assert.deepEqual(c3.recall, { mean: 2 / 3, median: 2 / 3, min: 2 / 3, max: 2 / 3 });
 });
 
 test('findings without a match count as valid extras, wrong, unknown, or unjudged', () => {
@@ -436,8 +445,9 @@ test('findings without a match count as valid extras, wrong, unknown, or unjudge
     'C3/run-2': [1, 1, 1, 1],
     'C3/run-3': [0, 1, 0, 0],
   });
+  // The summary covers only run-1 of C3, the valid run.
   const c3 = scores.summaries[1];
-  assert.deepEqual([c3.validExtras, c3.wrong, c3.unknown], [1 / 3, 2 / 3, 1 / 3]);
+  assert.deepEqual([c3.validExtras, c3.wrong, c3.unknown], [0, 0, 0]);
 });
 
 test('run time is the slowest reviewer, tokens are the sum, and the round verdict is the worst block', () => {
@@ -457,7 +467,8 @@ test('run time is the slowest reviewer, tokens are the sum, and the round verdic
     { reviewer: 'spec-and-tests', verdict: 'fixes-required' },
     { reviewer: 'text-and-safety', verdict: 'pass' },
   ]);
-  assert.deepEqual(scores.summaries[1].seconds, { mean: 115.25, median: 115.25, min: 90, max: 140.5 });
+  // The summary covers only run-1 of C3, the valid run.
+  assert.deepEqual(scores.summaries[1].seconds, { mean: 140.5, median: 140.5, min: 140.5, max: 140.5 });
   assert.deepEqual(scores.summaries[1].tokens, { mean: 3500, median: 3500, min: 3500, max: 3500 });
   assert.equal(roundVerdict(['pass', 'repair', 'pass']), 'repair');
   assert.equal(roundVerdict(['pass', 'unreadable']), 'incomplete');
@@ -895,6 +906,8 @@ test('dispatch names that collide stop the names and transcripts commands', (t) 
 //   every message is a failed request; `round-<r>/<fixer>: no fixer setting` for a fixer entry without
 //   `fixerConfig`. These reasons need `config`. In a run with round folders, <reviewer> is `round-<r>/<reviewer>`,
 //   and a fixer is `round-<r>/fixer-1`.
+//   A reviewer block whose verdict is `missing`, `unreadable`, or `blocked` holds no review, so it makes its run
+//   invalid (every run) with `<reviewer>: no review (<verdict>)`, before the other reasons of that reviewer.
 // - renderReport(scores, { configs, reference } = {}) keeps the Summary and Runs tables and adds:
 //   `## Invalid runs`, only when there is an invalid run: one line `- <case>/<arm>/<run>: <reasons joined by "; ">`
 //   per invalid run;
@@ -1664,8 +1677,10 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 // `loop --run <ws>/<case>/<arm>-<config>/run-<n> --cases <dir> [--keys <dir>] [--fixer-patch <file>]` (options run,
 // cases, keys, and 'fixer-patch') continues the loop of one run of a code case after its last round folder, round k:
 // 1. A case with `external` and no keys stops as `case` does. `case --loop` writes { policy } (the round policy of
-//    the arm) to run-<n>/meta.json; a run whose meta.json does not record that policy stops: `<run>/meta.json does
-//    not record the round policy <policy> of arm <arm>; build the loop again with case --loop`. A round-k block whose
+//    the arm) to run-<n>/meta.json, and the later rounds follow the policy that this meta.json records, also when it
+//    is not the policy of the arm. A run whose meta.json records no policy stops: `<run>/meta.json records no round
+//    policy; build the loop again with case --loop, ...`; a policy that is not a key of LOOP_POLICIES stops:
+//    `<run>/meta.json records the unknown round policy "<policy>"; ...`. A round-k block whose
 //    verdict is not pass or fixes-required stops the command: `<case>/<arm>/<run>/round-<k> did not complete;
 //    dispatch these reviewers again, save their blocks, and run score.mjs findings again: <reviewer> (<reason>)`,
 //    with the reason `no block`, `no verdict line`, or `blocked`. The command reads <ws>/findings.json,
@@ -1702,8 +1717,8 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 //      folder, and for a delta round the previous-review.md and, when it exists, the rejection.md of the round
 //      folder. An empty blocks/.
 //    - meta.json: { config (of round k), mode, head, repairsOnly, fullLines, deltaLines }, where mode is
-//      roundMode({ policy, round: k + 1, fullLines, completed: true, repairsOnly, deltaLines }), with the policy of
-//      the arm; round k completed, because step 1 refuses a round that did not complete.
+//      roundMode({ policy, round: k + 1, fullLines, completed: true, repairsOnly, deltaLines }), with the policy
+//      that run-<n>/meta.json records; round k completed, because step 1 refuses a round that did not complete.
 //      repairsOnly: no applied fix of the plan is `pulled`; a pulled-in patch that does not apply changes nothing, so
 //      it does not prevent a delta round.
 //      fullLines and deltaLines: the added plus removed lines of full.diff and delta.diff.
@@ -3952,8 +3967,8 @@ test('readScope puts the installed reviewer skills outside and exempts the own s
 // - C3 and B1: `panel-delta`, the rules of plan-lifecycle 0.17.1. A B1 panel prompt holds the lens text.
 // - C1: `full-delta`, the same rules with a `full` round where they give a `panel` round.
 // - B0: `full`, the policy of plan-lifecycle 0.16.0: every round is a `full` round.
-// `case --loop` writes `{ policy }` to the meta.json of each run, and `loop` refuses a run whose meta.json does not
-// record the round policy of its arm.
+// `case --loop` writes `{ policy }` to the meta.json of each run, and `loop` follows the policy that this meta.json
+// records. It refuses a run whose meta.json records no policy or an unknown policy.
 
 test('the round policy limits the modes that the rules of plan-contract.md give', () => {
   const repaired = { round: 2, completed: true, repairsOnly: true, fullLines: 120, deltaLines: 2 };
@@ -4130,20 +4145,39 @@ for (const [count, modes] of [
   });
 }
 
-test('loop refuses a run whose meta.json does not record the round policy of its arm', (t) => {
+test('loop follows the round policy that the run meta.json records and refuses a run without a known policy', (t) => {
   const { repo, ws, cases, run, round, fixerPatch } = devLoop(t);
   const options = { run, cases, 'fixer-patch': fixerPatch };
-  const refusal =
-    /code-7\/C1-low\/run-1\/meta\.json does not record the round policy full-delta of arm C1; build the loop again with case --loop/;
+  const policies = 'panel-delta, full-delta, full';
   // A loop that case built before the arms had round policies has no meta.json in its run folder.
   fs.rmSync(path.join(run, 'meta.json'));
-  assert.throws(() => prepare.prepareLoop(options, repo), refusal);
-  // Such a C1 loop ran the rules of panel-delta.
-  put(run, 'meta.json', { policy: 'panel-delta' });
-  assert.throws(() => prepare.prepareLoop(options, repo), refusal);
+  assert.throws(
+    () => prepare.prepareLoop(options, repo),
+    new RegExp(
+      `code-7/C1-low/run-1/meta\\.json records no round policy; build the loop again with case --loop, or record the policy that its rounds followed as \\{ "policy": "<policy>" \\}, with <policy> one of ${policies}$`,
+    ),
+  );
+  put(run, 'meta.json', {});
+  assert.throws(() => prepare.prepareLoop(options, repo), /run-1\/meta\.json records no round policy; /);
+  put(run, 'meta.json', { policy: 'panel' });
+  assert.throws(
+    () => prepare.prepareLoop(options, repo),
+    new RegExp(
+      `code-7/C1-low/run-1/meta\\.json records the unknown round policy "panel"; the round policies are ${policies}$`,
+    ),
+  );
   assert.equal(fs.existsSync(round(2)), false);
-  put(run, 'meta.json', { policy: 'full-delta' });
+  // Such a C1 loop ran the rules of panel-delta. With that policy recorded, it continues under these rules: the full
+  // diff of 16 lines is below the panel size, and the repairs of round 1 change 4 lines, so round 2 is a delta round.
+  put(run, 'meta.json', { policy: 'panel-delta' });
   assert.equal(prepare.prepareLoop(options, repo), round(2));
+  assert.equal(readJson(path.join(round(2), 'meta.json')).mode, 'delta');
+  // The recorded policy, not the arm, gives the mode: under `full`, round 2 of this C1 loop is a full round.
+  fs.rmSync(round(2), { recursive: true });
+  put(run, 'meta.json', { policy: 'full' });
+  assert.equal(prepare.prepareLoop(options, repo), round(2));
+  assert.equal(readJson(path.join(round(2), 'meta.json')).mode, 'full');
+  assert.deepEqual(fs.readdirSync(path.join(round(2), 'prompts')), ['full.txt']);
   // A self-review arm runs no loop.
   assert.throws(
     () => prepare.prepareLoop({ run: path.join(ws, 'code-7', 'S1-low', 'run-1'), cases }, repo),
@@ -4503,6 +4537,69 @@ test('a loop whose fixer ran another model, effort, or served tier than the fixe
   assert.equal(scores.summaries[0].runs, 1);
   const lines = renderReport(scores).split('\n');
   assert.ok(lines.includes('- code-7/C1-low/run-3: round-2/fixer-1: effort low, not high'));
+});
+
+// Plan #100 code review round 2: a reviewer block that holds no review (missing, unreadable, or blocked) makes its
+// run invalid, so the run leaves the summary and the configuration and arm tables. The reason is
+// `round-<k>/<reviewer>: no review (<verdict>)`, and `<reviewer>: no review (<verdict>)` for a run without rounds.
+test('a run with a reviewer block that holds no review is invalid and leaves the summary and the tables', () => {
+  const round = (seconds, mode, answers) => [seconds, 1000, mode, 0, answers];
+  const loop = (run) => ({
+    case: 'code-7',
+    config: 'low',
+    run,
+    rounds: [round(100, 'full', ['D1']), round(40, 'delta', [])],
+  });
+  const single = (run) => ({
+    case: 'code-7',
+    config: 'low',
+    arm: 'S1',
+    run,
+    single: true,
+    rounds: [round(60, null, ['D1'])],
+  });
+  const fixture = gridFixture({ 'code-7': { split: 'dev', known: ['D1'] } }, [
+    ...[1, 2, 3].map(loop),
+    ...[1, 2].map(single),
+  ]);
+  const block = (arm, run, inRound) =>
+    fixture.findings.blocks.find((entry) => entry.arm === arm && entry.run === run && entry.round === inRound);
+  // A JSON object with only an `acknowledgment` field gives `unreadable`; a prompt without a block gives `missing`.
+  block('C1-low', 'run-2', 2).verdict = 'unreadable';
+  block('C1-low', 'run-3', 2).verdict = 'missing';
+  block('S1-low', 'run-2', undefined).verdict = 'blocked';
+  const scores = scoreRuns(fixture);
+  assert.deepEqual(
+    scores.runs.map((run) => [`${run.arm}/${run.run}`, run.invalid]),
+    [
+      ['C1-low/run-1', []],
+      ['C1-low/run-2', ['round-2/full: no review (unreadable)']],
+      ['C1-low/run-3', ['round-2/full: no review (missing)']],
+      ['S1-low/run-1', []],
+      ['S1-low/run-2', ['full: no review (blocked)']],
+    ],
+  );
+  assert.deepEqual(
+    scores.summaries.map((summary) => [summary.arm, summary.runs]),
+    [
+      ['C1-low', 1],
+      ['S1-low', 1],
+    ],
+  );
+  const configs = renderReport(scores, { configs: ['low'] });
+  const lines = configs.split('\n');
+  for (const line of [
+    '- code-7/C1-low/run-2: round-2/full: no review (unreadable)',
+    '- code-7/C1-low/run-3: round-2/full: no review (missing)',
+    '- code-7/S1-low/run-2: full: no review (blocked)',
+  ]) {
+    assert.ok(lines.includes(line), `## Invalid runs lacks ${line}`);
+  }
+  assert.equal(tableAfter(configs, '### Decision: dev')[2], '| Runs | 2 |');
+  assert.equal(tableAfter(configs, '### Code loops: dev')[2], '| Runs | 1 |');
+  assert.equal(tableAfter(configs, '### Single reviews: dev')[2], '| Runs | 1 |');
+  const arms = renderReport(scores, { arms: ['C1-low', 'S1-low'] });
+  assert.equal(tableAfter(arms, '### Decision: dev')[2], '| Runs | 1 | 1 |');
 });
 
 test('the code-loop and single-review tables show the model, effort, and served tier of the transcripts', () => {
