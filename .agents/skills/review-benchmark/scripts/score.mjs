@@ -59,12 +59,19 @@ const DIFF_NEW = '+++ b/';
 const CHANGED_FILES_HINT = '; the read scope compares the reads of the reviewer with the files that the case changes';
 // These tools search the working directory when a call names no path (see the omp tool docs `omp://tools/<tool>.md`).
 const SEARCH_TOOLS = new Set(['grep', 'glob', 'find', 'ast_grep']);
-// The `path` of these tools takes a `;`-separated list of paths. The path of every other tool, for example `read` and
-// `find`, names one target, which can hold a `;`.
+// The `path` of these tools takes a `;`-separated list of paths, so each part is a target of its own, and a relative
+// part resolves against the working directory. The path of every other tool, for example `read` and `find`, is one
+// target, which can hold a `;`.
 const PATH_LIST_TOOLS = new Set(['grep', 'glob', 'ast_grep']);
-// A web search has a `query`, not a path. A query that names the benchmark repository can find its pages.
+// When no file has a path, omp can read the path as a list of the paths between these delimiters, outside `{}` and
+// not after a backslash (omp://tools/read.md, Flow step 7; the delimiters of omp 18.12): `;`, `,`, and white space.
+// An http, https, or internal URI is a list only on `;`, and only when each part is a URI.
+const PATH_DELIMITER = /[;,\s]/;
+const URI_DELIMITER = /;/;
+// A web search has a `query`, not a path. A query that names the owner of the benchmark repository can find the
+// pages of the repository.
 const WEB_SEARCH_TOOL = 'web_search';
-const BENCHMARK_QUERY = /docksdocks\/docks|github\.com\/docksdocks/i;
+const BENCHMARK_QUERY = /docksdocks/i;
 const URI_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
 const WEB_SCHEMES = new Set(['http', 'https']);
 // The selector of a read at the end of a path, for example `:1-260` or `:23-54:raw`.
@@ -671,14 +678,26 @@ function judgeFindings(findings, { matched, unsure, ratings }) {
 // A round's time is its slowest reviewer and its tokens are the sum; one reviewer without a value leaves both open.
 // `found` lists the known defects that the findings of the round matched. `fixer` tells if the meta.json of the round
 // records a fix step after the round, and `fixerSeconds` and `fixerTokens` are the time and the tokens of that step.
-// `knownRepair` and `extraRepair` come from the record of that fix step (`fix` and `fixAlreadyApplied`, see
-// prepare.mjs prepareLoop): `knownRepair` tells if it repaired a known defect that a finding of the round matched,
-// with a fix patch that applied or through the fixer; a patch that the tree already held and a pulled-in patch repair
-// no finding of the round. `extraRepair` tells if it gave valid extra findings to the fixer.
+// `knownRepair` and `extraRepair` come from the record of that fix step (`fix`, `fixAlreadyApplied`, `fixedByFixer`,
+// and `fixerChangedNothing`, see prepare.mjs prepareLoop) and from the fixer reply (`fixer.replies`, see
+// transcriptsCommand): `knownRepair` tells if it repaired a known defect that a finding of the round matched, with a
+// fix patch that applied or through the fixer. A patch that the tree already held and a pulled-in patch repair no
+// finding of the round. A defect that the fixer got counts only when the fixer patch changed the tree and the fixer did
+// not reply `not present` for each finding of the round that matches the defect. `extraRepair` tells if it gave valid
+// extra findings to the fixer.
 function scoreRound(round, knownIds, judged, meta) {
   const costs = round.blocks.map((block) => meta?.reviewers?.[block.reviewer]);
   const { found } = judgeFindings(round.findings, judged);
   const present = new Set(meta?.fixAlreadyApplied ?? []);
+  const byFixer = new Set(meta?.fixedByFixer ?? []);
+  const replies = meta?.fixer?.replies ?? {};
+  const fixerRepaired = (id) =>
+    !meta?.fixerChangedNothing &&
+    round.findings.some(
+      (finding) => judged.matched.get(finding.blind)?.has(id) && replies[finding.id] !== 'not present',
+    );
+  const repaired = (fix) =>
+    !fix.pulled && !present.has(fix.known) && (!byFixer.has(fix.known) || fixerRepaired(fix.known));
   return {
     round: round.round,
     mode: meta?.mode ?? null,
@@ -687,7 +706,7 @@ function scoreRound(round, knownIds, judged, meta) {
       : null,
     tokens: total(costs.map((cost) => cost?.tokens)),
     found: knownIds.filter((id) => found.has(id)),
-    knownRepair: (meta?.fix?.fixes ?? []).some((fix) => !fix.pulled && !present.has(fix.known)),
+    knownRepair: (meta?.fix?.fixes ?? []).some(repaired),
     extraRepair: (meta?.fix?.extras ?? []).length > 0,
     fixer: Boolean(meta?.fixer),
     fixerSeconds: typeof meta?.fixer?.seconds === 'number' ? meta.fixer.seconds : 0,
@@ -722,13 +741,14 @@ function configReasons(setting, label, entry) {
 }
 
 // A run proves its configuration with the transcript facts of each reviewer, and a loop proves its fixer setting
-// (`fixerConfig`, from `prepare.mjs agents`) with the transcript facts of the fixer of each round that ran one; a run
-// without a configuration has no configuration to prove. A loop with a configuration and a fixer entry but without a
-// fixer setting cannot prove its fixer. Every run must show, by the `readScope` of each reviewer entry, that the
-// reviewer read only the inputs of the run, and must hold a review in the block of each reviewer of each round: a
-// block that is missing, unreadable, or `blocked` holds no review. The production loop does not post such a round, so
-// the run does not show the review of its arm. Each reviewer is `{ label, verdict, entry }` and each fixer is
-// `{ label, entry }`, where verdict is the verdict of the block and entry is the meta.json entry.
+// (`fixerConfig`, from `prepare.mjs agents`) with the transcript facts of the fixer of each round that ran one or that
+// gave findings to the fixer; a run without a configuration has no configuration to prove. A loop with a
+// configuration and a fixer entry but without a fixer setting cannot prove its fixer. Every run must show, by the
+// `readScope` of each reviewer entry, that the reviewer read only the inputs of the run, and must hold a review in the
+// block of each reviewer of each round: a block that is missing, unreadable, or `blocked` holds no review. The
+// production loop does not post such a round, so the run does not show the review of its arm. Each reviewer is
+// `{ label, verdict, entry }` and each fixer is `{ label, entry }`, where verdict is the verdict of the block and entry
+// is the meta.json entry (undefined for a fixer without an entry).
 function invalidReasons(config, reviewers, { fixerConfig = null, fixers = [] } = {}) {
   const reasons = [];
   for (const { label, verdict, entry } of reviewers) {
@@ -776,23 +796,26 @@ function scoreRun(run, caseEntry, judged, metas) {
       entry: metaOf(round.round)?.reviewers?.[block.reviewer],
     })),
   );
-  // The fixer of each loop round that ran one (`fixer.agents` of the round meta.json), against the fixer setting. Only
-  // a loop round has a fixer.
+  // The fixer of each loop round that ran one (`fixer.agents` of the round meta.json), against the fixer setting. A
+  // round whose fix step gave findings to the fixer (`fix.extras` or `fixedByFixer`) needs the transcript facts of its
+  // fixer: a repair by hand (`loop --fixer-patch`) or by an agent of another setting changes the later rounds too. Such
+  // a round without a fixer entry gets the entry `fixer-1` without facts. Only a loop round has a fixer.
   const fixerConfig = metas[run.key]?.fixerConfig ?? metaOf(1)?.fixerConfig ?? null;
-  const fixers = rounds.flatMap((round) =>
-    Object.entries(metaOf(round.round)?.fixer?.agents ?? {}).map(([name, entry]) => ({
-      label: `round-${round.round}/${name}`,
-      entry,
-    })),
-  );
+  const fixers = rounds.flatMap((round) => {
+    const meta = metaOf(round.round);
+    const agents = Object.entries(meta?.fixer?.agents ?? {});
+    const needed = (meta?.fix?.extras ?? []).length > 0 || (meta?.fixedByFixer ?? []).length > 0;
+    if (needed && agents.length === 0) agents.push([FIXER_NAME, undefined]);
+    return agents.map(([name, entry]) => ({ label: `round-${round.round}/${name}`, entry }));
+  });
   const roundScores = rounds.map((round) => scoreRound(round, knownIds, judged, metaOf(round.round)));
   const all = judgeFindings(
     rounds.flatMap((round) => round.findings),
     judged,
   );
-  // A round is caused only by extra findings when the fix step after the round before it repaired valid extra findings
-  // and no known defect. A known defect that needed no repair, such as a repeat of a fixed defect whose fix the tree
-  // holds, causes no round.
+  // A round is caused only by extra findings when the fix step after the round before it gave valid extra findings to
+  // the fixer and repaired no known defect (see scoreRound). A known defect that needed no repair, such as a repeat of
+  // a fixed defect whose fix the tree holds or that the fixer found `not present`, causes no round.
   const extraOnlyRounds = roundScores.filter(
     (_, index) => index > 0 && roundScores[index - 1].extraRepair && !roundScores[index - 1].knownRepair,
   ).length;
@@ -1350,8 +1373,8 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
     'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
-    'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration, runs with a reviewer that read a file outside the inputs of its run, and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
-    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
+    'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose reviewer transcripts show another model, effort, or served tier than their configuration; loops whose fixer transcripts show another model, effort, or served tier than the fixer setting; runs with a reviewer or a fixer without transcript facts or without a served assistant message, also a loop round that gave findings to the fixer and has no transcript facts of its fixer (for example a repair with --fixer-patch); loops with a fixer but without a fixer setting; runs with a reviewer that read a file outside the inputs of its run; and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
+    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step gave valid extra findings to the fixer and repaired no known defect that a finding of the previous round matched: no fix patch of such a defect applied, and the fixer repaired none (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
     '',
     '## Summary',
     '',
@@ -1601,6 +1624,40 @@ export function transcriptFacts(text, source = 'transcript') {
   return toolCalls.length ? { ...facts, toolCalls } : facts;
 }
 
+// A line of the fixer reply: `<finding id>: repaired` or `<finding id>: not present` (see prepare.mjs fixerPrompt),
+// maybe after a list marker and with the id in backticks.
+const FIXER_REPLY = /^\s*(?:[-*+]\s+)?`?([^\s`:]+#\d+)`?\s*:\s*(repaired|not present)\b/i;
+// An omp subagent gives its reply as the arguments of a call of this tool, under keys that the agent picks.
+const REPLY_TOOL = 'yield';
+// Each string in a JSON value, in order.
+function stringsOf(value) {
+  if (typeof value === 'string') return [value];
+  return value && typeof value === 'object' ? Object.values(value).flatMap(stringsOf) : [];
+}
+
+// The fixer reply of a transcript: each finding id that the reply names, with `repaired` or `not present`; a later
+// line of an id wins. The reply is each string in the arguments of the last `yield` call, or without such a call,
+// the text of the last assistant message with text.
+function fixerReplies(text, source) {
+  let yielded;
+  let said = [];
+  for (const entry of transcriptEntries(text, source)) {
+    if (entry.type !== 'message' || entry.message?.role !== 'assistant') continue;
+    const content = Array.isArray(entry.message.content) ? entry.message.content : [];
+    for (const item of content) {
+      if (item?.type === 'toolCall' && item.name === REPLY_TOOL) yielded = item.arguments;
+    }
+    const texts = content.filter((item) => item?.type === 'text' && typeof item.text === 'string');
+    if (texts.length) said = texts.map((item) => item.text);
+  }
+  const replies = {};
+  for (const line of stringsOf(yielded ?? said).flatMap((value) => value.split('\n'))) {
+    const match = FIXER_REPLY.exec(line);
+    if (match) replies[match[1]] = match[2].toLowerCase();
+  }
+  return replies;
+}
+
 // The working directory of the session of a transcript, the plugin roots that the agent text of the session names,
 // and the self-review agent files that it names. omp records the agent text in the system prompt (a string or a list
 // of strings) of the `session_init` entry.
@@ -1790,14 +1847,55 @@ function targetAllowed(target, cwd, rules) {
   return WEB_SCHEMES.has(scheme) && webPageAllowed(target);
 }
 
+// A local path or an internal URI without its read selector; a web URL stays as it is.
+const withoutSelector = (target) => (WEB_SCHEMES.has(uriScheme(target)) ? target : target.replace(READ_SELECTOR, ''));
+
 // The targets of the `path` argument of a call of the tool `name`: for a tool whose path takes a list
-// (PATH_LIST_TOOLS), its `;`-separated parts, else the whole path; each trimmed. A local path or an internal URI drops
-// its read selector; a web URL stays as it is.
+// (PATH_LIST_TOOLS), its `;`-separated parts, else the whole path; each trimmed and without its read selector.
 function pathTargets(name, value) {
   return (PATH_LIST_TOOLS.has(name) ? value.split(';') : [value])
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => (WEB_SCHEMES.has(uriScheme(part)) ? part : part.replace(READ_SELECTOR, '')));
+    .map(withoutSelector);
+}
+
+// The parts of `text` between the delimiters that `delimiter` matches, outside `{}` and not after a backslash, as
+// omp splits a delimited path list; each part trimmed, and empty parts left out.
+function splitPathList(text, delimiter) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '\\') index += 1;
+    else if (character === '{') depth += 1;
+    else if (character === '}') depth = Math.max(0, depth - 1);
+    else if (depth === 0 && delimiter.test(character)) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+// The paths that omp can read for a target when no file has the whole target (see PATH_DELIMITER), each without its
+// read selector, or none when the target is no list. A relative part after the first part continues the name of the
+// first part, so it resolves against the folder of the first part: a file under the snapshot whose name holds a
+// delimiter stays under the snapshot. omp resolves such a part against the working directory when it reads the list,
+// so the read scope does not see that read (../SKILL.md, Read scope, states this limit). An absolute part, a part that
+// starts with `~` (the home folder), and a URI part stay as they are, so each of them counts on its own.
+function listParts(target) {
+  if (uriScheme(target) !== undefined) {
+    const parts = splitPathList(target, URI_DELIMITER);
+    const list = parts.length > 1 && parts.every((part) => uriScheme(part) !== undefined);
+    return list ? parts.map(withoutSelector) : [];
+  }
+  const parts = splitPathList(target, PATH_DELIMITER).map(withoutSelector);
+  if (parts.length < 2) return [];
+  const folder = path.posix.dirname(parts[0]);
+  const continuesName = (part) => !path.isAbsolute(part) && !part.startsWith('~') && uriScheme(part) === undefined;
+  return parts.map((part, index) => (index > 0 && continuesName(part) ? `${folder}/${part}` : part));
 }
 
 // The reviewers run in the live checkout, which holds the fixes of the corpus defects, so a reviewer that reads a
@@ -1829,9 +1927,11 @@ function pathTargets(name, value) {
 // another version than the reviewer skill of the arm. A grep, glob, find, or ast_grep call without a path searches the
 // working directory, so it gives the outside target `<name> without a path`; other calls without a path read no file.
 // The path of a grep, glob, or ast_grep call is a `;`-separated list of targets; the path of every other tool is one
-// target, also when it holds a `;`. A web search has no path: `queries` lists its queries, each once, in call order,
-// and a query that names the benchmark repository (`DocksDocks/docks` or `github.com/DocksDocks`, in any case) gives
-// the outside target `web_search: <query>`. A reviewer without a web search gets no `queries`.
+// target, also when it holds a `;`. When no file has a path, omp can read the path as a list of paths (see listParts),
+// so a target is allowed only when the target and each of its list parts are allowed; outside lists the whole target.
+// A web search has no path: `queries` lists its queries, each once, in call order, and a query that names the owner of
+// the benchmark repository (`DocksDocks`, in any case) gives the outside target `web_search: <query>`. A reviewer
+// without a web search gets no `queries`.
 // The reviewer setup is newer than the cases. When a case changes the file of an optional instruction read, that read
 // shows a later version of a file under review, which can show the fix. `changedFiles` are the repository paths that
 // the case changes (transcriptsCommand reads them). The rule compares keys, the paths from the skill folder name on:
@@ -1859,7 +1959,8 @@ export function readScope(
       continue;
     }
     for (const target of pathTargets(name, value)) {
-      if (!targetAllowed(target, cwd, rules)) outside.add(target);
+      const reads = [target, ...listParts(target)];
+      if (!reads.every((read) => targetAllowed(read, cwd, rules))) outside.add(target);
     }
   }
   return queries.size ? { outside: [...outside], queries: [...queries] } : { outside: [...outside] };
@@ -2069,9 +2170,10 @@ export function namesCommand(ws) {
 // for the files that its case changes (see caseChangedFiles); the command stops when an input that names these files
 // is missing. The fixer entry of a round, under `fixer.agents`, gets the time and tokens of every assistant message and
 // the transcript facts, which `report` checks against the fixer setting of the loop (see invalidReasons). A round has
-// one fixer, so `fixer.seconds` and `fixer.tokens` are its time and tokens. meta.json keeps no tool calls. The command
-// checks every dispatch name before it writes, writes what it finds, then fails with the names of the dispatches that
-// have no transcript.
+// one fixer, so `fixer.seconds` and `fixer.tokens` are its time and tokens, and `fixer.replies` maps each finding id
+// that the fixer reply names to `repaired` or `not present` (see fixerReplies; no field when the reply names no
+// finding). meta.json keeps no tool calls. The command checks every dispatch name before it writes, writes what it
+// finds, then fails with the names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
   const wsDir = path.resolve(ws);
@@ -2099,7 +2201,15 @@ export function transcriptsCommand(ws, sessionsDir) {
       const { toolCalls, ...facts } = transcriptFacts(text, file);
       if (fixer) {
         const agent = { ...parseTranscript(text, file), ...facts };
-        meta.fixer = { ...meta.fixer, seconds: agent.seconds, tokens: agent.tokens, agents: { [reviewer]: agent } };
+        const replies = fixerReplies(text, file);
+        meta.fixer = {
+          ...meta.fixer,
+          seconds: agent.seconds,
+          tokens: agent.tokens,
+          agents: { [reviewer]: agent },
+          replies,
+        };
+        if (Object.keys(replies).length === 0) delete meta.fixer.replies;
       } else {
         meta.reviewers ??= {};
         const entry = { ...meta.reviewers[reviewer], ...parseTranscript(text, file, meta.config?.model), ...facts };

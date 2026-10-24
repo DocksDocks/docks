@@ -984,8 +984,9 @@ function findingsOfDefect(findings, judgments, id) {
 // it repairs every finding of round k that stands (score.mjs fixPlan), commits the repaired tree as the reviewed
 // head of round k + 1, and writes round-<k+1>/ in the mode that roundMode gives for the round policy that the
 // meta.json of the run records. It returns that folder, or null when the loop ends. It stops before the fix step when
-// round k did not complete or when the judge did not answer a finding of round k. `repo` is the git repository of the
-// case commits. ../SKILL.md, Review loop, describes the files.
+// round k did not complete or when the judge did not answer a finding of round k. When the fix step changes no file,
+// the loop ends after round k: the command records the fix step in round-k/meta.json and writes no round folder.
+// `repo` is the git repository of the case commits. ../SKILL.md, Review loop, describes the files.
 export function prepareLoop(options, repo) {
   if (!options.run) fail('loop needs --run <ws>/<case>/<arm>-<config>/run-<k>');
   if (!options.cases) fail('loop needs --cases <cases dir>');
@@ -1121,11 +1122,21 @@ export function prepareLoop(options, repo) {
         `${roundLabel} has ${parts.join(' and ')}; give their repair with --fixer-patch <file>, or dispatch the fixer prompt ${prompt} and run loop again`,
       );
     }
+    // The tree before the fixer patch, when the round has findings for the fixer.
+    const fixedTree = fixerIds.size > 0 ? writeTree(repo, env) : null;
     // An empty patch file changes nothing: no listed finding needed a change.
     if (repair.patch && !emptyPatch(repair.patch)) {
       applyPatch(repo, env, repair.patch, `the fixer patch does not apply to ${roundLabel} after its fix patches`);
     }
     const tree = writeTree(repo, env);
+    // The tree hashes show what the fix step changed. A fixer patch that changed nothing repaired no finding. A fix
+    // step that changed nothing repaired no finding of round k: production rejects a finding that does not reproduce,
+    // so the loop ends after round k, as when no finding stands.
+    const unchanged = {
+      fixChangedNothing: tree === reviewedTree,
+      fixerChangedNothing: fixedTree !== null && tree === fixedTree,
+    };
+    if (unchanged.fixChangedNothing) return { notApplied: split.notApplied, unchanged };
     const head = commitTree(repo, tree, parent, `Review loop ${label}, round ${nextRound}`);
     const base = resolveCommit(repo, caseData.base, `${caseId} base`);
     const fullLines = diffSize(repo, base, tree);
@@ -1159,21 +1170,29 @@ export function prepareLoop(options, repo) {
       fs.rmSync(judgeTree, { recursive: true, force: true });
       throw error;
     }
-    return { mode: nextMode, notApplied: split.notApplied };
+    return { mode: nextMode, notApplied: split.notApplied, unchanged };
   });
   if (!next) {
     console.log(`the loop of ${label} ends after round ${k}`);
     return null;
   }
-  const { mode, notApplied } = next;
-  // The fix plan, and each list of known defects whose fix patch did not apply. An empty list removes its field, so a
-  // rebuilt round keeps no old list.
+  const { mode, notApplied, unchanged } = next;
+  // The fix plan, each list of known defects whose fix patch did not apply, and each flag of a fix step or fixer patch
+  // that changed nothing. An empty list or a false flag removes its field, so a rebuilt round keeps no old value.
   const record = { ...roundMeta, fix: plan };
   for (const [field, ids] of Object.entries(notApplied)) {
     if (ids.length) record[field] = ids;
     else delete record[field];
   }
+  for (const [field, flag] of Object.entries(unchanged)) {
+    if (flag) record[field] = true;
+    else delete record[field];
+  }
   writeJson(roundMetaFile, record);
+  if (unchanged.fixChangedNothing) {
+    console.log(`the loop of ${label} ends after round ${k}: its fix step changed no file`);
+    return null;
+  }
   console.log(`prepared ${nextDir}: a ${mode} round after ${plan.fixes.length} fixes and ${plan.extras.length} extras`);
   return nextDir;
 }
