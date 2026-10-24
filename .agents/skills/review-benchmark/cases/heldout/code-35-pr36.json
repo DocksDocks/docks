@@ -6,8 +6,5 @@
   "round": 1,
   "base": "b1686df4d5a33677ee00d5bab54eabc1881638aa",
   "head": "33e35bce3c1e419c973926660acc5099cb74e8d4",
-  "plan": "code-35-pr36-plan.md",
-  "external": [
-    "plan"
-  ]
+  "plan": "code-35-pr36-plan.md"
 }

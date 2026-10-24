@@ -1,0 +1,36 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 4a5ed3ec..840c0522 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -122,7 +122,7 @@ function pullRequestNodes(nodes) {
+ function hasClosingKeyword(body, number, nameWithOwner) {
+   const repo = nameWithOwner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+   return new RegExp(
+-    String.raw`\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?\s+(?:#|${repo}#)${number}(?![A-Za-z0-9_])`,
++    String.raw`\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?[ \t]+(?:#|${repo}#)${number}(?![A-Za-z0-9_])`,
+     'i',
+   ).test(body);
+ }
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 50bf7641..0fb73fa7 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -501,6 +501,9 @@ try {
+   });
+   expectSuccess(run('archive', String(qualified.number)), 'archive qualified mixed-case keyword');
+ 
++  const tabSeparated = closedPlan('tab-separated closing keyword', { prBody: 'Resolves\t#ISSUE' });
++  expectSuccess(run('archive', String(tabSeparated.number)), 'archive tab-separated keyword');
++
+   for (const [name, prBody] of [
+     ['no closing keyword', 'Refs #ISSUE'],
+     ['number prefix', 'Closes #ISSUE0'],
+@@ -508,6 +511,8 @@ try {
+     ['keyword prefix', 'notCloses #ISSUE'],
+     ['issue URL', 'Closes https://github.com/DocksDocks/fixture/issues/ISSUE'],
+     ['different repository', 'Fixes: Another/repo#ISSUE'],
++    ['keyword and reference in separate paragraphs', 'Closes:\n\n#ISSUE is still open'],
++    ['keyword and reference on separate lines', 'Closes\n#ISSUE'],
+     ['null PR description', null],
+   ]) {
+     const unproven = closedPlan(name, { prBody });

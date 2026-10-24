@@ -1,0 +1,26 @@
+diff --git a/scripts/tests/author-tooling.mjs b/scripts/tests/author-tooling.mjs
+index 78386911..f57ede4d 100755
+--- a/scripts/tests/author-tooling.mjs
++++ b/scripts/tests/author-tooling.mjs
+@@ -329,6 +329,7 @@ function testShebangInterpreter() {
+     ['#!/usr/bin/env -i FORCE_COLOR=0 node\n', 'node'],
+     ['#!/usr/bin/env - --ignore-environment node\n', 'node'],
+     ['#!/usr/bin/env -iu NODE_OPTIONS /opt/bun/bin/bun\n', 'bun'],
++    ['#!/usr/bin/env -S -- FORCE_COLOR=0 bun\n', 'bun'],
+     ['#!/usr/bin/env -- bun\n', 'bun'],
+     ['#!/usr/bin/env -S -u NODE_OPTIONS\n', ''],
+     ['#!\n', ''],
+diff --git a/scripts/tests/test-contracts.mjs b/scripts/tests/test-contracts.mjs
+index 7a27d80c..7723c2ac 100755
+--- a/scripts/tests/test-contracts.mjs
++++ b/scripts/tests/test-contracts.mjs
+@@ -463,7 +463,8 @@ export function shebangInterpreter(source) {
+   const pending = [...words];
+   while (pending.length > 0) {
+     const word = pending.shift();
+-    if (word === '--') return path.posix.basename(pending[0] ?? '');
++    // `--` ends the options, but `env` still reads NAME=VALUE assignments after it.
++    if (word === '--') return path.posix.basename(pending.find((rest) => !/^[^=]+=/u.test(rest)) ?? '');
+     if (word === '-' || word === '--ignore-environment') continue;
+     if (word.startsWith('--')) {
+       const [name, value] = word.split(/=(.*)/su);

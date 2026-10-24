@@ -1,0 +1,12 @@
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index adbb97bd..7b3af69f 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -70,7 +70,6 @@ function run(...args) {
+     cwd: scratch,
+     encoding: 'utf8',
+     env: childEnv,
+-    timeout: 10_000,
+   });
+ }
+ 

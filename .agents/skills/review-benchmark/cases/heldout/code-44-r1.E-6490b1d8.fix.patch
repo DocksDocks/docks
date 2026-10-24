@@ -1,0 +1,52 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 88b801a2..cae49c0e 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -476,14 +476,25 @@ function printAdvice(text, status, extra = []) {
+     result.advice.push('Research is not filled after drafting.');
+   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
+ }
++// Reviewers write Markdown: read review keywords through emphasis, code marks, quotes, and list markers.
++function reviewText(line) {
++  return line
++    .replace(/[*_`]/g, '')
++    .trim()
++    .replace(/^(?:>\s*)+/, '')
++    .replace(/^(?:[-+]|\d+[.)])\s+/, '')
++    .trim();
++}
++const REVIEW_HEADING = /^(?:#+\s*)?(plan|code) review/i;
++const REVIEW_VERDICT = /^(plan|code)[- ]review:\s*([a-z]+(?:-[a-z]+)*)/i;
+ export function parseReviewComment(body) {
+   if (typeof body !== 'string') return undefined;
+-  const lines = body.trim().split(/\r?\n/),
+-    heading = /^(?:#+\s*)?(plan|code) review/i.exec(lines[0]);
++  const lines = body.trim().split(/\r?\n/).map(reviewText);
++  const heading = REVIEW_HEADING.exec(lines[0]);
+   if (!heading) return undefined;
+   const kind = heading[1].toLowerCase();
+-  const index = lines.findIndex((line, i) => i > 0 && /^(plan|code)[- ]review:\s*(\S+)/i.test(line));
+-  const match = /^(plan|code)[- ]review:\s*(\S+)/i.exec(lines[index] ?? '');
++  const index = lines.findIndex((line, i) => i > 0 && REVIEW_VERDICT.test(line));
++  const match = REVIEW_VERDICT.exec(lines[index] ?? '');
+   if (!match || match[1].toLowerCase() !== kind) return undefined;
+   const alias = match[2].toLowerCase();
+   let verdict = ['pass', 'ok', 'approved'].includes(alias)
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index f4be4fb2..013f63b4 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -354,6 +354,13 @@ try {
+   expectSuccess(shown, 'timestamp review show');
+   assert.match(shown.stdout, /^reviews: plan=pass code=fixes-required$/m);
+ 
++  // Markdown emphasis around the heading and verdict still reads as a review record.
++  const boldReview = createPlan('bold review record');
++  addIssueComment(boldReview, '**### Code review round 1**\n\n**Code-review: pass**');
++  const boldShow = run('show', String(boldReview));
++  expectSuccess(boldShow, 'show bold review record');
++  assert.match(boldShow.stdout, /^reviews: plan=none code=pass$/m);
++
+   // Archive needs terminal work, a trusted pass, and the actual merged closer.
+   const landed = closedPlan('merged closer');
+   const archived = run('archive', String(landed.number));

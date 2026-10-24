@@ -6,8 +6,5 @@
   "round": 1,
   "base": "9134d2cf5a6f293414059d3d5fa855999f504584",
   "head": "9105202b567911696d02947e4a7ff45e5c74e4c4",
-  "plan": "code-79-pr80-plan.md",
-  "external": [
-    "plan"
-  ]
+  "plan": "code-79-pr80-plan.md"
 }

@@ -41,7 +41,7 @@ A case is `cases/<split>/<id>.json` plus the files it names in the same folder.
 | `external` | all | Optional list of the file fields (`plan`, `patch`, `previous_review`, `previous_body`, `rejection`) whose files are in the key folder |
 | `known` | dev only | Known defects: `id`, `title`, `locator`, and `severity` (code) or `kind` (plan). A code defect adds `fix`, its fix patch (a file in the case folder), and optionally `fix_after`, the ids of the known defects whose patches its patch needs first |
 
-A held-out case file has no `known` field. Its known defects are in `<id>.key.json`, in the same form as the `known` list of a dev case, and the fix patches are in the folder of the key file. Of the agents, only the judge reads key files; `score.mjs` and `prepare.mjs loop` read them too. While reviewers run, keep the held-out keys outside the repository, because a reviewer can search the checkout: for example in `$XDG_STATE_HOME/docks/review-bench/keys/` with mode 0700. Give that folder to `score.mjs pairs` and `score.mjs report` with `--keys <dir>`. `pairs` then reads `<dir>/<id>.key.json` for each case without `known`, and never the key file next to the case file. `report` stops when a key in that folder has other known-defect ids than `pairs.json`; run `pairs` again.
+A held-out case file has no `known` field. Its known defects are in `<id>.key.json`, in the same form as the `known` list of a dev case, and the fix patches are in the folder of the key file. Of the agents, only the judge reads key files; `score.mjs` and `prepare.mjs loop` read them too. The keys of the current held-out cases are in `cases/heldout/`: plan #100 published them after its decision, so these cases build and score without `--keys`. While reviewers run on a new held-out set, keep its keys outside the repository until its decision, because a reviewer can search the checkout: for example in `$XDG_STATE_HOME/docks/review-bench/keys/` with mode 0700. Give that folder to `score.mjs pairs` and `score.mjs report` with `--keys <dir>`. `pairs` then reads `<dir>/<id>.key.json` for each case without `known`, and never the key file next to the case file. `report` stops when a key in that folder has other known-defect ids than `pairs.json`; run `pairs` again.
 
 A held-out case can keep its input files in the key folder too: `external` names their fields, for example `["plan", "patch"]`. Give the key folder to `prepare.mjs case` and `prepare.mjs loop` with `--keys <dir>`; without it, they stop before they write. The workspace gets these inputs under its own names (`plan.md`, the snapshot, and the diffs), so no file of the key folder lands in a workspace under its own name.
 
@@ -284,10 +284,10 @@ node "$skill/scripts/prepare.mjs" agents --baseline-ref "$ref" --model <model> -
      "$bench/probe"/probe/C1-*/run-1/meta.json
    ```
 
-3. Build the workspace of a split. A `code` case runs as a loop with `C1`, a `plan` case with `P1`, a `plan-delta` case with `Pd`, and a `code-delta` case with `Cd`. For the held-out split, keep the keys outside the repository (see Cases) and give their folder with `--keys`.
+3. Build the workspace of a split. A `code` case runs as a loop with `C1`, a `plan` case with `P1`, a `plan-delta` case with `Pd`, and a `code-delta` case with `Cd`. The current held-out keys are in the repository, so `keys` stays empty; a new held-out set keeps its keys outside the repository (see Cases) and gives their folder with `--keys`.
 
    ```bash
-   split=dev; ws="$bench/$split"; keys=()   # held-out: split=heldout; ws="$bench/heldout"; keys=(--keys <keys dir>)
+   split=dev; ws="$bench/$split"; keys=()   # held-out: split=heldout; ws="$bench/heldout"; a new held-out set: keys=(--keys <keys dir>)
    for f in "$skill/cases/$split"/*.json; do
      [[ $f == *.key.json ]] && continue
      case "$(jq -r .kind "$f")" in

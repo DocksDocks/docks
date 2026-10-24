@@ -1,0 +1,25 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+index 7027cf6d..e9af21ba 100644
+--- a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+@@ -201,6 +201,11 @@ can write the spec tests.
+ 4. Keep the staged spec tests unchanged while you write production code:
+    `git diff -- <spec files>` prints nothing. When a spec test is wrong, record
+    the reason in Verification Results, fix the test, and run the baseline again.
++   This record replaces the user escalation that `tdd-workflow` asks for.
++5. A review fix that changes a spec assertion follows item 4. Run the changed
++   test against the code before the fix. It must fail on the changed assertion.
++   Add this line to Verification Results:
++   `Red baseline, step <id>, review round <r>: <command>: <k> failed, <m> passed`.
+ 
+ ## Commits
+ 
+@@ -209,7 +214,7 @@ can write the spec tests.
+    check, and the lint for its files.
+ 2. When you split finished work into commits, check each commit in a temporary
+    worktree: `git worktree add --detach <path> <sha>`, run the checks, then
+-   `git worktree remove -- <path>`. `<path>` is
++   `git worktree remove -- <path>` and `git worktree prune`. `<path>` is
+    `${XDG_DATA_HOME:-$HOME/.local/share}/agent-worktrees/<repository-name>/check-<short-sha>`.
+    Do not put it under `/tmp` or inside `.git`.
+ 3. Before code review round 1, leave no staged, unstaged, or untracked change of
