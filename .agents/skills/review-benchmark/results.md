@@ -144,6 +144,7 @@ The best configuration is the one with the fewest escaped known defects at loop 
 - Plan cases and the dev code-delta cases run one round.
 - Corpus: 18 dev cases and 24 held-out cases (10 code loops, 14 plan cases). Each configuration ran 3 times on each case.
 - At most 16 agents ran at a time (the limit of the user for the machine), so every timed run had the same load.
+- Limit (plan #100 decision 4): the reviewer's own agent file and skill folder stay allowed also when a case changes them. On such a case the reviewer can read a newer version of a file under review, for example on the held-out cases that change the `code-reviewer` skill. These runs stay valid.
 - The first judge was a Claude model, from another model family than the reviewers. A second judge (gpt-6.1-sol, effort high) judged a random 10% of the answers again.
 - Table terms: escaped per 50 known is the escaped known defects per 50 known defects. Seconds is the slowest reviewer of a round. Loop seconds add the rounds of a loop and leave out the fixer. An interval row gives the 90% paired bootstrap interval of the difference from xhigh-fast. A dash means no value.
 
@@ -390,11 +391,11 @@ tier:
 #### What ran
 
 - Every arm ran at xhigh-fast: the model `openai-codex/gpt-6.1-sol`, the effort `xhigh`, and the `priority` tier. Each arm ran 3 times on each case.
-- Code comparisons: each run is a whole review loop on one of the 10 held-out code cases. The loop rules are the rules of the grid run above (see Setup). The fixer is the same for every arm: gpt-6.1-sol, effort high, priority tier. The arms differ only in their round policy:
+- Code comparisons: each run is a whole review loop on one of the 10 held-out code cases. The loop rules are the rules of the grid run above (see Setup). The fixer is the same for every arm: gpt-6.1-sol, effort high, priority tier. The arms differ as follows:
   - `B0`: the released 0.16.0 `code-reviewer`. Every round is a full round, because 0.16.0 had no panel and no delta round.
-  - `C1`: the 0.17.1 agent. It runs a full round where the 0.17.1 rules select a panel.
-  - `C3`: the 0.17.1 agent with the 0.17.1 rules. This is the production policy.
-  - `B1`: the same 0.17.1 agent as `C3` (the released 0.17.1 files), with the lens scope text added to its panel dispatches.
+  - `C1`: the 0.17.1 agent. It runs a full round where the 0.17.1 rules select a panel, and it runs delta rounds for repairs. Thus `B0` and `C1` differ in the prompt version and in the round policy (`B0` has no delta rounds).
+  - `C3`: the 0.17.1 agent with the 0.17.1 rules (panel, full, and delta rounds). This is the production policy. `C1` and `C3` differ only in the panel.
+  - `B1`: the same 0.17.1 agent and round policy as `C3` (the released 0.17.1 files), with the lens scope text added to its panel dispatches. `B1` and `C3` differ only in the dispatch.
 - `B0`, `C1`, and `C3` ran in workspace `step6c`, with agents written from baseline 0.16.0. `B1` and a second `C3` ran in workspace `step6d`, with agents written from baseline 0.17.1.
 - Plan arms: each run is one round-1 review, because plan cases have one round. `P0` ran on the 14 held-out plan cases. `P1` ran on the 13 plan cases apart from the plan-delta case `plan-33-r2`. `Pd` ran on `plan-33-r2` only. `P0` uses the released 0.16.0 agent. `P1` and `Pd` use the 0.17.1 agents.
 - Self-review arms: each run is one review, because the self-review runs once, before round 1. `S1` and `S3` ran on the 10 held-out code cases in workspace `step6b` and are compared with the round-1 reviews of `C3` in that workspace. They run an agent that loads the docks `code-review` and `code-clarity` skills, as the yolo self-review does. `S1` is one agent on the full diff. `S3` is one agent per lens on the focus diff of that lens.
@@ -408,7 +409,7 @@ Each cell with a slash gives the first arm, then the second arm. The interval co
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | B0 (0.16.0, full rounds) / C3 (0.17.1, production) | 29 / 30 | 0.62 / 0.80 | 40.63 / 37.88 | C3 | [-0.17, 0.00] | [0.00, 5.73] | 241.4 / 270.9 | [-81.8, 113.9] | 2 / 2 | 5 / 5 | 1.86 / 5.10 | 0.66 / 1.03 | 0.10 / 0.43 | 1131258 / 2519623 |
 | C1 (one full reviewer) / C3 (panel) | 30 / 30 | 0.63 / 0.80 | 40.40 / 37.88 | C3 | [-0.05, 0.00] | [0.00, 4.39] | 248.1 / 270.9 | [-49.2, 76.1] | 2 / 2 | 5 / 5 | 3.27 / 5.10 | 0.93 / 1.03 | 0.20 / 0.43 | 1083180 / 2519623 |
-| B0 / C1 (both full rounds, only the prompt version differs) | 29 / 30 | 0.62 / 0.63 | 40.63 / 40.40 | C1 | [-0.14, 0.00] | [-2.33, 5.26] | 241.4 / 248.1 | [-64.4, 94.8] | 2 / 2 | 5 / 5 | 1.86 / 3.27 | 0.66 / 0.93 | 0.10 / 0.20 | 1131258 / 1083180 |
+| B0 / C1 (prompt version and round policy differ: 0.16.0 full rounds only / 0.17.1 with delta rounds) | 29 / 30 | 0.62 / 0.63 | 40.63 / 40.40 | C1 | [-0.14, 0.00] | [-2.33, 5.26] | 241.4 / 248.1 | [-64.4, 94.8] | 2 / 2 | 5 / 5 | 1.86 / 3.27 | 0.66 / 0.93 | 0.10 / 0.20 | 1131258 / 1083180 |
 | B1 (lens text also in the dispatch) / C3 (lens text in the reference only), same 0.17.1 agent | 30 / 30 | 0.70 / 0.77 | 39.39 / 38.38 | C3 | [-0.05, 0.04] | [-1.75, 2.42] | 304.6 / 229.3 | [34.4, 140.2] | 2 / 2 | 5 / 5 | 7.70 / 5.20 | 1.47 / 0.93 | 0.40 / 0.33 | 2400015 / 2171104 |
 
 The `C3` of the last row is the second `C3` from workspace `step6d`, so its values differ from the `C3` of the other rows (workspace `step6c`).
@@ -445,7 +446,7 @@ The code prompt, panel, and lens-text rows come from the loop comparisons. The s
 - Split self-review. S3 found more known defects than one self-reviewer: 0.67 against 0.50 per run, and S1 is worse than S3 under the rule. The round time is about the same: 198.1 s against 184.8 s median. But S3 has more wrong findings (0.57 against 0.23 per run) and more tokens (1471180 against 618591 median). Record this as a lead for a follow-up yolo change, because this plan does not change the plugins.
 - Unjudged stop. The report stops on a finding with neither a match nor an adjudication. Step 2 of this plan added this stop. No run in this benchmark stopped.
 - Extra findings of the report-every-LOW stance. See the loop comparisons above. `Valid extras per run` is 5.10 for C3 (0.17.1, production), 3.27 for C1, and 1.86 for B0 (0.16.0). `Extra-only rounds per run` is 1.03 for C3, 0.93 for C1, and 0.66 for B0.
-- Second judge. The second judge agreed with 402 of 418 answers on the dev cases (0.96) and with 606 of 611 answers on the held-out cases (0.99). The run of plan #98 rated every finding valid. In plan #100, wrong ratings are no longer zero. See the Wrong rows of the tables above.
+- Second judge. The second judge agreed with 402 of 418 answers on the dev cases (0.96) and with 591 of 596 answers on the held-out cases (0.99). The run of plan #98 rated every finding valid. In plan #100, wrong ratings are no longer zero. See the Wrong rows of the tables above.
 
 #### Invalid and discarded runs
 
