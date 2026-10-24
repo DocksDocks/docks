@@ -196,13 +196,21 @@ test('parses plan findings and reads each block verdict through the plan helper'
   assert.equal(parseBlock(NO_VERDICT_BLOCK, 'code').verdict, 'unreadable');
   assert.equal(parseBlock(PLAN_PASS_BLOCK, 'code').verdict, 'unreadable');
   assert.equal(parseBlock(PLAN_PASS_BLOCK, 'plan').verdict, 'pass');
-  // Blocks returned JSON-wrapped, as an object with one string field or as a JSON string, parse as the plain block.
+  // Blocks returned JSON-wrapped, as a JSON string or as an object whose one review field holds the block next to
+  // other fields that the reviewer added, parse as the plain block. An object without a review field is unreadable.
   const passBlock = '### Code review round 1\n\nCode-review: pass\n\nNone.';
   const shapes = [
     [JSON.stringify({ review: passBlock }), 'pass', 0],
     [JSON.stringify({ report: CORRECTNESS_BLOCK }), 'fixes-required', 3],
     [JSON.stringify(passBlock), 'pass', 0],
     [JSON.stringify(CORRECTNESS_BLOCK), 'fixes-required', 3],
+    [
+      JSON.stringify({ acknowledgment: { mode: 'panel', lens: 'correctness' }, review: CORRECTNESS_BLOCK }),
+      'fixes-required',
+      3,
+    ],
+    [JSON.stringify({ acknowledgment: 'Reviewed panel mode, round 1.', issue: 7, review: passBlock }), 'pass', 0],
+    [JSON.stringify({ acknowledgment: { mode: 'panel', lens: 'correctness' } }), 'unreadable', 0],
     [passBlock, 'pass', 0],
     [CORRECTNESS_BLOCK, 'fixes-required', 3],
   ];
@@ -1518,8 +1526,14 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 // 2. plan = score.fixPlan({ findings: the round-k findings of the run, judgments, known, applied }), where applied
 //    lists the `known` ids of `fix.fixes` in the meta.json of rounds 1 to k - 1, in order. When
 //    score.loopEnds(k, plan), the command writes nothing and returns null.
-// 3. With plan.extras and no fixer patch, it stops before it writes: `<case>/<arm>/<run>/round-<k> has <n> valid
-//    extra findings for the fixer: <ids joined by ", ">; give their repair with --fixer-patch <file>`.
+// 3. With plan.extras and no fixer patch, it writes round-k/fixer/ and stops before it writes round k + 1:
+//    `<case>/<arm>/<run>/round-<k> has <n> valid extra findings for the fixer: <ids joined by ", ">; give their repair
+//    with --fixer-patch <file>`. round-k/fixer/ holds snapshot/ (the round-k tree after the fix patches of plan.fixes)
+//    and fixer-1.txt, the one fixer prompt of the round. Its line 1 is `agent: review-bench-fixer`, and it has the
+//    lines `Repository snapshot root: <snapshot>`, `Plan export: <plan.md of the case folder>`, `Patch file:
+//    <round-k/fixer/fixer-1.patch>`, and `Finding <id>: <finding line>` for each extra. The fixer patch is the
+//    --fixer-patch file, else round-k/fixer/fixer-1.patch; an empty patch file changes nothing. A fixer-<n>.patch
+//    with n >= 2 in round-k/fixer/ stops the command with the name of the file.
 // 4. The reviewed tree of round k is the `head` of round-k/meta.json, or for round 1 the case head with the case
 //    patch. The command applies the fix patches of plan.fixes in order, then the fixer patch, with `git apply`. It
 //    commits the tree as the head of round k + 1, with the round-k head as parent and a fixed author and committer,
@@ -1572,7 +1586,8 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 //   had found, and had a valid extra finding. A repeat of a fixed defect needs no repair, so it causes no round.
 //
 // Outside these tests: how `case` lays out round 1 of a loop run (the tests write round-1/ by hand), and the
-// dispatch, the agent, and the transcript of the fixer.
+// dispatch, the agent, and the transcript of the fixer. `names` lists the fixer prompt of a round as
+// `<case><arm><run>K<round>Fixer1`.
 
 test('round mode follows the size rule and allows delta only after a completed round of small repairs', () => {
   assert.equal(prepare.roundMode({ round: 1, fullLines: 49 }), 'full');
@@ -1953,6 +1968,77 @@ test('loop builds round 2 from round 1: fix patch, fixer patch, comment files, d
   ]) {
     assert.ok(prompt.includes(line), `the delta prompt lacks ${line}`);
   }
+});
+
+test('loop writes one fixer prompt for all valid extras of a round and takes an empty patch as no change', (t) => {
+  const { repo, ws, cases, run, round } = devLoop(t);
+  const extras = [`${LOOP_R1}#1`, `${LOOP_R1}#2`];
+  judgeLoop(ws, [...extras.map((id) => [id, 'valid']), [`${LOOP_R1}#3`, 'D1']]);
+  const fixerDir = path.join(round(1), 'fixer');
+  const extraIds = extras.map(escapeRegExp).join(', ');
+  assert.throws(
+    () => prepare.prepareLoop({ run, cases }, repo),
+    new RegExp(`round-1 has 2 valid extra findings for the fixer: ${extraIds}; give their repair with --fixer-patch`),
+  );
+  assert.equal(fs.existsSync(round(2)), false);
+  // One prompt lists both findings. The snapshot holds the round-1 tree after the fix patch of D1.
+  assert.deepEqual(fs.readdirSync(fixerDir).sort(), ['fixer-1.txt', 'snapshot']);
+  const snapshot = path.join(fixerDir, 'snapshot');
+  assert.equal(readText(path.join(snapshot, 'src', 'sync.mjs')), SYNC_D1);
+  const prompt = readText(path.join(fixerDir, 'fixer-1.txt')).split('\n');
+  assert.equal(prompt[0], 'agent: review-bench-fixer');
+  for (const line of [
+    `Repository snapshot root: ${snapshot}`,
+    `Plan export: ${path.join(ws, 'code-7', 'plan.md')}`,
+    `Patch file: ${path.join(fixerDir, 'fixer-1.patch')}`,
+    `Finding ${LOOP_R1}#1: - [MEDIUM] Bug - src/extra.mjs:2 - b is 0, and the callers divide by it - set it to 2.`,
+    `Finding ${LOOP_R1}#2: - [LOW] Clarity - README.md:1 - The title does not name the module - rename it.`,
+  ]) {
+    assert.ok(prompt.includes(line), `the fixer prompt lacks ${line}`);
+  }
+  const round1 = path.join('code-7', 'C1-low', 'run-1', 'round-1');
+  assert.deepEqual(namesCommand(ws), [
+    { prompt: path.join(round1, 'prompts', 'full.txt'), name: 'Code7C1LowR1K1Full' },
+    { prompt: path.join(round1, 'fixer', 'fixer-1.txt'), name: 'Code7C1LowR1K1Fixer1' },
+  ]);
+  // A patch file of the design with one fixer per finding stops the loop.
+  const stale = path.join(fixerDir, 'fixer-2.patch');
+  fs.writeFileSync(stale, '');
+  assert.throws(
+    () => prepare.prepareLoop({ run, cases }, repo),
+    new RegExp(`stale fixer patches from the design with one fixer per finding: ${escapeRegExp(stale)};`),
+  );
+  assert.equal(fs.existsSync(round(2)), false);
+  fs.rmSync(stale);
+
+  // The fixer found no finding that needs a change, so it wrote an empty patch file.
+  fs.writeFileSync(path.join(fixerDir, 'fixer-1.patch'), '');
+  assert.equal(prepare.prepareLoop({ run, cases }, repo), round(2));
+  assert.deepEqual(readJson(path.join(round(1), 'meta.json')).fix, {
+    fixes: [{ known: 'D1', patch: 'code-7.D1.fix.patch' }],
+    extras,
+    rejections: [],
+  });
+  const meta = readJson(path.join(round(2), 'meta.json'));
+  assert.deepEqual(meta, {
+    config: CONFIGS.low,
+    mode: 'delta',
+    head: meta.head,
+    completed: true,
+    repairsOnly: true,
+    fullLines: 16,
+    deltaLines: 2,
+  });
+  for (const [file, content] of [
+    ['README.md', '# Demo\n'],
+    ['src/sync.mjs', SYNC_D1],
+    ['src/extra.mjs', EXTRA_HEAD],
+  ]) {
+    assert.equal(gitIn(repo, 'show', `${meta.head}:${file}`), content);
+    assert.equal(readText(path.join(round(2), 'snapshot', file)), content);
+  }
+  assert.equal(fs.existsSync(path.join(round(2), 'rejection.md')), false);
+  assert.deepEqual(fs.readdirSync(path.join(round(2), 'prompts')), ['delta.txt']);
 });
 
 test('loop counts the fixes of earlier rounds for fix_after and ends after a round without open findings', (t) => {

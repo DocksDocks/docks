@@ -194,8 +194,9 @@ export function parseFindings(text) {
   return findings;
 }
 
-// Some runtimes return the block JSON-wrapped: a JSON string, or an object whose one field is the block text.
-// Any other text, including other JSON, stays as it is.
+// Some runtimes return the block JSON-wrapped: a JSON string, or an object whose fields the reviewer chose. In an
+// object, the block is the one string field that holds a review comment, so other fields such as an acknowledgment
+// do not hide it; an object with one string field gives that field. Any other text, including other JSON, stays.
 export function unwrapBlock(text) {
   let value;
   try {
@@ -205,8 +206,10 @@ export function unwrapBlock(text) {
   }
   if (typeof value === 'string') return value;
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    const values = Object.values(value);
-    if (values.length === 1 && typeof values[0] === 'string') return values[0];
+    const strings = Object.values(value).filter((field) => typeof field === 'string');
+    const reviews = strings.filter((field) => parseReviewComment(field) !== undefined);
+    if (reviews.length === 1) return reviews[0];
+    if (strings.length === 1 && Object.keys(value).length === 1) return strings[0];
   }
   return text;
 }
@@ -1124,19 +1127,18 @@ export function dispatchNames(dispatches) {
   });
 }
 
-// `prepare.mjs loop` writes the prompts of the fixer agent of a loop round to `<round folder>/fixer/fixer-<n>.txt`,
-// one per valid extra finding, and each prompt names `fixer-<n>.patch` in the same folder as its output.
+// `prepare.mjs loop` writes the prompt of the fixer agent of a loop round to `<round folder>/fixer/fixer-1.txt`. A
+// round has one fixer, which repairs every valid extra finding of the round, as the manager of a production round
+// does. The prompt names `fixer-1.patch` in the same folder as its output.
 export const FIXER_DIR = 'fixer';
-export const fixerName = (n) => `fixer-${n}`;
-const FIXER_NAME = /^fixer-([1-9]\d*)$/;
-const fixerNumber = (name) => Number(FIXER_NAME.exec(name)[1]);
+export const FIXER_NAME = 'fixer-1';
 
 // `prepare.mjs loop` writes the reviewed tree of each loop round after round 1 to `<ws>/trees/<run label>/` for the
 // judge. The run label is the blind label of pairs.json, so the judge opens no arm folder.
 export const JUDGE_TREES = 'trees';
 
 // Every reviewer that has a prompt and every fixer prompt, in workspace order, with its dispatch name and its prompt
-// file. Each round folder is a dispatch of its own; a fixer entry has `fixer: true`.
+// file. Each round folder is a dispatch of its own; a fixer entry has `fixer: true`, and a round has at most one.
 function promptedDispatches(ws) {
   return dispatchNames(
     readWorkspace(ws).flatMap(({ caseId, arm, run, round, dir, reviewers, prompts }) => {
@@ -1150,12 +1152,10 @@ function promptedDispatches(ws) {
         fixer: folder === FIXER_DIR,
         prompt: path.join(dir, folder, `${reviewer}.txt`),
       });
-      const fixers = baseNames(path.join(dir, FIXER_DIR), '.txt')
-        .filter((name) => FIXER_NAME.test(name))
-        .sort((a, b) => fixerNumber(a) - fixerNumber(b));
+      const fixer = fs.existsSync(path.join(dir, FIXER_DIR, `${FIXER_NAME}.txt`));
       return [
         ...reviewers.filter((reviewer) => prompts.has(reviewer)).map((reviewer) => dispatch('prompts', reviewer)),
-        ...fixers.map((reviewer) => dispatch(FIXER_DIR, reviewer)),
+        ...(fixer ? [dispatch(FIXER_DIR, FIXER_NAME)] : []),
       ];
     }),
   );
@@ -1474,8 +1474,8 @@ export function namesCommand(ws) {
 // A reviewer entry under `reviewers` gets the time and tokens of the assistant messages of the configured model
 // (`config.model`; every model without a configuration) and the transcript facts. When the reviewer called tools, it
 // also gets `readScope: { outside }` (see readScope) for the working directory and the plugin roots that its transcript
-// shows. A fixer entry under `fixer.agents` gets the time and tokens of every assistant message and the transcript
-// facts. The fixers of a round run in one message, so `fixer.seconds` is the slowest fixer and `fixer.tokens` the sum.
+// shows. The fixer entry of a round, under `fixer.agents`, gets the time and tokens of every assistant message and the
+// transcript facts. A round has one fixer, so `fixer.seconds` and `fixer.tokens` are its time and tokens.
 // meta.json keeps no tool calls. The command checks every dispatch name before it writes, writes what it finds, then
 // fails with the names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
@@ -1501,14 +1501,7 @@ export function transcriptsCommand(ws, sessionsDir) {
       const { toolCalls, ...facts } = transcriptFacts(text, file);
       if (fixer) {
         const agent = { ...parseTranscript(text, file), ...facts };
-        const agents = { ...meta.fixer?.agents, [reviewer]: agent };
-        const entries = Object.values(agents);
-        meta.fixer = {
-          ...meta.fixer,
-          seconds: Math.max(...entries.map((entry) => entry.seconds)),
-          tokens: sum(entries.map((entry) => entry.tokens)),
-          agents,
-        };
+        meta.fixer = { ...meta.fixer, seconds: agent.seconds, tokens: agent.tokens, agents: { [reviewer]: agent } };
       } else {
         meta.reviewers ??= {};
         const entry = { ...meta.reviewers[reviewer], ...parseTranscript(text, file, meta.config?.model), ...facts };

@@ -22,7 +22,7 @@ import { parseArgs } from 'node:util';
 import {
   caseFilePath,
   FIXER_DIR,
-  fixerName,
+  FIXER_NAME,
   fixPlan,
   JUDGE_TREES,
   loopEnds,
@@ -61,19 +61,20 @@ const PROBE_ARM = 'C1';
 const PROBE_TASK =
   'This message checks the reviewer setup. It is not a review. Read no files, run no tools, and load no skills. Reply with one line: `ready`.';
 const MAX_OUTPUT = 512 * 1024 * 1024;
-// The fixer agent repairs the valid extra findings of a review loop. It has one model, effort, and tier for every
-// configuration, so that only the reviewer setup varies.
+// The fixer agent repairs the valid extra findings of a review loop. A round has one fixer, which repairs every valid
+// extra finding of the round, as the manager of a production round does. The fixer has one model, effort, and tier
+// for every configuration, so that only the reviewer setup varies.
 const FIXER_AGENT = `${GENERATED_PREFIX}fixer`;
 const FIXER_DEFAULTS = { model: 'openai-codex/gpt-6.1-sol', effort: 'high', tier: 'priority' };
 const FIXER_SOURCE = `---
 name: ${FIXER_AGENT}
-description: Writes the repair of one confirmed review finding in a repository snapshot as a unified diff file. Only for the review loop replays that prepare.mjs sets up.
+description: Writes the repair of the confirmed review findings of one round in a repository snapshot as one unified diff file. Only for the review loop replays that prepare.mjs sets up.
 tools: Read, Glob, Grep, Write, Bash
 ---
 
 # Review fixer
 
-The task names a repository snapshot root, a plan export, one review finding, and a patch file. The finding describes a real defect in the snapshot. Follow the rules of the task: repair only that finding, and write the repair to the patch file as a unified diff.
+The task names a repository snapshot root, a plan export, the review findings of one round, and a patch file. Follow the rules of the task: repair each finding that the snapshot still shows and nothing else, write all repairs to the patch file as one unified diff, and reply with the result for each finding.
 
 Do not change files under the snapshot root, dispatch another agent, or ask a question.
 `;
@@ -766,33 +767,35 @@ function rejectionComment(round, rejections, findingsById) {
   return [`Rejected review findings, round ${round}`, '', ...entries, ''].join('\n');
 }
 
-// The prompt of the fixer agent for one valid extra finding. Like a reviewer prompt, line 1 names the agent.
-function fixerPrompt({ snapshot, planExport, finding, patch }) {
+// The prompt of the fixer of a round, which lists every valid extra finding of the round with its id. Like a reviewer
+// prompt, line 1 names the agent.
+function fixerPrompt({ snapshot, planExport, findings, patch }) {
   return [
     `agent: ${FIXER_AGENT}`,
     '',
-    'Repair one review finding.',
+    'Repair the review findings of one round.',
     '',
     `Repository snapshot root: ${snapshot}`,
     `Plan export: ${planExport}`,
-    `Finding: ${findingLine(finding)}`,
     `Patch file: ${patch}`,
+    ...findings.map((finding) => `Finding ${finding.id}: ${findingLine(finding)}`),
     '',
     'Rules:',
-    '- The snapshot root holds the repository files after the other repairs of this round, without Git history. The finding is a real defect in these files.',
-    '- Write one patch that repairs only this finding. Do not repair other defects, refactor, or reformat.',
+    '- The snapshot root holds the repository files after the other repairs of this round, without Git history. Each finding was a real defect in the reviewed files, but one of these repairs can have repaired it already.',
+    '- Repair each listed finding that the snapshot still shows. A finding that the snapshot no longer shows needs no change. Do not repair other defects, refactor, or reformat.',
     '- Do not change, add, or delete files under the snapshot root. Make your changes in copies in a scratch folder outside the snapshot root.',
-    '- Write the patch to the patch file as one unified diff that `git apply` applies at the snapshot root: each file path is relative to the snapshot root and has the prefix `a/` or `b/`. For example, put the original files under `<scratch>/a/` and the changed copies under `<scratch>/b/`, at their paths relative to the snapshot root, and run `git diff --no-index --src-prefix= --dst-prefix= a b > <patch file>` in `<scratch>`.',
+    '- Write all repairs to the patch file as one unified diff that `git apply` applies at the snapshot root: each file path is relative to the snapshot root and has the prefix `a/` or `b/`. For example, put the original files under `<scratch>/a/` and the changed copies under `<scratch>/b/`, at their paths relative to the snapshot root, and run `git diff --no-index --src-prefix= --dst-prefix= a b > <patch file>` in `<scratch>`.',
+    '- When no listed finding needs a change, write an empty patch file.',
     '- Do not fetch GitHub issues or pull requests.',
-    '- Return one line: the path of the patch file.',
+    '- Reply with one line per finding: the finding id, a colon, and `repaired` or `not present`.',
     '',
   ].join('\n');
 }
 
-// Writes what the fixer needs for the valid extra findings of a round to `fixerDir`: the snapshot of the index of
-// `env` (the reviewed tree of the round with its fix patches) and one prompt per finding. Each prompt names its patch
-// file in `fixerDir`. A patch that an earlier fixer wrote stays.
-function writeFixerInputs({ repo, env, fixerDir, planExport, extras, findingsById }) {
+// Writes what the fixer of a round needs to `fixerDir`: the snapshot of the index of `env` (the reviewed tree of the
+// round with its fix patches) and the one fixer prompt, which lists `findings` and names the patch file in `fixerDir`.
+// It removes the prompts of an earlier call.
+function writeFixerInputs({ repo, env, fixerDir, planExport, findings }) {
   const snapshot = path.join(fixerDir, 'snapshot');
   fs.rmSync(snapshot, { recursive: true, force: true });
   fs.mkdirSync(fixerDir, { recursive: true });
@@ -800,24 +803,35 @@ function writeFixerInputs({ repo, env, fixerDir, planExport, extras, findingsByI
     fs.rmSync(path.join(fixerDir, name));
   }
   checkoutSnapshot(repo, env, snapshot);
-  for (const [index, id] of extras.entries()) {
-    const name = fixerName(index + 1);
-    const patch = path.join(fixerDir, `${name}.patch`);
-    const text = fixerPrompt({ snapshot, planExport, finding: findingsById.get(id), patch });
-    fs.writeFileSync(path.join(fixerDir, `${name}.txt`), text);
-  }
+  const patch = path.join(fixerDir, `${FIXER_NAME}.patch`);
+  fs.writeFileSync(path.join(fixerDir, `${FIXER_NAME}.txt`), fixerPrompt({ snapshot, planExport, findings, patch }));
 }
 
-// The repair of the valid extra findings of a round: the --fixer-patch file, else the patch file of each fixer
-// prompt, in prompt order. The result is null while one of these patch files is missing.
+// The patch files that the earlier design of the fix step wrote, with one fixer per valid extra finding.
+const STALE_FIXER_PATCH = /^fixer-(?:[2-9]|[1-9]\d+)\.patch$/;
+
+// The repair of the valid extra findings of a round: { patch: null } when the round has none, else { patch } with the
+// --fixer-patch file or the patch file of the fixer prompt. The result is null while that patch file is missing. A
+// stale patch file of the earlier design in `fixerDir` stops the command.
 function fixerRepair(option, plan, fixerDir, roundLabel) {
   if (option) {
     if (plan.extras.length === 0) fail(`${roundLabel} has no valid extra finding, so loop takes no --fixer-patch`);
-    return [path.resolve(option)];
+    return { patch: path.resolve(option) };
   }
-  const files = plan.extras.map((_, index) => path.join(fixerDir, `${fixerName(index + 1)}.patch`));
-  return files.every((file) => fs.existsSync(file)) ? files : null;
+  if (plan.extras.length === 0) return { patch: null };
+  const stale = fs.existsSync(fixerDir) ? fs.readdirSync(fixerDir).filter((name) => STALE_FIXER_PATCH.test(name)) : [];
+  if (stale.length) {
+    const files = stale.sort().map((name) => path.join(fixerDir, name));
+    fail(
+      `${roundLabel} has stale fixer patches from the design with one fixer per finding: ${files.join(', ')}; delete the patch files in ${fixerDir} and run loop again`,
+    );
+  }
+  const patch = path.join(fixerDir, `${FIXER_NAME}.patch`);
+  return fs.existsSync(patch) ? { patch } : null;
 }
+
+// A patch file without a diff: the fixer found that no listed finding needs a change.
+const emptyPatch = (file) => fs.existsSync(file) && fs.readFileSync(file, 'utf8').trim() === '';
 
 // The `loop` command. It continues the review loop of one run of a code case after its last round folder, round k:
 // it repairs every finding of round k that stands (score.mjs fixPlan), commits the repaired tree as the reviewed
@@ -869,7 +883,7 @@ export function prepareLoop(options, repo) {
   }
 
   const fixerDir = path.join(roundDir, FIXER_DIR);
-  const fixerPatches = fixerRepair(options['fixer-patch'], plan, fixerDir, roundLabel);
+  const repair = fixerRepair(options['fixer-patch'], plan, fixerDir, roundLabel);
   const caseFolder = k === 1 ? path.dirname(fromScore(() => caseFilePath(casesDir, caseId, caseData.split))) : null;
   const sources = k === 1 ? caseSources(caseData, caseFolder, keys) : {};
   const findingsById = new Map(findings.map((finding) => [finding.id, finding]));
@@ -898,15 +912,18 @@ export function prepareLoop(options, repo) {
     for (const { known: id, patch } of plan.fixes) {
       applyPatch(repo, env, path.join(knownDir, patch), `the fix patch of ${id} does not apply to ${roundLabel}`);
     }
-    if (!fixerPatches) {
-      writeFixerInputs({ repo, env, fixerDir, planExport, extras: plan.extras, findingsById });
+    if (!repair) {
+      const extraFindings = plan.extras.map((id) => findingsById.get(id));
+      writeFixerInputs({ repo, env, fixerDir, planExport, findings: extraFindings });
       const extras = `${plan.extras.length} valid extra findings for the fixer: ${plan.extras.join(', ')}`;
+      const prompt = path.join(fixerDir, `${FIXER_NAME}.txt`);
       fail(
-        `${roundLabel} has ${extras}; give their repair with --fixer-patch <file>, or dispatch the fixer prompts in ${fixerDir} and run loop again`,
+        `${roundLabel} has ${extras}; give their repair with --fixer-patch <file>, or dispatch the fixer prompt ${prompt} and run loop again`,
       );
     }
-    for (const file of fixerPatches) {
-      applyPatch(repo, env, file, `the fixer patch does not apply to ${roundLabel} after its fix patches`);
+    // An empty patch file changes nothing: no listed finding needed a change.
+    if (repair.patch && !emptyPatch(repair.patch)) {
+      applyPatch(repo, env, repair.patch, `the fixer patch does not apply to ${roundLabel} after its fix patches`);
     }
     const tree = writeTree(repo, env);
     const head = commitTree(repo, tree, parent, `Review loop ${label}, round ${nextRound}`);
