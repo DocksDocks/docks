@@ -260,7 +260,51 @@ In `## Configurations: <split>`, the table `### Code loops: <split>` gives these
 | `Loop seconds median` | the sum of the round seconds of each loop; the fix steps stay out |
 | `Known found per run`, `Escaped per run` | the known defects that the loop found by its end, and the others |
 | `Valid extras per run`, `Extra-only rounds per run` | the valid extra findings, and the rounds that only extra findings caused: rounds whose previous round found no known defect for the first time in the loop and had a valid extra finding. A repeat of a fixed defect needs no repair, so it causes no round |
-| `Loops with a fixer`, `Fixer seconds median` | the loops that have `fixer` in the `meta.json` of a round, and the sum of `fixer.seconds` over the rounds of each loop, over these loops only |
+| `Loops with a fixer`, `Fixer seconds median`, `Fixer tokens median` | the loops that have `fixer` in the `meta.json` of a round, and the sum of `fixer.seconds` and the sum of `fixer.tokens` over the rounds of each loop, over these loops only |
+
+## Run the grid for a new model
+
+This section measures a new reviewer model with the same tables as plan #100. The model, the efforts, and the tiers are parameters. The cases, the arms, and the decision rule do not change. Dispatch every prompt of a workspace from one omp session that runs in `$project`, because `transcripts` reads one session folder.
+
+```bash
+repo="$(git rev-parse --show-toplevel)"
+skill="$repo/.agents/skills/review-benchmark"
+bench="$(git rev-parse --path-format=absolute --git-path docks-review)/bench-<label>"
+ref="$(git describe --tags --match 'plan-lifecycle--v*' --abbrev=0 origin/main)"
+project="<dispatching checkout>"
+node "$skill/scripts/prepare.mjs" agents --baseline-ref "$ref" --model <model> --efforts <list> --tiers <list> \
+  --project "$project" --out "$bench/dev"
+```
+
+1. `agents` writes to `$project/.omp/agents/` one agent file for each side, role, and configuration, one self-review agent for each configuration, the fixer agent `review-bench-fixer`, and the list of configurations. It writes the tier of each agent to `task.agentServiceTierOverrides` in `$project/.omp/settings.json` (see Configurations).
+2. Probe: run `node "$skill/scripts/prepare.mjs" probe --out "$bench/probe" --project "$project"`, dispatch its prompts, and run `node "$skill/scripts/score.mjs" transcripts "$bench/probe" --omp-sessions <session folder>`. Each line must show the effort of the configuration twice and only its tier as the served tier (see Probe). Do not continue until each line does.
+
+   ```bash
+   jq -c '[.config.name, .config.effort, .config.tier, (.reviewers[] | .effort, ([.messages[].servedTier] | unique))]' \
+     "$bench/probe"/probe/C1-*/run-1/meta.json
+   ```
+
+3. Build the workspace of a split. A `code` case runs as a loop with `C1`, a `plan` case with `P1`, a `plan-delta` case with `Pd`, and a `code-delta` case with `Cd`. For the held-out split, keep the keys outside the repository (see Cases) and give their folder with `--keys`.
+
+   ```bash
+   split=dev; ws="$bench/$split"; keys=()   # held-out: split=heldout; ws="$bench/heldout"; keys=(--keys <keys dir>)
+   for f in "$skill/cases/$split"/*.json; do
+     [[ $f == *.key.json ]] && continue
+     case "$(jq -r .kind "$f")" in
+       code) arms=(--arms C1 --loop) ;; plan) arms=(--arms P1) ;;
+       plan-delta) arms=(--arms Pd) ;; code-delta) arms=(--arms Cd) ;;
+     esac
+     node "$skill/scripts/prepare.mjs" case --case "$f" "${arms[@]}" --runs 3 --out "$ws" --project "$project" "${keys[@]}"
+   done
+   ```
+
+4. Do these steps again until `loop` prints that the loop ends for each run under `"$ws"/*/C1-*/`:
+   1. Dispatch each prompt that `node "$skill/scripts/score.mjs" names "$ws"` lists and that has no block yet, as in step 3 of the procedure. Line 1 of each prompt names the agent. Run at most 16 agents at a time, and keep the same load for every configuration. Save each block in `blocks/<reviewer>.md` of its round folder.
+   2. Run `node "$skill/scripts/score.mjs" findings "$ws"` and `node "$skill/scripts/score.mjs" pairs "$ws" --cases "$skill/cases" "${keys[@]}"`. Then dispatch the judge, a model of another family than the reviewers, as `references/judge.md` and step 4 of the procedure tell. After round 1 of a loop, the judge reads the tree of the round in `<ws>/trees/` (see Review loop).
+   3. For each loop run that has not ended, run `node "$skill/scripts/prepare.mjs" loop --run <run dir> --cases "$skill/cases" "${keys[@]}"`. When `loop` writes `round-<r>/fixer/` and stops, dispatch the fixer prompt (`names` lists it) and run `loop` again. When `loop` writes the next round, its prompts are the next prompts to dispatch.
+5. After the last dispatch, run `node "$skill/scripts/score.mjs" transcripts "$ws" --omp-sessions <session folder>`. Give a random 10% of the judge answers to a second judge, which writes `judgments-second.json` (see step 4 of the procedure). Then run `node "$skill/scripts/score.mjs" report "$ws" "${keys[@]}" --configs <name,...>`, with the configuration names in the column order.
+6. Do steps 3 to 5 for the dev split, then once for the held-out split. Apply the decision rule of plan #100 in `results.md` (`Decision rule (plan #100, fixed before any run)`) to the table `### Decision: heldout` of the held-out `report.md`.
+7. Append a new entry to `results.md` with the setup, the tables, and the decision. Then remove the generated agents and the tier overrides with `node "$skill/scripts/prepare.mjs" clean --project "$project"`, and delete the workspaces and the `baseline-plugin` folder next to them.
 
 ## Procedure
 
