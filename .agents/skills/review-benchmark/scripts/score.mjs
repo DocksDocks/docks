@@ -8,7 +8,10 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseReviewComment } from '../../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+import {
+  parsePlan,
+  parseReviewComment,
+} from '../../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
 
 const USAGE =
   'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
@@ -33,14 +36,18 @@ const INPUT_FOLDERS = ['snapshot', 'prompts'];
 const INPUT_FILES = new Set(['plan.md', 'previous-review.md', 'rejection.md']);
 const REVIEWER_SKILLS = new Set(['code-reviewer', 'plan-reviewer']);
 const ALLOWED_SKILLS = new Set(['code-review', 'code-clarity', ...REVIEWER_SKILLS]);
-// The plan contract of a plugin root, as a path relative to its `skills/` folder. The plan-reviewer checklist tells the
-// reviewer to read this contract in its own plugin.
-const PLAN_CONTRACT = /^(?:[^/]+\/)?plan-manager\/references\/plan-contract\.md$/;
-// The folder of an allowed skill, or a path below it, in an installed plugin cache copy. A `skill://` URI of an allowed
-// skill can resolve to this copy.
+// The plan contract of a plugin root, as a path relative to its `skills/` folder, with its path from the skill folder
+// name on. The plan-reviewer checklist tells the reviewer to read this contract in its own plugin.
+const PLAN_CONTRACT = /^(?:[^/]+\/)?(plan-manager\/references\/plan-contract\.md)$/;
+// The folder of an allowed skill, or a path below it, in an installed plugin cache copy, with its path from the skill
+// folder name on. A `skill://` URI of an allowed skill can resolve to this copy.
 const CACHE_SKILL = new RegExp(
-  `/plugins/cache/plugins/[^/]+/skills/(?:[^/]+/)?(?:${[...ALLOWED_SKILLS].join('|')})(?:/|$)`,
+  `/plugins/cache/plugins/[^/]+/skills/(?:[^/]+/)??((?:${[...ALLOWED_SKILLS].join('|')})(?:/.*)?)$`,
 );
+// The lines of a diff header that name a changed path: `diff --git a/<path> b/<path>` and `+++ b/<path>`.
+const DIFF_GIT = 'diff --git ';
+const DIFF_NEW = '+++ b/';
+const CHANGED_FILES_HINT = '; the read scope compares the reads of the reviewer with the files that the case changes';
 // These tools search the working directory when a call names no path.
 const SEARCH_TOOLS = new Set(['grep', 'glob', 'find']);
 const URI_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
@@ -84,6 +91,10 @@ function readJson(file, hint = '') {
   } catch (error) {
     fail(`${file} is not valid JSON: ${error.message}`);
   }
+}
+function readText(file, hint = '') {
+  if (!fs.existsSync(file)) fail(`${file} is missing${hint}`);
+  return fs.readFileSync(file, 'utf8');
 }
 function writeJson(file, data) {
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
@@ -1210,13 +1221,15 @@ export const FIXER_NAME = 'fixer-1';
 // judge. The run label is the blind label of pairs.json, so the judge opens no arm folder.
 export const JUDGE_TREES = 'trees';
 
-// Every reviewer that has a prompt and every fixer prompt, in workspace order, with its dispatch name and its prompt
-// file. Each round folder is a dispatch of its own; a fixer entry has `fixer: true`, and a round has at most one.
+// Every reviewer that has a prompt and every fixer prompt, in workspace order, with its dispatch name, its prompt
+// file, and the family of its case. Each round folder is a dispatch of its own; a fixer entry has `fixer: true`, and a
+// round has at most one.
 function promptedDispatches(ws) {
   return dispatchNames(
-    readWorkspace(ws).flatMap(({ caseId, arm, run, round, dir, reviewers, prompts }) => {
+    readWorkspace(ws).flatMap(({ caseId, family, arm, run, round, dir, reviewers, prompts }) => {
       const dispatch = (folder, reviewer) => ({
         caseId,
+        family,
         arm,
         run,
         round,
@@ -1341,10 +1354,10 @@ function isUnder(folder, target) {
   return relative === '' || !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
 }
 
-// The input folders of a run, the folders that a reviewer may read with every path below them, and the plugin roots.
-// An input folder is the case folder, and the run folder or each round folder up to `round`. The tree copies are those
-// of the rounds up to `round`.
-function scopeRules(runDir, round, pluginRoots) {
+// The input folders of a run, the folders that a reviewer may read with every path below them, the plugin roots, and
+// the keys of the files that the case changes (see changedPathKeys). An input folder is the case folder, and the run
+// folder or each round folder up to `round`. The tree copies are those of the rounds up to `round`.
+function scopeRules(runDir, round, pluginRoots, changedFiles) {
   const armDir = path.dirname(runDir);
   const caseDir = path.dirname(armDir);
   const [caseId, arm, run] = [caseDir, armDir, runDir].map((dir) => path.basename(dir));
@@ -1358,6 +1371,7 @@ function scopeRules(runDir, round, pluginRoots) {
     inputDirs,
     folders: [...inputDirs.flatMap((dir) => INPUT_FOLDERS.map((name) => path.join(dir, name))), ...trees],
     pluginRoots,
+    changed: distinct(changedFiles.flatMap(changedPathKeys)),
   };
 }
 
@@ -1373,22 +1387,77 @@ function folderAllowed(target, { folders, pluginRoots }) {
   });
 }
 
-// An input file of an input folder, or a file of a plugin root: a reviewer agent file or the plan contract.
+// An input file of an input folder, or a reviewer agent file of a plugin root.
 function fileAllowed(target, { inputDirs, pluginRoots }) {
   const dir = path.dirname(target);
   const name = path.basename(target);
   if (inputDirs.includes(dir) && (INPUT_FILES.has(name) || name.endsWith('.diff'))) return true;
-  return pluginRoots.some((root) => {
-    if (name.endsWith('-reviewer.md') && path.join(root, 'agents') === dir) return true;
-    const skills = path.join(root, 'skills');
-    return isUnder(skills, target) && PLAN_CONTRACT.test(path.relative(skills, target));
-  });
+  return name.endsWith('-reviewer.md') && pluginRoots.some((root) => path.join(root, 'agents') === dir);
 }
 
-// A path under the folder of an allowed skill in an installed plugin cache copy. The path as the reviewer wrote it
-// must have no `..` segment.
-function cacheSkillAllowed(written, resolved) {
-  return !written.split('/').includes('..') && CACHE_SKILL.test(resolved);
+// The case-change rule of readScope compares an optional instruction read with the files that the case changes. It
+// compares keys: paths from the skill folder name on, `<skill>/<rest>`. The key '' stands for every path.
+
+// The keys of a repository path that the case changes. After `plugins/<plugin>/skills/`, the path `<a>/<b>/…` can be
+// the skill `<a>`, or the skill `<b>` in the category folder `<a>`, so it gives both `<a>/<b>/…` and `<b>/…`. A key
+// that does not start with the name of an instruction skill matches no read. The decision is lexical and
+// conservative: a path with a glob counts as the folder before its first glob segment, and a path that ends with `/`
+// or whose last segment has no `.` can be a folder. A folder that can hold skill folders gives '': `<a>` directly in
+// `skills/` (it can be a category folder), `plugins/<plugin>/skills/`, and each folder above it. Other paths give no
+// key.
+function changedPathKeys(file) {
+  const segments = path.posix
+    .normalize(file)
+    .split('/')
+    .filter((segment) => segment && segment !== '.');
+  const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
+  if (globAt !== -1) segments.length = globAt;
+  const folder = globAt !== -1 || file.endsWith('/') || !segments.at(-1)?.includes('.');
+  const [top, , skills, ...rest] = segments;
+  if (segments.length === 0 || (top === 'plugins' && segments.length < 3 && folder)) return [''];
+  if (top !== 'plugins' || skills !== 'skills') return [];
+  if (rest.length === 0 || (rest.length === 1 && folder)) return [''];
+  return rest.length === 1 ? rest : [rest.join('/'), rest.slice(1).join('/')];
+}
+
+// Two keys overlap when they are equal or one is a folder above the other. So a read of a folder (for example a grep,
+// or the folder before the first glob segment of a glob) overlaps each changed file under it, and a changed folder
+// overlaps each read under it.
+const keysOverlap = (a, b) => a === '' || b === '' || a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+
+// The key of the plan contract of a plugin root, or undefined for another path.
+function contractKey(target, pluginRoots) {
+  for (const root of pluginRoots) {
+    const skills = path.join(root, 'skills');
+    const contract = isUnder(skills, target) && PLAN_CONTRACT.exec(path.relative(skills, target));
+    if (contract) return contract[1];
+  }
+  return undefined;
+}
+
+// The key of a path under the folder of an allowed skill in an installed plugin cache copy, or undefined for another
+// path. The path as the reviewer wrote it must have no `..` segment.
+function cacheKey(written, resolved) {
+  return written.split('/').includes('..') ? undefined : CACHE_SKILL.exec(resolved)?.[1];
+}
+
+// The key of a `skill://` URI of an allowed skill, or undefined for another URI: `skill://<skill>` reads
+// `<skill>/SKILL.md`, and `skill://<skill>/<rest>` reads `<skill>/<rest>`. A glob counts as the folder before its
+// first glob segment.
+function skillUriKey(target) {
+  const rest = target.slice(target.indexOf('://') + 3);
+  if (!ALLOWED_SKILLS.has(rest.split('/')[0])) return undefined;
+  const segments = rest.split('/').filter(Boolean);
+  if (segments.length === 1) return `${segments[0]}/SKILL.md`;
+  const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
+  if (globAt !== -1) segments.length = globAt;
+  return path.posix.normalize(segments.join('/')).replace(/^\.$/, '');
+}
+
+// An optional instruction read with the key `key` is allowed when the case changes no file at that key. An undefined
+// key is no optional instruction read.
+function instructionAllowed(key, { changed }) {
+  return key !== undefined && !changed.some((other) => keysOverlap(key, other));
 }
 
 // A relative path resolves against the working directory, so without one it is outside. A glob is allowed when the
@@ -1399,12 +1468,13 @@ function localPathAllowed(target, cwd, rules) {
   const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
   if (globAt === -1) {
     const resolved = path.resolve(cwd ?? path.sep, target);
-    return folderAllowed(resolved, rules) || fileAllowed(resolved, rules) || cacheSkillAllowed(target, resolved);
+    if (folderAllowed(resolved, rules) || fileAllowed(resolved, rules)) return true;
+    return instructionAllowed(contractKey(resolved, rules.pluginRoots) ?? cacheKey(target, resolved), rules);
   }
   if (segments.slice(globAt).some((segment) => segment.includes('..'))) return false;
   const base = segments.slice(0, globAt).join('/') || (path.isAbsolute(target) ? path.sep : '.');
   const resolvedBase = path.resolve(cwd ?? path.sep, base);
-  return folderAllowed(resolvedBase, rules) || cacheSkillAllowed(base, resolvedBase);
+  return folderAllowed(resolvedBase, rules) || instructionAllowed(cacheKey(base, resolvedBase), rules);
 }
 
 // A web page outside the benchmark repository. The pages of the repository can show the fixes of the corpus defects.
@@ -1430,7 +1500,7 @@ function targetAllowed(target, cwd, rules) {
   const scheme = uriScheme(target);
   if (scheme === undefined) return localPathAllowed(target, cwd, rules);
   if (scheme === 'artifact') return true;
-  if (scheme === 'skill') return ALLOWED_SKILLS.has(target.slice(target.indexOf('://') + 3).split('/')[0]);
+  if (scheme === 'skill') return instructionAllowed(skillUriKey(target), rules);
   return WEB_SCHEMES.has(scheme) && webPageAllowed(target);
 }
 
@@ -1453,21 +1523,30 @@ function pathTargets(value) {
 // - under an input of the run: `snapshot/`, `prompts/`, a `*.diff` file, `plan.md`, `previous-review.md`, or
 //   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
 // - under the tree copy of the judge for a round of the run up to `round`;
-// - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, a path under the code-reviewer or
-//   plan-reviewer skill folder of a plugin root, or the plan contract
+// - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, or a path under the code-reviewer or
+//   plan-reviewer skill folder of a plugin root. The reviewer cannot work without these files, so they stay allowed
+//   also when the case changes them;
+// - an optional instruction read, when the case changes no file at its key (see below): the plan contract
 //   `<root>/skills/[<folder>/]plan-manager/references/plan-contract.md` of a plugin root (the plan-reviewer checklist
-//   tells the reviewer to read it in its own plugin);
-// - a path under the folder of the code-review, code-clarity, code-reviewer, or plan-reviewer skill in an installed
-//   plugin cache copy, `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/`, without a `..` segment
-//   (a `skill://` URI of these skills can resolve to this copy);
-// - a `skill://` URI of the code-review, code-clarity, code-reviewer, or plan-reviewer skill, or an `artifact://` URI
-//   (the spilled output of the reviewer);
+//   tells the reviewer to read it in its own plugin); a path under the folder of the code-review, code-clarity,
+//   code-reviewer, or plan-reviewer skill in an installed plugin cache copy,
+//   `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/`, without a `..` segment (a `skill://` URI of
+//   these skills can resolve to this copy); or a `skill://` URI of one of these four skills;
+// - an `artifact://` URI (the spilled output of the reviewer);
 // - an http or https URL that is not a page of the benchmark repository.
 // Every other target is outside, also the other skills of the repository that holds a plugin root: the reviewed
 // repository has its own copy of them under `snapshot/`. A grep, glob, or find call without a path searches the working
 // directory, so it gives the outside target `<name> without a path`; other calls without a path read no file.
-export function readScope(toolCalls, { runDir, round, cwd = null, pluginRoots = [] }) {
-  const rules = scopeRules(path.resolve(runDir), round, pluginRoots);
+// The reviewer setup is newer than the cases. When a case changes the file of an optional instruction read, that read
+// shows a later version of a file under review, which can show the fix. `changedFiles` are the repository paths that
+// the case changes (transcriptsCommand reads them). The rule compares keys, the paths from the skill folder name on:
+// the plan contract gives `plan-manager/references/plan-contract.md`, a cache path gives `<skill>/<rest>`,
+// `skill://<skill>` gives `<skill>/SKILL.md`, `skill://<skill>/<rest>` gives `<skill>/<rest>`, and changedPathKeys
+// gives the keys of a changed path. A read is outside when its key overlaps the key of a changed path (see
+// keysOverlap). A glob gives the key of the folder before its first glob segment, so a glob that could match a changed
+// file is outside.
+export function readScope(toolCalls, { runDir, round, cwd = null, pluginRoots = [], changedFiles = [] }) {
+  const rules = scopeRules(path.resolve(runDir), round, pluginRoots, changedFiles);
   const outside = new Set();
   for (const { name, path: value } of toolCalls) {
     if (typeof value !== 'string' || !value.trim()) {
@@ -1490,6 +1569,69 @@ function transcriptFiles(dir) {
     else if (entry.name.endsWith('.jsonl')) files.push(file);
   }
   return files;
+}
+
+// The paths that a diff changes, from its header lines. prepare.mjs writes each diff with --no-renames, so the two
+// sides of a `diff --git` line name one path, and the line splits in its middle also when the path holds ` b/`. A
+// `+++ b/` line counts only in the header of a file, before its first `@@` line, because a line of a hunk can start
+// with `++`.
+function diffFiles(text) {
+  const files = [];
+  let header = false;
+  for (const line of text.split('\n')) {
+    if (line.startsWith(DIFF_GIT)) {
+      header = true;
+      const sides = line.slice(DIFF_GIT.length);
+      const half = (sides.length - 1) / 2;
+      const [a, b] = [sides.slice(0, half), sides.slice(half + 1)];
+      if (a.startsWith('a/') && b === `b/${a.slice(2)}`) files.push(a.slice(2));
+    } else if (line.startsWith('@@')) {
+      header = false;
+    } else if (header && line.startsWith(DIFF_NEW)) {
+      files.push(line.slice(DIFF_NEW.length));
+    }
+  }
+  return distinct(files);
+}
+
+// The paths in the Files cells of the Steps table of a plan export, as the plan helper reads the table. A cell holds
+// comma-separated paths, each maybe in backticks. The function also splits a cell on white space, so two paths without
+// a comma between them give two paths. The helper finds no Files cell in a Steps row that does not have 8 cells, so the
+// function stops on such a row.
+function planStepFiles(file) {
+  const text = readText(file, CHANGED_FILES_HINT);
+  let plan;
+  try {
+    plan = parsePlan(text);
+  } catch (error) {
+    fail(`${file}: ${error.message}`);
+  }
+  if (plan.malformedSteps.length) {
+    fail(
+      `${file}: a row of the Steps table does not have 8 cells, so its Files cell is not known${CHANGED_FILES_HINT}`,
+    );
+  }
+  return distinct(
+    plan.steps.flatMap((step) =>
+      step.files
+        .split(/[\s,]+/)
+        .map((part) => part.replace(/^`+|`+$/g, ''))
+        .filter(Boolean),
+    ),
+  );
+}
+
+// The repository paths that the case of a reviewer changes, for the case-change rule of readScope: for a plan or
+// plan-delta case, the Files cells of the Steps table of the plan export; for a run with round folders, the paths of
+// the full.diff of the round (round 1 reviews the full.diff of the case folder); for a single-review code run, the
+// paths of each diff file of the case folder. `dir` is the run folder or the round folder of the reviewer.
+function caseChangedFiles(caseDir, family, round, dir) {
+  if (family === 'plan') return planStepFiles(path.join(caseDir, 'plan.md'));
+  const diffs =
+    round === undefined
+      ? distinct(['full', ...baseNames(caseDir, '.diff')]).map((name) => path.join(caseDir, `${name}.diff`))
+      : [path.join(round === 1 ? caseDir : dir, 'full.diff')];
+  return distinct(diffs.flatMap((file) => diffFiles(readText(file, CHANGED_FILES_HINT))));
 }
 
 export function findingsCommand(ws) {
@@ -1564,10 +1706,11 @@ export function namesCommand(ws) {
 // A reviewer entry under `reviewers` gets the time and tokens of the assistant messages of the configured model
 // (`config.model`; every model without a configuration) and the transcript facts. When the reviewer called tools, it
 // also gets `readScope: { outside }` (see readScope) for the working directory and the plugin roots that its transcript
-// shows. The fixer entry of a round, under `fixer.agents`, gets the time and tokens of every assistant message and the
-// transcript facts. A round has one fixer, so `fixer.seconds` and `fixer.tokens` are its time and tokens.
-// meta.json keeps no tool calls. The command checks every dispatch name before it writes, writes what it finds, then
-// fails with the names of the dispatches that have no transcript.
+// shows and for the files that its case changes (see caseChangedFiles); the command stops when an input that names
+// these files is missing. The fixer entry of a round, under `fixer.agents`, gets the time and tokens of every assistant
+// message and the transcript facts. A round has one fixer, so `fixer.seconds` and `fixer.tokens` are its time and
+// tokens. meta.json keeps no tool calls. The command checks every dispatch name before it writes, writes what it
+// finds, then fails with the names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
   const byDir = new Map();
@@ -1581,7 +1724,9 @@ export function transcriptsCommand(ws, sessionsDir) {
     const metaFile = path.join(dir, 'meta.json');
     const meta = fs.existsSync(metaFile) ? readJson(metaFile) : {};
     let changed = false;
-    for (const { caseId, arm, run, round, reviewer, name, fixer } of dispatches) {
+    // The case changes the same files for each reviewer of the folder, so the command reads them once, when needed.
+    let changedFiles;
+    for (const { caseId, family, arm, run, round, reviewer, name, fixer } of dispatches) {
       const file = pickTranscript(files, name);
       if (!file) {
         missing.push(name);
@@ -1598,8 +1743,10 @@ export function transcriptsCommand(ws, sessionsDir) {
         // The read scope comes from this transcript only: a transcript without tool calls read no file.
         delete entry.readScope;
         if (toolCalls) {
-          const runDir = path.join(ws, caseId, arm, run);
-          entry.readScope = readScope(toolCalls, { runDir, round, ...transcriptSession(text, file) });
+          const caseDir = path.join(ws, caseId);
+          changedFiles ??= caseChangedFiles(caseDir, family, round, dir);
+          const runDir = path.join(caseDir, arm, run);
+          entry.readScope = readScope(toolCalls, { runDir, round, changedFiles, ...transcriptSession(text, file) });
         }
         meta.reviewers[reviewer] = entry;
       }

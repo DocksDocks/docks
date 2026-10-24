@@ -2757,6 +2757,9 @@ test('transcripts command writes the outside reads of each reviewer and leaves f
   put(round(1), 'fixer/fixer-1.txt', 'agent: review-bench-fixer\n\nRepair.\n');
   put(round(2), 'prompts/delta.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
   put(round(2), 'meta.json', { config: low, mode: 'delta' });
+  // The read scope takes the files that the case changes from the full.diff of each round.
+  put(caseDir, 'full.diff', '');
+  put(round(2), 'full.diff', '');
   const relativeSkill = 'plugins/docks/skills/engineering/code-review/references/perf.md';
   put(
     sessions,
@@ -2891,6 +2894,94 @@ test('readScope allows the plan contract of a plugin root and an installed cache
     `${cache}/**/code-review/SKILL.md`,
   ];
   assert.deepEqual(score.readScope(reads(...outside), scope), { outside });
+});
+
+// Changed exports:
+// - readScope takes the option changedFiles: the repository paths that the case changes (default none). An optional
+//   instruction read is outside when the case changes the same file: the plan contract of a plugin root, a path under
+//   an allowed skill folder of a plugin cache copy, or a `skill://` URI of an allowed skill. The comparison uses the
+//   path from the skill folder name on: `plugins/<plugin>/skills/[<folder>/]<skill>/<rest>` and a cache path
+//   `…/skills/[<folder>/]<skill>/<rest>` give `<skill>/<rest>`, `skill://<skill>` gives `<skill>/SKILL.md`, and
+//   `skill://<skill>/<rest>` gives `<skill>/<rest>`. A glob is outside when a changed file can be under the folder
+//   before its first glob segment. The agent file and the skill folder of the reviewer in its plugin root stay allowed
+//   also when the case changes them.
+// - transcriptsCommand gives readScope the changed files of the case: for a plan or plan-delta case, the paths in the
+//   Files cells of the Steps table of the plan.md of the case folder; for a run with round folders, the paths in the
+//   `diff --git` and `+++ b/` lines of the full.diff of the round (round 1: of the case folder); for a single-review
+//   code run, the paths in these lines of each diff file of the case folder.
+
+test('readScope puts an optional instruction read outside when the case changes the same file', () => {
+  const cache = '/home/user/.omp/plugins/cache/plugins/docks___docks___0.21.0/skills';
+  const scope = {
+    runDir: `${SCOPE_CASE}/C3-low/run-1`,
+    cwd: LIVE,
+    pluginRoots: [LIVE_PLUGIN],
+    changedFiles: [
+      'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md',
+      'plugins/docks/skills/engineering/code-review/SKILL.md',
+      'plugins/plan-lifecycle/agents/code-reviewer.md',
+      'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md',
+    ],
+  };
+  const allowed = [
+    ...reads(
+      `${cache}/engineering/code-review/references/perf.md`,
+      'skill://code-clarity',
+      // The reviewer cannot work without its agent file and its own skill folder, so they stay allowed.
+      `${LIVE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`,
+      `${LIVE_PLUGIN}/agents/code-reviewer.md`,
+    ),
+    { name: 'glob', path: `${cache}/engineering/code-review/references/*.md` },
+  ];
+  assert.deepEqual(score.readScope(allowed, scope), { outside: [] });
+  const outside = [
+    `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/plan-contract.md`,
+    `${cache}/engineering/code-review/SKILL.md`,
+    'skill://code-review',
+    // The folder before the first glob segment holds the changed SKILL.md.
+    `${cache}/engineering/code-review/*.md`,
+  ];
+  assert.deepEqual(score.readScope(reads(...outside), scope), { outside });
+  // A case that changes none of these files allows the same reads.
+  assert.deepEqual(score.readScope(reads(...outside), { ...scope, changedFiles: [] }), { outside: [] });
+});
+
+test('transcripts command takes the changed files of a plan case from the Files cells of its Steps table', (t) => {
+  const root = scratch(t);
+  const ws = path.join(root, 'ws');
+  const sessions = path.join(root, 'sessions');
+  const contract = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
+  put(ws, 'plan-3/case.json', { id: 'plan-3', kind: 'plan', split: 'dev' });
+  put(
+    ws,
+    'plan-3/plan.md',
+    [
+      '## Goal',
+      '',
+      'Change the plan contract.',
+      '',
+      '## Steps',
+      '',
+      '| # | Id | Task | Files | Depends | Effect | Status | Done when |',
+      '|---:|---|---|---|---|---|---|---|',
+      `| 1 | contract | Edit the contract | \`${contract}\`, scripts/a.mjs | - | local | planned | the check passes |`,
+      '',
+    ].join('\n'),
+  );
+  put(ws, 'plan-3/P0/run-1/prompts/plan.txt', 'agent: review-bench-candidate-plan-low\n\nReview.\n');
+  const contractRead = `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/plan-contract.md`;
+  put(
+    sessions,
+    'Plan3P0R1Plan.jsonl',
+    toolTranscript(30, [
+      ['read', { path: contractRead }],
+      ['read', { path: 'skill://code-review/references/perf.md' }],
+    ]),
+  );
+  assert.deepEqual(transcriptsCommand(ws, sessions), ['Plan3P0R1Plan']);
+  assert.deepEqual(readJson(path.join(ws, 'plan-3/P0/run-1/meta.json')).reviewers.plan.readScope, {
+    outside: [contractRead],
+  });
 });
 
 test('the code-loop rows leave out single reviews, and the fixer median leaves out loops without a fixer', () => {
