@@ -2,7 +2,8 @@
 // Scores review benchmark runs. `findings` parses the returned review blocks, `pairs` builds the judge input,
 // `report` turns the judgments and the run metadata into recall, cost, configuration or arm tables, and the
 // self-review lead, `transcripts` fills the run metadata and the read scope of each reviewer from omp subagent
-// transcripts, and `names` prints the dispatch name of every prompt.
+// transcripts, and `names` prints the dispatch name of every prompt that the operator still dispatches (a fixer prompt
+// only until its patch exists).
 // `fixPlan` and `loopEnds` give the fix step of a review loop to `prepare.mjs loop`.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -1909,8 +1910,14 @@ export function reportCommand(ws, { keys, configs, arms, lead, leadRef } = {}) {
   return scores;
 }
 
+// The prompts that the operator still dispatches, each with its task name. A fixer prompt stays in the list only until
+// the fixer writes `fixer-1.patch` (an empty patch file counts), so that the operator does not dispatch it again; a
+// second dispatch writes a newer transcript of the same name, which `transcripts` then takes. `transcripts` uses every
+// dispatch, so it still finds the transcript of a fixer whose patch exists.
 export function namesCommand(ws) {
-  return promptedDispatches(ws).map(({ prompt, name }) => ({ prompt: path.relative(ws, prompt), name }));
+  return promptedDispatches(ws)
+    .filter(({ fixer, dir }) => !fixer || !fs.existsSync(path.join(dir, FIXER_DIR, `${FIXER_NAME}.patch`)))
+    .map(({ prompt, name }) => ({ prompt: path.relative(ws, prompt), name }));
 }
 
 // Fills the meta.json of each run or round folder from the transcripts of its dispatches and keeps every other field.

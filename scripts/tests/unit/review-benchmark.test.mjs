@@ -2897,6 +2897,46 @@ test('transcripts command writes the outside reads of each reviewer and leaves f
   });
 });
 
+test('names lists a fixer prompt only until its patch exists, and transcripts still reads the fixer transcript', (t) => {
+  const root = scratch(t);
+  const ws = path.join(root, 'ws');
+  const sessions = path.join(root, 'sessions');
+  const { low } = CONFIGS;
+  const caseDir = path.join(ws, 'code-7');
+  const round1 = path.join(caseDir, 'C1-low', 'run-1', 'round-1');
+  const relative = path.join('code-7', 'C1-low', 'run-1', 'round-1');
+  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+  put(round1, 'prompts/full.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
+  put(round1, 'meta.json', { config: low, mode: 'full' });
+  put(round1, 'blocks/full.md', FULL_BLOCK);
+  put(round1, 'fixer/fixer-1.txt', 'agent: review-bench-fixer\n\nRepair.\n');
+  const reviewerEntry = { prompt: path.join(relative, 'prompts', 'full.txt'), name: 'Code7C1LowR1K1Full' };
+  assert.deepEqual(namesCommand(ws), [
+    reviewerEntry,
+    { prompt: path.join(relative, 'fixer', 'fixer-1.txt'), name: 'Code7C1LowR1K1Fixer1' },
+  ]);
+  // The fixer wrote an empty patch: no listed finding needed a change.
+  put(round1, 'fixer/fixer-1.patch', '');
+  assert.deepEqual(namesCommand(ws), [reviewerEntry]);
+  put(sessions, 'Code7C1LowR1K1Full.jsonl', toolTranscript(caseDir, 30, []));
+  put(
+    sessions,
+    'Code7C1LowR1K1Fixer1.jsonl',
+    toolTranscript(
+      caseDir,
+      20,
+      [['read', { path: path.join(round1, 'fixer', 'snapshot', 'src', 'extra.mjs') }]],
+      'review-bench-fixer',
+    ),
+  );
+  assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7C1LowR1K1Full', 'Code7C1LowR1K1Fixer1']);
+  assert.deepEqual(readJson(path.join(round1, 'meta.json')).fixer, {
+    seconds: 20,
+    tokens: 100,
+    agents: { 'fixer-1': provenCost(low, 20, 100) },
+  });
+});
+
 test('transcripts on the probe workspace writes the effort and the served tier of each reviewer', (t) => {
   const root = neutralScratch(t);
   const ws = path.join(root, 'ws');
