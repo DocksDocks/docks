@@ -1,0 +1,13 @@
+{
+  "id": "plan-98-r4",
+  "kind": "plan",
+  "split": "heldout",
+  "issue": 98,
+  "round": 4,
+  "repo_ref": "e09d273fa2d020352337e5d97d8d47edbb4b7c80",
+  "plan": "plan-98-r4-body.md",
+  "external": [
+    "plan"
+  ],
+  "body_revision": "UCE_lAHODGt7ls8AAAABZadH188AAAABEUaVow"
+}

@@ -1,0 +1,22 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 64e13096..86ec04cc 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -5,7 +5,7 @@ user-invocable: true
+ metadata:
+   pattern: tool-wrapper
+   updated: "2026-10-23"
+-  content_hash: "cd6034778372e1b14ed393bc057b789f7df85aa758e1fa83d85eac28fa46a3a8"
++  content_hash: "37cfc75fba999189e56e877a1cb3ad02be4e26c5e3f289bd83e1d3e3f08a427b"
+ ---
+ 
+ # Plan Manager
+@@ -121,7 +121,7 @@ base=$(git merge-base "origin/<default>" HEAD)
+ review_diff="$scratch/code-review-<n>-round-<k>.diff"
+ git diff --binary "$base" > "$review_diff"
+ git ls-files --others --exclude-standard -z |
+-  while IFS= read -r -d '' file; do git diff --no-index --binary -- /dev/null $file; done >> "$review_diff"
++  while IFS= read -r -d '' file; do git diff --no-index --binary -- /dev/null "$file"; done >> "$review_diff"
+ ```
+ 
+ `git diff --no-index` exits 1 when the files differ, so that exit status is

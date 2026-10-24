@@ -1,0 +1,28 @@
+{
+  "id": "code-57-pr58",
+  "kind": "code",
+  "split": "dev",
+  "issue": 57,
+  "round": 1,
+  "base": "82f253ee55e243829948d954b4aef82f29d4026e",
+  "head": "49de26af3d5d728ea876658abced164829421f23",
+  "plan": "code-57-pr58-plan.md",
+  "known": [
+    {
+      "id": "C57-1",
+      "locator": "plugins/docks/skills/engineering/code-guardrails/references/typescript.md:26-27; plugins/docks/skills/engineering/code-guardrails/references/typescript.md:54-59; plugins/docks/skills/engineering/code-guardrails/references/python.md:13; plugins/docks/skills/engineering/code-guardrails/references/python.md:22-24; plugins/docks/skills/engineering/code-guardrails/references/python.md:38; plugins/docks/skills/engineering/code-guardrails/SKILL.md:40-43",
+      "category": "shipped-skill-text",
+      "source": "escaped",
+      "summary": "The TypeScript and Python reference configs turn the raw-number lint rule off for every test file (an oxlint override for eslint/no-magic-numbers, Ruff per-file-ignores for PLR2004), so a production limit copied inline into a test input passes lint and drifts, against the plan's rule that tests reuse production constants and keep literals only for expected values.",
+      "fix": "code-57-pr58.C57-1.fix.patch"
+    },
+    {
+      "id": "C57-2",
+      "locator": "plugins/docks/skills/engineering/code-guardrails/SKILL.md:157-161",
+      "category": "shipped-skill-text",
+      "source": "escaped",
+      "summary": "The Find scattered values number scan matches only '[0-9][0-9_.]+', so a hexadecimal, binary, or octal literal such as 0xFF is never counted as a whole value and repeated bit masks go unreported, although the plan makes this scan the repeated-literal check for Rust and Bash.",
+      "fix": "code-57-pr58.C57-2.fix.patch"
+    }
+  ]
+}

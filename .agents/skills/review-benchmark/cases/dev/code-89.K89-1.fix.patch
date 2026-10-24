@@ -1,0 +1,96 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 485db0d9..549b2aae 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -21,5 +21,5 @@ const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
+ const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name id}`).join(' ');
+ // The pre-write read returns the body to compare and the node ids that the write mutation needs.
+-const PRE_WRITE_FIELDS = 'id,body,updatedAt,labels,assignees';
++const PRE_WRITE_FIELDS = 'id,body,updatedAt,assignees';
+ // The last field of a write mutation returns the stored state that the post-write checks read.
+ const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}}`;
+@@ -89,4 +89,6 @@ function parseJson(output, command) {
+   }
+ }
++// The snapshot pages every issue label with its node id, so a write removes labels from the complete list.
++const ISSUE_LABEL_FIELDS = 'name id';
+ const ASSIGNEE_FIELDS = '... on Actor{login}';
+ const LABELED_EVENT_FIELDS = '... on LabeledEvent{label{name}}';
+@@ -178,5 +180,5 @@ function readSnapshot(
+       : [
+           'number title body state stateReason url createdAt updatedAt',
+-          issueConnectionSelection('labels', 'name'),
++          issueConnectionSelection('labels', ISSUE_LABEL_FIELDS),
+           issueConnectionSelection('assignedActors', ASSIGNEE_FIELDS),
+           comments ? issueConnectionSelection('comments', 'body createdAt author{login}') : '',
+@@ -232,8 +234,8 @@ function readSnapshot(
+   )
+     fail('gh api graphql returned malformed plan issue');
+-  issue.labels = issueNodes(number, issue.labels, 'labels', 'name');
++  issue.labels = issueNodes(number, issue.labels, 'labels', ISSUE_LABEL_FIELDS);
+   issue.assignees = issueNodes(number, issue.assignedActors, 'assignedActors', ASSIGNEE_FIELDS);
+   if (
+-    issue.labels.some((label) => typeof label.name !== 'string') ||
++    issue.labels.some((label) => typeof label.name !== 'string' || typeof label.id !== 'string' || !label.id) ||
+     issue.assignees.some((owner) => typeof owner.login !== 'string' || !owner.login)
+   )
+@@ -321,7 +323,5 @@ function preWriteIssue(number) {
+     !hasId(current) ||
+     typeof current.body !== 'string' ||
+-    !Array.isArray(current.labels) ||
+     !Array.isArray(current.assignees) ||
+-    !current.labels.every((label) => hasId(label) && typeof label.name === 'string') ||
+     !current.assignees.every(hasId)
+   )
+@@ -363,5 +363,5 @@ function writeIssueIfUnchanged(issue, { body, add, remove = [], labelIds } = {})
+   }
+   const removed = new Set(remove.map(token));
+-  const removeIds = current.labels.filter((label) => removed.has(token(label.name))).map((label) => label.id);
++  const removeIds = issue.labels.filter((label) => removed.has(token(label.name))).map((label) => label.id);
+   if (removeIds.length) {
+     idLists.push(['remove', removeIds]);
+@@ -372,6 +372,4 @@ function writeIssueIfUnchanged(issue, { body, add, remove = [], labelIds } = {})
+     });
+   }
+-  // Nothing left to change: the pre-write read already shows every label to remove as absent.
+-  if (!fields.length) return;
+   const declarations = [
+     '$issue:ID!',
+diff --git a/scripts/tests/fixtures/gh-stub/gh b/scripts/tests/fixtures/gh-stub/gh
+index f0722e4a..e0356619 100755
+--- a/scripts/tests/fixtures/gh-stub/gh
++++ b/scripts/tests/fixtures/gh-stub/gh
+@@ -710,5 +710,8 @@ if (group === 'issue' && command === 'view') {
+   validateJsonFields(value('--json'), ISSUE_JSON_FIELDS);
+   observeIssue(issue);
+-  emit(JSON.stringify(select(issueJson(issue), value('--json'))));
++  // Real gh reads `labels(first:100)` for `issue view` (cli/cli api/query_builder.go), so it never
++  // returns a label past the first 100.
++  const view = issueJson(issue);
++  emit(JSON.stringify(select({ ...view, labels: view.labels.slice(0, 100) }, value('--json'))));
+   save();
+   process.exit(0);
+diff --git a/scripts/tests/plan-cli/archive-closer.test.mjs b/scripts/tests/plan-cli/archive-closer.test.mjs
+index 6123b11d..13107f7c 100644
+--- a/scripts/tests/plan-cli/archive-closer.test.mjs
++++ b/scripts/tests/plan-cli/archive-closer.test.mjs
+@@ -13,4 +13,19 @@ test('archive finishes a plan with terminal work, a trusted pass, and the merged
+ });
+ 
++test('archive removes a stale phase label beyond the first label page of an owned plan', (t) => {
++  const { run, issue, updateIssue, closedPlan } = planCliContext(t);
++  // The owned plan needs no claim, so the label removal is the whole write.
++  const pagedLabels = closedPlan('phase label beyond first page');
++  const unrelatedLabels = Array.from({ length: 100 }, (_, index) => `topic:${index}`);
++  updateIssue(pagedLabels.number, (entry) => {
++    entry.labels = ['plan', ...unrelatedLabels, 'plan:ongoing'];
++    entry.assignees = ['plan-agent'];
++  });
++  expectSuccess(run('archive', String(pagedLabels.number)), 'archive label on second page');
++  const stored = issue(pagedLabels.number);
++  assert.deepEqual(stored.labels, ['plan', ...unrelatedLabels]);
++  assert.ok(!stored.labels.some((label) => label.toLowerCase().startsWith('plan:')));
++});
++
+ test('archive uses the latest actual closure over older closures and a later non-closure event', (t) => {
+   const { run, updateIssue, closedPlan } = planCliContext(t);

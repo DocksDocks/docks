@@ -1,0 +1,13 @@
+{
+  "id": "code-98-r1",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 98,
+  "round": 1,
+  "base": "e09d273fa2d020352337e5d97d8d47edbb4b7c80",
+  "head": "845872a1f6190e35077b35a4e91ce9101f7b3dc6",
+  "plan": "code-98-r1-plan.md",
+  "external": [
+    "plan"
+  ]
+}

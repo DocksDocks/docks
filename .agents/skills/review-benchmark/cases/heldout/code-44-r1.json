@@ -1,0 +1,10 @@
+{
+  "id": "code-44-r1",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 44,
+  "round": 1,
+  "base": "996db4197b56680d628b889bd636ce2817a796b5",
+  "head": "ecfd512727af306274158f2f4ddfe310480b9254",
+  "plan": "code-44-r1-plan.md"
+}

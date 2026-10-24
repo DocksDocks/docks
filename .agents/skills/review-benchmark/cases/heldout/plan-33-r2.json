@@ -1,0 +1,17 @@
+{
+  "id": "plan-33-r2",
+  "kind": "plan-delta",
+  "split": "heldout",
+  "issue": 33,
+  "round": 2,
+  "repo_ref": "c99f137e5e1cc749524a9a1d224060dda14c008a",
+  "plan": "plan-33-r2-body.md",
+  "previous_body": "plan-33-r2-previous-body.md",
+  "previous_review": "plan-33-r2-previous-review.md",
+  "external": [
+    "plan",
+    "previous_body",
+    "previous_review"
+  ],
+  "body_revision": "UCE_lAHODGt7ls8AAAABOF4ZX87hjVew"
+}

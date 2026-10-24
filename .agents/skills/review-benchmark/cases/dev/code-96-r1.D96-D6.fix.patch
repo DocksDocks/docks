@@ -1,0 +1,18 @@
+diff --git a/scripts/tests/plan-cli/reopen.test.mjs b/scripts/tests/plan-cli/reopen.test.mjs
+index 44cb1d50..80b5646a 100644
+--- a/scripts/tests/plan-cli/reopen.test.mjs
++++ b/scripts/tests/plan-cli/reopen.test.mjs
+@@ -64,12 +64,7 @@ test('reopen accepts the close by a commit of the merged pull request and leaves
+     assignees: ['plan-agent'],
+     comments: [{ author: 'plan-agent', body: reopenComment(plan.pr) }],
+   });
+-  const writes = context.writes();
+-  assert.equal(writes.length, 1);
+-  assert.ok(
+-    !writes[0].some((argument) => argument.includes('addAssigneesToAssignable')),
+-    'an owned plan needs no claim',
+-  );
++  assert.equal(context.writes().length, 1);
+ });
+ 
+ test('reopen writes nothing when the merged pull request does not close the plan', (t) => {

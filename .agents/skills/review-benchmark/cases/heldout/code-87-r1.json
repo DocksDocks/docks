@@ -1,0 +1,10 @@
+{
+  "id": "code-87-r1",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 87,
+  "round": 1,
+  "base": "43201dddc9deeb1a72535653bd9180222e03368f",
+  "head": "b52ce681ab44df3f558b82d5609d008d4070d348",
+  "plan": "code-87-r1-plan.md"
+}

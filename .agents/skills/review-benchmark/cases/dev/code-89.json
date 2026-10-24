@@ -11,39 +11,51 @@
   "known": [
     {
       "id": "K89-1",
-      "title": "label removal ids come from the pre-write gh issue view, which reads only labels(first:100); a phase label past the first 100 gets no removal id, so status writes and then fails, and archive/retire of an owned plan return early without the label check; the fake gh returns every label for issue view, so the paged-label test passes",
       "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:23; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:364-375; scripts/tests/fixtures/gh-stub/gh:707-712",
-      "severity": "medium"
+      "category": "code",
+      "source": "review-round",
+      "summary": "label removal ids come from the pre-write gh issue view, which reads only labels(first:100); a phase label past the first 100 gets no removal id, so status writes and then fails, and archive/retire of an owned plan return early without the label check; the fake gh returns every label for issue view, so the paged-label test passes",
+      "fix": "code-89.K89-1.fix.patch"
     },
     {
       "id": "PL89-1",
-      "title": "connectionNodes stops only when nodes.length > limit and listPlans no longer slices, so with more than 500 plans list fetches a sixth page and prints up to 600 plans past the 500-plan cap",
       "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:115; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:993",
-      "severity": "low"
+      "category": "code",
+      "source": "seeded",
+      "summary": "connectionNodes stops only when nodes.length > limit and listPlans no longer slices, so with more than 500 plans list fetches a sixth page and prints up to 600 plans past the 500-plan cap",
+      "fix": "code-89.PL89-1.fix.patch"
     },
     {
       "id": "PL89-2",
-      "title": "the contract's command table says list prints each group newest first, but listPlans sorts each group by ascending issue number (and a test asserts ascending order)",
       "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md:210",
-      "severity": "medium"
+      "category": "shipped-skill-text",
+      "source": "seeded",
+      "summary": "the contract's command table says list prints each group newest first, but listPlans sorts each group by ascending issue number (and a test asserts ascending order)",
+      "fix": "code-89.PL89-2.fix.patch"
     },
     {
       "id": "PL89-3",
-      "title": "the only test of the pre-write race refusal 'plan issue changed remotely; re-read and retry' was dropped in the split (base scripts/tests/plan-cli.mjs:331-340), leaving that refusal untested and the fake gh remoteChange support unused",
       "locator": "scripts/tests/plan-cli/write-gates.test.mjs:24-36 (head numbering; deleted by the patch); plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:348",
-      "severity": "medium"
+      "category": "test",
+      "source": "seeded",
+      "summary": "the only test of the pre-write race refusal 'plan issue changed remotely; re-read and retry' was dropped in the split (base scripts/tests/plan-cli.mjs:331-340), leaving that refusal untested and the fake gh remoteChange support unused",
+      "fix": "code-89.PL89-3.fix.patch"
     },
     {
       "id": "PL89-4",
-      "title": "the code-review diff example passes $file unquoted to git diff --no-index, so an untracked path with spaces or glob characters splits or expands and drops out of the review diff",
       "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md:124",
-      "severity": "medium"
+      "category": "shipped-skill-text",
+      "source": "seeded",
+      "summary": "the code-review diff example passes $file unquoted to git diff --no-index, so an untracked path with spaces or glob characters splits or expands and drops out of the review diff",
+      "fix": "code-89.PL89-4.fix.patch"
     },
     {
       "id": "PL89-5",
-      "title": "preWriteIssue reports a malformed gh issue view response as 'gh api graphql returned malformed plan issue', the snapshot query's message, so the error names the wrong command",
       "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:328",
-      "severity": "low"
+      "category": "code",
+      "source": "seeded",
+      "summary": "preWriteIssue reports a malformed gh issue view response as 'gh api graphql returned malformed plan issue', the snapshot query's message, so the error names the wrong command",
+      "fix": "code-89.PL89-5.fix.patch"
     }
   ]
 }

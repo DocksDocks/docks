@@ -1,0 +1,95 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index acb942e6..d7c1e4cf 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -886,7 +886,12 @@ function archivePlan(args, retired = false) {
+   const options = parseOptions(flags, retired ? new Set(['--reason']) : new Set());
+   if (retired && (!String(options['--reason'] ?? '').trim() || /[\r\n]/.test(options['--reason']))) fail('retire requires a single-line --reason');
+   const { issue, parsed, record } = readPlanIssue(value, true);
+-  if (retired && String(issue.state).toUpperCase() === 'CLOSED') fail(`cannot retire a ${record.status} plan`);
++  const closed = String(issue.state).toUpperCase() === 'CLOSED';
++  const recovery = retired &&
++    closed &&
++    String(issue.stateReason).toUpperCase() === 'NOT_PLANNED' &&
++    labelNames(issue.labels).some((label) => label.startsWith('plan:') && PLAN_STATUSES.has(label.slice(5)));
++  if (retired && closed && !recovery) fail(`cannot retire a ${record.status} plan`);
+   if (!retired && record.status !== 'finished') fail(`archive requires finished status, found ${record.status}`);
+ 
+   let closingPullRequest;
+@@ -926,7 +931,7 @@ function archivePlan(args, retired = false) {
+     }
+   }
+ 
+-  if (retired) {
++  if (retired && !recovery) {
+     runGh([
+       'issue',
+       'close',
+@@ -940,7 +945,8 @@ function archivePlan(args, retired = false) {
+     ]);
+   }
+   editIssueLabelsIfBodyUnchanged(issue, { remove: labelsToRemove(issue) });
+-  if (retired) console.log(`plan #${issue.number} retired`);
++  if (recovery) console.log(`plan #${issue.number} retired (recovered label cleanup)`);
++  else if (retired) console.log(`plan #${issue.number} retired`);
+   else {
+     const url = closingPullRequest.url ?? `https://github.com/${repository.nameWithOwner}/pull/${closingPullRequest.number}`;
+     console.log(`plan #${issue.number} finished (closed by ${url})`);
+diff --git a/scripts/tests/fixtures/gh-stub/gh b/scripts/tests/fixtures/gh-stub/gh
+index 558dc281..754beddf 100755
+--- a/scripts/tests/fixtures/gh-stub/gh
++++ b/scripts/tests/fixtures/gh-stub/gh
+@@ -354,6 +354,11 @@ if (group === 'issue' && command === 'edit') {
+   const addedAssignees = values('--add-assignee');
+   const addedLabels = values('--add-label');
+   const removedLabels = values('--remove-label');
++  if (removedLabels.length > 0 && state.labelRemovalErrorOnce) {
++    const message = state.labelRemovalErrorOnce;
++    delete state.labelRemovalErrorOnce;
++    die(message);
++  }
+   if (!bodyFile && addedAssignees.length === 0 && addedLabels.length === 0 && removedLabels.length === 0)
+     die('issue edit requires a body, label, or assignee change');
+   if (bodyFile) issue.body = fs.readFileSync(bodyFile, 'utf8');
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 43a51bc3..855f2711 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -1635,6 +1635,37 @@ try {
+   );
+   assert.deepEqual(issue(staleCommitNumber), beforeStaleCommitArchive);
+ 
++  const retireRecoveryNumber = createPlan('retire-cleanup-recovery');
++  makeValid(retireRecoveryNumber);
++  setIssueStatus(retireRecoveryNumber, 'planned');
++  updateState((state) => {
++    state.labelRemovalErrorOnce = 'stubbed label cleanup failure';
++  });
++  const failedRetireCleanup = run('retire', String(retireRecoveryNumber), '--reason', 'The request was withdrawn');
++  assert.equal(failedRetireCleanup.status, 1, 'retire must expose a failed label cleanup');
++  assert.equal(failedRetireCleanup.stderr.trim(), 'gh issue edit failed: stubbed label cleanup failure');
++  assert.equal(issue(retireRecoveryNumber).state, 'CLOSED');
++  assert.equal(issue(retireRecoveryNumber).stateReason, 'NOT_PLANNED');
++  assert.deepEqual(
++    issue(retireRecoveryNumber).labels,
++    ['plan', 'plan:planned'],
++    'failed retire cleanup must preserve the recoverable phase label',
++  );
++  const recoveredRetire = run('retire', String(retireRecoveryNumber), '--reason', 'Retry the label cleanup');
++  expectSuccess(recoveredRetire, 'retire label cleanup recovery');
++  assert.equal(recoveredRetire.stdout.trim(), `plan #${retireRecoveryNumber} retired (recovered label cleanup)`);
++  assert.deepEqual(issue(retireRecoveryNumber).labels, ['plan']);
++  assert.equal(
++    loadState().calls.filter(
++      (call) => call[0] === 'issue' && call[1] === 'close' && call[2] === String(retireRecoveryNumber),
++    ).length,
++    1,
++    'retire recovery must not close the issue again',
++  );
++  const completedRecoveryRetry = run('retire', String(retireRecoveryNumber), '--reason', 'A second retry');
++  assert.equal(completedRecoveryRetry.status, 1, 'a fully retired plan must remain refused');
++  assert.equal(completedRecoveryRetry.stderr.trim(), 'cannot retire a retired plan');
++
+   const retiredNumber = createPlan('retired');
+   makeValid(retiredNumber);
+   setIssueStatus(retiredNumber, 'planned');

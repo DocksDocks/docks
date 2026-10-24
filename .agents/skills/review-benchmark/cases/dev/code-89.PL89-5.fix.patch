@@ -1,0 +1,9 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 485db0d9..2922e3db 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -327,3 +327,3 @@ function preWriteIssue(number) {
+   )
+-    fail('gh api graphql returned malformed plan issue');
++    fail('gh issue view returned malformed plan issue');
+   return current;
