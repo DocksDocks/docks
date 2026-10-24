@@ -147,6 +147,8 @@ The best configuration is the one with the fewest escaped known defects at loop 
 - The first judge was a Claude model, from another model family than the reviewers. A second judge (gpt-6.1-sol, effort high) judged a random 10% of the answers again.
 - Table terms: escaped per 50 known is the escaped known defects per 50 known defects. Seconds is the slowest reviewer of a round. Loop seconds add the rounds of a loop and leave out the fixer. An interval row gives the 90% paired bootstrap interval of the difference from xhigh-fast. A dash means no value.
 
+Rescoring after code review round 1: the review found three faults in `loop`. It ended a round when a review was missing, it accepted incomplete judge answers, and it dropped a defect that a later repair brought back. In 7 runs (6 held-out, 1 dev), a reviewer block had no review. Those reviewers ran again, and their loops ran again from that round. Then every loop was checked again under the corrected rules: 15 dev loops got more rounds (12 of them on `code-23-pr26`), and no held-out loop changed apart from the 6 runs that ran again. The transcript facts of each run were also checked again, now per message for the effort and also for the fixer. The held-out decision did not change.
+
 ### Dev cases
 
 #### Decision
@@ -162,13 +164,16 @@ The best configuration is the one with the fewest escaped known defects at loop 
 | Served tier | default | priority | default | priority | default | priority | default | priority |
 | Round 1 recall difference from xhigh-fast, 90% interval | [-0.22, -0.05] | [-0.21, -0.06] | [-0.15, 0.01] | [-0.15, -0.01] | [-0.11, 0.00] | [-0.08, 0.01] | [-0.07, 0.04] | - |
 | Escaped per 50 known difference from xhigh-fast, 90% interval | [3.06, 15.19] | [3.13, 14.92] | [0.38, 8.79] | [1.39, 9.85] | [0.44, 9.85] | [-0.24, 8.33] | [-1.04, 4.94] | - |
-| Loop seconds difference from xhigh-fast, 90% interval | [-562.9, -264.9] | [-604.4, -289.1] | [-484.2, -206.1] | [-555.2, -266.9] | [-219.0, -55.5] | [-435.9, -177.6] | [197.7, 449.9] | - |
+| Loop seconds difference from xhigh-fast, 90% interval | [-563.8, -272.4] | [-598.6, -297.3] | [-475.6, -213.1] | [-555.8, -274.8] | [-231.0, -72.8] | [-424.1, -189.5] | [193.6, 445.0] | - |
 
 #### Code loops
 
 | Measure | low | low-fast | medium | medium-fast | high | high-fast | xhigh | xhigh-fast |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Runs | 24 | 24 | 24 | 23 | 22 | 24 | 24 | 22 |
+| Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
+| Effort | low | low | medium | medium | high | high | xhigh | xhigh |
+| Served tier | default | priority | default | priority | default | priority | default | priority |
 | Round 1 seconds median | 52.3 | 33.6 | 77.9 | 46.4 | 160.4 | 93.8 | 335.3 | 178.5 |
 | Round 1 seconds min | 38.4 | 27.6 | 59.0 | 35.6 | 104.5 | 61.9 | 243.8 | 127.9 |
 | Round 1 seconds max | 81.1 | 64.0 | 100.0 | 73.6 | 299.8 | 209.8 | 554.1 | 268.4 |
@@ -181,42 +186,45 @@ The best configuration is the one with the fewest escaped known defects at loop 
 | Round 2 known found per run | 0.10 | 0.13 | 0.25 | 0.18 | 0.14 | 0.13 | 0.29 | 0.36 |
 | Round 3 seconds median | 37.5 | 19.6 | 45.8 | 26.6 | 57.4 | 33.8 | 134.7 | 91.1 |
 | Round 3 seconds min | 23.9 | 18.0 | 28.6 | 20.9 | 46.7 | 27.3 | 84.3 | 50.6 |
-| Round 3 seconds max | 38.5 | 26.0 | 68.2 | 52.0 | 244.5 | 103.0 | 431.2 | 293.5 |
-| Round 3 modes | delta 3 | delta 3 | delta 10, panel 1 | delta 9 | delta 9 | delta 10 | delta 11, panel 1 | delta 13, panel 1 |
-| Round 3 known found per run | 0.67 | 0.33 | 0.27 | 0.33 | 0.22 | 0.20 | 0.33 | 0.43 |
-| Round 4 seconds median | - | - | 45.3 | 34.3 | 105.1 | 43.5 | 352.3 | 116.7 |
-| Round 4 seconds min | - | - | 37.9 | 23.9 | 102.5 | 30.9 | 200.3 | 64.6 |
-| Round 4 seconds max | - | - | 52.6 | 44.8 | 145.6 | 56.0 | 467.7 | 219.3 |
-| Round 4 modes | - | - | delta 2 | delta 2 | delta 3 | delta 2 | delta 4 | delta 7 |
-| Round 4 known found per run | - | - | 0.50 | 0.50 | 0.33 | 1.00 | 0.25 | 0.43 |
-| Round 5 seconds median | - | - | 38.5 | 32.4 | 142.4 | 69.3 | 425.3 | 260.6 |
-| Round 5 seconds min | - | - | 38.5 | 32.4 | 93.9 | 69.3 | 191.6 | 44.2 |
-| Round 5 seconds max | - | - | 38.5 | 32.4 | 192.9 | 69.3 | 505.5 | 324.2 |
-| Round 5 modes | - | - | delta 1 | delta 1 | delta 3 | delta 1 | delta 4 | delta 5 |
-| Round 5 known found per run | - | - | 0.00 | 0.00 | 0.33 | 0.00 | 0.25 | 0.40 |
+| Round 3 seconds max | 38.5 | 28.6 | 68.2 | 52.0 | 244.5 | 90.0 | 431.2 | 293.5 |
+| Round 3 modes | delta 3 | delta 5 | delta 10, panel 1 | delta 9 | delta 9 | delta 10 | delta 11, panel 1 | delta 13, panel 1 |
+| Round 3 known found per run | 0.67 | 0.40 | 0.27 | 0.33 | 0.22 | 0.30 | 0.33 | 0.43 |
+| Round 4 seconds median | 50.8 | 30.1 | 38.3 | 41.8 | 105.1 | 56.0 | 221.3 | 112.3 |
+| Round 4 seconds min | 35.5 | 12.5 | 31.2 | 23.9 | 102.5 | 30.9 | 102.4 | 64.6 |
+| Round 4 seconds max | 66.0 | 47.7 | 52.6 | 44.8 | 145.6 | 83.2 | 467.7 | 219.3 |
+| Round 4 modes | delta 2 | delta 1, panel 1 | delta 4 | delta 3 | delta 3 | delta 3 | delta 6 | delta 8 |
+| Round 4 known found per run | 0.50 | 0.00 | 0.50 | 0.67 | 0.33 | 0.67 | 0.17 | 0.38 |
+| Round 5 seconds median | 17.8 | 63.2 | 38.5 | 31.6 | 142.4 | 69.8 | 425.3 | 94.3 |
+| Round 5 seconds min | 17.8 | 63.2 | 34.2 | 26.2 | 93.9 | 69.3 | 191.6 | 44.2 |
+| Round 5 seconds max | 17.8 | 63.2 | 46.7 | 32.4 | 192.9 | 105.0 | 505.5 | 324.2 |
+| Round 5 modes | delta 1 | panel 1 | delta 3 | delta 3 | delta 3 | delta 3 | delta 4 | delta 7 |
+| Round 5 known found per run | 0.00 | 1.00 | 0.00 | 0.33 | 0.33 | 0.67 | 0.25 | 0.29 |
 | Rounds median | 2.0 | 2.0 | 2.0 | 2.0 | 2.0 | 2.0 | 2.5 | 3.0 |
-| Rounds max | 3 | 3 | 5 | 5 | 5 | 5 | 5 | 5 |
+| Rounds max | 5 | 5 | 5 | 5 | 5 | 5 | 5 | 5 |
 | Loop seconds median | 86.7 | 59.3 | 152.1 | 87.9 | 276.5 | 161.7 | 580.0 | 368.3 |
 | Known found per run | 0.75 | 0.75 | 1.13 | 1.04 | 0.95 | 1.17 | 1.38 | 1.55 |
 | Escaped per run | 3.00 | 3.00 | 2.63 | 2.78 | 2.59 | 2.58 | 2.38 | 2.09 |
-| Valid extras per run | 2.04 | 2.63 | 3.88 | 3.52 | 6.68 | 4.83 | 9.38 | 10.23 |
-| Extra-only rounds per run | 0.63 | 0.75 | 0.88 | 0.87 | 1.09 | 0.92 | 1.17 | 1.45 |
+| Valid extras per run | 2.04 | 2.83 | 3.88 | 3.57 | 6.68 | 5.29 | 9.38 | 10.27 |
+| Extra-only rounds per run | 0.63 | 0.79 | 0.88 | 0.87 | 1.09 | 0.96 | 1.17 | 1.50 |
 | Wrong per run | 0.00 | 0.04 | 0.00 | 0.04 | 0.32 | 0.17 | 0.08 | 0.14 |
 | Unjudged per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 | Unknown ratings per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.14 | 0.04 | 0.04 | 0.00 |
 | Unknown pairs per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
-| Tokens median | 1354261 | 1502456 | 1700505 | 1701543 | 2754015 | 2554582 | 3554469 | 3913839 |
+| Tokens median | 1404015 | 1527077 | 1700505 | 1701543 | 2754015 | 2554582 | 3554469 | 3913839 |
 | Side-call tokens median | 0 | 0 | 0 | 0 | 231778 | 0 | 482119 | 387837 |
 | Loops with a fixer | 20 | 23 | 22 | 20 | 21 | 22 | 22 | 22 |
 | Fixer seconds median | 75.0 | 70.6 | 96.7 | 90.7 | 98.2 | 91.8 | 126.5 | 152.6 |
-| Fixer tokens median | 453046 | 507405 | 594997 | 539923 | 560024 | 579273 | 920504 | 895093 |
-| Known found per loop minute | 0.49 | 0.73 | 0.41 | 0.64 | 0.16 | 0.36 | 0.10 | 0.19 |
+| Fixer tokens median | 453046 | 509326 | 594997 | 539923 | 560024 | 579273 | 949399 | 895093 |
+| Known found per loop minute | 0.46 | 0.66 | 0.39 | 0.61 | 0.16 | 0.34 | 0.10 | 0.18 |
 
 #### Single reviews
 
 | Measure | low | low-fast | medium | medium-fast | high | high-fast | xhigh | xhigh-fast |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Runs | 30 | 30 | 30 | 30 | 30 | 30 | 30 | 30 |
+| Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
+| Effort | low | low | medium | medium | high | high | xhigh | xhigh |
+| Served tier | default | priority | default | priority | default | priority | default | priority |
 | Seconds median | 42.8 | 26.4 | 56.2 | 35.3 | 90.7 | 53.0 | 181.8 | 101.1 |
 | Seconds min | 22.5 | 13.1 | 42.0 | 18.1 | 48.4 | 31.4 | 99.5 | 59.8 |
 | Seconds max | 73.3 | 46.1 | 83.5 | 48.7 | 212.3 | 89.6 | 306.8 | 198.5 |
@@ -240,69 +248,75 @@ The second judge agreed with 402 of 418 answers (0.96).
 | Measure | low | low-fast | medium | medium-fast | high | high-fast | xhigh | xhigh-fast |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Runs | 72 | 72 | 72 | 72 | 72 | 72 | 72 | 72 |
-| Known found per run | 0.35 | 0.39 | 0.54 | 0.61 | 0.69 | 0.63 | 0.78 | 0.89 |
-| Escaped per run | 2.11 | 2.07 | 1.92 | 1.85 | 1.76 | 1.83 | 1.68 | 1.57 |
-| Escaped per 50 known | 42.94 | 42.09 | 38.98 | 37.57 | 35.88 | 37.29 | 34.18 | 31.92 |
+| Known found per run | 0.35 | 0.39 | 0.54 | 0.61 | 0.71 | 0.63 | 0.78 | 0.89 |
+| Escaped per run | 2.11 | 2.07 | 1.92 | 1.85 | 1.75 | 1.83 | 1.68 | 1.57 |
+| Escaped per 50 known | 42.94 | 42.09 | 38.98 | 37.57 | 35.59 | 37.29 | 34.18 | 31.92 |
 | Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
 | Effort | low | low | medium | medium | high | high | xhigh | xhigh |
 | Served tier | default | priority | default | priority | default | priority | default | priority |
-| Round 1 recall difference from xhigh-fast, 90% interval | [-0.26, -0.10] | [-0.24, -0.07] | [-0.17, -0.04] | [-0.14, -0.03] | [-0.11, 0.00] | [-0.12, -0.03] | [-0.03, 0.02] | - |
-| Escaped per 50 known difference from xhigh-fast, 90% interval | [5.75, 14.90] | [4.17, 14.35] | [2.43, 10.70] | [2.17, 8.25] | [0.78, 6.37] | [2.04, 7.83] | [-0.41, 4.35] | - |
-| Loop seconds difference from xhigh-fast, 90% interval | [-390.2, -148.2] | [-444.8, -194.0] | [-304.0, -119.6] | [-401.5, -177.6] | [-142.9, -9.5] | [-315.7, -118.7] | [124.9, 339.8] | - |
+| Round 1 recall difference from xhigh-fast, 90% interval | [-0.26, -0.10] | [-0.24, -0.07] | [-0.17, -0.04] | [-0.14, -0.03] | [-0.10, 0.00] | [-0.12, -0.03] | [-0.03, 0.02] | - |
+| Escaped per 50 known difference from xhigh-fast, 90% interval | [5.75, 14.90] | [4.17, 14.35] | [2.43, 10.70] | [2.17, 8.25] | [0.78, 5.88] | [2.04, 7.83] | [-0.41, 4.35] | - |
+| Loop seconds difference from xhigh-fast, 90% interval | [-389.9, -147.1] | [-444.4, -193.0] | [-303.9, -118.7] | [-400.4, -175.7] | [-148.5, -17.6] | [-315.2, -117.7] | [126.1, 340.4] | - |
 
 #### Code loops
 
 | Measure | low | low-fast | medium | medium-fast | high | high-fast | xhigh | xhigh-fast |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Runs | 30 | 30 | 30 | 30 | 30 | 30 | 30 | 30 |
-| Round 1 seconds median | 69.8 | 35.0 | 79.3 | 45.4 | 160.6 | 85.7 | 319.1 | 170.3 |
+| Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
+| Effort | low | low | medium | medium | high | high | xhigh | xhigh |
+| Served tier | default | priority | default | priority | default | priority | default | priority |
+| Round 1 seconds median | 69.8 | 35.0 | 79.3 | 44.4 | 160.6 | 85.7 | 319.1 | 170.3 |
 | Round 1 seconds min | 40.0 | 25.5 | 43.1 | 26.8 | 59.6 | 36.4 | 138.9 | 85.9 |
 | Round 1 seconds max | 106.0 | 97.4 | 193.9 | 113.8 | 473.8 | 215.0 | 706.9 | 436.4 |
 | Round 1 modes | panel 30 | panel 30 | panel 30 | panel 30 | panel 30 | panel 30 | panel 30 | panel 30 |
-| Round 1 known found per run | 0.27 | 0.20 | 0.37 | 0.40 | 0.53 | 0.53 | 0.73 | 0.73 |
-| Round 2 seconds median | 37.8 | 20.2 | 49.8 | 29.4 | 76.0 | 42.4 | 145.6 | 89.2 |
+| Round 1 known found per run | 0.27 | 0.20 | 0.37 | 0.40 | 0.57 | 0.53 | 0.73 | 0.73 |
+| Round 2 seconds median | 37.8 | 20.2 | 49.8 | 28.5 | 76.0 | 42.4 | 145.6 | 89.2 |
 | Round 2 seconds min | 16.8 | 15.0 | 25.5 | 18.6 | 37.6 | 25.0 | 84.8 | 46.8 |
 | Round 2 seconds max | 108.8 | 85.8 | 173.2 | 106.1 | 490.1 | 209.9 | 620.3 | 413.8 |
-| Round 2 modes | delta 17, panel 3 | delta 18, panel 2 | delta 18, panel 5 | delta 18, panel 4 | delta 18, panel 5 | delta 21, panel 5 | delta 22, panel 6 | delta 21, panel 7 |
-| Round 2 known found per run | 0.05 | 0.05 | 0.09 | 0.14 | 0.17 | 0.08 | 0.04 | 0.25 |
+| Round 2 modes | delta 17, panel 3 | delta 18, panel 2 | delta 18, panel 5 | delta 19, panel 4 | delta 18, panel 5 | delta 21, panel 5 | delta 22, panel 6 | delta 22, panel 6 |
+| Round 2 known found per run | 0.05 | 0.05 | 0.09 | 0.13 | 0.17 | 0.08 | 0.04 | 0.25 |
 | Round 3 seconds median | 32.4 | 19.1 | 64.3 | 34.8 | 144.9 | 42.0 | 169.4 | 177.8 |
 | Round 3 seconds min | 24.4 | 12.4 | 31.7 | 30.7 | 42.8 | 26.8 | 63.4 | 66.0 |
 | Round 3 seconds max | 42.5 | 25.8 | 123.6 | 50.5 | 201.2 | 83.6 | 392.1 | 286.4 |
 | Round 3 modes | delta 4 | delta 2 | delta 6 | delta 3 | delta 5 | delta 7 | delta 7 | delta 7 |
 | Round 3 known found per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
-| Round 4 seconds median | - | - | 43.6 | 21.7 | 113.0 | - | 138.4 | 82.8 |
+| Round 4 seconds median | - | - | 43.6 | 21.7 | 60.1 | - | 138.4 | 82.8 |
 | Round 4 seconds min | - | - | 32.3 | 20.0 | 56.6 | - | 103.6 | 34.6 |
-| Round 4 seconds max | - | - | 54.9 | 23.4 | 153.6 | - | 344.2 | 201.5 |
+| Round 4 seconds max | - | - | 54.9 | 23.4 | 113.0 | - | 344.2 | 201.5 |
 | Round 4 modes | - | - | delta 2 | delta 2 | delta 3 | - | delta 3 | delta 6 |
 | Round 4 known found per run | - | - | 0.00 | 0.00 | 0.00 | - | 0.00 | 0.00 |
-| Round 5 seconds median | - | - | - | - | 133.6 | - | 123.6 | 70.6 |
-| Round 5 seconds min | - | - | - | - | 133.6 | - | 123.6 | 39.7 |
-| Round 5 seconds max | - | - | - | - | 133.6 | - | 123.6 | 101.5 |
-| Round 5 modes | - | - | - | - | delta 1 | - | delta 1 | delta 2 |
-| Round 5 known found per run | - | - | - | - | 0.00 | - | 0.00 | 0.00 |
+| Round 5 seconds median | - | - | - | - | - | - | 123.6 | 70.6 |
+| Round 5 seconds min | - | - | - | - | - | - | 123.6 | 39.7 |
+| Round 5 seconds max | - | - | - | - | - | - | 123.6 | 101.5 |
+| Round 5 modes | - | - | - | - | - | - | delta 1 | delta 2 |
+| Round 5 known found per run | - | - | - | - | - | - | 0.00 | 0.00 |
 | Rounds median | 2.0 | 2.0 | 2.0 | 2.0 | 2.0 | 2.0 | 2.0 | 2.0 |
-| Rounds max | 3 | 3 | 4 | 4 | 5 | 3 | 5 | 5 |
+| Rounds max | 3 | 3 | 4 | 4 | 4 | 3 | 5 | 5 |
 | Loop seconds median | 93.8 | 49.2 | 123.5 | 70.2 | 229.7 | 127.4 | 447.8 | 262.9 |
-| Known found per run | 0.30 | 0.23 | 0.43 | 0.50 | 0.67 | 0.60 | 0.77 | 0.97 |
-| Escaped per run | 3.00 | 3.07 | 2.87 | 2.80 | 2.63 | 2.70 | 2.53 | 2.33 |
-| Valid extras per run | 1.63 | 1.37 | 2.47 | 2.20 | 3.37 | 3.60 | 5.07 | 5.30 |
-| Extra-only rounds per run | 0.57 | 0.50 | 0.70 | 0.60 | 0.63 | 0.73 | 0.97 | 1.03 |
-| Wrong per run | 0.20 | 0.20 | 0.27 | 0.23 | 0.30 | 0.33 | 0.30 | 0.40 |
+| Known found per run | 0.30 | 0.23 | 0.43 | 0.50 | 0.70 | 0.60 | 0.77 | 0.97 |
+| Escaped per run | 3.00 | 3.07 | 2.87 | 2.80 | 2.60 | 2.70 | 2.53 | 2.33 |
+| Valid extras per run | 1.63 | 1.37 | 2.47 | 2.27 | 3.40 | 3.60 | 5.07 | 5.30 |
+| Extra-only rounds per run | 0.57 | 0.50 | 0.70 | 0.63 | 0.60 | 0.73 | 0.97 | 1.03 |
+| Wrong per run | 0.20 | 0.20 | 0.27 | 0.23 | 0.33 | 0.33 | 0.30 | 0.40 |
 | Unjudged per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 | Unknown ratings per run | 0.03 | 0.00 | 0.03 | 0.00 | 0.10 | 0.00 | 0.07 | 0.03 |
 | Unknown pairs per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
-| Tokens median | 981364 | 955989 | 1122810 | 1075931 | 1509396 | 1636417 | 2493684 | 2536651 |
+| Tokens median | 981364 | 955989 | 1093212 | 1075931 | 1509396 | 1636417 | 2493684 | 2536651 |
 | Side-call tokens median | 0 | 0 | 0 | 0 | 136936 | 0 | 334809 | 182625 |
-| Loops with a fixer | 18 | 16 | 22 | 20 | 21 | 26 | 28 | 28 |
-| Fixer seconds median | 48.4 | 53.9 | 41.4 | 44.8 | 53.8 | 61.0 | 60.8 | 60.8 |
-| Fixer tokens median | 254379 | 214968 | 265957 | 239444 | 307809 | 286160 | 331467 | 315410 |
-| Known found per loop minute | 0.17 | 0.25 | 0.17 | 0.36 | 0.13 | 0.24 | 0.08 | 0.16 |
+| Loops with a fixer | 18 | 16 | 22 | 21 | 21 | 26 | 28 | 28 |
+| Fixer seconds median | 48.4 | 53.9 | 41.4 | 45.2 | 53.8 | 61.0 | 60.8 | 60.8 |
+| Fixer tokens median | 254379 | 214968 | 265957 | 248254 | 307809 | 286160 | 331467 | 315410 |
+| Known found per loop minute | 0.17 | 0.25 | 0.17 | 0.36 | 0.14 | 0.24 | 0.08 | 0.16 |
 
 #### Single reviews
 
 | Measure | low | low-fast | medium | medium-fast | high | high-fast | xhigh | xhigh-fast |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Runs | 42 | 42 | 42 | 42 | 42 | 42 | 42 | 42 |
+| Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
+| Effort | low | low | medium | medium | high | high | xhigh | xhigh |
+| Served tier | default | priority | default | priority | default | priority | default | priority |
 | Seconds median | 61.6 | 32.0 | 80.4 | 45.3 | 141.1 | 71.6 | 248.3 | 143.3 |
 | Seconds min | 32.7 | 19.6 | 45.4 | 25.7 | 53.1 | 36.9 | 87.4 | 49.8 |
 | Seconds max | 117.4 | 52.4 | 137.0 | 74.8 | 331.5 | 154.3 | 489.7 | 246.0 |
@@ -317,7 +331,7 @@ The second judge agreed with 402 of 418 answers (0.96).
 
 Invalid runs: none.
 
-The second judge agreed with 606 of 611 answers (0.99).
+The second judge agreed with 591 of 596 answers (0.99).
 
 ### Decision under the rule
 
@@ -329,7 +343,7 @@ xhigh-fast has the fewest escaped known defects on the held-out cases (31.92 per
 | low-fast | 42.09 | 14.35, not below 2 | -0.24, not above -0.05 | No |
 | medium | 38.98 | 10.70, not below 2 | -0.17, not above -0.05 | No |
 | medium-fast | 37.57 | 8.25, not below 2 | -0.14, not above -0.05 | No |
-| high | 35.88 | 6.37, not below 2 | -0.11, not above -0.05 | No |
+| high | 35.59 | 5.88, not below 2 | -0.10, not above -0.05 | No |
 | high-fast | 37.29 | 7.83, not below 2 | -0.12, not above -0.05 | No |
 | xhigh | 34.18 | 4.35, not below 2 | -0.03, above -0.05 | No |
 | xhigh-fast | 31.92 | reference | reference | Yes (the best) |
@@ -338,12 +352,12 @@ No other configuration is not worse than xhigh-fast. xhigh passes the recall bou
 
 ### Observations
 
-- The priority tier cuts round time by about 40-50% at each effort, with the same model and effort. Held-out round 1 seconds median: low 69.8 to 35.0, medium 79.3 to 45.4, high 160.6 to 85.7, xhigh 319.1 to 170.3. Held-out single reviews: 61.6 to 32.0, 80.4 to 45.3, 141.1 to 71.6, 248.3 to 143.3.
-- Recall rises with effort. Held-out round 1 known found per run: 0.27 and 0.20 at low, 0.37 and 0.40 at medium, 0.53 and 0.53 at high, 0.73 and 0.73 at xhigh (default and priority tier).
+- The priority tier cuts round time by about 40-50% at each effort, with the same model and effort. Held-out round 1 seconds median: low 69.8 to 35.0, medium 79.3 to 44.4, high 160.6 to 85.7, xhigh 319.1 to 170.3. Held-out single reviews: 61.6 to 32.0, 80.4 to 45.3, 141.1 to 71.6, 248.3 to 143.3.
+- Recall rises with effort. Held-out round 1 known found per run: 0.27 and 0.20 at low, 0.37 and 0.40 at medium, 0.57 and 0.53 at high, 0.73 and 0.73 at xhigh (default and priority tier).
 - Valid extra findings rise with effort. Held-out valid extras per run: 1.63 and 1.37 at low, 5.07 and 5.30 at xhigh. Extra-only rounds per run: 0.57 and 0.50 at low, 0.97 and 1.03 at xhigh.
-- Known found per loop minute on the held-out code loops is highest at medium-fast (0.36). On the dev code loops it is highest at low-fast (0.73).
+- Known found per loop minute on the held-out code loops is highest at medium-fast (0.36). On the dev code loops it is highest at low-fast (0.66).
 - The tier changes tokens little. Held-out code-loop tokens median: xhigh 2493684, xhigh-fast 2536651; low 981364, low-fast 955989.
-- xhigh (default tier) is the slowest configuration: its held-out loop seconds interval against xhigh-fast is [124.9, 339.8], and its median loop time is 447.8 s.
+- xhigh (default tier) is the slowest configuration: its held-out loop seconds interval against xhigh-fast is [126.1, 340.4], and its median loop time is 447.8 s.
 
 ### Recommended reviewer setting
 
@@ -375,22 +389,36 @@ tier:
 
 #### What ran
 
-- Every arm ran at xhigh-fast: the model `openai-codex/gpt-6.1-sol`, the effort `xhigh`, and the `priority` tier. Each arm ran 3 times on each case. Each run is one round-1 review, not a loop.
-- Code arms: `B0`, `B1`, `C1`, `C3`, `S1`, and `S3` ran on the 10 held-out code cases.
-- Plan arms: `P0` ran on the 14 held-out plan cases. `P1` ran on the 13 plan cases apart from the plan-delta case `plan-33-r2`. `Pd` ran on `plan-33-r2` only.
-- The arms `B0`, `B1`, and `P0` use the released 0.16.0 agents. The arms `C1`, `C3`, `P1`, and `Pd` use the 0.17.1 agents.
-- The self-review arms `S1` and `S3` run an agent that loads the docks `code-review` and `code-clarity` skills, as the yolo self-review does. `S1` is one agent on the full diff. `S3` is one agent per lens on the focus diff of that lens.
+- Every arm ran at xhigh-fast: the model `openai-codex/gpt-6.1-sol`, the effort `xhigh`, and the `priority` tier. Each arm ran 3 times on each case.
+- Code comparisons: each run is a whole review loop on one of the 10 held-out code cases. The loop rules are the rules of the grid run above (see Setup). The fixer is the same for every arm: gpt-6.1-sol, effort high, priority tier. The arms differ only in their round policy:
+  - `B0`: the released 0.16.0 `code-reviewer`. Every round is a full round, because 0.16.0 had no panel and no delta round.
+  - `C1`: the 0.17.1 agent. It runs a full round where the 0.17.1 rules select a panel.
+  - `C3`: the 0.17.1 agent with the 0.17.1 rules. This is the production policy.
+  - `B1`: the same 0.17.1 agent as `C3` (the released 0.17.1 files), with the lens scope text added to its panel dispatches.
+- `B0`, `C1`, and `C3` ran in workspace `step6c`, with agents written from baseline 0.16.0. `B1` and a second `C3` ran in workspace `step6d`, with agents written from baseline 0.17.1.
+- Plan arms: each run is one round-1 review, because plan cases have one round. `P0` ran on the 14 held-out plan cases. `P1` ran on the 13 plan cases apart from the plan-delta case `plan-33-r2`. `Pd` ran on `plan-33-r2` only. `P0` uses the released 0.16.0 agent. `P1` and `Pd` use the 0.17.1 agents.
+- Self-review arms: each run is one review, because the self-review runs once, before round 1. `S1` and `S3` ran on the 10 held-out code cases in workspace `step6b` and are compared with the round-1 reviews of `C3` in that workspace. They run an agent that loads the docks `code-review` and `code-clarity` skills, as the yolo self-review does. `S1` is one agent on the full diff. `S3` is one agent per lens on the focus diff of that lens.
 - The decision rule of plan #100 above decides each comparison. The reference of a comparison is the arm with fewer escaped known defects per 50 known. The other arm is not worse when the upper bound of its escaped-per-50 difference interval is below 2 and the lower bound of its round 1 recall difference interval is above -0.05.
 
-#### Comparisons
+#### Loop comparisons
 
-Each cell with a slash gives the first arm, then the second arm. The interval columns give the 90% interval of the difference of the other arm from the reference. Seconds is the round 1 time of the slowest reviewer.
+Each cell with a slash gives the first arm, then the second arm. The interval columns give the 90% interval of the difference of the other arm from the reference. Loop seconds add the rounds of a loop and leave out the fixer. A dash means no value.
+
+| Comparison | Runs | Known found per run | Escaped per 50 known | Reference | Round 1 recall difference, 90% interval | Escaped per 50 known difference, 90% interval | Loop seconds median | Loop seconds difference, 90% interval | Rounds median | Rounds max | Valid extras per run | Extra-only rounds per run | Wrong per run | Tokens median |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| B0 (0.16.0, full rounds) / C3 (0.17.1, production) | 29 / 30 | 0.62 / 0.80 | 40.63 / 37.88 | C3 | [-0.17, 0.00] | [0.00, 5.73] | 241.4 / 270.9 | [-81.8, 113.9] | 2 / 2 | 5 / 5 | 1.86 / 5.10 | 0.66 / 1.03 | 0.10 / 0.43 | 1131258 / 2519623 |
+| C1 (one full reviewer) / C3 (panel) | 30 / 30 | 0.63 / 0.80 | 40.40 / 37.88 | C3 | [-0.05, 0.00] | [0.00, 4.39] | 248.1 / 270.9 | [-49.2, 76.1] | 2 / 2 | 5 / 5 | 3.27 / 5.10 | 0.93 / 1.03 | 0.20 / 0.43 | 1083180 / 2519623 |
+| B0 / C1 (both full rounds, only the prompt version differs) | 29 / 30 | 0.62 / 0.63 | 40.63 / 40.40 | C1 | [-0.14, 0.00] | [-2.33, 5.26] | 241.4 / 248.1 | [-64.4, 94.8] | 2 / 2 | 5 / 5 | 1.86 / 3.27 | 0.66 / 0.93 | 0.10 / 0.20 | 1131258 / 1083180 |
+| B1 (lens text also in the dispatch) / C3 (lens text in the reference only), same 0.17.1 agent | 30 / 30 | 0.70 / 0.77 | 39.39 / 38.38 | C3 | [-0.05, 0.04] | [-1.75, 2.42] | 304.6 / 229.3 | [34.4, 140.2] | 2 / 2 | 5 / 5 | 7.70 / 5.20 | 1.47 / 0.93 | 0.40 / 0.33 | 2400015 / 2171104 |
+
+The `C3` of the last row is the second `C3` from workspace `step6d`, so its values differ from the `C3` of the other rows (workspace `step6c`).
+
+#### Round-1 comparisons
+
+Seconds is the round 1 time of the slowest reviewer. The `C3` of the self-review rows is the round-1 review of `C3` in workspace `step6b`.
 
 | Comparison | Runs | Known found per run | Escaped per 50 known | Reference | Recall difference, 90% interval | Escaped per 50 known difference, 90% interval | Seconds median | Valid extras per run | Wrong per run | Tokens median |
 |---|---|---|---|---|---|---|---|---|---|---|
-| B0 (0.16.0 code, full) / C1 (0.17.1 code, full) | 29 / 30 | 0.28 / 0.40 | 45.88 / 43.94 | C1 | [-0.10, -0.01] | [0.51, 4.76] | 137.2 / 212.4 | 1.00 / 2.13 | 0.10 / 0.13 | 641780 / 777119 |
-| C1 (0.17.1 full) / C3 (0.17.1 panel) | 30 / 30 | 0.40 / 0.60 | 43.94 / 40.91 | C3 | [-0.10, 0.02] | [-0.79, 4.81] | 212.4 / 203.6 | 2.13 / 3.63 | 0.13 / 0.27 | 777119 / 1696123 |
-| B1 (0.16.0 agent, lens text in the dispatch) / C3 (0.17.1, lens text in a reference) | 30 / 30 | 0.57 / 0.60 | 41.41 / 40.91 | C3 | [-0.06, 0.10] | [-5.00, 2.78] | 189.9 / 203.6 | 3.03 / 3.63 | 0.30 / 0.27 | 1668114 / 1696123 |
 | S1 (self-review, one agent) / C3 | 30 / 30 | 0.50 / 0.60 | 42.42 / 40.91 | C3 | [-0.06, 0.02] | [-0.79, 2.78] | 184.8 / 203.6 | 1.63 / 3.63 | 0.23 / 0.27 | 618591 / 1696123 |
 | S3 (self-review, one agent per lens) / C3 | 30 / 30 | 0.67 / 0.60 | 39.90 / 40.91 | S3 | [-0.11, 0.02] | [-0.78, 5.26] | 198.1 / 203.6 | 4.57 / 3.63 | 0.57 / 0.27 | 1471180 / 1696123 |
 | S1 / S3 | 30 / 30 | 0.50 / 0.67 | 42.42 / 39.90 | S3 | [-0.11, -0.02] | [0.98, 5.26] | 184.8 / 198.1 | 1.63 / 4.57 | 0.23 / 0.57 | 618591 / 1471180 |
@@ -398,11 +426,14 @@ Each cell with a slash gives the first arm, then the second arm. The interval co
 
 #### Decision under the rule
 
+The code prompt, panel, and lens-text rows come from the loop comparisons. The self-review and plan rows come from the round-1 comparisons.
+
 | Comparison | Reference | Escaped-per-50 interval upper bound | Recall interval lower bound | Result | Decision |
 |---|---|---|---|---|---|
-| 0.16.0 against 0.17.1 code prompt (B0 against C1) | C1 | 4.76, not below 2 | -0.10, not above -0.05 | B0 is worse than C1. Both intervals exclude zero. | The 0.17.1 code prompt stays. |
-| Full reviewer against panel (C1 against C3) | C3 | 4.81, not below 2 | -0.10, not above -0.05 | C1 is not shown not worse than C3. | The panel stays for round 1. |
-| Lens text in the dispatch against in a reference (B1 against C3) | C3 | 2.78, not below 2 | -0.06, not above -0.05 | B1 is not shown not worse than C3 on the escaped bound and on the recall bound. | The lens text stays in a reference. B1 also uses the 0.16.0 agent, so this row does not separate the place of the lens text from the agent version. |
+| 0.16.0 against 0.17.1 code prompt (B0 against C3) | C3 | 5.73, not below 2 | -0.17, not above -0.05 | B0 is not shown not worse than C3. | The 0.17.1 code prompt and its rules stay. |
+| Full reviewer against panel (C1 against C3) | C3 | 4.39, not below 2 | -0.05, not above -0.05 | C1 is not shown not worse than C3. | The panel stays for round 1. The loop seconds difference interval includes zero. |
+| Prompt version only (B0 against C1) | C1 | 5.26, not below 2 | -0.14, not above -0.05 | B0 is not shown not worse than C1. | No separate decision. This row agrees with the first row. |
+| Lens text in the dispatch against in a reference (B1 against C3) | C3 | 2.42, not below 2 | -0.05, not above -0.05 | B1 is not shown not worse than C3. B1 loops are also slower: the loop seconds difference interval is [34.4, 140.2] s. | The lens text stays in a reference. Limit: the 0.17.1 agent loads the lens reference in both arms, and B1 adds the short lens scope summary to the dispatch. So this row compares the reference plus a dispatch summary against the reference only. |
 | One self-reviewer against panel (S1 against C3) | C3 | 2.78, not below 2 | -0.06, not above -0.05 | S1 is not shown not worse than C3. | The self-review runs before code-review round 1 and does not replace it. See Leads from #98. |
 | Split self-review against panel (C3 against S3) | S3 | 5.26, not below 2 | -0.11, not above -0.05 | C3 is not shown not worse than S3. | The self-review runs before code-review round 1 and does not replace it. See Leads from #98. |
 | One self-reviewer against split self-review (S1 against S3) | S3 | 5.26, not below 2 | -0.11, not above -0.05 | S1 is worse than S3. Both intervals exclude zero. | See Leads from #98. |
@@ -413,14 +444,17 @@ Each cell with a slash gives the first arm, then the second arm. The interval co
 - Self-review. The self-review keeps unique findings, so it stays. On the 10 code cases, S1 found 2 known defects in 2 cases that no C3 run found (`code-102-r3`: `B102-4`; `code-98-r1`: `B98-1`). S3 found 1 such defect (`code-98-r1`: `B98-1`).
 - Split self-review. S3 found more known defects than one self-reviewer: 0.67 against 0.50 per run, and S1 is worse than S3 under the rule. The round time is about the same: 198.1 s against 184.8 s median. But S3 has more wrong findings (0.57 against 0.23 per run) and more tokens (1471180 against 618591 median). Record this as a lead for a follow-up yolo change, because this plan does not change the plugins.
 - Unjudged stop. The report stops on a finding with neither a match nor an adjudication. Step 2 of this plan added this stop. No run in this benchmark stopped.
-- Extra findings of the report-every-LOW stance. See the held-out code-loop table of the grid entry above. `Valid extras per run` is 5.30 at xhigh-fast and 1.63 at low. `Extra-only rounds per run` is 1.03 at xhigh-fast and 0.57 at low.
+- Extra findings of the report-every-LOW stance. See the loop comparisons above. `Valid extras per run` is 5.10 for C3 (0.17.1, production), 3.27 for C1, and 1.86 for B0 (0.16.0). `Extra-only rounds per run` is 1.03 for C3, 0.93 for C1, and 0.66 for B0.
 - Second judge. The second judge agreed with 402 of 418 answers on the dev cases (0.96) and with 606 of 611 answers on the held-out cases (0.99). The run of plan #98 rated every finding valid. In plan #100, wrong ratings are no longer zero. See the Wrong rows of the tables above.
 
 #### Invalid and discarded runs
 
-- Code arms: 1 of 180 runs is invalid. The `B0` reviewer of `code-35-pr36` run 3 read the case folder itself. The comparisons leave out this run, so `B0` has 29 runs.
+- Code loops: 1 of 30 `B0` loops is invalid. The `B0` reviewer of `code-79-pr80` run 1 read its case folder. The comparisons leave out this loop, so `B0` has 29 runs. The lens loops (`B1` and the second `C3`) have no invalid runs.
+- Incomplete rounds: a round with a reviewer block that holds no review ran again before scoring. This occurred 2 times in `step6c` and 3 times in `step6d`.
+- Round-1 code run (`step6b`, the source of the self-review rows): 1 of 180 runs is invalid. The `B0` reviewer of `code-35-pr36` run 3 read the case folder itself.
 - Plan arms: 3 of 42 `P0` runs are invalid. Their reviewers read the omp harness documentation through `omp://`, on `plan-74-r1` (runs 1 and 2) and `plan-98-r1` (run 3). The comparisons leave out these runs, so `P0` has 39 runs.
-- An earlier step 6 code run (workspace `step6`) is discarded. In that run, 19 of 30 `B0` reviewers and 67 of 90 `B1` reviewers read the installed 0.17.1 `code-reviewer` skill through `skill://`. Version 0.16.0 had no such skill. The harness now marks such reads as reads outside the inputs, and the prompts forbid them. Every code arm ran again in workspace `step6b`. The code comparisons above come from `step6b`, and the plan comparisons come from `step6`.
+- The first step 6 code run (workspace `step6`) is discarded, because its 0.16.0 reviewers read the installed 0.17.1 `code-reviewer` skill through `skill://`. The plan comparisons come from `step6`.
+- The single-round code comparison of workspace `step6b` is superseded by the loops for the prompt, panel, and lens-text decisions. It stays the source of the self-review lead.
 
 ### Corpus (plan #100 step 7)
 
