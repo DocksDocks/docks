@@ -60,6 +60,8 @@ A configuration is a model, an effort, and a service tier. `prepare.mjs agents` 
 
 For example, `--efforts low,xhigh --tiers priority,default` gives `low-fast`, `low`, `xhigh-fast`, and `xhigh`. With a second model, the names become `gpt-6.1-sol-low-fast` and so on. The same lists always give the same names, because the report uses them as column names.
 
+Give `--efforts` only the thinking levels that the model supports: `omp models find <model>` lists them. omp runs an unsupported level at another level and shows no error (for `openai-codex/gpt-6.1-sol`, `minimal` ran as `low`). Only the probe shows this.
+
 `agents` applies each configuration through omp agent files, so each reviewer runs as a task subagent, as in production:
 
 - `.omp/agents/review-bench-<side>-<role>-<config>.md`: one agent for each side (`baseline`, `candidate`), role (`code`, `plan`), and configuration. The frontmatter pins `model` and `thinking-level`.
@@ -168,11 +170,11 @@ Limit: the instruction files of a reviewer stay allowed also when the case chang
 
 ## Probe
 
-The probe proves that each configuration reaches its reviewer. Run it after `agents` and before the first case, and again after a change of the model, the omp version, or the tier settings.
+The probe proves that each configuration reaches its reviewer. Run it after `agents` and before the first case, and again after a change of the model, the omp version, or the tier settings. `probe` refuses an existing probe folder, so before you probe again, move the old probe folder away or give another `--out`.
 
-1. `node "$skill/scripts/prepare.mjs" probe --out "$bench/probe"` writes the case folder `probe/` with one run `C1-<config>/run-1/` per configuration. Its prompt `full.txt` gives the candidate code agent of the configuration a short task with the path of its run folder, because `transcripts` needs a path of the workspace in each task (see step 3 of the procedure). Its `meta.json` records the configuration. `--configs` and `--project` work as for `case`.
+1. `node "$skill/scripts/prepare.mjs" probe --out "$bench/probe"` writes the case folder `probe/` with an empty `full.diff` and one run `C1-<config>/run-1/` per configuration. The probe changes no file, so its `full.diff` is empty; `transcripts` reads it for the read scope of the run. Its prompt `full.txt` gives the candidate code agent of the configuration a short task with the path of its run folder, because `transcripts` needs a path of the workspace in each task (see step 3 of the procedure). Its `meta.json` records the configuration. `--configs` and `--project` work as for `case`.
 2. Dispatch every probe prompt in one message, as in step 3 of the procedure.
-3. Read the transcripts. The task tool writes `<task name>.jsonl` to the session folder: the path of the dispatching session's `.jsonl` file without the extension.
+3. Read the transcripts. The task tool writes `<task name>.jsonl` to the session folder: the path of the dispatching session's `.jsonl` file without the extension. For a nested dispatch, omp can write `<session>/<parent>/<parent>.<task name>.jsonl`, so change the paths of the script below to match.
 
    ```bash
    sessions="<session folder>"
@@ -264,7 +266,9 @@ In `## Configurations: <split>`, the table `### Code loops: <split>` gives these
 
 ## Run the grid for a new model
 
-This section measures a new reviewer model with the same tables as plan #100. The model, the efforts, and the tiers are parameters. The cases, the arms, and the decision rule do not change. Dispatch every prompt of a workspace from one omp session that runs in `$project`, because `transcripts` reads one session folder.
+This section measures a new reviewer model with the same tables as plan #100. The model, the efforts, and the tiers are parameters. The cases, the arms, and the decision rule do not change. Dispatch every prompt of a workspace from one omp session that runs in `$project`, because `transcripts` reads one session folder. Run only one benchmark at a time per dispatching checkout: `agents` and `clean` remove every `review-bench-*` agent file and tier override of `$project`, and `clean` removes `$project/.omp/` when nothing else is in it.
+
+Before `agents`, run `omp models find <model>` and give `--efforts` only the thinking levels that it lists. omp runs an unsupported level at another level and shows no error; the probe in step 2 shows it (see Configurations). In a linked worktree, `--git-path docks-review` gives a folder of that worktree. That folder is also correct, because the workspace must only be outside the reviewed snapshots and readable by the reviewers.
 
 ```bash
 repo="$(git rev-parse --show-toplevel)"
@@ -277,7 +281,7 @@ node "$skill/scripts/prepare.mjs" agents --baseline-ref "$ref" --model <model> -
 ```
 
 1. `agents` writes to `$project/.omp/agents/` one agent file for each side, role, and configuration, one self-review agent for each configuration, the fixer agent `review-bench-fixer`, and the list of configurations. It writes the tier of each agent to `task.agentServiceTierOverrides` in `$project/.omp/settings.json` (see Configurations).
-2. Probe: run `node "$skill/scripts/prepare.mjs" probe --out "$bench/probe" --project "$project"`, dispatch its prompts, and run `node "$skill/scripts/score.mjs" transcripts "$bench/probe" --omp-sessions <session folder>`. Each line must show the effort of the configuration twice and only its tier as the served tier (see Probe). Do not continue until each line does.
+2. Probe: run `node "$skill/scripts/prepare.mjs" probe --out "$bench/probe" --project "$project"`, dispatch its prompts, and run `node "$skill/scripts/score.mjs" transcripts "$bench/probe" --omp-sessions <session folder>`. Each line must show the effort of the configuration twice and only its tier as the served tier (see Probe). Do not continue until each line does. To probe again, for example after a new `agents` call, move `$bench/probe` away first or give another `--out`, because `probe` refuses an existing probe folder.
 
    ```bash
    jq -c '[.config.name, .config.effort, .config.tier, (.reviewers[] | .effort, ([.messages[].servedTier] | unique))]' \
@@ -299,10 +303,10 @@ node "$skill/scripts/prepare.mjs" agents --baseline-ref "$ref" --model <model> -
    ```
 
 4. Do these steps again until `loop` prints that the loop ends for each run under `"$ws"/*/C1-*/`:
-   1. Dispatch each prompt that `node "$skill/scripts/score.mjs" names "$ws"` lists and that has no block yet, as in step 3 of the procedure. Line 1 of each prompt names the agent. Run at most 16 agents at a time, and keep the same load for every configuration. Save each block in `blocks/<reviewer>.md` of its round folder.
-   2. Run `node "$skill/scripts/score.mjs" findings "$ws"` and `node "$skill/scripts/score.mjs" pairs "$ws" --cases "$skill/cases" "${keys[@]}"`. Then dispatch the judge, a model of another family than the reviewers, as `references/judge.md` and step 4 of the procedure tell. After round 1 of a loop, the judge reads the tree of the round in `<ws>/trees/` (see Review loop).
+   1. Dispatch each reviewer prompt that `node "$skill/scripts/score.mjs" names "$ws"` lists and that has no block yet, and each fixer prompt that it lists whose `fixer/fixer-1.patch` does not exist yet, as in step 3 of the procedure. A fixer prompt never gets a block. Do not dispatch a fixer prompt twice, because `transcripts` takes the latest transcript of a name. Line 1 of each prompt names the agent. The omp task tool can need a non-empty context and adds its own text before each task; this is correct, because the task text stays as written. Run at most 16 agents at a time, and keep the same load for every configuration. Save each block in `blocks/<reviewer>.md` of its round folder.
+   2. Run `node "$skill/scripts/score.mjs" findings "$ws"` and `node "$skill/scripts/score.mjs" pairs "$ws" --cases "$skill/cases" "${keys[@]}"`. Then dispatch the judge, a model of another family than the reviewers, as `references/judge.md` and step 4 of the procedure tell. A task-tool judge runs on the model of the dispatching session, so run that session on a model of another family, or dispatch the judge through an agent file that sets such a model. After round 1 of a loop, the judge reads the tree of the round in `<ws>/trees/` (see Review loop). When `pairs.json` holds no finding without an answer (for example after a round with no findings), do not dispatch the judge, and go to the next step.
    3. For each loop run that has not ended, run `node "$skill/scripts/prepare.mjs" loop --run <run dir> --cases "$skill/cases" "${keys[@]}"`. When `loop` writes `round-<r>/fixer/` and stops, dispatch the fixer prompt (`names` lists it) and run `loop` again. When `loop` writes the next round, its prompts are the next prompts to dispatch.
-5. After the last dispatch, run `node "$skill/scripts/score.mjs" transcripts "$ws" --omp-sessions <session folder>`. Give a random 10% of the judge answers to a second judge, which writes `judgments-second.json` (see step 4 of the procedure). Then run `node "$skill/scripts/score.mjs" report "$ws" "${keys[@]}" --configs <name,...>`, with the configuration names in the column order.
+5. After the last dispatch, run `node "$skill/scripts/score.mjs" transcripts "$ws" --omp-sessions <session folder>`. Give the session folder itself: omp can write the transcripts of a nested dispatch to a subfolder (`<session>/<parent>/<parent>.<name>.jsonl`), and `transcripts` searches the session folder and all its subfolders. Give a random 10% of the judge answers to a second judge, which writes `judgments-second.json` (see step 4 of the procedure). Then run `node "$skill/scripts/score.mjs" report "$ws" "${keys[@]}" --configs <name,...>`, with the configuration names in the column order.
 6. Do steps 3 to 5 for the dev split, then once for the held-out split. Apply the decision rule of plan #100 in `results.md` (`Decision rule (plan #100, fixed before any run)`) to the table `### Decision: heldout` of the held-out `report.md`.
 7. Append a new entry to `results.md` with the setup, the tables, and the decision. Then remove the generated agents and the tier overrides with `node "$skill/scripts/prepare.mjs" clean --project "$project"`, and delete the workspaces and the `baseline-plugin` folder next to them.
 
