@@ -266,7 +266,7 @@ In `## Configurations: <split>`, the table `### Code loops: <split>` gives these
 
 ## Run the grid for a new model
 
-This section measures a new reviewer model with the same tables as plan #100. The model, the efforts, and the tiers are parameters. The cases, the arms, and the decision rule do not change. Dispatch every prompt of a workspace from one omp session that runs in `$project`, because `transcripts` reads one session folder. Run only one benchmark at a time per dispatching checkout: `agents` and `clean` remove every `review-bench-*` agent file and tier override of `$project`, and `clean` removes `$project/.omp/` when nothing else is in it.
+This section measures a new reviewer model with the same tables as plan #100. The model, the efforts, and the tiers are parameters. The cases, the arms, and the decision rule do not change. Run the commands below in the checkout whose skill version you use; `$project` is only the checkout from which omp dispatches the reviewers. Dispatch every prompt of a workspace from one omp session that runs in `$project`, because `transcripts` reads one session folder. Run only one benchmark at a time per dispatching checkout: `agents` and `clean` remove every `review-bench-*` agent file and tier override of `$project`, and `clean` removes `$project/.omp/` when nothing else is in it.
 
 Before `agents`, run `omp models find <model>` and give `--efforts` only the thinking levels that it lists. omp runs an unsupported level at another level and shows no error; the probe in step 2 shows it (see Configurations). In a linked worktree, `--git-path docks-review` gives a folder of that worktree. That folder is also correct, because the workspace must only be outside the reviewed snapshots and readable by the reviewers.
 
@@ -280,11 +280,11 @@ node "$skill/scripts/prepare.mjs" agents --baseline-ref "$ref" --model <model> -
   --project "$project" --out "$bench/dev"
 ```
 
-1. `agents` writes to `$project/.omp/agents/` one agent file for each side, role, and configuration, one self-review agent for each configuration, the fixer agent `review-bench-fixer`, and the list of configurations. It writes the tier of each agent to `task.agentServiceTierOverrides` in `$project/.omp/settings.json` (see Configurations).
-2. Probe: run `node "$skill/scripts/prepare.mjs" probe --out "$bench/probe" --project "$project"`, dispatch its prompts, and run `node "$skill/scripts/score.mjs" transcripts "$bench/probe" --omp-sessions <session folder>`. Each line must show the effort of the configuration twice and only its tier as the served tier (see Probe). Do not continue until each line does. To probe again, for example after a new `agents` call, move `$bench/probe` away first or give another `--out`, because `probe` refuses an existing probe folder.
+1. `agents` writes to `$project/.omp/agents/` one agent file for each side, role, and configuration, one self-review agent for each configuration, the fixer agent `review-bench-fixer`, and the list of configurations. It writes the tier of each agent to `task.agentServiceTierOverrides` in `$project/.omp/settings.json` (see Configurations). Dispatch the reviewers from the top-level omp session, or from a subagent that you start after `agents`: in the a6 check of plan #100, a subagent that started before `agents` dispatched reviewers with the parent's tier, not with the override.
+2. Probe: run `node "$skill/scripts/prepare.mjs" probe --out "$bench/probe" --project "$project"`, dispatch its prompts, and run `node "$skill/scripts/score.mjs" transcripts "$bench/probe" --omp-sessions <session folder>`. Each line must show the effort of the configuration twice, and its tier as the requested tier and as the only served tier (see Probe). Do not continue until each line does. When the requested tier is another tier, the dispatching session did not use the override: dispatch the probe again from a session or subagent that started after `agents`. To probe again, for example after a new `agents` call, move `$bench/probe` away first or give another `--out`, because `probe` refuses an existing probe folder.
 
    ```bash
-   jq -c '[.config.name, .config.effort, .config.tier, (.reviewers[] | .effort, ([.messages[].servedTier] | unique))]' \
+   jq -c '[.config.name, .config.effort, .config.tier, (.reviewers[] | .effort, .requestedTier, ([.messages[].servedTier] | unique))]' \
      "$bench/probe"/probe/C1-*/run-1/meta.json
    ```
 
