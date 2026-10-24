@@ -1743,9 +1743,10 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 //    lists the `known` ids of `fix.fixes` in the meta.json of rounds 1 to k - 1, in order. When
 //    score.loopEnds(k, plan), the command writes nothing and returns null. It also ends so after it applies the fix
 //    patches, when no extra stands and every fix of a matched defect applies in reverse (the tree holds the fix).
-//    After the fixer patch (step 4), it also ends when the fix step left the round-k tree unchanged (the same tree
-//    hash before the fix patches and after the fixer patch): it writes the round-k record of step 5 with
-//    `fixChangedNothing: true`, writes no round folder, and returns null.
+//    After the fixer patch (step 4), it also ends when the fix step repaired no finding of round k: no fix patch that
+//    is not `pulled` applied, and the fixer patch changed nothing (step 4). A pulled-in patch repairs no finding, also
+//    when it changes the tree. Then it writes the round-k record of step 5 with `fixRepairedNothing: true`, writes no
+//    round folder, and returns null.
 // 3. With plan.extras and no fixer patch, it writes round-k/fixer/ and stops before it writes round k + 1:
 //    `<case>/<arm>/<run>/round-<k> has <n> valid extra findings for the fixer: <ids joined by ", ">; give their repair
 //    with --fixer-patch <file>`. round-k/fixer/ holds snapshot/ (the round-k tree after the fix patches of plan.fixes)
@@ -1760,7 +1761,7 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 //    so that it needs no user config. When the round has findings for the fixer and the tree after the fixer patch is
 //    the tree after the fix patches, the record of step 5 gets `fixerChangedNothing: true`.
 // 5. It adds `fix: plan` to round-k/meta.json, with `fixAlreadyApplied`, `fixedByFixer`, and `fixLeftOut` when they
-//    list a defect and `fixerChangedNothing` and `fixChangedNothing` when they are true, keeps every other field
+//    list a defect and `fixerChangedNothing` and `fixRepairedNothing` when they are true, keeps every other field
 //    there, and writes round-<k+1>/:
 //    - snapshot/: the new tree, as `case` writes a snapshot.
 //    - full.diff (case base to the new head), delta.diff (round-k head to the new head), and, for a panel round,
@@ -1808,10 +1809,12 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 //   and a collision names `<case>/<arm>/<run>/round-<r>/<reviewer>`. names and transcripts take workspaces with
 //   round folders: each round folder is a dispatch of its own, and transcripts writes the meta.json of the round
 //   folder.
-// - scoreRuns: a round r >= 2 is extra-only when the fix step after round r - 1 gave valid extras to the fixer and
-//   repaired no known defect: no fix in its `fix.fixes` that is not `pulled`, not in `fixAlreadyApplied`, and, when
-//   it is in `fixedByFixer`, repaired by the fixer: the round has no `fixerChangedNothing`, and a finding of round
-//   r - 1 that matches the defect has no `not present` in `fixer.replies`.
+// - scoreRuns: a round r >= 2 is extra-only when the fix step after round r - 1 repaired valid extras and no known
+//   defect. The fixer repaired the valid extras when it got them, the round has no `fixerChangedNothing`, and at least
+//   one of them has no `not present` in `fixer.replies`. A known defect was repaired when a fix in `fix.fixes` is not
+//   `pulled`, not in `fixAlreadyApplied`, and, when it is in `fixedByFixer`, repaired by the fixer: the round has no
+//   `fixerChangedNothing`, and a finding of round r - 1 that matches the defect has no `not present` in
+//   `fixer.replies`.
 // - transcriptsCommand: the fixer entry of a round also gives `fixer.replies`: each finding id of a line
 //   `<id>: repaired` or `<id>: not present` (a list marker and backticks allowed, any case) in the strings of the
 //   arguments of the last `yield` call of the fixer transcript, or without such a call, of the text of the last
@@ -2316,8 +2319,8 @@ test('loop writes one fixer prompt for all valid extras of a round and takes an 
   assert.equal(fs.existsSync(round(2)), false);
   fs.rmSync(stale);
 
-  // The fixer found no finding that needs a change, so it wrote an empty patch file. The fix patch of D1 still changed
-  // the tree, so round 2 follows, and round 1 records that the fixer patch changed nothing.
+  // The fixer found no finding that needs a change, so it wrote an empty patch file. The fix patch of D1 still applied
+  // and repaired the finding of D1, so round 2 follows, and round 1 records that the fixer patch changed nothing.
   fs.writeFileSync(path.join(fixerDir, 'fixer-1.patch'), '');
   assert.equal(prepare.prepareLoop({ run, cases }, repo), round(2));
   const round1Record = readJson(path.join(round(1), 'meta.json'));
@@ -2326,7 +2329,7 @@ test('loop writes one fixer prompt for all valid extras of a round and takes an 
     extras,
     rejections: [],
   });
-  assert.deepEqual([round1Record.fixerChangedNothing, round1Record.fixChangedNothing], [true, undefined]);
+  assert.deepEqual([round1Record.fixerChangedNothing, round1Record.fixRepairedNothing], [true, undefined]);
   const meta = readJson(path.join(round(2), 'meta.json'));
   assert.deepEqual(meta, {
     config: CONFIGS.low,
@@ -2751,12 +2754,11 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
 //   segment give a folder that a rule above allows, and no later segment holds `..`.
 //   Every other target is outside: every other local path, a relative path when cwd is null, and every other URI
 //   (issue://, pr://, local://, history://, and others).
-//   A target is a list when omp can read it as one: a local path that holds `;`, `,`, or white space outside `{}` and
-//   not after a backslash, or a URI that holds `;` between parts that are all URIs. A list target is allowed only
-//   when the whole target and each part (trimmed, without its selector) are allowed. A relative part after the first
-//   part resolves against the folder of the first part; an absolute part, a part that starts with `~`, and a URI part
-//   stay as they are.
-//   outside lists each outside target once, as the reviewer wrote it but without its selector, in call order.
+//   The option `lists` maps each target that omp read as a list of paths to these paths (see the list tests of code
+//   review round 3 below); such a target is allowed only when each of these paths is allowed. Every other target is
+//   one path.
+//   outside lists each outside target once, in call order: a target as the reviewer wrote it but without its
+//   selector, and a list target as the reviewer wrote it.
 //
 // Changed exports:
 // - transcriptsCommand: a reviewer entry never gets `toolCalls`. When the transcript has tool calls, the entry gets
@@ -2781,15 +2783,22 @@ const agentText = (root) =>
   `# Code Reviewer\n\nLoad and follow\n\`${root}/skills/productivity/code-reviewer/SKILL.md\`.\n` +
   'Without `CLAUDE_PLUGIN_ROOT`, resolve `../skills/productivity/code-reviewer/SKILL.md`\nfrom this file.\n';
 // A transcript of one agent that runs in the live checkout at the `low` configuration. Its last assistant message
-// makes the tool calls, each [name, arguments].
-function toolTranscript(caseDir, seconds, calls, agent = 'review-bench-candidate-code-low') {
+// makes the tool calls, each [name, arguments], and `cwd` is the working directory of its session. `results` maps the
+// id `call-<n>` of the n-th call to the details of its tool result; a call without an entry gets no tool result.
+function toolTranscript(caseDir, seconds, calls, agent = 'review-bench-candidate-code-low', options = {}) {
+  const { cwd = LIVE, results = {} } = options;
   const last = assistantLine(seconds, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 90, output: 10 });
   last.message.content = [
     { type: 'text', text: 'Done.' },
     ...calls.map(([name, args], index) => ({ type: 'toolCall', id: `call-${index + 1}`, name, arguments: args })),
   ];
+  const toolResults = Object.entries(results).map(([id, details]) => ({
+    type: 'message',
+    timestamp: isoAt(seconds),
+    message: { role: 'toolResult', toolCallId: id, content: [{ type: 'text', text: 'Read.' }], details },
+  }));
   return jsonl([
-    { type: 'session', timestamp: isoAt(0), cwd: LIVE },
+    { type: 'session', timestamp: isoAt(0), cwd },
     { type: 'thinking_level_change', timestamp: isoAt(0), thinkingLevel: 'low' },
     { type: 'service_tier_change', timestamp: isoAt(0), serviceTier: { openai: 'default' } },
     {
@@ -2801,6 +2810,7 @@ function toolTranscript(caseDir, seconds, calls, agent = 'review-bench-candidate
     },
     { type: 'message', timestamp: isoAt(0), message: taskMessage(caseDir) },
     last,
+    ...toolResults,
   ]);
 }
 
@@ -4415,7 +4425,7 @@ test('loop repairs a defect again when a later repair brings it back, and ends w
   assert.deepEqual(readJson(path.join(round(3), 'meta.json')), meta);
 });
 
-test('loop gives a defect that a later repair changed to the fixer, and ends when its fix changes no file', (t) => {
+test('loop gives a defect that a later repair changed to the fixer, and ends when its fix repairs nothing', (t) => {
   const { root, repo, ws, cases, run, round, round1Answers } = devLoop(t);
   // The fixer of round 1 sets v5 to 50, so the fix patch of D1 applies neither forward nor in reverse.
   const fixer = path.join(root, 'changing-fixer.patch');
@@ -4441,7 +4451,7 @@ test('loop gives a defect that a later repair changed to the fixer, and ends whe
     prompt.filter((line) => line.startsWith('Finding ')),
     [`Finding ${finding}: - [HIGH] Bug - src/sync.mjs:5 - v5 is 50 instead of 5 - set it to 5.`],
   );
-  // The fixer finds the finding not present and writes an empty patch, so the fix step changes no file. Production
+  // The fixer finds the finding not present and writes an empty patch, so the fix step repairs no finding. Production
   // rejects a finding that does not reproduce: the loop ends after round 2, and round 2 records the fix step.
   const round2Meta = readJson(path.join(round(2), 'meta.json'));
   fs.writeFileSync(path.join(fixerDir, 'fixer-1.patch'), '');
@@ -4452,7 +4462,65 @@ test('loop gives a defect that a later repair changed to the fixer, and ends whe
     fix: { fixes: [{ known: 'D1', patch: 'code-7.D1.fix.patch' }], extras: [], rejections: [] },
     fixedByFixer: ['D1'],
     fixerChangedNothing: true,
-    fixChangedNothing: true,
+    fixRepairedNothing: true,
+  });
+});
+
+test('loop ends when the fixer patch changed nothing and only a pulled-in fix patch changed the tree', (t) => {
+  const { repo, ws, cases, run, round } = devLoop(t);
+  // The fix patch of D2 needs v9 to be 90, so it applies to the case head neither forward nor in reverse. It needs the
+  // fix of D1 first (fix_after), and that patch applies.
+  const d2Patch = filePatch(repo, 'src/sync.mjs', syncFile({ 7: 0, 9: 90 }), syncFile({ 9: 90 }));
+  fs.writeFileSync(path.join(cases, 'dev', 'code-7.D2.fix.patch'), d2Patch);
+  // Round 1 has a valid extra (#1) and a finding of D2 (#2).
+  const block = [
+    '### Code review round 1',
+    '',
+    'Code-review: fixes-required',
+    '',
+    '## Standards',
+    '',
+    '- [MEDIUM] Bug - src/extra.mjs:2 - b is 0, and the callers divide by it - set it to 2.',
+    '- [HIGH] Bug - src/sync.mjs:7 - v7 is 0 instead of 7 - set it to 7.',
+    '',
+    '## Spec',
+    '',
+    'None.',
+    '',
+  ].join('\n');
+  put(run, 'round-1/blocks/full.md', block);
+  findingsCommand(ws);
+  const [extra, d2] = [`${LOOP_R1}#1`, `${LOOP_R1}#2`];
+  judgeLoop(ws, [
+    [extra, 'valid'],
+    [d2, 'D2'],
+  ]);
+  assert.throws(
+    () => prepare.prepareLoop({ run, cases }, repo),
+    new RegExp(
+      `round-1 has 1 valid extra findings for the fixer: ${escapeRegExp(extra)} and 1 known defects whose fix patches do not apply, for the fixer: D2 \\(found by ${escapeRegExp(d2)}\\); give their repair with --fixer-patch`,
+    ),
+  );
+  // The fixer finds both findings not present and writes an empty patch. The pulled-in fix of D1 changed the tree, but
+  // a pulled-in patch repairs no finding of round 1. So the fix step repaired no finding, and the loop ends after
+  // round 1.
+  const round1Meta = readJson(path.join(round(1), 'meta.json'));
+  fs.writeFileSync(path.join(round(1), 'fixer', 'fixer-1.patch'), '');
+  assert.equal(prepare.prepareLoop({ run, cases }, repo), null);
+  assert.equal(fs.existsSync(round(2)), false);
+  assert.deepEqual(readJson(path.join(round(1), 'meta.json')), {
+    ...round1Meta,
+    fix: {
+      fixes: [
+        { known: 'D1', patch: 'code-7.D1.fix.patch', pulled: true },
+        { known: 'D2', patch: 'code-7.D2.fix.patch' },
+      ],
+      extras: [extra],
+      rejections: [],
+    },
+    fixedByFixer: ['D2'],
+    fixerChangedNothing: true,
+    fixRepairedNothing: true,
   });
 });
 
@@ -4480,6 +4548,12 @@ test('extra-only rounds count the rounds whose previous fix step repaired valid 
     },
     {
       case: 'code-7',
+      config: 'high',
+      run: 2,
+      rounds: [round(50, 500, 'full', 10, ['valid']), round(20, 200, 'delta', 0, [])],
+    },
+    {
+      case: 'code-7',
       config: 'xhigh-fast',
       rounds: [round(50, 500, 'full', 10, ['D2', 'valid']), round(20, 200, 'delta', 0, [])],
     },
@@ -4499,25 +4573,32 @@ test('extra-only rounds count the rounds whose previous fix step repaired valid 
     'code-7/C1-high/run-1/round-1/full#1': 'not present',
     'code-7/C1-high/run-1/round-1/full#2': 'repaired',
   };
+  // high, run 2: the fixer replied `not present` for the only valid extra, so it repaired nothing, and the valid extra
+  // caused no round.
+  fixture.metas['code-7/C1-high/run-2/round-1'].fixer.replies = {
+    'code-7/C1-high/run-2/round-1/full#1': 'not present',
+  };
   // xhigh-fast: the fix patch of D2 did not apply, and the fix step pulled in the fix of D1, which changed the tree.
-  // The fixer patch changed nothing, so the fixer repaired no known defect, and D2 caused no round.
+  // The fixer patch changed nothing, so the fixer repaired neither D2 nor the valid extra, and no finding caused
+  // round 2. (`loop` now ends after such a fix step, see the test above; the score reads the record as it is.)
   const xhigh = fixture.metas['code-7/C1-xhigh-fast/run-1/round-1'];
   xhigh.fix.fixes.unshift({ known: 'D1', patch: 'code-7.D1.fix.patch', pulled: true });
   xhigh.fixedByFixer = ['D2'];
   xhigh.fixerChangedNothing = true;
   const scores = scoreRuns(fixture);
   assert.deepEqual(
-    scores.runs.map((run) => [run.arm, run.extraOnlyRounds]),
+    scores.runs.map((run) => [run.arm, run.run, run.extraOnlyRounds]),
     [
-      ['C1-high', 1],
-      ['C1-low', 1],
-      ['C1-low-fast', 0],
-      ['C1-xhigh-fast', 1],
+      ['C1-high', 'run-1', 1],
+      ['C1-high', 'run-2', 0],
+      ['C1-low', 'run-1', 1],
+      ['C1-low-fast', 'run-1', 0],
+      ['C1-xhigh-fast', 'run-1', 0],
     ],
   );
   const configs = ['low', 'low-fast', 'high', 'xhigh-fast'];
   const table = tableAfter(renderReport(scores, { configs }), '### Code loops: dev');
-  assert.ok(table.includes('| Extra-only rounds per run | 1.00 | 0.00 | 1.00 | 1.00 |'));
+  assert.ok(table.includes('| Extra-only rounds per run | 1.00 | 0.00 | 0.50 | 0.00 |'));
 });
 
 // The meta.json reviewer entry of a transcript, as `score.mjs transcripts` writes it for the configured model `model`.
@@ -4802,44 +4883,105 @@ test('readScope splits the path of grep, glob, and ast_grep on `;` and keeps the
   });
 });
 
-test('readScope puts a list path outside when omp can read a part outside, and lists the whole path', () => {
+// Plan #100, code review round 3: omp reads a path as a list only when no file or folder has the whole path, and it
+// resolves a relative path of the list against its working directory.
+//
+// Changed exports:
+// - readScope takes the option `lists`: a Map from a target (the trimmed path of a call, or a `;`-part of the path of
+//   grep, glob, or ast_grep, with its read selector) to the paths that omp read for it, without read selectors. A
+//   target with an entry is allowed only when each of these paths is allowed, and outside lists it as the reviewer
+//   wrote it. A target without an entry is one path. The function reads no file.
+// - transcriptsCommand gives readScope the lists of the transcript of the reviewer:
+//   - for a read call whose tool result has `details.displayReadTargets`, the paths of that list, except each path
+//     that a note `Could not read <path>: <reason>` in `details.notes` names (omp could not read it);
+//   - for every other target with `;`, `,`, or white space outside `{}` and not after a backslash, the split that omp
+//     takes, checked on the files, with a relative path against the `cwd` of the session. A target whose whole path
+//     exists, as written or without its read selector, gets no list. Else the list is the first of these splits: on
+//     `;`; on `,` when some part exists; on white space when each part exists; on all three when each part exists. A
+//     part exists when the folder before its first glob segment exists. A URI is a list only on `;`, and only when
+//     each part is a URI.
+
+test('readScope allows a list target only when each path that omp read for it is allowed', () => {
   const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
   const snapshot = `${SCOPE_CASE}/snapshot`;
-  // When no file has a path, omp reads the parts between `;`, `,`, or white space outside `{}`. A relative part
-  // continues the name of the first part, so a file under the snapshot whose name holds a delimiter stays allowed.
-  // Braces keep a delimiter, and a URL is a list only when each part is a URI.
-  const allowed = [
-    ...reads(
-      `${snapshot}/docs/release notes.md:1-20`,
-      `${snapshot}/src/a.mjs, ${snapshot}/src/b.mjs`,
-      'https://nodejs.org/api/fs.html;jsessionid=1',
-    ),
-    { name: 'glob', path: `${snapshot}/src/*.{mjs,json}` },
-  ];
-  assert.deepEqual(score.readScope(allowed, scope), { outside: [] });
-  // An absolute part, a URI part, and a relative part that leaves the snapshot with `..` count on their own. Each
-  // whole path is under the snapshot, so only its parts put it outside.
+  const [a, b] = [`${snapshot}/src/a.mjs`, `${snapshot}/src/b.mjs`];
+  const lists = new Map([
+    [`${a}, ${b}`, [a, b]],
+    // omp could not read the path `133`, so the list holds only the snapshot file.
+    [`${a}:65:raw,133:raw`, [a]],
+    [`${a};${LIVE}/src/b.mjs`, [a, `${LIVE}/src/b.mjs`]],
+    // A relative path of a list resolves against the working directory, the live checkout.
+    [`${a}:1-20, src/b.mjs`, [a, 'src/b.mjs']],
+    ['skill://code-review/SKILL.md;skill://code-reviewer', ['skill://code-review/SKILL.md', 'skill://code-reviewer']],
+    [`${snapshot}/src, ${LIVE}/src`, [`${snapshot}/src`, `${LIVE}/src`]],
+  ]);
+  const allowed = reads(`${a}, ${b}`, `${a}:65:raw,133:raw`, `${snapshot}/docs/release notes.md:1-20`);
+  assert.deepEqual(score.readScope(allowed, { ...scope, lists }), { outside: [] });
   const calls = [
-    ...reads(
-      `${snapshot}/src/a.mjs;${LIVE}/src/b.mjs`,
-      `${snapshot}/src/a.mjs:1-20, ${LIVE}/src/b.mjs:5-9`,
-      `${snapshot}/src/a.mjs ${SCOPE_CASE}/case.json`,
-      `${snapshot}/src/a.mjs;../../case.json`,
-      'skill://code-review/SKILL.md;skill://code-reviewer',
-    ),
-    { name: 'find', path: `${snapshot}/src;${LIVE}/src` },
+    ...reads(`${a};${LIVE}/src/b.mjs`, `${a}:1-20, src/b.mjs`, 'skill://code-review/SKILL.md;skill://code-reviewer'),
     { name: 'grep', path: `${snapshot}/src, ${LIVE}/src` },
   ];
-  assert.deepEqual(score.readScope(calls, scope), {
+  assert.deepEqual(score.readScope(calls, { ...scope, lists }), {
     outside: [
-      `${snapshot}/src/a.mjs;${LIVE}/src/b.mjs`,
-      `${snapshot}/src/a.mjs:1-20, ${LIVE}/src/b.mjs`,
-      `${snapshot}/src/a.mjs ${SCOPE_CASE}/case.json`,
-      `${snapshot}/src/a.mjs;../../case.json`,
+      `${a};${LIVE}/src/b.mjs`,
+      `${a}:1-20, src/b.mjs`,
       'skill://code-review/SKILL.md;skill://code-reviewer',
-      `${snapshot}/src;${LIVE}/src`,
       `${snapshot}/src, ${LIVE}/src`,
     ],
+  });
+  // Without an entry in `lists`, a target is one path, and each whole path below is under the snapshot.
+  assert.deepEqual(score.readScope(reads(`${a};${LIVE}/src/b.mjs`, `${a}:1-20, src/b.mjs`), scope), { outside: [] });
+});
+
+test('transcripts reads a target as a list only when no file has its whole path, and prefers the list of omp', (t) => {
+  const root = scratch(t);
+  // A workspace folder whose name holds a space, as `bench=…/bench-gpt 7` gives it, so each snapshot path holds one.
+  const ws = path.join(root, 'bench-gpt 7');
+  const sessions = path.join(root, 'sessions');
+  // The live checkout, the working directory of the reviewer, has the layout of the snapshot. The agent text names
+  // another plugin root, as for a baseline reviewer, so the skill file of the live checkout is outside.
+  const live = path.join(root, 'live');
+  const caseDir = path.join(ws, 'code-7');
+  const snapshot = path.join(caseDir, 'snapshot');
+  const round1 = path.join(caseDir, 'C1-low', 'run-1', 'round-1');
+  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+  put(caseDir, 'full.diff', '');
+  put(round1, 'prompts/full.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
+  put(round1, 'meta.json', { config: CONFIGS.low, mode: 'full' });
+  const skill = 'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md';
+  for (const file of ['src/a.mjs', 'src/a;b.mjs', 'docs/release notes.md', skill]) put(snapshot, file, 'text\n');
+  put(live, skill, 'text\n');
+  const a = path.join(snapshot, 'src', 'a.mjs');
+  const calls = [
+    // Each whole path exists, as written or without its read selector, so each target is one path.
+    ['read', { path: `${a}:1-20` }],
+    ['read', { path: path.join(snapshot, 'src', 'a;b.mjs') }],
+    ['read', { path: `${path.join(snapshot, 'docs', 'release notes.md')}:1-20` }],
+    ['grep', { pattern: 'lock', path: path.join(snapshot, 'src') }],
+    // No folder has the part before the space, so omp does not split the glob on white space.
+    ['glob', { path: path.join(snapshot, 'src', '*.{mjs,json}') }],
+    // A URL is a list only when each part is a URI.
+    ['read', { path: 'https://nodejs.org/api/fs.html;jsessionid=1' }],
+    // No file has the whole path, so omp reads the paths between `,`, and the relative path resolves against the live
+    // checkout.
+    ['read', { path: `${a}, ${skill}` }],
+    ['read', { path: `${a}, ${path.join(snapshot, skill)}` }],
+    // The tool result records the list: omp could not read the path `133`, so only the snapshot file counts.
+    ['read', { path: `${a}:65:raw,133:raw` }],
+    // Without a tool result, transcripts cannot see which paths omp could not read, so each path of the list counts:
+    // `140` resolves against the live checkout.
+    ['read', { path: `${a}:70:raw,140:raw` }],
+  ];
+  const results = {
+    'call-9': {
+      notes: [`Note: interpreted as 2 paths: ${a}:65:raw, 133:raw`, "Could not read 133:raw: Path '133' not found"],
+      displayReadTargets: [`${a}:65:raw`, '133:raw'],
+    },
+  };
+  put(sessions, 'Code7C1LowR1K1Full.jsonl', toolTranscript(caseDir, 30, calls, undefined, { cwd: live, results }));
+  assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7C1LowR1K1Full']);
+  assert.deepEqual(readJson(path.join(round1, 'meta.json')).reviewers.full.readScope, {
+    outside: [`${a}, ${skill}`, `${a}:70:raw,140:raw`],
   });
 });
 

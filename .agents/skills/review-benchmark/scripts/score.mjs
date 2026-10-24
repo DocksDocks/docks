@@ -8,6 +8,7 @@
 // `prepare.mjs loop`.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -63,19 +64,37 @@ const SEARCH_TOOLS = new Set(['grep', 'glob', 'find', 'ast_grep']);
 // part resolves against the working directory. The path of every other tool, for example `read` and `find`, is one
 // target, which can hold a `;`.
 const PATH_LIST_TOOLS = new Set(['grep', 'glob', 'ast_grep']);
-// When no file has a path, omp can read the path as a list of the paths between these delimiters, outside `{}` and
-// not after a backslash (omp://tools/read.md, Flow step 7; the delimiters of omp 18.12): `;`, `,`, and white space.
-// An http, https, or internal URI is a list only on `;`, and only when each part is a URI.
-const PATH_DELIMITER = /[;,\s]/;
+// When no file or folder has a path, omp can read the path as a list of paths (omp://tools/read.md, Flow step 7; the
+// recovery of a delimited path list in packages/coding-agent/src/tools/path-utils.ts of omp 18.12). It splits the path
+// between delimiters outside `{}` and not after a backslash, and takes the first of these splits that it can: on `;`;
+// on `,` when some part exists; on white space when each part exists; on all three delimiters when each part exists.
+// A part exists when the folder before its first glob segment exists, or when the part is an internal URI. An http,
+// https, or internal URI is a list only on `;`, and only when each part is a URI. See readLists.
+const LIST_SPLITS = [
+  { delimiter: /;/, existing: 'none' },
+  { delimiter: /,/, existing: 'some' },
+  { delimiter: /\s/, existing: 'all' },
+  { delimiter: /[;,\s]/, existing: 'all' },
+];
+const ANY_DELIMITER = /[;,\s]/;
 const URI_DELIMITER = /;/;
+// The note of a list read for each path that omp could not read: `Could not read <path>: <reason>`.
+const UNREAD_NOTE = 'Could not read ';
 // A web search has a `query`, not a path. A query that names the owner of the benchmark repository can find the
 // pages of the repository.
 const WEB_SEARCH_TOOL = 'web_search';
 const BENCHMARK_QUERY = /docksdocks/i;
 const URI_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
 const WEB_SCHEMES = new Set(['http', 'https']);
-// The selector of a read at the end of a path, for example `:1-260` or `:23-54:raw`.
+// The selector of a read at the end of a path, for example `:1-260` or `:23-54:raw`. It can also take a tail that omp
+// does not read as a selector, so a list decides on the path with its selectors (see readLists).
 const READ_SELECTOR = /(?::[^:/]*)+$/;
+// A read selector as omp parses it (omp://tools/read.md, Selector grammar): `:raw`, `:img`, `:conflicts`, or line
+// ranges (`:N`, `:LN`, `:N-`, `:N..`, `:A-B`, `:A..B`, `:A+C`, `:-N`, and comma lists of these, with or without a
+// colon after each comma), alone or with `:raw` before or after them.
+const LINE_RANGE = String.raw`(?:L?\d+(?:(?:-|\.\.)(?:L?\d+)?|\+L?\d+)?|-\d+)`;
+const LINE_RANGES = `${LINE_RANGE}(?:,:?${LINE_RANGE})*`;
+const OMP_SELECTOR = new RegExp(`:(?:raw|img|conflicts|${LINE_RANGES}(?::raw)?|raw:${LINE_RANGES})$`, 'i');
 const GLOB_CHARACTER = /[*?[{]/;
 // Hosts whose paths start with the owner and the name of a repository.
 const REPOSITORY_HOSTS = new Set(['github.com', 'www.github.com', 'raw.githubusercontent.com']);
@@ -683,21 +702,23 @@ function judgeFindings(findings, { matched, unsure, ratings }) {
 // transcriptsCommand): `knownRepair` tells if it repaired a known defect that a finding of the round matched, with a
 // fix patch that applied or through the fixer. A patch that the tree already held and a pulled-in patch repair no
 // finding of the round. A defect that the fixer got counts only when the fixer patch changed the tree and the fixer did
-// not reply `not present` for each finding of the round that matches the defect. `extraRepair` tells if it gave valid
-// extra findings to the fixer.
+// not reply `not present` for each finding of the round that matches the defect. `extraRepair` tells if the fixer
+// repaired valid extra findings: the fix step gave valid extras to the fixer, the fixer patch changed the tree, and
+// the fixer did not reply `not present` for each of these extras.
 function scoreRound(round, knownIds, judged, meta) {
   const costs = round.blocks.map((block) => meta?.reviewers?.[block.reviewer]);
   const { found } = judgeFindings(round.findings, judged);
   const present = new Set(meta?.fixAlreadyApplied ?? []);
   const byFixer = new Set(meta?.fixedByFixer ?? []);
   const replies = meta?.fixer?.replies ?? {};
-  const fixerRepaired = (id) =>
-    !meta?.fixerChangedNothing &&
-    round.findings.some(
-      (finding) => judged.matched.get(finding.blind)?.has(id) && replies[finding.id] !== 'not present',
-    );
+  // The fixer repaired one of the findings `ids` when its patch changed the tree and it replied `not present` for not
+  // all of them.
+  const fixerRepaired = (ids) => !meta?.fixerChangedNothing && ids.some((id) => replies[id] !== 'not present');
+  const matching = (known) => round.findings.filter((finding) => judged.matched.get(finding.blind)?.has(known));
   const repaired = (fix) =>
-    !fix.pulled && !present.has(fix.known) && (!byFixer.has(fix.known) || fixerRepaired(fix.known));
+    !fix.pulled &&
+    !present.has(fix.known) &&
+    (!byFixer.has(fix.known) || fixerRepaired(matching(fix.known).map((finding) => finding.id)));
   return {
     round: round.round,
     mode: meta?.mode ?? null,
@@ -707,7 +728,7 @@ function scoreRound(round, knownIds, judged, meta) {
     tokens: total(costs.map((cost) => cost?.tokens)),
     found: knownIds.filter((id) => found.has(id)),
     knownRepair: (meta?.fix?.fixes ?? []).some(repaired),
-    extraRepair: (meta?.fix?.extras ?? []).length > 0,
+    extraRepair: fixerRepaired(meta?.fix?.extras ?? []),
     fixer: Boolean(meta?.fixer),
     fixerSeconds: typeof meta?.fixer?.seconds === 'number' ? meta.fixer.seconds : 0,
     fixerTokens: typeof meta?.fixer?.tokens === 'number' ? meta.fixer.tokens : 0,
@@ -813,9 +834,9 @@ function scoreRun(run, caseEntry, judged, metas) {
     rounds.flatMap((round) => round.findings),
     judged,
   );
-  // A round is caused only by extra findings when the fix step after the round before it gave valid extra findings to
-  // the fixer and repaired no known defect (see scoreRound). A known defect that needed no repair, such as a repeat of
-  // a fixed defect whose fix the tree holds or that the fixer found `not present`, causes no round.
+  // A round is caused only by extra findings when the fix step after the round before it repaired valid extra findings
+  // and no known defect (see scoreRound). A finding that needed no repair, such as a repeat of a fixed defect whose fix
+  // the tree holds or a finding that the fixer found `not present`, causes no round.
   const extraOnlyRounds = roundScores.filter(
     (_, index) => index > 0 && roundScores[index - 1].extraRepair && !roundScores[index - 1].knownRepair,
   ).length;
@@ -1374,7 +1395,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
     'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose reviewer transcripts show another model, effort, or served tier than their configuration; loops whose fixer transcripts show another model, effort, or served tier than the fixer setting; runs with a reviewer or a fixer without transcript facts or without a served assistant message, also a loop round that gave findings to the fixer and has no transcript facts of its fixer (for example a repair with --fixer-patch); loops with a fixer but without a fixer setting; runs with a reviewer that read a file outside the inputs of its run; and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
-    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step gave valid extra findings to the fixer and repaired no known defect that a finding of the previous round matched: no fix patch of such a defect applied, and the fixer repaired none (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
+    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
     '',
     '## Summary',
     '',
@@ -1802,20 +1823,28 @@ function skillReadAllowed(key, rules) {
   return (rules.selfReview && key !== undefined) || instructionAllowed(key, rules);
 }
 
+// The folder of a path before its first glob segment (`base`), and the segments from that segment on (`rest`). A path
+// without a glob segment is its own base and has no rest.
+function globParts(target) {
+  const segments = target.split('/');
+  const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
+  if (globAt === -1) return { base: target, rest: [] };
+  const base = segments.slice(0, globAt).join('/') || (path.isAbsolute(target) ? path.sep : '.');
+  return { base, rest: segments.slice(globAt) };
+}
+
 // A relative path resolves against the working directory, so without one it is outside. A glob is allowed when the
 // folder before its first glob segment is allowed and no later segment can leave that folder with `..`.
 function localPathAllowed(target, cwd, rules) {
   if (!path.isAbsolute(target) && typeof cwd !== 'string') return false;
-  const segments = target.split('/');
-  const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
-  if (globAt === -1) {
+  const { base, rest } = globParts(target);
+  if (rest.length === 0) {
     const resolved = path.resolve(cwd ?? path.sep, target);
     if (folderAllowed(resolved, rules) || fileAllowed(resolved, rules)) return true;
     if (instructionAllowed(contractKey(resolved, rules.pluginRoots), rules)) return true;
     return skillReadAllowed(cacheKey(target, resolved), rules);
   }
-  if (segments.slice(globAt).some((segment) => segment.includes('..'))) return false;
-  const base = segments.slice(0, globAt).join('/') || (path.isAbsolute(target) ? path.sep : '.');
+  if (rest.some((segment) => segment.includes('..'))) return false;
   const resolvedBase = path.resolve(cwd ?? path.sep, base);
   return folderAllowed(resolvedBase, rules) || skillReadAllowed(cacheKey(base, resolvedBase), rules);
 }
@@ -1851,16 +1880,14 @@ function targetAllowed(target, cwd, rules) {
 const withoutSelector = (target) => (WEB_SCHEMES.has(uriScheme(target)) ? target : target.replace(READ_SELECTOR, ''));
 
 // The targets of the `path` argument of a call of the tool `name`: for a tool whose path takes a list
-// (PATH_LIST_TOOLS), its `;`-separated parts, else the whole path; each trimmed and without its read selector.
+// (PATH_LIST_TOOLS), its `;`-separated parts, else the whole path; each trimmed, with its read selector.
 function pathTargets(name, value) {
-  return (PATH_LIST_TOOLS.has(name) ? value.split(';') : [value])
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map(withoutSelector);
+  return (PATH_LIST_TOOLS.has(name) ? value.split(';') : [value]).map((part) => part.trim()).filter(Boolean);
 }
 
 // The parts of `text` between the delimiters that `delimiter` matches, outside `{}` and not after a backslash, as
-// omp splits a delimited path list; each part trimmed, and empty parts left out.
+// omp splits a delimited path list: each part trimmed, and empty parts left out. Null when `text` holds no such
+// delimiter or holds only empty parts.
 function splitPathList(text, delimiter) {
   const parts = [];
   let depth = 0;
@@ -1875,36 +1902,103 @@ function splitPathList(text, delimiter) {
       start = index + 1;
     }
   }
+  if (parts.length === 0) return null;
   parts.push(text.slice(start));
-  return parts.map((part) => part.trim()).filter(Boolean);
+  const kept = parts.map((part) => part.trim()).filter(Boolean);
+  return kept.length ? kept : null;
 }
 
-// The paths that omp can read for a target when no file has the whole target (see PATH_DELIMITER), each without its
-// read selector, or none when the target is no list. A relative part after the first part continues the name of the
-// first part, so it resolves against the folder of the first part: a file under the snapshot whose name holds a
-// delimiter stays under the snapshot. omp resolves such a part against the working directory when it reads the list,
-// so the read scope does not see that read (../SKILL.md, Read scope, states this limit). An absolute part, a part that
-// starts with `~` (the home folder), and a URI part stay as they are, so each of them counts on its own.
-function listParts(target) {
+// The file of a local path as omp resolves it: `~` is the home folder, a bare `/` is the working directory, and a
+// relative path resolves against the working directory. Null for a relative path without a working directory.
+function ompFile(target, cwd) {
+  if (target === '~' || target.startsWith('~/')) return path.join(os.homedir(), target.slice(1));
+  if (/^\/+$/.test(target)) return cwd;
+  if (path.isAbsolute(target)) return target;
+  return typeof cwd === 'string' ? path.resolve(cwd, target) : null;
+}
+
+function ompPathExists(target, cwd) {
+  const file = ompFile(target, cwd);
+  return typeof file === 'string' && fs.existsSync(file);
+}
+
+// The paths that omp reads for the target `target` of a tool call (trimmed, with its read selectors) when it reads
+// the target as a list of paths (see LIST_SPLITS), each with its read selector, or null when omp reads the target as
+// one path. A target whose whole path exists, as written or without its read selector, is one path, also when it
+// holds a delimiter: for example a file whose name holds a space or a `;`, or a workspace folder with a space.
+function delimitedParts(target, cwd) {
+  if (splitPathList(target, ANY_DELIMITER) === null) return null;
   if (uriScheme(target) !== undefined) {
     const parts = splitPathList(target, URI_DELIMITER);
-    const list = parts.length > 1 && parts.every((part) => uriScheme(part) !== undefined);
-    return list ? parts.map(withoutSelector) : [];
+    return parts !== null && parts.length > 1 && parts.every((part) => uriScheme(part) !== undefined) ? parts : null;
   }
-  const parts = splitPathList(target, PATH_DELIMITER).map(withoutSelector);
-  if (parts.length < 2) return [];
-  const folder = path.posix.dirname(parts[0]);
-  const continuesName = (part) => !path.isAbsolute(part) && !part.startsWith('~') && uriScheme(part) === undefined;
-  return parts.map((part, index) => (index > 0 && continuesName(part) ? `${folder}/${part}` : part));
+  if (ompPathExists(target, cwd) || ompPathExists(target.replace(OMP_SELECTOR, ''), cwd)) return null;
+  const exists = (part) => {
+    const scheme = uriScheme(part);
+    if (scheme !== undefined) return !WEB_SCHEMES.has(scheme);
+    return ompPathExists(globParts(part.replace(OMP_SELECTOR, '')).base, cwd);
+  };
+  for (const { delimiter, existing } of LIST_SPLITS) {
+    const parts = splitPathList(target, delimiter);
+    if (parts === null) continue;
+    if (existing === 'none' || (existing === 'some' ? parts.some(exists) : parts.every(exists))) return parts;
+  }
+  return null;
+}
+
+// The paths of a list that omp read for a `read` call, from the details of its tool result, or null when the result
+// records no list. omp records each path of the list in `displayReadTargets` (for a path that a unique suffix match
+// resolved, the path that it found), and writes a note `Could not read <path>: <reason>` for each path that it could
+// not read. Such a path read no file, so it is not in the result.
+function recordedParts(details) {
+  if (!Array.isArray(details?.displayReadTargets)) return null;
+  const notes = Array.isArray(details.notes) ? details.notes.filter((note) => typeof note === 'string') : [];
+  const unread = (part) => notes.some((note) => note.startsWith(`${UNREAD_NOTE}${part}: `));
+  return details.displayReadTargets
+    .filter((part) => typeof part === 'string')
+    .map((part) => part.trim())
+    .filter((part) => part && !unread(part));
+}
+
+// The list targets of the tool calls of a transcript: a map from each target (see pathTargets) that omp read as a list
+// of paths to these paths, each without its read selector. A relative path stays relative, and readScope resolves it
+// against the working directory `cwd` of the session, as omp did. For a `read` call whose tool result records a list,
+// the tool result decides, because it shows what omp read (see recordedParts). For every other call, the files decide
+// as they decided for omp (see delimitedParts); readLists checks them when it runs, after the session. Without a
+// record, readLists cannot see which paths omp could not read, so each path of the split counts. When two calls give
+// paths for the same target, the map keeps the paths of both.
+function readLists(text, source, cwd) {
+  const calls = [];
+  const resultDetails = new Map();
+  for (const entry of transcriptEntries(text, source)) {
+    const message = entry.type === 'message' ? entry.message : undefined;
+    if (message?.role === 'assistant' && Array.isArray(message.content)) {
+      calls.push(...message.content.filter((item) => item?.type === 'toolCall'));
+    } else if (message?.role === 'toolResult' && typeof message.toolCallId === 'string') {
+      resultDetails.set(message.toolCallId, message.details);
+    }
+  }
+  const lists = new Map();
+  for (const call of calls) {
+    const value = call.arguments?.path;
+    if (typeof value !== 'string') continue;
+    const recorded = call.name === 'read' ? recordedParts(resultDetails.get(call.id)) : null;
+    for (const target of pathTargets(call.name, value)) {
+      const parts = recorded ?? delimitedParts(target, cwd);
+      if (parts !== null) lists.set(target, distinct([...(lists.get(target) ?? []), ...parts.map(withoutSelector)]));
+    }
+  }
+  return lists;
 }
 
 // The reviewers run in the live checkout, which holds the fixes of the corpus defects, so a reviewer that reads a
 // file outside the inputs of its run can see a fix. readScope gives the targets of the tool calls that are outside,
-// each once, as the reviewer wrote them without the read selector, in call order. `runDir` is
-// `<ws>/<case>/<arm folder>/run-<k>`; `round` is the number of a round folder, or undefined for a run without round
-// folders; `cwd` is the working directory of the session (null when unknown); `pluginRoots` are the plugin roots that
-// the agent text names; `agentFiles` are the agent files that the agent text names as its own (the self-review agent
-// has no plugin root). The function reads no file. A target is allowed when it is:
+// each once, in call order: a target as the reviewer wrote it without the read selector, and a list target (see below)
+// as the reviewer wrote it. `runDir` is `<ws>/<case>/<arm folder>/run-<k>`; `round` is the number of a round folder,
+// or undefined for a run without round folders; `cwd` is the working directory of the session (null when unknown);
+// `pluginRoots` are the plugin roots that the agent text names; `agentFiles` are the agent files that the agent text
+// names as its own (the self-review agent has no plugin root). The function reads no file. A target is allowed when it
+// is:
 // - under an input of the run: `snapshot/`, `prompts/`, a `*.diff` file, `plan.md`, `previous-review.md`, or
 //   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
 // - under the tree copy of the judge for a round of the run up to `round`;
@@ -1927,8 +2021,10 @@ function listParts(target) {
 // another version than the reviewer skill of the arm. A grep, glob, find, or ast_grep call without a path searches the
 // working directory, so it gives the outside target `<name> without a path`; other calls without a path read no file.
 // The path of a grep, glob, or ast_grep call is a `;`-separated list of targets; the path of every other tool is one
-// target, also when it holds a `;`. When no file has a path, omp can read the path as a list of paths (see listParts),
-// so a target is allowed only when the target and each of its list parts are allowed; outside lists the whole target.
+// target, also when it holds a `;`. When no file or folder has the path of a target, omp can read it as a list of
+// paths. `lists` maps each target that omp read as a list to these paths, each without its read selector
+// (transcriptsCommand gives it, see readLists); a list target is allowed when each of these paths is allowed. Every
+// other target is one path.
 // A web search has no path: `queries` lists its queries, each once, in call order, and a query that names the owner of
 // the benchmark repository (`DocksDocks`, in any case) gives the outside target `web_search: <query>`. A reviewer
 // without a web search gets no `queries`.
@@ -1942,7 +2038,7 @@ function listParts(target) {
 // file is outside.
 export function readScope(
   toolCalls,
-  { runDir, round, cwd = null, pluginRoots = [], agentFiles = [], changedFiles = [] },
+  { runDir, round, cwd = null, pluginRoots = [], agentFiles = [], changedFiles = [], lists = new Map() },
 ) {
   const rules = scopeRules(path.resolve(runDir), round, pluginRoots, agentFiles, changedFiles);
   const outside = new Set();
@@ -1959,8 +2055,13 @@ export function readScope(
       continue;
     }
     for (const target of pathTargets(name, value)) {
-      const reads = [target, ...listParts(target)];
-      if (!reads.every((read) => targetAllowed(read, cwd, rules))) outside.add(target);
+      const parts = lists.get(target);
+      if (parts !== undefined) {
+        if (!parts.every((part) => targetAllowed(part, cwd, rules))) outside.add(target);
+        continue;
+      }
+      const read = withoutSelector(target);
+      if (!targetAllowed(read, cwd, rules)) outside.add(read);
     }
   }
   return queries.size ? { outside: [...outside], queries: [...queries] } : { outside: [...outside] };
@@ -2166,14 +2267,15 @@ export function namesCommand(ws) {
 // workspaces that one session dispatches can use the same dispatch names.
 // A reviewer entry under `reviewers` gets the time and tokens of the assistant messages of the configured model
 // (`config.model`; every model without a configuration) and the transcript facts. When the reviewer called tools, it
-// also gets `readScope` (see readScope) for the working directory and the plugin roots that its transcript shows and
-// for the files that its case changes (see caseChangedFiles); the command stops when an input that names these files
-// is missing. The fixer entry of a round, under `fixer.agents`, gets the time and tokens of every assistant message and
-// the transcript facts, which `report` checks against the fixer setting of the loop (see invalidReasons). A round has
-// one fixer, so `fixer.seconds` and `fixer.tokens` are its time and tokens, and `fixer.replies` maps each finding id
-// that the fixer reply names to `repaired` or `not present` (see fixerReplies; no field when the reply names no
-// finding). meta.json keeps no tool calls. The command checks every dispatch name before it writes, writes what it
-// finds, then fails with the names of the dispatches that have no transcript.
+// also gets `readScope` (see readScope) for the working directory and the plugin roots that its transcript shows, for
+// the targets that omp read as lists of paths (see readLists), and for the files that its case changes (see
+// caseChangedFiles); the command stops when an input that names these files is missing. The fixer entry of a round,
+// under `fixer.agents`, gets the time and tokens of every assistant message and the transcript facts, which `report`
+// checks against the fixer setting of the loop (see invalidReasons). A round has one fixer, so `fixer.seconds` and
+// `fixer.tokens` are its time and tokens, and `fixer.replies` maps each finding id that the fixer reply names to
+// `repaired` or `not present` (see fixerReplies; no field when the reply names no finding). meta.json keeps no tool
+// calls. The command checks every dispatch name before it writes, writes what it finds, then fails with the names of
+// the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
   const wsDir = path.resolve(ws);
@@ -2219,7 +2321,9 @@ export function transcriptsCommand(ws, sessionsDir) {
           const caseDir = path.join(ws, caseId);
           changedFiles ??= caseChangedFiles(caseDir, family, round, dir);
           const runDir = path.join(caseDir, arm, run);
-          entry.readScope = readScope(toolCalls, { runDir, round, changedFiles, ...transcriptSession(text, file) });
+          const session = transcriptSession(text, file);
+          const lists = readLists(text, file, session.cwd);
+          entry.readScope = readScope(toolCalls, { runDir, round, changedFiles, ...session, lists });
         }
         meta.reviewers[reviewer] = entry;
       }

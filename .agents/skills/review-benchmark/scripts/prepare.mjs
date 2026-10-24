@@ -984,8 +984,9 @@ function findingsOfDefect(findings, judgments, id) {
 // it repairs every finding of round k that stands (score.mjs fixPlan), commits the repaired tree as the reviewed
 // head of round k + 1, and writes round-<k+1>/ in the mode that roundMode gives for the round policy that the
 // meta.json of the run records. It returns that folder, or null when the loop ends. It stops before the fix step when
-// round k did not complete or when the judge did not answer a finding of round k. When the fix step changes no file,
-// the loop ends after round k: the command records the fix step in round-k/meta.json and writes no round folder.
+// round k did not complete or when the judge did not answer a finding of round k. When the fix step repairs no finding
+// of round k (no fix patch that is not pulled in applied, and the fixer patch changed nothing), the loop ends after
+// round k: the command records the fix step in round-k/meta.json and writes no round folder.
 // `repo` is the git repository of the case commits. ../SKILL.md, Review loop, describes the files.
 export function prepareLoop(options, repo) {
   if (!options.run) fail('loop needs --run <ws>/<case>/<arm>-<config>/run-<k>');
@@ -1129,14 +1130,16 @@ export function prepareLoop(options, repo) {
       applyPatch(repo, env, repair.patch, `the fixer patch does not apply to ${roundLabel} after its fix patches`);
     }
     const tree = writeTree(repo, env);
-    // The tree hashes show what the fix step changed. A fixer patch that changed nothing repaired no finding. A fix
-    // step that changed nothing repaired no finding of round k: production rejects a finding that does not reproduce,
-    // so the loop ends after round k, as when no finding stands.
-    const unchanged = {
-      fixChangedNothing: tree === reviewedTree,
-      fixerChangedNothing: fixedTree !== null && tree === fixedTree,
+    // A fixer patch that leaves the tree as the fix patches left it repaired no finding. A pulled-in patch repairs no
+    // finding of round k either, also when it changed the tree. So when no fix patch that is not pulled in applied and
+    // the fixer patch changed nothing, the fix step repaired no finding of round k: production rejects a finding that
+    // does not reproduce, so the loop ends after round k, as when no finding stands.
+    const fixerChangedNothing = fixedTree !== null && tree === fixedTree;
+    const noRepair = {
+      fixRepairedNothing: split.applied.every((fix) => fix.pulled) && fixerChangedNothing,
+      fixerChangedNothing,
     };
-    if (unchanged.fixChangedNothing) return { notApplied: split.notApplied, unchanged };
+    if (noRepair.fixRepairedNothing) return { notApplied: split.notApplied, noRepair };
     const head = commitTree(repo, tree, parent, `Review loop ${label}, round ${nextRound}`);
     const base = resolveCommit(repo, caseData.base, `${caseId} base`);
     const fullLines = diffSize(repo, base, tree);
@@ -1170,27 +1173,28 @@ export function prepareLoop(options, repo) {
       fs.rmSync(judgeTree, { recursive: true, force: true });
       throw error;
     }
-    return { mode: nextMode, notApplied: split.notApplied, unchanged };
+    return { mode: nextMode, notApplied: split.notApplied, noRepair };
   });
   if (!next) {
     console.log(`the loop of ${label} ends after round ${k}`);
     return null;
   }
-  const { mode, notApplied, unchanged } = next;
-  // The fix plan, each list of known defects whose fix patch did not apply, and each flag of a fix step or fixer patch
-  // that changed nothing. An empty list or a false flag removes its field, so a rebuilt round keeps no old value.
+  const { mode, notApplied, noRepair } = next;
+  // The fix plan, each list of known defects whose fix patch did not apply, and each flag of a fixer patch that changed
+  // nothing or a fix step that repaired nothing. An empty list or a false flag removes its field, so a rebuilt round
+  // keeps no old value.
   const record = { ...roundMeta, fix: plan };
   for (const [field, ids] of Object.entries(notApplied)) {
     if (ids.length) record[field] = ids;
     else delete record[field];
   }
-  for (const [field, flag] of Object.entries(unchanged)) {
+  for (const [field, flag] of Object.entries(noRepair)) {
     if (flag) record[field] = true;
     else delete record[field];
   }
   writeJson(roundMetaFile, record);
-  if (unchanged.fixChangedNothing) {
-    console.log(`the loop of ${label} ends after round ${k}: its fix step changed no file`);
+  if (noRepair.fixRepairedNothing) {
+    console.log(`the loop of ${label} ends after round ${k}: its fix step repaired no finding`);
     return null;
   }
   console.log(`prepared ${nextDir}: a ${mode} round after ${plan.fixes.length} fixes and ${plan.extras.length} extras`);
