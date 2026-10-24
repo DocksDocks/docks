@@ -1322,7 +1322,8 @@ export function prepareAgents(options, repo) {
 }
 
 // One run per configuration: the candidate code agent of the configuration gets a short task, so its transcript
-// shows the model, the effort, and the served tier at little cost.
+// shows the model, the effort, and the served tier at little cost. The task names the run folder, because
+// `score.mjs transcripts` takes only a transcript whose task names a path in the case folder.
 function prepareProbe(options, repo) {
   if (!options.out) fail('probe needs --out <workspace dir>');
   const configs = selectConfigs(options, repo);
@@ -1330,11 +1331,11 @@ function prepareProbe(options, repo) {
   if (fs.existsSync(caseDir)) fail(`${caseDir} exists; remove it or choose another --out`);
   writeJson(path.join(caseDir, 'case.json'), PROBE_CASE);
   writeRuns(
-    configs.map((config) => ({
-      dir: path.join(caseDir, armFolder(PROBE_ARM, config.name), 'run-1'),
-      meta: { config },
-      prompts: [{ reviewer: 'full', text: `agent: ${armAgent('code', PROBE_ARM, config.name)}\n\n${PROBE_TASK}\n` }],
-    })),
+    configs.map((config) => {
+      const dir = path.join(caseDir, armFolder(PROBE_ARM, config.name), 'run-1');
+      const text = `agent: ${armAgent('code', PROBE_ARM, config.name)}\n\n${PROBE_TASK}\n\nRun folder: ${dir}\n`;
+      return { dir, meta: { config }, prompts: [{ reviewer: 'full', text }] };
+    }),
   );
   console.log(`prepared ${caseDir}: one prompt for each of ${configs.map((config) => config.name).join(', ')}`);
 }

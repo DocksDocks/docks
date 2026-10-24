@@ -1375,14 +1375,16 @@ function promptedDispatches(ws) {
   );
 }
 
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // omp writes `<name>.jsonl`, `<parent>.<name>.jsonl` for a nested dispatch, and `<name>-<n>.jsonl` for a repeated
-// name. The latest repeat is the dispatch whose block the operator kept.
-export function pickTranscript(files, name) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`^(?:.+\\.)?${escaped}(?:-(\\d+))?\\.jsonl$`);
+// name. Two workspaces that one session dispatches can use the same names, so only the files that `belongs` accepts
+// count (see transcriptsCommand). The latest repeat of these is the dispatch whose block the operator kept.
+export function pickTranscript(files, name, belongs) {
+  const pattern = new RegExp(`^(?:.+\\.)?${escapeRegExp(name)}(?:-(\\d+))?\\.jsonl$`);
   const matches = files.flatMap((file) => {
     const match = pattern.exec(path.basename(file));
-    return match ? [{ file, repeat: Number(match[1] ?? 1) }] : [];
+    return match && belongs(file) ? [{ file, repeat: Number(match[1] ?? 1) }] : [];
   });
   const latest = Math.max(...matches.map((match) => match.repeat));
   const chosen = matches.filter((match) => match.repeat === latest);
@@ -1390,17 +1392,72 @@ export function pickTranscript(files, name) {
   return chosen[0]?.file;
 }
 
+// One line of a transcript; `number` counts the lines from 1.
+function transcriptEntry(line, source, number) {
+  try {
+    return JSON.parse(line);
+  } catch {
+    fail(`${source} line ${number} is not JSON`);
+  }
+}
+
 function transcriptEntries(text, source) {
   const entries = [];
   for (const [index, line] of text.split('\n').entries()) {
-    if (!line.trim()) continue;
-    try {
-      entries.push(JSON.parse(line));
-    } catch {
-      fail(`${source} line ${index + 1} is not JSON`);
-    }
+    if (line.trim()) entries.push(transcriptEntry(line, source, index + 1));
   }
   return entries;
+}
+
+// The lines of a file, without the newline. The generator reads the file in chunks, so a caller that stops early
+// reads only the head of the file.
+function* fileLines(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const chunk = Buffer.alloc(64 * 1024);
+    let pending = Buffer.alloc(0);
+    let size;
+    while ((size = fs.readSync(fd, chunk, 0, chunk.length, null)) > 0) {
+      pending = Buffer.concat([pending, chunk.subarray(0, size)]);
+      let newline;
+      while ((newline = pending.indexOf(0x0a)) >= 0) {
+        yield pending.toString('utf8', 0, newline);
+        pending = pending.subarray(newline + 1);
+      }
+    }
+    if (pending.length) yield pending.toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// The text of a message: its content string, or the text parts of its content list.
+const messageText = ({ content }) =>
+  typeof content === 'string'
+    ? content
+    : (Array.isArray(content) ? content : [])
+        .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+        .map((part) => part.text)
+        .join('\n');
+
+// The first user message of a transcript file is the task of the dispatch; '' when the file has none. omp writes it
+// before the work of the agent, so the function reads the file only up to that message.
+function transcriptTask(file) {
+  let number = 0;
+  for (const line of fileLines(file)) {
+    number += 1;
+    if (!line.trim()) continue;
+    const entry = transcriptEntry(line, file, number);
+    if (entry.type === 'message' && entry.message?.role === 'user') return messageText(entry.message);
+  }
+  return '';
+}
+
+// True when `text` names a path under `folder`. A path starts at the start of the text, after white space, or after a
+// quote, a backtick, or an opening bracket, so the folder of another workspace whose path ends with `folder` does not
+// count.
+function namesPathUnder(text, folder) {
+  return new RegExp(`(?:^|[\\s"'\`(<[])${escapeRegExp(folder + path.sep)}`).test(text);
 }
 const usageTokens = (usage) => TOKEN_FIELDS.reduce((result, field) => result + (usage?.[field] ?? 0), 0);
 // `<provider>/<model>`, `<model>` without a provider, and null without a model.
@@ -1857,6 +1914,9 @@ export function namesCommand(ws) {
 }
 
 // Fills the meta.json of each run or round folder from the transcripts of its dispatches and keeps every other field.
+// The transcript of a dispatch is the latest repeat of its name (see pickTranscript) among the transcripts whose task
+// names a path under the case folder of the dispatch in `ws`. Each prompt of prepare.mjs names such a path, and two
+// workspaces that one session dispatches can use the same dispatch names.
 // A reviewer entry under `reviewers` gets the time and tokens of the assistant messages of the configured model
 // (`config.model`; every model without a configuration) and the transcript facts. When the reviewer called tools, it
 // also gets `readScope: { outside }` (see readScope) for the working directory and the plugin roots that its transcript
@@ -1867,6 +1927,7 @@ export function namesCommand(ws) {
 // finds, then fails with the names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
+  const wsDir = path.resolve(ws);
   const byDir = new Map();
   for (const dispatch of promptedDispatches(ws)) {
     if (!byDir.has(dispatch.dir)) byDir.set(dispatch.dir, []);
@@ -1881,7 +1942,8 @@ export function transcriptsCommand(ws, sessionsDir) {
     // The case changes the same files for each reviewer of the folder, so the command reads them once, when needed.
     let changedFiles;
     for (const { caseId, family, arm, run, round, reviewer, name, fixer } of dispatches) {
-      const file = pickTranscript(files, name);
+      const caseFolder = path.join(wsDir, caseId);
+      const file = pickTranscript(files, name, (candidate) => namesPathUnder(transcriptTask(candidate), caseFolder));
       if (!file) {
         missing.push(name);
         continue;
@@ -1909,7 +1971,9 @@ export function transcriptsCommand(ws, sessionsDir) {
     }
     if (changed) writeJson(metaFile, meta);
   }
-  if (missing.length) fail(`no transcript under ${sessionsDir} for: ${missing.join(', ')}`);
+  if (missing.length) {
+    fail(`no transcript under ${sessionsDir} whose task names its case folder in ${wsDir} for: ${missing.join(', ')}`);
+  }
   return updated;
 }
 

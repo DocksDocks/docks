@@ -105,6 +105,10 @@ function put(root, relative, content) {
   fs.writeFileSync(file, typeof content === 'string' ? content : `${JSON.stringify(content, null, 2)}\n`);
 }
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+const taskMessage = (caseDir) => ({
+  role: 'user',
+  content: [{ type: 'text', text: `Plan export: ${path.join(caseDir, 'plan.md')}` }],
+});
 
 // A workspace as prepare.mjs lays it out, with saved blocks, and the case folder it came from.
 function workspace(t) {
@@ -688,11 +692,12 @@ test('pickTranscript finds nested and repeated transcripts and refuses ties', ()
     '/s/XCode7C3R1Full.jsonl',
     '/s/Parent/Parent.Code7C3R1Full.jsonl',
   ];
-  assert.equal(pickTranscript(files, 'Code7C3R1Correctness'), '/s/Code7C3R1Correctness-2.jsonl');
-  assert.equal(pickTranscript(files, 'Code7C3R1Full'), '/s/Parent/Parent.Code7C3R1Full.jsonl');
-  assert.equal(pickTranscript(files, 'Code7C3R2Full'), undefined);
+  const belongs = () => true;
+  assert.equal(pickTranscript(files, 'Code7C3R1Correctness', belongs), '/s/Code7C3R1Correctness-2.jsonl');
+  assert.equal(pickTranscript(files, 'Code7C3R1Full', belongs), '/s/Parent/Parent.Code7C3R1Full.jsonl');
+  assert.equal(pickTranscript(files, 'Code7C3R2Full', belongs), undefined);
   assert.throws(
-    () => pickTranscript(['/a/Name.jsonl', '/b/P.Name.jsonl'], 'Name'),
+    () => pickTranscript(['/a/Name.jsonl', '/b/P.Name.jsonl'], 'Name', belongs),
     /more than one transcript for Name/,
   );
 });
@@ -703,7 +708,7 @@ test('transcripts command fills meta files by dispatch name and keeps other fiel
   const at = (second) => new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
   const transcript = (seconds, input) =>
     [
-      { type: 'message', timestamp: at(0), message: { role: 'user' } },
+      { type: 'message', timestamp: at(0), message: taskMessage(path.join(ws, 'code-7')) },
       { type: 'message', timestamp: at(seconds), message: { role: 'assistant', usage: { input, output: 1 } } },
     ]
       .map((entry) => JSON.stringify(entry))
@@ -728,6 +733,69 @@ test('transcripts command fills meta files by dispatch name and keeps other fiel
     },
   });
   assert.equal(fs.existsSync(path.join(ws, 'code-7/B0/run-1/meta.json')), false);
+});
+
+test('transcripts command keeps same-name dispatches of two workspaces separate in one session', (t) => {
+  const root = scratch(t);
+  const sessions = path.join(root, 'sessions');
+  const earlier = path.join(root, 'ws');
+  const later = path.join(root, 'ws-later');
+  const roundDir = path.join('code-7', 'C1-low', 'run-1', 'round-1');
+  const reviewerName = 'Code7C1LowR1K1Full';
+  const fixerName = 'Code7C1LowR1K1Fixer1';
+  const transcript = (ws, seconds, fixer = false) => {
+    const caseDir = path.join(ws, 'code-7');
+    const target = path.join(ws, roundDir, ...(fixer ? ['fixer'] : []), 'snapshot', 'src', 'sync.mjs');
+    return toolTranscript(caseDir, seconds, [['read', { path: target }]])
+      .split('\n')
+      .map((line) => {
+        const entry = JSON.parse(line);
+        if (entry.type === 'session_init') entry.padding = 'x'.repeat(70 * 1024);
+        // omp can store a task as a string or as text parts.
+        if (entry.message?.role === 'user' && ws === earlier)
+          entry.message.content = taskMessage(caseDir).content[0].text;
+        return JSON.stringify(entry);
+      })
+      .join('\n');
+  };
+  for (const ws of [earlier, later]) {
+    put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+    put(ws, 'code-7/full.diff', '');
+    put(ws, path.join(roundDir, 'prompts/full.txt'), 'agent: review-bench-candidate-code-low\n\nReview.\n');
+    put(ws, path.join(roundDir, 'fixer/fixer-1.txt'), 'agent: review-bench-fixer\n\nRepair.\n');
+  }
+  put(sessions, `${reviewerName}.jsonl`, transcript(earlier, 10));
+  put(sessions, `${reviewerName}-2.jsonl`, transcript(earlier, 20));
+  put(sessions, `${reviewerName}-3.jsonl`, transcript(later, 30));
+  put(sessions, `Lead/Lead.${fixerName}.jsonl`, transcript(earlier, 40, true));
+  put(sessions, `Lead/Lead.${fixerName}-2.jsonl`, transcript(later, 50, true));
+  // A later user message cannot claim a transcript for a workspace. The lookup must stop at the first user message,
+  // and must not parse the rest of a rejected candidate.
+  put(
+    sessions,
+    `${reviewerName}-9.jsonl`,
+    [
+      { type: 'session_init', task: taskMessage(path.join(earlier, 'code-7')).content[0].text },
+      { type: 'message', message: taskMessage(path.join(root, 'other', 'code-7')) },
+      { type: 'message', message: taskMessage(path.join(earlier, 'code-7')) },
+      { type: 'message', message: taskMessage(path.join(later, 'code-7')) },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n') + '\nnot JSON\n',
+  );
+  for (const [ws, reviewerSeconds, fixerSeconds] of [
+    [earlier, 20, 40],
+    [later, 30, 50],
+  ]) {
+    assert.deepEqual(transcriptsCommand(ws, sessions), [reviewerName, fixerName]);
+    const meta = readJson(path.join(ws, roundDir, 'meta.json'));
+    assert.equal(meta.reviewers.full.seconds, reviewerSeconds);
+    assert.deepEqual(meta.reviewers.full.readScope, { outside: [] });
+    assert.equal(meta.fixer.seconds, fixerSeconds);
+  }
+  // The transcript of the earlier workspace is not a substitute for a missing transcript of the later one.
+  fs.rmSync(path.join(sessions, `Lead/Lead.${fixerName}-2.jsonl`));
+  assert.throws(() => transcriptsCommand(later, sessions), /no transcript .*Code7C1LowR1K1Fixer1/);
 });
 
 test('names command gives one dispatch name per prompt', (t) => {
@@ -1064,7 +1132,15 @@ test('transcripts command writes the facts and the time and tokens of the config
   put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
   put(ws, 'code-7/C1-xhigh-fast/run-1/prompts/full.txt', 'agent: review-bench-candidate-code-xhigh-fast\n\nReview.\n');
   put(ws, 'code-7/C1-xhigh-fast/run-1/meta.json', { config });
-  put(sessions, 'Code7C1XhighFastR1Full.jsonl', jsonl(FALLBACK_TRANSCRIPT));
+  put(
+    sessions,
+    'Code7C1XhighFastR1Full.jsonl',
+    jsonl(
+      FALLBACK_TRANSCRIPT.map((entry) =>
+        entry.message?.role === 'user' ? { ...entry, message: taskMessage(path.join(ws, 'code-7')) } : entry,
+      ),
+    ),
+  );
   assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7C1XhighFastR1Full']);
   assert.deepEqual(readJson(path.join(ws, 'code-7/C1-xhigh-fast/run-1/meta.json')), {
     config,
@@ -2396,7 +2472,7 @@ test('round folders get dispatch names of their own, and names and transcripts w
       { type: 'session', timestamp: isoAt(0) },
       { type: 'thinking_level_change', timestamp: isoAt(0), thinkingLevel: 'low' },
       { type: 'service_tier_change', timestamp: isoAt(0), serviceTier: { openai: 'default' } },
-      { type: 'message', timestamp: isoAt(0), message: { role: 'user' } },
+      { type: 'message', timestamp: isoAt(0), message: taskMessage(path.join(ws, 'code-7')) },
       assistantLine(seconds, 'openai-codex', 'gpt-6.1-sol', 'default', { input, output: 10 }),
     ]);
   put(sessions, 'Code7C1LowR1K1Full.jsonl', transcript(30, 90));
@@ -2539,7 +2615,7 @@ const agentText = (root) =>
   'Without `CLAUDE_PLUGIN_ROOT`, resolve `../skills/productivity/code-reviewer/SKILL.md`\nfrom this file.\n';
 // A transcript of one agent that runs in the live checkout at the `low` configuration. Its last assistant message
 // makes the tool calls, each [name, arguments].
-function toolTranscript(seconds, calls, agent = 'review-bench-candidate-code-low') {
+function toolTranscript(caseDir, seconds, calls, agent = 'review-bench-candidate-code-low') {
   const last = assistantLine(seconds, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 90, output: 10 });
   last.message.content = [
     { type: 'text', text: 'Done.' },
@@ -2554,9 +2630,9 @@ function toolTranscript(seconds, calls, agent = 'review-bench-candidate-code-low
       timestamp: isoAt(0),
       agent,
       systemPrompt: ['You are a coding assistant.', agentText(LIVE_PLUGIN)],
-      task: 'Review.',
+      task: taskMessage(caseDir).content[0].text,
     },
-    { type: 'message', timestamp: isoAt(0), message: { role: 'user' } },
+    { type: 'message', timestamp: isoAt(0), message: taskMessage(caseDir) },
     last,
   ]);
 }
@@ -2769,7 +2845,7 @@ test('transcripts command writes the outside reads of each reviewer and leaves f
   put(
     sessions,
     'Code7C1LowR1K1Full.jsonl',
-    toolTranscript(30, [
+    toolTranscript(caseDir, 30, [
       // The system prompt names the plugin root of this skill.
       ['read', { path: `${LIVE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md` }],
       ['read', { path: `${path.join(caseDir, 'full.diff')}:1-200` }],
@@ -2782,6 +2858,7 @@ test('transcripts command writes the outside reads of each reviewer and leaves f
     sessions,
     'Code7C1LowR1K1Fixer1.jsonl',
     toolTranscript(
+      caseDir,
       20,
       [
         ['read', { path: path.join(round(1), 'fixer', 'snapshot', 'src', 'extra.mjs') }],
@@ -2793,7 +2870,7 @@ test('transcripts command writes the outside reads of each reviewer and leaves f
   put(
     sessions,
     'Code7C1LowR1K2Delta.jsonl',
-    toolTranscript(12, [
+    toolTranscript(caseDir, 12, [
       ['read', { path: path.join(round(2), 'snapshot', 'src', 'sync.mjs') }],
       ['read', { path: path.join(round(2), 'delta.diff') }],
       ['grep', { pattern: 'lock', path: path.join(round(2), 'snapshot') }],
@@ -2978,7 +3055,7 @@ test('transcripts command takes the changed files of a plan case from the Files 
   put(
     sessions,
     'Plan3P0R1Plan.jsonl',
-    toolTranscript(30, [
+    toolTranscript(path.join(ws, 'plan-3'), 30, [
       ['read', { path: contractRead }],
       ['read', { path: 'skill://code-review/references/perf.md' }],
     ]),
@@ -3615,7 +3692,7 @@ test('transcripts lets a self-review agent read its own agent file and no other 
     ['read', { path: reviewer }],
   ];
   // The system prompt of the transcript holds the text of the self-review agent.
-  const transcript = toolTranscript(30, calls, 'review-bench-selfreview-low')
+  const transcript = toolTranscript(caseDir, 30, calls, 'review-bench-selfreview-low')
     .split('\n')
     .map((line) => {
       const entry = JSON.parse(line);
