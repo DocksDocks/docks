@@ -1,20 +1,25 @@
 #!/usr/bin/env node
-// prepare.mjs builds review benchmark workspaces and the reviewer agent files of the configurations.
+// prepare.mjs builds review benchmark workspaces, the reviewer and fixer agent files of the configurations, and the
+// rounds of review loops.
 //
 //   node prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
+//                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
 //                           [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
 //   node prepare.mjs case --case <case.json> --arms <B0,C3,...> --runs <k> --out <ws> [--configs <list>]
-//                         [--project <dir>]
+//                         [--keys <dir>] [--loop] [--project <dir>]
+//   node prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>]
+//                         [--fixer-patch <file>]
 //   node prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
 //   node prepare.mjs clean [--project <dir>]
 //
-// ../SKILL.md describes the case schema, the configurations, the arms, and the workspace layout.
-// The script uses Node built-ins and git only, so it runs on Node and on Bun.
+// ../SKILL.md describes the case schema, the configurations, the arms, the workspace layout, and the review loop.
+// The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { caseFilePath, FIXER_DIR, fixerName, fixPlan, loopEnds, readKnown, runLabel, unwrapBlock } from './score.mjs';
 
 const SCRIPT_PATH = fs.realpathSync(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.dirname(path.dirname(SCRIPT_PATH));
@@ -46,8 +51,44 @@ const PROBE_ARM = 'C1';
 const PROBE_TASK =
   'This message checks the reviewer setup. It is not a review. Read no files, run no tools, and load no skills. Reply with one line: `ready`.';
 const MAX_OUTPUT = 512 * 1024 * 1024;
+// The fixer agent repairs the valid extra findings of a review loop. It has one model, effort, and tier for every
+// configuration, so that only the reviewer setup varies.
+const FIXER_AGENT = `${GENERATED_PREFIX}fixer`;
+const FIXER_DEFAULTS = { model: 'openai-codex/gpt-6.1-sol', effort: 'high', tier: 'priority' };
+const FIXER_SOURCE = `---
+name: ${FIXER_AGENT}
+description: Writes the repair of one confirmed review finding in a repository snapshot as a unified diff file. Only for the review loop replays that prepare.mjs sets up.
+tools: Read, Glob, Grep, Write, Bash
+---
+
+# Review fixer
+
+The task names a repository snapshot root, a plan export, one review finding, and a patch file. The finding describes a real defect in the snapshot. Follow the rules of the task: repair only that finding, and write the repair to the patch file as a unified diff.
+
+Do not change files under the snapshot root, dispatch another agent, or ask a question.
+`;
+// plan-contract.md, Code-review rounds: a round is a panel round when its full diff changes this many lines or more.
+const PANEL_LINES = 50;
+// A review round completed when every block has one of these verdicts.
+const COMPLETE_VERDICTS = new Set(['pass', 'fixes-required']);
+// The commits of loop rounds get this author and committer, so that `loop` needs no git user config.
+const LOOP_IDENTITY = {
+  GIT_AUTHOR_NAME: 'Review loop',
+  GIT_AUTHOR_EMAIL: 'review-loop@localhost',
+  GIT_COMMITTER_NAME: 'Review loop',
+  GIT_COMMITTER_EMAIL: 'review-loop@localhost',
+};
+const RUN_FOLDER = /^run-[1-9]\d*$/;
+const ROUND_FOLDER = /^round-([1-9]\d*)$/;
+// `<ws>/trees/<run label>/` holds the reviewed tree of each loop round after round 1 for the judge. The run label is
+// the blind label of pairs.json, so the judge opens no arm folder.
+const JUDGE_TREES = 'trees';
 
 export const LENSES = ['correctness', 'spec-and-tests', 'text-and-safety'];
+
+// The reviewers of each code-review round mode. In a loop, the round mode picks the reviewers, and the arm only gives
+// the side.
+const MODE_REVIEWERS = { full: ['full'], panel: LENSES, delta: ['delta'] };
 
 // Arms per case kind. `side` selects the released (baseline) or the working-tree (candidate) agent.
 export const ARMS = {
@@ -208,39 +249,68 @@ export function validateCase(caseData) {
       fail(`case ${id}: ${field} must name a file in the case folder`);
     if (name.endsWith('.key.json')) fail(`case ${id}: ${field} names a key file, which never goes into a workspace`);
   }
+  if (Object.hasOwn(caseData, 'external')) {
+    if (!Array.isArray(caseData.external)) fail(`case ${id}: external must be a list of file fields`);
+    for (const field of caseData.external) {
+      if (!FILE_FIELDS.includes(field) || !Object.hasOwn(caseData, field))
+        fail(`case ${id}: external names ${field}, which is not a file field of the case`);
+    }
+  }
   if (split === 'heldout') {
     if (Object.hasOwn(caseData, 'known')) fail(`held-out case ${id} lists known defects; move them to ${id}.key.json`);
   } else if (split === 'dev') {
     if (!Array.isArray(caseData.known)) fail(`dev case ${id} needs a known array (it may be empty)`);
+    validateFixFields(id, caseData.known);
   } else {
     fail(`case ${id}: split must be dev or heldout`);
   }
   return caseData;
 }
 
-export function workspacePaths(caseDir, caseData) {
-  const at = (name) => path.join(caseDir, name);
+// A known defect of a code case can name its fix patch (`fix`, a file next to the known list) and the known defects
+// whose fixes that patch needs first (`fix_after`).
+function validateFixFields(id, known) {
+  const ids = new Set(known.map((item) => item?.id));
+  for (const item of known) {
+    const { fix, fix_after: after = [] } = item ?? {};
+    if (fix !== undefined && (typeof fix !== 'string' || !fix || path.basename(fix) !== fix))
+      fail(`case ${id}: the fix of known defect ${item.id} must name a file in the case folder`);
+    if (!Array.isArray(after) || after.some((other) => other === item.id || !ids.has(other)))
+      fail(`case ${id}: fix_after of known defect ${item.id} must list other known defects of the case`);
+  }
+}
+
+// The reviewer inputs in `dir`: a case folder, or a round folder of a loop, whose plan export stays in the case folder.
+function reviewPaths(dir, plan, hasRejection) {
+  const at = (name) => path.join(dir, name);
   return {
-    caseFile: at('case.json'),
     snapshot: at('snapshot'),
-    plan: at('plan.md'),
+    plan,
     fullDiff: at('full.diff'),
     focus: Object.fromEntries(LENSES.map((lens) => [lens, at(`focus-${lens}.diff`)])),
     deltaDiff: at('delta.diff'),
     planDiff: at('plan.diff'),
     previousReview: at('previous-review.md'),
-    rejection: caseData.rejection ? at('rejection.md') : null,
+    rejection: hasRejection ? at('rejection.md') : null,
   };
 }
 
-// The opening is the same for every reviewer of a case, so a runtime can reuse the prompt prefix.
-export function buildOpening(caseData, paths) {
+export function workspacePaths(caseDir, caseData) {
+  return {
+    caseFile: path.join(caseDir, 'case.json'),
+    ...reviewPaths(caseDir, path.join(caseDir, 'plan.md'), Boolean(caseData.rejection)),
+  };
+}
+
+// The opening is the same for every reviewer of a round, so a runtime can reuse the prompt prefix. `round` is the
+// round number that the prompt names: the case round, or a later round of a loop.
+export function buildOpening(caseData, paths, round = caseData.round) {
   const review = isPlanKind(caseData.kind) ? 'Plan review' : 'Code review';
   return [
-    `${review} of plan issue #${caseData.issue}, round ${caseData.round}.`,
+    `${review} of plan issue #${caseData.issue}, round ${round}.`,
     '',
     `Plan issue: #${caseData.issue}`,
-    `Round: ${caseData.round}`,
+    `Round: ${round}`,
     `Repository snapshot root: ${paths.snapshot}`,
     `Plan export: ${paths.plan}`,
     '',
@@ -254,9 +324,8 @@ export function buildOpening(caseData, paths) {
   ].join('\n');
 }
 
-// The arm's part of the prompt. Candidate skills define the modes and lenses, so a candidate tail only names them.
-export function buildTail({ caseData, arm, reviewer, paths }) {
-  const { side, mode } = ARMS[caseData.kind][arm];
+// The mode's part of the prompt. Candidate skills define the modes and lenses, so a candidate tail only names them.
+export function buildTail({ caseData, side, mode, round, reviewer, paths }) {
   const lines = [`Round mode: ${mode}.`];
   if (mode === 'full') {
     if (!isPlanKind(caseData.kind)) lines.push(`Full diff: ${paths.fullDiff}`);
@@ -266,7 +335,7 @@ export function buildTail({ caseData, arm, reviewer, paths }) {
     if (side === 'baseline') {
       lines.push(
         ...BASELINE_LENS_SCOPE[reviewer],
-        `Use the heading \`### Code review round ${caseData.round}, lens ${reviewer}\`.`,
+        `Use the heading \`### Code review round ${round}, lens ${reviewer}\`.`,
       );
     }
     lines.push(`Lens: ${reviewer}`);
@@ -280,13 +349,37 @@ export function buildTail({ caseData, arm, reviewer, paths }) {
   return lines.join('\n');
 }
 
-export function buildPromptFile({ caseData, arm, config, reviewer, paths }) {
-  const prompt = `${buildOpening(caseData, paths)}\n\n${buildTail({ caseData, arm, reviewer, paths })}\n`;
+// The prompt file of one reviewer. The arm gives the side; `mode` and `round` default to the arm's mode and the case
+// round, and a loop round gives its own.
+export function buildPromptFile({
+  caseData,
+  arm,
+  config,
+  reviewer,
+  paths,
+  mode = ARMS[caseData.kind][arm].mode,
+  round = caseData.round,
+}) {
+  const { side } = ARMS[caseData.kind][arm];
+  const tail = buildTail({ caseData, side, mode, round, reviewer, paths });
+  const prompt = `${buildOpening(caseData, paths, round)}\n\n${tail}\n`;
   const word = FORBIDDEN_PROMPT_WORDS.exec(prompt);
   if (word) {
     fail(`the ${arm} ${reviewer} prompt of case ${caseData.id} contains "${word[0]}"; choose an --out path without it`);
   }
   return `agent: ${armAgent(caseData.kind, arm, config)}\n\n${prompt}`;
+}
+
+// The mode of a code-review round by the rules of plan-contract.md, Code-review rounds. Sizes count added plus
+// removed lines: fullLines of the full diff of the round's reviewed head, deltaLines of the diff from the reviewed
+// head of the previous round. The size rule gives `panel` from PANEL_LINES lines, else `full`. Round 1 follows the
+// size rule. A later round is `delta` only when the previous round completed (every reviewer returned a block with a
+// verdict line, and none returned `blocked`), every change since its head repairs one of its findings
+// (repairsOnly), the change is not a merge of the default branch, and the delta diff is at most half the full diff.
+// Otherwise the size rule decides.
+export function roundMode({ round, fullLines, completed = false, repairsOnly = false, deltaLines, merge = false }) {
+  if (round > 1 && completed && repairsOnly && !merge && deltaLines * 2 <= fullLines) return 'delta';
+  return fullLines >= PANEL_LINES ? 'panel' : 'full';
 }
 
 // Replaces a `git diff --no-index` header, which names absolute paths, with a header for `name`.
@@ -348,31 +441,82 @@ const DIFF_FLAGS = [
   '--dst-prefix=b/',
 ];
 
-// The benchmark skill folder holds the held-out answer keys, so no reviewer input may contain it. The snapshot,
-// the changed-path list, and every diff use this one pathspec to leave the folder out.
+// The benchmark skill folder holds the held-out answer keys, so no reviewer input may contain it. The snapshot, the
+// changed-path list, and every diff use this one pathspec to leave the folder out. A repository that does not hold
+// the folder needs no pathspec.
 function hiddenPathspec(repo) {
-  return `:(exclude,literal)${path.relative(repo, SKILL_DIR).split(path.sep).join('/')}`;
+  const relative = path.relative(repo, SKILL_DIR);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return [];
+  return [`:(exclude,literal)${relative.split(path.sep).join('/')}`];
 }
 
 function treeDiff(repo, from, to, paths) {
-  const args = ['diff', ...DIFF_FLAGS, from, to, '--', hiddenPathspec(repo)];
+  const args = ['diff', ...DIFF_FLAGS, from, to, '--', ...hiddenPathspec(repo)];
   if (paths) args.push(...paths.map((file) => `:(literal)${file}`));
   return git(repo, args);
 }
 
 function changedPaths(repo, from, to) {
-  const args = ['diff', '--name-only', '-z', '--no-relative', '--no-renames', from, to, '--', hiddenPathspec(repo)];
-  return git(repo, args).toString().split('\0').filter(Boolean);
+  const args = ['diff', '--name-only', '-z', '--no-relative', '--no-renames', from, to, '--'];
+  return git(repo, [...args, ...hiddenPathspec(repo)])
+    .toString()
+    .split('\0')
+    .filter(Boolean);
+}
+
+// The size of the diff from `from` to `to` as plan-contract.md counts it: added plus removed lines, the sums of
+// `git diff --numstat`. A binary file adds nothing.
+function diffSize(repo, from, to) {
+  const args = ['diff', '--numstat', '--no-ext-diff', '--no-textconv', '--no-relative', '--no-renames', from, to, '--'];
+  return git(repo, [...args, ...hiddenPathspec(repo)])
+    .toString()
+    .split('\n')
+    .filter(Boolean)
+    .reduce((size, line) => {
+      const [added, removed] = line.split('\t');
+      return size + (Number(added) || 0) + (Number(removed) || 0);
+    }, 0);
+}
+
+// Writes one focus diff per lens: the changes of the paths in the scope of the lens, or a copy of the full diff when
+// no changed path is in that scope.
+function writeFocusDiffs(repo, base, tree, paths, full) {
+  const changed = changedPaths(repo, base, tree);
+  for (const lens of LENSES) {
+    const inScope = changed.filter((file) => focusesForPath(file).includes(lens));
+    fs.writeFileSync(paths.focus[lens], inScope.length ? treeDiff(repo, base, tree, inScope) : full);
+  }
 }
 
 // Writes the files of the index, except the benchmark skill folder, to `snapshotDir`.
 function checkoutSnapshot(repo, env, snapshotDir) {
-  const files = git(repo, ['ls-files', '-z', '--', hiddenPathspec(repo)], { env })
+  const files = git(repo, ['ls-files', '-z', '--', ...hiddenPathspec(repo)], { env })
     .toString()
     .split('\0')
     .filter(Boolean);
   const input = files.map((file) => `${file}\0`).join('');
   git(repo, ['checkout-index', '-f', `--prefix=${snapshotDir}${path.sep}`, '-z', '--stdin'], { env, input });
+}
+
+// Runs `work` with a git index of its own in `dir`, so that the index of the repository stays unchanged.
+function withIndex(dir, work) {
+  const indexFile = path.join(dir, '.git-index');
+  try {
+    return work({ GIT_INDEX_FILE: indexFile });
+  } finally {
+    fs.rmSync(indexFile, { force: true });
+  }
+}
+
+// Applies a patch to the index of `env`. `label` starts the message when the patch does not apply.
+function applyPatch(repo, env, file, label) {
+  if (!fs.existsSync(file)) fail(`${label}: ${file} is missing`);
+  const applied = runGit(repo, ['apply', '--cached', file], { env });
+  if (applied.status !== 0) fail(`${label}: ${applied.stderr.toString().trim()}`);
+}
+
+function writeTree(repo, env) {
+  return git(repo, ['write-tree'], { env }).toString().trim();
 }
 
 function readJson(file) {
@@ -417,29 +561,41 @@ function parseRuns(value) {
   return runs;
 }
 
-// Writes the prompts, an empty blocks folder, and a meta.json that records the configuration of each run.
+// Writes the prompts, an empty blocks folder, and the meta.json of each run folder or round folder.
 function writeRuns(runs) {
-  for (const { dir, config, prompts } of runs) {
+  for (const { dir, meta, prompts } of runs) {
     fs.mkdirSync(path.join(dir, 'prompts'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'blocks'), { recursive: true });
-    writeJson(path.join(dir, 'meta.json'), { config });
+    writeJson(path.join(dir, 'meta.json'), meta);
     for (const { reviewer, text } of prompts) fs.writeFileSync(path.join(dir, 'prompts', `${reviewer}.txt`), text);
   }
 }
 
-function buildCaseWorkspace({ repo, caseData, casePath, caseDir, paths, runs }) {
-  const sourceDir = path.dirname(casePath);
-  const source = (name) => {
-    const file = path.join(sourceDir, name);
-    if (!fs.existsSync(file)) fail(`case ${caseData.id} names ${name}, which is missing from ${sourceDir}`);
-    return file;
-  };
-  const planSource = source(caseData.plan);
-  const inputs = Object.fromEntries(
-    ['patch', 'previous_review', 'previous_body', 'rejection']
-      .filter((field) => caseData[field])
-      .map((field) => [field, source(caseData[field])]),
-  );
+// The key folder of a case. A case that keeps the files of its `external` fields there cannot run without it.
+function keyFolder(caseData, keys) {
+  const external = caseData.external ?? [];
+  if (external.length && !keys) {
+    fail(`case ${caseData.id} keeps ${external.join(', ')} in the key folder; give that folder with --keys <dir>`);
+  }
+  return keys ? path.resolve(keys) : undefined;
+}
+
+// The file of each file field of a case: in the key folder for the `external` fields, else in the case folder.
+function caseSources(caseData, caseFolder, keys) {
+  const sources = {};
+  for (const field of FILE_FIELDS.filter((name) => caseData[name])) {
+    const dir = caseData.external?.includes(field) ? keys : caseFolder;
+    const file = path.join(dir, caseData[field]);
+    if (!fs.existsSync(file)) fail(`case ${caseData.id} names ${caseData[field]}, which is missing from ${dir}`);
+    sources[field] = file;
+  }
+  return sources;
+}
+
+// Writes the case files, the snapshot, and the diffs. The workspace gets the inputs under fixed names, so no file of
+// the key folder lands there under its own name. For a code case, the result holds the base commit and the reviewed
+// tree.
+function buildCaseWorkspace({ repo, caseData, casePath, sources, caseDir, paths }) {
   const commits = {};
   for (const field of ['base', 'head', 'delta_base', 'repo_ref']) {
     if (caseData[field]) commits[field] = resolveCommit(repo, caseData[field], `${caseData.id} ${field}`);
@@ -447,88 +603,341 @@ function buildCaseWorkspace({ repo, caseData, casePath, caseDir, paths, runs }) 
 
   fs.mkdirSync(caseDir, { recursive: true });
   fs.copyFileSync(casePath, paths.caseFile);
-  fs.copyFileSync(planSource, paths.plan);
-  if (inputs.previous_review) fs.copyFileSync(inputs.previous_review, paths.previousReview);
-  if (inputs.rejection) fs.copyFileSync(inputs.rejection, paths.rejection);
+  fs.copyFileSync(sources.plan, paths.plan);
+  if (sources.previous_review) fs.copyFileSync(sources.previous_review, paths.previousReview);
+  if (sources.rejection) fs.copyFileSync(sources.rejection, paths.rejection);
 
-  const indexFile = path.join(caseDir, '.git-index');
-  const env = { GIT_INDEX_FILE: indexFile };
-  try {
-    const reviewed = commits.head ?? commits.repo_ref;
-    git(repo, ['read-tree', reviewed], { env });
-    if (inputs.patch) {
-      const applied = runGit(repo, ['apply', '--cached', inputs.patch], { env });
-      if (applied.status !== 0) {
-        fail(`patch ${caseData.patch} does not apply to ${caseData.head}: ${applied.stderr.toString().trim()}`);
-      }
+  const reviewed = withIndex(caseDir, (env) => {
+    git(repo, ['read-tree', commits.head ?? commits.repo_ref], { env });
+    if (sources.patch) {
+      applyPatch(repo, env, sources.patch, `patch ${caseData.patch} does not apply to ${caseData.head}`);
     }
+    let tree = null;
     if (!isPlanKind(caseData.kind)) {
-      const tree = git(repo, ['write-tree'], { env }).toString().trim();
+      tree = writeTree(repo, env);
       const full = treeDiff(repo, commits.base, tree);
       fs.writeFileSync(paths.fullDiff, full);
-      const changed = changedPaths(repo, commits.base, tree);
-      for (const lens of LENSES) {
-        const inScope = changed.filter((file) => focusesForPath(file).includes(lens));
-        fs.writeFileSync(paths.focus[lens], inScope.length ? treeDiff(repo, commits.base, tree, inScope) : full);
-      }
+      writeFocusDiffs(repo, commits.base, tree, paths, full);
       if (caseData.kind === 'code-delta') fs.writeFileSync(paths.deltaDiff, treeDiff(repo, commits.delta_base, tree));
     }
     checkoutSnapshot(repo, env, paths.snapshot);
-  } finally {
-    fs.rmSync(indexFile, { force: true });
-  }
+    return { base: commits.base, tree };
+  });
 
   if (caseData.kind === 'plan-delta') {
     const noIndexFlags = ['--no-color', '--no-ext-diff', '--no-textconv'];
-    const result = runGit(repo, ['diff', '--no-index', ...noIndexFlags, inputs.previous_body, planSource]);
+    const result = runGit(repo, ['diff', '--no-index', ...noIndexFlags, sources.previous_body, sources.plan]);
     if (result.status === 0) fail(`case ${caseData.id}: previous_body and plan are identical`);
     if (result.status !== 1) fail(`git diff --no-index failed: ${result.stderr.toString().trim()}`);
     fs.writeFileSync(paths.planDiff, relabelDiff(result.stdout.toString(), 'plan.md'));
   }
-
-  writeRuns(runs);
+  return reviewed;
 }
 
-function prepareCase(options, repo) {
+// With --loop, the size rule picks the mode of each round, so an arm gives only the side of the reviewer agent, and
+// two arms of one side would run the same loop.
+function requireOneArmPerSide(kind, arms) {
+  const bySide = new Map();
+  for (const arm of arms) {
+    const { side } = ARMS[kind][arm];
+    if (bySide.has(side)) {
+      fail(`with --loop, arms ${bySide.get(side)} and ${arm} run the same loop; give one arm per side`);
+    }
+    bySide.set(side, arm);
+  }
+}
+
+// The `case` command. `repo` is the git repository of the case commits. With `loop`, each run starts a review loop
+// in `run-<k>/round-1/`, whose mode the size rule picks; `prepareLoop` builds the later rounds.
+export function prepareCase(options, repo) {
   if (!options.case) fail('case needs --case <path to case.json>');
   if (!options.out) fail('case needs --out <workspace dir>');
   const casePath = path.resolve(options.case);
   const caseData = validateCase(readJson(casePath));
   if (path.basename(casePath) !== `${caseData.id}.json`)
     fail(`case file ${casePath} must be named ${caseData.id}.json`);
+  const keys = keyFolder(caseData, options.keys);
+  if (options.loop && caseData.kind !== 'code') {
+    fail(`--loop takes code cases; ${caseData.id} is a ${caseData.kind} case`);
+  }
   const arms = parseArms(options.arms, caseData.kind);
+  if (options.loop) requireOneArmPerSide(caseData.kind, arms);
   const runs = parseRuns(options.runs);
   const configs = selectConfigs(options, repo);
   const caseDir = path.join(path.resolve(options.out), caseData.id);
   if (fs.existsSync(caseDir)) fail(`${caseDir} exists; remove it or choose another --out`);
   const paths = workspacePaths(caseDir, caseData);
+  const sources = caseSources(caseData, path.dirname(casePath), keys);
 
   const runFolders = [];
-  for (const config of configs) {
-    for (const arm of arms) {
-      for (let run = 1; run <= runs; run += 1) {
-        runFolders.push({
-          dir: path.join(caseDir, armFolder(arm, config.name), `run-${run}`),
-          config,
-          prompts: ARMS[caseData.kind][arm].reviewers.map((reviewer) => ({
-            reviewer,
-            text: buildPromptFile({ caseData, arm, config: config.name, reviewer, paths }),
-          })),
-        });
+  try {
+    const { base, tree } = buildCaseWorkspace({ repo, caseData, casePath, sources, caseDir, paths });
+    const fullLines = options.loop ? diffSize(repo, base, tree) : null;
+    const loopMode = options.loop ? roundMode({ round: 1, fullLines }) : null;
+    for (const config of configs) {
+      for (const arm of arms) {
+        const mode = loopMode ?? ARMS[caseData.kind][arm].mode;
+        const reviewers = loopMode ? MODE_REVIEWERS[loopMode] : ARMS[caseData.kind][arm].reviewers;
+        const prompts = reviewers.map((reviewer) => ({
+          reviewer,
+          text: buildPromptFile({ caseData, arm, config: config.name, reviewer, paths, mode }),
+        }));
+        for (let run = 1; run <= runs; run += 1) {
+          const runDir = path.join(caseDir, armFolder(arm, config.name), `run-${run}`);
+          runFolders.push(
+            loopMode
+              ? { dir: path.join(runDir, 'round-1'), meta: { config, mode, fullLines }, prompts }
+              : { dir: runDir, meta: { config }, prompts },
+          );
+        }
       }
     }
-  }
-
-  try {
-    buildCaseWorkspace({ repo, caseData, casePath, caseDir, paths, runs: runFolders });
+    writeRuns(runFolders);
   } catch (error) {
     fs.rmSync(caseDir, { recursive: true, force: true });
     throw error;
   }
   const prompts = runFolders.reduce((sum, run) => sum + run.prompts.length, 0);
-  console.log(
-    `prepared ${caseDir}: ${prompts} prompts for ${arms.join(', ')} x ${configs.length} configurations x ${runs} runs`,
-  );
+  const counts = `${arms.join(', ')} x ${configs.length} configurations x ${runs} runs`;
+  const loopNote = options.loop ? `; round 1 of each loop is a ${runFolders[0].meta.mode} round` : '';
+  console.log(`prepared ${caseDir}: ${prompts} prompts for ${counts}${loopNote}`);
+}
+
+// score.mjs throws plain errors. The commands of this script report them as usage errors, without a stack trace.
+function fromScore(read) {
+  try {
+    return read();
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+// The number of the last round folder of a run. The round folders start at round-1 and have no gap.
+function lastRound(runDir, label) {
+  if (!fs.statSync(runDir, { throwIfNoEntry: false })?.isDirectory()) fail(`${runDir} is not a folder`);
+  const rounds = fs
+    .readdirSync(runDir)
+    .map((name) => ROUND_FOLDER.exec(name)?.[1])
+    .filter(Boolean)
+    .map(Number)
+    .sort((a, b) => a - b);
+  if (rounds.length === 0) fail(`${label} has no round folder; prepare its case with case --loop`);
+  if (rounds.some((round, index) => round !== index + 1))
+    fail(`the round folders of ${label} must start at round-1 and have no gap`);
+  return rounds.length;
+}
+
+// Commits `tree` with one parent and the fixed loop identity. No branch or tag points to the commit.
+function commitTree(repo, tree, parent, message) {
+  const args = ['commit-tree', '--no-gpg-sign', '-p', parent, '-m', message, tree];
+  return git(repo, args, { env: LOOP_IDENTITY }).toString().trim();
+}
+
+// A code finding as the reviewer wrote it: `- [<severity>] <category> - <locator> - <text>`.
+function findingLine({ severity, category, locator, text }) {
+  return `- [${severity}] ${[category, locator, text].filter(Boolean).join(' - ')}`;
+}
+
+// The comment of a round, as the manager posts it: the blocks in reviewer order, each without trailing whitespace,
+// joined by one empty line.
+function roundComment(roundDir, blocks) {
+  const texts = blocks
+    .map((block) => path.join(roundDir, 'blocks', `${block.reviewer}.md`))
+    .filter((file) => fs.existsSync(file))
+    .map((file) => unwrapBlock(fs.readFileSync(file, 'utf8')).trimEnd());
+  return `${texts.join('\n\n')}\n`;
+}
+
+// The rejection comment of plan-contract.md: the first line names the round, and each rejected finding gets the
+// judge's reason as its evidence.
+function rejectionComment(round, rejections, findingsById) {
+  const entries = rejections.flatMap(({ finding, reason }) => [
+    findingLine(findingsById.get(finding)),
+    `  Evidence: ${reason}`,
+  ]);
+  return [`Rejected review findings, round ${round}`, '', ...entries, ''].join('\n');
+}
+
+// The prompt of the fixer agent for one valid extra finding. Like a reviewer prompt, line 1 names the agent.
+function fixerPrompt({ snapshot, planExport, finding, patch }) {
+  return [
+    `agent: ${FIXER_AGENT}`,
+    '',
+    'Repair one review finding.',
+    '',
+    `Repository snapshot root: ${snapshot}`,
+    `Plan export: ${planExport}`,
+    `Finding: ${findingLine(finding)}`,
+    `Patch file: ${patch}`,
+    '',
+    'Rules:',
+    '- The snapshot root holds the repository files after the other repairs of this round, without Git history. The finding is a real defect in these files.',
+    '- Write one patch that repairs only this finding. Do not repair other defects, refactor, or reformat.',
+    '- Do not change, add, or delete files under the snapshot root. Make your changes in copies in a scratch folder outside the snapshot root.',
+    '- Write the patch to the patch file as one unified diff that `git apply` applies at the snapshot root: each file path is relative to the snapshot root and has the prefix `a/` or `b/`. For example, put the original files under `<scratch>/a/` and the changed copies under `<scratch>/b/`, at their paths relative to the snapshot root, and run `git diff --no-index --src-prefix= --dst-prefix= a b > <patch file>` in `<scratch>`.',
+    '- Do not fetch GitHub issues or pull requests.',
+    '- Return one line: the path of the patch file.',
+    '',
+  ].join('\n');
+}
+
+// Writes what the fixer needs for the valid extra findings of a round to `fixerDir`: the snapshot of the index of
+// `env` (the reviewed tree of the round with its fix patches) and one prompt per finding. Each prompt names its patch
+// file in `fixerDir`. A patch that an earlier fixer wrote stays.
+function writeFixerInputs({ repo, env, fixerDir, planExport, extras, findingsById }) {
+  const snapshot = path.join(fixerDir, 'snapshot');
+  fs.rmSync(snapshot, { recursive: true, force: true });
+  fs.mkdirSync(fixerDir, { recursive: true });
+  for (const name of fs.readdirSync(fixerDir).filter((entry) => entry.endsWith('.txt'))) {
+    fs.rmSync(path.join(fixerDir, name));
+  }
+  checkoutSnapshot(repo, env, snapshot);
+  for (const [index, id] of extras.entries()) {
+    const name = fixerName(index + 1);
+    const patch = path.join(fixerDir, `${name}.patch`);
+    const text = fixerPrompt({ snapshot, planExport, finding: findingsById.get(id), patch });
+    fs.writeFileSync(path.join(fixerDir, `${name}.txt`), text);
+  }
+}
+
+// The repair of the valid extra findings of a round: the --fixer-patch file, else the patch file of each fixer
+// prompt, in prompt order. The result is null while one of these patch files is missing.
+function fixerRepair(option, plan, fixerDir, roundLabel) {
+  if (option) {
+    if (plan.extras.length === 0) fail(`${roundLabel} has no valid extra finding, so loop takes no --fixer-patch`);
+    return [path.resolve(option)];
+  }
+  const files = plan.extras.map((_, index) => path.join(fixerDir, `${fixerName(index + 1)}.patch`));
+  return files.every((file) => fs.existsSync(file)) ? files : null;
+}
+
+// The `loop` command. It continues the review loop of one run of a code case after its last round folder, round k:
+// it repairs every finding of round k that stands (score.mjs fixPlan), commits the repaired tree as the reviewed
+// head of round k + 1, and writes round-<k+1>/ in the mode that roundMode gives. It returns that folder, or null when
+// the loop ends. `repo` is the git repository of the case commits. ../SKILL.md, Review loop, describes the files.
+export function prepareLoop(options, repo) {
+  if (!options.run) fail('loop needs --run <ws>/<case>/<arm>-<config>/run-<k>');
+  if (!options.cases) fail('loop needs --cases <cases dir>');
+  const runDir = path.resolve(options.run);
+  const armDir = path.dirname(runDir);
+  const caseDir = path.dirname(armDir);
+  const ws = path.dirname(caseDir);
+  const [caseId, armName, runName] = [caseDir, armDir, runDir].map((dir) => path.basename(dir));
+  const arm = armName.split('-')[0];
+  if (!RUN_FOLDER.test(runName) || !armName.includes('-') || !fs.existsSync(path.join(caseDir, 'case.json')))
+    fail(`--run must name a run folder <ws>/<case>/<arm>-<config>/run-<k>, not ${runDir}`);
+  const caseData = validateCase(readJson(path.join(caseDir, 'case.json')));
+  if (caseData.kind !== 'code' || !Object.hasOwn(ARMS.code, arm))
+    fail(`loop takes the runs of code arms; ${caseId} is a ${caseData.kind} case and ${arm} is its arm`);
+  const keys = keyFolder(caseData, options.keys);
+  const label = `${caseId}/${armName}/${runName}`;
+  const k = lastRound(runDir, label);
+  const roundLabel = `${label}/round-${k}`;
+  const roundDir = path.join(runDir, `round-${k}`);
+  const roundMetaFile = path.join(roundDir, 'meta.json');
+  const roundMeta = readJson(roundMetaFile);
+  const { config } = roundMeta;
+  if (!config?.name) fail(`${roundMetaFile} has no config`);
+
+  const findingsDoc = readJson(path.join(ws, 'findings.json'));
+  const inRound = (entry) =>
+    entry.case === caseId && entry.arm === armName && entry.run === runName && entry.round === k;
+  const blocks = findingsDoc.blocks.filter(inRound);
+  if (blocks.length === 0) fail(`findings.json has no block of ${roundLabel}; run score.mjs findings again`);
+  const findings = findingsDoc.findings.filter(inRound);
+  const casesDir = path.resolve(options.cases);
+  const { known, dir: knownDir } = fromScore(() => readKnown(casesDir, caseId, caseData.split, keys));
+  const applied = [];
+  for (let round = 1; round < k; round += 1) {
+    const { fix } = readJson(path.join(runDir, `round-${round}`, 'meta.json'));
+    if (!fix) fail(`${label}/round-${round}/meta.json has no fix; loop writes it when it builds round ${round + 1}`);
+    applied.push(...fix.fixes.map((entry) => entry.known));
+  }
+  const judgments = readJson(path.join(ws, 'judgments.json'));
+  const plan = fromScore(() => fixPlan({ findings, judgments, known, applied }));
+  if (loopEnds(k, plan)) {
+    console.log(`the loop of ${label} ends after round ${k}`);
+    return null;
+  }
+
+  const fixerDir = path.join(roundDir, FIXER_DIR);
+  const fixerPatches = fixerRepair(options['fixer-patch'], plan, fixerDir, roundLabel);
+  const caseFolder = k === 1 ? path.dirname(fromScore(() => caseFilePath(casesDir, caseId, caseData.split))) : null;
+  const sources = k === 1 ? caseSources(caseData, caseFolder, keys) : {};
+  const findingsById = new Map(findings.map((finding) => [finding.id, finding]));
+  const planExport = path.join(caseDir, 'plan.md');
+  // The round that the prompts of round k named, and the round that the prompts of round k + 1 name.
+  const promptRound = caseData.round + k - 1;
+  const nextRound = k + 1;
+  const nextDir = path.join(runDir, `round-${nextRound}`);
+  // The judge reads the reviewed tree of the new round under its blind run label, so it opens no arm folder.
+  const judgeTree = path.join(ws, JUDGE_TREES, runLabel(caseId, armName, `${runName}/round-${nextRound}`));
+
+  const mode = withIndex(runDir, (env) => {
+    let parent;
+    if (k === 1) {
+      parent = resolveCommit(repo, caseData.head, `${caseId} head`);
+      git(repo, ['read-tree', parent], { env });
+      if (sources.patch) {
+        applyPatch(repo, env, sources.patch, `patch ${caseData.patch} does not apply to ${caseData.head}`);
+      }
+    } else {
+      if (!roundMeta.head) fail(`${roundMetaFile} has no head`);
+      parent = resolveCommit(repo, roundMeta.head, `${roundLabel} head`);
+      git(repo, ['read-tree', parent], { env });
+    }
+    const reviewedTree = writeTree(repo, env);
+    for (const { known: id, patch } of plan.fixes) {
+      applyPatch(repo, env, path.join(knownDir, patch), `the fix patch of ${id} does not apply to ${roundLabel}`);
+    }
+    if (!fixerPatches) {
+      writeFixerInputs({ repo, env, fixerDir, planExport, extras: plan.extras, findingsById });
+      const extras = `${plan.extras.length} valid extra findings for the fixer: ${plan.extras.join(', ')}`;
+      fail(
+        `${roundLabel} has ${extras}; give their repair with --fixer-patch <file>, or dispatch the fixer prompts in ${fixerDir} and run loop again`,
+      );
+    }
+    for (const file of fixerPatches) {
+      applyPatch(repo, env, file, `the fixer patch does not apply to ${roundLabel} after its fix patches`);
+    }
+    const tree = writeTree(repo, env);
+    const head = commitTree(repo, tree, parent, `Review loop ${label}, round ${nextRound}`);
+    const base = resolveCommit(repo, caseData.base, `${caseId} base`);
+    const fullLines = diffSize(repo, base, tree);
+    const deltaLines = diffSize(repo, reviewedTree, tree);
+    const completed = blocks.every((block) => COMPLETE_VERDICTS.has(block.verdict));
+    const repairsOnly = plan.fixes.every((fix) => !fix.pulled);
+    const nextMode = roundMode({ round: nextRound, fullLines, completed, repairsOnly, deltaLines });
+    const paths = reviewPaths(nextDir, planExport, plan.rejections.length > 0);
+    const prompts = MODE_REVIEWERS[nextMode].map((reviewer) => {
+      const prompt = { caseData, arm, config: config.name, reviewer, paths, mode: nextMode, round: promptRound + 1 };
+      return { reviewer, text: buildPromptFile(prompt) };
+    });
+    const meta = { config, mode: nextMode, head, completed, repairsOnly, fullLines, deltaLines };
+    fs.mkdirSync(nextDir);
+    try {
+      checkoutSnapshot(repo, env, paths.snapshot);
+      const full = treeDiff(repo, base, tree);
+      fs.writeFileSync(paths.fullDiff, full);
+      if (nextMode === 'panel') writeFocusDiffs(repo, base, tree, paths, full);
+      fs.writeFileSync(paths.deltaDiff, treeDiff(repo, reviewedTree, tree));
+      fs.writeFileSync(paths.previousReview, roundComment(roundDir, blocks));
+      if (paths.rejection) {
+        fs.writeFileSync(paths.rejection, rejectionComment(promptRound, plan.rejections, findingsById));
+      }
+      fs.rmSync(judgeTree, { recursive: true, force: true });
+      checkoutSnapshot(repo, env, judgeTree);
+      writeRuns([{ dir: nextDir, meta, prompts }]);
+    } catch (error) {
+      fs.rmSync(nextDir, { recursive: true, force: true });
+      fs.rmSync(judgeTree, { recursive: true, force: true });
+      throw error;
+    }
+    return nextMode;
+  });
+  writeJson(roundMetaFile, { ...roundMeta, fix: plan });
+  console.log(`prepared ${nextDir}: a ${mode} round after ${plan.fixes.length} fixes and ${plan.extras.length} extras`);
+  return nextDir;
 }
 
 // Extracts plugins/plan-lifecycle at `sha` into `dir`. A marker file records the commit,
@@ -577,6 +986,27 @@ function parseTiers(value, runtime) {
   }
   if (!value) fail('agents needs --tiers <list>, for example --tiers priority,default');
   return parseList(value, '--tiers', OMP_TIERS);
+}
+
+// The model, effort, and tier of the fixer agent. The defaults hold for omp; Claude Code needs a model of its own and
+// takes no tier.
+function parseFixer(options, runtime, levels) {
+  const model = options['fixer-model'] ?? (runtime === 'omp' ? FIXER_DEFAULTS.model : null);
+  if (!model) fail('Claude Code cannot run the default fixer model; give --fixer-model with --runtime claude');
+  if (EFFORT_SUFFIX.test(model)) {
+    fail(`--fixer-model ${model} has an effort suffix; give the effort with --fixer-effort`);
+  }
+  const effort = options['fixer-effort'] ?? FIXER_DEFAULTS.effort;
+  if (!levels.includes(effort)) fail(`--fixer-effort does not take ${effort}; use ${levels.join(', ')}`);
+  if (runtime === 'claude') {
+    if (options['fixer-tier']) {
+      fail('Claude Code sets no service tier per agent; omit --fixer-tier with --runtime claude');
+    }
+    return { model, effort, tier: null };
+  }
+  const tier = options['fixer-tier'] ?? FIXER_DEFAULTS.tier;
+  if (!OMP_TIERS.includes(tier)) fail(`--fixer-tier does not take ${tier}; use ${OMP_TIERS.join(', ')}`);
+  return { model, effort, tier };
 }
 
 function readSettings(file) {
@@ -665,6 +1095,7 @@ function prepareAgents(options, repo) {
     efforts: parseList(options.efforts, '--efforts', levels),
     tiers: parseTiers(options.tiers, runtime),
   });
+  const fixer = parseFixer(options, runtime, levels);
   const project = projectDir(options, repo);
   let baselineDir;
   if (options['baseline-dir']) baselineDir = path.resolve(options['baseline-dir']);
@@ -701,9 +1132,19 @@ function prepareAgents(options, repo) {
       if (config.tier !== null) overrides[name] = config.tier;
     }
   }
+  const fixerAgent = renderAgent(FIXER_SOURCE, {
+    name: FIXER_AGENT,
+    model: fixer.model,
+    effortKey,
+    effort: fixer.effort,
+  });
+  fs.writeFileSync(path.join(agentDir, `${FIXER_AGENT}.md`), fixerAgent);
+  if (fixer.tier !== null) overrides[FIXER_AGENT] = fixer.tier;
   writeJson(path.join(agentDir, CONFIGS_FILE), { configs });
   const names = configs.map((config) => config.name).join(', ');
   console.log(`wrote ${configs.length * sources.length} agent files to ${agentDir} for ${names}`);
+  const fixerTier = fixer.tier === null ? '' : `, tier ${fixer.tier}`;
+  console.log(`wrote the fixer agent ${FIXER_AGENT}: ${fixer.model}, effort ${fixer.effort}${fixerTier}`);
   if (runtime === 'omp') writeTierOverrides(project, overrides);
 }
 
@@ -718,7 +1159,7 @@ function prepareProbe(options, repo) {
   writeRuns(
     configs.map((config) => ({
       dir: path.join(caseDir, armFolder(PROBE_ARM, config.name), 'run-1'),
-      config,
+      meta: { config },
       prompts: [{ reviewer: 'full', text: `agent: ${armAgent('code', PROBE_ARM, config.name)}\n\n${PROBE_TASK}\n` }],
     })),
   );
@@ -736,7 +1177,18 @@ const COMMANDS = {
       runs: { type: 'string' },
       out: { type: 'string' },
       configs: { type: 'string' },
+      keys: { type: 'string' },
+      loop: { type: 'boolean' },
       ...PROJECT_OPTION,
+    },
+  },
+  loop: {
+    run: prepareLoop,
+    options: {
+      run: { type: 'string' },
+      cases: { type: 'string' },
+      keys: { type: 'string' },
+      'fixer-patch': { type: 'string' },
     },
   },
   agents: {
@@ -746,6 +1198,9 @@ const COMMANDS = {
       model: { type: 'string' },
       efforts: { type: 'string' },
       tiers: { type: 'string' },
+      'fixer-model': { type: 'string' },
+      'fixer-effort': { type: 'string' },
+      'fixer-tier': { type: 'string' },
       runtime: { type: 'string' },
       out: { type: 'string' },
       'baseline-dir': { type: 'string' },
@@ -761,8 +1216,11 @@ const COMMANDS = {
 
 const USAGE = `usage:
   prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
+                     [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
                      [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
-  prepare.mjs case --case <case.json> --arms <list> --runs <k> --out <ws> [--configs <list>] [--project <dir>]
+  prepare.mjs case --case <case.json> --arms <list> --runs <k> --out <ws> [--configs <list>] [--keys <dir>]
+                   [--loop] [--project <dir>]
+  prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>] [--fixer-patch <file>]
   prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
   prepare.mjs clean [--project <dir>]`;
 

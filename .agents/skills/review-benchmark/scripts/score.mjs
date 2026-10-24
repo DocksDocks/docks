@@ -2,6 +2,7 @@
 // Scores review benchmark runs. `findings` parses the returned review blocks, `pairs` builds the judge input,
 // `report` turns the judgments and the run metadata into recall, cost, and configuration tables, `transcripts`
 // fills the run metadata from omp subagent transcripts, and `names` prints the dispatch name of every prompt.
+// `fixPlan` and `loopEnds` give the fix step of a review loop to `prepare.mjs loop`.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -240,7 +241,6 @@ export function readWorkspace(ws) {
             arm,
             run,
             round,
-            runDir,
             dir,
             prompts: new Set(prompts),
             reviewers,
@@ -326,19 +326,28 @@ export function readKey(dir, caseId) {
   return requireKnownList(caseId, Array.isArray(key) ? key : key?.known);
 }
 
-// The known defects of a case: inline in a development case, or in the key file of a held-out case. With `keys`,
-// the key file is `<keys>/<id>.key.json`, and the key file next to the case file stays unread.
-export function readKnown(casesDir, caseId, split, keys) {
+// The case file `<casesDir>/<split>/<caseId>.json`, else `<casesDir>/<caseId>.json`.
+export function caseFilePath(casesDir, caseId, split) {
   const caseFile = [path.join(casesDir, split ?? '', `${caseId}.json`), path.join(casesDir, `${caseId}.json`)].find(
     (file) => fs.existsSync(file),
   );
   if (!caseFile) fail(`case file ${caseId}.json not found under ${casesDir}`);
+  return caseFile;
+}
+
+// The known defects of a case: inline in a development case, or in the key file of a held-out case. With `keys`,
+// the key file is `<keys>/<id>.key.json`, and the key file next to the case file stays unread. `dir` is the folder
+// of the files that the known defects name, such as their fix patches: the case folder for inline defects, else the
+// folder of the key file.
+export function readKnown(casesDir, caseId, split, keys) {
+  const caseFile = caseFilePath(casesDir, caseId, split);
   const data = readJson(caseFile);
-  if (data.known !== undefined) return { kind: data.kind, known: requireKnownList(caseId, data.known) };
+  if (data.known !== undefined)
+    return { kind: data.kind, known: requireKnownList(caseId, data.known), dir: path.dirname(caseFile) };
   const keyDir = keys ?? path.dirname(caseFile);
   const known = readKey(keyDir, caseId);
   if (known === undefined) fail(`${keyFile(keyDir, caseId)} is missing and ${caseFile} has no known defects`);
-  return { kind: data.kind, known };
+  return { kind: data.kind, known, dir: keyDir };
 }
 
 // Each review round of a run is one judge run with its own label. A run without round folders keeps its label.
@@ -450,15 +459,91 @@ function requireCandidateAnswers(pairsDoc, verdicts) {
 }
 
 // A finding with neither a `match` answer nor a rating would count as unjudged, so the report stops on it, as it
-// stops on a candidate pair without an answer.
-function requireJudgedFindings(findingsDoc, judgments) {
+// stops on a candidate pair without an answer. The fix step of a loop stops on it too, because it cannot decide it.
+function requireJudgedFindings(findings, judgments) {
   const judged = new Set([
     ...(judgments.matches ?? []).filter((entry) => entry.verdict === 'match').map((entry) => entry.finding),
     ...(judgments.adjudications ?? []).map((entry) => entry.finding),
   ]);
-  const open = findingsDoc.findings.map((finding) => finding.blind).filter((blind) => !judged.has(blind));
+  const open = findings.map((finding) => finding.blind).filter((blind) => !judged.has(blind));
   if (open.length === 0) return;
   fail(`judgments.json has no match and no adjudication for ${open.length} findings: ${listSome(open)}`);
+}
+
+// The production loop stops at this round when the round does not pass.
+const MAX_LOOP_ROUNDS = 5;
+
+// The fix step after one round of a review loop. It repairs every finding that stands:
+// - fixes: the fix patch of each known defect that a finding of the round matches and that no earlier round fixed
+//   (`applied`), and before it the patches that it needs through `fix_after`, also indirectly. A needed patch that
+//   no finding of the round matched gets `pulled: true`. The order takes, again and again, the first known defect
+//   in known-list order whose `fix_after` ids are all applied or already placed.
+// - extras: the stable ids of the findings without a `match` answer that the judge rated `valid`. The fixer agent
+//   repairs them.
+// - rejections: the findings without a `match` answer rated `wrong` or `unknown`, with the judge's reason, for the
+//   rejection comment.
+// A finding that matches only applied defects needs no repair.
+export function fixPlan({ findings, judgments, known, applied = [] }) {
+  requireJudgedFindings(findings, judgments);
+  const byId = new Map(known.map((item) => [item.id, item]));
+  const matched = new Map();
+  for (const entry of judgments.matches ?? []) {
+    if (entry.verdict !== 'match') continue;
+    if (!matched.has(entry.finding)) matched.set(entry.finding, []);
+    matched.get(entry.finding).push(entry.known);
+  }
+  const ratings = new Map();
+  for (const entry of judgments.adjudications ?? []) {
+    if (!RATINGS.has(entry.rating)) fail(`judgments.json has rating ${entry.rating}`);
+    recordOnce(ratings, entry.finding, entry.rating, entry.finding);
+  }
+  const reasons = new Map((judgments.adjudications ?? []).map((entry) => [entry.finding, entry.reason]));
+  const done = new Set(applied);
+  // Each known defect to fix, with true when only a fix_after list needs it.
+  const wanted = new Map();
+  const extras = [];
+  const rejections = [];
+  for (const finding of findings) {
+    const hits = matched.get(finding.blind);
+    if (hits) {
+      for (const id of hits) {
+        if (!byId.has(id))
+          fail(`judgments.json pairs ${finding.blind} with ${id}, which is not a known defect of its case`);
+        if (!done.has(id)) wanted.set(id, false);
+      }
+      continue;
+    }
+    const rating = ratings.get(finding.blind);
+    if (rating === 'valid') extras.push(finding.id);
+    else rejections.push({ finding: finding.id, rating, reason: reasons.get(finding.blind) });
+  }
+  const pull = (id) => {
+    for (const after of byId.get(id).fix_after ?? []) {
+      if (!byId.has(after)) fail(`known defect ${id} lists ${after} in fix_after, which is not a known defect`);
+      if (done.has(after) || wanted.has(after)) continue;
+      wanted.set(after, true);
+      pull(after);
+    }
+  };
+  for (const id of [...wanted.keys()]) pull(id);
+  const fixes = [];
+  const remaining = known.filter((item) => wanted.has(item.id));
+  while (remaining.length) {
+    const next = remaining.findIndex((item) => (item.fix_after ?? []).every((after) => done.has(after)));
+    if (next === -1) fail(`the fix_after lists of ${remaining.map((item) => item.id).join(', ')} form a cycle`);
+    const [item] = remaining.splice(next, 1);
+    if (typeof item.fix !== 'string' || !item.fix) fail(`known defect ${item.id} has no fix patch`);
+    const fix = { known: item.id, patch: item.fix };
+    fixes.push(wanted.get(item.id) ? { ...fix, pulled: true } : fix);
+    done.add(item.id);
+  }
+  return { fixes, extras, rejections };
+}
+
+// The loop ends after a round that leaves no finding open: the fix step repairs every finding that stands, so a plan
+// without fixes and extras means that no finding stands. It also ends at round 5.
+export function loopEnds(round, plan) {
+  return round >= MAX_LOOP_ROUNDS || (plan.fixes.length === 0 && plan.extras.length === 0);
 }
 
 // Sorts findings by the judge's answers: the known defects that they found, the known defects of their `unknown`
@@ -568,9 +653,16 @@ function scoreRun(run, caseEntry, judged, metas) {
     rounds.flatMap((round) => round.findings),
     judged,
   );
-  // A round is caused only by extra findings when the round before it found no known defect and had a valid extra.
+  // A round is caused only by extra findings when the round before it found no known defect that no earlier round of
+  // the run had found, and had a valid extra. A repeat of a fixed defect needs no repair, so it causes no round.
+  const seen = new Set();
+  const newFound = roundScores.map((round) => {
+    const fresh = round.found.filter((id) => !seen.has(id));
+    for (const id of round.found) seen.add(id);
+    return fresh.length;
+  });
   const extraOnlyRounds = roundScores.filter(
-    (_, index) => index > 0 && roundScores[index - 1].found.length === 0 && roundScores[index - 1].validExtras > 0,
+    (_, index) => index > 0 && newFound[index - 1] === 0 && roundScores[index - 1].validExtras > 0,
   ).length;
   const last = roundScores.at(-1);
   return {
@@ -946,7 +1038,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, referenc
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
     'The Runs table lists every run. The summary and the configuration tables leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration.',
-    'A configuration table has one column per configuration in one case group. A round row covers the runs that reached that round. Extra-only rounds are rounds whose previous round found no known defect and had a valid extra finding. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran.',
+    'A configuration table has one column per configuration in one case group. A round row covers the runs that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds is the time of the fix steps of a loop, apart from the loop seconds. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran.',
     '',
     '## Summary',
     '',
@@ -976,25 +1068,27 @@ export function renderReport({ summaries, runs, agreement }, { configs, referenc
   ].join('\n');
 }
 
-// The omp task name of a dispatch, for example `Code96C3R2SpecAndTests`; its transcript is `<name>.jsonl`.
-export function dispatchName(caseId, arm, run, reviewer) {
+// The omp task name of a dispatch, for example `Code96C3R2SpecAndTests`; its transcript is `<name>.jsonl`. A
+// dispatch of a round folder has `K<round>` after the run part, for example `Code7C1LowR1K2Delta`.
+export function dispatchName(caseId, arm, run, reviewer, round) {
   const pascal = (value) =>
     String(value)
       .split(/[^A-Za-z0-9]+/)
       .filter(Boolean)
       .map((part) => part[0].toUpperCase() + part.slice(1))
       .join('');
-  return `${pascal(caseId)}${pascal(arm)}R${runNumber(run)}${pascal(reviewer)}`;
+  const roundPart = round === undefined ? '' : `K${round}`;
+  return `${pascal(caseId)}${pascal(arm)}R${runNumber(run)}${roundPart}${pascal(reviewer)}`;
 }
 
-// Adds the dispatch name to each `{ caseId, arm, run, reviewer }` entry. The name drops separators and case, so
-// for example `code-7` and `code_7` give one name; two reviewers with one name would share one transcript.
+// Adds the dispatch name to each `{ caseId, arm, run, round, reviewer }` entry. The name drops separators and case,
+// so for example `code-7` and `code_7` give one name; two reviewers with one name would share one transcript.
 export function dispatchNames(dispatches) {
   const owners = new Map();
   return dispatches.map((dispatch) => {
-    const { caseId, arm, run, reviewer } = dispatch;
-    const name = dispatchName(caseId, arm, run, reviewer);
-    const owner = `${caseId}/${arm}/${run}/${reviewer}`;
+    const { caseId, arm, run, round, reviewer } = dispatch;
+    const name = dispatchName(caseId, arm, run, reviewer, round);
+    const owner = `${caseId}/${arm}/${runPath(run, round)}/${reviewer}`;
     if (owners.has(name) && owners.get(name) !== owner)
       fail(`dispatch name collision: ${owners.get(name)} and ${owner} both give ${name}; rename a case or an arm`);
     owners.set(name, owner);
@@ -1002,17 +1096,36 @@ export function dispatchNames(dispatches) {
   });
 }
 
-// Every reviewer that has a prompt, in workspace order, with its dispatch name. The rounds of a run would share one
-// name, so a workspace with round folders stops here.
+// `prepare.mjs loop` writes the prompts of the fixer agent of a loop round to `<round folder>/fixer/fixer-<n>.txt`,
+// one per valid extra finding, and each prompt names `fixer-<n>.patch` in the same folder as its output.
+export const FIXER_DIR = 'fixer';
+export const fixerName = (n) => `fixer-${n}`;
+const FIXER_NAME = /^fixer-([1-9]\d*)$/;
+const fixerNumber = (name) => Number(FIXER_NAME.exec(name)[1]);
+
+// Every reviewer that has a prompt and every fixer prompt, in workspace order, with its dispatch name and its prompt
+// file. Each round folder is a dispatch of its own; a fixer entry has `fixer: true`.
 function promptedDispatches(ws) {
-  const entries = readWorkspace(ws);
-  const withRounds = entries.find((entry) => entry.round !== undefined);
-  if (withRounds)
-    fail(`${path.relative(ws, withRounds.runDir)} has round folders, and round folders have no dispatch names`);
   return dispatchNames(
-    entries.flatMap(({ caseId, arm, run, runDir, reviewers, prompts }) =>
-      reviewers.filter((reviewer) => prompts.has(reviewer)).map((reviewer) => ({ caseId, arm, run, runDir, reviewer })),
-    ),
+    readWorkspace(ws).flatMap(({ caseId, arm, run, round, dir, reviewers, prompts }) => {
+      const dispatch = (folder, reviewer) => ({
+        caseId,
+        arm,
+        run,
+        round,
+        dir,
+        reviewer,
+        fixer: folder === FIXER_DIR,
+        prompt: path.join(dir, folder, `${reviewer}.txt`),
+      });
+      const fixers = baseNames(path.join(dir, FIXER_DIR), '.txt')
+        .filter((name) => FIXER_NAME.test(name))
+        .sort((a, b) => fixerNumber(a) - fixerNumber(b));
+      return [
+        ...reviewers.filter((reviewer) => prompts.has(reviewer)).map((reviewer) => dispatch('prompts', reviewer)),
+        ...fixers.map((reviewer) => dispatch(FIXER_DIR, reviewer)),
+      ];
+    }),
   );
 }
 
@@ -1109,7 +1222,8 @@ export function pairsCommand(ws, casesDir, { keys } = {}) {
   const cases = {};
   for (const caseId of new Set(findingsDoc.blocks.map((block) => block.case))) {
     const { split } = readJson(path.join(ws, caseId, 'case.json'));
-    cases[caseId] = { ...readKnown(casesDir, caseId, split, keys), split };
+    const { kind, known } = readKnown(casesDir, caseId, split, keys);
+    cases[caseId] = { kind, known, split };
   }
   const doc = buildPairs(findingsDoc, cases);
   writeJson(path.join(ws, 'pairs.json'), doc);
@@ -1154,7 +1268,7 @@ export function reportCommand(ws, { keys, configs } = {}) {
   const judgments = readJson(path.join(ws, 'judgments.json'), '; the judge writes it');
   if (keys) requireCurrentKeys(pairs, keys);
   const scores = scoreRuns({ findings, pairs, judgments, metas: readMetas(ws, findings.blocks) });
-  requireJudgedFindings(findings, judgments);
+  requireJudgedFindings(findings.findings, judgments);
   const secondFile = path.join(ws, 'judgments-second.json');
   if (fs.existsSync(secondFile)) scores.agreement = judgeAgreement(judgments, readJson(secondFile));
   fs.writeFileSync(path.join(ws, 'report.md'), renderReport(scores, { configs }));
@@ -1162,42 +1276,54 @@ export function reportCommand(ws, { keys, configs } = {}) {
 }
 
 export function namesCommand(ws) {
-  return promptedDispatches(ws).map(({ runDir, reviewer, name }) => ({
-    prompt: path.relative(ws, path.join(runDir, 'prompts', `${reviewer}.txt`)),
-    name,
-  }));
+  return promptedDispatches(ws).map(({ prompt, name }) => ({ prompt: path.relative(ws, prompt), name }));
 }
 
-// Fills each reviewer entry of a run's meta.json with the time and tokens of the assistant messages of the
-// configured model (`config.model`; every model without a configuration) and with the transcript facts, and keeps
-// every other field. It checks every dispatch name before it writes, writes what it finds, then fails with the
-// names of the dispatches that have no transcript.
+// Fills the meta.json of each run or round folder from the transcripts of its dispatches and keeps every other field.
+// A reviewer entry under `reviewers` gets the time and tokens of the assistant messages of the configured model
+// (`config.model`; every model without a configuration) and the transcript facts. A fixer entry under
+// `fixer.agents` gets the time and tokens of every assistant message and the transcript facts. The fixers of a round
+// run in one message, so `fixer.seconds` is the slowest fixer and `fixer.tokens` the sum. The command checks every
+// dispatch name before it writes, writes what it finds, then fails with the names of the dispatches that have no
+// transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
-  const byRun = new Map();
+  const byDir = new Map();
   for (const dispatch of promptedDispatches(ws)) {
-    if (!byRun.has(dispatch.runDir)) byRun.set(dispatch.runDir, []);
-    byRun.get(dispatch.runDir).push(dispatch);
+    if (!byDir.has(dispatch.dir)) byDir.set(dispatch.dir, []);
+    byDir.get(dispatch.dir).push(dispatch);
   }
   const updated = [];
   const missing = [];
-  for (const [runDir, dispatches] of byRun) {
-    const metaFile = path.join(runDir, 'meta.json');
+  for (const [dir, dispatches] of byDir) {
+    const metaFile = path.join(dir, 'meta.json');
     const meta = fs.existsSync(metaFile) ? readJson(metaFile) : {};
-    meta.reviewers ??= {};
     let changed = false;
-    for (const { reviewer, name } of dispatches) {
+    for (const { reviewer, name, fixer } of dispatches) {
       const file = pickTranscript(files, name);
       if (!file) {
         missing.push(name);
         continue;
       }
       const text = fs.readFileSync(file, 'utf8');
-      meta.reviewers[reviewer] = {
-        ...meta.reviewers[reviewer],
-        ...parseTranscript(text, file, meta.config?.model),
-        ...transcriptFacts(text, file),
-      };
+      if (fixer) {
+        const agent = { ...parseTranscript(text, file), ...transcriptFacts(text, file) };
+        const agents = { ...meta.fixer?.agents, [reviewer]: agent };
+        const entries = Object.values(agents);
+        meta.fixer = {
+          ...meta.fixer,
+          seconds: Math.max(...entries.map((entry) => entry.seconds)),
+          tokens: sum(entries.map((entry) => entry.tokens)),
+          agents,
+        };
+      } else {
+        meta.reviewers ??= {};
+        meta.reviewers[reviewer] = {
+          ...meta.reviewers[reviewer],
+          ...parseTranscript(text, file, meta.config?.model),
+          ...transcriptFacts(text, file),
+        };
+      }
       updated.push(name);
       changed = true;
     }

@@ -4,7 +4,7 @@ description: "Use when measuring a change to the plan-lifecycle reviewers in thi
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-23"
+  updated: "2026-10-24"
 ---
 
 # Review benchmark
@@ -13,8 +13,8 @@ This skill measures a reviewer change before it ships. It replays frozen review 
 
 | Path (in this skill folder) | Content |
 |---|---|
-| `scripts/prepare.mjs` | Builds the agent files of the configurations, one workspace per case, and the probe |
-| `scripts/score.mjs` | Parses the returned blocks, builds judge pairs, and writes the report |
+| `scripts/prepare.mjs` | Builds the agent files of the configurations and the fixer agent, one workspace per case, the probe, and the rounds of review loops |
+| `scripts/score.mjs` | Parses the returned blocks, builds judge pairs, writes the report, and plans the fix step of a loop round |
 | [references/judge.md](references/judge.md) | The judge's instructions: match pass and adjudication pass |
 | `cases/dev/`, `cases/heldout/` | Case files and their inputs; held-out answer keys are in `<id>.key.json` |
 | `results.md` | Decision rule and the append-only results log |
@@ -38,11 +38,14 @@ A case is `cases/<split>/<id>.json` plus the files it names in the same folder.
 | `repo_ref` | plan kinds | Repository commit for the plan's facts |
 | `previous_body`, `previous_review` | `plan-delta` | Body and comment of the previous round |
 | `rejection` | delta kinds | Optional rejection comment of the previous round |
-| `known` | dev only | Known defects: `id`, `title`, `locator`, and `severity` (code) or `kind` (plan) |
+| `external` | all | Optional list of the file fields (`plan`, `patch`, `previous_review`, `previous_body`, `rejection`) whose files are in the key folder |
+| `known` | dev only | Known defects: `id`, `title`, `locator`, and `severity` (code) or `kind` (plan). A code defect adds `fix`, its fix patch (a file in the case folder), and optionally `fix_after`, the ids of the known defects whose patches its patch needs first |
 
-A held-out case file has no `known` field. Only the judge reads `<id>.key.json`. While reviewers run, keep the held-out keys outside the repository, because a reviewer can search the checkout: for example in `$XDG_STATE_HOME/docks/review-bench/keys/` with mode 0700. Give that folder to `score.mjs pairs` and `score.mjs report` with `--keys <dir>`. `pairs` then reads `<dir>/<id>.key.json` for each case without `known`, and never the key file next to the case file. `report` stops when a key in that folder has other known-defect ids than `pairs.json`; run `pairs` again.
+A held-out case file has no `known` field. Its known defects are in `<id>.key.json`, in the same form as the `known` list of a dev case, and the fix patches are in the folder of the key file. Of the agents, only the judge reads key files; `score.mjs` and `prepare.mjs loop` read them too. While reviewers run, keep the held-out keys outside the repository, because a reviewer can search the checkout: for example in `$XDG_STATE_HOME/docks/review-bench/keys/` with mode 0700. Give that folder to `score.mjs pairs` and `score.mjs report` with `--keys <dir>`. `pairs` then reads `<dir>/<id>.key.json` for each case without `known`, and never the key file next to the case file. `report` stops when a key in that folder has other known-defect ids than `pairs.json`; run `pairs` again.
 
-To add a case, commit its inputs and add the case file. Turn each defect that escaped a real review into a new dev case: use the base, head, and plan of the round that missed it, and give the defect one `known` entry. A held-out case is built by an agent that does not change reviewer prompts, and that agent reports only paths and counts.
+A held-out case can keep its input files in the key folder too: `external` names their fields, for example `["plan", "patch"]`. Give the key folder to `prepare.mjs case` and `prepare.mjs loop` with `--keys <dir>`; without it, they stop before they write. The workspace gets these inputs under its own names (`plan.md`, the snapshot, and the diffs), so no file of the key folder lands in a workspace under its own name.
+
+To add a case, commit its inputs and add the case file. Turn each defect that escaped a real review into a new dev case: use the base, head, and plan of the round that missed it, and give the defect one `known` entry with its fix patch. A held-out case is built by an agent that does not change reviewer prompts, and that agent reports only paths and counts.
 
 ## Configurations
 
@@ -53,20 +56,22 @@ A configuration is a model, an effort, and a service tier. `prepare.mjs agents` 
 | `--model <m>[,<m>...]` | model selectors without an effort suffix | with two or more models, the model slug (the last path segment, in lower case) and a hyphen come first |
 | `--efforts <list>` | omp thinking levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | the effort |
 | `--tiers <list>` | omp OpenAI service tiers: `none`, `auto`, `default`, `flex`, `scale`, `priority`, `ultrafast` | nothing for `default`, `-fast` for `priority`, `-<tier>` for the other tiers |
+| `--fixer-model <m>`, `--fixer-effort <e>`, `--fixer-tier <t>` | the model, effort, and tier of the fixer agent; defaults `openai-codex/gpt-6.1-sol`, `high`, and `priority` | none: one fixer serves every configuration |
 
 For example, `--efforts low,xhigh --tiers priority,default` gives `low-fast`, `low`, `xhigh-fast`, and `xhigh`. With a second model, the names become `gpt-6.1-sol-low-fast` and so on. The same lists always give the same names, because the report uses them as column names.
 
 `agents` applies each configuration through omp agent files, so each reviewer runs as a task subagent, as in production:
 
 - `.omp/agents/review-bench-<side>-<role>-<config>.md`: one agent for each side (`baseline`, `candidate`), role (`code`, `plan`), and configuration. The frontmatter pins `model` and `thinking-level`.
-- `.omp/settings.json`: one entry `task.agentServiceTierOverrides.<agent>` for each agent, with the tier of its configuration. omp merges `.omp/config.yml` over this file. The script keeps every other setting in the file and does not change the user's global config.
+- `.omp/agents/review-bench-fixer.md`: the fixer agent of review loops (see Review loop). It repairs the valid extra findings of a round, with the same model, effort, and tier for every configuration, so that only the reviewer setup varies.
+- `.omp/settings.json`: one entry `task.agentServiceTierOverrides.<agent>` for each agent and for the fixer agent, with the tier of its configuration or of the fixer. omp merges `.omp/config.yml` over this file. The script keeps every other setting in the file and does not change the user's global config.
 - `.omp/agents/review-bench-configs.json`: the list of configurations, which `case` and `probe` read.
 
 omp reads project agents and project settings from the working folder of the session. Write them where the dispatching omp session runs: by default the repository root of `prepare.mjs`, or the folder that `--project <dir>` names (for example the main checkout, when the script comes from a worktree). Give `case`, `probe`, and `clean` the same `--project`.
 
 `agents` removes the output of an earlier `agents` call before it writes. `clean` removes every `review-bench-*` file of `.omp/agents/` and `.claude/agents/`, every `review-bench-*` entry of `task.agentServiceTierOverrides`, `.omp/settings.json` when no other setting stays in it, and each folder that it empties.
 
-`--runtime claude` writes the agents to `.claude/agents/` with the Claude Code `effort` key (`low`, `medium`, `high`, `xhigh`, or `max`). Claude Code loads them in a new session or after `/agents`. Claude Code sets no service tier per agent, so this runtime takes no `--tiers`, and each configuration records the tier `null`. The `CLAUDE_CODE_EFFORT_LEVEL` variable overrides the `effort` key, so keep it unset.
+`--runtime claude` writes the agents to `.claude/agents/` with the Claude Code `effort` key (`low`, `medium`, `high`, `xhigh`, or `max`). Claude Code loads them in a new session or after `/agents`. Claude Code sets no service tier per agent, so this runtime takes no `--tiers` and no `--fixer-tier`, and each configuration records the tier `null`. It needs `--fixer-model`, because the default fixer model is an omp selector. The `CLAUDE_CODE_EFFORT_LEVEL` variable overrides the `effort` key, so keep it unset.
 
 ## Arms
 
@@ -97,6 +102,10 @@ The baseline agents are the released `code-reviewer.md` and `plan-reviewer.md` o
   <arm>-<config>/run-<k>/blocks/<reviewer>.md       the returned review block
   <arm>-<config>/run-<k>/meta.json                  {"config": {...}, "reviewers": {"<reviewer>": {...}}}
   <arm>-<config>/run-<k>/round-<r>/                 one review round of a loop: prompts/, blocks/, meta.json
+  <arm>-<config>/run-<k>/round-<r>/snapshot/  full.diff  delta.diff  previous-review.md  rejection.md
+                                                    the inputs of a loop round after round 1 (see Review loop)
+  <arm>-<config>/run-<k>/round-<r>/fixer/           the fixer prompts, patches, and snapshot of the fix step after round r
+<ws>/trees/<run label>/                             the judge's copy of the reviewed tree of a loop round after round 1
 <ws>/findings.json  <ws>/pairs.json  <ws>/judgments.json  <ws>/judgments-second.json  <ws>/report.md
 ```
 
@@ -109,7 +118,7 @@ The baseline agents are the released `code-reviewer.md` and `plan-reviewer.md` o
 | `messages` | the `model` and `servedTier` of each assistant message, in transcript order |
 | `sideCalls` | the `model`, `purpose`, and `tokens` of each `model_usage` record, for example a title call of a helper model; their tokens stay out of `tokens` |
 
-A run of several review rounds keeps each round in a `round-<r>` folder, from `round-1` without a gap, with its own `prompts/`, `blocks/`, and `meta.json`. A round `meta.json` can add `mode` (the round mode) and `fixer.seconds` (the time of the fix step after the round). `report` reads `config` from the run's `meta.json`, else from its `round-1/meta.json`. A run without round folders is round 1, and its finding ids and scores do not change. `names` and `transcripts` stop on a workspace with round folders, because the rounds of a run have no dispatch names of their own.
+A run of several review rounds keeps each round in a `round-<r>` folder, from `round-1` without a gap, with its own `prompts/`, `blocks/`, and `meta.json`. A round `meta.json` can add `mode` (the round mode) and `fixer` (the time of the fix step after the round, see Review loop). `report` reads `config` from the run's `meta.json`, else from its `round-1/meta.json`. A run without round folders is round 1, and its finding ids and scores do not change. Each round folder is a dispatch of its own: the dispatch names of its prompts have `K<round>` after the run part, for example `Code7C1LowR1K2Delta`, and `transcripts` writes the `meta.json` of the round folder.
 
 The snapshot is the reviewed tree without Git history. This skill folder holds the held-out answer keys, so the snapshot, every diff, and the changed-path list of the focus diffs leave it out. Focus diffs split the changed paths by class:
 
@@ -153,6 +162,63 @@ A run used its configuration when its transcript shows these values. The same ch
 
 An assistant message from another model (for example after a usage fallback) or with another served tier shows that the run did not use its configuration.
 
+## Review loop
+
+A loop run replays the production code-review loop of plan-lifecycle (`plan-contract.md`, Code-review rounds) on one run of a `code` case. Each round is a folder `run-<k>/round-<r>/`. The judge's answers score each round and decide the fix step, but they do not end the loop: the loop ends after a round that leaves no finding open, or after round 5. Plan cases run one round per run.
+
+1. Build the workspace with `case --loop`. Each run gets `round-1/` with the prompts of the round-1 mode: `panel` when the full diff changes 50 or more lines (added plus removed lines), else `full`. Its `meta.json` holds `config`, `mode`, and `fullLines`. With `--loop`, the round mode picks the reviewers and an arm gives only the side of the agent, so give one arm per side, for example `--arms C1` or `--arms B0,C1`. `--loop` takes `code` cases only.
+
+   ```bash
+   node "$skill/scripts/prepare.mjs" case --case "$skill/cases/dev/<id>.json" --arms C1 --runs 3 --out "$bench/dev" --loop
+   ```
+
+2. Dispatch the prompts of the last round folder of each run, as in step 3 of the procedure, and save each block in `blocks/<reviewer>.md` of that round folder. `score.mjs names` prints the task name of each prompt, with the round after the run part, for example `Code7C1LowR1K2Delta`.
+3. Score and judge the round: run `score.mjs findings` and `score.mjs pairs`, and dispatch the judge as in step 4 of the procedure. `judgments.json` keeps the answers of the earlier rounds and gets an answer for each new candidate pair and a rating for each new finding without a `match` answer. For a round after round 1, the judge reads the reviewed tree in `<ws>/trees/<run label>/`, because the loop has changed the tree since the case snapshot.
+4. Run `loop` on the run folder:
+
+   ```bash
+   node "$skill/scripts/prepare.mjs" loop --run "$bench/dev/<id>/C1-<config>/run-1" --cases "$skill/cases"
+   ```
+
+   `loop` reads `findings.json`, `judgments.json`, and the known defects of the case, and plans the fix step for the findings of the last round, round r:
+
+   | Finding of round r | Fix step |
+   |---|---|
+   | matches a known defect that no earlier round fixed | the `fix` patch of the defect, after the patches that its `fix_after` list needs. A needed patch that no finding of the round matched is pulled in |
+   | matches only known defects that earlier rounds fixed | nothing |
+   | has no `match` answer and the rating `valid` | a patch from the fixer agent |
+   | has no `match` answer and the rating `wrong` or `unknown` | a line in `rejection.md`, with the judge's reason as the evidence |
+
+   When no fix patch and no valid extra finding remain, or when r is 5, `loop` prints that the loop ends and writes nothing. A finding with neither a `match` answer nor a rating stops `loop`, as it stops `report`.
+5. When round r has valid extra findings, the first `loop` call writes `round-<r>/fixer/` and stops with the list of the findings. `fixer/snapshot/` holds the tree of round r with its fix patches, and `fixer/fixer-<n>.txt` is one prompt per valid extra finding. Dispatch every fixer prompt of the round in one message: the agent is `review-bench-fixer`, and the task name is the one that `names` prints, for example `Code7C1LowR1K1Fixer1`. Each fixer writes the patch file that its prompt names, `fixer/fixer-<n>.patch`. Then run `loop` again: it applies these patches in prompt order. You can also give one patch that repairs every valid extra finding of the round with `--fixer-patch <file>`; then delete the fixer prompts of the round, because `transcripts` expects a transcript for each prompt.
+6. `loop` applies the fix patches, then the fixer patches, to the tree of round r with `git apply`. It commits the result as the reviewed head of round r + 1, with the head of round r as parent (for round 1, the case head) and the author and committer `Review loop`. No branch or tag points to these commits, so finish each loop before `git gc` can prune them (two weeks by default). Then `loop` adds `fix` (the fix plan) to `round-<r>/meta.json` and writes `round-<r+1>/`:
+
+   | File | Content |
+   |---|---|
+   | `snapshot/` | the new tree, without this skill folder |
+   | `full.diff`, `delta.diff` | the diff from the case base, and the diff from the head of round r; a `panel` round also gets the focus diffs |
+   | `previous-review.md` | the blocks of round r in reviewer order |
+   | `rejection.md` | only when round r has rejected findings: `Rejected review findings, round <n>`, then each finding with its evidence |
+   | `prompts/`, `blocks/` | one prompt per reviewer of the round mode, and an empty folder |
+   | `meta.json` | `config`, `mode`, `head`, `completed`, `repairsOnly`, `fullLines`, and `deltaLines` |
+
+   The mode follows `plan-contract.md`: `delta` only when round r completed (each block has the verdict `pass` or `fixes-required`), no patch was pulled in (`repairsOnly`: each change repairs a finding of round r), and the delta diff is at most half the full diff. Otherwise the size rule of round 1 gives `panel` or `full`. `loop` also writes the judge's copy of the new tree to `<ws>/trees/<run label>/`, where the run label is the label of the round in `pairs.json`.
+7. Do steps 2 to 6 again for round r + 1, until `loop` prints that the loop ends.
+8. After the last dispatch of the workspace, run `score.mjs transcripts`, then `score.mjs report`. `transcripts` fills the reviewer entries of each round folder. For the fixers of round r, it writes `fixer` in `round-<r>/meta.json`: `agents` (the time, tokens, and transcript facts of each fixer), `seconds` (the slowest fixer), and `tokens` (the sum). `report` does not check the fixer facts against a configuration.
+
+For held-out cases, give the key folder with `--keys <dir>` to `case`, `loop`, `pairs`, and `report`. `loop` then reads the key and the fix patches from that folder.
+
+In `## Configurations: <split>`, a loop gives these rows:
+
+| Rows | Content |
+|---|---|
+| `Round <r> seconds median`, `min`, `max`, `Round <r> modes`, `Round <r> known found per run` | the time, the mode counts, and the known defects found of round r, over the runs that reached round r |
+| `Rounds median`, `Rounds max` | the rounds of each loop |
+| `Loop seconds median` | the sum of the round seconds of each loop; the fix steps stay out |
+| `Known found per run`, `Escaped per run` | the known defects that the loop found by its end, and the others |
+| `Valid extras per run`, `Extra-only rounds per run` | the valid extra findings, and the rounds that only extra findings caused: rounds whose previous round found no known defect for the first time in the loop and had a valid extra finding. A repeat of a fixed defect needs no repair, so it causes no round |
+| `Fixer seconds median` | the sum of `fixer.seconds` over the rounds of each loop |
+
 ## Procedure
 
 1. Pick the arms and the configurations for the decision (see `results.md`), and use the last plan-lifecycle release as the baseline ref. Run every arm at least twice. Put dev cases and held-out cases in separate workspaces, so that the dev `pairs.json` holds no held-out text.
@@ -172,7 +238,7 @@ An assistant message from another model (for example after a usage fallback) or 
    node "$skill/scripts/score.mjs" names "$bench/dev"
    ```
 
-   Dispatch and check the probe (see Probe) before the cases. `prepare.mjs` stops with a message when a commit is missing (fetch it) or a patch does not apply.
+   Dispatch and check the probe (see Probe) before the cases. `prepare.mjs` stops with a message when a commit is missing (fetch it) or a patch does not apply. For loop runs, add `--loop` to `case` and follow Review loop.
 3. Dispatch from an omp session that runs in the `--project` folder of `agents`. One message holds every prompt of one arm folder and run, one subagent per prompt file: the agent is the name on the first line, the task is the text after the empty line, and the task name is the one that `score.mjs names` prints for that file. Do not set the `effort` field of a task: with `task.enableEffort`, it replaces the `thinking-level` of the agent. The task name drops separators and case, so `names` and `transcripts` stop when two prompts get the same name (for example cases `code-7` and `code_7`); rename one case. Alternate the arms and the configurations from message to message. Load changes round time, so keep the same load for every arm. Save each returned block as plain Markdown in `blocks/<reviewer>.md`; `score.mjs` also unwraps JSON-wrapped output from runtimes that return structured text. Fill `meta.json` with `score.mjs transcripts <ws> --omp-sessions <session folder>`. A run with a `config` needs the transcript facts of each reviewer, so write seconds and tokens by hand only for a run without `config`. For another runtime than omp, write the same fields from its transcripts.
 4. Score and judge:
 
@@ -192,9 +258,9 @@ An assistant message from another model (for example after a usage fallback) or 
 
    `report` checks each run that has a `config` against the transcript facts of each reviewer. The run is invalid when an assistant message comes from another model (for example after a usage fallback), when the requested effort is another one, when a message of the configured model shows another served tier (only for a configuration with a tier), or when a reviewer has no transcript facts. The Runs table keeps invalid runs; `## Invalid runs` names them with their reasons, and the summary and the configuration tables leave them out.
 
-   `## Configurations: <split>` gives one table per case group (`dev`, `heldout`) with one column per configuration, from the valid runs that have a `config`. Each round index gets the median, minimum, and maximum round seconds, the mode counts, and the known defects found per run that reached the round. Then come the rounds per run, the loop seconds (the sum of the round seconds), the known defects found and escaped per run, the valid extra and wrong findings per run, the extra-only rounds (rounds whose previous round found no known defect and had a valid extra), the unjudged and unknown answers, tokens, side-call tokens, fixer seconds, the model, effort, and served tier from the transcripts, and the known defects found per loop minute. The last three rows give the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran, for round 1 recall, escaped defects per 50 known defects, and loop seconds. The reference column has the fewest escaped defects per run (the first on a tie). The bootstrap draws 10,000 resamples of the cases with a fixed seed, so a rerun gives the same intervals.
+   `## Configurations: <split>` gives one table per case group (`dev`, `heldout`) with one column per configuration, from the valid runs that have a `config`. Each round index gets the median, minimum, and maximum round seconds, the mode counts, and the known defects found per run that reached the round. Then come the rounds per run, the loop seconds (the sum of the round seconds), the known defects found and escaped per run, the valid extra and wrong findings per run, the extra-only rounds (see Review loop), the unjudged and unknown answers, tokens, side-call tokens, fixer seconds, the model, effort, and served tier from the transcripts, and the known defects found per loop minute. The last three rows give the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran, for round 1 recall, escaped defects per 50 known defects, and loop seconds. The reference column has the fewest escaped defects per run (the first on a tie). The bootstrap draws 10,000 resamples of the cases with a fixed seed, so a rerun gives the same intervals.
 5. Apply the decision rule in `results.md` to `report.md`. For a losing candidate, read the transcripts of its misses before the next dev iteration.
 6. After the dev iterations, prepare and run the held-out cases once in their own workspace, under the constraint above.
 7. Append the result tables, the commit, the baseline ref, the configurations, and the decision to `results.md`.
 8. Turn each defect that escaped review into a new case (see Cases).
-9. Remove the agent files, the list of configurations, and the tier overrides with `node "$skill/scripts/prepare.mjs" clean` (with the same `--project` as `agents`). Then delete the workspaces and the `baseline-plugin` folder next to them.
+9. Remove the agent files (also the fixer agent), the list of configurations, and the tier overrides with `node "$skill/scripts/prepare.mjs" clean` (with the same `--project` as `agents`). Then delete the workspaces and the `baseline-plugin` folder next to them.

@@ -7,6 +7,7 @@ You judge the findings of one benchmark workspace (`<ws>`). Use a model from ano
 - `<ws>/pairs.json`: for each case, the known defects; for each run of the case, every finding and the candidate pairs of a finding and a known defect. Each review round of a loop is a run of its own. Finding ids (`F-...`) and run labels (`R-...`) are opaque.
 - The case files and key files (`<id>.key.json`) of the cases in the workspace. A key file is next to its case file, or, for held-out cases while reviewers run, in the keys folder outside the repository that the operator names (the folder that `score.mjs pairs --keys <dir>` read). `pairs.json` already holds their known defects. Open them only to check a detail.
 - `<ws>/<case>/snapshot/`: the reviewed tree. Next to it: `plan.md`, the diff files, and `previous-review.md` for delta cases.
+- `<ws>/trees/<run label>/`: the reviewed tree of a run that is a round after round 1 of a review loop. The loop repaired findings before that round, so the case snapshot does not show the code of the round. When this folder exists for a run label, read it instead of `<ws>/<case>/snapshot/` for the findings of that run.
 
 Do not open `findings.json`, `report.md`, `results.md`, or the arm folders of a case (the folders that hold `run-<k>` folders). They name the reviewer setups, and a judge that knows the setup can favor one. Do not guess the setup from the style or the length of a finding.
 
@@ -17,7 +18,7 @@ Read files only. Do not run commands, use the network, or write any file other t
 For each case, read its known defects first. Then do these steps for each pair in each run:
 
 1. Read the finding (`severity`, `category`, `locator`, `text`) and the known defect (`title`, `locator`, and the other fields).
-2. Answer `match` when the finding describes the same underlying defect: the same cause and the same effect. Other words, another line of the same code, or another fix still match. A finding that names a defect class matches each known defect that is an instance of that class.
+2. Answer `match` when the finding describes the same underlying defect: the same cause and the same effect. Other words, another line of the same code, or another fix still match. A finding that names a defect class matches each known defect that is an instance of that class. In a later round of a loop, a finding can repeat a known defect that the loop already repaired; answer `match` when it describes that defect.
 3. Answer `no` when the finding describes another defect, or names the same place with another cause.
 4. Answer `unknown` when the texts and the snapshot do not decide the question.
 5. Give one sentence of reasons.
@@ -26,7 +27,7 @@ One finding can match several known defects. Several findings can match one know
 
 ## Adjudication pass
 
-Then rate each finding of each run that got no `match` answer. Read the snapshot at its locator and trace the claim through the code or the plan.
+Then rate each finding of each run that got no `match` answer. Read the reviewed tree of the run at its locator and trace the claim through the code or the plan.
 
 - `valid`: the defect is real in the reviewed tree. The severity of the finding does not change the rating.
 - `wrong`: the claim is false in this code, the plan records the behavior as intended, or the finding describes no defect.
