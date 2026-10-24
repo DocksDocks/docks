@@ -25,6 +25,7 @@ import {
   FIXER_NAME,
   fixPlan,
   JUDGE_TREES,
+  loadJudgments,
   loopEnds,
   readKnown,
   runLabel,
@@ -40,7 +41,8 @@ const BASELINE_MARKER = '.review-bench-ref';
 const RUNTIME_AGENT_DIRS = { omp: '.omp/agents', claude: '.claude/agents' };
 // Every file and setting that `agents` writes starts with this prefix, so `clean` finds them without a record.
 const GENERATED_PREFIX = 'review-bench-';
-// The list of configurations that `agents` wrote, in the agent folder of the runtime. `case` and `probe` read it.
+// The list of configurations and the fixer setting that `agents` wrote, `{ configs, fixer }`, in the agent folder of
+// the runtime. `case` and `probe` read it; `case --loop` records the fixer setting in each round-1 meta.json.
 const CONFIGS_FILE = `${GENERATED_PREFIX}configs.json`;
 // omp reads this JSON file and merges `.omp/config.yml` over it, so the script edits its own entries without a
 // YAML parser and leaves the user's config files unchanged.
@@ -82,8 +84,10 @@ Do not change files under the snapshot root, dispatch another agent, or ask a qu
 `;
 // plan-contract.md, Code-review rounds: a round is a panel round when its full diff changes this many lines or more.
 const PANEL_LINES = 50;
-// A review round completed when every block has one of these verdicts.
+// A review round completed when every block has one of these verdicts. `loop` refuses a round that did not complete
+// and names each reviewer to dispatch again with the reason of its block.
 const COMPLETE_VERDICTS = new Set(['pass', 'fixes-required']);
+const INCOMPLETE_REASONS = { missing: 'no block', unreadable: 'no verdict line', blocked: 'blocked' };
 // The commits of loop rounds get this author and committer, so that `loop` needs no git user config.
 const LOOP_IDENTITY = {
   GIT_AUTHOR_NAME: 'Review loop',
@@ -96,9 +100,22 @@ const ROUND_FOLDER = /^round-([1-9]\d*)$/;
 
 export const LENSES = ['correctness', 'spec-and-tests', 'text-and-safety'];
 
-// The reviewers of each code-review round mode. In a loop, the round mode picks the reviewers, and the arm only gives
-// the side.
+// The reviewers of each code-review round mode. In a loop, the round mode picks the reviewers; the arm gives the side
+// and the round policy (`policy`, see LOOP_POLICIES).
 const MODE_REVIEWERS = { full: ['full'], panel: LENSES, delta: ['delta'] };
+
+// The round policies of a review loop. `panel` tells if the size rule can give a `panel` round, and `delta` tells if a
+// later round can be a `delta` round (see roundMode).
+// - `panel-delta`: the rules of plan-lifecycle 0.17.1 (plan-contract.md, Code-review rounds). This is the production
+//   loop.
+// - `full-delta`: the same rules with one full reviewer: a `full` round where these rules give a `panel` round.
+// - `full`: the policy of plan-lifecycle 0.16.0, which had no panel round and no delta round. Every round is a `full`
+//   round on the full diff.
+export const LOOP_POLICIES = {
+  'panel-delta': { panel: true, delta: true },
+  'full-delta': { panel: false, delta: true },
+  full: { panel: false, delta: false },
+};
 
 // The self-review of the plan manager before code-review round 1 (#98): one agent on the full diff, or one agent per
 // lens. Its reviewer names differ from the reviewer names of the code-review arms.
@@ -109,13 +126,15 @@ const lensOf = (reviewer) =>
   reviewer.startsWith(`${SELF_REVIEW}-`) ? reviewer.slice(SELF_REVIEW.length + 1) : reviewer;
 
 // Arms per case kind. `side` selects the released (baseline) or the working-tree (candidate) reviewer agent, or the
-// self-review agent. A self-review arm runs one review only, before code-review round 1, so it takes no --loop.
+// self-review agent. `mode` and `reviewers` give the one review of a run without --loop. With --loop, `policy` gives
+// the round policy of the loop. A self-review arm runs one review only, before code-review round 1, so it has no
+// policy and takes no --loop.
 export const ARMS = {
   code: {
-    B0: { side: 'baseline', mode: 'full', reviewers: ['full'] },
-    B1: { side: 'baseline', mode: 'panel', reviewers: LENSES },
-    C1: { side: 'candidate', mode: 'full', reviewers: ['full'] },
-    C3: { side: 'candidate', mode: 'panel', reviewers: LENSES },
+    B0: { side: 'baseline', mode: 'full', reviewers: ['full'], policy: 'full' },
+    B1: { side: 'baseline', mode: 'panel', reviewers: LENSES, policy: 'panel-delta' },
+    C1: { side: 'candidate', mode: 'full', reviewers: ['full'], policy: 'full-delta' },
+    C3: { side: 'candidate', mode: 'panel', reviewers: LENSES, policy: 'panel-delta' },
     S1: { side: SELF_REVIEW, mode: 'full', reviewers: [SELF_REVIEW] },
     S3: { side: SELF_REVIEW, mode: 'panel', reviewers: SELF_REVIEW_LENSES },
   },
@@ -142,8 +161,10 @@ const KIND_FIELDS = {
 };
 const FILE_FIELDS = ['plan', 'patch', 'previous_review', 'previous_body', 'rejection'];
 
-// Only the candidate skill defines the lenses. The baseline agent and the self-review agent do not know them, so their
-// panel prompts describe them.
+// The candidate skill defines the lenses in its lens references, so a candidate panel prompt only names the lens. A
+// panel prompt of the baseline agent or of the self-review agent describes the lens in the dispatch: the 0.16.0
+// baseline agent and the self-review agent do not know the lenses. With a 0.17.1 baseline, the arm B1 so has the lens
+// text in the dispatch, and the arm C3 has it only in a reference.
 const PANEL_RULES = [
   'This round runs three reviewers at the same time, one per lens: correctness, spec-and-tests, and text-and-safety.',
   'Report only findings inside your lens. Write `None.` under an axis that your lens does not cover.',
@@ -401,16 +422,26 @@ export function buildPromptFile({
   return `agent: ${armAgent(caseData.kind, arm, config)}\n\n${prompt}`;
 }
 
-// The mode of a code-review round by the rules of plan-contract.md, Code-review rounds. Sizes count added plus
-// removed lines: fullLines of the full diff of the round's reviewed head, deltaLines of the diff from the reviewed
-// head of the previous round. The size rule gives `panel` from PANEL_LINES lines, else `full`. Round 1 follows the
-// size rule. A later round is `delta` only when the previous round completed (every reviewer returned a block with a
-// verdict line, and none returned `blocked`), every change since its head repairs one of its findings
-// (repairsOnly), the change is not a merge of the default branch, and the delta diff is at most half the full diff.
-// Otherwise the size rule decides.
-export function roundMode({ round, fullLines, completed = false, repairsOnly = false, deltaLines, merge = false }) {
-  if (round > 1 && completed && repairsOnly && !merge && deltaLines * 2 <= fullLines) return 'delta';
-  return fullLines >= PANEL_LINES ? 'panel' : 'full';
+// The mode of a code-review round of a loop with the round policy `policy` (LOOP_POLICIES), by the rules of
+// plan-contract.md, Code-review rounds. Sizes count added plus removed lines: fullLines of the full diff of the round's
+// reviewed head, deltaLines of the diff from the reviewed head of the previous round. The size rule gives `panel` from
+// PANEL_LINES lines, else `full`; a policy without `panel` gives `full`. Round 1 follows the size rule. A later round
+// is `delta` only when the policy has `delta`, the previous round completed (every reviewer returned a block with a
+// verdict line, and none returned `blocked`), every change since its head repairs one of its findings (repairsOnly),
+// the change is not a merge of the default branch, and the delta diff is at most half the full diff. Otherwise the
+// size rule decides.
+export function roundMode({
+  policy,
+  round,
+  fullLines,
+  completed = false,
+  repairsOnly = false,
+  deltaLines,
+  merge = false,
+}) {
+  const { panel, delta } = LOOP_POLICIES[policy];
+  if (delta && round > 1 && completed && repairsOnly && !merge && deltaLines * 2 <= fullLines) return 'delta';
+  return panel && fullLines >= PANEL_LINES ? 'panel' : 'full';
 }
 
 // Replaces a `git diff --no-index` header, which names absolute paths, with a header for `name`.
@@ -721,24 +752,17 @@ function buildCaseWorkspace({ repo, caseData, casePath, sources, caseDir, paths 
   return reviewed;
 }
 
-// With --loop, the size rule picks the mode of each round, so an arm gives only the side of the reviewer agent, and
-// two arms of one side would run the same loop. The self-review runs once, before code-review round 1, so its arms
-// take no --loop.
+// With --loop, the arm gives the side of the reviewer agent and the round policy of the loop, so two arms of one side
+// run different loops. A self-review arm runs one review before code-review round 1, so it has no policy and takes no
+// --loop.
 function checkLoopArms(kind, arms) {
-  const selfReview = arms.filter((arm) => ARMS[kind][arm].side === SELF_REVIEW);
+  const selfReview = arms.filter((arm) => !ARMS[kind][arm].policy);
   if (selfReview.length) fail(`${selfReview.join(', ')} run one self-review before round 1; leave them out of --loop`);
-  const bySide = new Map();
-  for (const arm of arms) {
-    const { side } = ARMS[kind][arm];
-    if (bySide.has(side)) {
-      fail(`with --loop, arms ${bySide.get(side)} and ${arm} run the same loop; give one arm per side`);
-    }
-    bySide.set(side, arm);
-  }
 }
 
 // The `case` command. `repo` is the git repository of the case commits. With `loop`, each run starts a review loop
-// in `run-<k>/round-1/`, whose mode the size rule picks; `prepareLoop` builds the later rounds.
+// in `run-<k>/round-1/`, whose mode the round policy of the arm picks, and the meta.json of the run records that
+// policy. `prepareLoop` builds the later rounds.
 export function prepareCase(options, repo) {
   if (!options.case) fail('case needs --case <path to case.json>');
   if (!options.out) fail('case needs --out <workspace dir>');
@@ -753,43 +777,53 @@ export function prepareCase(options, repo) {
   const arms = parseArms(options.arms, caseData.kind);
   if (options.loop) checkLoopArms(caseData.kind, arms);
   const runs = parseRuns(options.runs);
-  const configs = selectConfigs(options, repo);
+  const { configs, fixer, file: configsFile } = selectConfigs(options, repo);
+  // A loop records the fixer setting, so that `score.mjs report` can check the transcript of each fixer against it.
+  if (options.loop && !fixer) fail(`${configsFile} has no fixer setting; run prepare.mjs agents again`);
   const caseDir = path.join(path.resolve(options.out), caseData.id);
   if (fs.existsSync(caseDir)) fail(`${caseDir} exists; remove it or choose another --out`);
   const paths = workspacePaths(caseDir, caseData);
   const sources = caseSources(caseData, path.dirname(casePath), keys);
 
   const runFolders = [];
+  const runMetas = [];
+  const loopModes = new Map();
   try {
     const { base, tree } = buildCaseWorkspace({ repo, caseData, casePath, sources, caseDir, paths });
     const fullLines = options.loop ? diffSize(repo, base, tree) : null;
-    const loopMode = options.loop ? roundMode({ round: 1, fullLines }) : null;
     for (const config of configs) {
       for (const arm of arms) {
-        const mode = loopMode ?? ARMS[caseData.kind][arm].mode;
-        const reviewers = loopMode ? MODE_REVIEWERS[loopMode] : ARMS[caseData.kind][arm].reviewers;
+        const { policy, mode: armMode, reviewers: armReviewers } = ARMS[caseData.kind][arm];
+        const mode = options.loop ? roundMode({ policy, round: 1, fullLines }) : armMode;
+        const reviewers = options.loop ? MODE_REVIEWERS[mode] : armReviewers;
+        if (options.loop) loopModes.set(arm, mode);
         const prompts = reviewers.map((reviewer) => ({
           reviewer,
           text: buildPromptFile({ caseData, arm, config: config.name, reviewer, paths, mode }),
         }));
         for (let run = 1; run <= runs; run += 1) {
           const runDir = path.join(caseDir, armFolder(arm, config.name), `run-${run}`);
-          runFolders.push(
-            loopMode
-              ? { dir: path.join(runDir, 'round-1'), meta: { config, mode, fullLines }, prompts }
-              : { dir: runDir, meta: { config }, prompts },
-          );
+          if (options.loop) {
+            runMetas.push({ file: path.join(runDir, 'meta.json'), meta: { policy } });
+            const meta = { config, fixerConfig: fixer, mode, fullLines };
+            runFolders.push({ dir: path.join(runDir, 'round-1'), meta, prompts });
+          } else {
+            runFolders.push({ dir: runDir, meta: { config }, prompts });
+          }
         }
       }
     }
     writeRuns(runFolders);
+    for (const { file, meta } of runMetas) writeJson(file, meta);
   } catch (error) {
     fs.rmSync(caseDir, { recursive: true, force: true });
     throw error;
   }
   const prompts = runFolders.reduce((sum, run) => sum + run.prompts.length, 0);
   const counts = `${arms.join(', ')} x ${configs.length} configurations x ${runs} runs`;
-  const loopNote = options.loop ? `; round 1 of each loop is a ${runFolders[0].meta.mode} round` : '';
+  const loopNote = options.loop
+    ? `; round 1 modes: ${[...loopModes].map(([arm, mode]) => `${arm} ${mode}`).join(', ')}`
+    : '';
   console.log(`prepared ${caseDir}: ${prompts} prompts for ${counts}${loopNote}`);
 }
 
@@ -948,8 +982,10 @@ function findingsOfDefect(findings, judgments, id) {
 
 // The `loop` command. It continues the review loop of one run of a code case after its last round folder, round k:
 // it repairs every finding of round k that stands (score.mjs fixPlan), commits the repaired tree as the reviewed
-// head of round k + 1, and writes round-<k+1>/ in the mode that roundMode gives. It returns that folder, or null when
-// the loop ends. `repo` is the git repository of the case commits. ../SKILL.md, Review loop, describes the files.
+// head of round k + 1, and writes round-<k+1>/ in the mode that roundMode gives for the round policy of the arm. It
+// returns that folder, or null when the loop ends. It stops before the fix step when round k did not complete or when
+// the judge did not answer a finding of round k. `repo` is the git repository of the case commits. ../SKILL.md,
+// Review loop, describes the files.
 export function prepareLoop(options, repo) {
   if (!options.run) fail('loop needs --run <ws>/<case>/<arm>-<config>/run-<k>');
   if (!options.cases) fail('loop needs --cases <cases dir>');
@@ -962,11 +998,24 @@ export function prepareLoop(options, repo) {
   if (!RUN_FOLDER.test(runName) || !armName.includes('-') || !fs.existsSync(path.join(caseDir, 'case.json')))
     fail(`--run must name a run folder <ws>/<case>/<arm>-<config>/run-<k>, not ${runDir}`);
   const caseData = validateCase(readJson(path.join(caseDir, 'case.json')));
-  if (caseData.kind !== 'code' || !Object.hasOwn(ARMS.code, arm))
-    fail(`loop takes the runs of code arms; ${caseId} is a ${caseData.kind} case and ${arm} is its arm`);
+  const policy = ARMS.code[arm]?.policy;
+  if (caseData.kind !== 'code' || !policy) {
+    const loopArms = Object.keys(ARMS.code).filter((name) => ARMS.code[name].policy);
+    fail(
+      `loop takes the runs of the code arms ${loopArms.join(', ')}; ${caseId} is a ${caseData.kind} case and ${arm} is its arm`,
+    );
+  }
   const keys = keyFolder(caseData, options.keys);
   const label = `${caseId}/${armName}/${runName}`;
   const k = lastRound(runDir, label);
+  // `case --loop` records the round policy of the arm in the meta.json of the run. A loop that `case` built before the
+  // arms had round policies has no such record, and its rounds can follow other rules, so it cannot continue.
+  const runMetaFile = path.join(runDir, 'meta.json');
+  if ((fs.existsSync(runMetaFile) ? readJson(runMetaFile).policy : undefined) !== policy) {
+    fail(
+      `${label}/meta.json does not record the round policy ${policy} of arm ${arm}; build the loop again with case --loop`,
+    );
+  }
   const roundLabel = `${label}/round-${k}`;
   const roundDir = path.join(runDir, `round-${k}`);
   const roundMetaFile = path.join(roundDir, 'meta.json');
@@ -979,18 +1028,28 @@ export function prepareLoop(options, repo) {
     entry.case === caseId && entry.arm === armName && entry.run === runName && entry.round === k;
   const blocks = findingsDoc.blocks.filter(inRound);
   if (blocks.length === 0) fail(`findings.json has no block of ${roundLabel}; run score.mjs findings again`);
+  // The production loop dispatches a reviewer again before it posts the round when the reviewer returns no block with
+  // a verdict line. A round with such a block, or with a `blocked` block, gets no fix step and does not end the loop.
+  const incomplete = blocks.filter((block) => !COMPLETE_VERDICTS.has(block.verdict));
+  if (incomplete.length) {
+    const reviewers = incomplete.map((block) => `${block.reviewer} (${INCOMPLETE_REASONS[block.verdict]})`);
+    fail(
+      `${roundLabel} did not complete; dispatch these reviewers again, save their blocks, and run score.mjs findings again: ${reviewers.join(', ')}`,
+    );
+  }
   const findings = findingsDoc.findings.filter(inRound);
   const casesDir = path.resolve(options.cases);
   const { known, dir: knownDir } = fromScore(() => readKnown(casesDir, caseId, caseData.split, keys));
   // The known defects that earlier rounds fixed: each defect of their fix plans, except a pulled-in defect whose patch
-  // did not apply (fixLeftOut), because no repair reached it.
+  // did not apply (fixLeftOut), because no repair reached it. A later repair can bring a fixed defect back, so the fix
+  // plan keeps each defect that a finding of round k matches (see score.mjs fixPlan).
   const applied = [];
   for (let round = 1; round < k; round += 1) {
     const { fix, fixLeftOut = [] } = readJson(path.join(runDir, `round-${round}`, 'meta.json'));
     if (!fix) fail(`${label}/round-${round}/meta.json has no fix; loop writes it when it builds round ${round + 1}`);
     applied.push(...fix.fixes.map((entry) => entry.known).filter((id) => !fixLeftOut.includes(id)));
   }
-  const judgments = readJson(path.join(ws, 'judgments.json'));
+  const judgments = loadJudgments(ws);
   const plan = fromScore(() => fixPlan({ findings, judgments, known, applied }));
   if (loopEnds(k, plan)) {
     console.log(`the loop of ${label} ends after round ${k}`);
@@ -1009,7 +1068,7 @@ export function prepareLoop(options, repo) {
   // The judge reads the reviewed tree of the new round under its blind run label, so it opens no arm folder.
   const judgeTree = path.join(ws, JUDGE_TREES, runLabel(caseId, armName, `${runName}/round-${nextRound}`));
 
-  const { mode, notApplied } = withIndex(runDir, (env) => {
+  const next = withIndex(runDir, (env) => {
     let parent;
     if (k === 1) {
       parent = resolveCommit(repo, caseData.head, `${caseId} head`);
@@ -1024,6 +1083,11 @@ export function prepareLoop(options, repo) {
     }
     const reviewedTree = writeTree(repo, env);
     const split = applyFixes({ repo, env, fixes: plan.fixes, knownDir, roundLabel });
+    // A matched defect whose fix the tree of round k already holds does not stand, also when an earlier round fixed
+    // it. A pulled-in patch repairs no finding of the round.
+    const present = split.notApplied.fixAlreadyApplied;
+    const standing = plan.fixes.filter((fix) => !fix.pulled && !present.includes(fix.known));
+    if (loopEnds(k, { fixes: standing, extras: plan.extras })) return null;
     // The fixer repairs the valid extra findings and the findings of each matched known defect whose fix patch does
     // not apply.
     const defects = split.notApplied.fixedByFixer.map((id) => ({
@@ -1059,16 +1123,16 @@ export function prepareLoop(options, repo) {
     const base = resolveCommit(repo, caseData.base, `${caseId} base`);
     const fullLines = diffSize(repo, base, tree);
     const deltaLines = diffSize(repo, reviewedTree, tree);
-    const completed = blocks.every((block) => COMPLETE_VERDICTS.has(block.verdict));
     // A pulled-in patch that did not apply changed nothing.
     const repairsOnly = split.applied.every((fix) => !fix.pulled);
-    const nextMode = roundMode({ round: nextRound, fullLines, completed, repairsOnly, deltaLines });
+    // Round k completed, because loop refuses a round that did not complete.
+    const nextMode = roundMode({ policy, round: nextRound, fullLines, completed: true, repairsOnly, deltaLines });
     const paths = reviewPaths(nextDir, planExport, plan.rejections.length > 0);
     const prompts = MODE_REVIEWERS[nextMode].map((reviewer) => {
       const prompt = { caseData, arm, config: config.name, reviewer, paths, mode: nextMode, round: promptRound + 1 };
       return { reviewer, text: buildPromptFile(prompt) };
     });
-    const meta = { config, mode: nextMode, head, completed, repairsOnly, fullLines, deltaLines };
+    const meta = { config, mode: nextMode, head, repairsOnly, fullLines, deltaLines };
     fs.mkdirSync(nextDir);
     try {
       checkoutSnapshot(repo, env, paths.snapshot);
@@ -1090,6 +1154,11 @@ export function prepareLoop(options, repo) {
     }
     return { mode: nextMode, notApplied: split.notApplied };
   });
+  if (!next) {
+    console.log(`the loop of ${label} ends after round ${k}`);
+    return null;
+  }
+  const { mode, notApplied } = next;
   // The fix plan, and each list of known defects whose fix patch did not apply. An empty list removes its field, so a
   // rebuilt round keeps no old list.
   const record = { ...roundMeta, fix: plan };
@@ -1232,7 +1301,8 @@ function removeGenerated(project) {
   for (const dir of changed) removeIfEmpty(dir);
 }
 
-// The configurations that --configs names, in its order, or else every configuration that `agents` wrote.
+// The configurations that --configs names, in its order, or else every configuration that `agents` wrote; the
+// setting of the fixer agent that `agents` wrote (undefined in a file without one); and the file that holds them.
 function selectConfigs(options, repo) {
   const project = projectDir(options, repo);
   const files = Object.values(RUNTIME_AGENT_DIRS)
@@ -1240,10 +1310,12 @@ function selectConfigs(options, repo) {
     .filter((file) => fs.existsSync(file));
   if (files.length === 0) fail(`${project} has no configurations; run prepare.mjs agents with the same --project`);
   if (files.length > 1) fail(`${files.join(' and ')} both exist; run prepare.mjs clean and then agents`);
-  const { configs } = readJson(files[0]);
-  if (!options.configs) return configs;
+  const { configs, fixer } = readJson(files[0]);
   const known = configs.map((config) => config.name);
-  return parseList(options.configs, '--configs', known).map((name) => configs[known.indexOf(name)]);
+  const selected = options.configs
+    ? parseList(options.configs, '--configs', known).map((name) => configs[known.indexOf(name)])
+    : configs;
+  return { configs: selected, fixer, file: files[0] };
 }
 
 export function prepareAgents(options, repo) {
@@ -1313,7 +1385,7 @@ export function prepareAgents(options, repo) {
   });
   fs.writeFileSync(path.join(agentDir, `${FIXER_AGENT}.md`), fixerAgent);
   if (fixer.tier !== null) overrides[FIXER_AGENT] = fixer.tier;
-  writeJson(path.join(agentDir, CONFIGS_FILE), { configs });
+  writeJson(path.join(agentDir, CONFIGS_FILE), { configs, fixer });
   const names = configs.map((config) => config.name).join(', ');
   console.log(`wrote ${configs.length * (sources.length + 1)} agent files to ${agentDir} for ${names}`);
   const fixerTier = fixer.tier === null ? '' : `, tier ${fixer.tier}`;
@@ -1327,7 +1399,7 @@ export function prepareAgents(options, repo) {
 // file, so its full.diff is empty: `transcripts` reads full.diff for the read scope of a code run.
 function prepareProbe(options, repo) {
   if (!options.out) fail('probe needs --out <workspace dir>');
-  const configs = selectConfigs(options, repo);
+  const { configs } = selectConfigs(options, repo);
   const caseDir = path.join(path.resolve(options.out), PROBE_CASE.id);
   if (fs.existsSync(caseDir)) fail(`${caseDir} exists; remove it or choose another --out`);
   writeJson(path.join(caseDir, 'case.json'), PROBE_CASE);

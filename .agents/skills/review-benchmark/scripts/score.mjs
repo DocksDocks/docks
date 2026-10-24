@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// Scores review benchmark runs. `findings` parses the returned review blocks, `pairs` builds the judge input,
-// `report` turns the judgments and the run metadata into recall, cost, configuration or arm tables, and the
-// self-review lead, `transcripts` fills the run metadata and the read scope of each reviewer from omp subagent
-// transcripts, and `names` prints the dispatch name of every prompt that the operator still dispatches (a fixer prompt
-// only until its patch exists).
-// `fixPlan` and `loopEnds` give the fix step of a review loop to `prepare.mjs loop`.
+// Scores review benchmark runs. `findings` parses the returned review blocks and removes the judge answers of each
+// finding whose text changed or that is gone, `pairs` builds the judge input, `report` turns the judgments and the run
+// metadata into recall, cost, configuration or arm tables, and the self-review lead, `transcripts` fills the run
+// metadata and the read scope of each reviewer from omp subagent transcripts, and `names` prints the dispatch name of
+// every prompt that the operator still dispatches (a fixer prompt only until its patch exists).
+// `loadJudgments`, `fixPlan`, and `loopEnds` give the judge's answers and the fix step of a review loop to
+// `prepare.mjs loop`.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -53,8 +54,14 @@ const CACHE_SKILL = new RegExp(
 const DIFF_GIT = 'diff --git ';
 const DIFF_NEW = '+++ b/';
 const CHANGED_FILES_HINT = '; the read scope compares the reads of the reviewer with the files that the case changes';
-// These tools search the working directory when a call names no path.
-const SEARCH_TOOLS = new Set(['grep', 'glob', 'find']);
+// These tools search the working directory when a call names no path (see the omp tool docs `omp://tools/<tool>.md`).
+const SEARCH_TOOLS = new Set(['grep', 'glob', 'find', 'ast_grep']);
+// The `path` of these tools takes a `;`-separated list of paths. The path of every other tool, for example `read` and
+// `find`, names one target, which can hold a `;`.
+const PATH_LIST_TOOLS = new Set(['grep', 'glob', 'ast_grep']);
+// A web search has a `query`, not a path. A query that names the benchmark repository can find its pages.
+const WEB_SEARCH_TOOL = 'web_search';
+const BENCHMARK_QUERY = /docksdocks\/docks|github\.com\/docksdocks/i;
 const URI_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
 const WEB_SCHEMES = new Set(['http', 'https']);
 // The selector of a read at the end of a path, for example `:1-260` or `:23-54:raw`.
@@ -504,14 +511,20 @@ function readJudgments(judgments, byBlind, knownByCase) {
   return { verdicts, matched, unsure, ratings };
 }
 
-// A candidate pair without an answer would count as a miss, so the report refuses judgments that skip one.
-// Answers for pairs that are not candidates stay allowed.
-function requireCandidateAnswers(pairsDoc, verdicts) {
-  const missing = pairsDoc.cases
-    .flatMap((entry) => entry.runs.flatMap((run) => run.pairs))
-    .map((pair) => `${pair.finding} ${pair.known}`)
-    .filter((pair) => !verdicts.has(pair))
-    .map((pair) => pair.replace(' ', ' and '));
+// The judge's answers in `<ws>/judgments.json`. The operator skips the judge when no finding needs an answer, so a
+// missing file holds no answers; the completeness checks then stop when a finding needs one.
+export function loadJudgments(ws) {
+  const file = path.join(ws, 'judgments.json');
+  return fs.existsSync(file) ? readJson(file) : { matches: [], adjudications: [] };
+}
+
+// A candidate pair without an answer would count as a miss, so the report and the fix step of a loop refuse
+// judgments that skip one. `pairs` lists { finding, known } with blind finding ids. Answers for pairs that are not
+// candidates stay allowed.
+function requirePairAnswers(pairs, verdicts) {
+  const missing = pairs
+    .filter((pair) => !verdicts.has(`${pair.finding} ${pair.known}`))
+    .map((pair) => `${pair.finding} and ${pair.known}`);
   if (missing.length === 0) return;
   fail(`judgments.json has no match answer for ${missing.length} candidate pairs of pairs.json: ${listSome(missing)}`);
 }
@@ -531,17 +544,31 @@ function requireJudgedFindings(findings, judgments) {
 // The production loop stops at this round when the round does not pass.
 const MAX_LOOP_ROUNDS = 5;
 
-// The fix step after one round of a review loop. It repairs every finding that stands:
-// - fixes: the fix patch of each known defect that a finding of the round matches and that no earlier round fixed
-//   (`applied`), and before it the patches that it needs through `fix_after`, also indirectly. A needed patch that
-//   no finding of the round matched gets `pulled: true`. The order takes, again and again, the first known defect
-//   in known-list order whose `fix_after` ids are all applied or already placed.
+// The fix step after one round of a review loop. It plans a repair for every finding that can stand:
+// - fixes: the fix patch of each known defect that a finding of the round matches, and before it the patches that it
+//   needs through `fix_after`, also indirectly. A needed patch that no finding of the round matched gets
+//   `pulled: true`; the plan pulls in no defect that an earlier round fixed (`applied`). A matched defect stays in
+//   the plan also when an earlier round fixed it, because a later repair can bring the defect back: `loop` drops its
+//   patch only when the tree of the round still holds the fix. The order takes, again and again, the first known
+//   defect in known-list order whose `fix_after` ids are all placed, or fixed by an earlier round and not in the plan.
 // - extras: the stable ids of the findings without a `match` answer that the judge rated `valid`. The fixer agent
 //   repairs them.
 // - rejections: the findings without a `match` answer rated `wrong` or `unknown`, with the judge's reason, for the
 //   rejection comment.
-// A finding that matches only applied defects needs no repair.
+// It stops before it plans when the judge did not answer a candidate pair of a finding of the round (pairWanted, as
+// `pairs` builds them) or did not rate a finding without a `match` answer.
 export function fixPlan({ findings, judgments, known, applied = [] }) {
+  const verdicts = new Map();
+  for (const entry of judgments.matches ?? []) {
+    if (!MATCH_VERDICTS.has(entry.verdict)) fail(`judgments.json has match verdict ${entry.verdict}`);
+    recordOnce(verdicts, `${entry.finding} ${entry.known}`, entry.verdict, `${entry.finding} and ${entry.known}`);
+  }
+  const candidates = findings.flatMap((finding) =>
+    known
+      .filter((item) => pairWanted('code', finding, item))
+      .map((item) => ({ finding: finding.blind, known: item.id })),
+  );
+  requirePairAnswers(candidates, verdicts);
   requireJudgedFindings(findings, judgments);
   const byId = new Map(known.map((item) => [item.id, item]));
   const matched = new Map();
@@ -567,7 +594,7 @@ export function fixPlan({ findings, judgments, known, applied = [] }) {
       for (const id of hits) {
         if (!byId.has(id))
           fail(`judgments.json pairs ${finding.blind} with ${id}, which is not a known defect of its case`);
-        if (!done.has(id)) wanted.set(id, false);
+        wanted.set(id, false);
       }
       continue;
     }
@@ -585,23 +612,26 @@ export function fixPlan({ findings, judgments, known, applied = [] }) {
   };
   for (const id of [...wanted.keys()]) pull(id);
   const fixes = [];
+  const placed = new Set(applied.filter((id) => !wanted.has(id)));
   const remaining = known.filter((item) => wanted.has(item.id));
   while (remaining.length) {
-    const next = remaining.findIndex((item) => (item.fix_after ?? []).every((after) => done.has(after)));
+    const next = remaining.findIndex((item) => (item.fix_after ?? []).every((after) => placed.has(after)));
     if (next === -1) fail(`the fix_after lists of ${remaining.map((item) => item.id).join(', ')} form a cycle`);
     const [item] = remaining.splice(next, 1);
     if (typeof item.fix !== 'string' || !item.fix) fail(`known defect ${item.id} has no fix patch`);
     const fix = { known: item.id, patch: item.fix };
     fixes.push(wanted.get(item.id) ? { ...fix, pulled: true } : fix);
-    done.add(item.id);
+    placed.add(item.id);
   }
   return { fixes, extras, rejections };
 }
 
-// The loop ends after a round that leaves no finding open: the fix step repairs every finding that stands, so a plan
-// without fixes and extras means that no finding stands. It also ends at round 5.
-export function loopEnds(round, plan) {
-  return round >= MAX_LOOP_ROUNDS || (plan.fixes.length === 0 && plan.extras.length === 0);
+// The loop ends after a round that leaves no finding open, and after round 5. `repairs` holds `fixes`, the fixes of
+// the known defects that the fix step repairs, and `extras`, the valid extra findings for the fixer. The fix step
+// repairs every finding that stands, so no fix and no extra means that no finding stands. `loop` asks with the fix
+// plan first, then with the fixes whose defects stand in the tree of the round (see prepare.mjs prepareLoop).
+export function loopEnds(round, { fixes, extras }) {
+  return round >= MAX_LOOP_ROUNDS || (fixes.length === 0 && extras.length === 0);
 }
 
 // Sorts findings by the judge's answers: the known defects that they found, the known defects of their `unknown`
@@ -638,9 +668,14 @@ function judgeFindings(findings, { matched, unsure, ratings }) {
 // A round's time is its slowest reviewer and its tokens are the sum; one reviewer without a value leaves both open.
 // `found` lists the known defects that the findings of the round matched. `fixer` tells if the meta.json of the round
 // records a fix step after the round, and `fixerSeconds` and `fixerTokens` are the time and the tokens of that step.
+// `knownRepair` and `extraRepair` come from the record of that fix step (`fix` and `fixAlreadyApplied`, see
+// prepare.mjs prepareLoop): `knownRepair` tells if it repaired a known defect that a finding of the round matched,
+// with a fix patch that applied or through the fixer; a patch that the tree already held and a pulled-in patch repair
+// no finding of the round. `extraRepair` tells if it gave valid extra findings to the fixer.
 function scoreRound(round, knownIds, judged, meta) {
   const costs = round.blocks.map((block) => meta?.reviewers?.[block.reviewer]);
-  const { found, validExtras } = judgeFindings(round.findings, judged);
+  const { found } = judgeFindings(round.findings, judged);
+  const present = new Set(meta?.fixAlreadyApplied ?? []);
   return {
     round: round.round,
     mode: meta?.mode ?? null,
@@ -649,7 +684,8 @@ function scoreRound(round, knownIds, judged, meta) {
       : null,
     tokens: total(costs.map((cost) => cost?.tokens)),
     found: knownIds.filter((id) => found.has(id)),
-    validExtras,
+    knownRepair: (meta?.fix?.fixes ?? []).some((fix) => !fix.pulled && !present.has(fix.known)),
+    extraRepair: (meta?.fix?.extras ?? []).length > 0,
     fixer: Boolean(meta?.fixer),
     fixerSeconds: typeof meta?.fixer?.seconds === 'number' ? meta.fixer.seconds : 0,
     fixerTokens: typeof meta?.fixer?.tokens === 'number' ? meta.fixer.tokens : 0,
@@ -658,43 +694,60 @@ function scoreRound(round, knownIds, judged, meta) {
   };
 }
 
-// The reasons of one reviewer entry against the configuration of its run.
-function configReasons(config, label, entry) {
+// The reasons of one agent entry against its setting: the configuration of its run for a reviewer, the fixer setting
+// of its loop for a fixer. The checks cover the model of each message, the effort that was active at each message of
+// the model of the setting, and the served tier of these messages (only for a setting with a tier). A failed request
+// (`failed: true`) stays out of the model and served-tier checks, because no model served it; an entry needs at least
+// one other message.
+function configReasons(setting, label, entry) {
   if (!Array.isArray(entry?.messages)) return [`${label}: no transcript facts`];
+  const served = entry.messages.filter((message) => !message.failed);
+  if (served.length === 0) return [`${label}: no served assistant message`];
   const reasons = [];
-  for (const model of distinct(entry.messages.map((message) => message.model))) {
-    if (model !== config.model) reasons.push(`${label}: model ${model}, not ${config.model}`);
+  for (const model of distinct(served.map((message) => message.model))) {
+    if (model !== setting.model) reasons.push(`${label}: model ${model}, not ${setting.model}`);
   }
-  if (entry.effort !== config.effort) reasons.push(`${label}: effort ${entry.effort}, not ${config.effort}`);
-  if (config.tier === null || config.tier === undefined) return reasons;
-  const ownMessages = entry.messages.filter((message) => message.model === config.model);
-  for (const tier of distinct(ownMessages.map((message) => message.servedTier))) {
-    if (tier !== config.tier) reasons.push(`${label}: served tier ${tier}, not ${config.tier}`);
+  const own = entry.messages.filter((message) => message.model === setting.model);
+  for (const effort of distinct(own.map((message) => message.effort ?? null))) {
+    if (effort !== setting.effort) reasons.push(`${label}: effort ${effort}, not ${setting.effort}`);
+  }
+  if (setting.tier === null || setting.tier === undefined) return reasons;
+  for (const tier of distinct(own.filter((message) => !message.failed).map((message) => message.servedTier))) {
+    if (tier !== setting.tier) reasons.push(`${label}: served tier ${tier}, not ${setting.tier}`);
   }
   return reasons;
 }
 
-// A run proves its configuration with the transcript facts of each reviewer; a run without a configuration has no
-// configuration to prove. Every run must show, by the `readScope` of each reviewer entry, that the reviewer read only
-// the inputs of the run. Each reviewer is `{ label, entry }`, where entry is its meta.json reviewer entry.
-function invalidReasons(config, reviewers) {
+// A run proves its configuration with the transcript facts of each reviewer, and a loop proves its fixer setting
+// (`fixerConfig`, from `prepare.mjs agents`) with the transcript facts of the fixer of each round that ran one; a run
+// without a configuration has no configuration to prove. A loop with a configuration and a fixer entry but without a
+// fixer setting cannot prove its fixer. Every run must show, by the `readScope` of each reviewer entry, that the
+// reviewer read only the inputs of the run. Each reviewer and each fixer is `{ label, entry }`, where entry is its
+// meta.json entry.
+function invalidReasons(config, reviewers, { fixerConfig = null, fixers = [] } = {}) {
   const reasons = [];
   for (const { label, entry } of reviewers) {
     if (config) reasons.push(...configReasons(config, label, entry));
     const outside = entry?.readScope?.outside ?? [];
     if (outside.length) reasons.push(`${label}: read outside its inputs: ${listSome(outside, LISTED_READS)}`);
   }
+  if (!config) return reasons;
+  for (const { label, entry } of fixers) {
+    reasons.push(...(fixerConfig ? configReasons(fixerConfig, label, entry) : [`${label}: no fixer setting`]));
+  }
   return reasons;
 }
 
-// The transcript facts of the reviewers of a run, merged for the configuration table.
+// The transcript facts of the reviewers of a run, merged for the comparison tables. A failed request shows no model
+// and no served tier, so the model and served-tier values leave it out.
 function runFacts(entries) {
   const proven = entries.filter((entry) => Array.isArray(entry?.messages));
   const messages = proven.flatMap((entry) => entry.messages);
+  const served = messages.filter((message) => !message.failed);
   return {
-    models: distinct(messages.map((message) => message.model ?? null)),
-    efforts: distinct(proven.map((entry) => entry.effort ?? null)),
-    servedTiers: distinct(messages.map((message) => message.servedTier ?? null)),
+    models: distinct(served.map((message) => message.model ?? null)),
+    efforts: distinct(messages.map((message) => message.effort ?? null)),
+    servedTiers: distinct(served.map((message) => message.servedTier ?? null)),
     sideCallTokens: sum(proven.flatMap((entry) => entry.sideCalls ?? []).map((call) => call.tokens ?? 0)),
   };
 }
@@ -716,21 +769,25 @@ function scoreRun(run, caseEntry, judged, metas) {
       entry: metaOf(round.round)?.reviewers?.[block.reviewer],
     })),
   );
+  // The fixer of each loop round that ran one (`fixer.agents` of the round meta.json), against the fixer setting. Only
+  // a loop round has a fixer.
+  const fixerConfig = metas[run.key]?.fixerConfig ?? metaOf(1)?.fixerConfig ?? null;
+  const fixers = rounds.flatMap((round) =>
+    Object.entries(metaOf(round.round)?.fixer?.agents ?? {}).map(([name, entry]) => ({
+      label: `round-${round.round}/${name}`,
+      entry,
+    })),
+  );
   const roundScores = rounds.map((round) => scoreRound(round, knownIds, judged, metaOf(round.round)));
   const all = judgeFindings(
     rounds.flatMap((round) => round.findings),
     judged,
   );
-  // A round is caused only by extra findings when the round before it found no known defect that no earlier round of
-  // the run had found, and had a valid extra. A repeat of a fixed defect needs no repair, so it causes no round.
-  const seen = new Set();
-  const newFound = roundScores.map((round) => {
-    const fresh = round.found.filter((id) => !seen.has(id));
-    for (const id of round.found) seen.add(id);
-    return fresh.length;
-  });
+  // A round is caused only by extra findings when the fix step after the round before it repaired valid extra findings
+  // and no known defect. A known defect that needed no repair, such as a repeat of a fixed defect whose fix the tree
+  // holds, causes no round.
   const extraOnlyRounds = roundScores.filter(
-    (_, index) => index > 0 && newFound[index - 1] === 0 && roundScores[index - 1].validExtras > 0,
+    (_, index) => index > 0 && roundScores[index - 1].extraRepair && !roundScores[index - 1].knownRepair,
   ).length;
   const last = roundScores.at(-1);
   return {
@@ -739,7 +796,7 @@ function scoreRun(run, caseEntry, judged, metas) {
     run: run.run,
     split: caseEntry.split ?? null,
     config,
-    invalid: invalidReasons(config, reviewers),
+    invalid: invalidReasons(config, reviewers, { fixerConfig, fixers }),
     known: knownIds.length,
     found: knownIds.filter((id) => all.found.has(id)),
     recall: knownIds.length ? all.found.size / knownIds.length : null,
@@ -784,7 +841,10 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
     roundOf(block).blocks.push(block);
   }
   const judged = readJudgments(judgments, byBlind, knownByCase);
-  requireCandidateAnswers(pairsDoc, judged.verdicts);
+  requirePairAnswers(
+    pairsDoc.cases.flatMap((entry) => entry.runs.flatMap((run) => run.pairs)),
+    judged.verdicts,
+  );
   for (const finding of findingsDoc.findings) roundOf(finding).findings.push(finding);
   const runScores = [...runs.values()]
     .map((run) => scoreRun(run, caseEntries.get(run.case), judged, metas))
@@ -1108,7 +1168,8 @@ function decisionTable(runs, columns, columnOf, { reference, sharedCases }) {
   return measureTable(rows, columns, runsOf);
 }
 
-// The loop runs of a case group. The fixer seconds and fixer tokens medians cover only the loops that ran a fixer.
+// The loop runs of a case group, with the model, effort, and served tier that the transcripts show. The fixer seconds
+// and fixer tokens medians cover only the loops that ran a fixer.
 function loopTable(runs, columns, columnOf) {
   const runsOf = columnRuns(runs, columnOf);
   const lastRound = Math.max(0, ...runs.map((run) => run.rounds.length));
@@ -1116,6 +1177,7 @@ function loopTable(runs, columns, columnOf) {
   const withFixer = (list) => list.filter((run) => run.rounds.some((round) => round.fixer));
   const rows = [
     ['Runs', (list) => list.length],
+    ...FACT_ROWS,
     ...Array.from({ length: lastRound }, (_, index) => roundRows(index + 1)).flat(),
     ['Rounds median', (list) => oneDecimal(rounds(list).median)],
     ['Rounds max', (list) => whole(rounds(list).max)],
@@ -1131,12 +1193,14 @@ function loopTable(runs, columns, columnOf) {
   return measureTable(rows, columns, runsOf);
 }
 
-// The single reviews of a case group: runs of one round without round folders.
+// The single reviews of a case group: runs of one round without round folders, with the model, effort, and served tier
+// that the transcripts show.
 function singleReviewTable(runs, columns, columnOf) {
   const runsOf = columnRuns(runs, columnOf);
   const seconds = (list) => summarize(list.map((run) => run.seconds));
   const rows = [
     ['Runs', (list) => list.length],
+    ...FACT_ROWS,
     ['Seconds median', (list) => oneDecimal(seconds(list).median)],
     ['Seconds min', (list) => oneDecimal(seconds(list).min)],
     ['Seconds max', (list) => oneDecimal(seconds(list).max)],
@@ -1417,11 +1481,11 @@ function* fileLines(file) {
   try {
     const chunk = Buffer.alloc(64 * 1024);
     let pending = Buffer.alloc(0);
-    let size;
-    while ((size = fs.readSync(fd, chunk, 0, chunk.length, null)) > 0) {
+    for (;;) {
+      const size = fs.readSync(fd, chunk, 0, chunk.length, null);
+      if (size <= 0) break;
       pending = Buffer.concat([pending, chunk.subarray(0, size)]);
-      let newline;
-      while ((newline = pending.indexOf(0x0a)) >= 0) {
+      for (let newline = pending.indexOf(0x0a); newline >= 0; newline = pending.indexOf(0x0a)) {
         yield pending.toString('utf8', 0, newline);
         pending = pending.subarray(newline + 1);
       }
@@ -1464,14 +1528,19 @@ const usageTokens = (usage) => TOKEN_FIELDS.reduce((result, field) => result + (
 // `<provider>/<model>`, `<model>` without a provider, and null without a model.
 const modelId = ({ provider, model } = {}) => (model ? (provider ? `${provider}/${model}` : model) : null);
 
+// A request that stopped on an error and got no served tier: no model served it. Its time is real wall time, but it
+// shows no model or tier that served the agent.
+const failedRequest = (message) => message.stopReason === 'error' && (message.serviceTier ?? null) === null;
+
 // Seconds run from the first user message to the last assistant message. Tokens add uncached input, cache reads,
 // cache writes, and output over the assistant messages. With `model`, only the assistant messages of that model
-// count, so the messages of a fallback model stay out; with no message of `model`, seconds are null and tokens 0.
-// `model_usage` side calls never count.
+// count, so the messages of a fallback model stay out; with no message of `model`, seconds are null and tokens 0. A
+// failed request (see failedRequest) counts for the seconds also with another model, because its time is real wall
+// time. `model_usage` side calls never count.
 export function parseTranscript(text, source = 'transcript', model) {
   let first;
   let last;
-  let lastOfModel;
+  let lastCounted;
   let tokens = 0;
   for (const entry of transcriptEntries(text, source)) {
     if (entry.type !== 'message') continue;
@@ -1479,39 +1548,47 @@ export function parseTranscript(text, source = 'transcript', model) {
     if (entry.message?.role === 'user' && first === undefined) first = time;
     if (entry.message?.role !== 'assistant') continue;
     last = time;
-    if (model !== undefined && model !== null && modelId(entry.message) !== model) continue;
-    lastOfModel = time;
-    tokens += usageTokens(entry.message.usage);
+    const ofModel = model === undefined || model === null || modelId(entry.message) === model;
+    if (ofModel || failedRequest(entry.message)) lastCounted = time;
+    if (ofModel) tokens += usageTokens(entry.message.usage);
   }
   if (!Number.isFinite(first) || !Number.isFinite(last))
     fail(`${source} has no timestamped user message and assistant message`);
-  if (lastOfModel === undefined) return { seconds: null, tokens: 0 };
-  return { seconds: Math.round((lastOfModel - first) / 100) / 10, tokens };
+  if (lastCounted === undefined) return { seconds: null, tokens: 0 };
+  return { seconds: Math.round((lastCounted - first) / 100) / 10, tokens };
 }
 
-// The tool calls of an assistant message: the name and the `path` argument (null without one) of each.
+// The tool calls of an assistant message: the name and the `path` argument (null without one) of each. A web search
+// has no path, so its call also gives its `query` argument (null without one).
 const toolCallsOf = (message) =>
   (Array.isArray(message.content) ? message.content : [])
     .filter((item) => item?.type === 'toolCall')
-    .map((item) => ({
-      name: item.name ?? null,
-      path: typeof item.arguments?.path === 'string' ? item.arguments.path : null,
-    }));
+    .map((item) => {
+      const argument = (name) => (typeof item.arguments?.[name] === 'string' ? item.arguments[name] : null);
+      const call = { name: item.name ?? null, path: argument('path') };
+      return call.name === WEB_SEARCH_TOOL ? { ...call, query: argument('query') } : call;
+    });
 
-// The configuration that a transcript shows: the last requested effort and OpenAI tier, the model and the served
-// tier of each assistant message, and the `model_usage` side calls of helper models. When the assistant messages
-// call tools, `toolCalls` lists the calls in order; a transcript without a tool call gives no `toolCalls`.
+// The configuration that a transcript shows: the last requested OpenAI tier, one entry per assistant message, and the
+// `model_usage` side calls of helper models. A message entry gives the model, the effort that was active at the
+// message (the `thinkingLevel` of the last `thinking_level_change` before it, else null), and the served tier; a
+// failed request (see failedRequest) also gets `failed: true`. An effort change before the first assistant message is
+// setup, so it shows only through the messages after it. When the assistant messages call tools, `toolCalls` lists
+// the calls in order; a transcript without a tool call gives no `toolCalls`.
 export function transcriptFacts(text, source = 'transcript') {
-  const facts = { effort: null, requestedTier: null, messages: [], sideCalls: [] };
+  const facts = { requestedTier: null, messages: [], sideCalls: [] };
   const toolCalls = [];
+  let effort = null;
   for (const entry of transcriptEntries(text, source)) {
-    if (entry.type === 'thinking_level_change') facts.effort = entry.thinkingLevel ?? null;
+    if (entry.type === 'thinking_level_change') effort = entry.thinkingLevel ?? null;
     else if (entry.type === 'service_tier_change') facts.requestedTier = entry.serviceTier?.openai ?? null;
     else if (entry.type === 'model_usage')
       facts.sideCalls.push({ model: modelId(entry), purpose: entry.purpose ?? null, tokens: usageTokens(entry.usage) });
     else if (entry.type === 'message' && entry.message?.role === 'assistant') {
-      facts.messages.push({ model: modelId(entry.message), servedTier: entry.message.serviceTier ?? null });
-      toolCalls.push(...toolCallsOf(entry.message));
+      const { message } = entry;
+      const fact = { model: modelId(message), effort, servedTier: message.serviceTier ?? null };
+      facts.messages.push(failedRequest(message) ? { ...fact, failed: true } : fact);
+      toolCalls.push(...toolCallsOf(message));
     }
   }
   return toolCalls.length ? { ...facts, toolCalls } : facts;
@@ -1706,11 +1783,11 @@ function targetAllowed(target, cwd, rules) {
   return WEB_SCHEMES.has(scheme) && webPageAllowed(target);
 }
 
-// The targets of a `path` argument: its `;`-separated parts, trimmed. A local path or an internal URI drops its read
-// selector; a web URL stays as it is.
-function pathTargets(value) {
-  return value
-    .split(';')
+// The targets of the `path` argument of a call of the tool `name`: for a tool whose path takes a list
+// (PATH_LIST_TOOLS), its `;`-separated parts, else the whole path; each trimmed. A local path or an internal URI drops
+// its read selector; a web URL stays as it is.
+function pathTargets(name, value) {
+  return (PATH_LIST_TOOLS.has(name) ? value.split(';') : [value])
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => (WEB_SCHEMES.has(uriScheme(part)) ? part : part.replace(READ_SELECTOR, '')));
@@ -1742,8 +1819,12 @@ function pathTargets(value) {
 // Every other target is outside, also the other skills of the repository that holds a plugin root: the reviewed
 // repository has its own copy of them under `snapshot/`. A `skill://` URI or a plugin cache copy of the code-reviewer
 // or plan-reviewer skill is outside for every reviewer: it resolves to the installed version of the skill, which can be
-// another version than the reviewer skill of the arm. A grep, glob, or find call without a path searches the working
-// directory, so it gives the outside target `<name> without a path`; other calls without a path read no file.
+// another version than the reviewer skill of the arm. A grep, glob, find, or ast_grep call without a path searches the
+// working directory, so it gives the outside target `<name> without a path`; other calls without a path read no file.
+// The path of a grep, glob, or ast_grep call is a `;`-separated list of targets; the path of every other tool is one
+// target, also when it holds a `;`. A web search has no path: `queries` lists its queries, each once, in call order,
+// and a query that names the benchmark repository (`DocksDocks/docks` or `github.com/DocksDocks`, in any case) gives
+// the outside target `web_search: <query>`. A reviewer without a web search gets no `queries`.
 // The reviewer setup is newer than the cases. When a case changes the file of an optional instruction read, that read
 // shows a later version of a file under review, which can show the fix. `changedFiles` are the repository paths that
 // the case changes (transcriptsCommand reads them). The rule compares keys, the paths from the skill folder name on:
@@ -1758,16 +1839,23 @@ export function readScope(
 ) {
   const rules = scopeRules(path.resolve(runDir), round, pluginRoots, agentFiles, changedFiles);
   const outside = new Set();
-  for (const { name, path: value } of toolCalls) {
+  const queries = new Set();
+  for (const { name, path: value, query } of toolCalls) {
+    if (name === WEB_SEARCH_TOOL) {
+      if (typeof query !== 'string') continue;
+      queries.add(query);
+      if (BENCHMARK_QUERY.test(query)) outside.add(`${WEB_SEARCH_TOOL}: ${query}`);
+      continue;
+    }
     if (typeof value !== 'string' || !value.trim()) {
       if (SEARCH_TOOLS.has(name)) outside.add(`${name} without a path`);
       continue;
     }
-    for (const target of pathTargets(value)) {
+    for (const target of pathTargets(name, value)) {
       if (!targetAllowed(target, cwd, rules)) outside.add(target);
     }
   }
-  return { outside: [...outside] };
+  return queries.size ? { outside: [...outside], queries: [...queries] } : { outside: [...outside] };
 }
 
 function transcriptFiles(dir) {
@@ -1844,10 +1932,54 @@ function caseChangedFiles(caseDir, family, round, dir) {
   return distinct(diffs.flatMap((file) => diffFiles(readText(file, CHANGED_FILES_HINT))));
 }
 
+// The fields of a finding that the judge reads in pairs.json. A finding id names a place in a block, not a text, so a
+// reviewer that is dispatched again can give an id another text.
+const JUDGED_FIELDS = ['severity', 'category', 'locator', 'text'];
+// The files of the judge answers, by finding: the answers of the first judge and of the second judge.
+const JUDGMENT_FILES = ['judgments.json', 'judgments-second.json'];
+
+// The answers of a judge hold for the text that the judge read. A finding of `previous` that `current` does not have,
+// or whose judged fields changed, is stale: the function removes each `matches` and `adjudications` entry of its
+// blind id from each judgment file of `ws` that exists. It returns the stable ids of the stale findings that had an
+// answer, in `previous` order.
+function removeStaleAnswers(ws, previous, current) {
+  const judgedText = (finding) => JSON.stringify(JUDGED_FIELDS.map((field) => finding[field] ?? null));
+  const now = new Map(current.map((finding) => [finding.id, judgedText(finding)]));
+  // The stable id of each stale finding, by its blind id, which the judgment files use.
+  const stale = new Map();
+  for (const finding of previous) {
+    if (now.get(finding.id) !== judgedText(finding)) stale.set(finding.blind, finding.id);
+  }
+  if (stale.size === 0) return [];
+  const removed = new Set();
+  for (const name of JUDGMENT_FILES) {
+    const file = path.join(ws, name);
+    if (!fs.existsSync(file)) continue;
+    const judgments = readJson(file);
+    let changed = false;
+    for (const field of ['matches', 'adjudications']) {
+      if (!Array.isArray(judgments[field])) continue;
+      const staleEntries = judgments[field].filter((entry) => stale.has(entry.finding));
+      if (staleEntries.length === 0) continue;
+      for (const entry of staleEntries) removed.add(stale.get(entry.finding));
+      judgments[field] = judgments[field].filter((entry) => !stale.has(entry.finding));
+      changed = true;
+    }
+    if (changed) writeJson(file, judgments);
+  }
+  return [...stale.values()].filter((id) => removed.has(id));
+}
+
+// Writes findings.json and returns its content with `removed`: before it writes, it compares each finding with the
+// previous findings.json and removes the judge answers of each stale finding (see removeStaleAnswers). `removed` lists
+// the stable ids of these findings.
 export function findingsCommand(ws) {
+  const file = path.join(ws, 'findings.json');
+  const previous = fs.existsSync(file) ? readJson(file) : {};
   const doc = collectFindings(ws);
-  writeJson(path.join(ws, 'findings.json'), doc);
-  return doc;
+  const removed = removeStaleAnswers(ws, previous.findings ?? [], doc.findings);
+  writeJson(file, doc);
+  return { ...doc, removed };
 }
 
 export function pairsCommand(ws, casesDir, { keys } = {}) {
@@ -1900,7 +2032,7 @@ function readMetas(ws, blocks) {
 export function reportCommand(ws, { keys, configs, arms, lead, leadRef } = {}) {
   const findings = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');
-  const judgments = readJson(path.join(ws, 'judgments.json'), '; the judge writes it');
+  const judgments = loadJudgments(ws);
   if (keys) requireCurrentKeys(pairs, keys);
   const scores = scoreRuns({ findings, pairs, judgments, metas: readMetas(ws, findings.blocks) });
   requireJudgedFindings(findings.findings, judgments);
@@ -1926,12 +2058,13 @@ export function namesCommand(ws) {
 // workspaces that one session dispatches can use the same dispatch names.
 // A reviewer entry under `reviewers` gets the time and tokens of the assistant messages of the configured model
 // (`config.model`; every model without a configuration) and the transcript facts. When the reviewer called tools, it
-// also gets `readScope: { outside }` (see readScope) for the working directory and the plugin roots that its transcript
-// shows and for the files that its case changes (see caseChangedFiles); the command stops when an input that names
-// these files is missing. The fixer entry of a round, under `fixer.agents`, gets the time and tokens of every assistant
-// message and the transcript facts. A round has one fixer, so `fixer.seconds` and `fixer.tokens` are its time and
-// tokens. meta.json keeps no tool calls. The command checks every dispatch name before it writes, writes what it
-// finds, then fails with the names of the dispatches that have no transcript.
+// also gets `readScope` (see readScope) for the working directory and the plugin roots that its transcript shows and
+// for the files that its case changes (see caseChangedFiles); the command stops when an input that names these files
+// is missing. The fixer entry of a round, under `fixer.agents`, gets the time and tokens of every assistant message and
+// the transcript facts, which `report` checks against the fixer setting of the loop (see invalidReasons). A round has
+// one fixer, so `fixer.seconds` and `fixer.tokens` are its time and tokens. meta.json keeps no tool calls. The command
+// checks every dispatch name before it writes, writes what it finds, then fails with the names of the dispatches that
+// have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
   const wsDir = path.resolve(ws);
@@ -2006,10 +2139,18 @@ function parseOptions(args, { required = [], optional = [] }) {
 const COMMANDS = {
   findings: {
     run: (ws) => {
-      const { blocks, findings } = findingsCommand(ws);
+      const { blocks, findings, removed } = findingsCommand(ws);
       const missing = blocks.filter((block) => block.verdict === 'missing').length;
       const unreadable = blocks.filter((block) => block.verdict === 'unreadable').length;
-      return `findings.json: ${findings.length} findings in ${blocks.length} blocks (${missing} missing, ${unreadable} unreadable)`;
+      const lines = [
+        `findings.json: ${findings.length} findings in ${blocks.length} blocks (${missing} missing, ${unreadable} unreadable)`,
+      ];
+      if (removed.length) {
+        lines.push(
+          `removed the judge answers of ${removed.length} findings whose text changed or that are gone: ${removed.join(', ')}`,
+        );
+      }
+      return lines.join('\n');
     },
   },
   pairs: {

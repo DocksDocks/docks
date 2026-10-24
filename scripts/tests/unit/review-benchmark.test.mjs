@@ -247,8 +247,10 @@ test('focus diffs classify test, prose, configuration, and production paths', ()
 
 test('findings command writes stable ids, blind ids, and every block including missing ones', (t) => {
   const { ws } = workspace(t);
-  const doc = findingsCommand(ws);
+  const { removed, ...doc } = findingsCommand(ws);
   assert.deepEqual(readJson(path.join(ws, 'findings.json')), doc);
+  // A first run has no previous findings.json, so it removes no judge answer.
+  assert.deepEqual(removed, []);
   assert.deepEqual(
     doc.blocks.map(
       (block) => `${block.case}/${block.arm}/${block.run}/${block.reviewer} ${block.verdict} ${block.findings}`,
@@ -284,7 +286,7 @@ test('findings command writes stable ids, blind ids, and every block including m
     assert.match(finding.blind, /^F-[0-9a-f]{10}$/);
   }
   assert.deepEqual(doc.findings[0].files, [{ file: 'src/sync.mjs', start: 41, end: 41 }]);
-  assert.deepEqual(findingsCommand(ws), doc);
+  assert.deepEqual(findingsCommand(ws), { ...doc, removed: [] });
 });
 
 test('pairs keep code pairs that share a file and always keep plan pairs and pairs without a file', (t) => {
@@ -722,8 +724,8 @@ test('transcripts command fills meta files by dispatch name and keeps other fiel
     reviewers: { correctness: { seconds: 1, tokens: 1, model: 'm' } },
   });
   assert.throws(() => transcriptsCommand(ws, sessions), /no transcript .*Code7B0R1Full.*Plan3P0R1Plan/);
-  // These transcripts name no model, effort, or tier: the facts hold nulls and one message without a model.
-  const facts = { effort: null, requestedTier: null, messages: [{ model: null, servedTier: null }], sideCalls: [] };
+  // These transcripts name no model, effort, or tier: the facts hold nulls and one message without a model or effort.
+  const facts = { requestedTier: null, messages: [{ model: null, effort: null, servedTier: null }], sideCalls: [] };
   assert.deepEqual(readJson(path.join(ws, 'code-7/C3/run-1/meta.json')), {
     note: 'kept',
     reviewers: {
@@ -774,14 +776,14 @@ test('transcripts command keeps same-name dispatches of two workspaces separate 
   put(
     sessions,
     `${reviewerName}-9.jsonl`,
-    [
+    `${[
       { type: 'session_init', task: taskMessage(path.join(earlier, 'code-7')).content[0].text },
       { type: 'message', message: taskMessage(path.join(root, 'other', 'code-7')) },
       { type: 'message', message: taskMessage(path.join(earlier, 'code-7')) },
       { type: 'message', message: taskMessage(path.join(later, 'code-7')) },
     ]
       .map((entry) => JSON.stringify(entry))
-      .join('\n') + '\nnot JSON\n',
+      .join('\n')}\nnot JSON\n`,
   );
   for (const [ws, reviewerSeconds, fixerSeconds] of [
     [earlier, 20, 40],
@@ -839,11 +841,12 @@ test('dispatch names that collide stop the names and transcripts commands', (t) 
 // Plan #100 step 2: API note for the tests below. They read the new exports through `score`.
 //
 // New exports of score.mjs:
-// - transcriptFacts(text, source = 'transcript') -> { effort, requestedTier, messages, sideCalls }
-//   effort: `thinkingLevel` of the last `thinking_level_change`, else null.
+// - transcriptFacts(text, source = 'transcript') -> { requestedTier, messages, sideCalls }
 //   requestedTier: `serviceTier.openai` of the last `service_tier_change`, else null.
-//   messages: one { model, servedTier } per assistant message, in transcript order. model is `<provider>/<model>`
-//   (`<model>` without a provider, null without a model). servedTier is `message.serviceTier`, else null.
+//   messages: one { model, effort, servedTier } per assistant message, in transcript order. model is
+//   `<provider>/<model>` (`<model>` without a provider, null without a model). effort is the `thinkingLevel` of the
+//   last `thinking_level_change` before the message, else null. servedTier is `message.serviceTier`, else null. A
+//   message with `stopReason: 'error'` and no `serviceTier` (a failed request) also gets `failed: true`.
 //   sideCalls: one { model, purpose, tokens } per `model_usage` record. tokens adds input, cacheRead, cacheWrite,
 //   and output, as for assistant messages.
 // - pairedBootstrap(cases, { seed = 1, resamples = 10000, level = 0.9 } = {})
@@ -864,8 +867,8 @@ test('dispatch names that collide stop the names and transcripts commands', (t) 
 //
 // Changed exports:
 // - parseTranscript(text, source, model): with `model`, seconds run from the first user message to the last
-//   assistant message of `model`, and tokens add only the messages of `model`. With no message of `model`, the
-//   result is { seconds: null, tokens: 0 }. Without `model`, the result does not change.
+//   assistant message of `model` or failed request, and tokens add only the messages of `model`. With no such
+//   message, the result is { seconds: null, tokens: 0 }. Without `model`, the result does not change.
 // - transcriptsCommand writes { ...parseTranscript(text, file, meta.config?.model), ...transcriptFacts(text, file) }
 //   into meta.reviewers[reviewer]. The existing test 'transcripts command fills meta files ...' then gets these
 //   fields in each reviewer entry.
@@ -881,13 +884,17 @@ test('dispatch names that collide stop the names and transcripts commands', (t) 
 //   blocks; fixer is true when meta.fixer is set. The run's seconds and tokens are sums over its rounds; found,
 //   recall, and the finding counts cover all rounds; verdicts and roundVerdict are those of the last round.
 //   Summaries leave out invalid runs.
-// - Invalid run: only a run with `config` is checked. Each reviewer entry can give these reasons:
-//   `<reviewer>: model <m>, not <config.model>` for each other model in messages;
-//   `<reviewer>: effort <e>, not <config.effort>`;
-//   `<reviewer>: served tier <t>, not <config.tier>` for each other served tier of the messages of config.model,
-//   when config.tier is not null;
-//   `<reviewer>: no transcript facts` when the entry has no `messages`.
-//   In a run with round folders, <reviewer> is `round-<r>/<reviewer>`.
+// - Invalid run: every run is checked for reads outside its inputs, and a run with `config` is also checked against
+//   its configuration, and its loop fixers against `fixerConfig`. Each reviewer or fixer entry can give these reasons:
+//   `<reviewer>: read outside its inputs: <targets>` when readScope.outside is not empty (every run);
+//   `<agent>: model <m>, not <setting.model>` for each other model of the messages that are not failed requests;
+//   `<agent>: effort <e>, not <setting.effort>` for each other effort of the messages of setting.model;
+//   `<agent>: served tier <t>, not <setting.tier>` for each other served tier of the messages of setting.model that
+//   are not failed requests, when setting.tier is not null;
+//   `<agent>: no transcript facts` when the entry has no `messages`, and `<agent>: no served assistant message` when
+//   every message is a failed request; `round-<r>/<fixer>: no fixer setting` for a fixer entry without
+//   `fixerConfig`. These reasons need `config`. In a run with round folders, <reviewer> is `round-<r>/<reviewer>`,
+//   and a fixer is `round-<r>/fixer-1`.
 // - renderReport(scores, { configs, reference } = {}) keeps the Summary and Runs tables and adds:
 //   `## Invalid runs`, only when there is an invalid run: one line `- <case>/<arm>/<run>: <reasons joined by "; ">`
 //   per invalid run;
@@ -924,9 +931,8 @@ const CONFIGS = {
 const provenCost = (config, seconds, tokens, facts = {}) => ({
   seconds,
   tokens,
-  effort: config.effort,
   requestedTier: config.tier,
-  messages: [{ model: config.model, servedTier: config.tier }],
+  messages: [{ model: config.model, effort: config.effort, servedTier: config.tier }],
   sideCalls: [],
   ...facts,
 });
@@ -969,13 +975,13 @@ const FALLBACK_TRANSCRIPT = [
   { type: 'model_change', timestamp: isoAt(32), model: 'anthropic/claude-opus-5-5' },
   assistantLine(91, 'anthropic', 'claude-opus-5-5', null, { input: 1000, output: 100 }),
 ];
+// The effort changes before the first assistant message are setup: every message shows the last of them.
 const FALLBACK_FACTS = {
-  effort: 'xhigh',
   requestedTier: 'priority',
   messages: [
-    { model: MODEL, servedTier: 'priority' },
-    { model: MODEL, servedTier: 'priority' },
-    { model: 'anthropic/claude-opus-5-5', servedTier: null },
+    { model: MODEL, effort: 'xhigh', servedTier: 'priority' },
+    { model: MODEL, effort: 'xhigh', servedTier: 'priority' },
+    { model: 'anthropic/claude-opus-5-5', effort: 'xhigh', servedTier: null },
   ],
   sideCalls: [{ model: 'openai-codex/gpt-6-luna', purpose: 'title', tokens: 362 }],
 };
@@ -1051,7 +1057,10 @@ function roundWorkspace(t, runs) {
 // kind (default `code`). Each run is { case, config, arm, run, rounds, single }: arm defaults to `C1` and run to 1, so
 // without them a fixture has one run per case and config. Each round is [seconds, tokens, mode, fixer seconds,
 // answers]. A run has round folders; a run with `single: true` is a single review: its one round has no round folder.
-// An answer is a finding: the known id that it matches, or the rating of a finding without a match.
+// An answer is a finding: the known id that it matches, or the rating of a finding without a match. Each round of a
+// loop before its last round gets the record of its fix step, as `loop` writes it: `fix` with a fix of each matched
+// known defect and the valid extras, and `fixAlreadyApplied` with the matched defects that an earlier round of the
+// run fixed, whose fix the tree still holds.
 function gridFixture(cases, runs) {
   const blocks = [];
   const findings = [];
@@ -1062,6 +1071,7 @@ function gridFixture(cases, runs) {
     const kind = cases[spec.case].kind ?? 'code';
     const arm = `${spec.arm ?? 'C1'}-${config.name}`;
     const run = `run-${spec.run ?? 1}`;
+    const fixed = new Set();
     for (const [index, [seconds, tokens, mode, fixer, answers]] of spec.rounds.entries()) {
       const inRound = spec.single ? {} : { round: index + 1 };
       const folder = spec.single ? `${spec.case}/${arm}/${run}` : `${spec.case}/${arm}/${run}/round-${index + 1}`;
@@ -1082,14 +1092,26 @@ function gridFixture(cases, runs) {
         ...(fixer ? { fixer: { seconds: fixer } } : {}),
         reviewers: { full: provenCost(config, seconds, tokens) },
       };
+      const matched = [];
+      const extras = [];
       for (const [n, answer] of answers.entries()) {
         const id = `${folder}/full#${n + 1}`;
         const blind = blindId(id);
         findings.push({ id, blind, case: spec.case, arm, run, ...inRound, reviewer: 'full', n: n + 1 });
-        if (['valid', 'wrong', 'unknown'].includes(answer))
+        if (['valid', 'wrong', 'unknown'].includes(answer)) {
           judgments.adjudications.push({ finding: blind, rating: answer, reason: 'Read the snapshot.' });
-        else judgments.matches.push({ finding: blind, known: answer, verdict: 'match', reason: 'Same cause.' });
+          if (answer === 'valid') extras.push(id);
+        } else {
+          judgments.matches.push({ finding: blind, known: answer, verdict: 'match', reason: 'Same cause.' });
+          if (!matched.includes(answer)) matched.push(answer);
+        }
       }
+      if (spec.single || index === spec.rounds.length - 1) continue;
+      const fixes = matched.map((known) => ({ known, patch: `${spec.case}.${known}.fix.patch` }));
+      metas[folder].fix = { fixes, extras, rejections: [] };
+      const present = matched.filter((known) => fixed.has(known));
+      if (present.length) metas[folder].fixAlreadyApplied = present;
+      for (const known of matched) fixed.add(known);
     }
   }
   const pairs = {
@@ -1104,7 +1126,7 @@ function gridFixture(cases, runs) {
   return { findings: { blocks, findings }, pairs, judgments, metas };
 }
 
-test('transcript facts give each assistant model and served tier and the last requested effort and tier', () => {
+test('transcript facts give the model, effort, and served tier of each message and the last requested tier', () => {
   const text = `${jsonl(FALLBACK_TRANSCRIPT)}\n`;
   assert.deepEqual(score.transcriptFacts(text, 'fallback.jsonl'), FALLBACK_FACTS);
   // Time and tokens count only the configured model: the side call and the fallback message stay out.
@@ -1117,9 +1139,8 @@ test('transcript facts give each assistant model and served tier and the last re
     { type: 'message', timestamp: isoAt(4), message: { role: 'assistant', usage: { input: 1 } } },
   ]);
   assert.deepEqual(score.transcriptFacts(bare, 'bare.jsonl'), {
-    effort: null,
     requestedTier: null,
-    messages: [{ model: null, servedTier: null }],
+    messages: [{ model: null, effort: null, servedTier: null }],
     sideCalls: [],
   });
 });
@@ -1152,14 +1173,14 @@ test('a run whose transcript shows another model, effort, or served tier is inva
   const config = CONFIGS['xhigh-fast'];
   const proven = (seconds, facts) => provenCost(config, seconds, 100, facts);
   const fallback = [
-    { model: MODEL, servedTier: 'priority' },
-    { model: 'anthropic/claude-opus-5-5', servedTier: null },
+    { model: MODEL, effort: 'xhigh', servedTier: 'priority' },
+    { model: 'anthropic/claude-opus-5-5', effort: 'xhigh', servedTier: null },
   ];
   const costs = [
     proven(100),
     proven(500, { messages: fallback }),
-    proven(600, { effort: 'high' }),
-    proven(700, { messages: [{ model: MODEL, servedTier: 'default' }] }),
+    proven(600, { messages: [{ model: MODEL, effort: 'high', servedTier: 'priority' }] }),
+    proven(700, { messages: [{ model: MODEL, effort: 'xhigh', servedTier: 'default' }] }),
     { seconds: 800, tokens: 100 },
   ];
   const answers = [[{ matches: { D1: 'match' } }], [{ matches: { D1: 'match' } }], [], [], []];
@@ -1283,26 +1304,27 @@ test('a run with round folders keeps scores and timing per round, and the report
 // Decision table, over all runs of the group:
 // - Known found per run, Escaped per run (known minus found), as below. Escaped per 50 known: the escaped defects of
 //   the runs, times 50, divided by the known defects of their cases.
-// - Model, Effort, Served tier: the different values of the transcript facts (messages[].model, effort,
-//   messages[].servedTier), joined by ", ".
+// - Model, Effort, Served tier: the different values of the transcript facts (messages[].model, messages[].effort,
+//   messages[].servedTier; the model and the served tier leave out failed requests), joined by ", ".
 // - Interval rows: pairedBootstrap over the cases that the column and the reference both ran. The value of a case
 //   is the mean over its runs. Round 1 recall: value round-1 found, weight known. Escaped per 50 known: value
 //   escaped, weight known / 50. Loop seconds: value loop seconds, weight 1, over loop runs only. A cell is
 //   `[low, high]`; the reference column and a column without shared cases get `-`.
 // Code-loop table, over the loop runs (runs with round folders):
+// - Model, Effort, Served tier after Runs, as in the decision table.
 // - Round <r> rows, for r from 1 to the highest round of the loops, cover the loops that reached round r: seconds
 //   median, min, and max (round seconds); modes (`<mode> <count>` in mode-name order, joined by ", "); known found
 //   per run (the known defects that round r found, divided by the loops that reached it).
 // - Rounds median and max: the rounds of a loop. Loop seconds median: the sum of the round seconds of a loop.
 // - `... per run`: the sum over the runs divided by the runs. Known found (by the end of the loop), Escaped (known
-//   minus found), Valid extras, Extra-only rounds (rounds r >= 2 whose round r - 1 found no known defect and had a
-//   valid extra), Wrong, Unjudged, Unknown ratings, and Unknown pairs.
+//   minus found), Valid extras, Extra-only rounds (rounds r >= 2 whose round r - 1 records a fix step that gave
+//   valid extras to the fixer and repaired no known defect), Wrong, Unjudged, Unknown ratings, and Unknown pairs.
 // - Tokens median; Side-call tokens median (the sideCalls tokens of a run).
 // - Loops with a fixer: the loops with meta.fixer in a round. Fixer seconds median and Fixer tokens median: over those
 //   loops only, the sum of meta.fixer.seconds and the sum of meta.fixer.tokens over the rounds of a loop.
 // - Known found per loop minute: the known defects found by the loops, divided by their loop seconds / 60.
-// Single-review table, over the other runs: Seconds median, min, and max; the `... per run` rows without Extra-only
-// rounds; Tokens median.
+// Single-review table, over the other runs: Model, Effort, and Served tier after Runs, as in the decision table;
+// Seconds median, min, and max; the `... per run` rows without Extra-only rounds; Tokens median.
 // - Formats: seconds and rounds median with 1 decimal; per-run, per-minute, recall, and escaped values with 2;
 //   counts and tokens whole; `-` for no value.
 test('the configuration table gives one column per configuration and the rows of each case group', () => {
@@ -1324,9 +1346,11 @@ test('the configuration table gives one column per configuration and the rows of
         ],
       },
       { case: 'code-8', config: 'low', rounds: [round(60, 600, 'full', 20, ['D1']), round(30, 300, 'delta', 0, [])] },
+      // A C1 loop runs no panel round, so the loop with a panel round 1 is a C3 loop.
       {
         case: 'code-7',
         config: 'low-fast',
+        arm: 'C3',
         rounds: [round(50, 900, 'panel', 25, ['D1', 'D2']), round(20, 100, 'delta', 0, [])],
       },
       {
@@ -1374,6 +1398,9 @@ test('the configuration table gives one column per configuration and the rows of
     '| Measure | low | low-fast | high |',
     '|---|---:|---:|---:|',
     '| Runs | 2 | 2 | 2 |',
+    `| Model | ${MODEL} | ${MODEL} | ${MODEL} |`,
+    '| Effort | low | low | high |',
+    '| Served tier | default | priority | default |',
     '| Round 1 seconds median | 80.0 | 40.0 | 175.0 |',
     '| Round 1 seconds min | 60.0 | 30.0 | 150.0 |',
     '| Round 1 seconds max | 100.0 | 50.0 | 200.0 |',
@@ -1610,14 +1637,17 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 // Plan #100 step 3: API note for the tests below. They read the new exports through `prepare` and `score`.
 //
 // New exports of prepare.mjs:
-// - roundMode({ round, fullLines, completed, repairsOnly, deltaLines, merge = false }) -> 'full' | 'panel' | 'delta'
+// - LOOP_POLICIES: the round policies of a loop, { 'panel-delta', 'full-delta', full }, each { panel, delta }. ARMS.code
+//   gives B0 the policy 'full', B1 and C3 'panel-delta', and C1 'full-delta'; S1 and S3 have no policy.
+// - roundMode({ policy, round, fullLines, completed, repairsOnly, deltaLines, merge = false })
+//   -> 'full' | 'panel' | 'delta'. policy is required: a key of LOOP_POLICIES.
 //   The modes of plan-contract.md, Code-review rounds. fullLines is the size (added plus removed lines) of the full
 //   diff of the round's reviewed head; deltaLines is the size of the diff from the previous round's reviewed head.
-//   The size rule gives 'panel' for 50 or more full-diff lines and 'full' below. Round 1 follows the size rule and
-//   reads no other field. A later round is 'delta' only when the previous round completed (every reviewer returned a
-//   block with a verdict line, and none returned `blocked`), repairsOnly (every change since that round's head
-//   repairs one of its findings), not merge (a merge of the default branch), and deltaLines * 2 <= fullLines.
-//   Otherwise the size rule decides.
+//   The size rule gives 'panel' for 50 or more full-diff lines and 'full' below; a policy without `panel` gives
+//   'full'. Round 1 follows the size rule and reads no field but policy. A later round is 'delta' only when the
+//   policy has `delta`, the previous round completed (every reviewer returned a block with a verdict line, and none
+//   returned `blocked`), repairsOnly (every change since that round's head repairs one of its findings), not merge
+//   (a merge of the default branch), and deltaLines * 2 <= fullLines. Otherwise the size rule decides.
 // - prepareCase(options, repo) and prepareLoop(options, repo): the `case` and `loop` commands. options holds the
 //   flags by long name, as parseArgs gives them; repo is the git repository of the case commits (main passes the
 //   repository of the script). When the skill folder is not inside repo, the snapshots and diffs leave nothing out.
@@ -1633,12 +1663,19 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 //
 // `loop --run <ws>/<case>/<arm>-<config>/run-<n> --cases <dir> [--keys <dir>] [--fixer-patch <file>]` (options run,
 // cases, keys, and 'fixer-patch') continues the loop of one run of a code case after its last round folder, round k:
-// 1. A case with `external` and no keys stops as `case` does. The command reads <ws>/findings.json,
-//    <ws>/judgments.json, and the known defects through score.mjs readKnown(cases, case, split, keys). The fix
-//    patches come from the folder of the known defects: the case folder for inline `known`, else the key folder.
+// 1. A case with `external` and no keys stops as `case` does. `case --loop` writes { policy } (the round policy of
+//    the arm) to run-<n>/meta.json; a run whose meta.json does not record that policy stops: `<run>/meta.json does
+//    not record the round policy <policy> of arm <arm>; build the loop again with case --loop`. A round-k block whose
+//    verdict is not pass or fixes-required stops the command: `<case>/<arm>/<run>/round-<k> did not complete;
+//    dispatch these reviewers again, save their blocks, and run score.mjs findings again: <reviewer> (<reason>)`,
+//    with the reason `no block`, `no verdict line`, or `blocked`. The command reads <ws>/findings.json,
+//    <ws>/judgments.json (a missing file holds no answers), and the known defects through score.mjs readKnown(cases,
+//    case, split, keys). The fix patches come from the folder of the known defects: the case folder for inline
+//    `known`, else the key folder.
 // 2. plan = score.fixPlan({ findings: the round-k findings of the run, judgments, known, applied }), where applied
 //    lists the `known` ids of `fix.fixes` in the meta.json of rounds 1 to k - 1, in order. When
-//    score.loopEnds(k, plan), the command writes nothing and returns null.
+//    score.loopEnds(k, plan), the command writes nothing and returns null. It also ends so after it applies the fix
+//    patches, when no extra stands and every fix of a matched defect applies in reverse (the tree holds the fix).
 // 3. With plan.extras and no fixer patch, it writes round-k/fixer/ and stops before it writes round k + 1:
 //    `<case>/<arm>/<run>/round-<k> has <n> valid extra findings for the fixer: <ids joined by ", ">; give their repair
 //    with --fixer-patch <file>`. round-k/fixer/ holds snapshot/ (the round-k tree after the fix patches of plan.fixes)
@@ -1664,9 +1701,11 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 //      the side of the arm, with round <c + 1>, the snapshot and diffs of the round folder, the plan.md of the case
 //      folder, and for a delta round the previous-review.md and, when it exists, the rejection.md of the round
 //      folder. An empty blocks/.
-//    - meta.json: { config (of round k), mode, head, completed, repairsOnly, fullLines, deltaLines }, where mode is
-//      roundMode({ round: k + 1, fullLines, completed, repairsOnly, deltaLines }). completed: every round-k block of
-//      the run in findings.json has the verdict pass or fixes-required. repairsOnly: no fix of the plan is `pulled`.
+//    - meta.json: { config (of round k), mode, head, repairsOnly, fullLines, deltaLines }, where mode is
+//      roundMode({ policy, round: k + 1, fullLines, completed: true, repairsOnly, deltaLines }), with the policy of
+//      the arm; round k completed, because step 1 refuses a round that did not complete.
+//      repairsOnly: no applied fix of the plan is `pulled`; a pulled-in patch that does not apply changes nothing, so
+//      it does not prevent a delta round.
 //      fullLines and deltaLines: the added plus removed lines of full.diff and delta.diff.
 //    It returns the round-<k+1> folder, and stops when that folder exists.
 //
@@ -1675,19 +1714,20 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 //   findings: the findings of one round of one run, as findings.json gives them. judgments: judgments.json. known:
 //   the known defects of the case, each with `fix` (a patch file name) and an optional `fix_after` (the ids whose
 //   fixes the patch needs first). applied: the ids whose fixes earlier rounds applied.
-//   fixes: one { known, patch } for each known defect that a finding of the round matches (a `match` answer) and
-//   that is not applied, and one { known, patch, pulled: true } for each defect that such a fix needs through
-//   fix_after, also indirectly, that is neither applied nor matched. Order: repeatedly take the first defect in
-//   known-list order whose fix_after ids are all applied or already placed. A finding that matches only applied
-//   defects needs no repair.
+//   fixes: one { known, patch } for each known defect that a finding of the round matches (a `match` answer), also
+//   an applied one, because a later repair can bring it back, and one { known, patch, pulled: true } for each defect
+//   that such a fix needs through fix_after, also indirectly, that is neither applied nor matched. Order: repeatedly
+//   take the first defect in known-list order whose fix_after ids are all placed, or applied and not in the plan.
 //   extras: the ids of the findings without a `match` answer that the judge rated `valid`, in findings order.
 //   rejections: one { finding: <id>, rating, reason } for each finding without a `match` answer rated `wrong` or
 //   `unknown` (the harness cannot confirm it), in findings order, with the judge's reason.
-//   A finding with neither a `match` answer nor a rating fails as the report does: `judgments.json has no match and
+//   A candidate pair of a finding of the round (score.pairWanted) without an answer fails as the report does:
+//   `judgments.json has no match answer for <n> candidate pairs of pairs.json: <blind id> and <known id>, ...`. A
+//   finding with neither a `match` answer nor a rating fails as the report does: `judgments.json has no match and
 //   no adjudication for <n> findings: <blind ids>`. A defect to fix without `fix` fails: `known defect <id> has no
 //   fix patch`.
-// - loopEnds(round, plan) -> true when the plan has no fixes and no extras (no finding of the round stands open,
-//   because the fix step repairs every finding that stands), or when round is 5 or more.
+// - loopEnds(round, { fixes, extras }) -> true when there are no fixes and no extras (no finding of the round stands
+//   open, because the fix step repairs every finding that stands), or when round is 5 or more.
 //
 // Changed exports of score.mjs:
 // - dispatchName(caseId, arm, run, reviewer, round): with a round, `K<round>` follows the run part, as in
@@ -1695,22 +1735,25 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
 //   and a collision names `<case>/<arm>/<run>/round-<r>/<reviewer>`. names and transcripts take workspaces with
 //   round folders: each round folder is a dispatch of its own, and transcripts writes the meta.json of the round
 //   folder.
-// - scoreRuns: a round r >= 2 is extra-only when round r - 1 found no known defect that no earlier round of the run
-//   had found, and had a valid extra finding. A repeat of a fixed defect needs no repair, so it causes no round.
+// - scoreRuns: a round r >= 2 is extra-only when the fix step after round r - 1 gave valid extras to the fixer and
+//   repaired no known defect: no fix in its `fix.fixes` that is not `pulled` and not in `fixAlreadyApplied`.
+// - loadJudgments(ws): <ws>/judgments.json, or { matches: [], adjudications: [] } when the file is missing. `loop`
+//   and `report` read the judgments through it.
 //
 // Outside these tests: how `case` lays out round 1 of a loop run (the tests write round-1/ by hand), and the
 // dispatch, the agent, and the transcript of the fixer. `names` lists the fixer prompt of a round as
 // `<case><arm><run>K<round>Fixer1`.
 
 test('round mode follows the size rule and allows delta only after a completed round of small repairs', () => {
-  assert.equal(prepare.roundMode({ round: 1, fullLines: 49 }), 'full');
-  assert.equal(prepare.roundMode({ round: 1, fullLines: 50 }), 'panel');
+  const policy = 'panel-delta';
+  assert.equal(prepare.roundMode({ policy, round: 1, fullLines: 49 }), 'full');
+  assert.equal(prepare.roundMode({ policy, round: 1, fullLines: 50 }), 'panel');
   // Round 1 reads only the size of the full diff.
   assert.equal(
-    prepare.roundMode({ round: 1, fullLines: 120, completed: true, repairsOnly: true, deltaLines: 1 }),
+    prepare.roundMode({ policy, round: 1, fullLines: 120, completed: true, repairsOnly: true, deltaLines: 1 }),
     'panel',
   );
-  const repaired = { round: 2, completed: true, repairsOnly: true };
+  const repaired = { policy, round: 2, completed: true, repairsOnly: true };
   assert.equal(prepare.roundMode({ ...repaired, fullLines: 120, deltaLines: 60 }), 'delta');
   assert.equal(prepare.roundMode({ ...repaired, fullLines: 120, deltaLines: 61 }), 'panel');
   assert.equal(prepare.roundMode({ ...repaired, fullLines: 40, deltaLines: 20 }), 'delta');
@@ -1725,23 +1768,39 @@ test('round mode follows the size rule and allows delta only after a completed r
   assert.equal(prepare.roundMode({ ...repaired, merge: true, fullLines: 30, deltaLines: 2 }), 'full');
 });
 
+// Each known defect sits in a file of its own, so a finding is a candidate pair only with the defects of its files.
+const fixFile = (id) => `src/${id.toLowerCase()}.mjs`;
 const FIX_KNOWN = [
-  { id: 'D1', fix: 'code-7.D1.fix.patch' },
-  { id: 'D2', fix: 'code-7.D2.fix.patch', fix_after: ['D3'] },
-  { id: 'D3', fix: 'code-7.D3.fix.patch' },
-  { id: 'D4', fix: 'code-7.D4.fix.patch', fix_after: ['D1'] },
-  { id: 'D5', fix: 'code-7.D5.fix.patch', fix_after: ['D4'] },
+  { id: 'D1', locator: `${fixFile('D1')}:1`, fix: 'code-7.D1.fix.patch' },
+  { id: 'D2', locator: `${fixFile('D2')}:1`, fix: 'code-7.D2.fix.patch', fix_after: ['D3'] },
+  { id: 'D3', locator: `${fixFile('D3')}:1`, fix: 'code-7.D3.fix.patch' },
+  { id: 'D4', locator: `${fixFile('D4')}:1`, fix: 'code-7.D4.fix.patch', fix_after: ['D1'] },
+  { id: 'D5', locator: `${fixFile('D5')}:1`, fix: 'code-7.D5.fix.patch', fix_after: ['D4'] },
 ];
 const fixId = (round, n) => `code-7/C1-low/run-1/round-${round}/full#${n}`;
 // The findings of one round of run code-7/C1-low/run-1, as findings.json gives them, and the judge's answers. Each
 // answer is { matches, rating, reason }: `matches` maps known ids to a pair verdict, and `rating` is the adjudication.
+// A finding names the files of the known defects in its `matches`, so the judge answered each of its candidate pairs;
+// a finding without `matches` names README.md, which no known defect names.
 function judgedRound(round, answers) {
   const findings = [];
   const judgments = { matches: [], adjudications: [] };
   for (const [index, { matches = {}, rating, reason = 'Read the snapshot.' }] of answers.entries()) {
     const id = fixId(round, index + 1);
     const blind = blindId(id);
-    findings.push({ id, blind, case: 'code-7', arm: 'C1-low', run: 'run-1', round, reviewer: 'full', n: index + 1 });
+    const names = Object.keys(matches).length ? Object.keys(matches).map(fixFile) : ['README.md'];
+    const files = names.map((file) => ({ file, start: 1, end: 1 }));
+    findings.push({
+      id,
+      blind,
+      case: 'code-7',
+      arm: 'C1-low',
+      run: 'run-1',
+      round,
+      reviewer: 'full',
+      n: index + 1,
+      files,
+    });
     for (const [known, verdict] of Object.entries(matches)) {
       judgments.matches.push({ finding: blind, known, verdict, reason });
     }
@@ -1770,12 +1829,14 @@ test('the fix plan orders matched fixes by fix_after, sends valid extras to the 
       { finding: fixId(1, 5), rating: 'unknown', reason: 'The snapshot does not hold the caller.' },
     ],
   });
-  // Round 2 repeats D2, whose fix round 1 applied, and finds D5. The patch of D5 needs the fix of D4, which needs the
-  // fix of D1; no finding matched them, so the plan pulls both in first.
+  // Round 2 repeats D2, whose fix round 1 applied, and finds D5. A later repair can bring D2 back, so the plan keeps
+  // its patch, and loop drops the patch when the tree still holds the fix. The patch of D5 needs the fix of D4, which
+  // needs the fix of D1; no finding matched them, so the plan pulls both in first.
   const second = judgedRound(2, [{ matches: { D2: 'match' } }, { matches: { D5: 'match' } }]);
   assert.deepEqual(score.fixPlan({ ...second, known: FIX_KNOWN, applied: ['D3', 'D2'] }), {
     fixes: [
       { known: 'D1', patch: 'code-7.D1.fix.patch', pulled: true },
+      { known: 'D2', patch: 'code-7.D2.fix.patch' },
       { known: 'D4', patch: 'code-7.D4.fix.patch', pulled: true },
       { known: 'D5', patch: 'code-7.D5.fix.patch' },
     ],
@@ -1806,9 +1867,10 @@ test('the loop ends after a round without an open finding, or at round 5', () =>
   assert.equal(score.loopEnds(3, rejected), true);
   assert.equal(score.loopEnds(5, repair), true);
   assert.equal(score.loopEnds(5, extra), true);
-  // A round whose findings only repeat fixed defects or are wrong leaves nothing open.
+  // A round whose findings only repeat fixed defects or are wrong keeps the repeated fixes in its plan, so the plan
+  // alone does not end the loop: loop ends it when the tree of the round still holds each fix.
   const quiet = judgedRound(3, [{ matches: { D2: 'match' } }, { rating: 'wrong', reason: 'No.' }]);
-  assert.equal(score.loopEnds(3, score.fixPlan({ ...quiet, known: FIX_KNOWN, applied: ['D3', 'D2'] })), true);
+  assert.equal(score.loopEnds(3, score.fixPlan({ ...quiet, known: FIX_KNOWN, applied: ['D3', 'D2'] })), false);
 });
 
 const LOOP_R1 = 'code-7/C1-low/run-1/round-1/full';
@@ -1964,18 +2026,33 @@ function loopRepo(t) {
 }
 
 // Writes judgments.json for loop findings by stable id. Each answer is [id, answer, reason]: a known id gives a
-// `match` answer, and `valid`, `wrong`, or `unknown` gives an adjudication.
-function judgeLoop(ws, answers) {
+// `match` answer, and `valid`, `wrong`, or `unknown` gives an adjudication. Each other candidate pair of an answered
+// finding (score.pairWanted) gets a `no` answer, because `loop` stops on a candidate pair without an answer. `known`
+// is the list of known defects; it defaults to the `known` list of the case.json of the finding's case in `ws`.
+function judgeLoop(ws, answers, known) {
   const { findings } = readJson(path.join(ws, 'findings.json'));
-  const blindOf = new Map(findings.map((finding) => [finding.id, finding.blind]));
+  const byId = new Map(findings.map((finding) => [finding.id, finding]));
   const judgments = { matches: [], adjudications: [] };
+  const answered = new Map();
   for (const [id, answer, reason = 'Read the snapshot.'] of answers) {
-    assert.ok(blindOf.has(id), `findings.json has no finding ${id}`);
-    const finding = blindOf.get(id);
+    assert.ok(byId.has(id), `findings.json has no finding ${id}`);
+    const finding = byId.get(id);
+    answered.set(id, finding);
     if (['valid', 'wrong', 'unknown'].includes(answer)) {
-      judgments.adjudications.push({ finding, rating: answer, reason });
+      judgments.adjudications.push({ finding: finding.blind, rating: answer, reason });
     } else {
-      judgments.matches.push({ finding, known: answer, verdict: 'match', reason });
+      judgments.matches.push({ finding: finding.blind, known: answer, verdict: 'match', reason });
+    }
+  }
+  for (const finding of answered.values()) {
+    const defects = known ?? readJson(path.join(ws, finding.case, 'case.json')).known;
+    assert.ok(Array.isArray(defects), `judgeLoop needs the known defects of ${finding.case}`);
+    const given = new Set(
+      judgments.matches.filter((entry) => entry.finding === finding.blind).map((entry) => entry.known),
+    );
+    for (const item of defects) {
+      if (given.has(item.id) || !score.pairWanted('code', finding, item)) continue;
+      judgments.matches.push({ finding: finding.blind, known: item.id, verdict: 'no', reason: 'Another cause.' });
     }
   }
   put(ws, 'judgments.json', judgments);
@@ -2018,6 +2095,8 @@ function devLoop(t) {
   put(ws, 'code-7/case.json', caseData);
   put(ws, 'code-7/plan.md', '# Plan 7\n');
   const run = path.join(ws, 'code-7', 'C1-low', 'run-1');
+  // `case --loop` records the round policy of the arm: C1 runs the full-delta policy.
+  put(run, 'meta.json', { policy: 'full-delta' });
   const round1Meta = { config: CONFIGS.low, mode: 'full', reviewers: { full: provenCost(CONFIGS.low, 100, 1000) } };
   put(run, 'round-1/prompts/full.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
   put(run, 'round-1/blocks/full.md', LOOP_ROUND_1);
@@ -2062,7 +2141,6 @@ test('loop builds round 2 from round 1: fix patch, fixer patch, comment files, d
     config: CONFIGS.low,
     mode: 'delta',
     head: meta.head,
-    completed: true,
     repairsOnly: true,
     fullLines: 16,
     deltaLines: 4,
@@ -2171,7 +2249,6 @@ test('loop writes one fixer prompt for all valid extras of a round and takes an 
     config: CONFIGS.low,
     mode: 'delta',
     head: meta.head,
-    completed: true,
     repairsOnly: true,
     fullLines: 16,
     deltaLines: 2,
@@ -2206,7 +2283,6 @@ test('loop counts the fixes of earlier rounds for fix_after and ends after a rou
     config: CONFIGS.low,
     mode: 'delta',
     head: meta.head,
-    completed: true,
     repairsOnly: true,
     fullLines: 16,
     deltaLines: 2,
@@ -2287,7 +2363,6 @@ test('loop gives a defect whose fix patch does not apply to the fixer and skips 
     config: CONFIGS.low,
     mode: 'delta',
     head: meta.head,
-    completed: true,
     repairsOnly: true,
     fullLines: 16,
     deltaLines: 2,
@@ -2338,12 +2413,13 @@ test('loop --keys reads the key, the fix patches, and the external patch of a he
   put(ws, 'code-9/case.json', caseData);
   put(ws, 'code-9/plan.md', '# Plan 9\n');
   const run = path.join(ws, 'code-9', 'C1-low', 'run-1');
+  put(run, 'meta.json', { policy: 'full-delta' });
   const round2 = path.join(run, 'round-2');
   put(run, 'round-1/prompts/full.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
   put(run, 'round-1/blocks/full.md', V7_BLOCK(1));
   put(run, 'round-1/meta.json', { config: CONFIGS.low, mode: 'full' });
   findingsCommand(ws);
-  judgeLoop(ws, [['code-9/C1-low/run-1/round-1/full#1', 'D2']]);
+  judgeLoop(ws, [['code-9/C1-low/run-1/round-1/full#1', 'D2']], readJson(path.join(keys, 'code-9.key.json')).known);
   assert.throws(
     () => prepare.prepareLoop({ run, cases }, repo),
     /case code-9 keeps plan, patch in the key folder; give that folder with --keys <dir>/,
@@ -2366,7 +2442,6 @@ test('loop --keys reads the key, the fix patches, and the external patch of a he
     config: CONFIGS.low,
     mode: 'full',
     head: meta.head,
-    completed: true,
     repairsOnly: false,
     fullLines: 18,
     deltaLines: 4,
@@ -2560,17 +2635,21 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
 // Changed export:
 // - transcriptFacts(text, source): when an assistant message of the transcript has a `toolCall` content item, the
 //   result also has `toolCalls`: one { name, path } per item, in transcript order. path is `arguments.path` when it
-//   is a string, else null. A transcript without a tool call gives no `toolCalls` field, so the facts of the earlier
-//   tests do not change.
+//   is a string, else null. A `web_search` call also has `query`: `arguments.query` when it is a string, else null.
+//   A transcript without a tool call gives no `toolCalls` field, so the facts of the earlier tests do not change.
 //
 // New export:
-// - readScope(toolCalls, { runDir, round, cwd, pluginRoots }) -> { outside }
+// - readScope(toolCalls, { runDir, round, cwd, pluginRoots }) -> { outside } or { outside, queries }
 //   runDir is `<ws>/<case>/<arm folder>/run-<k>`. round is the number of a round folder, or undefined for a run
 //   without round folders. cwd is the working directory of the reviewer session, or null when it is unknown.
 //   pluginRoots are the plugin roots that the agent text of the reviewer names. The function reads no file.
-//   A target is one `;`-separated part of a path, trimmed. A local path or an internal URI loses its selector: the
+//   The path of a grep, glob, or ast_grep call gives one target per `;`-separated part, trimmed; the path of every
+//   other call is one trimmed target. A local path or an internal URI loses its selector: the
 //   `:<text>` parts without `/` at its end, for example `:1-260` or `:23-54:raw`. A call without a path gives no
-//   target, except grep, glob, and find: they search the working directory, so they give `<name> without a path`.
+//   target, except grep, glob, find, and ast_grep: they search the working directory, so they give
+//   `<name> without a path`. A web_search call gives its query to `queries` (each once, in call order; the field is
+//   there only when the reviewer searched the web), and the target `web_search: <query>` when the query names the
+//   benchmark repository: `DocksDocks/docks` or `github.com/DocksDocks`, in any case.
 //   A relative path resolves against cwd. "Under a folder" means the folder itself or a path below it.
 //   A target is allowed when it is:
 //   - a path under an input of the run. An input folder is the case folder, and the run folder (a run without round
@@ -2658,11 +2737,10 @@ test('transcript facts list the name and the path of each tool call of the assis
     second,
   ]);
   assert.deepEqual(score.transcriptFacts(text, 'tools.jsonl'), {
-    effort: null,
     requestedTier: null,
     messages: [
-      { model: MODEL, servedTier: 'default' },
-      { model: MODEL, servedTier: 'default' },
+      { model: MODEL, effort: null, servedTier: 'default' },
+      { model: MODEL, effort: null, servedTier: 'default' },
     ],
     sideCalls: [],
     toolCalls: [
@@ -3001,7 +3079,10 @@ test('a reviewer that read outside its inputs makes the run invalid, also withou
   const costs = [
     provenCost(config, 100, 100, { readScope: { outside: [] } }),
     provenCost(config, 200, 100, { readScope: { outside: [perf] } }),
-    provenCost(config, 300, 100, { effort: 'high', readScope: { outside: many } }),
+    provenCost(config, 300, 100, {
+      messages: [{ model: MODEL, effort: 'high', servedTier: 'priority' }],
+      readScope: { outside: many },
+    }),
   ];
   // Only the runs that read outside their inputs find D1, so they would raise the recall of the summary.
   const answers = [[], [{ matches: { D1: 'match' } }], [{ matches: { D1: 'match' } }]];
@@ -3231,6 +3312,9 @@ test('the code-loop rows leave out single reviews, and the fixer median leaves o
     '| Measure | low | low-fast |',
     '|---|---:|---:|',
     '| Runs | 2 | 2 |',
+    `| Model | ${MODEL} | ${MODEL} |`,
+    '| Effort | low | low |',
+    '| Served tier | default | priority |',
     '| Round 1 seconds median | 90.0 | 40.0 |',
     '| Round 1 seconds min | 80.0 | 30.0 |',
     '| Round 1 seconds max | 100.0 | 50.0 |',
@@ -3265,6 +3349,9 @@ test('the code-loop rows leave out single reviews, and the fixer median leaves o
     '| Measure | low | low-fast |',
     '|---|---:|---:|',
     '| Runs | 2 | 2 |',
+    `| Model | ${MODEL} | ${MODEL} |`,
+    '| Effort | low | low |',
+    '| Served tier | default | priority |',
     '| Seconds median | 400.0 | 300.0 |',
     '| Seconds min | 300.0 | 200.0 |',
     '| Seconds max | 500.0 | 400.0 |',
@@ -3558,7 +3645,7 @@ test('the self-review lead lists the known defects that only the lead found, aga
       single('code-8', 'S3', 1, 65, []),
     ],
   );
-  fixture.metas['code-8/C1-xhigh-fast/run-2/round-1'].reviewers.full.effort = 'high';
+  fixture.metas['code-8/C1-xhigh-fast/run-2/round-1'].reviewers.full.messages[0].effort = 'high';
   // S3 is a split arm: a second reviewer of its code-7 run takes 110 seconds, so that run takes 110 seconds.
   fixture.findings.blocks.push({
     case: 'code-7',
@@ -3859,4 +3946,727 @@ test('readScope puts the installed reviewer skills outside and exempts the own s
   assert.deepEqual(score.readScope(reads(...installed, liveClarity), selfReview), {
     outside: [...installed, liveClarity],
   });
+});
+
+// Plan #100 code review round 1: with --loop, the arm gives the side of the agent and the round policy of the loop.
+// - C3 and B1: `panel-delta`, the rules of plan-lifecycle 0.17.1. A B1 panel prompt holds the lens text.
+// - C1: `full-delta`, the same rules with a `full` round where they give a `panel` round.
+// - B0: `full`, the policy of plan-lifecycle 0.16.0: every round is a `full` round.
+// `case --loop` writes `{ policy }` to the meta.json of each run, and `loop` refuses a run whose meta.json does not
+// record the round policy of its arm.
+
+test('the round policy limits the modes that the rules of plan-contract.md give', () => {
+  const repaired = { round: 2, completed: true, repairsOnly: true, fullLines: 120, deltaLines: 2 };
+  const pulledIn = { ...repaired, repairsOnly: false };
+  assert.equal(prepare.roundMode({ policy: 'panel-delta', round: 1, fullLines: 50 }), 'panel');
+  assert.equal(prepare.roundMode({ policy: 'panel-delta', ...repaired }), 'delta');
+  assert.equal(prepare.roundMode({ policy: 'panel-delta', ...pulledIn }), 'panel');
+  // One full reviewer: a full round where panel-delta gives a panel round, and the same delta rounds.
+  assert.equal(prepare.roundMode({ policy: 'full-delta', round: 1, fullLines: 50 }), 'full');
+  assert.equal(prepare.roundMode({ policy: 'full-delta', ...repaired }), 'delta');
+  assert.equal(prepare.roundMode({ policy: 'full-delta', ...pulledIn }), 'full');
+  // No panel round and no delta round.
+  assert.equal(prepare.roundMode({ policy: 'full', round: 1, fullLines: 50 }), 'full');
+  assert.equal(prepare.roundMode({ policy: 'full', ...repaired }), 'full');
+  assert.equal(prepare.roundMode({ policy: 'full', ...pulledIn }), 'full');
+});
+
+const POLICY_ARMS = { B0: 'full', B1: 'panel-delta', C1: 'full-delta', C3: 'panel-delta' };
+const POLICY_FIXER = { model: MODEL, effort: 'high', tier: 'priority' };
+
+// The block of a round-1 reviewer of a policy loop: the full reviewer and the correctness lens find the known defect
+// D1, and the other lenses pass.
+function policyBlock(reviewer) {
+  const heading = reviewer === 'full' ? '### Code review round 1' : `### Code review round 1, lens ${reviewer}`;
+  const finds = reviewer === 'full' || reviewer === 'correctness';
+  const standards = finds ? '- [HIGH] Bug - src/sync.mjs:5 - v5 is 0 instead of 5 - set it to 5.' : 'None.';
+  const verdict = finds ? 'fixes-required' : 'pass';
+  return `${heading}\n\nCode-review: ${verdict}\n\n## Standards\n\n${standards}\n\n## Spec\n\nNone.\n`;
+}
+
+// A prompt file: line 1 names the agent, line 2 is empty, and the prompt follows.
+function promptFileParts(file) {
+  const [agent, empty, ...rest] = readText(file).split('\n');
+  assert.equal(empty, '');
+  return { agent, body: rest.join('\n') };
+}
+
+// `case --loop` with the arms B0, B1, C1, and C3 at configuration `low`, one run each, for dev case code-7. The case
+// head adds src/sync.mjs with `count` lines, so the full diff changes `count` lines. Line 5 carries the known defect
+// D1, and its fix patch changes that line only.
+function policyLoops(t, count) {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(repo);
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  put(repo, 'README.md', '# Demo\n');
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'base');
+  const base = gitIn(repo, 'rev-parse', 'HEAD').trim();
+  const sync = (values) => Array.from({ length: count }, (_, index) => syncLine(values, index + 1)).join('');
+  put(repo, 'src/sync.mjs', sync({ 5: 0 }));
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'head');
+  const head = gitIn(repo, 'rev-parse', 'HEAD').trim();
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const project = path.join(root, 'project');
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low], fixer: POLICY_FIXER });
+  const seeded = { category: 'bug', source: 'seeded' };
+  const caseData = {
+    id: 'code-7',
+    kind: 'code',
+    split: 'dev',
+    issue: 7,
+    round: 1,
+    plan: 'code-7-plan.md',
+    base,
+    head,
+    known: [{ id: 'D1', locator: 'src/sync.mjs:5', ...seeded, summary: 'v5 is 0.', fix: 'code-7.D1.fix.patch' }],
+  };
+  put(cases, 'dev/code-7.json', caseData);
+  put(cases, 'dev/code-7-plan.md', '# Plan 7\n');
+  put(cases, 'dev/code-7.D1.fix.patch', filePatch(repo, 'src/sync.mjs', sync({ 5: 0 }), sync({})));
+  const options = {
+    case: path.join(cases, 'dev', 'code-7.json'),
+    arms: Object.keys(POLICY_ARMS).join(','),
+    runs: '1',
+    out: ws,
+    configs: 'low',
+    project,
+    loop: true,
+  };
+  // Two arms of one side run different loops, so one workspace holds all four arms.
+  prepare.prepareCase(options, repo);
+  const caseDir = path.join(ws, 'code-7');
+  const run = (arm) => path.join(caseDir, `${arm}-low`, 'run-1');
+  return { repo, ws, cases, caseData, caseDir, run };
+}
+
+// The round modes of each arm: round 1 from `case --loop`, round 2 from `loop` after the fix of D1 in one line.
+for (const [count, modes] of [
+  [49, { B0: ['full', 'full'], B1: ['full', 'delta'], C1: ['full', 'delta'], C3: ['full', 'delta'] }],
+  [50, { B0: ['full', 'full'], B1: ['panel', 'delta'], C1: ['full', 'delta'], C3: ['panel', 'delta'] }],
+]) {
+  test(`case --loop and loop give each arm the rounds of its policy on a diff of ${count} lines`, (t) => {
+    const { repo, ws, cases, caseData, caseDir, run } = policyLoops(t, count);
+    const paths = prepare.workspacePaths(caseDir, caseData);
+    const agentOf = (arm) => `agent: review-bench-${arm.startsWith('B') ? 'baseline' : 'candidate'}-code-low`;
+    const reviewersOf = (mode) => (mode === 'panel' ? prepare.LENSES : [mode]);
+    const promptFile = (arm, round, reviewer) => path.join(run(arm), `round-${round}`, 'prompts', `${reviewer}.txt`);
+
+    for (const [arm, policy] of Object.entries(POLICY_ARMS)) {
+      const mode = modes[arm][0];
+      assert.deepEqual(readJson(path.join(run(arm), 'meta.json')), { policy });
+      const meta = readJson(path.join(run(arm), 'round-1', 'meta.json'));
+      assert.deepEqual([meta.config, meta.mode, meta.fullLines], [CONFIGS.low, mode, count]);
+      assert.deepEqual(
+        fs.readdirSync(path.join(run(arm), 'round-1', 'prompts')).sort(),
+        reviewersOf(mode).map((reviewer) => `${reviewer}.txt`),
+      );
+      for (const reviewer of reviewersOf(mode)) {
+        const file = promptFile(arm, 1, reviewer);
+        assert.equal(readText(file), prepare.buildPromptFile({ caseData, arm, config: 'low', reviewer, paths, mode }));
+        const { agent, body } = promptFileParts(file);
+        assert.equal(agent, agentOf(arm));
+        assert.ok(body.split('\n').includes(`Round mode: ${mode}.`), `${arm} ${reviewer} names another mode`);
+      }
+    }
+    if (modes.C3[0] === 'panel') {
+      // The panel prompts of B1 and C3 differ only in the lens text, which the B1 dispatch holds.
+      for (const lens of prepare.LENSES) {
+        const [b1, c3] = ['B1', 'C3'].map((arm) => promptFileParts(promptFile(arm, 1, lens)).body.split('\n'));
+        assert.deepEqual(
+          b1.filter((line) => c3.includes(line)),
+          c3,
+          `the B1 ${lens} prompt changes a line of the C3 prompt`,
+        );
+        const lensText = b1.filter((line) => !c3.includes(line));
+        assert.ok(
+          lensText.some((line) => line.startsWith('Your lens covers')),
+          `the B1 ${lens} prompt has no scope`,
+        );
+        assert.ok(lensText.includes(`Use the heading \`### Code review round 1, lens ${lens}\`.`));
+        assert.ok(c3.includes(`Lens: ${lens}`));
+      }
+    } else {
+      // Below the panel threshold, B1 gets the full prompt of C3.
+      const [b1, c3] = ['B1', 'C3'].map((arm) => promptFileParts(promptFile(arm, 1, 'full')).body);
+      assert.equal(b1, c3);
+    }
+
+    const answers = [];
+    for (const arm of Object.keys(POLICY_ARMS)) {
+      const reviewers = reviewersOf(modes[arm][0]);
+      for (const reviewer of reviewers) put(run(arm), `round-1/blocks/${reviewer}.md`, policyBlock(reviewer));
+      const finder = reviewers.includes('correctness') ? 'correctness' : 'full';
+      answers.push([`code-7/${arm}-low/run-1/round-1/${finder}#1`, 'D1']);
+    }
+    findingsCommand(ws);
+    judgeLoop(ws, answers);
+    for (const arm of Object.keys(POLICY_ARMS)) {
+      const mode = modes[arm][1];
+      const next = path.join(run(arm), 'round-2');
+      assert.equal(prepare.prepareLoop({ run: run(arm), cases }, repo), next);
+      // The fix of D1 changes one line, so the delta diff of 2 lines is at most half the full diff.
+      const meta = readJson(path.join(next, 'meta.json'));
+      assert.deepEqual([meta.mode, meta.fullLines, meta.deltaLines], [mode, count, 2]);
+      assert.deepEqual(fs.readdirSync(path.join(next, 'prompts')), [`${mode}.txt`]);
+      const { agent, body } = promptFileParts(promptFile(arm, 2, mode));
+      assert.equal(agent, agentOf(arm));
+      assert.ok(body.split('\n').includes(`Round mode: ${mode}.`), `${arm} round 2 names another mode`);
+    }
+    // B0 reviews the full diff of round 2 again and gets no delta diff.
+    const b0 = promptFileParts(promptFile('B0', 2, 'full')).body.split('\n');
+    assert.ok(b0.includes(`Full diff: ${path.join(run('B0'), 'round-2', 'full.diff')}`));
+    assert.equal(
+      b0.some((line) => line.startsWith('Delta diff:')),
+      false,
+    );
+    // The B1 delta prompt is the C3 delta prompt with the files of its own round folder.
+    const [b1, c3] = ['B1', 'C3'].map((arm) => promptFileParts(promptFile(arm, 2, 'delta')).body);
+    assert.equal(b1.replaceAll(run('B1'), run('C3')), c3);
+  });
+}
+
+test('loop refuses a run whose meta.json does not record the round policy of its arm', (t) => {
+  const { repo, ws, cases, run, round, fixerPatch } = devLoop(t);
+  const options = { run, cases, 'fixer-patch': fixerPatch };
+  const refusal =
+    /code-7\/C1-low\/run-1\/meta\.json does not record the round policy full-delta of arm C1; build the loop again with case --loop/;
+  // A loop that case built before the arms had round policies has no meta.json in its run folder.
+  fs.rmSync(path.join(run, 'meta.json'));
+  assert.throws(() => prepare.prepareLoop(options, repo), refusal);
+  // Such a C1 loop ran the rules of panel-delta.
+  put(run, 'meta.json', { policy: 'panel-delta' });
+  assert.throws(() => prepare.prepareLoop(options, repo), refusal);
+  assert.equal(fs.existsSync(round(2)), false);
+  put(run, 'meta.json', { policy: 'full-delta' });
+  assert.equal(prepare.prepareLoop(options, repo), round(2));
+  // A self-review arm runs no loop.
+  assert.throws(
+    () => prepare.prepareLoop({ run: path.join(ws, 'code-7', 'S1-low', 'run-1'), cases }, repo),
+    /loop takes the runs of the code arms B0, B1, C1, C3; code-7 is a code case and S1 is its arm/,
+  );
+});
+
+// Plan #100, code review round 1: the loop control. A round that did not complete, a missing judgments.json, a
+// candidate pair without an answer, a known defect that a later repair brings back, and the cause of a round.
+
+const lensBlock = (lens, verdict) => `### Code review round 1, lens ${lens}\n\nCode-review: ${verdict}\n\nNone.\n`;
+// A code block of round `round` with one finding at v5 of src/sync.mjs, the line of the known defect D1.
+const v5Block = (round, value) => `### Code review round ${round}
+
+Code-review: fixes-required
+
+## Standards
+
+- [HIGH] Bug - src/sync.mjs:5 - v5 is ${value} instead of 5 - set it to 5.
+
+## Spec
+
+None.
+`;
+// The one reviewer of a round folder that `loop` wrote.
+function onlyReviewer(roundDir) {
+  const names = fs.readdirSync(path.join(roundDir, 'prompts'));
+  assert.equal(names.length, 1, `${roundDir} has more than one prompt`);
+  return names[0].replace(/\.txt$/, '');
+}
+
+test('loop refuses a round that did not complete and names each reviewer to dispatch again', (t) => {
+  const { repo, ws, cases, run, round, round1Meta } = devLoop(t);
+  // Round 1 is a panel: correctness returned no block, spec-and-tests returned a block without a verdict line, and
+  // text-and-safety returned `blocked`. No block has a finding, so the fix plan is empty.
+  fs.rmSync(path.join(round(1), 'prompts'), { recursive: true });
+  fs.rmSync(path.join(round(1), 'blocks'), { recursive: true });
+  for (const lens of ['correctness', 'spec-and-tests', 'text-and-safety']) {
+    put(round(1), `prompts/${lens}.txt`, 'agent: review-bench-candidate-code-low\n\nReview.\n');
+  }
+  put(round(1), 'blocks/spec-and-tests.md', NO_VERDICT_BLOCK);
+  put(round(1), 'blocks/text-and-safety.md', lensBlock('text-and-safety', 'blocked'));
+  findingsCommand(ws);
+  const refusal = (reviewers) =>
+    new RegExp(
+      `${escapeRegExp(`${LOOP_R1.replace('/full', '')} did not complete; dispatch these reviewers again, save their blocks, and run score.mjs findings again: ${reviewers}`)}$`,
+    );
+  assert.throws(
+    () => prepare.prepareLoop({ run, cases }, repo),
+    refusal('correctness (no block), spec-and-tests (no verdict line), text-and-safety (blocked)'),
+  );
+  assert.equal(fs.existsSync(round(2)), false);
+  assert.deepEqual(readJson(path.join(round(1), 'meta.json')), round1Meta);
+  // The correctness block came back; the other two reviewers still need a dispatch.
+  put(round(1), 'blocks/correctness.md', lensBlock('correctness', 'pass'));
+  findingsCommand(ws);
+  assert.throws(
+    () => prepare.prepareLoop({ run, cases }, repo),
+    refusal('spec-and-tests (no verdict line), text-and-safety (blocked)'),
+  );
+  // Each reviewer returned a verdict and no finding: the round completed, and the loop ends.
+  put(round(1), 'blocks/spec-and-tests.md', lensBlock('spec-and-tests', 'pass'));
+  put(round(1), 'blocks/text-and-safety.md', lensBlock('text-and-safety', 'pass'));
+  findingsCommand(ws);
+  assert.equal(prepare.prepareLoop({ run, cases }, repo), null);
+  assert.equal(fs.existsSync(round(2)), false);
+});
+
+test('loop and report read a missing judgments.json as no answers and stop when a finding needs one', (t) => {
+  const { repo, ws, cases, run, round } = devLoop(t);
+  // Round 1 passed without findings, so the operator skipped the judge.
+  put(round(1), 'blocks/full.md', LOOP_PASS_3.replace('round 3', 'round 1'));
+  findingsCommand(ws);
+  fs.rmSync(path.join(ws, 'judgments.json'));
+  assert.equal(prepare.prepareLoop({ run, cases }, repo), null);
+  pairsCommand(ws, cases);
+  assert.equal(reportCommand(ws).runs.length, 1);
+  assert.ok(fs.existsSync(path.join(ws, 'report.md')));
+  // With findings and no judgments.json, both stop on the candidate pairs of finding #3 (src/sync.mjs:5), which
+  // shares its file with D1 and D2.
+  put(round(1), 'blocks/full.md', LOOP_ROUND_1);
+  findingsCommand(ws);
+  pairsCommand(ws, cases);
+  const blind = blindId(`${LOOP_R1}#3`);
+  const unanswered = new RegExp(
+    `judgments\\.json has no match answer for 2 candidate pairs of pairs\\.json: ${blind} and D1, ${blind} and D2$`,
+  );
+  assert.throws(() => prepare.prepareLoop({ run, cases }, repo), unanswered);
+  assert.throws(() => reportCommand(ws), unanswered);
+  assert.equal(fs.existsSync(round(2)), false);
+});
+
+test('the fix step stops when the judge answered one candidate pair of a finding and left out another', (t) => {
+  // The finding names the files of D1 and D2, and the judge answered only its pair with D1.
+  const partial = judgedRound(1, [{ matches: { D1: 'match' } }]);
+  partial.findings[0].files.push({ file: fixFile('D2'), start: 1, end: 1 });
+  const [{ blind }] = partial.findings;
+  assert.throws(
+    () => score.fixPlan({ ...partial, known: FIX_KNOWN }),
+    new RegExp(`no match answer for 1 candidate pairs of pairs\\.json: ${blind} and D2$`),
+  );
+  // In a loop, the same gap stops loop before it applies a repair or writes the fixer folder.
+  const { repo, ws, cases, run, round, round1Meta } = devLoop(t);
+  const judgments = readJson(path.join(ws, 'judgments.json'));
+  const finding3 = blindId(`${LOOP_R1}#3`);
+  judgments.matches = judgments.matches.filter((entry) => !(entry.finding === finding3 && entry.known === 'D2'));
+  put(ws, 'judgments.json', judgments);
+  assert.throws(
+    () => prepare.prepareLoop({ run, cases }, repo),
+    new RegExp(`no match answer for 1 candidate pairs of pairs\\.json: ${finding3} and D2$`),
+  );
+  assert.equal(fs.existsSync(path.join(round(1), 'fixer')), false);
+  assert.equal(fs.existsSync(round(2)), false);
+  assert.deepEqual(readJson(path.join(round(1), 'meta.json')), round1Meta);
+});
+
+test('the fix plan keeps a matched defect that an earlier round fixed, after the fix that it needs', () => {
+  // A later repair brought back D3 and D2, whose fixes round 1 applied; round 3 finds both again. D2 needs D3.
+  const again = judgedRound(3, [{ matches: { D2: 'match' } }, { matches: { D3: 'match' } }]);
+  assert.deepEqual(score.fixPlan({ ...again, known: FIX_KNOWN, applied: ['D3', 'D2'] }).fixes, [
+    { known: 'D3', patch: 'code-7.D3.fix.patch' },
+    { known: 'D2', patch: 'code-7.D2.fix.patch' },
+  ]);
+});
+
+test('loop repairs a defect again when a later repair brings it back, and ends when the tree holds its fix', (t) => {
+  const { root, repo, ws, cases, run, round, round1Answers } = devLoop(t);
+  // The fixer of round 1 repairs the valid extra and also sets v5 back to 0, after the fix patch of D1 set it to 5.
+  const fixer = path.join(root, 'reverting-fixer.patch');
+  const extraFix = filePatch(repo, 'src/extra.mjs', EXTRA_HEAD, EXTRA_FIXED);
+  fs.writeFileSync(fixer, filePatch(repo, 'src/sync.mjs', SYNC_D1, SYNC_HEAD) + extraFix);
+  assert.equal(prepare.prepareLoop({ run, cases, 'fixer-patch': fixer }, repo), round(2));
+  assert.equal(readText(path.join(round(2), 'snapshot', 'src', 'sync.mjs')), SYNC_HEAD);
+  // Round 2 finds D1 again. The tree does not hold its fix, so the fix patch applies again.
+  const r2 = onlyReviewer(round(2));
+  put(round(2), `blocks/${r2}.md`, v5Block(2, 0));
+  findingsCommand(ws);
+  const answers = [...round1Answers, [`code-7/C1-low/run-1/round-2/${r2}#1`, 'D1']];
+  judgeLoop(ws, answers);
+  const round2Meta = readJson(path.join(round(2), 'meta.json'));
+  assert.equal(prepare.prepareLoop({ run, cases }, repo), round(3));
+  assert.deepEqual(readJson(path.join(round(2), 'meta.json')), {
+    ...round2Meta,
+    fix: { fixes: [{ known: 'D1', patch: 'code-7.D1.fix.patch' }], extras: [], rejections: [] },
+  });
+  const meta = readJson(path.join(round(3), 'meta.json'));
+  assert.equal(gitIn(repo, 'show', `${meta.head}:src/sync.mjs`), SYNC_D1);
+  // Round 3 reports v5 again, and the judge matches D1. The tree holds its fix, so no finding stands: the loop ends.
+  const r3 = onlyReviewer(round(3));
+  put(round(3), `blocks/${r3}.md`, v5Block(3, 0));
+  findingsCommand(ws);
+  judgeLoop(ws, [...answers, [`code-7/C1-low/run-1/round-3/${r3}#1`, 'D1']]);
+  assert.equal(prepare.prepareLoop({ run, cases }, repo), null);
+  assert.equal(fs.existsSync(round(4)), false);
+  assert.deepEqual(readJson(path.join(round(3), 'meta.json')), meta);
+});
+
+test('loop gives a defect that a later repair changed to the fixer when its fix patch does not apply', (t) => {
+  const { root, repo, ws, cases, run, round, round1Answers } = devLoop(t);
+  // The fixer of round 1 sets v5 to 50, so the fix patch of D1 applies neither forward nor in reverse.
+  const fixer = path.join(root, 'changing-fixer.patch');
+  const changed = syncFile({ 5: 50, 7: 0 });
+  const extraFix = filePatch(repo, 'src/extra.mjs', EXTRA_HEAD, EXTRA_FIXED);
+  fs.writeFileSync(fixer, filePatch(repo, 'src/sync.mjs', SYNC_D1, changed) + extraFix);
+  assert.equal(prepare.prepareLoop({ run, cases, 'fixer-patch': fixer }, repo), round(2));
+  const r2 = onlyReviewer(round(2));
+  const finding = `code-7/C1-low/run-1/round-2/${r2}#1`;
+  put(round(2), `blocks/${r2}.md`, v5Block(2, 50));
+  findingsCommand(ws);
+  judgeLoop(ws, [...round1Answers, [finding, 'D1']]);
+  assert.throws(
+    () => prepare.prepareLoop({ run, cases }, repo),
+    new RegExp(
+      `round-2 has 1 known defects whose fix patches do not apply, for the fixer: D1 \\(found by ${escapeRegExp(finding)}\\); give their repair with --fixer-patch`,
+    ),
+  );
+  const fixerDir = path.join(round(2), 'fixer');
+  assert.equal(readText(path.join(fixerDir, 'snapshot', 'src', 'sync.mjs')), changed);
+  const prompt = readText(path.join(fixerDir, 'fixer-1.txt')).split('\n');
+  assert.deepEqual(
+    prompt.filter((line) => line.startsWith('Finding ')),
+    [`Finding ${finding}: - [HIGH] Bug - src/sync.mjs:5 - v5 is 50 instead of 5 - set it to 5.`],
+  );
+});
+
+test('extra-only rounds count the rounds whose previous fix step repaired valid extras and no known defect', () => {
+  const round = (seconds, tokens, mode, fixer, answers) => [seconds, tokens, mode, fixer, answers];
+  const fixture = gridFixture({ 'code-7': { split: 'dev', known: ['D1', 'D2'] } }, [
+    {
+      case: 'code-7',
+      config: 'low',
+      rounds: [
+        round(100, 1000, 'full', 30, ['D2']),
+        round(40, 400, 'delta', 20, ['D1', 'valid']),
+        round(20, 200, 'delta', 0, []),
+      ],
+    },
+    {
+      case: 'code-7',
+      config: 'low-fast',
+      rounds: [round(50, 500, 'full', 10, ['D1', 'valid']), round(20, 200, 'delta', 0, [])],
+    },
+  ]);
+  // low: the fix patch of D2 needs the fix of D1, so the fix step after round 1 pulled D1 in. Round 2 reports D1 for
+  // the first time, but the tree already holds its fix: only the valid extra of round 2 caused round 3.
+  const low = (r) => fixture.metas[`code-7/C1-low/run-1/round-${r}`];
+  low(1).fix.fixes.unshift({ known: 'D1', patch: 'code-7.D1.fix.patch', pulled: true });
+  low(2).fixAlreadyApplied = ['D1'];
+  // low-fast: the fix patch of D1 did not apply, so the fixer repaired D1 with the valid extra. D1 caused round 2.
+  fixture.metas['code-7/C1-low-fast/run-1/round-1'].fixedByFixer = ['D1'];
+  const scores = scoreRuns(fixture);
+  assert.deepEqual(
+    scores.runs.map((run) => [run.arm, run.extraOnlyRounds]),
+    [
+      ['C1-low', 1],
+      ['C1-low-fast', 0],
+    ],
+  );
+  const table = tableAfter(renderReport(scores, { configs: ['low', 'low-fast'] }), '### Code loops: dev');
+  assert.ok(table.includes('| Extra-only rounds per run | 1.00 | 0.00 |'));
+});
+
+// The meta.json reviewer entry of a transcript, as `score.mjs transcripts` writes it for the configured model `model`.
+const transcriptEntry = (text, model = MODEL) => ({
+  ...parseTranscript(text, 'reviewer.jsonl', model),
+  ...score.transcriptFacts(text, 'reviewer.jsonl'),
+});
+
+test('each assistant message keeps the effort that was active at it, so a review at another effort is invalid', () => {
+  const config = CONFIGS['xhigh-fast'];
+  const effort = (second, thinkingLevel) => ({
+    type: 'thinking_level_change',
+    timestamp: isoAt(second),
+    thinkingLevel,
+  });
+  const head = [
+    effort(0, 'high'),
+    { type: 'service_tier_change', timestamp: isoAt(0), serviceTier: { openai: 'priority' } },
+    { type: 'message', timestamp: isoAt(1), message: { role: 'user' } },
+  ];
+  const reply = (second) => assistantLine(second, 'openai-codex', 'gpt-6.1-sol', 'priority', { input: 10 });
+  // The reviewer reviews at low and switches to the configured xhigh before its last message.
+  const switched = jsonl([...head, effort(2, 'low'), reply(5), effort(6, 'xhigh'), reply(9)]);
+  // The changes before the first assistant message are setup: every message runs at xhigh.
+  const setup = jsonl([...head, effort(2, 'xhigh'), reply(5), reply(9)]);
+  assert.deepEqual(score.transcriptFacts(switched, 'switched.jsonl').messages, [
+    { model: MODEL, effort: 'low', servedTier: 'priority' },
+    { model: MODEL, effort: 'xhigh', servedTier: 'priority' },
+  ]);
+  const setupEfforts = score.transcriptFacts(setup, 'setup.jsonl').messages.map((message) => message.effort);
+  assert.deepEqual(setupEfforts, ['xhigh', 'xhigh']);
+  const fixture = judgedArm(CODE_KNOWN.slice(0, 1), [[], []], [transcriptEntry(switched), transcriptEntry(setup)]);
+  for (const meta of Object.values(fixture.metas)) meta.config = config;
+  const scores = scoreRuns(fixture);
+  assert.deepEqual(
+    scores.runs.map((run) => [run.run, run.invalid]),
+    [
+      ['run-1', ['correctness: effort low, not xhigh']],
+      ['run-2', []],
+    ],
+  );
+  // The effort row of the decision table shows the efforts of the messages of the valid runs.
+  const decision = tableAfter(renderReport(scores, { configs: ['xhigh-fast'] }), '### Decision: -');
+  assert.ok(decision.includes('| Effort | xhigh |'));
+});
+
+const FIXER_SETTING = { model: MODEL, effort: 'high', tier: 'priority' };
+
+test('agents writes the fixer setting to the list of configurations', (t) => {
+  const { agentDir } = selfReviewAgents(t);
+  // selfReviewAgents gives no --fixer-* option, so the setting holds the defaults of the fixer agent.
+  assert.deepEqual(readJson(path.join(agentDir, 'review-bench-configs.json')).fixer, FIXER_SETTING);
+  const fields = frontmatter(path.join(agentDir, 'review-bench-fixer.md'));
+  assert.deepEqual([fields.model, fields['thinking-level']], [FIXER_SETTING.model, FIXER_SETTING.effort]);
+});
+
+test('case --loop records the fixer setting in round 1 of each loop and stops without one', (t) => {
+  const { root, repo, base, head, patches } = loopRepo(t);
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const project = path.join(root, 'project');
+  const seeded = { category: 'bug', source: 'seeded' };
+  const caseData = {
+    id: 'code-7',
+    kind: 'code',
+    split: 'dev',
+    issue: 7,
+    round: 1,
+    plan: 'code-7-plan.md',
+    base,
+    head,
+    known: [{ id: 'D1', locator: 'src/sync.mjs:5', ...seeded, summary: 'v5 is 0.', fix: 'code-7.D1.fix.patch' }],
+  };
+  put(cases, 'dev/code-7.json', caseData);
+  put(cases, 'dev/code-7-plan.md', '# Plan 7\n');
+  put(cases, 'dev/code-7.D1.fix.patch', patches.D1);
+  const configsFile = path.join(project, '.omp', 'agents', 'review-bench-configs.json');
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low] });
+  const options = {
+    case: path.join(cases, 'dev', 'code-7.json'),
+    arms: 'C1',
+    runs: '2',
+    out: ws,
+    configs: 'low',
+    project,
+    loop: true,
+  };
+  // A list of configurations from an `agents` call without the fixer setting cannot prove the fixer of a loop.
+  assert.throws(
+    () => prepare.prepareCase(options, repo),
+    new RegExp(`${escapeRegExp(configsFile)} has no fixer setting; run prepare.mjs agents again`),
+  );
+  assert.equal(fs.existsSync(path.join(ws, 'code-7')), false);
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low], fixer: FIXER_SETTING });
+  prepare.prepareCase(options, repo);
+  for (const run of ['run-1', 'run-2']) {
+    const meta = readJson(path.join(ws, 'code-7', 'C1-low', run, 'round-1', 'meta.json'));
+    assert.deepEqual([meta.config, meta.fixerConfig], [CONFIGS.low, FIXER_SETTING]);
+  }
+});
+
+test('a loop whose fixer ran another model, effort, or served tier than the fixer setting is invalid', () => {
+  const round = (seconds, mode, fixer, answers) => [seconds, 1000, mode, fixer, answers];
+  const loop = (run) => ({
+    case: 'code-7',
+    config: 'low',
+    run,
+    rounds: [round(100, 'full', 20, ['valid']), round(50, 'delta', 20, ['valid']), round(40, 'delta', 0, [])],
+  });
+  const fixture = gridFixture({ 'code-7': { split: 'dev', known: ['D1'] } }, [1, 2, 3, 4, 5].map(loop));
+  // The fixer of round 1 used the fixer setting in every run; the fixer of round 2 gets `messages` of its own.
+  const round2Fixer = [
+    null,
+    [{ model: 'anthropic/claude-opus-5-5', effort: 'high', servedTier: null }],
+    [{ model: MODEL, effort: 'low', servedTier: 'priority' }],
+    [{ model: MODEL, effort: 'high', servedTier: 'default' }],
+    null,
+  ];
+  for (const [index, messages] of round2Fixer.entries()) {
+    const meta = (r) => fixture.metas[`code-7/C1-low/run-${index + 1}/round-${r}`];
+    // Run 5 comes from a workspace without the fixer setting.
+    if (index < 4) meta(1).fixerConfig = FIXER_SETTING;
+    meta(1).fixer.agents = { 'fixer-1': provenCost(FIXER_SETTING, 20, 100) };
+    meta(2).fixer.agents = { 'fixer-1': provenCost(FIXER_SETTING, 20, 100, messages ? { messages } : {}) };
+  }
+  const scores = scoreRuns(fixture);
+  assert.deepEqual(
+    scores.runs.map((run) => [run.run, run.invalid]),
+    [
+      ['run-1', []],
+      ['run-2', ['round-2/fixer-1: model anthropic/claude-opus-5-5, not openai-codex/gpt-6.1-sol']],
+      ['run-3', ['round-2/fixer-1: effort low, not high']],
+      ['run-4', ['round-2/fixer-1: served tier default, not priority']],
+      ['run-5', ['round-1/fixer-1: no fixer setting', 'round-2/fixer-1: no fixer setting']],
+    ],
+  );
+  assert.equal(scores.summaries[0].runs, 1);
+  const lines = renderReport(scores).split('\n');
+  assert.ok(lines.includes('- code-7/C1-low/run-3: round-2/fixer-1: effort low, not high'));
+});
+
+test('the code-loop and single-review tables show the model, effort, and served tier of the transcripts', () => {
+  const round = (seconds, mode, answers) => [seconds, 1000, mode, 0, answers];
+  const fixture = gridFixture(
+    { 'code-7': { split: 'dev', known: ['D1'] }, 'plan-6': { split: 'dev', known: ['P1'], kind: 'plan' } },
+    [
+      { case: 'code-7', config: 'low', rounds: [round(100, 'full', ['D1'])] },
+      { case: 'code-7', config: 'xhigh-fast', rounds: [round(80, 'full', ['D1'])] },
+      { case: 'plan-6', config: 'low', single: true, rounds: [round(60, null, ['P1'])] },
+      { case: 'plan-6', config: 'xhigh-fast', single: true, rounds: [round(50, null, [])] },
+    ],
+  );
+  const report = renderReport(scoreRuns(fixture), { configs: ['low', 'xhigh-fast'] });
+  const facts = [`| Model | ${MODEL} | ${MODEL} |`, '| Effort | low | xhigh |', '| Served tier | default | priority |'];
+  for (const heading of ['### Decision: dev', '### Code loops: dev', '### Single reviews: dev']) {
+    const table = tableAfter(report, heading);
+    assert.ok(
+      facts.every((row) => table.includes(row)),
+      `${heading} does not show the facts of the transcripts`,
+    );
+  }
+  assert.deepEqual(tableAfter(report, '### Code loops: dev').slice(2, 6), ['| Runs | 1 | 1 |', ...facts]);
+  assert.deepEqual(tableAfter(report, '### Single reviews: dev').slice(2, 6), ['| Runs | 1 | 1 |', ...facts]);
+});
+
+test('readScope splits the path of grep, glob, and ast_grep on `;` and keeps the path of other tools whole', () => {
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  // A file name can hold `;`: a read or a find of it is one target under the snapshot.
+  const whole = [
+    ...reads(`${SCOPE_CASE}/snapshot/src/a;b.mjs`, `${SCOPE_CASE}/snapshot/src/a;b.mjs:1-20`),
+    { name: 'find', path: `${SCOPE_CASE}/snapshot/src;b` },
+  ];
+  assert.deepEqual(score.readScope(whole, scope), { outside: [] });
+  // The path of these tools is a list, so each part is a target; a relative part resolves against the live checkout.
+  const lists = [
+    { name: 'grep', path: `${SCOPE_CASE}/snapshot/src;b.mjs` },
+    { name: 'glob', path: `${SCOPE_CASE}/snapshot/**/*.md; ${LIVE}/docs/*.md` },
+    { name: 'ast_grep', path: `${SCOPE_CASE}/snapshot/src; ${LIVE}/src` },
+    // ast_grep without a path searches the working directory, as grep, glob, and find do.
+    { name: 'ast_grep', path: null },
+  ];
+  assert.deepEqual(score.readScope(lists, scope), {
+    outside: ['b.mjs', `${LIVE}/docs/*.md`, `${LIVE}/src`, 'ast_grep without a path'],
+  });
+});
+
+test('readScope records each web search query, and a query that names the benchmark repository is outside', () => {
+  const call = (name, args) => ({ type: 'toolCall', id: name, name, arguments: args });
+  const reply = assistantLine(5, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 10 });
+  reply.message.content = [
+    call('web_search', { query: 'node lock release finally' }),
+    call('web_search', { recency: 'week' }),
+    call('read', { path: `${SCOPE_CASE}/plan.md` }),
+  ];
+  const text = jsonl([{ type: 'message', timestamp: isoAt(0), message: { role: 'user' } }, reply]);
+  assert.deepEqual(score.transcriptFacts(text, 'search.jsonl').toolCalls, [
+    { name: 'web_search', path: null, query: 'node lock release finally' },
+    { name: 'web_search', path: null, query: null },
+    { name: 'read', path: `${SCOPE_CASE}/plan.md` },
+  ]);
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  const search = (query) => ({ name: 'web_search', path: null, query });
+  // The repository can show the fixes of the corpus defects; the owner and the name match in any case.
+  const repository = [
+    'site:github.com/DocksDocks/docks sync lock',
+    'docksdocks/DOCKS review fixes',
+    'GITHUB.COM/docksdocks plan-lifecycle',
+  ];
+  const calls = [
+    search('node lock release finally'),
+    ...repository.map(search),
+    search('node lock release finally'),
+    search(null),
+    ...reads(`${SCOPE_CASE}/plan.md`),
+  ];
+  assert.deepEqual(score.readScope(calls, scope), {
+    outside: repository.map((query) => `web_search: ${query}`),
+    queries: ['node lock release finally', ...repository],
+  });
+  // A reviewer without a web search gets no queries.
+  assert.deepEqual(score.readScope(reads(`${SCOPE_CASE}/plan.md`), scope), { outside: [] });
+});
+
+test('a failed request without a served tier stays out of the model and tier checks and keeps its time', () => {
+  const config = CONFIGS['xhigh-fast'];
+  const head = [
+    { type: 'thinking_level_change', timestamp: isoAt(0), thinkingLevel: 'xhigh' },
+    { type: 'service_tier_change', timestamp: isoAt(0), serviceTier: { openai: 'priority' } },
+    { type: 'message', timestamp: isoAt(1), message: { role: 'user' } },
+  ];
+  const reply = (second, tier) => assistantLine(second, 'openai-codex', 'gpt-6.1-sol', tier, { input: 10 });
+  const error = (line) => {
+    line.message.stopReason = 'error';
+    return line;
+  };
+  // A failed request of the configured model, then a failed request of a fallback model at second 61.
+  const failedFallback = error(assistantLine(61, 'anthropic', 'claude-opus-5-5', null, { input: 0 }));
+  const failing = jsonl([...head, reply(5, 'priority'), error(reply(40, null)), failedFallback]);
+  assert.deepEqual(score.transcriptFacts(failing, 'failing.jsonl').messages, [
+    { model: MODEL, effort: 'xhigh', servedTier: 'priority' },
+    { model: MODEL, effort: 'xhigh', servedTier: null, failed: true },
+    { model: 'anthropic/claude-opus-5-5', effort: 'xhigh', servedTier: null, failed: true },
+  ]);
+  // The time of the failed requests is real wall time: the seconds run to the last failed request, also of another
+  // model. The tokens count the messages of the configured model only.
+  assert.deepEqual(parseTranscript(failing, 'failing.jsonl', MODEL), { seconds: 60, tokens: 20 });
+  // Every request failed: no model served the reviewer.
+  const noReply = jsonl([...head, error(reply(5, null))]);
+  // A message that stopped on an error but has a served tier was served, so the checks keep it.
+  const servedError = jsonl([...head, reply(5, 'priority'), error(reply(9, 'default'))]);
+  const costs = [transcriptEntry(failing), transcriptEntry(noReply), transcriptEntry(servedError)];
+  const fixture = judgedArm(CODE_KNOWN.slice(0, 1), [[], [], []], costs);
+  for (const meta of Object.values(fixture.metas)) meta.config = config;
+  const scores = scoreRuns(fixture);
+  assert.deepEqual(
+    scores.runs.map((run) => [run.run, run.invalid]),
+    [
+      ['run-1', []],
+      ['run-2', ['correctness: no served assistant message']],
+      ['run-3', ['correctness: served tier default, not priority']],
+    ],
+  );
+  // The model and served-tier rows leave the failed requests out too.
+  const decision = tableAfter(renderReport(scores, { configs: ['xhigh-fast'] }), '### Decision: -');
+  assert.ok(decision.includes(`| Model | ${MODEL} |`));
+  assert.ok(decision.includes('| Served tier | priority |'));
+});
+
+test('findings removes the judge answers of each finding whose text changed or that is gone', (t) => {
+  const { ws, cases } = workspace(t);
+  const { findings } = findingsCommand(ws);
+  pairsCommand(ws, cases);
+  const judgments = judgeAll(ws, () => 'no');
+  const blind = Object.fromEntries(findings.map((finding) => [finding.id, finding.blind]));
+  const changed = 'code-7/C3/run-1/correctness#2';
+  const gone = 'code-7/B0/run-1/full#1';
+  const kept = 'code-7/C3/run-2/correctness#2';
+  const answersOf = (doc, id) => [...doc.matches, ...doc.adjudications].filter((entry) => entry.finding === blind[id]);
+  // The second judge rated a sample that holds the changed finding and a finding that stays.
+  const rated = (id) => judgments.adjudications.filter((entry) => entry.finding === blind[id]);
+  put(ws, 'judgments-second.json', { matches: [], adjudications: [...rated(changed), ...rated(kept)] });
+  for (const id of [changed, gone, kept]) assert.ok(answersOf(judgments, id).length > 0, `${id} has no answer`);
+  // The reviewer of C3/run-1/correctness is dispatched again and words its second finding in another way, and the
+  // block of B0/run-1/full is removed for a new dispatch. The ids stay the same, so the old answers would apply.
+  put(ws, 'code-7/C3/run-1/blocks/correctness.md', CORRECTNESS_BLOCK.replace('on every call', 'for each call'));
+  fs.rmSync(path.join(ws, 'code-7/B0/run-1/blocks/full.md'));
+  const output = main(['findings', ws]).split('\n');
+  assert.equal(
+    output[1],
+    `removed the judge answers of 2 findings whose text changed or that are gone: ${gone}, ${changed}`,
+  );
+  const first = readJson(path.join(ws, 'judgments.json'));
+  const second = readJson(path.join(ws, 'judgments-second.json'));
+  for (const id of [changed, gone]) {
+    assert.deepEqual(answersOf(first, id), [], `judgments.json keeps an answer of ${id}`);
+    assert.deepEqual(answersOf(second, id), [], `judgments-second.json keeps an answer of ${id}`);
+  }
+  // The answers of the other findings stay, also when the same text is at another place.
+  assert.deepEqual(answersOf(first, kept), answersOf(judgments, kept));
+  assert.deepEqual(answersOf(second, kept), rated(kept));
+  const others = findings.map((finding) => finding.id).filter((id) => id !== changed && id !== gone);
+  for (const id of others) assert.deepEqual(answersOf(first, id), answersOf(judgments, id));
+  // A second call finds nothing stale and prints no removal.
+  assert.equal(main(['findings', ws]).split('\n').length, 1);
+  assert.deepEqual(findingsCommand(ws).removed, []);
 });
