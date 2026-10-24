@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Scores review benchmark runs. `findings` parses the returned review blocks, `pairs` builds the judge input,
 // `report` turns the judgments and the run metadata into recall, cost, and configuration tables, `transcripts`
-// fills the run metadata from omp subagent transcripts, and `names` prints the dispatch name of every prompt.
+// fills the run metadata and the read scope of each reviewer from omp subagent transcripts, and `names` prints the
+// dispatch name of every prompt.
 // `fixPlan` and `loopEnds` give the fix step of a review loop to `prepare.mjs loop`.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -26,6 +27,27 @@ const RATINGS = new Set(['valid', 'wrong', 'unknown']);
 // A round is as bad as its worst block, the rule that the plan helper applies to a comment with several blocks.
 const VERDICT_RANK = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
 const TOKEN_FIELDS = ['input', 'cacheRead', 'cacheWrite', 'output'];
+// Read scope (see readScope). In each input folder of a run, a reviewer may read these folders and files and the
+// `*.diff` files.
+const INPUT_FOLDERS = ['snapshot', 'prompts'];
+const INPUT_FILES = new Set(['plan.md', 'previous-review.md', 'rejection.md']);
+const REVIEWER_SKILLS = new Set(['code-reviewer', 'plan-reviewer']);
+const ALLOWED_SKILLS = new Set(['code-review', 'code-clarity', ...REVIEWER_SKILLS]);
+// These tools search the working directory when a call names no path.
+const SEARCH_TOOLS = new Set(['grep', 'glob', 'find']);
+const URI_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
+const WEB_SCHEMES = new Set(['http', 'https']);
+// The selector of a read at the end of a path, for example `:1-260` or `:23-54:raw`.
+const READ_SELECTOR = /(?::[^:/]*)+$/;
+const GLOB_CHARACTER = /[*?[{]/;
+// Hosts whose paths start with the owner and the name of a repository.
+const REPOSITORY_HOSTS = new Set(['github.com', 'www.github.com', 'raw.githubusercontent.com']);
+// The owner and the names of the benchmark repository, in lower case.
+const BENCHMARK_REPOSITORY = { owner: 'docksdocks', names: new Set(['docks', 'docks.git']) };
+// An invalid-run reason names this many outside targets, then the count of the others.
+const LISTED_READS = 3;
+// An absolute path `<plugin root>/skills/[<folder>/]code-reviewer/SKILL.md` (or plan-reviewer) in an agent text.
+const REVIEWER_SKILL = /(?<=^|[\s`'"(<])(\/[^\s`'"]*?)\/skills\/(?:[^\s`'"/]+\/)?(?:code|plan)-reviewer\/SKILL\.md/g;
 
 function fail(message) {
   throw new Error(message);
@@ -41,10 +63,10 @@ const distinct = (values) => [...new Set(values)];
 const sum = (values) => values.reduce((result, value) => result + value, 0);
 // The sum of the values, or null when one of them is not a number.
 const total = (values) => (values.every((value) => typeof value === 'number') ? sum(values) : null);
-// The first 10 items, then the count of the others.
-function listSome(items) {
-  const more = items.length > 10 ? `, and ${items.length - 10} more` : '';
-  return `${items.slice(0, 10).join(', ')}${more}`;
+// The first `limit` items, then the count of the others.
+function listSome(items, limit = 10) {
+  const more = items.length > limit ? `, and ${items.length - limit} more` : '';
+  return `${items.slice(0, limit).join(', ')}${more}`;
 }
 
 function readJson(file, hint = '') {
@@ -597,25 +619,31 @@ function scoreRound(round, knownIds, judged, meta) {
   };
 }
 
-// A run proves its configuration with the transcript facts of each reviewer. A run without a configuration has
-// nothing to prove. Each reviewer is `{ label, entry }`, where entry is its meta.json reviewer entry.
+// The reasons of one reviewer entry against the configuration of its run.
+function configReasons(config, label, entry) {
+  if (!Array.isArray(entry?.messages)) return [`${label}: no transcript facts`];
+  const reasons = [];
+  for (const model of distinct(entry.messages.map((message) => message.model))) {
+    if (model !== config.model) reasons.push(`${label}: model ${model}, not ${config.model}`);
+  }
+  if (entry.effort !== config.effort) reasons.push(`${label}: effort ${entry.effort}, not ${config.effort}`);
+  if (config.tier === null || config.tier === undefined) return reasons;
+  const ownMessages = entry.messages.filter((message) => message.model === config.model);
+  for (const tier of distinct(ownMessages.map((message) => message.servedTier))) {
+    if (tier !== config.tier) reasons.push(`${label}: served tier ${tier}, not ${config.tier}`);
+  }
+  return reasons;
+}
+
+// A run proves its configuration with the transcript facts of each reviewer; a run without a configuration has no
+// configuration to prove. Every run must show, by the `readScope` of each reviewer entry, that the reviewer read only
+// the inputs of the run. Each reviewer is `{ label, entry }`, where entry is its meta.json reviewer entry.
 function invalidReasons(config, reviewers) {
-  if (!config) return [];
   const reasons = [];
   for (const { label, entry } of reviewers) {
-    if (!Array.isArray(entry?.messages)) {
-      reasons.push(`${label}: no transcript facts`);
-      continue;
-    }
-    for (const model of distinct(entry.messages.map((message) => message.model))) {
-      if (model !== config.model) reasons.push(`${label}: model ${model}, not ${config.model}`);
-    }
-    if (entry.effort !== config.effort) reasons.push(`${label}: effort ${entry.effort}, not ${config.effort}`);
-    if (config.tier === null || config.tier === undefined) continue;
-    const ownMessages = entry.messages.filter((message) => message.model === config.model);
-    for (const tier of distinct(ownMessages.map((message) => message.servedTier))) {
-      if (tier !== config.tier) reasons.push(`${label}: served tier ${tier}, not ${config.tier}`);
-    }
+    if (config) reasons.push(...configReasons(config, label, entry));
+    const outside = entry?.readScope?.outside ?? [];
+    if (outside.length) reasons.push(`${label}: read outside its inputs: ${listSome(outside, LISTED_READS)}`);
   }
   return reasons;
 }
@@ -1037,7 +1065,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, referenc
     'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
-    'The Runs table lists every run. The summary and the configuration tables leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration.',
+    'The Runs table lists every run. The summary and the configuration tables leave out invalid runs: runs whose transcripts show another model, effort, or served tier than their configuration, or a reviewer that read a file outside the inputs of its run.',
     'A configuration table has one column per configuration in one case group. A round row covers the runs that reached that round. Extra-only rounds are rounds whose previous round found no known defect that an earlier round of the run had not found, and had a valid extra finding. Fixer seconds is the time of the fix steps of a loop, apart from the loop seconds. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran.',
     '',
     '## Summary',
@@ -1102,6 +1130,10 @@ export const FIXER_DIR = 'fixer';
 export const fixerName = (n) => `fixer-${n}`;
 const FIXER_NAME = /^fixer-([1-9]\d*)$/;
 const fixerNumber = (name) => Number(FIXER_NAME.exec(name)[1]);
+
+// `prepare.mjs loop` writes the reviewed tree of each loop round after round 1 to `<ws>/trees/<run label>/` for the
+// judge. The run label is the blind label of pairs.json, so the judge opens no arm folder.
+export const JUDGE_TREES = 'trees';
 
 // Every reviewer that has a prompt and every fixer prompt, in workspace order, with its dispatch name and its prompt
 // file. Each round folder is a dispatch of its own; a fixer entry has `fixer: true`.
@@ -1185,19 +1217,178 @@ export function parseTranscript(text, source = 'transcript', model) {
   return { seconds: Math.round((lastOfModel - first) / 100) / 10, tokens };
 }
 
+// The tool calls of an assistant message: the name and the `path` argument (null without one) of each.
+const toolCallsOf = (message) =>
+  (Array.isArray(message.content) ? message.content : [])
+    .filter((item) => item?.type === 'toolCall')
+    .map((item) => ({
+      name: item.name ?? null,
+      path: typeof item.arguments?.path === 'string' ? item.arguments.path : null,
+    }));
+
 // The configuration that a transcript shows: the last requested effort and OpenAI tier, the model and the served
-// tier of each assistant message, and the `model_usage` side calls of helper models.
+// tier of each assistant message, and the `model_usage` side calls of helper models. When the assistant messages
+// call tools, `toolCalls` lists the calls in order; a transcript without a tool call gives no `toolCalls`.
 export function transcriptFacts(text, source = 'transcript') {
   const facts = { effort: null, requestedTier: null, messages: [], sideCalls: [] };
+  const toolCalls = [];
   for (const entry of transcriptEntries(text, source)) {
     if (entry.type === 'thinking_level_change') facts.effort = entry.thinkingLevel ?? null;
     else if (entry.type === 'service_tier_change') facts.requestedTier = entry.serviceTier?.openai ?? null;
     else if (entry.type === 'model_usage')
       facts.sideCalls.push({ model: modelId(entry), purpose: entry.purpose ?? null, tokens: usageTokens(entry.usage) });
-    else if (entry.type === 'message' && entry.message?.role === 'assistant')
+    else if (entry.type === 'message' && entry.message?.role === 'assistant') {
       facts.messages.push({ model: modelId(entry.message), servedTier: entry.message.serviceTier ?? null });
+      toolCalls.push(...toolCallsOf(entry.message));
+    }
   }
-  return facts;
+  return toolCalls.length ? { ...facts, toolCalls } : facts;
+}
+
+// The working directory of the session of a transcript and the plugin roots that the agent text of the session
+// names. omp records the agent text in the system prompt (a string or a list of strings) of the `session_init` entry.
+function transcriptSession(text, source) {
+  let cwd = null;
+  const pluginRoots = new Set();
+  for (const entry of transcriptEntries(text, source)) {
+    if (entry.type === 'session' && cwd === null && typeof entry.cwd === 'string') cwd = entry.cwd;
+    if (entry.type !== 'session_init') continue;
+    const prompt = [entry.systemPrompt]
+      .flat()
+      .filter((part) => typeof part === 'string')
+      .join('\n');
+    for (const match of prompt.matchAll(REVIEWER_SKILL)) pluginRoots.add(match[1]);
+  }
+  return { cwd, pluginRoots: [...pluginRoots] };
+}
+
+// The folder itself or a path below it.
+function isUnder(folder, target) {
+  const relative = path.relative(folder, target);
+  return relative === '' || !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
+}
+
+// The input folders of a run, the folders that a reviewer may read with every path below them, and the plugin roots.
+// An input folder is the case folder, and the run folder or each round folder up to `round`. The tree copies are those
+// of the rounds up to `round`.
+function scopeRules(runDir, round, pluginRoots) {
+  const armDir = path.dirname(runDir);
+  const caseDir = path.dirname(armDir);
+  const [caseId, arm, run] = [caseDir, armDir, runDir].map((dir) => path.basename(dir));
+  const rounds = Array.from({ length: round ?? 0 }, (_, index) => index + 1);
+  const roundDirs = round === undefined ? [runDir] : rounds.map((number) => path.join(runDir, `round-${number}`));
+  const inputDirs = [caseDir, ...roundDirs];
+  const trees = rounds.map((number) =>
+    path.join(path.dirname(caseDir), JUDGE_TREES, runLabel(caseId, arm, runPath(run, number))),
+  );
+  return {
+    inputDirs,
+    folders: [...inputDirs.flatMap((dir) => INPUT_FOLDERS.map((name) => path.join(dir, name))), ...trees],
+    pluginRoots,
+  };
+}
+
+// A path under an allowed folder, or under the code-reviewer or plan-reviewer skill folder of a plugin root, directly
+// in `skills/` or in a category folder of it.
+function folderAllowed(target, { folders, pluginRoots }) {
+  if (folders.some((folder) => isUnder(folder, target))) return true;
+  return pluginRoots.some((root) => {
+    const skills = path.join(root, 'skills');
+    if (!isUnder(skills, target)) return false;
+    const [first, second] = path.relative(skills, target).split(path.sep);
+    return REVIEWER_SKILLS.has(first) || REVIEWER_SKILLS.has(second);
+  });
+}
+
+// An input file of an input folder, or a reviewer agent file of a plugin root.
+function fileAllowed(target, { inputDirs, pluginRoots }) {
+  const dir = path.dirname(target);
+  const name = path.basename(target);
+  if (inputDirs.includes(dir) && (INPUT_FILES.has(name) || name.endsWith('.diff'))) return true;
+  return name.endsWith('-reviewer.md') && pluginRoots.some((root) => path.join(root, 'agents') === dir);
+}
+
+// A relative path resolves against the working directory, so without one it is outside. A glob is allowed when the
+// folder before its first glob segment is allowed and no later segment can leave that folder with `..`.
+function localPathAllowed(target, cwd, rules) {
+  if (!path.isAbsolute(target) && typeof cwd !== 'string') return false;
+  const segments = target.split('/');
+  const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
+  if (globAt === -1) {
+    const resolved = path.resolve(cwd ?? path.sep, target);
+    return folderAllowed(resolved, rules) || fileAllowed(resolved, rules);
+  }
+  if (segments.slice(globAt).some((segment) => segment.includes('..'))) return false;
+  const base = segments.slice(0, globAt).join('/') || (path.isAbsolute(target) ? path.sep : '.');
+  return folderAllowed(path.resolve(cwd ?? path.sep, base), rules);
+}
+
+// A web page outside the benchmark repository. The pages of the repository can show the fixes of the corpus defects.
+function webPageAllowed(target) {
+  let url;
+  try {
+    url = new URL(target);
+  } catch {
+    return false;
+  }
+  const parts = url.pathname
+    .split('/')
+    .filter(Boolean)
+    .map((part) => part.toLowerCase());
+  const benchmark = ([owner, name]) => owner === BENCHMARK_REPOSITORY.owner && BENCHMARK_REPOSITORY.names.has(name);
+  if (REPOSITORY_HOSTS.has(url.hostname)) return !benchmark(parts);
+  return !(url.hostname === 'api.github.com' && parts[0] === 'repos' && benchmark(parts.slice(1)));
+}
+
+const uriScheme = (target) => URI_SCHEME.exec(target)?.[1].toLowerCase();
+
+function targetAllowed(target, cwd, rules) {
+  const scheme = uriScheme(target);
+  if (scheme === undefined) return localPathAllowed(target, cwd, rules);
+  if (scheme === 'artifact') return true;
+  if (scheme === 'skill') return ALLOWED_SKILLS.has(target.slice(target.indexOf('://') + 3).split('/')[0]);
+  return WEB_SCHEMES.has(scheme) && webPageAllowed(target);
+}
+
+// The targets of a `path` argument: its `;`-separated parts, trimmed. A local path or an internal URI drops its read
+// selector; a web URL stays as it is.
+function pathTargets(value) {
+  return value
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => (WEB_SCHEMES.has(uriScheme(part)) ? part : part.replace(READ_SELECTOR, '')));
+}
+
+// The reviewers run in the live checkout, which holds the fixes of the corpus defects, so a reviewer that reads a
+// file outside the inputs of its run can see a fix. readScope gives the targets of the tool calls that are outside,
+// each once, as the reviewer wrote them without the read selector, in call order. `runDir` is
+// `<ws>/<case>/<arm folder>/run-<k>`; `round` is the number of a round folder, or undefined for a run without round
+// folders; `cwd` is the working directory of the session (null when unknown); `pluginRoots` are the plugin roots that
+// the agent text names. The function reads no file. A target is allowed when it is:
+// - under an input of the run: `snapshot/`, `prompts/`, a `*.diff` file, `plan.md`, `previous-review.md`, or
+//   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
+// - under the tree copy of the judge for a round of the run up to `round`;
+// - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, or a path under the code-reviewer or
+//   plan-reviewer skill folder of a plugin root;
+// - a `skill://` URI of the code-review, code-clarity, code-reviewer, or plan-reviewer skill, or an `artifact://` URI
+//   (the spilled output of the reviewer);
+// - an http or https URL that is not a page of the benchmark repository.
+// Every other target is outside. A grep, glob, or find call without a path searches the working directory, so it gives
+// the outside target `<name> without a path`; other calls without a path read no file.
+export function readScope(toolCalls, { runDir, round, cwd = null, pluginRoots = [] }) {
+  const rules = scopeRules(path.resolve(runDir), round, pluginRoots);
+  const outside = new Set();
+  for (const { name, path: value } of toolCalls) {
+    if (typeof value !== 'string' || !value.trim()) {
+      if (SEARCH_TOOLS.has(name)) outside.add(`${name} without a path`);
+      continue;
+    }
+    for (const target of pathTargets(value)) {
+      if (!targetAllowed(target, cwd, rules)) outside.add(target);
+    }
+  }
+  return { outside: [...outside] };
 }
 
 function transcriptFiles(dir) {
@@ -1281,11 +1472,12 @@ export function namesCommand(ws) {
 
 // Fills the meta.json of each run or round folder from the transcripts of its dispatches and keeps every other field.
 // A reviewer entry under `reviewers` gets the time and tokens of the assistant messages of the configured model
-// (`config.model`; every model without a configuration) and the transcript facts. A fixer entry under
-// `fixer.agents` gets the time and tokens of every assistant message and the transcript facts. The fixers of a round
-// run in one message, so `fixer.seconds` is the slowest fixer and `fixer.tokens` the sum. The command checks every
-// dispatch name before it writes, writes what it finds, then fails with the names of the dispatches that have no
-// transcript.
+// (`config.model`; every model without a configuration) and the transcript facts. When the reviewer called tools, it
+// also gets `readScope: { outside }` (see readScope) for the working directory and the plugin roots that its transcript
+// shows. A fixer entry under `fixer.agents` gets the time and tokens of every assistant message and the transcript
+// facts. The fixers of a round run in one message, so `fixer.seconds` is the slowest fixer and `fixer.tokens` the sum.
+// meta.json keeps no tool calls. The command checks every dispatch name before it writes, writes what it finds, then
+// fails with the names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
   const byDir = new Map();
@@ -1299,15 +1491,16 @@ export function transcriptsCommand(ws, sessionsDir) {
     const metaFile = path.join(dir, 'meta.json');
     const meta = fs.existsSync(metaFile) ? readJson(metaFile) : {};
     let changed = false;
-    for (const { reviewer, name, fixer } of dispatches) {
+    for (const { caseId, arm, run, round, reviewer, name, fixer } of dispatches) {
       const file = pickTranscript(files, name);
       if (!file) {
         missing.push(name);
         continue;
       }
       const text = fs.readFileSync(file, 'utf8');
+      const { toolCalls, ...facts } = transcriptFacts(text, file);
       if (fixer) {
-        const agent = { ...parseTranscript(text, file), ...transcriptFacts(text, file) };
+        const agent = { ...parseTranscript(text, file), ...facts };
         const agents = { ...meta.fixer?.agents, [reviewer]: agent };
         const entries = Object.values(agents);
         meta.fixer = {
@@ -1318,11 +1511,14 @@ export function transcriptsCommand(ws, sessionsDir) {
         };
       } else {
         meta.reviewers ??= {};
-        meta.reviewers[reviewer] = {
-          ...meta.reviewers[reviewer],
-          ...parseTranscript(text, file, meta.config?.model),
-          ...transcriptFacts(text, file),
-        };
+        const entry = { ...meta.reviewers[reviewer], ...parseTranscript(text, file, meta.config?.model), ...facts };
+        // The read scope comes from this transcript only: a transcript without tool calls read no file.
+        delete entry.readScope;
+        if (toolCalls) {
+          const runDir = path.join(ws, caseId, arm, run);
+          entry.readScope = readScope(toolCalls, { runDir, round, ...transcriptSession(text, file) });
+        }
+        meta.reviewers[reviewer] = entry;
       }
       updated.push(name);
       changed = true;

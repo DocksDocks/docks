@@ -2246,3 +2246,388 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
     assert.ok(table.includes(line), `the configuration table lacks ${line}`);
   }
 });
+
+// Plan #100: API note for the read-scope tests below. They read the new export through `score`.
+//
+// The reviewers run in the live checkout, which holds the fixes of the corpus defects. A reviewer that reads a file
+// outside the inputs of its run can see a fix, so its recall does not count.
+//
+// Changed export:
+// - transcriptFacts(text, source): when an assistant message of the transcript has a `toolCall` content item, the
+//   result also has `toolCalls`: one { name, path } per item, in transcript order. path is `arguments.path` when it
+//   is a string, else null. A transcript without a tool call gives no `toolCalls` field, so the facts of the earlier
+//   tests do not change.
+//
+// New export:
+// - readScope(toolCalls, { runDir, round, cwd, pluginRoots }) -> { outside }
+//   runDir is `<ws>/<case>/<arm folder>/run-<k>`. round is the number of a round folder, or undefined for a run
+//   without round folders. cwd is the working directory of the reviewer session, or null when it is unknown.
+//   pluginRoots are the plugin roots that the agent text of the reviewer names. The function reads no file.
+//   A target is one `;`-separated part of a path, trimmed. A local path or an internal URI loses its selector: the
+//   `:<text>` parts without `/` at its end, for example `:1-260` or `:23-54:raw`. A call without a path gives no
+//   target, except grep, glob, and find: they search the working directory, so they give `<name> without a path`.
+//   A relative path resolves against cwd. "Under a folder" means the folder itself or a path below it.
+//   A target is allowed when it is:
+//   - a path under an input of the run. An input folder is the case folder, and the run folder (a run without round
+//     folders) or each `round-<j>` folder of the run with j <= round. The inputs of an input folder are `snapshot/`
+//     and `prompts/`, each `*.diff` file in it, `plan.md`, `previous-review.md`, and `rejection.md`.
+//   - a path under `<ws>/trees/<runLabel(case, arm folder, 'run-<k>/round-<j>')>/` with j <= round, the tree copy of
+//     an earlier or the same round that `loop` wrote.
+//   - for each plugin root P: `P/agents/<name>-reviewer.md`, or a path under `P/skills/code-reviewer/`,
+//     `P/skills/plan-reviewer/`, `P/skills/<folder>/code-reviewer/`, or `P/skills/<folder>/plan-reviewer/`.
+//   - `skill://<name>` or `skill://<name>/...`, where name is code-review, code-clarity, code-reviewer, or
+//     plan-reviewer.
+//   - an `artifact://` URI.
+//   - an http or https URL that is not a page of the benchmark repository. The pages of the repository are the paths
+//     `/DocksDocks/docks` and below on github.com, www.github.com, and raw.githubusercontent.com, and
+//     `/repos/DocksDocks/docks` and below on api.github.com. The owner and the repository name match in any case.
+//   A path with a glob character (`*`, `?`, `[`, `{`) is allowed only when the segments before its first glob
+//   segment give a folder that a rule above allows, and no later segment holds `..`.
+//   Every other target is outside: every other local path, a relative path when cwd is null, and every other URI
+//   (issue://, pr://, local://, history://, and others).
+//   outside lists each outside target once, as the reviewer wrote it but without its selector, in call order.
+//
+// Changed exports:
+// - transcriptsCommand: a reviewer entry never gets `toolCalls`. When the transcript has tool calls, the entry gets
+//   `readScope: readScope(toolCalls, scope)`. The scope takes runDir and round from the dispatch. cwd is the `cwd` of
+//   the `session` entry of the transcript. pluginRoots are the folders P of each absolute path
+//   `P/skills/code-reviewer/SKILL.md`, `P/skills/plan-reviewer/SKILL.md`, `P/skills/<folder>/code-reviewer/SKILL.md`,
+//   or `P/skills/<folder>/plan-reviewer/SKILL.md` in the `systemPrompt` of the `session_init` entry (a string or a
+//   list of strings). The system prompt holds the agent text, so these are the roots that the agent file names. A
+//   fixer entry gets neither `toolCalls` nor `readScope`.
+// - scoreRuns: a reviewer entry whose readScope has outside targets makes its run invalid, also in a run without a
+//   config. The reason is `<reviewer>: read outside its inputs: <first 3 targets joined by ", ">`, then
+//   `, and <n> more` for the other targets. It comes after the config reasons of the same reviewer.
+
+const LIVE = '/work/live';
+const LIVE_PLUGIN = `${LIVE}/plugins/plan-lifecycle`;
+const BASELINE_PLUGIN = '/work/baseline-plugin';
+const SCOPE_WS = '/work/ws';
+const SCOPE_CASE = `${SCOPE_WS}/code-7`;
+const reads = (...paths) => paths.map((target) => ({ name: 'read', path: target }));
+// The part of a rendered reviewer agent that names the skill of its plugin root.
+const agentText = (root) =>
+  `# Code Reviewer\n\nLoad and follow\n\`${root}/skills/productivity/code-reviewer/SKILL.md\`.\n` +
+  'Without `CLAUDE_PLUGIN_ROOT`, resolve `../skills/productivity/code-reviewer/SKILL.md`\nfrom this file.\n';
+// A transcript of one agent that runs in the live checkout at the `low` configuration. Its last assistant message
+// makes the tool calls, each [name, arguments].
+function toolTranscript(seconds, calls, agent = 'review-bench-candidate-code-low') {
+  const last = assistantLine(seconds, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 90, output: 10 });
+  last.message.content = [
+    { type: 'text', text: 'Done.' },
+    ...calls.map(([name, args], index) => ({ type: 'toolCall', id: `call-${index + 1}`, name, arguments: args })),
+  ];
+  return jsonl([
+    { type: 'session', timestamp: isoAt(0), cwd: LIVE },
+    { type: 'thinking_level_change', timestamp: isoAt(0), thinkingLevel: 'low' },
+    { type: 'service_tier_change', timestamp: isoAt(0), serviceTier: { openai: 'default' } },
+    {
+      type: 'session_init',
+      timestamp: isoAt(0),
+      agent,
+      systemPrompt: ['You are a coding assistant.', agentText(LIVE_PLUGIN)],
+      task: 'Review.',
+    },
+    { type: 'message', timestamp: isoAt(0), message: { role: 'user' } },
+    last,
+  ]);
+}
+
+test('transcript facts list the name and the path of each tool call of the assistant messages', () => {
+  const call = (name, args) => ({ type: 'toolCall', id: name, name, arguments: args });
+  const first = assistantLine(5, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 10 });
+  first.message.content = [
+    { type: 'thinking', thinking: 'Read the plan first.' },
+    call('read', { i: 'Reading the plan', path: `${SCOPE_CASE}/plan.md:1-40` }),
+    call('grep', { i: 'Finding the lock', pattern: 'lock' }),
+  ];
+  const second = assistantLine(9, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 10 });
+  second.message.content = [
+    { type: 'text', text: 'Done.' },
+    call('glob', { path: 7 }),
+    call('yield', { result: { data: 'block' } }),
+  ];
+  const text = jsonl([
+    { type: 'message', timestamp: isoAt(0), message: { role: 'user', content: [{ type: 'text', text: 'Review.' }] } },
+    first,
+    { type: 'message', timestamp: isoAt(6), message: { role: 'toolResult', content: [{ type: 'text', text: 'x' }] } },
+    second,
+  ]);
+  assert.deepEqual(score.transcriptFacts(text, 'tools.jsonl'), {
+    effort: null,
+    requestedTier: null,
+    messages: [
+      { model: MODEL, servedTier: 'default' },
+      { model: MODEL, servedTier: 'default' },
+    ],
+    sideCalls: [],
+    toolCalls: [
+      { name: 'read', path: `${SCOPE_CASE}/plan.md:1-40` },
+      { name: 'grep', path: null },
+      { name: 'glob', path: null },
+      { name: 'yield', path: null },
+    ],
+  });
+  // A transcript without a tool call has no toolCalls field.
+  assert.equal('toolCalls' in score.transcriptFacts(jsonl(FALLBACK_TRANSCRIPT), 'fallback.jsonl'), false);
+});
+
+test('readScope allows the inputs of the run, the instructions of the reviewer, and other web pages', () => {
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  const allowed = [
+    ...reads(
+      `${SCOPE_CASE}/snapshot`,
+      `${SCOPE_CASE}/snapshot/src/sync.mjs:40-52`,
+      `${SCOPE_CASE}/snapshot/src/sync.mjs:1-20:raw`,
+      `${SCOPE_CASE}/plan.md:1-260`,
+      `${SCOPE_CASE}/full.diff`,
+      `${SCOPE_CASE}/focus-correctness.diff:100+50`,
+      `${SCOPE_CASE}/delta.diff`,
+      `${SCOPE_CASE}/plan.diff`,
+      `${SCOPE_CASE}/previous-review.md`,
+      `${SCOPE_CASE}/rejection.md`,
+      `${SCOPE_CASE}/C3-low/run-1/prompts/correctness.txt`,
+      // The instructions of the reviewer, by an absolute path and by a path relative to the working directory.
+      `${LIVE_PLUGIN}/agents/code-reviewer.md`,
+      'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md',
+      `${LIVE_PLUGIN}/skills/productivity/code-reviewer/references/correctness.md:1-80`,
+      `${LIVE_PLUGIN}/skills/productivity/plan-reviewer/references/checklist.md`,
+      'skill://code-review/references/perf.md',
+      'skill://code-clarity',
+      'skill://code-reviewer/SKILL.md',
+      'skill://plan-reviewer/references/delta.md',
+      'artifact://12:1-40',
+      'https://nodejs.org/api/fs.html',
+      'https://github.com/nodejs/node/issues/1',
+    ),
+    { name: 'glob', path: `${SCOPE_CASE}/snapshot/**/AGENTS.md` },
+    { name: 'grep', path: `${SCOPE_CASE}/snapshot/src; ${SCOPE_CASE}/snapshot/tests` },
+    { name: 'glob', path: `${LIVE_PLUGIN}/skills/productivity/code-reviewer/references/*.md` },
+    // Calls without a path that search nothing.
+    { name: 'yield', path: null },
+    { name: 'web_search', path: null },
+  ];
+  assert.deepEqual(score.readScope(allowed, scope), { outside: [] });
+});
+
+test('readScope lists each target outside the inputs of the run once, in call order', () => {
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  const calls = [
+    // case.json can hold the known defects of a dev case.
+    ...reads(
+      `${SCOPE_CASE}/case.json`,
+      `${SCOPE_CASE}/case.json:1-20`,
+      `${SCOPE_CASE}/snapshot/../case.json`,
+      `${SCOPE_CASE}/C3-high/run-1/blocks/correctness.md`,
+    ),
+    { name: 'glob', path: `${SCOPE_CASE}/**/*.diff` },
+    { name: 'glob', path: `${SCOPE_CASE}/snapshot/**/../*.json` },
+    { name: 'grep', path: `${SCOPE_CASE}/snapshot;${LIVE}/src` },
+    // The live checkout: other files, other skills (they can hold fixed shipped text), and the other plugin root.
+    ...reads(
+      'scripts/score.mjs',
+      `${LIVE}/plugins/docks/skills/engineering/code-review/references/perf.md`,
+      `${LIVE_PLUGIN}/skills/productivity/plan-manager/SKILL.md`,
+      `${LIVE_PLUGIN}/README.md`,
+      `${BASELINE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`,
+    ),
+    { name: 'grep', path: null },
+    { name: 'glob', path: null },
+    { name: 'find', path: null },
+    ...reads(
+      '/etc/hosts',
+      'skill://plan-manager/SKILL.md',
+      'local://notes.md',
+      'history://Code7C3R2Correctness',
+      'issue://100',
+      'pr://101',
+      'https://github.com/DocksDocks/docks/blob/main/src/sync.mjs',
+      'https://raw.githubusercontent.com/DocksDocks/docks/main/src/sync.mjs',
+      'https://github.com/docksdocks/Docks/issues/100',
+      'https://api.github.com/repos/DocksDocks/docks/pulls/101',
+    ),
+  ];
+  assert.deepEqual(score.readScope(calls, scope), {
+    outside: [
+      `${SCOPE_CASE}/case.json`,
+      `${SCOPE_CASE}/snapshot/../case.json`,
+      `${SCOPE_CASE}/C3-high/run-1/blocks/correctness.md`,
+      `${SCOPE_CASE}/**/*.diff`,
+      `${SCOPE_CASE}/snapshot/**/../*.json`,
+      `${LIVE}/src`,
+      'scripts/score.mjs',
+      `${LIVE}/plugins/docks/skills/engineering/code-review/references/perf.md`,
+      `${LIVE_PLUGIN}/skills/productivity/plan-manager/SKILL.md`,
+      `${LIVE_PLUGIN}/README.md`,
+      `${BASELINE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`,
+      'grep without a path',
+      'glob without a path',
+      'find without a path',
+      '/etc/hosts',
+      'skill://plan-manager/SKILL.md',
+      'local://notes.md',
+      'history://Code7C3R2Correctness',
+      'issue://100',
+      'pr://101',
+      'https://github.com/DocksDocks/docks/blob/main/src/sync.mjs',
+      'https://raw.githubusercontent.com/DocksDocks/docks/main/src/sync.mjs',
+      'https://github.com/docksdocks/Docks/issues/100',
+      'https://api.github.com/repos/DocksDocks/docks/pulls/101',
+    ],
+  });
+  // Without a working directory, a relative path is outside. Without a plugin root, the skill of the reviewer is too.
+  const ownSkill = `${LIVE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`;
+  const relativeSkill = 'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md';
+  assert.deepEqual(score.readScope(reads(relativeSkill, ownSkill), { ...scope, cwd: null }), {
+    outside: [relativeSkill],
+  });
+  assert.deepEqual(score.readScope(reads(ownSkill), { ...scope, pluginRoots: [] }), { outside: [ownSkill] });
+});
+
+test('readScope of a loop round allows the tree copies of its run up to that round and nothing fixed after it', () => {
+  const run = `${SCOPE_CASE}/B0-low/run-1`;
+  const tree = (runRound) => `${SCOPE_WS}/trees/${score.runLabel('code-7', 'B0-low', runRound)}/src/sync.mjs`;
+  const scope = { runDir: run, round: 2, cwd: LIVE, pluginRoots: [BASELINE_PLUGIN] };
+  const allowed = [
+    ...reads(
+      `${run}/round-2/snapshot/src/sync.mjs`,
+      `${run}/round-2/full.diff`,
+      `${run}/round-2/focus-spec-and-tests.diff`,
+      `${run}/round-2/delta.diff`,
+      `${run}/round-2/previous-review.md:1-30`,
+      `${run}/round-2/rejection.md`,
+      `${run}/round-2/prompts/full.txt`,
+      `${run}/round-1/prompts/full.txt`,
+      // Round 1 reviewed the tree of the case folder.
+      `${SCOPE_CASE}/snapshot/src/sync.mjs`,
+      `${SCOPE_CASE}/plan.md`,
+      tree('run-1/round-2'),
+      // A baseline plugin can keep its skills without a category folder.
+      `${BASELINE_PLUGIN}/agents/code-reviewer.md`,
+      `${BASELINE_PLUGIN}/skills/code-reviewer/SKILL.md`,
+    ),
+    { name: 'glob', path: `${run}/round-2/snapshot/**/*.mjs` },
+  ];
+  assert.deepEqual(score.readScope(allowed, scope), { outside: [] });
+  // A later round and the fixer folder hold fixed code; meta.json holds the fix plan.
+  const outside = [
+    `${run}/round-3/snapshot/src/sync.mjs`,
+    `${run}/round-1/fixer/snapshot/src/sync.mjs`,
+    `${run}/round-1/fixer/fixer-1.patch`,
+    `${run}/round-1/meta.json`,
+    `${SCOPE_CASE}/B0-low/run-2/round-2/snapshot/src/sync.mjs`,
+    tree('run-1/round-3'),
+    tree('run-2/round-2'),
+    `${LIVE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`,
+  ];
+  assert.deepEqual(score.readScope(reads(...outside), scope), { outside });
+});
+
+test('transcripts command writes the outside reads of each reviewer and leaves fixer entries without them', (t) => {
+  const root = scratch(t);
+  const ws = path.join(root, 'ws');
+  const sessions = path.join(root, 'sessions');
+  const { low } = CONFIGS;
+  const caseDir = path.join(ws, 'code-7');
+  const round = (r) => path.join(caseDir, 'C1-low', 'run-1', `round-${r}`);
+  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+  put(round(1), 'prompts/full.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
+  put(round(1), 'meta.json', { config: low, mode: 'full' });
+  put(round(1), 'fixer/fixer-1.txt', 'agent: review-bench-fixer\n\nRepair.\n');
+  put(round(2), 'prompts/delta.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
+  put(round(2), 'meta.json', { config: low, mode: 'delta' });
+  const relativeSkill = 'plugins/docks/skills/engineering/code-review/references/perf.md';
+  put(
+    sessions,
+    'Code7C1LowR1K1Full.jsonl',
+    toolTranscript(30, [
+      // The system prompt names the plugin root of this skill.
+      ['read', { path: `${LIVE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md` }],
+      ['read', { path: `${path.join(caseDir, 'full.diff')}:1-200` }],
+      ['read', { path: relativeSkill }],
+      ['grep', { pattern: 'lock' }],
+      ['yield', { result: { data: 'block' } }],
+    ]),
+  );
+  put(
+    sessions,
+    'Code7C1LowR1K1Fixer1.jsonl',
+    toolTranscript(
+      20,
+      [
+        ['read', { path: path.join(round(1), 'fixer', 'snapshot', 'src', 'extra.mjs') }],
+        ['write', { path: '/work/scratch/b/src/extra.mjs' }],
+      ],
+      'review-bench-fixer',
+    ),
+  );
+  put(
+    sessions,
+    'Code7C1LowR1K2Delta.jsonl',
+    toolTranscript(12, [
+      ['read', { path: path.join(round(2), 'snapshot', 'src', 'sync.mjs') }],
+      ['read', { path: path.join(round(2), 'delta.diff') }],
+      ['grep', { pattern: 'lock', path: path.join(round(2), 'snapshot') }],
+    ]),
+  );
+  assert.deepEqual(transcriptsCommand(ws, sessions), [
+    'Code7C1LowR1K1Full',
+    'Code7C1LowR1K1Fixer1',
+    'Code7C1LowR1K2Delta',
+  ]);
+  assert.deepEqual(readJson(path.join(round(1), 'meta.json')), {
+    config: low,
+    mode: 'full',
+    reviewers: {
+      full: { ...provenCost(low, 30, 100), readScope: { outside: [relativeSkill, 'grep without a path'] } },
+    },
+    fixer: { seconds: 20, tokens: 100, agents: { 'fixer-1': provenCost(low, 20, 100) } },
+  });
+  // A reviewer with tool calls only inside its inputs gets an empty outside list.
+  assert.deepEqual(readJson(path.join(round(2), 'meta.json')), {
+    config: low,
+    mode: 'delta',
+    reviewers: { delta: { ...provenCost(low, 12, 100), readScope: { outside: [] } } },
+  });
+});
+
+test('a reviewer that read outside its inputs makes the run invalid, also without a configuration', () => {
+  const config = CONFIGS['xhigh-fast'];
+  const many = ['a', 'b', 'c', 'd', 'e'].map((name) => `${LIVE}/src/${name}.mjs`);
+  const perf = `${LIVE}/plugins/docks/skills/engineering/code-review/references/perf.md`;
+  const costs = [
+    provenCost(config, 100, 100, { readScope: { outside: [] } }),
+    provenCost(config, 200, 100, { readScope: { outside: [perf] } }),
+    provenCost(config, 300, 100, { effort: 'high', readScope: { outside: many } }),
+  ];
+  // Only the runs that read outside their inputs find D1, so they would raise the recall of the summary.
+  const answers = [[], [{ matches: { D1: 'match' } }], [{ matches: { D1: 'match' } }]];
+  const fixture = judgedArm(CODE_KNOWN.slice(0, 1), answers, costs);
+  for (const meta of Object.values(fixture.metas)) meta.config = config;
+  const scores = scoreRuns(fixture);
+  const manyReason = `correctness: read outside its inputs: ${many.slice(0, 3).join(', ')}, and 2 more`;
+  assert.deepEqual(
+    scores.runs.map((run) => [run.run, run.invalid]),
+    [
+      ['run-1', []],
+      ['run-2', [`correctness: read outside its inputs: ${perf}`]],
+      ['run-3', ['correctness: effort high, not xhigh', manyReason]],
+    ],
+  );
+  const [summary] = scores.summaries;
+  assert.deepEqual([summary.runs, summary.recall.mean], [1, 0]);
+  const lines = renderReport(scores).split('\n');
+  assert.ok(lines.includes('## Invalid runs'));
+  assert.ok(lines.includes(`- code-7/C3/run-3: correctness: effort high, not xhigh; ${manyReason}`));
+  // A run without a configuration still proves that it read only its inputs.
+  const legacy = scoreRuns(judgedArm(CODE_KNOWN.slice(0, 1), answers, costs));
+  assert.deepEqual(
+    legacy.runs.map((run) => [run.run, run.invalid]),
+    [
+      ['run-1', []],
+      ['run-2', [`correctness: read outside its inputs: ${perf}`]],
+      ['run-3', [manyReason]],
+    ],
+  );
+  assert.equal(legacy.summaries[0].runs, 1);
+});

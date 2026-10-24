@@ -19,7 +19,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { caseFilePath, FIXER_DIR, fixerName, fixPlan, loopEnds, readKnown, runLabel, unwrapBlock } from './score.mjs';
+import {
+  caseFilePath,
+  FIXER_DIR,
+  fixerName,
+  fixPlan,
+  JUDGE_TREES,
+  loopEnds,
+  readKnown,
+  runLabel,
+  unwrapBlock,
+} from './score.mjs';
 
 const SCRIPT_PATH = fs.realpathSync(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.dirname(path.dirname(SCRIPT_PATH));
@@ -80,9 +90,6 @@ const LOOP_IDENTITY = {
 };
 const RUN_FOLDER = /^run-[1-9]\d*$/;
 const ROUND_FOLDER = /^round-([1-9]\d*)$/;
-// `<ws>/trees/<run label>/` holds the reviewed tree of each loop round after round 1 for the judge. The run label is
-// the blind label of pairs.json, so the judge opens no arm folder.
-const JUDGE_TREES = 'trees';
 
 export const LENSES = ['correctness', 'spec-and-tests', 'text-and-safety'];
 
@@ -316,6 +323,7 @@ export function buildOpening(caseData, paths, round = caseData.round) {
     '',
     'Rules:',
     '- The snapshot root holds the repository files for this review, without Git history. Take review evidence only from files under the snapshot root and the files that this message names. You may also read your own agent instructions and the skill and reference files that those instructions tell you to load.',
+    '- The working directory is not the snapshot, so give every Read, Grep, and Glob call an absolute path under the snapshot root or the absolute path of a file that this message names.',
     '- Do not fetch GitHub issues or pull requests. The plan export is the plan issue body.',
     '- Run no commands.',
     '- Make no edits.',
