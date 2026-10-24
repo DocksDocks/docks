@@ -1737,6 +1737,37 @@ Code-review: fixes-required
 None.
 `;
 const LOOP_PASS_3 = '### Code review round 3\n\nCode-review: pass\n\nNone.\n';
+// src/sync.mjs after the fixer of round 1 of the near loop: v5 is 5, as the fix patch of D1 makes it, and v10, a
+// context line of the fix patch of D2, is 100.
+const SYNC_NEAR = syncFile({ 7: 0, 10: 100 });
+// Round 1 of the near loop: two findings that the judge rates valid, at v5 and at v10.
+const NEAR_ROUND_1 = `### Code review round 1
+
+Code-review: fixes-required
+
+## Standards
+
+- [HIGH] Bug - src/sync.mjs:5 - v5 is 0, and the parser divides by it - set it to 5.
+- [MEDIUM] Bug - src/sync.mjs:10 - v10 is 10, and the callers need 100 - set it to 100.
+
+## Spec
+
+None.
+`;
+// Round 2 of the near loop: the known defects D1 (#1) and D2 (#2).
+const NEAR_ROUND_2 = `### Code review round 2
+
+Code-review: fixes-required
+
+## Standards
+
+- [HIGH] Bug - src/sync.mjs:5 - v5 is 0 instead of 5 - set it to 5.
+- [HIGH] Bug - src/sync.mjs:7 - v7 is 0 instead of 7 - set it to 7.
+
+## Spec
+
+None.
+`;
 
 // prepare.mjs runs git with the environment of this process, so a git test isolates the process from the user's git
 // config, as the release adapter tests do, and restores it afterwards.
@@ -1781,6 +1812,17 @@ const filesUnder = (dir) =>
     return entry.isDirectory() ? filesUnder(file) : [file];
   });
 
+// The diff of `file` from `before` to `after`, which `git apply` applies at the root of `repo`. The work tree and the
+// index of `repo` go back to HEAD.
+function filePatch(repo, file, before, after) {
+  put(repo, file, before);
+  gitIn(repo, 'add', '--', file);
+  put(repo, file, after);
+  const text = gitIn(repo, 'diff', '--no-color', '--src-prefix=a/', '--dst-prefix=b/', '--', file);
+  gitIn(repo, 'reset', '-q', '--hard', 'HEAD');
+  return text;
+}
+
 // A git repository with the commit `base` (README.md) and the case head `head`, which adds src/sync.mjs (12 lines)
 // and src/extra.mjs (4 lines). The patches apply with `git apply`: D1, the fixer patch, and the planted patch (the
 // `patch` of a held-out case, which changes README.md) at the head, and D2 only after D1.
@@ -1799,19 +1841,11 @@ function loopRepo(t) {
   gitIn(repo, 'add', '-A');
   gitIn(repo, 'commit', '-q', '-m', 'head');
   const head = gitIn(repo, 'rev-parse', 'HEAD').trim();
-  const patch = (file, before, after) => {
-    put(repo, file, before);
-    gitIn(repo, 'add', '--', file);
-    put(repo, file, after);
-    const text = gitIn(repo, 'diff', '--no-color', '--src-prefix=a/', '--dst-prefix=b/', '--', file);
-    gitIn(repo, 'reset', '-q', '--hard', 'HEAD');
-    return text;
-  };
   const patches = {
-    D1: patch('src/sync.mjs', SYNC_HEAD, SYNC_D1),
-    D2: patch('src/sync.mjs', SYNC_D1, SYNC_FIXED),
-    fixer: patch('src/extra.mjs', EXTRA_HEAD, EXTRA_FIXED),
-    planted: patch('README.md', '# Demo\n', README_PLANTED),
+    D1: filePatch(repo, 'src/sync.mjs', SYNC_HEAD, SYNC_D1),
+    D2: filePatch(repo, 'src/sync.mjs', SYNC_D1, SYNC_FIXED),
+    fixer: filePatch(repo, 'src/extra.mjs', EXTRA_HEAD, EXTRA_FIXED),
+    planted: filePatch(repo, 'README.md', '# Demo\n', README_PLANTED),
   };
   return { root, repo, base, head, patches };
 }
@@ -2081,6 +2115,72 @@ test('loop counts the fixes of earlier rounds for fix_after and ends after a rou
   assert.equal(prepare.prepareLoop({ run, cases }, repo), null);
   assert.equal(fs.existsSync(round(4)), false);
   assert.deepEqual(readJson(path.join(round(3), 'meta.json')), meta);
+});
+
+test('loop gives a defect whose fix patch does not apply to the fixer and skips a fix that the tree holds', (t) => {
+  const { root, repo, ws, cases, run, round } = devLoop(t);
+  // The judge matches no finding of round 1. The fixer of round 1 sets v5 to 5, as the fix patch of D1 does, and
+  // changes v10, which the fix patch of D2 has as context.
+  put(run, 'round-1/blocks/full.md', NEAR_ROUND_1);
+  findingsCommand(ws);
+  const round1Answers = [
+    [`${LOOP_R1}#1`, 'valid'],
+    [`${LOOP_R1}#2`, 'valid'],
+  ];
+  judgeLoop(ws, round1Answers);
+  const round1Fixer = path.join(root, 'round-1-fixer.patch');
+  fs.writeFileSync(round1Fixer, filePatch(repo, 'src/sync.mjs', SYNC_HEAD, SYNC_NEAR));
+  assert.equal(prepare.prepareLoop({ run, cases, 'fixer-patch': round1Fixer }, repo), round(2));
+  put(run, 'round-2/blocks/delta.md', NEAR_ROUND_2);
+  findingsCommand(ws);
+  const r2 = 'code-7/C1-low/run-1/round-2/delta';
+  judgeLoop(ws, [...round1Answers, [`${r2}#1`, 'D1'], [`${r2}#2`, 'D2']]);
+  const round2Meta = readJson(path.join(round(2), 'meta.json'));
+  const fixerDir = path.join(round(2), 'fixer');
+  // The fix patch of D2 does not apply, so its finding goes to the fixer.
+  assert.throws(
+    () => prepare.prepareLoop({ run, cases }, repo),
+    new RegExp(
+      `round-2 has 1 known defects whose fix patches do not apply, for the fixer: D2 \\(found by ${escapeRegExp(`${r2}#2`)}\\); give their repair with --fixer-patch`,
+    ),
+  );
+  assert.equal(fs.existsSync(round(3)), false);
+  assert.deepEqual(readJson(path.join(round(2), 'meta.json')), round2Meta);
+  // No fix patch applied, so the fixer snapshot holds the tree of round 2. The prompt lists the finding of D2 and not
+  // the finding of D1, whose fix the tree already holds.
+  assert.equal(readText(path.join(fixerDir, 'snapshot', 'src', 'sync.mjs')), SYNC_NEAR);
+  const prompt = readText(path.join(fixerDir, 'fixer-1.txt')).split('\n');
+  assert.deepEqual(
+    prompt.filter((line) => line.startsWith('Finding ')),
+    [`Finding ${r2}#2: - [HIGH] Bug - src/sync.mjs:7 - v7 is 0 instead of 7 - set it to 7.`],
+  );
+
+  // The fixer repairs v7 in its snapshot. The next loop call gets the same split and applies the fixer patch.
+  const repaired = syncFile({ 10: 100 });
+  fs.writeFileSync(path.join(fixerDir, 'fixer-1.patch'), filePatch(repo, 'src/sync.mjs', SYNC_NEAR, repaired));
+  assert.equal(prepare.prepareLoop({ run, cases }, repo), round(3));
+  const fixes = ['D1', 'D2'].map((id) => ({ known: id, patch: `code-7.${id}.fix.patch` }));
+  const fixedRound = readJson(path.join(round(2), 'meta.json'));
+  // The fix patch of D1 applies in reverse: the tree already holds the fix, so loop skips the patch.
+  assert.deepEqual(fixedRound.fixAlreadyApplied, ['D1']);
+  assert.deepEqual(fixedRound, {
+    ...round2Meta,
+    fix: { fixes, extras: [], rejections: [] },
+    fixAlreadyApplied: ['D1'],
+    fixedByFixer: ['D2'],
+  });
+  const meta = readJson(path.join(round(3), 'meta.json'));
+  assert.deepEqual(meta, {
+    config: CONFIGS.low,
+    mode: 'delta',
+    head: meta.head,
+    completed: true,
+    repairsOnly: true,
+    fullLines: 16,
+    deltaLines: 2,
+  });
+  assert.equal(gitIn(repo, 'show', `${meta.head}:src/sync.mjs`), repaired);
+  assert.equal(readText(path.join(round(3), 'snapshot', 'src', 'sync.mjs')), repaired);
 });
 
 // Held-out case code-9: the case file has no known defects, and its plan and its planted patch are in the key folder.

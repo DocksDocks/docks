@@ -1128,8 +1128,9 @@ export function dispatchNames(dispatches) {
 }
 
 // `prepare.mjs loop` writes the prompt of the fixer agent of a loop round to `<round folder>/fixer/fixer-1.txt`. A
-// round has one fixer, which repairs every valid extra finding of the round, as the manager of a production round
-// does. The prompt names `fixer-1.patch` in the same folder as its output.
+// round has one fixer, which repairs every valid extra finding of the round and the findings of each known defect
+// whose fix patch does not apply, as the manager of a production round repairs every finding. The prompt names
+// `fixer-1.patch` in the same folder as its output.
 export const FIXER_DIR = 'fixer';
 export const FIXER_NAME = 'fixer-1';
 

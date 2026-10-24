@@ -61,9 +61,10 @@ const PROBE_ARM = 'C1';
 const PROBE_TASK =
   'This message checks the reviewer setup. It is not a review. Read no files, run no tools, and load no skills. Reply with one line: `ready`.';
 const MAX_OUTPUT = 512 * 1024 * 1024;
-// The fixer agent repairs the valid extra findings of a review loop. A round has one fixer, which repairs every valid
-// extra finding of the round, as the manager of a production round does. The fixer has one model, effort, and tier
-// for every configuration, so that only the reviewer setup varies.
+// The fixer agent repairs the findings of a review loop that no fix patch repairs: the valid extra findings, and the
+// findings of a known defect whose fix patch does not apply. A round has one fixer, which repairs all these findings
+// of the round, as the manager of a production round does. The fixer has one model, effort, and tier for every
+// configuration, so that only the reviewer setup varies.
 const FIXER_AGENT = `${GENERATED_PREFIX}fixer`;
 const FIXER_DEFAULTS = { model: 'openai-codex/gpt-6.1-sol', effort: 'high', tier: 'priority' };
 const FIXER_SOURCE = `---
@@ -524,6 +525,20 @@ function applyPatch(repo, env, file, label) {
   if (applied.status !== 0) fail(`${label}: ${applied.stderr.toString().trim()}`);
 }
 
+// Applies the fix patch `file` of a known defect to the index of `env` and returns 'applied'. When the patch does not
+// apply, the index stays the same, and the result is 'present' when the patch applies in reverse (the index already
+// holds its change), else 'conflict'. A missing patch file or a patch that git cannot read stops the command; `label`
+// starts the message.
+function applyFixPatch(repo, env, file, label) {
+  if (!fs.existsSync(file)) fail(`${label}: ${file} is missing`);
+  const applied = runGit(repo, ['apply', '--cached', file], { env });
+  if (applied.status === 0) return 'applied';
+  if (runGit(repo, ['apply', '--cached', '--check', '--reverse', file], { env }).status === 0) return 'present';
+  // With --numstat, git reads the patch and applies nothing.
+  if (runGit(repo, ['apply', '--numstat', file]).status !== 0) fail(`${label}: ${applied.stderr.toString().trim()}`);
+  return 'conflict';
+}
+
 function writeTree(repo, env) {
   return git(repo, ['write-tree'], { env }).toString().trim();
 }
@@ -767,8 +782,8 @@ function rejectionComment(round, rejections, findingsById) {
   return [`Rejected review findings, round ${round}`, '', ...entries, ''].join('\n');
 }
 
-// The prompt of the fixer of a round, which lists every valid extra finding of the round with its id. Like a reviewer
-// prompt, line 1 names the agent.
+// The prompt of the fixer of a round, which lists each finding for the fixer with its id. Like a reviewer prompt,
+// line 1 names the agent.
 function fixerPrompt({ snapshot, planExport, findings, patch }) {
   return [
     `agent: ${FIXER_AGENT}`,
@@ -793,8 +808,8 @@ function fixerPrompt({ snapshot, planExport, findings, patch }) {
 }
 
 // Writes what the fixer of a round needs to `fixerDir`: the snapshot of the index of `env` (the reviewed tree of the
-// round with its fix patches) and the one fixer prompt, which lists `findings` and names the patch file in `fixerDir`.
-// It removes the prompts of an earlier call.
+// round with the fix patches that apply) and the one fixer prompt, which lists `findings` and names the patch file in
+// `fixerDir`. It removes the prompts of an earlier call.
 function writeFixerInputs({ repo, env, fixerDir, planExport, findings }) {
   const snapshot = path.join(fixerDir, 'snapshot');
   fs.rmSync(snapshot, { recursive: true, force: true });
@@ -810,15 +825,15 @@ function writeFixerInputs({ repo, env, fixerDir, planExport, findings }) {
 // The patch files that the earlier design of the fix step wrote, with one fixer per valid extra finding.
 const STALE_FIXER_PATCH = /^fixer-(?:[2-9]|[1-9]\d+)\.patch$/;
 
-// The repair of the valid extra findings of a round: { patch: null } when the round has none, else { patch } with the
-// --fixer-patch file or the patch file of the fixer prompt. The result is null while that patch file is missing. A
-// stale patch file of the earlier design in `fixerDir` stops the command.
-function fixerRepair(option, plan, fixerDir, roundLabel) {
+// The repair of the findings for the fixer of a round: { patch: null } when the round has none (`needed` is false),
+// else { patch } with the --fixer-patch file or the patch file of the fixer prompt. The result is null while that
+// patch file is missing. A stale patch file of the earlier design in `fixerDir` stops the command.
+function fixerRepair(option, needed, fixerDir, roundLabel) {
   if (option) {
-    if (plan.extras.length === 0) fail(`${roundLabel} has no valid extra finding, so loop takes no --fixer-patch`);
+    if (!needed) fail(`${roundLabel} has no finding for the fixer, so loop takes no --fixer-patch`);
     return { patch: path.resolve(option) };
   }
-  if (plan.extras.length === 0) return { patch: null };
+  if (!needed) return { patch: null };
   const stale = fs.existsSync(fixerDir) ? fs.readdirSync(fixerDir).filter((name) => STALE_FIXER_PATCH.test(name)) : [];
   if (stale.length) {
     const files = stale.sort().map((name) => path.join(fixerDir, name));
@@ -832,6 +847,38 @@ function fixerRepair(option, plan, fixerDir, roundLabel) {
 
 // A patch file without a diff: the fixer found that no listed finding needs a change.
 const emptyPatch = (file) => fs.existsSync(file) && fs.readFileSync(file, 'utf8').trim() === '';
+
+// Applies the fix patches of a round in plan order to the index of `env`. It returns `applied`, the plan entries whose
+// patch applied, and `notApplied`, the ids of the known defects whose patch does not apply after the patches before
+// it, by the field of the round meta.json that records them:
+// - fixAlreadyApplied: the patch applies in reverse, so the tree already holds the fix.
+// - fixedByFixer: a defect that a finding of the round matches. The fixer repairs the findings that match it.
+// - fixLeftOut: a pulled-in defect. No finding of the round names it, so the fix step leaves it out, and later rounds
+//   do not count it as fixed.
+// The result depends only on the reviewed tree and the patches, so each loop call on the round gets the same result.
+function applyFixes({ repo, env, fixes, knownDir, roundLabel }) {
+  const applied = [];
+  const notApplied = { fixAlreadyApplied: [], fixedByFixer: [], fixLeftOut: [] };
+  for (const fix of fixes) {
+    const label = `the fix patch of ${fix.known} does not apply to ${roundLabel}`;
+    const result = applyFixPatch(repo, env, path.join(knownDir, fix.patch), label);
+    if (result === 'applied') applied.push(fix);
+    else if (result === 'present') notApplied.fixAlreadyApplied.push(fix.known);
+    else if (fix.pulled) notApplied.fixLeftOut.push(fix.known);
+    else notApplied.fixedByFixer.push(fix.known);
+  }
+  return { applied, notApplied };
+}
+
+// The stable ids of the findings in `findings` that a `match` answer of `judgments` pairs with the known defect `id`.
+function findingsOfDefect(findings, judgments, id) {
+  const blinds = new Set(
+    (judgments.matches ?? [])
+      .filter((entry) => entry.verdict === 'match' && entry.known === id)
+      .map((entry) => entry.finding),
+  );
+  return findings.filter((finding) => blinds.has(finding.blind)).map((finding) => finding.id);
+}
 
 // The `loop` command. It continues the review loop of one run of a code case after its last round folder, round k:
 // it repairs every finding of round k that stands (score.mjs fixPlan), commits the repaired tree as the reviewed
@@ -869,11 +916,13 @@ export function prepareLoop(options, repo) {
   const findings = findingsDoc.findings.filter(inRound);
   const casesDir = path.resolve(options.cases);
   const { known, dir: knownDir } = fromScore(() => readKnown(casesDir, caseId, caseData.split, keys));
+  // The known defects that earlier rounds fixed: each defect of their fix plans, except a pulled-in defect whose patch
+  // did not apply (fixLeftOut), because no repair reached it.
   const applied = [];
   for (let round = 1; round < k; round += 1) {
-    const { fix } = readJson(path.join(runDir, `round-${round}`, 'meta.json'));
+    const { fix, fixLeftOut = [] } = readJson(path.join(runDir, `round-${round}`, 'meta.json'));
     if (!fix) fail(`${label}/round-${round}/meta.json has no fix; loop writes it when it builds round ${round + 1}`);
-    applied.push(...fix.fixes.map((entry) => entry.known));
+    applied.push(...fix.fixes.map((entry) => entry.known).filter((id) => !fixLeftOut.includes(id)));
   }
   const judgments = readJson(path.join(ws, 'judgments.json'));
   const plan = fromScore(() => fixPlan({ findings, judgments, known, applied }));
@@ -883,7 +932,6 @@ export function prepareLoop(options, repo) {
   }
 
   const fixerDir = path.join(roundDir, FIXER_DIR);
-  const repair = fixerRepair(options['fixer-patch'], plan, fixerDir, roundLabel);
   const caseFolder = k === 1 ? path.dirname(fromScore(() => caseFilePath(casesDir, caseId, caseData.split))) : null;
   const sources = k === 1 ? caseSources(caseData, caseFolder, keys) : {};
   const findingsById = new Map(findings.map((finding) => [finding.id, finding]));
@@ -895,7 +943,7 @@ export function prepareLoop(options, repo) {
   // The judge reads the reviewed tree of the new round under its blind run label, so it opens no arm folder.
   const judgeTree = path.join(ws, JUDGE_TREES, runLabel(caseId, armName, `${runName}/round-${nextRound}`));
 
-  const mode = withIndex(runDir, (env) => {
+  const { mode, notApplied } = withIndex(runDir, (env) => {
     let parent;
     if (k === 1) {
       parent = resolveCommit(repo, caseData.head, `${caseId} head`);
@@ -909,16 +957,31 @@ export function prepareLoop(options, repo) {
       git(repo, ['read-tree', parent], { env });
     }
     const reviewedTree = writeTree(repo, env);
-    for (const { known: id, patch } of plan.fixes) {
-      applyPatch(repo, env, path.join(knownDir, patch), `the fix patch of ${id} does not apply to ${roundLabel}`);
-    }
+    const split = applyFixes({ repo, env, fixes: plan.fixes, knownDir, roundLabel });
+    // The fixer repairs the valid extra findings and the findings of each matched known defect whose fix patch does
+    // not apply.
+    const defects = split.notApplied.fixedByFixer.map((id) => ({
+      id,
+      findings: findingsOfDefect(findings, judgments, id),
+    }));
+    const fixerIds = new Set([...plan.extras, ...defects.flatMap((defect) => defect.findings)]);
+    const repair = fixerRepair(options['fixer-patch'], fixerIds.size > 0, fixerDir, roundLabel);
     if (!repair) {
-      const extraFindings = plan.extras.map((id) => findingsById.get(id));
-      writeFixerInputs({ repo, env, fixerDir, planExport, findings: extraFindings });
-      const extras = `${plan.extras.length} valid extra findings for the fixer: ${plan.extras.join(', ')}`;
+      const fixerFindings = findings.filter((finding) => fixerIds.has(finding.id));
+      writeFixerInputs({ repo, env, fixerDir, planExport, findings: fixerFindings });
+      const parts = [];
+      if (plan.extras.length) {
+        parts.push(`${plan.extras.length} valid extra findings for the fixer: ${plan.extras.join(', ')}`);
+      }
+      if (defects.length) {
+        const found = defects.map((defect) => `${defect.id} (found by ${defect.findings.join(', ')})`);
+        parts.push(
+          `${defects.length} known defects whose fix patches do not apply, for the fixer: ${found.join(', ')}`,
+        );
+      }
       const prompt = path.join(fixerDir, `${FIXER_NAME}.txt`);
       fail(
-        `${roundLabel} has ${extras}; give their repair with --fixer-patch <file>, or dispatch the fixer prompt ${prompt} and run loop again`,
+        `${roundLabel} has ${parts.join(' and ')}; give their repair with --fixer-patch <file>, or dispatch the fixer prompt ${prompt} and run loop again`,
       );
     }
     // An empty patch file changes nothing: no listed finding needed a change.
@@ -931,7 +994,8 @@ export function prepareLoop(options, repo) {
     const fullLines = diffSize(repo, base, tree);
     const deltaLines = diffSize(repo, reviewedTree, tree);
     const completed = blocks.every((block) => COMPLETE_VERDICTS.has(block.verdict));
-    const repairsOnly = plan.fixes.every((fix) => !fix.pulled);
+    // A pulled-in patch that did not apply changed nothing.
+    const repairsOnly = split.applied.every((fix) => !fix.pulled);
     const nextMode = roundMode({ round: nextRound, fullLines, completed, repairsOnly, deltaLines });
     const paths = reviewPaths(nextDir, planExport, plan.rejections.length > 0);
     const prompts = MODE_REVIEWERS[nextMode].map((reviewer) => {
@@ -958,9 +1022,16 @@ export function prepareLoop(options, repo) {
       fs.rmSync(judgeTree, { recursive: true, force: true });
       throw error;
     }
-    return nextMode;
+    return { mode: nextMode, notApplied: split.notApplied };
   });
-  writeJson(roundMetaFile, { ...roundMeta, fix: plan });
+  // The fix plan, and each list of known defects whose fix patch did not apply. An empty list removes its field, so a
+  // rebuilt round keeps no old list.
+  const record = { ...roundMeta, fix: plan };
+  for (const [field, ids] of Object.entries(notApplied)) {
+    if (ids.length) record[field] = ids;
+    else delete record[field];
+  }
+  writeJson(roundMetaFile, record);
   console.log(`prepared ${nextDir}: a ${mode} round after ${plan.fixes.length} fixes and ${plan.extras.length} extras`);
   return nextDir;
 }
