@@ -15,7 +15,7 @@ Pull request: <url>. Checks: <state>. Reviewed head: `<sha>`.
 
 ### Reviews
 Plan review passed in round <k>. Code review passed in round <k>.
-Open findings: <MEDIUM or LOW findings left at the ceiling, or none>.
+Open findings: <unreached LOW findings that landed, with the follow-up issue; MEDIUM or LOW findings left at the ceiling; or none>.
 
 ### Verification
 - `<command>`: <result>

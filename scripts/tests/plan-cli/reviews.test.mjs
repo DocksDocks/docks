@@ -235,6 +235,81 @@ test('a plan-review pass covers evidence edits, and a Research edit after it adv
   expectSuccess(researchEdit, 'edit research after a plan pass');
   assert.match(
     researchEdit.stdout,
-    /^advice: plan review passed before this edit; changed sections: Research; run a new plan-review round before code that depends on them$/m,
+    /^advice: plan review passed before this edit; changed sections: Research; review all such edits in one plan-review round before code that depends on them or the next code-review round$/m,
   );
+});
+
+test('a plan-review pass covers the Mode line and the delegation line that a yolo run sets (#111)', (t) => {
+  const { addIssueComment, createPlan, edit } = planCliContext(t);
+  // A yolo run that adopts a passed plan adds the delegation line and sets the Mode; neither changes reviewed work (#111).
+  const delegation = 'Yolo: the user delegated every decision except the merge to the agent.';
+  const goals = [
+    ['a yolo run adopts the plan', `Fix the parser.\n\n${delegation}\n\nmode: plan-and-implement`, false],
+    [
+      'an indented delegation line in the goal paragraph',
+      `Fix the parser.\n   ${delegation}  \n\n   Mode: plan-and-implement`,
+      false,
+    ],
+    [
+      'a delegation line between two goal paragraphs',
+      `Fix the parser.\n\n${delegation}\n\nKeep the flags.\n\nMode: plan-and-implement`,
+      false,
+      'Fix the parser.\n\nKeep the flags.',
+    ],
+    [
+      'a delegation line before an unchanged goal',
+      `${delegation}\n\nFix the parser.\n\nMode: plan-and-implement`,
+      false,
+    ],
+    // Blank lines and indentation inside an example are reviewed work, also in a yolo Goal.
+    [
+      'a blank line removed inside a fenced example of a yolo goal',
+      `Fix the parser.\n\n\`\`\`text\na\n\nb\n\`\`\`\n\n${delegation}\n\nMode: plan-and-implement`,
+      true,
+      `Fix the parser.\n\n\`\`\`text\na\n\n\nb\n\`\`\`\n\n${delegation}`,
+    ],
+    [
+      'the indentation of a leading code example changed in a yolo goal',
+      `        run --fast\n\nFix the parser.\n\n${delegation}\n\nMode: plan-and-implement`,
+      true,
+      `    run --fast\n\nFix the parser.\n\n${delegation}`,
+    ],
+    ['a Mode change without the delegation line', 'Fix the parser.\n\nMode: plan-and-implement', true],
+    ['a delegation line in a code span', `Fix the parser.\n\n\`${delegation}\`\n\nMode: plan-and-implement`, true],
+    [
+      'a goal change beside the delegation line',
+      `Fix the parser and the printer.\n\n${delegation}\n\nMode: plan-and-implement`,
+      true,
+    ],
+    // Example text is reviewed work: only a live delegation line outside fenced or indented code is exempt.
+    [
+      'a delegation line added only inside an existing fenced example',
+      `Fix the parser.\n\n\`\`\`text\nexample output\n${delegation}\n\`\`\`\n\n${delegation}\n\nMode: plan-and-implement`,
+      true,
+      'Fix the parser.\n\n```text\nexample output\n```',
+    ],
+    [
+      'a delegation line removed from a fenced example beside the live line',
+      `Fix the parser.\n\n\`\`\`text\nexample output\n\`\`\`\n\n${delegation}\n\nMode: plan-and-implement`,
+      true,
+      `Fix the parser.\n\n\`\`\`text\nexample output\n${delegation}\n\`\`\`\n\n${delegation}`,
+    ],
+    [
+      'a delegation line only in an indented example',
+      `Fix the parser.\n\n    ${delegation}\n\nMode: plan-and-implement`,
+      true,
+    ],
+  ];
+  for (const [name, goal, advises, reviewedGoal = 'Fix the parser.'] of goals) {
+    const reviewedBody = body()
+      .replace('Mode: plan-and-implement', 'Mode: plan-only')
+      .replace('Fix the parser.\n\nMode: plan-only', `${reviewedGoal}\n\nMode: plan-only`);
+    const reviewed = createPlan(name, reviewedBody);
+    addIssueComment(reviewed, '### Plan review round 1\n\nPlan-review: pass\n\nNone.');
+    const goalEdit = edit(reviewed, (text) => text.replace(`${reviewedGoal}\n\nMode: plan-only`, goal));
+    expectSuccess(goalEdit, `edit goal: ${name}`);
+    if (advises)
+      assert.match(goalEdit.stdout, /^advice: plan review passed before this edit; changed sections: Goal; /m, name);
+    else assert.doesNotMatch(goalEdit.stdout, /plan review passed before this edit/, name);
+  }
 });

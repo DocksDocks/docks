@@ -401,7 +401,7 @@ export function buildOpening(caseData, paths, round = caseData.round) {
     `Plan export: ${paths.plan}`,
     '',
     'Rules:',
-    '- The snapshot root holds the repository files for this review, without Git history. Take review evidence only from files under the snapshot root and the files that this message names. You may also read your own agent instructions and the skill and reference files that those instructions tell you to load.',
+    '- The snapshot root holds the repository files for this review, without Git history. Take repository evidence only from files under the snapshot root and the files that this message names. You may read official documentation on the web, but no page of the DocksDocks/docks repository. You may also read your own agent instructions and the skill and reference files that those instructions tell you to load.',
     '- The working directory is not the snapshot, so give every Read, Grep, and Glob call an absolute path under the snapshot root or the absolute path of a file that this message names.',
     readRule,
     '- Do not read `skill://code-reviewer` or `skill://plan-reviewer`. These URIs resolve to another version of the reviewer instructions than your own.',

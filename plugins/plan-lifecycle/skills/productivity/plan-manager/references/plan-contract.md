@@ -50,6 +50,13 @@ frontmatter. Write these seven second-level sections in this order:
 | Open questions | Unresolved decisions; put `Blocked: <reason>` first when blocked |
 | Verification Results | Commands run, results, and relevant limitations |
 
+Research also records tool facts. For each external program that a Step or an
+Acceptance command runs, record its version and the source of that version:
+its `--version` output with the date, or a repository pin, such as a lockfile,
+`.tool-versions`, `mise.toml`, a CI workflow, or a Dockerfile. Reviewers do not
+run commands, so this record lets them check a flag or a behavior against the
+documentation of that version.
+
 The helper reads v3 and v4 records. It ignores the old Review section and drops
 it on write. It inserts missing sections empty. Section headings and table
 headers match without case sensitivity after trimming. The helper writes the
@@ -155,29 +162,49 @@ Run this review loop for plan review and for code review:
    the lens blocks of a panel round in the lens order of Code-review rounds.
    Never store a review in the body.
 3. Run `show <n>` and read the verdict. Stop on pass.
-4. Otherwise reproduce each finding. Fix confirmed defects. Post the evidence
-   for rejected findings as one issue comment whose first line is
-   `Rejected review findings, round <k>`. Then start the next round.
+4. Otherwise reproduce each finding. Fix confirmed defects as Repairs says.
+   Post the evidence for rejected findings as one issue comment whose first
+   line is `Rejected review findings, round <k>`. Then start the next round.
 5. Ask the user to continue or block when a round makes no progress, the same
    finding returns after a repair, round 5 does not pass, or dispatch fails again
    without a relevant change. If no answer is available, record the reason and
    block. A yolo run uses the round ceiling in Yolo runs instead.
 
 Reviewers never fetch the issue. Save each posted round comment as
-`<phase>-<n>-round-<k>.md` and each rejection comment as
-`<phase>-<n>-round-<k>-rejected.md` in the review scratch directory, where
+`<phase>-<n>-round-<k>.md`, each rejection comment as
+`<phase>-<n>-round-<k>-rejected.md`, and each repair record (Repairs) as
+`<phase>-<n>-round-<k>-repairs.md` in the review scratch directory, where
 `<phase>` is `plan-review` or `code-review`. A delta reviewer reads these files.
 
 A plan re-review after a repair may use the plan `delta` mode when the
 `plan-reviewer` skill offers it in its `references/delta.md`. Give that round
 the inputs that the file names. Otherwise each plan round reviews the whole
-export.
+export. A full plan-review round runs at the configured effort. A plan `delta`
+round runs one level lower where the runtime has a per-dispatch effort. In omp
+with the setting `task.enableEffort` on, the `effort` values `lo`, `med`, and
+`hi` map to the lowest, middle, and highest level of the model's range. Dispatch
+the delta round with `effort: med` only when `med` is one level below the effort
+of round 1, for example for `openai-codex/gpt-6.1-sol` at `xhigh`, where `med`
+gives `high`; otherwise keep the agent's effort. In Claude Code v2.1.292 or later, pass
+the invocation `effort` one level below the effort of round 1, for example
+`high` after `xhigh`. Where the runtime has no per-dispatch effort, or the
+environment variable `CLAUDE_CODE_EFFORT_LEVEL` overrides it, the delta round
+keeps the agent's effort. Code-review rounds keep the configured effort. In
+the plugin's benchmark, the one plan-delta case gave the same known defects at
+both efforts in less than half the time.
 
-A plan pass covers the body that the reviewer read. After `plan=pass`, an edit
-that changes Goal, Research, Steps, Acceptance, or Do not touch needs a new
-plan-review round before you write code that depends on the change. Edits to
-Verification Results or Open questions, and `step` state changes, need no new
-round.
+A plan pass covers the body that the reviewer read. After `plan=pass`, collect
+the edits that change Goal, Research, Steps, Acceptance, or Do not touch.
+Review them together in one plan-review round, in the `delta` mode when the
+plan reviewer offers it, with a plan diff from the export that the pass
+reviewed. Run that round before the first code that depends on an edit, or
+before the next code-review round when that comes first. In recorded plans,
+one round for each edit after a pass was a main cause of extra rounds, and
+most of those rounds found nothing. These edits need no round:
+
+- An edit that only sets the Mode line or adds the delegation line (Yolo runs)
+  that a yolo invocation decides.
+- An edit to Verification Results or Open questions, and a `step` state change.
 
 Record user-only decisions in Open questions. Do not invent approval.
 
@@ -219,6 +246,31 @@ equal to that assignee. The latest trusted eligible comment per kind wins,
 ordered by `createdAt`; API order breaks ties. Missing trusted reviews derive as
 none. There is no body verdict fallback.
 
+### Repairs
+
+Complete each repair before you commit a code repair or publish a plan repair.
+In recorded plans, a missed instance of a fixed class, a finding with neither a
+repair nor a rejection, and a decision without a step each caused extra rounds.
+
+1. For each finding that names a defect class (`class:`), search for every
+   instance of that class: in the candidate for a code finding, and in the plan
+   export and each source that the finding cites for a plan finding. Repair all
+   instances together, in one commit for code.
+2. Record the repairs of round k. List each finding that you fixed, with the
+   plan line or the commit that fixes it, and under it each class instance
+   that you repaired. For code, write the list in the repair commit message.
+   For a plan, post the list as one issue comment whose first line is
+   `Repaired review findings, round <k>`. Save the list as the repair record
+   file, and give it to the delta reviewer of the next round, which checks it.
+3. Before round k+1, account for every finding of round k: fixed in the repair
+   record, or rejected in the rejection comment. Repair or reject each finding
+   that has neither.
+4. When an edit adds a decision, add the step that carries it out, or extend
+   the Task and Done when of a step that is not done yet. The helper keeps a
+   done step done, so a decision that changes done work gets a new step.
+
+The `plan-manager` skill (phase 6) adds the test rules of a code repair.
+
 ### Code-review rounds
 
 Before each code-review round, commit the candidate on the linked branch. That
@@ -228,7 +280,7 @@ commit is the round's reviewed head. Name one mode in each dispatch:
 |---|---|---|
 | `full` | One `code-reviewer` that covers every lens | The full diff, the plan export, the issue number, and the round number |
 | `panel` | Three `code-reviewer` dispatches in one message, one per lens: `correctness`, `spec-and-tests`, `text-and-safety` | The full diff, a focus diff for the lens, the plan export, the issue number, and the round number |
-| `delta` | One `code-reviewer` | The delta diff, the previous round's comment file, the rejection comment file of that round if one exists, the plan export, the issue number, and the round number |
+| `delta` | One `code-reviewer` | The delta diff, the previous round's comment file, the rejection comment file and the repair record file of that round if they exist, the plan export, the issue number, and the round number |
 
 The full diff holds the candidate since the merge base with the default branch.
 A focus diff holds the changed paths in the scope of its lens:
@@ -270,8 +322,7 @@ merge of the default branch into the linked branch always gets a `panel` or a
 `full` round.
 
 When a reviewer fails or returns no block with a verdict line, dispatch it
-again before you post the round. When a finding names a defect class, fix every
-instance of that class in the candidate in the same commit.
+again before you post the round.
 
 Dispatch every lens and every delta round as the `code-reviewer` agent. A
 per-agent model setting, such as omp `task.agentModelOverrides.code-reviewer`
@@ -325,7 +376,8 @@ after drafting,
 defaulted Mode, unknown Effect or Status, an unfinished dependency when a step
 moves to in-flight or done, two steps that share a Files path with no Depends
 chain, an `edit` that changes Goal, Research, Steps, Acceptance, or Do not touch
-after a trusted plan pass, and every non-local Effect as an in-session
+after a trusted plan pass (in a Goal that holds the yolo delegation line, the
+Mode line and that line do not count), and every non-local Effect as an in-session
 permission reminder. A machine path
 points into a user or root home, a mount, a named temporary or runtime
 directory, a Windows drive, or a network share. Its advice is
@@ -619,8 +671,22 @@ Do all later work in that worktree. Keep its path out of durable records.
 ### Round ceiling
 
 Each review phase gets 10 rounds without a question. In code review, fix every
-reproduced finding of every severity before the next round. Reject a finding
-only with evidence, posted as the review loop says.
+reproduced finding of every severity before the next round. A code-review pass
+lands with open findings only in the two cases below. Reject a finding only
+with evidence, posted as the review loop says.
+
+From code-review round 3, a pass whose open findings are all unreached LOW
+findings lands. The code reviewer marks such a finding `Unreached:` when no
+current caller, fixture, or documented input reaches the fault (the
+`code-reviewer` skill, Severity and verdict). Check that claim when you
+reproduce the finding; when something does reach the fault, fix it and review
+again. Do not change reviewed bytes for the unreached findings. Before you
+write the run summary, list them in one follow-up issue that links the plan
+issue (`gh issue create --repo <owner/repo>`), and list them under Open
+findings in the run summary. A replay on the plugin's benchmark that applied
+this rule to every LOW finding, not only to unreached ones, removed at most 3
+of 73 rounds in one arm and 0 to 2 rounds in the others, and no known defect
+escaped.
 
 A phase stalls when round 10 ends without a pass, when the same finding returns
 after two different repairs, or when dispatch fails twice without a relevant

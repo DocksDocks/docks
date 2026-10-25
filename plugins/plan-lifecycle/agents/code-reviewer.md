@@ -97,6 +97,11 @@ Report a Spec finding when the change uses a temporary workaround instead of the
    - `MEDIUM`: A real defect has bounded impact, or maintainability materially
      raises the cost or risk of the next change.
    - `LOW`: A proven defect has localized, minor impact.
+   - A fault that no current caller, fixture, or documented input reaches is
+     `LOW`, whatever its impact would be. Start its defect text with
+     `Unreached:` and name the callers, fixtures, and documented inputs that
+     you checked. When the reach is uncertain, rate by the scenario and say
+     what is uncertain.
 10. Re-read every locator and verify that the proposed fix resolves the defect
     without violating another plan step or invariant.
 11. Select one verdict:

@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-10-23"
-  content_hash: "d7516c726d2717ec7b7543afc332aacc872989893eaeab6ea1f0db4ee9e9b7d6"
+  updated: "2026-10-25"
+  content_hash: "013a522abb02469a96b56c309bb4f8967e097599acb9c523da753fcfad2b81de"
 ---
 
 # Yolo
@@ -91,8 +91,9 @@ To adopt a plan:
 3. Replace each Goal or Do not touch line that conflicts with this run, such as
    "leave the pull request open". Record a request correction whose `Asked:`
    part quotes the old line.
-4. When steps 2 or 3 changed the export, publish it with `edit`. A Goal change
-   after `plan=pass` needs a new plan-review round.
+4. When steps 2 or 3 changed the export, publish it with `edit`. After
+   `plan=pass`, a change from step 3 needs a plan-review round, and step 2
+   needs none, as the contract's Phases and review comments says.
 5. Reuse the branch that `gh issue develop <n> --list` shows, or the head branch
    of the open pull request. When neither exists, use the contract's Linked
    branch steps.
@@ -129,6 +130,7 @@ Answer each open question in this order. Stop at the first step that settles it.
 
 Record each decision in Research: the decision, its evidence, and the rejected
 options. A repository fact needs no web source. Every other claim needs one.
+Record the tool facts that the contract's Record and mode asks for.
 
 Record each request correction under `### Request corrections` in Research:
 
@@ -247,32 +249,42 @@ instructions. Post one comment per round, as the contract's review loop says.
 That comment counts as one round of the ceiling.
 
 Dispatch code review round 1 first. While it runs, run the `code-review`
-self-review with `code-clarity` on the full candidate diff. Post its findings
-as one issue comment whose first line is `Self-review`; write `No findings.`
-when it finds nothing. The helper does not read that comment as a review.
+self-review as one self-review per lens of the code-review panel:
+`correctness`, `spec-and-tests`, and `text-and-safety`. Run the three at the
+same time, or one after another when the runtime cannot. Give each one the
+full candidate diff and its lens scope from the `code-reviewer` skill, and
+apply `code-clarity` in each. Post their findings as one issue comment whose
+first line is `Self-review`, with one section per lens; write `No findings.`
+for a lens that finds nothing. The helper does not read that comment as a
+review, so it does not count as a round of the ceiling. In the plugin's
+benchmark, one self-review per lens found more known defects than one
+self-review (0.67 against 0.50 per run) in about the same time, but also more
+wrong findings. Reproduce each one before you fix it, and reject a wrong one
+with evidence.
 
 After round 1 returns, fix the self-review findings together with the findings
-of round 1. Use `fix-workflow`, and commit the fixes. When a finding names a
-defect class, fix every instance, as the contract's Code-review rounds says.
+of round 1. Use `fix-workflow`, and commit the fixes.
 When the self-review found anything, review again, also when round 1 passed.
 That round is a `delta` round when the contract's Code-review rounds allows it.
 
 While any round runs, do the work that does not depend on its verdict, such as
 the acceptance records and the run summary draft.
 
-After `plan=pass`, an `edit` that changes Goal, Research, Steps, Acceptance, or
-Do not touch needs a new plan-review round before code that depends on it. The
-helper prints advice for that case.
+Review plan edits after `plan=pass` as the contract's Phases and review
+comments says. The helper advises when an edit needs that round.
 
 | Verdict | Yolo action |
 |---|---|
 | Plan `repair` | Reproduce each finding, repair a fresh export, and review again |
 | Plan `blocked` | Decide the finding with Research, record the decision, and review again |
 | Code `fixes-required` | Fix each reproduced finding, rerun its proof, and review again |
-| Code `pass` with MEDIUM or LOW findings | Fix each reproduced finding and review again, as a `delta` round when the contract's Code-review rounds allows it |
+| Code `pass` from round 3 whose open findings are all `Unreached:` LOW findings | Land with the follow-up issue, as the contract's Round ceiling says |
+| Code `pass` with other MEDIUM or LOW findings | Fix each reproduced finding and review again, as a `delta` round when the contract's Code-review rounds allows it |
 | Code `pass` with no open finding | Go to Landing |
 
-Reject a finding only with evidence, posted as the contract's review loop says.
+Make and record each repair as the contract's Repairs says, in both phases. A
+code repair also gets the tests that plan-manager phase 6 asks for. Reject a
+finding only with evidence, posted as the contract's review loop says.
 Before you repair the same finding again, research it again and try a different
 approach.
 

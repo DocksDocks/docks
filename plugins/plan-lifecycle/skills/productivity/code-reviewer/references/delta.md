@@ -3,8 +3,9 @@
 A delta round reviews the repairs since the previous round. The dispatch gives
 the delta diff, from the previous round's reviewed head to the current reviewed
 head. It also gives the previous round's comment file, the manager's rejection
-comment file for that round if one exists, the plan export, the issue number,
-and the round number.
+comment file and repair record file for that round if they exist, the plan
+export, the issue number, and the round number. The repair record lists each
+finding that the manager fixed and each class instance that it repaired.
 
 The previous comment file can hold several lens blocks.
 Every finding line in it is a previous finding.
@@ -15,7 +16,11 @@ Every finding line in it is a previous finding.
    Do not rely on the manager's summary or on commit messages. Give each
    previous finding one status:
    - `fixed`: the defect no longer reproduces. When the finding names a class,
-     every instance of the class is fixed, not only the listed locators.
+     every instance of the class is fixed, not only the listed locators. Check
+     the repair record's list against the current head: each listed instance,
+     and each instance of the class that the list leaves out. An instance that
+     still has the defect keeps the finding `open`, with that instance as a
+     locator.
    - `open`: the delta does not fix the defect, or it fixes only part of it.
      Repeat the finding as a normal finding line under its axis, with its
      severity and the locators that remain.

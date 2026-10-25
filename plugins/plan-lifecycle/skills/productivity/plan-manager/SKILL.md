@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-25"
-  content_hash: "29d65ae4212882c2e0614fd68a3b02560bedff2d68148e0333c5fcd7576a3753"
+  content_hash: "4bdfcf4b1214f2ae25c13dd2a2a07eeff623ab9219be145dbf4245c5558196b8"
 ---
 
 # Plan Manager
@@ -74,6 +74,7 @@ target files, callers, tests, and current official documentation. Use language
 server references before changing exported symbols. Bind research findings to
 repository paths and symbols or official URLs. Name the durable fix and the
 temporary approach it replaces. Make the Files cells cover the intended scope.
+Record the tool facts that the contract's Record and mode asks for.
 
 Fill acceptance with runnable proof, then use `edit` to publish the export.
 Read all advice and resolve any decision it exposes. A defaulted plan-only
@@ -87,10 +88,10 @@ Done when: `status <n> planned` succeeds and no advice needs a decision.
 Run the contract's review loop with `plan-reviewer`. For each round, export
 fresh input and dispatch `plan-reviewer` with the issue number, export path, and
 round number. A re-review round after a repair may use the plan `delta` mode,
-as the contract's review loop allows. If no wrapper exists, dispatch a fresh
-read-only reviewer with the `plan-reviewer` skill. Route a user-only decision
-through Open questions and `ask`. Never implement a repaired plan that has not
-passed review.
+as the contract's review loop allows. Set the effort of a delta round as that
+loop says. If no wrapper exists, dispatch a fresh read-only reviewer with the
+`plan-reviewer` skill. Route a user-only decision through Open questions and
+`ask`. Never implement a repaired plan that has not passed review.
 
 A plan-only run stops after the pass, at planned. Report the issue and verdict.
 Do not create a branch or implement without a new instruction.
@@ -104,7 +105,8 @@ branch steps before you change code. Set each step in-flight, implement or
 delegate it, run its proof, then mark it done. Honor the Effect confirmation
 gate. When `docks:code-clarity` is available, use it for self-explaining code.
 Run all acceptance commands and record real results in Verification Results
-through the export/edit flow.
+through the export/edit flow. Review plan edits after the pass as the
+contract's Phases and review comments says.
 
 Done when: every step that can run before the merge is done or skipped, and
 Verification Results hold real acceptance results.
@@ -143,12 +145,22 @@ run at the same time. In each dispatch message, name each changed path that is
 outside the Steps Files cells. Post one comment per round, as the contract's
 review loop says.
 
-Fix each evidenced CRITICAL or HIGH defect before the next round. A pass can carry MEDIUM
-and LOW findings. The posted comment is their record; do not change reviewed
-bytes for them. Resolve unreadable input before you request a verdict. If you
-block after implementation, commit and push current work to the linked branch
-before you record the blocker, so repairs are not stranded. Then run the
-contract's Teardown for an exit without a merge.
+Before the next round, fix or reject every finding of the round, as the
+contract's Repairs says. A pass can carry MEDIUM and LOW findings. The posted
+comment is their record; do not change reviewed bytes for them.
+
+Make each repair complete, as the contract's Repairs says, before you commit
+it. When a repair adds a branch, a list split, a parser rule, or a refusal, add
+a test that fails when that branch is removed. When a repair changes a parser
+or a matcher, list its input forms, such as delimiters, white space, quotes,
+`--`, aliases, and nested fields, and test each form before the commit. In
+recorded plans, more than half of the later code findings were faults in the
+repair of an earlier finding.
+
+Resolve unreadable input before you request a verdict. If you block after
+implementation, commit and push current work to the linked branch before you
+record the blocker, so repairs are not stranded. Then run the contract's
+Teardown for an exit without a merge.
 
 Done when: `show <n>` reports `code=pass`.
 
