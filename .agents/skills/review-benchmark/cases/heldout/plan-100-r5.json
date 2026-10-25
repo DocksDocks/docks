@@ -1,0 +1,15 @@
+{
+  "id": "plan-100-r5",
+  "kind": "plan-delta",
+  "split": "heldout",
+  "issue": 100,
+  "round": 5,
+  "repo_ref": "865e64388767e5b474e74894e66a7a94e2f89e70",
+  "previous_body": "plan-100-r5-previous-body.md",
+  "plan": "plan-100-r5-body.md",
+  "previous_review": "plan-100-r5-previous-review.md",
+  "external": ["plan", "previous_body"],
+  "body_revision": "UCE_lAHODGt7ls8AAAABZdL0lc8AAAABEcz3Rw",
+  "previous_body_revision": "UCE_lAHODGt7ls8AAAABZdL0lc8AAAABEcygNw",
+  "show_benchmark": true
+}
