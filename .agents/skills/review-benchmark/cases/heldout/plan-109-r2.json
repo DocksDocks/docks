@@ -10,6 +10,5 @@
   "previous_review": "plan-109-r2-previous-review.md",
   "body_revision": "UCE_lAHODGt7ls8AAAABZtPfys8AAAABEoZmqA",
   "previous_body_revision": "UCE_lAHODGt7ls8AAAABZtPfys8AAAABEoTkyw",
-  "show_benchmark": true,
-  "external": ["plan", "previous_body", "previous_review"]
+  "show_benchmark": true
 }
