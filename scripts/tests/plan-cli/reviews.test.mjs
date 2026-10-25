@@ -245,10 +245,18 @@ test('a plan-review pass covers the Mode line and the delegation line that a yol
   const delegation = 'Yolo: the user delegated every decision except the merge to the agent.';
   const goals = [
     ['a yolo run adopts the plan', `Fix the parser.\n\n${delegation}\n\nmode: plan-and-implement`, false],
-    ['an indented delegation line in the goal paragraph', `Fix the parser.\n   ${delegation}  \n\n   Mode: plan-and-implement`, false],
+    [
+      'an indented delegation line in the goal paragraph',
+      `Fix the parser.\n   ${delegation}  \n\n   Mode: plan-and-implement`,
+      false,
+    ],
     ['a Mode change without the delegation line', 'Fix the parser.\n\nMode: plan-and-implement', true],
     ['a delegation line in a code span', `Fix the parser.\n\n\`${delegation}\`\n\nMode: plan-and-implement`, true],
-    ['a goal change beside the delegation line', `Fix the parser and the printer.\n\n${delegation}\n\nMode: plan-and-implement`, true],
+    [
+      'a goal change beside the delegation line',
+      `Fix the parser and the printer.\n\n${delegation}\n\nMode: plan-and-implement`,
+      true,
+    ],
   ];
   for (const [name, goal, advises] of goals) {
     const reviewed = createPlan(name, body().replace('Mode: plan-and-implement', 'Mode: plan-only'));
