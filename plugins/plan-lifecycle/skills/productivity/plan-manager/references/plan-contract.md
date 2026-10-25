@@ -50,6 +50,13 @@ frontmatter. Write these seven second-level sections in this order:
 | Open questions | Unresolved decisions; put `Blocked: <reason>` first when blocked |
 | Verification Results | Commands run, results, and relevant limitations |
 
+Research also records tool facts. For each external program that a Step or an
+Acceptance command runs, record its version and the source of that version:
+its `--version` output with the date, or a repository pin, such as a lockfile,
+`.tool-versions`, `mise.toml`, a CI workflow, or a Dockerfile. Reviewers do not
+run commands, so this record lets them check a flag or a behavior against the
+documentation of that version.
+
 The helper reads v3 and v4 records. It ignores the old Review section and drops
 it on write. It inserts missing sections empty. Section headings and table
 headers match without case sensitivity after trimming. The helper writes the

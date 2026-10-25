@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-25"
-  content_hash: "2d62b67efbd4b3b391252590b6612e412aca5fcc4251ab71879e90d19b3651b3"
+  content_hash: "21abe5b814b14516dc8abdf63ee2ee4ce405e747c523832a7a829055a35d8fa3"
 ---
 
 # Plan Manager
@@ -74,6 +74,7 @@ target files, callers, tests, and current official documentation. Use language
 server references before changing exported symbols. Bind research findings to
 repository paths and symbols or official URLs. Name the durable fix and the
 temporary approach it replaces. Make the Files cells cover the intended scope.
+Record the tool facts that the contract's Record and mode asks for.
 
 Fill acceptance with runnable proof, then use `edit` to publish the export.
 Read all advice and resolve any decision it exposes. A defaulted plan-only

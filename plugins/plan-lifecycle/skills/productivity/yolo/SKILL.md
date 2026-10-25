@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-25"
-  content_hash: "b2bdfd836a72fa67424e777bd684f8758b23fdea1be6989c1325a2b1a90ca3bd"
+  content_hash: "e5f7d63b92106deeba5a2bc2b36d0a2b751d625ed256acd06ceee6dcab68f78d"
 ---
 
 # Yolo
@@ -130,6 +130,7 @@ Answer each open question in this order. Stop at the first step that settles it.
 
 Record each decision in Research: the decision, its evidence, and the rejected
 options. A repository fact needs no web source. Every other claim needs one.
+Record the tool facts that the contract's Record and mode asks for.
 
 Record each request correction under `### Request corrections` in Research:
 
