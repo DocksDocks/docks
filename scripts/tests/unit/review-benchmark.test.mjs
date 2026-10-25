@@ -5126,6 +5126,17 @@ test('readScope reads a local file with a JSON query selector as the file before
   assert.deepEqual(score.readScope(calls, scope), { outside: [`${SCOPE_CASE}/case.json`] });
 });
 
+// omp reads `<file>?q=<filter>` as one file with a JSON query, also when the filter holds white space. The `?` is a glob
+// character, so without this rule the white-space split would find parts that each exist (`//` and `.`).
+test('transcripts reads a local file with a JSON query selector as one target, also with white space', (t) => {
+  const fixture = listCase(scratch(t), 'bench');
+  const { live, snapshot } = fixture;
+  put(snapshot, 'scripts/config/test-contracts.json', '{}\n');
+  put(live, 'README.md', 'text\n');
+  const file = path.join(snapshot, 'scripts', 'config', 'test-contracts.json');
+  assert.deepEqual(listReadScope(fixture, [['read', { path: `${file}?q=.suites // .` }]]), { outside: [] });
+});
+
 test('a failed request without a served tier stays out of the model and tier checks and keeps its time', () => {
   const config = CONFIGS['xhigh-fast'];
   const head = [

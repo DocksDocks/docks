@@ -2000,6 +2000,8 @@ function delimitedParts(target, cwd) {
     return parts !== null && parts.length > 1 && parts.every((part) => uriScheme(part) !== undefined) ? parts : null;
   }
   if (ompPathExists(target, cwd) || ompPathExists(target.replace(OMP_SELECTOR, ''), cwd)) return null;
+  // omp reads `<file>?q=<filter>` as one file with a JSON query, also when the filter holds a delimiter.
+  if (ompPathExists(target.replace(JSON_QUERY_SELECTOR, ''), cwd)) return null;
   const exists = (part) => {
     const scheme = uriScheme(part);
     if (scheme !== undefined) return !WEB_SCHEMES.has(scheme);
