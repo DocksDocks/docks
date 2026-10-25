@@ -735,16 +735,20 @@ const liveDelegationLines = (goal) =>
       .split('\n')
       .flatMap((line, index) => (!/^(?: {4}|\t)/.test(line) && line.trim() === YOLO_DELEGATION_LINE ? [index] : [])),
   );
-// Normalization ends Goal with its one canonical Mode line. The comparison removes each live delegation line and the
-// blank line that separated it from the text before it, and the blank lines at the end. Every other blank line and
-// indentation stays, because example text can depend on them.
+// Normalization ends Goal with its one canonical Mode line. The comparison removes each live delegation line with the
+// blank line that separated it from the text before it, the blank lines that a leading delegation line leaves at the
+// start, and the blank lines at the end. Every other blank line and indentation stays, because example text can
+// depend on them.
 const goalWork = (goal) => {
   const lines = goal.replace(/(?:^|\n)Mode: [^\n]*$/, '').split('\n');
   const live = liveDelegationLines(lines.join('\n'));
   const kept = [];
+  let removedAtStart = false;
   lines.forEach((line, index) => {
-    if (!live.has(index)) kept.push(line);
-    else if (kept.length > 0 && kept.at(-1).trim() === '' && (lines[index + 1] ?? '').trim() === '') kept.pop();
+    if (live.has(index)) {
+      if (kept.length === 0) removedAtStart = true;
+      else if (kept.at(-1).trim() === '' && (lines[index + 1] ?? '').trim() === '') kept.pop();
+    } else if (!(removedAtStart && kept.length === 0 && line.trim() === '')) kept.push(line);
   });
   return kept.join('\n').trimEnd();
 };

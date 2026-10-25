@@ -5081,6 +5081,7 @@ test('readScope records each web search query, and a query that targets the benc
     'site:github.com/DocksDocks/public "docks-kit" "fast"',
     '"docks-kit" "sync omp" "DocksDocks/public"',
     '"docks-kit" "omp" "--fast" -site:github.com/DocksDocks/docks',
+    'DocksDocks docs -site:github.com/DocksDocks',
     'DocksDocks "docks-kit" -site:github.com/DocksDocks/docks',
   ];
   const calls = [

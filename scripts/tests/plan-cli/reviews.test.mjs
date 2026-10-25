@@ -256,6 +256,11 @@ test('a plan-review pass covers the Mode line and the delegation line that a yol
       false,
       'Fix the parser.\n\nKeep the flags.',
     ],
+    [
+      'a delegation line before an unchanged goal',
+      `${delegation}\n\nFix the parser.\n\nMode: plan-and-implement`,
+      false,
+    ],
     // Blank lines and indentation inside an example are reviewed work, also in a yolo Goal.
     [
       'a blank line removed inside a fenced example of a yolo goal',
