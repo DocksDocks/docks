@@ -474,3 +474,167 @@ The held-out keys and inputs are now in `cases/heldout/`: 24 key files and their
 
 - "Review rounds" groups the key sources `round`, `missed-by-round`, `single-lens`, `after-pass`, and `review-round`. Dev: 15, 7, 2, 5, and 1. Held-out: 20, 18, 3, 1, and 0.
 - The dev cases `code-96-delta-real` and `plan-96-delta` have no known defects. The planted defect of `plan-96-delta-planted` counts as seeded.
+
+## Run 2026-10-25: plan-reviewer prompts at xhigh (plan #109)
+
+### Setup
+
+- Model: `openai-codex/gpt-6.1-sol`. Effort: `xhigh`. Service tier: `default`. The user turned fast mode off for these tests.
+- At most 16 agents ran at a time.
+- Variants (arm `V<name>-xhigh`):
+  - `V16`: the plan reviewer of plan-lifecycle 0.16.0. It has no delta mode, so it runs full rounds only, also on the plan-delta cases.
+  - `V17`: the plan reviewer of plan-lifecycle 0.17.1, with its delta mode.
+  - `Va`, `Vb`, `Vc`: the nested candidates A, B, and C of plan #109 decision 1. Each also has the plan-reviewer contract sentence of decision 7: plan reviewers treat the choice of a recorded decision as settled and report a false premise or a broken effect. The candidates are on local refs.
+- One run is a single review.
+
+### Decision rule (plan #109, fixed before the held-out runs)
+
+A variant replaces V17 only when all of these are true on the held-out cases: it has fewer escaped known defects per 50 known than V17; against V17, its escaped-per-50 difference 90% interval stays below 2 and its round-1 recall difference interval stays above -0.05; and it has at most 0.10 more wrong findings per run than V17. Among the variants that pass, the variant with the fewest escaped defects wins. A tie goes to the lower median time. When no variant passes, V17 stays, and this log records the measured differences. A V16 win ships the 0.16.0 text with the 0.17.1 delta mode added, on a named local ref. This log then names the ref and records that the combination was not measured as a whole.
+
+### Dev check
+
+Dev P0/P1 experiment (before the candidates; 3 runs per case): the 0.16.0 prompt (P0) found 0.79 known defects per run, and the 0.17.1 prompt (P1) found 0.78. P1 against P0 on the 6 shared cases: recall difference 90% interval [-0.13, 0.08], escaped per 50 known difference 90% interval [-3.92, 6.25]. Both intervals include zero.
+
+The five variants ran 3 times on each of the 8 dev plan cases. Every run is valid. An interval row gives the 90% paired bootstrap interval of the difference from V17-xhigh.
+
+#### Decision
+
+| Measure | V16-xhigh | V17-xhigh | Va-xhigh | Vb-xhigh | Vc-xhigh |
+|---|---:|---:|---:|---:|---:|
+| Runs | 24 | 24 | 24 | 24 | 24 |
+| Cases | 8 | 8 | 8 | 8 | 8 |
+| Known found per run | 0.83 | 0.63 | 1.00 | 1.08 | 1.08 |
+| Escaped per run | 1.54 | 1.75 | 1.38 | 1.29 | 1.29 |
+| Escaped per 50 known | 32.46 | 36.84 | 28.95 | 27.19 | 27.19 |
+| Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
+| Effort | xhigh | xhigh | xhigh | xhigh | xhigh |
+| Served tier | default | default | default | default | default |
+| Cases shared with V17-xhigh | 8 | - | 8 | 8 | 8 |
+| Round 1 recall difference from V17-xhigh, 90% interval | [-0.10, 0.24] | - | [0.10, 0.20] | [0.12, 0.24] | [0.12, 0.24] |
+| Escaped per 50 known difference from V17-xhigh, 90% interval | [-11.90, 4.76] | - | [-9.80, -4.76] | [-11.90, -6.06] | [-11.90, -6.06] |
+| Loop seconds difference from V17-xhigh, 90% interval | - | - | - | - | - |
+
+#### Single reviews
+
+| Measure | V16-xhigh | V17-xhigh | Va-xhigh | Vb-xhigh | Vc-xhigh |
+|---|---:|---:|---:|---:|---:|
+| Runs | 24 | 24 | 24 | 24 | 24 |
+| Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
+| Effort | xhigh | xhigh | xhigh | xhigh | xhigh |
+| Served tier | default | default | default | default | default |
+| Seconds median | 211.9 | 178.3 | 228.6 | 192.9 | 241.8 |
+| Seconds min | 95.0 | 98.9 | 114.0 | 94.2 | 125.0 |
+| Seconds max | 368.0 | 322.7 | 397.8 | 350.1 | 422.2 |
+| Known found per run | 0.83 | 0.63 | 1.00 | 1.08 | 1.08 |
+| Escaped per run | 1.54 | 1.75 | 1.38 | 1.29 | 1.29 |
+| Valid extras per run | 0.54 | 0.67 | 0.96 | 1.29 | 1.25 |
+| Wrong per run | 0.00 | 0.00 | 0.00 | 0.08 | 0.00 |
+| Unjudged per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| Unknown ratings per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.04 |
+| Unknown pairs per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| Tokens median | 949928 | 546686 | 570110 | 574674 | 688530 |
+
+#### Known defects found
+
+Each cell gives the number of runs, out of 3, that found the known defect. A script counted the `Found` column of the run table of the dev report.
+
+| Case | Known defect | V16 | V17 | Va | Vb | Vc |
+|---|---|---:|---:|---:|---:|---:|
+| plan-102-r1 | P102-1 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-23-r1 | P23-1 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-57-r1 | P57-1 | 1 of 3 | 0 of 3 | 2 of 3 | 3 of 3 | 3 of 3 |
+| plan-57-r1 | P57-2 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| plan-57-r1 | P57-3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| plan-57-r1 | P57-4 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| plan-57-r1 | P57-5 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| plan-83-r1 | P83-1 | 3 of 3 | 2 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-83-r1 | P83-2 | 3 of 3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| plan-89-r1 | P89-1 | 2 of 3 | 0 of 3 | 0 of 3 | 1 of 3 | 1 of 3 |
+| plan-89-r1 | P89-2 | 0 of 3 | 1 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-89-r1 | P89-3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| plan-96-delta-planted | PPD96-1 | 0 of 3 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-96-r1 | P96-1 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| plan-96-r1 | P96-2 | 2 of 3 | 1 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-96-r1 | P96-3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+| plan-96-r1 | P96-4 | 3 of 3 | 2 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-96-r1 | P96-5 | 0 of 3 | 0 of 3 | 1 of 3 | 1 of 3 | 1 of 3 |
+| plan-96-r1 | P96-6 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 | 0 of 3 |
+
+- Some targets of candidate A improved. P96-2: V17 1 of 3, Va, Vb, and Vc 3 of 3. P57-1 (V17 0 of 3, Va 2 of 3, Vb and Vc 3 of 3) and P89-2 (V17 1 of 3, Va, Vb, and Vc 3 of 3) also improved.
+- No variant found the targets P89-3, P96-1, P57-4, P57-5, and P96-6.
+- V16 found defects that the other variants missed or found less often. P83-2: V16 3 of 3, the other variants 0 of 3. P89-1: V16 2 of 3, Vb and Vc 1 of 3, V17 and Va 0 of 3.
+- No candidate was revised on dev. The targets that no variant found need deeper checks of external tools, and the dev check could not attribute them to one change.
+
+### Held-out cases
+
+- Cases: the 16 held-out plan cases. These are the 14 held-out plan cases of plan #100 and the new cases `plan-100-r1` and `plan-100-r5`.
+- Each variant ran 5 times on each case. The runs of all arms were mixed in one dispatch queue.
+- Model: `openai-codex/gpt-6.1-sol`. Effort: `xhigh`. Service tier: `default`.
+- An interval row gives the 90% paired bootstrap interval of the difference from V17-xhigh. A script copied the tables from the held-out report.
+
+#### Decision
+
+| Measure | V16-xhigh | V17-xhigh | Va-xhigh | Vb-xhigh | Vc-xhigh |
+|---|---:|---:|---:|---:|---:|
+| Runs | 78 | 80 | 80 | 80 | 80 |
+| Cases | 16 | 16 | 16 | 16 | 16 |
+| Known found per run | 1.04 | 0.89 | 1.04 | 1.15 | 1.11 |
+| Escaped per run | 0.91 | 1.05 | 0.90 | 0.79 | 0.82 |
+| Escaped per 50 known | 23.36 | 27.10 | 23.23 | 20.32 | 21.29 |
+| Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
+| Effort | xhigh | xhigh | xhigh | xhigh | xhigh |
+| Served tier | default | default | default | default | default |
+| Cases shared with V17-xhigh | 16 | - | 16 | 16 | 16 |
+| Round 1 recall difference from V17-xhigh, 90% interval | [0.03, 0.13] | - | [0.02, 0.12] | [0.06, 0.19] | [0.04, 0.17] |
+| Escaped per 50 known difference from V17-xhigh, 90% interval | [-6.25, -1.43] | - | [-6.05, -0.95] | [-9.74, -3.18] | [-8.60, -1.92] |
+| Loop seconds difference from V17-xhigh, 90% interval | - | - | - | - | - |
+
+#### Single reviews
+
+| Measure | V16-xhigh | V17-xhigh | Va-xhigh | Vb-xhigh | Vc-xhigh |
+|---|---:|---:|---:|---:|---:|
+| Runs | 78 | 80 | 80 | 80 | 80 |
+| Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
+| Effort | xhigh | xhigh | xhigh | xhigh | xhigh |
+| Served tier | default | default | default | default | default |
+| Seconds median | 183.1 | 229.8 | 245.7 | 264.5 | 280.2 |
+| Seconds min | 82.5 | 63.7 | 70.2 | 91.4 | 99.0 |
+| Seconds max | 351.8 | 548.8 | 529.5 | 497.6 | 674.3 |
+| Known found per run | 1.04 | 0.89 | 1.04 | 1.15 | 1.11 |
+| Escaped per run | 0.91 | 1.05 | 0.90 | 0.79 | 0.82 |
+| Valid extras per run | 0.78 | 0.99 | 1.26 | 1.54 | 1.59 |
+| Wrong per run | 0.08 | 0.10 | 0.06 | 0.33 | 0.49 |
+| Unjudged per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| Unknown ratings per run | 0.01 | 0.00 | 0.00 | 0.00 | 0.03 |
+| Unknown pairs per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+| Tokens median | 615571 | 568083 | 587798 | 633236 | 759048 |
+
+Invalid runs: 2 of 80 V16 runs. Their reviewers read the omp harness documentation through `omp://`, on `plan-74-r1` (run 4) and `plan-98-r1` (run 4). The tables leave out these runs, so V16 has 78 runs.
+
+The second judge agreed with 278 of 289 answers (0.96).
+
+### Decision under the rule (plan #109)
+
+The rule of decision 5 has three conditions against V17: fewer escaped known defects per 50 known than V17 (27.10); an escaped-per-50 interval upper bound below 2 and a round-1 recall interval lower bound above -0.05; and at most 0.10 more wrong findings per run than V17 (0.10), thus at most 0.20. The values come from the held-out tables above.
+
+| Variant | Escaped per 50 known | Escaped-per-50 interval upper bound | Round 1 recall interval lower bound | Wrong per run | Passes |
+|---|---:|---|---|---|---|
+| V16 | 23.36 | -1.43, below 2 | 0.03, above -0.05 | 0.08, at most 0.20 | Yes |
+| V17 | 27.10 | reference | reference | 0.10, reference | Reference |
+| Va | 23.23 | -0.95, below 2 | 0.02, above -0.05 | 0.06, at most 0.20 | Yes |
+| Vb | 20.32 | -3.18, below 2 | 0.06, above -0.05 | 0.33, not at most 0.20 | No |
+| Vc | 21.29 | -1.92, below 2 | 0.04, above -0.05 | 0.49, not at most 0.20 | No |
+
+- V16 and Va pass all three conditions.
+- Vb fails on wrong findings (0.33 per run), although it lets the fewest known defects escape (20.32 per 50 known).
+- Vc fails on wrong findings (0.49 per run).
+- Of V16 and Va, Va has fewer escaped defects (23.23 against 23.36). Thus candidate A wins and replaces the 0.17.1 plan reviewer.
+- Va against V16 shows no proven difference: round-1 recall difference 90% interval [-0.08, 0.06], escaped per 50 known difference 90% interval [-3.13, 3.80] (held-out report of Va against V16). Thus the gain over 0.17.1 comes from the one change group of candidate A: a recorded decision settles the choice but not its premises or its effects, and the repository instructions and the plan contract rank above the decisions of the plan.
+
+### Observations
+
+- The lighter finding bar of candidates B and C found the most known defects (1.15 and 1.11 per run), but it also gave 3 to 5 times the wrong findings of V17 (0.33 and 0.49 against 0.10 per run).
+- The time per review rises from V16 to Vc. Seconds median: V16 183.1, V17 229.8, Va 245.7, Vb 264.5, Vc 280.2.
+- V17 had the lowest recall of the five variants on the held-out cases (0.89 known found per run), as the 0.17.1 plan prompt did against the 0.16.0 prompt in plan #100 step 6.
+- Tokens median: V16 615571, V17 568083, Va 587798, Vb 633236, Vc 759048. Va used more tokens than V17 and fewer than V16. Vc used the most.
+- The dev check pointed the same way: on dev, Va, Vb, and Vc also had fewer escaped defects than V17, with intervals that exclude zero.
