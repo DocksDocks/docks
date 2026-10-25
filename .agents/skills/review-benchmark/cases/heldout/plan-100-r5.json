@@ -8,7 +8,6 @@
   "previous_body": "plan-100-r5-previous-body.md",
   "plan": "plan-100-r5-body.md",
   "previous_review": "plan-100-r5-previous-review.md",
-  "external": ["plan", "previous_body"],
   "body_revision": "UCE_lAHODGt7ls8AAAABZdL0lc8AAAABEcz3Rw",
   "previous_body_revision": "UCE_lAHODGt7ls8AAAABZdL0lc8AAAABEcygNw",
   "show_benchmark": true
