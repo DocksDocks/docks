@@ -570,7 +570,11 @@ Each cell gives the number of runs, out of 3, that found the known defect. A scr
 - Cases: the 16 held-out plan cases. These are the 14 held-out plan cases of plan #100 and the new cases `plan-100-r1` and `plan-100-r5`.
 - Each variant ran 5 times on each case. The runs of all arms were mixed in one dispatch queue.
 - Model: `openai-codex/gpt-6.1-sol`. Effort: `xhigh`. Service tier: `default`.
-- An interval row gives the 90% paired bootstrap interval of the difference from V17-xhigh. A script copied the tables from the held-out report.
+- An interval row gives the 90% paired bootstrap interval of the difference from V17-xhigh. A script copied the tables from the final held-out report. That report has the overlay runs below in place of the first runs on 5 cases.
+
+Contract overlay: code review round 1 found that the benchmark prompt sent every reviewer to the plan contract of the case's snapshot. Thus the first held-out runs measured candidates A, B, and C without their change to the contract sentence "Reviewers treat a recorded decision as settled". All 104 runs of each variant (24 dev runs and 80 held-out runs) read the snapshot contract. The sentence is in the snapshot contract of 5 of the 16 cases: `plan-100-r1`, `plan-100-r5`, `plan-98-r1`, `plan-98-r4`, and `plan-98-r6`. On the other 11 cases the sentence is absent, so nothing counteracted the candidates there. On those 5 cases, all five variants ran again in one batch (5 runs each). Each candidate's contract change was applied to a copy of the snapshot contract, and the prompt of the candidate named that copy. The change applied in every run. All 25 re-run transcripts of each candidate read their copy, and 20 of 25 also read the snapshot contract. Decision 5 was applied again, unchanged, with these runs in place of the first runs on the 5 cases.
+
+The first runs gave these values. Escaped per 50 known: V16 23.36, V17 27.10, Va 23.23, Vb 20.32, Vc 21.29. Wrong per run: 0.08, 0.10, 0.06, 0.33, 0.49. Under decision 5 they gave the same decision as the final runs.
 
 #### Decision
 
@@ -578,15 +582,15 @@ Each cell gives the number of runs, out of 3, that found the known defect. A scr
 |---|---:|---:|---:|---:|---:|
 | Runs | 78 | 80 | 80 | 80 | 80 |
 | Cases | 16 | 16 | 16 | 16 | 16 |
-| Known found per run | 1.04 | 0.89 | 1.04 | 1.15 | 1.11 |
-| Escaped per run | 0.91 | 1.05 | 0.90 | 0.79 | 0.82 |
-| Escaped per 50 known | 23.36 | 27.10 | 23.23 | 20.32 | 21.29 |
+| Known found per run | 0.97 | 0.82 | 1.06 | 1.13 | 1.14 |
+| Escaped per run | 0.97 | 1.11 | 0.88 | 0.81 | 0.80 |
+| Escaped per 50 known | 25.00 | 28.71 | 22.58 | 20.97 | 20.65 |
 | Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
 | Effort | xhigh | xhigh | xhigh | xhigh | xhigh |
 | Served tier | default | default | default | default | default |
 | Cases shared with V17-xhigh | 16 | - | 16 | 16 | 16 |
-| Round 1 recall difference from V17-xhigh, 90% interval | [0.03, 0.13] | - | [0.02, 0.12] | [0.06, 0.19] | [0.04, 0.17] |
-| Escaped per 50 known difference from V17-xhigh, 90% interval | [-6.25, -1.43] | - | [-6.05, -0.95] | [-9.74, -3.18] | [-8.60, -1.92] |
+| Round 1 recall difference from V17-xhigh, 90% interval | [0.02, 0.13] | - | [0.05, 0.19] | [0.08, 0.23] | [0.08, 0.25] |
+| Escaped per 50 known difference from V17-xhigh, 90% interval | [-6.58, -1.07] | - | [-9.43, -2.50] | [-11.29, -3.87] | [-12.33, -3.81] |
 | Loop seconds difference from V17-xhigh, 90% interval | - | - | - | - | - |
 
 #### Single reviews
@@ -597,44 +601,44 @@ Each cell gives the number of runs, out of 3, that found the known defect. A scr
 | Model | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol | openai-codex/gpt-6.1-sol |
 | Effort | xhigh | xhigh | xhigh | xhigh | xhigh |
 | Served tier | default | default | default | default | default |
-| Seconds median | 183.1 | 229.8 | 245.7 | 264.5 | 280.2 |
+| Seconds median | 187.9 | 232.6 | 259.4 | 271.4 | 315.4 |
 | Seconds min | 82.5 | 63.7 | 70.2 | 91.4 | 99.0 |
-| Seconds max | 351.8 | 548.8 | 529.5 | 497.6 | 674.3 |
-| Known found per run | 1.04 | 0.89 | 1.04 | 1.15 | 1.11 |
-| Escaped per run | 0.91 | 1.05 | 0.90 | 0.79 | 0.82 |
-| Valid extras per run | 0.78 | 0.99 | 1.26 | 1.54 | 1.59 |
-| Wrong per run | 0.08 | 0.10 | 0.06 | 0.33 | 0.49 |
+| Seconds max | 413.7 | 541.8 | 539.3 | 681.7 | 864.0 |
+| Known found per run | 0.97 | 0.82 | 1.06 | 1.13 | 1.14 |
+| Escaped per run | 0.97 | 1.11 | 0.88 | 0.81 | 0.80 |
+| Valid extras per run | 0.76 | 0.96 | 1.21 | 1.52 | 1.51 |
+| Wrong per run | 0.12 | 0.10 | 0.16 | 0.38 | 0.47 |
 | Unjudged per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
-| Unknown ratings per run | 0.01 | 0.00 | 0.00 | 0.00 | 0.03 |
+| Unknown ratings per run | 0.00 | 0.00 | 0.00 | 0.01 | 0.01 |
 | Unknown pairs per run | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
-| Tokens median | 615571 | 568083 | 587798 | 633236 | 759048 |
+| Tokens median | 624846 | 527959 | 594345 | 639642 | 801540 |
 
 Invalid runs: 2 of 80 V16 runs. Their reviewers read the omp harness documentation through `omp://`, on `plan-74-r1` (run 4) and `plan-98-r1` (run 4). The tables leave out these runs, so V16 has 78 runs.
 
-The second judge agreed with 278 of 289 answers (0.96).
+The second judge agreed with 277 of 289 answers (0.96).
 
 ### Decision under the rule (plan #109)
 
-The rule of decision 5 has three conditions against V17: fewer escaped known defects per 50 known than V17 (27.10); an escaped-per-50 interval upper bound below 2 and a round-1 recall interval lower bound above -0.05; and at most 0.10 more wrong findings per run than V17 (0.10), thus at most 0.20. The values come from the held-out tables above.
+The rule of decision 5 has three conditions against V17: fewer escaped known defects per 50 known than V17 (28.71); an escaped-per-50 interval upper bound below 2 and a round-1 recall interval lower bound above -0.05; and at most 0.10 more wrong findings per run than V17 (0.10), thus at most 0.20. The values come from the final held-out tables above.
 
 | Variant | Escaped per 50 known | Escaped-per-50 interval upper bound | Round 1 recall interval lower bound | Wrong per run | Passes |
 |---|---:|---|---|---|---|
-| V16 | 23.36 | -1.43, below 2 | 0.03, above -0.05 | 0.08, at most 0.20 | Yes |
-| V17 | 27.10 | reference | reference | 0.10, reference | Reference |
-| Va | 23.23 | -0.95, below 2 | 0.02, above -0.05 | 0.06, at most 0.20 | Yes |
-| Vb | 20.32 | -3.18, below 2 | 0.06, above -0.05 | 0.33, not at most 0.20 | No |
-| Vc | 21.29 | -1.92, below 2 | 0.04, above -0.05 | 0.49, not at most 0.20 | No |
+| V16 | 25.00 | -1.07, below 2 | 0.02, above -0.05 | 0.12, at most 0.20 | Yes |
+| V17 | 28.71 | reference | reference | 0.10, reference | Reference |
+| Va | 22.58 | -2.50, below 2 | 0.05, above -0.05 | 0.16, at most 0.20 | Yes |
+| Vb | 20.97 | -3.87, below 2 | 0.08, above -0.05 | 0.38, not at most 0.20 | No |
+| Vc | 20.65 | -3.81, below 2 | 0.08, above -0.05 | 0.47, not at most 0.20 | No |
 
 - V16 and Va pass all three conditions.
-- Vb fails on wrong findings (0.33 per run), although it lets the fewest known defects escape (20.32 per 50 known).
-- Vc fails on wrong findings (0.49 per run).
-- Of V16 and Va, Va has fewer escaped defects (23.23 against 23.36). Thus candidate A wins and replaces the 0.17.1 plan reviewer.
-- Va against V16 shows no proven difference: round-1 recall difference 90% interval [-0.08, 0.06], escaped per 50 known difference 90% interval [-3.13, 3.80] (held-out report of Va against V16). Thus the gain over 0.17.1 comes from the one change group of candidate A: a recorded decision settles the choice but not its premises or its effects, and the repository instructions and the plan contract rank above the decisions of the plan.
+- Vb fails on wrong findings (0.38 per run), although it lets few known defects escape (20.97 per 50 known).
+- Vc fails on wrong findings (0.47 per run), although it lets the fewest known defects escape (20.65 per 50 known).
+- Of V16 and Va, Va has fewer escaped defects (22.58 against 25.00). Thus candidate A wins and replaces the 0.17.1 plan reviewer, as in the first runs.
+- Va against V16 shows no proven difference: round-1 recall difference 90% interval [-0.00, 0.09], escaped per 50 known difference 90% interval [-4.32, 0.11] (held-out report of Va against V16, with the overlay runs). Thus the gain over 0.17.1 comes from the one change group of candidate A: a recorded decision settles the choice but not its premises or its effects, and the repository instructions and the plan contract rank above the decisions of the plan.
 
 ### Observations
 
-- The lighter finding bar of candidates B and C found the most known defects (1.15 and 1.11 per run), but it also gave 3 to 5 times the wrong findings of V17 (0.33 and 0.49 against 0.10 per run).
-- The time per review rises from V16 to Vc. Seconds median: V16 183.1, V17 229.8, Va 245.7, Vb 264.5, Vc 280.2.
-- V17 had the lowest recall of the five variants on the held-out cases (0.89 known found per run), as the 0.17.1 plan prompt did against the 0.16.0 prompt in plan #100 step 6.
-- Tokens median: V16 615571, V17 568083, Va 587798, Vb 633236, Vc 759048. Va used more tokens than V17 and fewer than V16. Vc used the most.
+- The lighter finding bar of candidates B and C found the most known defects (1.13 and 1.14 per run), but it also gave 3 to 5 times the wrong findings of V17 (0.38 and 0.47 against 0.10 per run).
+- The time per review rises from V16 to Vc. Seconds median: V16 187.9, V17 232.6, Va 259.4, Vb 271.4, Vc 315.4.
+- V17 had the lowest recall of the five variants on the held-out cases (0.82 known found per run), as the 0.17.1 plan prompt did against the 0.16.0 prompt in plan #100 step 6.
+- Tokens median: V16 624846, V17 527959, Va 594345, Vb 639642, Vc 801540. Va used more tokens than V17 and fewer than V16. Vc used the most.
 - The dev check pointed the same way: on dev, Va, Vb, and Vc also had fewer escaped defects than V17, with intervals that exclude zero.
