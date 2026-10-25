@@ -655,6 +655,7 @@ The rule of decision 5 has three conditions against V17: fewer escaped known def
   - `Vd1`: Ac plus the parts of candidate B that keep A's precision, plus three safeguards (plan #111 decision 2). Ref `bench-111/cand-d1`.
   - `Vd2`: D1 plus the external-behavior check: for each external tool, command, library, or API that a step relies on, name the behavior that the step needs, read the official page, and report a contradiction or a gap. Ref `bench-111/cand-d2`.
 - One run is a single review.
+- The diff of each variant against the `reviewer_tools` commit `b040c3bd` is kept as the record in `variants/plan-111-cand-ac.patch`, `plan-111-cand-d1.patch`, and `plan-111-cand-d2.patch`, because the local refs are removed after the merge.
 
 ### Decision rule (plan #111, fixed before the held-out runs)
 

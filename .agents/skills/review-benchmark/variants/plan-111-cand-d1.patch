@@ -1,0 +1,221 @@
+diff --git a/plugins/plan-lifecycle/agents/plan-reviewer.md b/plugins/plan-lifecycle/agents/plan-reviewer.md
+index ea403f5d..ad59f775 100644
+--- a/plugins/plan-lifecycle/agents/plan-reviewer.md
++++ b/plugins/plan-lifecycle/agents/plan-reviewer.md
+@@ -62,16 +62,20 @@ require, cosmetic work, or restructuring for its own sake.
+      without confirmation.
+ 8. For each finding, cite the plan line and the repository file or official
+    URL that shows the defect, and give the scenario with the expected and the
+-   actual result. Label an inference as an inference. Coalesce symptoms with
+-   one root cause into one finding.
+-9. Select exactly one verdict:
+-   - `pass`: No finding qualifies.
+-   - `repair`: Every finding is resolvable from repository facts.
+-   - `blocked`: At least one finding requires a user decision. When Goal
+-     contains the line `Yolo: the user delegated every decision except the merge to the agent.`,
+-     the manager owns those decisions: return `repair`, not `blocked`, and
+-     name the option that the evidence supports.
+-10. Return one markdown review block. The manager posts the whole block as one
++   actual result. Label an inference as an inference, and name the fact or
++   source that it starts from and the step or check that fails. Coalesce
++   symptoms with one root cause into one finding.
++9. End each finding with its defect class, for example
++   `class: path missing from a Files cell`. List every instance of the class in
++   the plan in that finding.
++10. Select exactly one verdict:
++    - `pass`: No finding qualifies.
++    - `repair`: Every finding is resolvable from repository facts.
++    - `blocked`: At least one finding requires a user decision. When Goal
++      contains the line `Yolo: the user delegated every decision except the merge to the agent.`,
++      the manager owns those decisions: return `repair`, not `blocked`, and
++      name the option that the evidence supports.
++11. Return one markdown review block. The manager posts the whole block as one
+     issue comment. Do not repair the plan.
+ 
+ ## Output Format
+@@ -83,7 +87,7 @@ Return exactly one markdown block with no surrounding commentary, in this shape:
+ 
+ Plan-review: <pass|repair|blocked>
+ 
+-- research_gap - <locator> - <defect> - <fix>
++- research_gap - <locator> - <defect> - <fix> - class: <defect class>
+ ```
+ 
+ - Use the round number that the manager supplies.
+@@ -93,7 +97,8 @@ Plan-review: <pass|repair|blocked>
+ - Write the verdict line as plain text on its own line. Do not add bold, a list
+   marker, a code span, or other words.
+ - Start each finding line with `- goal_fit`, `- research_gap`, or
+-  `- security_risk`. Then give the locator, the defect, and the fix.
++  `- security_risk`. Then give the locator, the defect, the fix, and the class,
++  separated by ` - `.
+ - Write `None.` in place of findings when the verdict is pass.
+ - The manager posts the whole block unchanged as one issue comment. The plan
+   helper reads the verdict from these lines.
+@@ -107,6 +112,8 @@ Plan-review: <pass|repair|blocked>
+ - Confirm that each web claim comes from current official documentation.
+ - Distinguish an absent source from a source that contradicts the plan.
+ - Drop any observation that does not meet the finding bar.
++- Drop a finding whose evidence you cannot point to: the plan line, and the
++  repository file and line or the official URL that you read in this review.
+ - In a `delta` round, confirm each `resolved` mark from the current export,
+   not from the manager's summary.
+ - Confirm that a proposed fix addresses the defect without adding a cosmetic
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
+index 4d8af398..4e645d28 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
+@@ -5,7 +5,7 @@ user-invocable: false
+ metadata:
+   pattern: tool-wrapper
+   updated: "2026-10-25"
+-  content_hash: "bf971c09f585523ec6508d8705423985b3c4f86e369331b1dbb4f6e3fe53bc08"
++  content_hash: "3cc8e880515da469e512569d355d9eb9611ba087d8f1b1bde47c5a213222a352"
+ ---
+ 
+ # Plan Reviewer
+@@ -66,12 +66,18 @@ path, unless Open questions record user approval.
+ 
+ A finding qualifies only when all of these hold:
+ 
+-- It changes whether the Steps achieve the Goal or whether Research holds, or
+-  it is a security risk.
++- It is load-bearing. Because of it, a step does not achieve its part of the
++  Goal; an Acceptance or Done-when check cannot run as written, or passes when
++  the step is wrong; a Research claim that a step uses is false, or the source
++  that it cites does not state it; or a security risk exists.
+ - It is one discrete defect, and the manager can act on it.
+ - It is in the plan under review, or the plan relies on it.
+-- It does not rest on an unstated assumption. Label an inference as an
+-  inference.
++- It rests on evidence that you read in this review: a plan line (also the
++  source text that the plan quotes), a repository file and line, or an official
++  documentation URL. An inference qualifies when it is labeled as an inference,
++  names the fact or source that it starts from, and names the step, Acceptance
++  check, repository instruction, or contract rule that fails when the inference
++  holds. An inference from general knowledge alone does not qualify.
+ - It shows the effect with a scenario: what the Goal or a check expects, and
+   what the plan as written produces.
+ - It does not argue again for an option that the plan rejected while the
+@@ -83,6 +89,9 @@ A finding qualifies only when all of these hold:
+   conflicts with a recorded decision is a `goal_fit` finding that cites both
+   lines.
+ 
++Write the shortest scenario that shows the effect. Do not drop a load-bearing
++finding because its scenario is long.
++
+ List every qualifying finding in one pass. Do not stop at the first finding,
+ because each missed finding costs another round. There is no limit on the
+ number of findings. An empty review is a valid result: a plan that achieves
+@@ -100,6 +109,15 @@ its Goal and whose Research holds passes.
+ - Check library, framework, runtime, and API claims against current official
+   documentation. Use web search only to find the official source.
+ - Tell an absent source apart from a source that contradicts the plan.
++- When the plan gives no source for a load-bearing claim, check the claim in
++  the repository or the official documentation. Report it when the check shows
++  that it is false, or that the official source does not guarantee it and the
++  step fails without it. Do not report a claim that your check confirms.
++- Before you report that a repository instruction requires a change, a file,
++  or an Acceptance row, quote the condition of the instruction (the paths, the
++  kind of change, or the workflow step that it names) and show that the plan
++  meets it. An instruction for another workflow, such as a release step, or for
++  another kind of change does not apply.
+ - When one root cause has several symptoms, or one defect repeats in several
+   places, report one finding that names every locator and gives one fix.
+ 
+@@ -113,6 +131,14 @@ its Goal and whose Research holds passes.
+ 
+ When the Goal contains the line `Yolo: the user delegated every decision except the merge to the agent.`, the manager owns those decisions. Return `repair`, not `blocked`, and name the option that the evidence supports.
+ 
++## Defect classes
++
++End each finding with its defect class, for example
++`class: path missing from a Files cell`. Name the class by the mistake, not by
++the plan section. Look for other instances of the class in the plan, and list
++the locator of each instance in the same finding. The manager repairs every
++instance of a named class in one repair, so a complete list saves a round.
++
+ ## Output Format
+ 
+ Return exactly one markdown block with no surrounding commentary, in this shape:
+@@ -122,7 +148,7 @@ Return exactly one markdown block with no surrounding commentary, in this shape:
+ 
+ Plan-review: <pass|repair|blocked>
+ 
+-- research_gap - <locator> - <defect> - <fix>
++- research_gap - <locator> - <defect> - <fix> - class: <defect class>
+ ```
+ 
+ - Use the round number that the manager supplies.
+@@ -132,7 +158,8 @@ Plan-review: <pass|repair|blocked>
+ - Write the verdict line as plain text on its own line. Do not add bold, a list
+   marker, a code span, or other words.
+ - Start each finding line with `- goal_fit`, `- research_gap`, or
+-  `- security_risk`. Then give the locator, the defect, and the fix.
++  `- security_risk`. Then give the locator, the defect, the fix, and the class,
++  separated by ` - `.
+ - Write `None.` in place of findings when the verdict is pass.
+ - The manager posts the whole block unchanged as one issue comment. The plan
+   helper reads the verdict from these lines.
+@@ -141,19 +168,25 @@ Plan-review: <pass|repair|blocked>
+ 
+ ```text
+ BAD: - research_gap - Research - The claim about retries can be wrong - Verify it.
+-GOOD: - research_gap - Research, "the client retries twice on 503" - The official client documentation (<URL>) says that the client does not retry. Step s2 relies on the retry, so one 503 fails the sync that Acceptance A1 expects to pass - Add a retry to step s2, or remove the claim and add the 503 case to Acceptance.
++GOOD: - research_gap - Research, "the client retries twice on 503" - The official client documentation (<URL>) says that the client does not retry. Step s2 relies on the retry, so one 503 fails the sync that Acceptance A1 expects to pass - Add a retry to step s2, or remove the claim and add the 503 case to Acceptance. - class: Research claim that the official documentation contradicts
++GOOD: - research_gap - Research, "the API returns items in creation order" - Neither the repository nor the official documentation (<URL>) states an order, and step s4 takes the first item as the newest. Inference: with another order, s4 picks the wrong item - Cite a source for the order, or sort by creation time in s4. - class: load-bearing claim with no source
+ 
+ BAD: - goal_fit - Steps - Step 3 misses a file - Add it.
+-GOOD: - goal_fit - Steps s3, Files - Step s3 renames the build script, but the CI workflow calls the old name and no Files cell lists the workflow, so the next CI run fails - Add the workflow file to the Files cell of s3, and add an Acceptance row that runs the CI build command.
++GOOD: - goal_fit - Steps s3, Files - Step s3 renames the build script, but the CI workflow calls the old name and no Files cell lists the workflow, so the next CI run fails - Add the workflow file to the Files cell of s3, and add an Acceptance row that runs the CI build command. - class: path missing from a Files cell
+ ```
+ 
+ ## Verification
+ 
+ Before you return, re-read the Goal, Research, Steps, Acceptance, and Do not
+-touch sections. Re-read each cited plan line and each repository locator. Drop
+-each finding that fails the finding bar, and merge duplicates. Confirm that the
+-verdict matches the findings, that the output is one block, and that repository
+-and external state are unchanged.
++touch sections. Re-read each cited plan line and each repository locator. For
++each finding, point to its evidence: the plan line, and the repository file and
++line or the official URL that you read in this review. Drop a finding when you
++cannot point to that evidence, when an inference does not name its starting
++fact and the step or check that fails, or when its effect depends on external
++state that no input shows and the plan does not state. Drop each finding that
++fails the finding bar, and merge duplicates. Confirm that the verdict matches
++the findings, that the output is one block, and that repository and external
++state are unchanged.
+ 
+ ## Report a problem with this skill
+ 
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+index ddb707f0..c44d1115 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+@@ -43,8 +43,10 @@ the kind that fits the defect.
+   matches current official documentation. Check the semantics too: ordering,
+   defaults, parameter handling, error behavior, and version limits.
+   (`research_gap`)
+-- No unchecked assumption carries a step. A step that relies on a fact that
+-  Research does not establish is a finding. (`research_gap`)
++- No unchecked assumption carries a step. When a step relies on a fact that
++  Research does not establish, check the fact. It is a finding when the check
++  shows that it is false, or true for only some of the cases that the step
++  handles. (`research_gap`)
+ 
+ ## Whole plan
+ 
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/delta.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/delta.md
+index 413f128d..5d8e34b5 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/delta.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/delta.md
+@@ -44,7 +44,7 @@ the new findings count toward it.
+ 
+ Plan-review: <pass|repair|blocked>
+ 
+-- goal_fit - <locator> - <defect> - <fix>
++- goal_fit - <locator> - <defect> - <fix> - class: <defect class>
+ 
+ Previous findings:
+ 
