@@ -107,7 +107,8 @@ const LINE_RANGES = `${LINE_RANGE}(?:,:?${LINE_RANGE})*`;
 const OMP_SELECTOR = new RegExp(`:(?:raw|img|conflicts|${LINE_RANGES}(?::raw)?|raw:${LINE_RANGES})$`, 'i');
 const GLOB_CHARACTER = /[*?[{]/;
 // Hosts whose paths start with the owner and the name of a repository.
-const REPOSITORY_HOSTS = new Set(['github.com', 'www.github.com', 'raw.githubusercontent.com']);
+const GITHUB_WEB_HOSTS = new Set(['github.com', 'www.github.com']);
+const REPOSITORY_HOSTS = new Set([...GITHUB_WEB_HOSTS, 'raw.githubusercontent.com']);
 // The owner and the names of the benchmark repository, in lower case.
 const BENCHMARK_REPOSITORY = { owner: 'docksdocks', names: new Set(['docks', 'docks.git']) };
 // An invalid-run reason names this many outside targets, then the count of the others.
@@ -1698,14 +1699,20 @@ export function transcriptFacts(text, source = 'transcript') {
 
 // A web search query targets the benchmark repository when, outside its `-site:` exclusions, it names the repository,
 // or names the owner without a repository and no exclusion removes the repository or its owner (see OWNER_MENTION).
-// A dot that ends a sentence is not part of a repository name.
+// An exclusion removes them only when it covers the whole repository or the whole owner on GitHub: an exclusion of
+// part of the repository, or of another site, leaves the repository in the search. A dot that ends a sentence is not
+// part of a repository name.
 function targetsBenchmark(query) {
   const repositoryName = (name) => (name === undefined ? undefined : name.replace(/\.+$/, '').toLowerCase());
   const mentions = (text) => [...text.matchAll(OWNER_MENTION)].map(([, name]) => repositoryName(name));
   const benchmark = (name) => BENCHMARK_REPOSITORY.names.has(name);
-  const excluded = [...query.matchAll(SITE_EXCLUSION)].some(([, site]) =>
-    mentions(site).some((name) => name === undefined || name === '' || benchmark(name)),
-  );
+  const coversRepository = (site) => {
+    const [host, ...path] = site.replace(/^https?:\/\//i, '').split('/');
+    const parts = path.filter((part) => part !== '' && part !== '*').map((part) => part.toLowerCase());
+    if (!GITHUB_WEB_HOSTS.has(host.toLowerCase()) || parts[0] !== BENCHMARK_REPOSITORY.owner) return false;
+    return parts.length === 1 || (parts.length === 2 && benchmark(parts[1]));
+  };
+  const excluded = [...query.matchAll(SITE_EXCLUSION)].some(([, site]) => coversRepository(site));
   const kept = mentions(query.replace(SITE_EXCLUSION, ' '));
   return kept.some((name) => (name === undefined || name === '' ? !excluded : benchmark(name)));
 }

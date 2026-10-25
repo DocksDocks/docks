@@ -5072,6 +5072,9 @@ test('readScope records each web search query, and a query that targets the benc
     'DocksDocks/docks sync lock -site:github.com/DocksDocks/docks',
     // A dot that ends a sentence is not part of the repository name.
     'see DocksDocks/docks.',
+    // An exclusion of part of the repository, or of another site, does not remove the repository from the search.
+    'DocksDocks "docks-kit" -site:github.com/DocksDocks/docks/issues',
+    'DocksDocks docks-kit -site:deepwiki.com/DocksDocks/docks',
   ];
   // Another repository of the owner is not the benchmark repository, and `-site:` excludes the benchmark repository.
   const other = [
