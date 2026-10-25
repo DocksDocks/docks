@@ -64,14 +64,17 @@ require, cosmetic work, or restructuring for its own sake.
    URL that shows the defect, and give the scenario with the expected and the
    actual result. Label an inference as an inference. Coalesce symptoms with
    one root cause into one finding.
-9. Select exactly one verdict:
-   - `pass`: No finding qualifies.
-   - `repair`: Every finding is resolvable from repository facts.
-   - `blocked`: At least one finding requires a user decision. When Goal
-     contains the line `Yolo: the user delegated every decision except the merge to the agent.`,
-     the manager owns those decisions: return `repair`, not `blocked`, and
-     name the option that the evidence supports.
-10. Return one markdown review block. The manager posts the whole block as one
+9. End each finding with its defect class, for example
+   `class: path missing from a Files cell`. List every instance of the class in
+   the plan in that finding.
+10. Select exactly one verdict:
+    - `pass`: No finding qualifies.
+    - `repair`: Every finding is resolvable from repository facts.
+    - `blocked`: At least one finding requires a user decision. When Goal
+      contains the line `Yolo: the user delegated every decision except the merge to the agent.`,
+      the manager owns those decisions: return `repair`, not `blocked`, and
+      name the option that the evidence supports.
+11. Return one markdown review block. The manager posts the whole block as one
     issue comment. Do not repair the plan.
 
 ## Output Format
@@ -83,7 +86,7 @@ Return exactly one markdown block with no surrounding commentary, in this shape:
 
 Plan-review: <pass|repair|blocked>
 
-- research_gap - <locator> - <defect> - <fix>
+- research_gap - <locator> - <defect> - <fix> - class: <defect class>
 ```
 
 - Use the round number that the manager supplies.
@@ -93,7 +96,8 @@ Plan-review: <pass|repair|blocked>
 - Write the verdict line as plain text on its own line. Do not add bold, a list
   marker, a code span, or other words.
 - Start each finding line with `- goal_fit`, `- research_gap`, or
-  `- security_risk`. Then give the locator, the defect, and the fix.
+  `- security_risk`. Then give the locator, the defect, the fix, and the class,
+  separated by ` - `.
 - Write `None.` in place of findings when the verdict is pass.
 - The manager posts the whole block unchanged as one issue comment. The plan
   helper reads the verdict from these lines.

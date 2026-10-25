@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-25"
-  content_hash: "bf971c09f585523ec6508d8705423985b3c4f86e369331b1dbb4f6e3fe53bc08"
+  content_hash: "4afeb29119dd028ad04f0d125b6dd2964183a1420e7c492836cdcb3c1f112ff8"
 ---
 
 # Plan Reviewer
@@ -113,6 +113,14 @@ its Goal and whose Research holds passes.
 
 When the Goal contains the line `Yolo: the user delegated every decision except the merge to the agent.`, the manager owns those decisions. Return `repair`, not `blocked`, and name the option that the evidence supports.
 
+## Defect classes
+
+End each finding with its defect class, for example
+`class: path missing from a Files cell`. Name the class by the mistake, not by
+the plan section. Look for other instances of the class in the plan, and list
+the locator of each instance in the same finding. The manager repairs every
+instance of a named class in one repair, so a complete list saves a round.
+
 ## Output Format
 
 Return exactly one markdown block with no surrounding commentary, in this shape:
@@ -122,7 +130,7 @@ Return exactly one markdown block with no surrounding commentary, in this shape:
 
 Plan-review: <pass|repair|blocked>
 
-- research_gap - <locator> - <defect> - <fix>
+- research_gap - <locator> - <defect> - <fix> - class: <defect class>
 ```
 
 - Use the round number that the manager supplies.
@@ -132,7 +140,8 @@ Plan-review: <pass|repair|blocked>
 - Write the verdict line as plain text on its own line. Do not add bold, a list
   marker, a code span, or other words.
 - Start each finding line with `- goal_fit`, `- research_gap`, or
-  `- security_risk`. Then give the locator, the defect, and the fix.
+  `- security_risk`. Then give the locator, the defect, the fix, and the class,
+  separated by ` - `.
 - Write `None.` in place of findings when the verdict is pass.
 - The manager posts the whole block unchanged as one issue comment. The plan
   helper reads the verdict from these lines.
@@ -141,10 +150,10 @@ Plan-review: <pass|repair|blocked>
 
 ```text
 BAD: - research_gap - Research - The claim about retries can be wrong - Verify it.
-GOOD: - research_gap - Research, "the client retries twice on 503" - The official client documentation (<URL>) says that the client does not retry. Step s2 relies on the retry, so one 503 fails the sync that Acceptance A1 expects to pass - Add a retry to step s2, or remove the claim and add the 503 case to Acceptance.
+GOOD: - research_gap - Research, "the client retries twice on 503" - The official client documentation (<URL>) says that the client does not retry. Step s2 relies on the retry, so one 503 fails the sync that Acceptance A1 expects to pass - Add a retry to step s2, or remove the claim and add the 503 case to Acceptance. - class: Research claim that the official documentation contradicts
 
 BAD: - goal_fit - Steps - Step 3 misses a file - Add it.
-GOOD: - goal_fit - Steps s3, Files - Step s3 renames the build script, but the CI workflow calls the old name and no Files cell lists the workflow, so the next CI run fails - Add the workflow file to the Files cell of s3, and add an Acceptance row that runs the CI build command.
+GOOD: - goal_fit - Steps s3, Files - Step s3 renames the build script, but the CI workflow calls the old name and no Files cell lists the workflow, so the next CI run fails - Add the workflow file to the Files cell of s3, and add an Acceptance row that runs the CI build command. - class: path missing from a Files cell
 ```
 
 ## Verification

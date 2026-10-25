@@ -44,7 +44,7 @@ the new findings count toward it.
 
 Plan-review: <pass|repair|blocked>
 
-- goal_fit - <locator> - <defect> - <fix>
+- goal_fit - <locator> - <defect> - <fix> - class: <defect class>
 
 Previous findings:
 
