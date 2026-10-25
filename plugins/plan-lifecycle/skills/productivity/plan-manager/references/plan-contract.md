@@ -173,11 +173,18 @@ A plan re-review after a repair may use the plan `delta` mode when the
 the inputs that the file names. Otherwise each plan round reviews the whole
 export.
 
-A plan pass covers the body that the reviewer read. After `plan=pass`, an edit
-that changes Goal, Research, Steps, Acceptance, or Do not touch needs a new
-plan-review round before you write code that depends on the change. Edits to
-Verification Results or Open questions, and `step` state changes, need no new
-round.
+A plan pass covers the body that the reviewer read. After `plan=pass`, collect
+the edits that change Goal, Research, Steps, Acceptance, or Do not touch.
+Review them together in one plan-review round, in the `delta` mode when the
+plan reviewer offers it, with a plan diff from the export that the pass
+reviewed. Run that round before the first code that depends on an edit, or
+before the next code-review round when that comes first. In recorded plans,
+one round for each edit after a pass was a main cause of extra rounds, and
+most of those rounds found nothing. These edits need no round:
+
+- An edit that only sets the Mode line or adds the delegation line (Yolo runs)
+  that a yolo invocation decides.
+- An edit to Verification Results or Open questions, and a `step` state change.
 
 Record user-only decisions in Open questions. Do not invent approval.
 
@@ -325,7 +332,8 @@ after drafting,
 defaulted Mode, unknown Effect or Status, an unfinished dependency when a step
 moves to in-flight or done, two steps that share a Files path with no Depends
 chain, an `edit` that changes Goal, Research, Steps, Acceptance, or Do not touch
-after a trusted plan pass, and every non-local Effect as an in-session
+after a trusted plan pass (in a Goal that holds the yolo delegation line, the
+Mode line and that line do not count), and every non-local Effect as an in-session
 permission reminder. A machine path
 points into a user or root home, a mount, a named temporary or runtime
 directory, a Windows drive, or a network share. Its advice is

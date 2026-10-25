@@ -723,10 +723,26 @@ function printAdvice(text, status, extra = [], options = {}) {
   if (status !== 'drafting' && !researchFilled(parsePlan(text))) result.advice.push('Research is not filled after drafting.');
   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
 }
-// A plan-review pass covers the body that the reviewer read (#78).
+// A plan-review pass covers the body that the reviewer read (#78). In a yolo plan, the Mode line and the
+// delegation line record what the yolo invocation decided, not reviewed work, so they need no new round (#111).
 const PLANNED_WORK_SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch'];
+const YOLO_DELEGATION_LINE = 'Yolo: the user delegated every decision except the merge to the agent.';
+const isDelegationLine = (line) => line.trim() === YOLO_DELEGATION_LINE;
+// Normalization ends Goal with its one canonical Mode line.
+const goalWork = (goal) =>
+  goal
+    .replace(/(?:^|\n)Mode: [^\n]*$/, '')
+    .split('\n')
+    .filter((line) => !isDelegationLine(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 function plannedWorkChanges(before, after) {
-  return PLANNED_WORK_SECTIONS.filter((name) => before.sections.get(name) !== after.sections.get(name));
+  const yoloGoal = after.sections.get('Goal').split('\n').some(isDelegationLine);
+  return PLANNED_WORK_SECTIONS.filter((name) => {
+    const [was, now] = [before.sections.get(name), after.sections.get(name)];
+    return name === 'Goal' && yoloGoal ? goalWork(was) !== goalWork(now) : was !== now;
+  });
 }
 // Reviewers write Markdown: read review keywords through emphasis, code marks, quotes, and list markers (#49).
 function reviewText(line) {
@@ -942,7 +958,7 @@ function editPlan(args) {
   const changedWork = reviewVerdicts(issue).plan === 'pass' ? plannedWorkChanges(parsed, incomingPlan) : [];
   const rereview = changedWork.length
     ? [
-        `plan review passed before this edit; changed sections: ${changedWork.join(', ')}; run a new plan-review round before code that depends on them`,
+        `plan review passed before this edit; changed sections: ${changedWork.join(', ')}; review all such edits in one plan-review round before code that depends on them or the next code-review round`,
       ]
     : [];
   printAdvice(source, status, rereview);

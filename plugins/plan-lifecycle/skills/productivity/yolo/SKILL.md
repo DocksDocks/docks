@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-10-23"
-  content_hash: "d7516c726d2717ec7b7543afc332aacc872989893eaeab6ea1f0db4ee9e9b7d6"
+  updated: "2026-10-25"
+  content_hash: "4cdf01be6edf7617a8c45efad8e937bd47ccb2757b12b73b205cebb79c9b469f"
 ---
 
 # Yolo
@@ -91,8 +91,9 @@ To adopt a plan:
 3. Replace each Goal or Do not touch line that conflicts with this run, such as
    "leave the pull request open". Record a request correction whose `Asked:`
    part quotes the old line.
-4. When steps 2 or 3 changed the export, publish it with `edit`. A Goal change
-   after `plan=pass` needs a new plan-review round.
+4. When steps 2 or 3 changed the export, publish it with `edit`. After
+   `plan=pass`, a change from step 3 needs a plan-review round, and step 2
+   needs none, as the contract's Phases and review comments says.
 5. Reuse the branch that `gh issue develop <n> --list` shows, or the head branch
    of the open pull request. When neither exists, use the contract's Linked
    branch steps.
@@ -260,9 +261,8 @@ That round is a `delta` round when the contract's Code-review rounds allows it.
 While any round runs, do the work that does not depend on its verdict, such as
 the acceptance records and the run summary draft.
 
-After `plan=pass`, an `edit` that changes Goal, Research, Steps, Acceptance, or
-Do not touch needs a new plan-review round before code that depends on it. The
-helper prints advice for that case.
+Review plan edits after `plan=pass` as the contract's Phases and review
+comments says. The helper advises when an edit needs that round.
 
 | Verdict | Yolo action |
 |---|---|

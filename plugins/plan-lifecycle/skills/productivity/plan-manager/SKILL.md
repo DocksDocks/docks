@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-25"
-  content_hash: "29d65ae4212882c2e0614fd68a3b02560bedff2d68148e0333c5fcd7576a3753"
+  content_hash: "50eb022f684b902865913e5ec1c09725ff34f84addcc2f15a2acf78ee2a7f936"
 ---
 
 # Plan Manager
@@ -104,7 +104,8 @@ branch steps before you change code. Set each step in-flight, implement or
 delegate it, run its proof, then mark it done. Honor the Effect confirmation
 gate. When `docks:code-clarity` is available, use it for self-explaining code.
 Run all acceptance commands and record real results in Verification Results
-through the export/edit flow.
+through the export/edit flow. Review plan edits after the pass as the
+contract's Phases and review comments says.
 
 Done when: every step that can run before the merge is done or skipped, and
 Verification Results hold real acceptance results.
