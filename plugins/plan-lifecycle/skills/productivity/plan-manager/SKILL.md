@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-25"
-  content_hash: "50eb022f684b902865913e5ec1c09725ff34f84addcc2f15a2acf78ee2a7f936"
+  content_hash: "76e75b56c4e788542d5d2427c35d42b40b2bf5d48db767f3e6196a7a79f6c6c7"
 ---
 
 # Plan Manager
@@ -146,10 +146,20 @@ review loop says.
 
 Fix each evidenced CRITICAL or HIGH defect before the next round. A pass can carry MEDIUM
 and LOW findings. The posted comment is their record; do not change reviewed
-bytes for them. Resolve unreadable input before you request a verdict. If you
-block after implementation, commit and push current work to the linked branch
-before you record the blocker, so repairs are not stranded. Then run the
-contract's Teardown for an exit without a merge.
+bytes for them.
+
+Make each repair complete, as the contract's Repairs says, before you commit
+it. When a repair adds a branch, a list split, a parser rule, or a refusal, add
+a test that fails when that branch is removed. When a repair changes a parser
+or a matcher, list its input forms, such as delimiters, white space, quotes,
+`--`, aliases, and nested fields, and test each form before the commit. In
+recorded plans, more than half of the later code findings were faults in the
+repair of an earlier finding.
+
+Resolve unreadable input before you request a verdict. If you block after
+implementation, commit and push current work to the linked branch before you
+record the blocker, so repairs are not stranded. Then run the contract's
+Teardown for an exit without a merge.
 
 Done when: `show <n>` reports `code=pass`.
 

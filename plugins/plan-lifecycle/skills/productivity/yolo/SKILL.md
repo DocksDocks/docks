@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-25"
-  content_hash: "4cdf01be6edf7617a8c45efad8e937bd47ccb2757b12b73b205cebb79c9b469f"
+  content_hash: "6bf9175c9595f32a1c5a27e9fc70aefb3d59b0c64212b396dd293ebe52261abc"
 ---
 
 # Yolo
@@ -253,8 +253,7 @@ as one issue comment whose first line is `Self-review`; write `No findings.`
 when it finds nothing. The helper does not read that comment as a review.
 
 After round 1 returns, fix the self-review findings together with the findings
-of round 1. Use `fix-workflow`, and commit the fixes. When a finding names a
-defect class, fix every instance, as the contract's Code-review rounds says.
+of round 1. Use `fix-workflow`, and commit the fixes.
 When the self-review found anything, review again, also when round 1 passed.
 That round is a `delta` round when the contract's Code-review rounds allows it.
 
@@ -272,7 +271,9 @@ comments says. The helper advises when an edit needs that round.
 | Code `pass` with MEDIUM or LOW findings | Fix each reproduced finding and review again, as a `delta` round when the contract's Code-review rounds allows it |
 | Code `pass` with no open finding | Go to Landing |
 
-Reject a finding only with evidence, posted as the contract's review loop says.
+Make and record each repair as the contract's Repairs says, in both phases. A
+code repair also gets the tests that plan-manager phase 6 asks for. Reject a
+finding only with evidence, posted as the contract's review loop says.
 Before you repair the same finding again, research it again and try a different
 approach.
 

@@ -155,17 +155,18 @@ Run this review loop for plan review and for code review:
    the lens blocks of a panel round in the lens order of Code-review rounds.
    Never store a review in the body.
 3. Run `show <n>` and read the verdict. Stop on pass.
-4. Otherwise reproduce each finding. Fix confirmed defects. Post the evidence
-   for rejected findings as one issue comment whose first line is
-   `Rejected review findings, round <k>`. Then start the next round.
+4. Otherwise reproduce each finding. Fix confirmed defects as Repairs says.
+   Post the evidence for rejected findings as one issue comment whose first
+   line is `Rejected review findings, round <k>`. Then start the next round.
 5. Ask the user to continue or block when a round makes no progress, the same
    finding returns after a repair, round 5 does not pass, or dispatch fails again
    without a relevant change. If no answer is available, record the reason and
    block. A yolo run uses the round ceiling in Yolo runs instead.
 
 Reviewers never fetch the issue. Save each posted round comment as
-`<phase>-<n>-round-<k>.md` and each rejection comment as
-`<phase>-<n>-round-<k>-rejected.md` in the review scratch directory, where
+`<phase>-<n>-round-<k>.md`, each rejection comment as
+`<phase>-<n>-round-<k>-rejected.md`, and each repair record (Repairs) as
+`<phase>-<n>-round-<k>-repairs.md` in the review scratch directory, where
 `<phase>` is `plan-review` or `code-review`. A delta reviewer reads these files.
 
 A plan re-review after a repair may use the plan `delta` mode when the
@@ -226,6 +227,31 @@ equal to that assignee. The latest trusted eligible comment per kind wins,
 ordered by `createdAt`; API order breaks ties. Missing trusted reviews derive as
 none. There is no body verdict fallback.
 
+### Repairs
+
+Complete each repair before you commit a code repair or publish a plan repair.
+In recorded plans, a missed instance of a fixed class, a finding with neither a
+repair nor a rejection, and a decision without a step each caused extra rounds.
+
+1. For each finding that names a defect class (`class:`), search for every
+   instance of that class: in the candidate for a code finding, and in the plan
+   export and each source that the finding cites for a plan finding. Repair all
+   instances together, in one commit for code.
+2. Record the repairs of round k. List each finding that you fixed, with the
+   plan line or the commit that fixes it, and under it each class instance
+   that you repaired. For code, write the list in the repair commit message.
+   For a plan, post the list as one issue comment whose first line is
+   `Repaired review findings, round <k>`. Save the list as the repair record
+   file, and give it to the delta reviewer of the next round, which checks it.
+3. Before round k+1, account for every finding of round k: fixed in the repair
+   record, or rejected in the rejection comment. Repair or reject each finding
+   that has neither.
+4. When an edit adds a decision, add the step that carries it out, or extend
+   the Task and Done when of a step that is not done yet. The helper keeps a
+   done step done, so a decision that changes done work gets a new step.
+
+The `plan-manager` skill (phase 6) adds the test rules of a code repair.
+
 ### Code-review rounds
 
 Before each code-review round, commit the candidate on the linked branch. That
@@ -235,7 +261,7 @@ commit is the round's reviewed head. Name one mode in each dispatch:
 |---|---|---|
 | `full` | One `code-reviewer` that covers every lens | The full diff, the plan export, the issue number, and the round number |
 | `panel` | Three `code-reviewer` dispatches in one message, one per lens: `correctness`, `spec-and-tests`, `text-and-safety` | The full diff, a focus diff for the lens, the plan export, the issue number, and the round number |
-| `delta` | One `code-reviewer` | The delta diff, the previous round's comment file, the rejection comment file of that round if one exists, the plan export, the issue number, and the round number |
+| `delta` | One `code-reviewer` | The delta diff, the previous round's comment file, the rejection comment file and the repair record file of that round if they exist, the plan export, the issue number, and the round number |
 
 The full diff holds the candidate since the merge base with the default branch.
 A focus diff holds the changed paths in the scope of its lens:
@@ -277,8 +303,7 @@ merge of the default branch into the linked branch always gets a `panel` or a
 `full` round.
 
 When a reviewer fails or returns no block with a verdict line, dispatch it
-again before you post the round. When a finding names a defect class, fix every
-instance of that class in the candidate in the same commit.
+again before you post the round.
 
 Dispatch every lens and every delta round as the `code-reviewer` agent. A
 per-agent model setting, such as omp `task.agentModelOverrides.code-reviewer`
