@@ -582,7 +582,9 @@ The Goal of a yolo plan contains this exact line:
 `Yolo: the user delegated every decision except the merge to the agent.`
 
 The manager records each decision in Research with its evidence. Open questions
-holds only a `Blocked:` line. Reviewers treat a recorded decision as settled.
+holds only a `Blocked:` line. Plan reviewers treat the choice of a recorded
+decision as settled, and report a false premise or a broken effect. Code
+reviewers treat a recorded decision as settled.
 
 ### Effects before the landing merge
 

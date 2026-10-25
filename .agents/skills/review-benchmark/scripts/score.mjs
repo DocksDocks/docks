@@ -17,7 +17,7 @@ import {
 } from '../../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
 
 const USAGE =
-  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...>] [--lead <folder,...> --lead-ref <folder>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
+  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...> [--reference <folder>]] [--lead <folder,...> --lead-ref <folder>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
 const CASE_KINDS = new Set(['code', 'code-delta', 'plan', 'plan-delta']);
 const REVIEWER_ORDER = ['full', 'correctness', 'spec-and-tests', 'text-and-safety', 'delta', 'plan'];
 const RUN_DIR = /^run-(\d+)$/;
@@ -40,6 +40,9 @@ const TOKEN_FIELDS = ['input', 'cacheRead', 'cacheWrite', 'output'];
 // `*.diff` files.
 const INPUT_FOLDERS = ['snapshot', 'prompts'];
 const INPUT_FILES = new Set(['plan.md', 'previous-review.md', 'rejection.md']);
+// The copy of the plan contract in the run folder of a variant with a contract overlay (`prepare.mjs case`). The prompt
+// of the run names it as the plan contract, so it is an input of that run and of no other run.
+export const CONTRACT_COPY = 'plan-contract.md';
 // The own skill folder of a reviewer of a plugin root has one of these names.
 const REVIEWER_SKILLS = new Set(['code-reviewer', 'plan-reviewer']);
 // A reviewer may read these skills through a `skill://` URI or in an installed plugin cache copy. Both resolve to the
@@ -102,17 +105,37 @@ const REPOSITORY_HOSTS = new Set(['github.com', 'www.github.com', 'raw.githubuse
 const BENCHMARK_REPOSITORY = { owner: 'docksdocks', names: new Set(['docks', 'docks.git']) };
 // An invalid-run reason names this many outside targets, then the count of the others.
 const LISTED_READS = 3;
-// An absolute path `<plugin root>/skills/[<folder>/]code-reviewer/SKILL.md` (or plan-reviewer) in an agent text.
-const REVIEWER_SKILL = /(?<=^|[\s`'"(<])(\/[^\s`'"]*?)\/skills\/(?:[^\s`'"/]+\/)?(?:code|plan)-reviewer\/SKILL\.md/g;
-// The name of the self-review agent of a configuration starts with this prefix (see prepare.mjs selfReviewAgent).
-export const SELF_REVIEW_AGENT_PREFIX = 'review-bench-selfreview-';
-// An absolute path `<project>/.omp/agents/<self-review agent>.md` (or `.claude/agents/`) in an agent text. The
-// self-review agent has no plugin root, so its text names its own agent file.
-const SELF_REVIEW_AGENT_FILE = new RegExp(
-  String.raw`(?<=^|[\s\x60'"(<])/[^\s\x60'"]*/\.(?:omp|claude)/agents/` +
-    String.raw`${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md(?=$|[\s\x60'")>])`,
+// The instruction paths of an agent text are absolute paths. A path in backticks or quotes ends at the closing quote
+// and can hold spaces, for example in a plugin root under a folder with a space. A bare path ends at the first space or
+// quote. In the two patterns below, group 2 holds the path in quotes and group 3 the bare path.
+//
+// The path `<plugin root>/skills/[<folder>/]code-reviewer/SKILL.md` (or plan-reviewer). The groups hold the plugin
+// root.
+const REVIEWER_SKILL_TAIL = String.raw`\/skills\/(?:[^\s\x60'"/]+\/)?(?:code|plan)-reviewer\/SKILL\.md`;
+const REVIEWER_SKILL = new RegExp(
+  String.raw`([\x60'"])(\/[^\x60'"\r\n]*?)${REVIEWER_SKILL_TAIL}\1|` +
+    String.raw`(?<=^|[\s\x60'"(<])(\/[^\s\x60'"]*?)${REVIEWER_SKILL_TAIL}`,
   'g',
 );
+// The name of the self-review agent of a configuration starts with this prefix (see prepare.mjs selfReviewAgent).
+export const SELF_REVIEW_AGENT_PREFIX = 'review-bench-selfreview-';
+// The path `<project>/.omp/agents/<self-review agent>.md` (or `.claude/agents/`). The self-review agent has no plugin
+// root, so its text names its own agent file. The groups hold the full path.
+const SELF_REVIEW_AGENT_TAIL = String.raw`\/\.(?:omp|claude)\/agents\/${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md`;
+const SELF_REVIEW_AGENT_FILE = new RegExp(
+  String.raw`([\x60'"])(\/[^\x60'"\r\n]*${SELF_REVIEW_AGENT_TAIL})\1|` +
+    String.raw`(?<=^|[\s\x60'"(<])(\/[^\s\x60'"]*${SELF_REVIEW_AGENT_TAIL})(?=$|[\s\x60'")>])`,
+  'g',
+);
+// The path of a match of one of the patterns above: in quotes, else bare.
+const instructionPath = (match) => match[2] ?? match[3];
+
+// The plugin roots that an agent text names: the folder P of each absolute path `P/skills/[<folder>/]code-reviewer/
+// SKILL.md` or `P/skills/[<folder>/]plan-reviewer/SKILL.md`, each once, in text order. readScope lets a reviewer read
+// the instructions under these roots, and `prepare.mjs agents` refuses a variant agent that names another root.
+export function reviewerPluginRoots(text) {
+  return [...new Set(Array.from(text.matchAll(REVIEWER_SKILL), instructionPath))];
+}
 
 function fail(message) {
   throw new Error(message);
@@ -1379,13 +1402,17 @@ function leadSection(runs, { lead, leadRef }) {
 
 // The report holds numbers, verdicts, configuration names, arm folder names, and known-defect ids only, so a held-out
 // reader learns no defect text. `configs` and `arms` set the columns of the comparison tables, one or the other;
-// `lead` (lead folders) and `leadRef` (the reference folder) together add the self-review lead.
+// `reference` sets the column that the intervals compare with (default: the column with the fewest escaped defects per
+// 50 known defects); `lead` (lead folders) and `leadRef` (the reference folder) together add the self-review lead.
 export function renderReport({ summaries, runs, agreement }, { configs, arms, reference, lead, leadRef } = {}) {
   if (configs && arms) fail('report takes --configs or --arms, not both');
   if (Boolean(lead) !== Boolean(leadRef)) fail('report takes --lead and --lead-ref together');
   const columnNote = arms
     ? 'An arm table has one column per arm folder in one case group. Its decision table also gives the cases of each column and the cases that the column and the reference column both ran.'
     : 'A configuration table has one column per configuration in one case group.';
+  const referenceNote = reference
+    ? `The reference column is ${reference}.`
+    : 'The reference column has the fewest escaped defects per 50 known defects.';
   const invalid = runs.filter((run) => run.invalid.length > 0);
   return [
     '# Review benchmark report',
@@ -1395,7 +1422,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
     'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose reviewer transcripts show another model, effort, or served tier than their configuration; loops whose fixer transcripts show another model, effort, or served tier than the fixer setting; runs with a reviewer or a fixer without transcript facts or without a served assistant message, also a loop round that gave findings to the fixer and has no transcript facts of its fixer (for example a repair with --fixer-patch); loops with a fixer but without a fixer setting; runs with a reviewer that read a file outside the inputs of its run; and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
-    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
+    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. ${referenceNote} The loop seconds interval compares loop runs only.`,
     '',
     '## Summary',
     '',
@@ -1693,8 +1720,8 @@ function transcriptSession(text, source) {
       .flat()
       .filter((part) => typeof part === 'string')
       .join('\n');
-    for (const match of prompt.matchAll(REVIEWER_SKILL)) pluginRoots.add(match[1]);
-    for (const [file] of prompt.matchAll(SELF_REVIEW_AGENT_FILE)) agentFiles.add(file);
+    for (const root of reviewerPluginRoots(prompt)) pluginRoots.add(root);
+    for (const match of prompt.matchAll(SELF_REVIEW_AGENT_FILE)) agentFiles.add(instructionPath(match));
   }
   return { cwd, pluginRoots: [...pluginRoots], agentFiles: [...agentFiles] };
 }
@@ -1705,10 +1732,11 @@ function isUnder(folder, target) {
   return relative === '' || !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
 }
 
-// The input folders of a run, the folders that a reviewer may read with every path below them, the plugin roots, the
-// agent files of the reviewer, and the keys of the files that the case changes (see changedPathKeys). An input folder
-// is the case folder, and the run folder or each round folder up to `round`. The tree copies are those of the rounds
-// up to `round`. A reviewer with an agent file of its own is the self-review agent.
+// The input folders of a run, the folders that a reviewer may read with every path below them, the copy of the plan
+// contract of the run, the plugin roots, the agent files of the reviewer, and the keys of the files that the case
+// changes (see changedPathKeys). An input folder is the case folder, and the run folder or each round folder up to
+// `round`. The tree copies are those of the rounds up to `round`. A reviewer with an agent file of its own is the
+// self-review agent.
 function scopeRules(runDir, round, pluginRoots, agentFiles, changedFiles) {
   const armDir = path.dirname(runDir);
   const caseDir = path.dirname(armDir);
@@ -1722,6 +1750,7 @@ function scopeRules(runDir, round, pluginRoots, agentFiles, changedFiles) {
   return {
     inputDirs,
     folders: [...inputDirs.flatMap((dir) => INPUT_FOLDERS.map((name) => path.join(dir, name))), ...trees],
+    contractCopy: path.join(runDir, CONTRACT_COPY),
     pluginRoots,
     agentFiles: agentFiles.map((file) => path.resolve(file)),
     selfReview: agentFiles.length > 0,
@@ -1741,12 +1770,13 @@ function folderAllowed(target, { folders, pluginRoots }) {
   });
 }
 
-// An input file of an input folder, a reviewer agent file of a plugin root, or an agent file of the reviewer.
-function fileAllowed(target, { inputDirs, pluginRoots, agentFiles }) {
+// An input file of an input folder, the copy of the plan contract of the run, a reviewer agent file of a plugin root,
+// or an agent file of the reviewer.
+function fileAllowed(target, { inputDirs, contractCopy, pluginRoots, agentFiles }) {
   const dir = path.dirname(target);
   const name = path.basename(target);
   if (inputDirs.includes(dir) && (INPUT_FILES.has(name) || name.endsWith('.diff'))) return true;
-  if (agentFiles.includes(target)) return true;
+  if (target === contractCopy || agentFiles.includes(target)) return true;
   return name.endsWith('-reviewer.md') && pluginRoots.some((root) => path.join(root, 'agents') === dir);
 }
 
@@ -2001,6 +2031,9 @@ function readLists(text, source, cwd) {
 // is:
 // - under an input of the run: `snapshot/`, `prompts/`, a `*.diff` file, `plan.md`, `previous-review.md`, or
 //   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
+// - the copy `plan-contract.md` of the plan contract in the run folder, which the prompt of a run of a variant with a
+//   contract overlay names as its plan contract. It is an input of the run, so the case-change rule does not apply to
+//   it;
 // - under the tree copy of the judge for a round of the run up to `round`;
 // - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, a path under the code-reviewer or
 //   plan-reviewer skill folder of a plugin root, or a file of `agentFiles`. For the self-review agent (a reviewer with
@@ -2236,9 +2269,14 @@ function readMetas(ws, blocks) {
 
 // Writes report.md. It stops before it writes when a key under `keys` changed after `pairs`, or when a finding has
 // neither a `match` answer nor an adjudication. `<ws>/judgments-second.json`, when it exists, gives the agreement.
-// `configs` or `arms` sets the columns of the comparison tables, and `lead` with `leadRef` adds the self-review lead
-// (see renderReport).
-export function reportCommand(ws, { keys, configs, arms, lead, leadRef } = {}) {
+// `configs` or `arms` sets the columns of the comparison tables, `reference` (with `arms` only) sets the column that
+// the intervals compare with, and `lead` with `leadRef` adds the self-review lead (see renderReport).
+export function reportCommand(ws, { keys, configs, arms, reference, lead, leadRef } = {}) {
+  if (reference !== undefined) {
+    if (!reference) fail('report --reference needs the name of an arm folder of --arms');
+    if (!arms) fail('report takes --reference only with --arms');
+    if (!arms.includes(reference)) fail(`report --reference names ${reference}, which is not in --arms`);
+  }
   const findings = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');
   const judgments = loadJudgments(ws);
@@ -2247,7 +2285,7 @@ export function reportCommand(ws, { keys, configs, arms, lead, leadRef } = {}) {
   requireJudgedFindings(findings.findings, judgments);
   const secondFile = path.join(ws, 'judgments-second.json');
   if (fs.existsSync(secondFile)) scores.agreement = judgeAgreement(judgments, readJson(secondFile));
-  fs.writeFileSync(path.join(ws, 'report.md'), renderReport(scores, { configs, arms, lead, leadRef }));
+  fs.writeFileSync(path.join(ws, 'report.md'), renderReport(scores, { configs, arms, reference, lead, leadRef }));
   return scores;
 }
 
@@ -2387,12 +2425,13 @@ const COMMANDS = {
     },
   },
   report: {
-    optional: ['--keys', '--configs', '--arms', '--lead', '--lead-ref'],
+    optional: ['--keys', '--configs', '--arms', '--reference', '--lead', '--lead-ref'],
     run: (ws, options) => {
       const scores = reportCommand(ws, {
         keys: options['--keys'],
         configs: nameList(options['--configs']),
         arms: nameList(options['--arms']),
+        reference: options['--reference'],
         lead: nameList(options['--lead']),
         leadRef: options['--lead-ref'],
       });

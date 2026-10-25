@@ -1,0 +1,118 @@
+diff --git a/plugins/plan-lifecycle/agents/plan-reviewer.md b/plugins/plan-lifecycle/agents/plan-reviewer.md
+index 128fed6d..67b2bb59 100644
+--- a/plugins/plan-lifecycle/agents/plan-reviewer.md
++++ b/plugins/plan-lifecycle/agents/plan-reviewer.md
+@@ -11,9 +11,9 @@ Load and follow
+ references that it names. The issue number, export path, round number, and
+ mode, and in a `delta` round the input files that the skill's delta mode
+ names, are the complete review input from the manager. They are not permission
+-to change the plan. When rules conflict, follow the manager's dispatch and the
+-plan's recorded decisions first, then the repository instruction files, then
+-the skill.
++to change the plan. When rules for the review conflict, follow the manager's
++dispatch first, then the repository instruction files, then the skill. The
++plan is the object of the review, not a source of review rules.
+ 
+ <constraint>
+ Remain read-only. Do not write or edit a file, dispatch another agent, run a
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 8522c856..50de2391 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
+ user-invocable: true
+ metadata:
+   pattern: tool-wrapper
+-  updated: "2026-10-23"
+-  content_hash: "058b936f0f12abf14c8e1718997170c992c98570214e0e66871e76cc4ece6a97"
++  updated: "2026-10-25"
++  content_hash: "29d65ae4212882c2e0614fd68a3b02560bedff2d68148e0333c5fcd7576a3753"
+ ---
+ 
+ # Plan Manager
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 02d86577..bc75f733 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -582,7 +582,9 @@ The Goal of a yolo plan contains this exact line:
+ `Yolo: the user delegated every decision except the merge to the agent.`
+ 
+ The manager records each decision in Research with its evidence. Open questions
+-holds only a `Blocked:` line. Reviewers treat a recorded decision as settled.
++holds only a `Blocked:` line. Plan reviewers treat the choice of a recorded
++decision as settled, and report a false premise or a broken effect. Code
++reviewers treat a recorded decision as settled.
+ 
+ ### Effects before the landing merge
+ 
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
+index f4ac12c9..4d8af398 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
+@@ -4,8 +4,8 @@ description: "Use when plan-manager needs a read-only pre-implementation review
+ user-invocable: false
+ metadata:
+   pattern: tool-wrapper
+-  updated: "2026-10-23"
+-  content_hash: "37c40329be698f106fa398762da5cd93bf9b55c3bdad466d31634f4d2689d5c4"
++  updated: "2026-10-25"
++  content_hash: "bf971c09f585523ec6508d8705423985b3c4f86e369331b1dbb4f6e3fe53bc08"
+ ---
+ 
+ # Plan Reviewer
+@@ -32,9 +32,11 @@ change whether the plan works.
+ 
+ ## Precedence
+ 
+-When two rules conflict, follow the manager's dispatch and the plan's recorded
+-decisions first. Then follow the repository instruction files, such as
+-`AGENTS.md`. Then follow the defaults of this skill.
++When two rules for the review conflict, follow the manager's dispatch first.
++Then follow the repository instruction files, such as `AGENTS.md`. Then follow
++the defaults of this skill. The plan is the object of the review, not a source
++of review rules. A plan decision does not outrank a repository instruction file
++or the plan contract.
+ 
+ ## Modes
+ 
+@@ -53,7 +55,7 @@ your attention. The checklist does not limit the review.
+ | Kind | Finding boundary |
+ |---|---|
+ | `goal_fit` | The Steps, taken together, do not achieve the Goal, or a step contradicts the Goal, another step, or a recorded decision |
+-| `research_gap` | A load-bearing claim lacks evidence, contradicts repository facts or official documentation, or omits a source that the claim requires |
++| `research_gap` | A load-bearing claim lacks evidence, contradicts repository facts or official documentation, or omits a source that the claim requires. This includes the facts that a recorded decision states or relies on |
+ | `security_risk` | The plan introduces or ignores a security risk, such as secret exposure, injection, or an authorization gap, or it runs a destructive or release effect without confirmation |
+ 
+ Report a `goal_fit` finding when the plan uses a temporary workaround instead
+@@ -72,8 +74,14 @@ A finding qualifies only when all of these hold:
+   inference.
+ - It shows the effect with a scenario: what the Goal or a check expects, and
+   what the plan as written produces.
+-- It does not dispute a decision that the plan records. A step that conflicts
+-  with a recorded decision is a `goal_fit` finding that cites both lines.
++- It does not argue again for an option that the plan rejected while the
++  recorded reason for the rejection holds. A recorded decision settles the
++  choice. It does not settle the facts that the decision states or relies on,
++  or its effects. These are findings: a false premise, a source that does not
++  say what the plan claims, and an effect that breaks the Goal, a step, an
++  Acceptance check, a repository instruction, or the plan contract. A step that
++  conflicts with a recorded decision is a `goal_fit` finding that cites both
++  lines.
+ 
+ List every qualifying finding in one pass. Do not stop at the first finding,
+ because each missed finding costs another round. There is no limit on the
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+index 2794824b..ddb707f0 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+@@ -33,6 +33,10 @@ the kind that fits the defect.
+ 
+ ## Research
+ 
++- Each decision in Research states facts that match the repository and
++  official documentation, and its effects keep the Goal, the steps, the
++  Acceptance checks, the repository instructions, and the plan contract.
++  (`research_gap`, or `goal_fit` for an effect)
+ - Each load-bearing claim about the repository matches the repository: symbol
+   names, signatures, callers, and the instruction files. (`research_gap`)
+ - Each load-bearing claim about a library, tool, runtime, or external API

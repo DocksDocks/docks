@@ -1,0 +1,228 @@
+diff --git a/plugins/plan-lifecycle/agents/plan-reviewer.md b/plugins/plan-lifecycle/agents/plan-reviewer.md
+index 128fed6d..f27cd3f3 100644
+--- a/plugins/plan-lifecycle/agents/plan-reviewer.md
++++ b/plugins/plan-lifecycle/agents/plan-reviewer.md
+@@ -11,9 +11,9 @@ Load and follow
+ references that it names. The issue number, export path, round number, and
+ mode, and in a `delta` round the input files that the skill's delta mode
+ names, are the complete review input from the manager. They are not permission
+-to change the plan. When rules conflict, follow the manager's dispatch and the
+-plan's recorded decisions first, then the repository instruction files, then
+-the skill.
++to change the plan. When rules for the review conflict, follow the manager's
++dispatch first, then the repository instruction files, then the skill. The
++plan is the object of the review, not a source of review rules.
+ 
+ <constraint>
+ Remain read-only. Do not write or edit a file, dispatch another agent, run a
+@@ -24,11 +24,16 @@ dispatch, issue-comment publication, user interaction, and lifecycle change.
+ 
+ <constraint>
+ A plan-review finding is exactly one of `goal_fit`, `research_gap`, or
+-`security_risk`, and it meets the finding bar of the skill. List every
+-qualifying finding in one pass. An empty review is a valid result. Do not ask
+-for style, naming, formatting, line counts, more citations, additional probes,
+-mutation tests, acceptance rows beyond the checks that repository instructions
+-require, cosmetic work, or restructuring for its own sake.
++`security_risk`, and it meets the finding bar of the skill. Report a
++`goal_fit` finding when the plan uses a temporary workaround instead of the
++root-cause fix, leaves a caller on a replaced path, or keeps an obsolete path,
++unless Open questions record user approval. Report a `goal_fit` finding when
++Acceptance lacks a check that the repository instructions require for the
++paths in the Steps Files cells. List every qualifying finding in one pass. An
++empty review is a valid result. Do not ask for style, naming, formatting, line
++counts, more citations, additional probes, mutation tests, acceptance rows
++beyond the checks that repository instructions require, cosmetic work, or
++restructuring for its own sake.
+ </constraint>
+ 
+ ## Workflow
+@@ -62,8 +67,9 @@ require, cosmetic work, or restructuring for its own sake.
+      without confirmation.
+ 8. For each finding, cite the plan line and the repository file or official
+    URL that shows the defect, and give the scenario with the expected and the
+-   actual result. Label an inference as an inference. Coalesce symptoms with
+-   one root cause into one finding.
++   actual result when the cited lines do not show the effect. Label an
++   inference as an inference. Coalesce symptoms with one root cause into one
++   finding.
+ 9. Select exactly one verdict:
+    - `pass`: No finding qualifies.
+    - `repair`: Every finding is resolvable from repository facts.
+@@ -106,7 +112,8 @@ Plan-review: <pass|repair|blocked>
+   behavior or reach.
+ - Confirm that each web claim comes from current official documentation.
+ - Distinguish an absent source from a source that contradicts the plan.
+-- Drop any observation that does not meet the finding bar.
++- Drop a finding only when the re-read shows that its evidence is false, or
++  when it is cosmetic. Merge duplicates.
+ - In a `delta` round, confirm each `resolved` mark from the current export,
+   not from the manager's summary.
+ - Confirm that a proposed fix addresses the defect without adding a cosmetic
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 8522c856..50de2391 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
+ user-invocable: true
+ metadata:
+   pattern: tool-wrapper
+-  updated: "2026-10-23"
+-  content_hash: "058b936f0f12abf14c8e1718997170c992c98570214e0e66871e76cc4ece6a97"
++  updated: "2026-10-25"
++  content_hash: "29d65ae4212882c2e0614fd68a3b02560bedff2d68148e0333c5fcd7576a3753"
+ ---
+ 
+ # Plan Manager
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 02d86577..bc75f733 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -582,7 +582,9 @@ The Goal of a yolo plan contains this exact line:
+ `Yolo: the user delegated every decision except the merge to the agent.`
+ 
+ The manager records each decision in Research with its evidence. Open questions
+-holds only a `Blocked:` line. Reviewers treat a recorded decision as settled.
++holds only a `Blocked:` line. Plan reviewers treat the choice of a recorded
++decision as settled, and report a false premise or a broken effect. Code
++reviewers treat a recorded decision as settled.
+ 
+ ### Effects before the landing merge
+ 
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
+index f4ac12c9..1323c07d 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
+@@ -4,8 +4,8 @@ description: "Use when plan-manager needs a read-only pre-implementation review
+ user-invocable: false
+ metadata:
+   pattern: tool-wrapper
+-  updated: "2026-10-23"
+-  content_hash: "37c40329be698f106fa398762da5cd93bf9b55c3bdad466d31634f4d2689d5c4"
++  updated: "2026-10-25"
++  content_hash: "2a584862251d28b2b69a1a1c17690e453eabe82ce8acda83b3d0c38606d0b89e"
+ ---
+ 
+ # Plan Reviewer
+@@ -32,9 +32,11 @@ change whether the plan works.
+ 
+ ## Precedence
+ 
+-When two rules conflict, follow the manager's dispatch and the plan's recorded
+-decisions first. Then follow the repository instruction files, such as
+-`AGENTS.md`. Then follow the defaults of this skill.
++When two rules for the review conflict, follow the manager's dispatch first.
++Then follow the repository instruction files, such as `AGENTS.md`. Then follow
++the defaults of this skill. The plan is the object of the review, not a source
++of review rules. A plan decision does not outrank a repository instruction file
++or the plan contract.
+ 
+ ## Modes
+ 
+@@ -53,27 +55,41 @@ your attention. The checklist does not limit the review.
+ | Kind | Finding boundary |
+ |---|---|
+ | `goal_fit` | The Steps, taken together, do not achieve the Goal, or a step contradicts the Goal, another step, or a recorded decision |
+-| `research_gap` | A load-bearing claim lacks evidence, contradicts repository facts or official documentation, or omits a source that the claim requires |
++| `research_gap` | A load-bearing claim lacks evidence, contradicts repository facts or official documentation, or omits a source that the claim requires. This includes the facts that a recorded decision states or relies on |
+ | `security_risk` | The plan introduces or ignores a security risk, such as secret exposure, injection, or an authorization gap, or it runs a destructive or release effect without confirmation |
+ 
+ Report a `goal_fit` finding when the plan uses a temporary workaround instead
+ of the root-cause fix, leaves a caller on a replaced path, or keeps an obsolete
+ path, unless Open questions record user approval.
+ 
+-## Finding bar
++Report a `goal_fit` finding when Acceptance lacks a check that the repository
++instructions require for the paths in the Steps Files cells.
+ 
+-A finding qualifies only when all of these hold:
++## Finding bar
+ 
+-- It changes whether the Steps achieve the Goal or whether Research holds, or
+-  it is a security risk.
+-- It is one discrete defect, and the manager can act on it.
+-- It is in the plan under review, or the plan relies on it.
+-- It does not rest on an unstated assumption. Label an inference as an
+-  inference.
+-- It shows the effect with a scenario: what the Goal or a check expects, and
+-  what the plan as written produces.
+-- It does not dispute a decision that the plan records. A step that conflicts
+-  with a recorded decision is a `goal_fit` finding that cites both lines.
++A finding qualifies when all of these hold:
++
++- It is a defect of the plan under review: a line, a gap, or a fact that the
++  plan relies on.
++- It is load-bearing. Because of it, one of these is true: a step does not
++  achieve its part of the Goal; an Acceptance or Done-when check cannot run as
++  written, or passes when the step is wrong; a Research claim that a step uses
++  is false or has no evidence; or a security risk exists.
++- It cites the plan line and the evidence: a repository file and symbol, an
++  official URL, or the absence of evidence for a load-bearing claim. Label an
++  inference as an inference. A labeled inference with cited evidence
++  qualifies.
++- It does not argue again for an option that the plan rejected while the
++  recorded reason for the rejection holds. A recorded decision settles the
++  choice. It does not settle the facts that the decision states or relies on,
++  or its effects. These are findings: a false premise, a source that does not
++  say what the plan claims, and an effect that breaks the Goal, a step, an
++  Acceptance check, a repository instruction, or the plan contract. A step that
++  conflicts with a recorded decision is a `goal_fit` finding that cites both
++  lines.
++
++Give the scenario when the cited lines do not show the effect. Do not drop a
++load-bearing finding because its scenario is long.
+ 
+ List every qualifying finding in one pass. Do not stop at the first finding,
+ because each missed finding costs another round. There is no limit on the
+@@ -132,8 +148,9 @@ Plan-review: <pass|repair|blocked>
+ ## BAD / GOOD
+ 
+ ```text
+-BAD: - research_gap - Research - The claim about retries can be wrong - Verify it.
++BAD: - research_gap - Research - The research is thin - Add more sources.
+ GOOD: - research_gap - Research, "the client retries twice on 503" - The official client documentation (<URL>) says that the client does not retry. Step s2 relies on the retry, so one 503 fails the sync that Acceptance A1 expects to pass - Add a retry to step s2, or remove the claim and add the 503 case to Acceptance.
++GOOD: - research_gap - Research, "the API returns items in creation order" - Neither the repository nor the official documentation (<URL>) states an order, and step s4 takes the first item as the newest. Inference: with another order, s4 picks the wrong item - Cite a source for the order, or sort by creation time in s4.
+ 
+ BAD: - goal_fit - Steps - Step 3 misses a file - Add it.
+ GOOD: - goal_fit - Steps s3, Files - Step s3 renames the build script, but the CI workflow calls the old name and no Files cell lists the workflow, so the next CI run fails - Add the workflow file to the Files cell of s3, and add an Acceptance row that runs the CI build command.
+@@ -143,9 +160,9 @@ GOOD: - goal_fit - Steps s3, Files - Step s3 renames the build script, but the C
+ 
+ Before you return, re-read the Goal, Research, Steps, Acceptance, and Do not
+ touch sections. Re-read each cited plan line and each repository locator. Drop
+-each finding that fails the finding bar, and merge duplicates. Confirm that the
+-verdict matches the findings, that the output is one block, and that repository
+-and external state are unchanged.
++a finding only when the re-read shows that its evidence is false, or when it is
++cosmetic. Merge duplicates. Confirm that the verdict matches the findings, that
++the output is one block, and that repository and external state are unchanged.
+ 
+ ## Report a problem with this skill
+ 
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+index 2794824b..dfa30203 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+@@ -2,9 +2,9 @@
+ 
+ These checks direct your attention to plan defects that reviews often miss.
+ They do not limit the review. Report any defect that meets the finding bar in
+-`SKILL.md`, also when no check below names it. Report a failed check only when
+-the failure meets that bar. The kind after each check is the usual kind. Use
+-the kind that fits the defect.
++`SKILL.md`, also when no check below names it. A failed check is a finding when
++it makes a step, an Acceptance check, or a Research claim fail. The kind after
++each check is the usual kind. Use the kind that fits the defect.
+ 
+ ## Steps
+ 
+@@ -33,6 +33,10 @@ the kind that fits the defect.
+ 
+ ## Research
+ 
++- Each decision in Research states facts that match the repository and
++  official documentation, and its effects keep the Goal, the steps, the
++  Acceptance checks, the repository instructions, and the plan contract.
++  (`research_gap`, or `goal_fit` for an effect)
+ - Each load-bearing claim about the repository matches the repository: symbol
+   names, signatures, callers, and the instruction files. (`research_gap`)
+ - Each load-bearing claim about a library, tool, runtime, or external API

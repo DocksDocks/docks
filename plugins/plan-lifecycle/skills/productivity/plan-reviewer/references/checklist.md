@@ -33,6 +33,10 @@ the kind that fits the defect.
 
 ## Research
 
+- Each decision in Research states facts that match the repository and
+  official documentation, and its effects keep the Goal, the steps, the
+  Acceptance checks, the repository instructions, and the plan contract.
+  (`research_gap`, or `goal_fit` for an effect)
 - Each load-bearing claim about the repository matches the repository: symbol
   names, signatures, callers, and the instruction files. (`research_gap`)
 - Each load-bearing claim about a library, tool, runtime, or external API
