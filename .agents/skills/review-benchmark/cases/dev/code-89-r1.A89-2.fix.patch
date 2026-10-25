@@ -1,0 +1,26 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 905e28ff..3f7f67f7 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -22,7 +22,7 @@ const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:l
+ // The pre-write read returns the body to compare and the node ids that the write mutation needs.
+ const PRE_WRITE_FIELDS = 'id,body,updatedAt,labels,assignees';
+ // The last field of a write mutation returns the stored state that the post-write checks read.
+-const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}} assignees(first:100){nodes{login}}`;
++const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}}`;
+ // `list` reads the newest plans first, as `gh issue list` did, so the 500-plan cap keeps the same plans.
+ const PLAN_LIST_ARGS = ',labels:["plan"],states:[OPEN,CLOSED],orderBy:{field:CREATED_AT,direction:DESC}';
+ const PLAN_LIST_FIELDS = 'number title state stateReason labels(first:100){nodes{name}}';
+@@ -396,11 +396,7 @@ function writeIssueIfUnchanged(issue, { body, add, remove = [], labelIds } = {})
+   const data = body === undefined ? send() : withBodyFile(body, send);
+   const last = fields.at(-1);
+   const stored = data[last.mutation]?.[last.payload];
+-  if (
+-    typeof stored?.body !== 'string' ||
+-    !Array.isArray(stored.labels?.nodes) ||
+-    !Array.isArray(stored.assignees?.nodes)
+-  )
++  if (typeof stored?.body !== 'string' || !Array.isArray(stored.labels?.nodes))
+     fail('gh api graphql returned malformed stored plan issue');
+   if (body !== undefined && stored.body !== body) fail('plan issue body differs after edit');
+   if (!add && remove.length === 0) return;

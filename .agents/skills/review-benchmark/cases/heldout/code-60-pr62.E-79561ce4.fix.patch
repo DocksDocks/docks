@@ -1,0 +1,273 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 3754113c..da5ff0a4 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -231,7 +231,7 @@ clean worktree. After setting ongoing, reuse or create the linked branch. Every
+ Re-list after failure. Stop without a verified link.
+ After code review passes, commit and push reviewed bytes and open a closing pull request.
+ Only the pull request that lands the completed work carries `Closes #<issue>`; a partial
+-one carries plain `Refs #<issue>`. The `Closes` keyword produces the closing reference
++one carries plain `Refs #<issue>`. The `Closes` keyword supplies the proof
+ `archive` verifies, so a landing pull request without it leaves the plan unarchivable.
+ Checks policy: wait up to five minutes for checks to appear, then wait for every
+ check to complete. A failed or cancelled check blocks the merge question until the
+@@ -242,5 +242,7 @@ records open. Merge with `--match-head-commit` for the reviewed head.
+ A prior plan approval never authorizes merge.
+ Archive requires finished status, terminal steps, and a trusted latest Code-review pass.
+ Its latest closure must be a merged pull request into this repository's default branch,
+-or a commit associated with such a merged pull request. Use `excludeUserLinked: true`.
++or a commit associated with such a merged pull request. A pull-request closer must
++carry a GitHub closing keyword for this issue in its description; a title or sidebar
++link is not proof.
+ A merely linked pull request, another repository, or a non-default target is not proof.
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index a7c4826e..840c0522 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -71,7 +71,7 @@ function parseJson(output, command) {
+ }
+ const ASSIGNEE_FIELDS = '... on Actor{login}';
+ const LABELED_EVENT_FIELDS = '... on LabeledEvent{label{name}}';
+-const CLOSED_EVENT_FIELDS = `... on ClosedEvent{closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS}} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
++const CLOSED_EVENT_FIELDS = `... on ClosedEvent{closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS} body} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
+ 
+ function issueConnectionSelection(field, nodeFields, extraArgs = '', after = false) {
+   return `${field}(first:100${after ? ',after:$after' : ''}${extraArgs}){nodes{${nodeFields}} ${PAGE_INFO}}`;
+@@ -119,6 +119,14 @@ function pullRequestNodes(nodes) {
+   return nodes;
+ }
+ 
++function hasClosingKeyword(body, number, nameWithOwner) {
++  const repo = nameWithOwner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
++  return new RegExp(
++    String.raw`\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?[ \t]+(?:#|${repo}#)${number}(?![A-Za-z0-9_])`,
++    'i',
++  ).test(body);
++}
++
+ function issueNodes(issueNumber, initial, field, nodeFields, extraArgs = '') {
+   const name = field.includes(':') ? field.split(':')[0] : field;
+   const selection = issueConnectionSelection(field, nodeFields, extraArgs, true);
+@@ -156,13 +164,6 @@ function readSnapshot(
+             ? issueConnectionSelection('history:timelineItems', LABELED_EVENT_FIELDS, ',itemTypes:[LABELED_EVENT]')
+             : '',
+           archive ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}` : '',
+-          archive
+-            ? issueConnectionSelection(
+-                'closing:closedByPullRequestsReferences',
+-                PULL_REQUEST_FIELDS,
+-                ',excludeUserLinked:true,includeClosedPrs:true',
+-              )
+-            : '',
+         ].join(' ');
+   const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
+   const data = graphql(query, number === undefined ? {} : { number });
+@@ -235,15 +236,6 @@ function readSnapshot(
+   if (archive) {
+     if (typeof repo.defaultBranchRef?.name !== 'string' || !Array.isArray(issue.latestClosure?.nodes))
+       fail('gh api graphql returned malformed latest closure');
+-    issue.closing = pullRequestNodes(
+-      issueNodes(
+-        number,
+-        issue.closing,
+-        'closing:closedByPullRequestsReferences',
+-        PULL_REQUEST_FIELDS,
+-        ',excludeUserLinked:true,includeClosedPrs:true',
+-      ),
+-    );
+     const closer = issue.latestClosure.nodes.at(-1)?.closer;
+     if (
+       issue.latestClosure.nodes.length > 1 ||
+@@ -870,11 +862,8 @@ function archivePlan(args, retired = false) {
+     const defaultBranch = repository.defaultBranchRef.name;
+     const references =
+       issue.closer?.__typename === 'PullRequest'
+-        ? issue.closing.some(
+-            (pr) =>
+-              pr.number === issue.closer.number &&
+-              pr.repository?.nameWithOwner === issue.closer.repository?.nameWithOwner,
+-          )
++        ? typeof issue.closer.body === 'string' &&
++          hasClosingKeyword(issue.closer.body, issue.number, repository.nameWithOwner)
+           ? [issue.closer]
+           : []
+         : issue.closer?.__typename === 'Commit'
+diff --git a/scripts/tests/fixtures/gh-stub/gh b/scripts/tests/fixtures/gh-stub/gh
+index 77253a59..dd02bb2c 100755
+--- a/scripts/tests/fixtures/gh-stub/gh
++++ b/scripts/tests/fixtures/gh-stub/gh
+@@ -193,7 +193,6 @@ function issueJson(issue) {
+     labels: labels(issue.labels),
+     assignees: assignees(issue.assignees),
+     comments: (issue.comments ?? []).map((comment) => commentJson(comment, issue)),
+-    closedByPullRequestsReferences: issue.closedByPullRequestsReferences ?? [],
+   };
+ }
+ 
+@@ -214,7 +213,6 @@ const ISSUE_JSON_FIELDS = new Set([
+   'url',
+   'createdAt',
+   'updatedAt',
+-  'closedByPullRequestsReferences',
+   'comments',
+ ]);
+ const PR_JSON_FIELDS = new Set([
+@@ -285,6 +283,7 @@ if (group === 'api' && command === 'graphql') {
+     return {
+       number: reference.number,
+       url: pullRequest?.url ?? reference.url ?? `https://github.com/${repo}/pull/${reference.number}`,
++      body: pullRequest?.body ?? reference.body ?? null,
+       state: pullRequest?.state ?? reference.state ?? (pullRequest?.mergedAt || reference.mergedAt ? 'MERGED' : 'OPEN'),
+       mergedAt: pullRequest?.mergedAt ?? reference.mergedAt ?? null,
+       baseRefName: pullRequest?.baseRefName ?? reference.baseRefName ?? null,
+@@ -378,23 +377,6 @@ if (group === 'api' && command === 'graphql') {
+         payload[selection.alias] = { nodes: latest ? [{ closer: renderedCloser }] : [] };
+       } else die(`unsupported timeline item types: ${types ?? '(missing)'}`);
+     }
+-    for (const selection of graphqlSelections(query, 'closedByPullRequestsReferences')) {
+-      const onlyUserLinked = graphqlValue(selection.args.get('userLinkedOnly') ?? 'false', variables);
+-      const excludeUserLinked = graphqlValue(selection.args.get('excludeUserLinked') ?? 'false', variables);
+-      const includeClosedPrs = graphqlValue(selection.args.get('includeClosedPrs') ?? 'false', variables);
+-      const references = (issue.closedByPullRequestsReferences ?? [])
+-        .filter((reference) => !onlyUserLinked || reference.userLinked === true)
+-        .filter((reference) => !excludeUserLinked || reference.userLinked !== true)
+-        .map(pullRequestNode)
+-        .filter((reference) => includeClosedPrs || reference.state === 'OPEN');
+-      payload[selection.alias] = graphqlPage(references, selection, variables, [
+-        'first',
+-        'after',
+-        'includeClosedPrs',
+-        'excludeUserLinked',
+-        'userLinkedOnly',
+-      ]);
+-    }
+     repository.issue = payload;
+   } else if (objectSelection.length) {
+     const oid = graphqlValue(objectSelection[0].args.get('expression'), variables);
+@@ -486,7 +468,6 @@ if (group === 'issue' && command === 'create') {
+     createdAt: now,
+     updatedAt: now,
+     comments: [],
+-    closedByPullRequestsReferences: [],
+     events: [],
+   };
+   state.issues.push(issue);
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index adbb97bd..0fb73fa7 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -182,7 +182,7 @@ function edit(number, transform = (text) => text) {
+   return run('edit', String(number), '--file', file);
+ }
+ 
+-function closedPlan(name, { status = 'done', manual = false, base = 'main' } = {}) {
++function closedPlan(name, { status = 'done', base = 'main', prBody } = {}) {
+   const number = createPlan(name, body(status));
+   const closer = {
+     __typename: 'PullRequest',
+@@ -191,13 +191,13 @@ function closedPlan(name, { status = 'done', manual = false, base = 'main' } = {
+     state: 'MERGED',
+     mergedAt: '2026-08-21T00:00:00Z',
+     baseRefName: base,
++    body: prBody === undefined ? `Closes #${number}` : prBody?.replaceAll('ISSUE', String(number)),
+     repository: { nameWithOwner: 'DocksDocks/fixture' },
+   };
+   updateIssue(number, (entry) => {
+     entry.state = 'CLOSED';
+     entry.stateReason = 'COMPLETED';
+     entry.labels = ['plan', 'plan:ongoing'];
+-    entry.closedByPullRequestsReferences = [{ ...closer, userLinked: manual }];
+     entry.timelineItems = [{ closer }];
+   });
+   addIssueComment(number, '### Code review (round 2)\n\ncode-review: pass');
+@@ -485,40 +485,44 @@ try {
+   expectSuccess(archived, 'archive merged closer');
+   assert.equal(archived.stdout.trim(), `plan #${landed.number} finished (closed by ${landed.closer.url})`);
+   assert.deepEqual(issue(landed.number).labels, ['plan']);
+-  const pagedReferences = closedPlan('closing reference beyond first page');
+-  // The filtered latest closure wins over older closures and a later non-closure event.
+-  updateIssue(pagedReferences.number, (entry) => {
++  // The latest actual closure wins over older closures and a later non-closure event.
++  const latestClosure = closedPlan('latest closure');
++  updateIssue(latestClosure.number, (entry) => {
+     entry.timelineItems = [
+-      { __typename: 'ClosedEvent', closer: { ...pagedReferences.closer, baseRefName: 'release' } },
+-      { __typename: 'ClosedEvent', closer: pagedReferences.closer },
++      { __typename: 'ClosedEvent', closer: { ...latestClosure.closer, baseRefName: 'release' } },
++      { __typename: 'ClosedEvent', closer: latestClosure.closer },
+       { __typename: 'LabeledEvent', label: { name: 'plan:ongoing' } },
+     ];
+-    entry.closedByPullRequestsReferences = [
+-      ...Array.from({ length: 100 }, (_, index) => ({
+-        number: 9000 + index,
+-        state: 'MERGED',
+-        mergedAt: '2026-08-21T00:00:00Z',
+-        baseRefName: 'release',
+-      })),
+-      pagedReferences.closer,
+-    ];
+   });
+-  updateState((state) => {
+-    state.graphqlMissingCursor = { on: 'snapshot', field: 'closing' };
++  expectSuccess(run('archive', String(latestClosure.number)), 'archive latest closure');
++
++  const qualified = closedPlan('qualified closing keyword', {
++    prBody: 'fIxEs: dOcKsDoCkS/FiXtUrE#ISSUE',
+   });
+-  const brokenClosingPage = run('archive', String(pagedReferences.number));
+-  assert.equal(brokenClosingPage.status, 1, 'a next page without a cursor cannot authorize archive');
+-  assert.match(brokenClosingPage.stderr, /graphql/i);
+-  assert.deepEqual(issue(pagedReferences.number).labels, ['plan', 'plan:ongoing']);
+-  expectSuccess(run('archive', String(pagedReferences.number)), 'archive closing reference on second page');
+-  assert.deepEqual(issue(pagedReferences.number).labels, ['plan']);
+-
+-  const manual = closedPlan('manual link', { manual: true });
+-  refuse(
+-    run('archive', String(manual.number)),
+-    'archive requires a closing pull request merged into DocksDocks/fixture:main',
+-  );
+-  assert.deepEqual(issue(manual.number).labels, ['plan', 'plan:ongoing'], 'a manual-only link cannot archive');
++  expectSuccess(run('archive', String(qualified.number)), 'archive qualified mixed-case keyword');
++
++  const tabSeparated = closedPlan('tab-separated closing keyword', { prBody: 'Resolves\t#ISSUE' });
++  expectSuccess(run('archive', String(tabSeparated.number)), 'archive tab-separated keyword');
++
++  for (const [name, prBody] of [
++    ['no closing keyword', 'Refs #ISSUE'],
++    ['number prefix', 'Closes #ISSUE0'],
++    ['number suffix', 'Closes #ISSUEa'],
++    ['keyword prefix', 'notCloses #ISSUE'],
++    ['issue URL', 'Closes https://github.com/DocksDocks/fixture/issues/ISSUE'],
++    ['different repository', 'Fixes: Another/repo#ISSUE'],
++    ['keyword and reference in separate paragraphs', 'Closes:\n\n#ISSUE is still open'],
++    ['keyword and reference on separate lines', 'Closes\n#ISSUE'],
++    ['null PR description', null],
++  ]) {
++    const unproven = closedPlan(name, { prBody });
++    refuse(
++      run('archive', String(unproven.number)),
++      'archive requires a closing pull request merged into DocksDocks/fixture:main',
++    );
++    assert.deepEqual(issue(unproven.number).labels, ['plan', 'plan:ongoing']);
++  }
++
+   const commitClosed = closedPlan('commit closer beyond first association page');
+   const commitOid = 'a'.repeat(40);
+   updateState((state) => {
+@@ -527,7 +531,6 @@ try {
+       { __typename: 'ClosedEvent', closer: commitClosed.closer },
+       { __typename: 'ClosedEvent', closer: { __typename: 'Commit', oid: commitOid } },
+     ];
+-    entry.closedByPullRequestsReferences = [];
+     state.commits = [
+       {
+         oid: commitOid,
+@@ -538,7 +541,7 @@ try {
+             mergedAt: '2026-08-21T00:00:00Z',
+             baseRefName: 'release',
+           })),
+-          commitClosed.closer,
++          { ...commitClosed.closer, body: null },
+         ],
+       },
+     ];

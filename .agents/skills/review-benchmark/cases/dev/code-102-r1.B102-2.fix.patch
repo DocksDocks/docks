@@ -1,0 +1,178 @@
+diff --git a/scripts/tests/fixtures/gh-stub/gh b/scripts/tests/fixtures/gh-stub/gh
+index d602c0cb..1c7c2b2c 100755
+--- a/scripts/tests/fixtures/gh-stub/gh
++++ b/scripts/tests/fixtures/gh-stub/gh
+@@ -283,23 +283,85 @@ function ownFields(query, type) {
+   return ownLevel(fragmentSet(query, type));
+ }
+ 
+-// `object` as GitHub returns it for a selection set: only the fields that the set names at its own level, and each
+-// object field only with the fields of its nested set. A fixture field that the query does not select must not reach
+-// the helper, or a test passes for a query that GitHub would answer without that field.
++// The fields that a selection set names at its own level, in query order. Each field has its response key (its alias,
++// or else its name), its name, and the text of its nested selection set (null if it has none). An inline fragment
++// `... on <type>{...}` adds its fields only when <type> is `typename`, as GitHub applies only the fragments that match
++// the object. Commas are white space in GraphQL. Like `graphqlSelections`, this reads arguments up to the first `)`.
++function selectionFields(selection, typename) {
++  const fields = [];
++  let index = 0;
++  const skipSpace = () => {
++    while (index < selection.length && /[\s,]/.test(selection[index])) index += 1;
++  };
++  const readName = () => {
++    const match = /^[_A-Za-z]\w*/.exec(selection.slice(index));
++    if (!match) die(`fake gh cannot read the GraphQL selection at: ${selection.slice(index)}`);
++    index += match[0].length;
++    skipSpace();
++    return match[0];
++  };
++  const readSet = () => {
++    const set = selectionSetAt(selection, index + 1);
++    index += set.length + 2;
++    return set;
++  };
++  for (skipSpace(); index < selection.length; skipSpace()) {
++    if (selection.startsWith('...', index)) {
++      index += 3;
++      skipSpace();
++      const on = readName();
++      const type = on === 'on' ? readName() : '';
++      if (!type || selection[index] !== '{')
++        die(`fake gh reads only inline fragments '... on <type>{...}': ${selection}`);
++      const set = readSet();
++      if (type === typename) fields.push(...selectionFields(set, typename));
++      continue;
++    }
++    const key = readName();
++    let name = key;
++    if (selection[index] === ':') {
++      index += 1;
++      skipSpace();
++      name = readName();
++    }
++    if (selection[index] === '(') {
++      const end = selection.indexOf(')', index);
++      if (end < 0) die(`fake gh cannot read the GraphQL arguments of '${name}': ${selection}`);
++      index = end + 1;
++      skipSpace();
++    }
++    fields.push({ key, name, nested: selection[index] === '{' ? readSet() : null });
++  }
++  return fields;
++}
++
++// `object` as GitHub returns it for a selection set: only the fields that the set names at its own level, each under
++// its response key, and each object field only with the fields of its nested set. For `{landed: mergedAt}` GitHub
++// returns `landed` with the value of `mergedAt`, and no `mergedAt`. A fixture field that the query does not select must
++// not reach the helper, or a test passes for a query that GitHub would answer without that field.
+ function selectFields(object, selection) {
+-  const own = ownLevel(selection);
++  // GitHub merges the selections of one response key, and refuses a key that names two different fields.
++  const keys = new Map();
++  for (const { key, name, nested } of selectionFields(selection, object.__typename)) {
++    const merged = keys.get(key);
++    if (merged && merged.name !== name) die(`Field '${key}' has a field conflict: ${merged.name} or ${name}?`);
++    if (merged) merged.sets.push(nested);
++    else keys.set(key, { name, sets: [nested] });
++  }
+   const selected = {};
+-  for (const [name, value] of Object.entries(object)) {
+-    if (!new RegExp(`\\b${name}\\b`).test(own)) continue;
++  for (const [key, { name, sets }] of keys) {
++    // The caller adds the fields that the fixture object does not store, such as a connection.
++    if (!Object.hasOwn(object, name)) continue;
++    const value = object[name];
+     if (value === null || typeof value !== 'object') {
+-      selected[name] = value;
++      selected[key] = value;
+       continue;
+     }
+-    const nested = selectionSet(selection, new RegExp(`\\b${name}\\s*\\{`));
++    const nested = sets.filter(Boolean).join(' ');
+     // GitHub refuses a query that selects an object field without its subfields.
+     if (!nested.trim())
+       die(`Field must have selections (field '${name}' has no selections. Did you mean '${name} { ... }'?)`);
+-    selected[name] = selectFields(value, nested);
++    selected[key] = selectFields(value, nested);
+   }
+   return selected;
+ }
+@@ -646,7 +708,7 @@ if (group === 'api' && command === 'graphql') {
+       ? `${reference.repository.owner.login}/${reference.repository.name}`
+       : state.repo.nameWithOwner);
+   // A pull request node, for a closer, an associated pull request, or Repository.pullRequest, with only the fields
+-  // that `selection`, the selection at the node's level, names.
++  // that `selection`, the selection set of the node, names, each under its response key.
+   const pullRequestNode = (reference, selection) => {
+     const repo = referenceRepo(reference);
+     const pullRequest = (state.prs ?? []).find(
+@@ -745,12 +807,9 @@ if (group === 'api' && command === 'graphql') {
+         const closer = latest?.closer;
+         let renderedCloser = closer;
+         if (closer?.__typename === 'PullRequest') {
+-          // GitHub merges the fields that the closer selects at its own level with those of its `... on PullRequest`.
+-          const closerFields = selectionSet(query, /\bcloser\s*\{/);
+-          renderedCloser = pullRequestNode(
+-            closer,
+-            `${ownLevel(closerFields)} ${fragmentSet(closerFields, 'PullRequest')}`,
+-          );
++          // `selectFields` merges the fields that the closer selects at its own level with those of its
++          // `... on PullRequest`, and ignores its `... on Commit`.
++          renderedCloser = pullRequestNode(closer, selectionSet(query, /\bcloser\s*\{/));
+         }
+         if (closer?.__typename === 'Commit') {
+           const association = graphqlSelections(query, 'associatedPullRequests');
+diff --git a/scripts/tests/plan-cli/gh-stub.test.mjs b/scripts/tests/plan-cli/gh-stub.test.mjs
+index f5c35b29..5f243b69 100644
+--- a/scripts/tests/plan-cli/gh-stub.test.mjs
++++ b/scripts/tests/plan-cli/gh-stub.test.mjs
+@@ -84,3 +84,49 @@ test('the fake gh returns only the selected fields of the pull requests associat
+   const data = responseData(graphql(context, query, { oid: OID }));
+   assert.deepEqual(data.repository.commit.associatedPullRequests.nodes, [{ number: PR }]);
+ });
++
++test('the fake gh merges the repeated selections of an object field', (t) => {
++  const context = planCliContext(t);
++  seedPullRequest(context);
++  const repository = { a: 'DocksDocks/fixture', b: 'DocksDocks/fixture' };
++  const data = responseData(pullRequest(context, 'repository{a:nameWithOwner} repository{b:nameWithOwner}'));
++  assert.deepEqual(data.repository.pullRequest, { repository });
++});
++
++test('the fake gh refuses an object field without subfields', (t) => {
++  const context = planCliContext(t);
++  seedPullRequest(context);
++  const result = pullRequest(context, 'number repository');
++  assert.equal(result.status, 1);
++  assert.equal(
++    result.stderr,
++    "Field must have selections (field 'repository' has no selections. Did you mean 'repository { ... }'?)\n",
++  );
++});
++
++test('the fake gh returns an aliased pull request field only under its alias', (t) => {
++  const context = planCliContext(t);
++  seedPullRequest(context);
++  // GitHub returns `landed` with the merge time and no `mergedAt`, also for an alias in a nested selection.
++  const data = responseData(pullRequest(context, 'landed: mergedAt number repo: repository{fullName: nameWithOwner}'));
++  assert.deepEqual(data.repository.pullRequest, {
++    landed: MERGED_AT,
++    number: PR,
++    repo: { fullName: 'DocksDocks/fixture' },
++  });
++});
++
++test('the fake gh returns the value of the selected field for an alias that names another field', (t) => {
++  const context = planCliContext(t);
++  seedPullRequest(context);
++  const data = responseData(pullRequest(context, 'mergedAt: url'));
++  assert.deepEqual(data.repository.pullRequest, { mergedAt: PR_URL });
++});
++
++test('the fake gh refuses a response key that names two different fields', (t) => {
++  const context = planCliContext(t);
++  seedPullRequest(context);
++  const result = pullRequest(context, 'number: url number');
++  assert.equal(result.status, 1);
++  assert.equal(result.stderr, "Field 'number' has a field conflict: url or number?\n");
++});

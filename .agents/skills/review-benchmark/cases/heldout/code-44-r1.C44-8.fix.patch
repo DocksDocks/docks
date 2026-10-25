@@ -1,0 +1,56 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 746bf8fd..f903e539 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -368,13 +368,21 @@ function sectionMap(body) {
+   headings.forEach((heading, index) => {
+     const name = SECTIONS.find((known) => known.toLowerCase() === heading[1].trim().toLowerCase()) ?? heading[1].trim();
+     if (sections.has(name)) fail(`duplicate section heading: ${name}`);
+-    sections.set(name, body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length).trim());
++    sections.set(
++      name,
++      body
++        .slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length)
++        .replace(/^(?:[ \t]*\n)+/, '')
++        .trimEnd(),
++    );
+   });
+   return sections;
+ }
+ function table(text, header) {
+   const lines = text.split('\n'),
+-    scan = blankFencedRegions(text).split('\n'),
++    scan = blankFencedRegions(text)
++      .split('\n')
++      .map((line) => (/^(?: {4}|\t)/.test(line) ? '' : line)),
+     cells = (line) =>
+       line
+         .trim()
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 2d2008d7..bd058c47 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -426,6 +426,23 @@ try {
+   });
+   refuse(run('archive', String(tableless.number)), 'archive refused: no Steps rows parsed');
+ 
++  // An indented example table before the live table is neither selected nor rewritten.
++  const indentedTable = createPlan('indented example table');
++  const indentedExample = [
++    '    | # | Id | Task | Files | Depends | Effect | Status | Done when |',
++    '    |---:|---|---|---|---|---|---|---|',
++    '    | 1 | example | Example | x | - | local | done | Never |',
++  ].join('\n');
++  expectSuccess(
++    edit(indentedTable, (text) => text.replace('## Steps\n\n', `## Steps\n\n${indentedExample}\n\n`)),
++    'edit with indented example table',
++  );
++  assert.ok(issue(indentedTable).body.includes(indentedExample), 'indented example bytes are preserved');
++  expectSuccess(run('status', String(indentedTable), 'ongoing'), 'start indented-table plan');
++  expectSuccess(run('step', String(indentedTable), 'fix_parser', 'in-flight'), 'step targets the live table');
++  assert.match(issue(indentedTable).body, /\| fix_parser \| .* \| in-flight \|/);
++  assert.ok(issue(indentedTable).body.includes(indentedExample), 'indented example still untouched');
++
+   // A merged closer does not replace review approval.
+   const unapproved = closedPlan('review repair');
+   addIssueComment(unapproved.number, '## Code review\n\ncode-review: repair\nFix data loss.');

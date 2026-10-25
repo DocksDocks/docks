@@ -1,0 +1,64 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 32c2ac84..ae6d1683 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -373,18 +373,19 @@ function sectionMap(body) {
+ }
+ function table(text, header) {
+   const lines = text.split('\n'),
++    scan = blankFencedRegions(text).split('\n'),
+     cells = (line) =>
+       line
+         .trim()
+         .replace(/^\||\|$/g, '')
+         .split('|')
+         .map((cell) => cell.trim());
+-  const start = lines.findIndex((line) => cells(line).map(token).join('|') === cells(header).map(token).join('|'));
++  const start = scan.findIndex((line) => cells(line).map(token).join('|') === cells(header).map(token).join('|'));
+   if (start < 0) return { lines, start, end: start, rows: [] };
+   const isSeparator = (line) => cells(line).every((cell) => /^:?-+:?$/.test(cell));
+-  const first = start + 1 + (lines[start + 1] !== undefined && isSeparator(lines[start + 1]) ? 1 : 0);
++  const first = start + 1 + (scan[start + 1] !== undefined && isSeparator(scan[start + 1]) ? 1 : 0);
+   let end = first;
+-  while (end < lines.length && lines[end].trim().startsWith('|')) end++;
++  while (end < scan.length && scan[end].trim().startsWith('|')) end++;
+   return { lines, start, end, rows: lines.slice(first, end).map(cells) };
+ }
+ const render = (sections) =>
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 7114f0ce..69574a4b 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -268,6 +268,32 @@ try {
+   assert.match(issue(legacy).body, /^<!-- plan-contract: v4 -->/);
+   assert.doesNotMatch(issue(legacy).body, /^## Review$/m);
+ 
++  // A fenced example table is not the live table.
++  const fenced = createPlan('fenced example');
++  const example = [
++    '```markdown',
++    '| # | Id | Task | Files | Depends | Effect | Status | Done when |',
++    '|---:|---|---|---|---|---|---|---|',
++    '| 1 | example | Example | x | - | local | done | Never |',
++    '```',
++    '',
++  ].join('\n');
++  expectSuccess(
++    edit(fenced, (text) => text.replace('## Steps\n\n', `## Steps\n\n${example}`)),
++    'edit with fenced example',
++  );
++  assert.ok(
++    issue(fenced).body.includes('| 1 | example | Example | x | - | local | done | Never |'),
++    'example untouched',
++  );
++  expectSuccess(run('status', String(fenced), 'ongoing'), 'start fenced plan');
++  expectSuccess(run('step', String(fenced), 'fix_parser', 'in-flight'), 'step targets the live table');
++  assert.match(issue(fenced).body, /\| fix_parser \| .* \| in-flight \|/);
++  assert.ok(
++    issue(fenced).body.includes('| 1 | example | Example | x | - | local | done | Never |'),
++    'example still untouched',
++  );
++
+   // Ownership is checked before a mutating command can change the record.
+   const foreign = createPlan('foreign owner');
+   updateIssue(foreign, (entry) => {

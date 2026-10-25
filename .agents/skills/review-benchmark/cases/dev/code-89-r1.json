@@ -1,0 +1,36 @@
+{
+  "id": "code-89-r1",
+  "kind": "code",
+  "split": "dev",
+  "issue": 89,
+  "round": 1,
+  "base": "37852a890e9ce328a20522e69933afe6c222b5ae",
+  "head": "267482e53b5a280be23ee7ab8c61a994dca81c71",
+  "plan": "code-89-r1-plan.md",
+  "known": [
+    {
+      "id": "A89-1",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:599-607; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:711-712",
+      "category": "code",
+      "source": "self-review",
+      "summary": "sharedFilesAdvice and printAdvice in the shipped plan.mjs are only rewrapped, with no behavior change; the gate lints but does not format this file, so the reformatting is diff noise outside the plan's steps.",
+      "fix": "code-89-r1.A89-1.fix.patch"
+    },
+    {
+      "id": "A89-2",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:25; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:399-404",
+      "category": "code",
+      "source": "self-review",
+      "summary": "STORED_ISSUE_FIELDS makes the write mutation select assignees and writeIssueIfUnchanged fails on a malformed assignees shape, but no post-write check reads the stored assignees, so the field only adds a way for a write to fail.",
+      "fix": "code-89-r1.A89-2.fix.patch"
+    },
+    {
+      "id": "A89-3",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:21; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:190",
+      "category": "code",
+      "source": "self-review",
+      "summary": "REPOSITORY_LABELS changes from a joined string to an array that is joined at its only use in readSnapshot; the change has no reason and widens the diff.",
+      "fix": "code-89-r1.A89-3.fix.patch"
+    }
+  ]
+}

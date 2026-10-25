@@ -1,0 +1,60 @@
+{
+  "id": "code-96-r1",
+  "kind": "code",
+  "split": "dev",
+  "issue": 96,
+  "round": 1,
+  "base": "e49e144d074ab14fd1c404a250d61ea05cdbb99a",
+  "head": "093c13f0a383c88c42730207ce70e8b68e5534c4",
+  "plan": "plan96-code-r1-body.md",
+  "known": [
+    {
+      "id": "A96-1",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:1188-1192; plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md:288",
+      "category": "code",
+      "source": "self-review",
+      "summary": "When another closer closed the plan before the partial pull request merged, reopen polls 34 times and then tells the caller to run reopen again; GitHub never records a new close for a closed issue, so following the message loops forever.",
+      "fix": "code-96-r1.A96-1.fix.patch"
+    },
+    {
+      "id": "D96-D3",
+      "locator": "scripts/tests/test-contracts.mjs:234-265; scripts/tests/test-contracts.mjs:474-483; scripts/config/test-contracts.json:100-117",
+      "category": "test",
+      "source": "after-pass",
+      "summary": "The test-contracts check discovers only the runners that scripts/ci.mjs uses (node for repo-plan-cli) and only asks that each be listed, so removing bun-1 from the repo-plan-cli row (the fake gh fixture runs on Bun) or listing a toolchain that nothing needs still passes.",
+      "fix": "code-96-r1.D96-D3.fix.patch"
+    },
+    {
+      "id": "D96-D4",
+      "locator": "scripts/tests/plan-cli/reopen.test.mjs:207-277; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:1202-1207",
+      "category": "test",
+      "source": "after-pass",
+      "summary": "No reopen test reaches the refusal 'plan #<n> changed during the settle wait; run reopen again' (a later close by the same pull request, or a close reason that changes during the wait), so that branch is untested.",
+      "fix": "code-96-r1.D96-D4.fix.patch"
+    },
+    {
+      "id": "D96-D5",
+      "locator": "scripts/tests/fixtures/gh-stub/gh:599-612; scripts/tests/fixtures/gh-stub/gh:777-784",
+      "category": "test",
+      "source": "after-pass",
+      "summary": "The fake gh builds pull request nodes (closers, associated pull requests, Repository.pullRequest) with fixed fields such as merged, mergedAt, state, url, and baseRefName whether or not the query selects them, so a helper query that omits a field still passes although GitHub would leave that field out.",
+      "fix": "code-96-r1.D96-D5.fix.patch"
+    },
+    {
+      "id": "D96-D6",
+      "locator": "scripts/tests/plan-cli/reopen.test.mjs:67-72",
+      "category": "test",
+      "source": "after-pass",
+      "summary": "The commit-close reopen test asserts that the request arguments do not contain addAssigneesToAssignable, a wiring check of request text rather than of the stored outcome.",
+      "fix": "code-96-r1.D96-D6.fix.patch"
+    },
+    {
+      "id": "D96-D7",
+      "locator": "plugins/docks/skills/AGENTS.md:107",
+      "category": "docs",
+      "source": "after-pass",
+      "summary": "The Report section rule's verify command hashes sed output per file, so when every skill lacks the section the empty inputs hash alike and it still prints one line with the full count, which the rule calls a pass; no gate runs the check.",
+      "fix": "code-96-r1.D96-D7.fix.patch"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+index 7027cf6d..987c5f81 100644
+--- a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+@@ -297,8 +297,8 @@ same finding again, research it again and try a different approach.
+ 10. On any other answer, or when no answer is possible, leave the pull request
+     and the issue open. Report both links.
+ 11. When the message that answers the merge question also starts a new yolo
+-    run, finish this run first: merge or leave open as the answer says, then
+-    archive and clean up. Then start the new run.
++    run, finish this run first. On `Merge now`, follow step 9. On any other
++    answer, follow step 10. Then start the new run.
+ 
+ ## Run summary
+ 

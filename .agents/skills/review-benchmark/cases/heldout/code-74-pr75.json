@@ -1,0 +1,10 @@
+{
+  "id": "code-74-pr75",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 74,
+  "round": 1,
+  "base": "d3810936599d787399b1dde23b121319fc87f014",
+  "head": "5a793dfbba7f49b49a11c464d419a7d106e053a4",
+  "plan": "code-74-pr75-plan.md"
+}

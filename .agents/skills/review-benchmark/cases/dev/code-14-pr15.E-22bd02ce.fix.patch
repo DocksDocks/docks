@@ -1,0 +1,257 @@
+diff --git a/docs/PLAN.md b/docs/PLAN.md
+index f63771cb..ce142561 100644
+--- a/docs/PLAN.md
++++ b/docs/PLAN.md
+@@ -214,11 +214,12 @@ A manually linked pull request never proves a landing.
+ 
+ Either proof suffices, and the verifier tries them in one order. It first looks
+ for an eligible keyword closer. Only when that connection holds none does it
+-examine the latest closure. A commit closer supplies its `associatedPullRequests`.
+-Any other latest closer supplies no commit fallback proof. An ineligible keyword
+-reference, such as one still open, therefore never hides a valid commit proof.
+-The verifier accepts only merged pull requests whose base matches that
+-repository's default branch.
++examine the latest closure. A pull-request closer is itself verified as a
++candidate closing pull request. A commit closer supplies its
++`associatedPullRequests`. Any other latest closer supplies no fallback proof.
++An ineligible keyword reference, such as one still open, therefore never hides
++a valid closure proof. The verifier accepts only merged pull requests whose
++base matches that repository's default branch.
+ 
+ Earlier closure events do not count. An issue closed by a commit, reopened, then
+ closed by hand has no commit proof. A commit pushed straight to the default
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index f54e104b..73cdbb61 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -179,9 +179,12 @@ A phase-only status change leaves the body and sidecar valid.
+ A manually linked pull request never proves a landing.
+ 
+ When that connection is empty, `archive` examines only the latest closure.
++GitHub may classify a same-repository keyword closer as user-linked and exclude
++it, so the `ClosedEvent` closer covers that case.
++A pull-request closer is itself verified as a candidate closing pull request.
+ A commit closer supplies its `associatedPullRequests`.
+-Any other latest closer supplies no commit fallback proof.
+-An issue closed by a commit, reopened, then closed by hand has no commit proof.
++Any other latest closer supplies no fallback proof.
++An issue closed by a commit, reopened, then closed by hand has no closure proof.
+ 
+ Every accepted pull request merges into the target repository's default branch.
+ A commit pushed straight to that branch has no associated merged pull request
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 33fe15bc..13b84d4f 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -274,12 +274,15 @@ repository's default branch. It reads `closedByPullRequestsReferences` with
+ `excludeUserLinked: true`. Therefore, a manually linked pull request never
+ proves a landing.
+ 
+-Either proof suffices. `archive` first seeks an eligible keyword closer. Only
+-when that connection holds none does it examine the latest closure. A commit
+-closer supplies its `associatedPullRequests`. Any other latest closer supplies
+-no commit fallback proof. An ineligible keyword reference, such as one still
+-open, never hides a valid commit proof.
+-An issue closed by a commit, reopened, then closed by hand has no commit proof.
++Any one proof suffices. `archive` first seeks an eligible keyword closer. Only
++when that connection holds none does it examine the latest closure. GitHub may
++classify a same-repository keyword closer as user-linked and exclude it, so the
++`ClosedEvent` closer covers that case. A pull-request closer is itself verified
++as a candidate closing pull request. A commit closer supplies its
++`associatedPullRequests`. Any other latest closer supplies no fallback proof.
++An ineligible keyword reference, such as one still open, never hides a valid
++closure proof.
++An issue closed by a commit, reopened, then closed by hand has no closure proof.
+ 
+ Every accepted pull request has `state: MERGED`.
+ Its `baseRefName` matches that repository's `defaultBranchRef.name`.
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index acb942e6..35c3d09f 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -37,6 +37,10 @@ const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (gh api user
+ // cli/cli#14073 keeps its keyword closer under exclusion). `includeClosedPrs` stays at its `false` default
+ // because a merged pull request is returned regardless (cli/cli#14073) while that default also hides the
+ // closed-unmerged references this verifier must never accept (cli/cli#14156).
++// GitHub also classifies some same-repository keyword closers as user-linked and excludes them
++// (verified live: DocksDocks/docks#22 closed by its own `Closes #22` merge returned an empty excluded
++// connection), so the ClosedEvent closer is read as well; GitHub writes that closer itself when a merge
++// closes the issue, and it may be the merge commit or the pull request.
+ const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){
+   repository(owner:$owner,name:$name){
+     defaultBranchRef{ name }
+@@ -46,7 +50,7 @@ const CLOSING_PULL_REQUESTS_QUERY = `query($owner:String!,$name:String!,$number:
+         pageInfo{ hasNextPage endCursor }
+       }
+       timelineItems(last:100, itemTypes:CLOSED_EVENT){
+-        nodes{ ... on ClosedEvent{ closer{ __typename ... on Commit{ oid } } } }
++        nodes{ ... on ClosedEvent{ closer{ __typename ... on Commit{ oid } ... on PullRequest{ number url state mergedAt baseRefName repository{ nameWithOwner } } } } }
+       }
+     }
+   }
+@@ -332,6 +336,7 @@ function archivePullRequestReferences(issueNumber) {
+   const { owner, name } = repositoryCoordinates();
+   const closing = [];
+   let closingCommitOid;
++  let closerPullRequest;
+   let defaultBranch;
+   let after;
+   let hasNextPage;
+@@ -366,10 +371,11 @@ function archivePullRequestReferences(issueNumber) {
+     // closed by hand must not keep the earlier commit as proof, so read the latest event and require it.
+     const latestClosure = issue.timelineItems.nodes.at(-1)?.closer;
+     closingCommitOid = latestClosure?.__typename === 'Commit' ? latestClosure.oid : undefined;
++    closerPullRequest = latestClosure?.__typename === 'PullRequest' ? latestClosure : undefined;
+     hasNextPage = issue.closing.pageInfo?.hasNextPage === true;
+     if (issue.closing.pageInfo?.endCursor != null) after = issue.closing.pageInfo.endCursor;
+   } while (hasNextPage);
+-  return { closing, closingCommitOid, defaultBranch };
++  return { closing, closingCommitOid, closerPullRequest, defaultBranch };
+ }
+ 
+ function associatedPullRequests(commitOid) {
+@@ -897,7 +903,7 @@ function archivePlan(args, retired = false) {
+     if (unfinished) fail(`archive refused: non-terminal step ${unfinished.cells[1]}`);
+     if (!/^Code-review: pass$/m.test(sections.get('Review') ?? '')) fail('archive requires Code-review: pass');
+ 
+-    const { closing, closingCommitOid, defaultBranch } = archivePullRequestReferences(issue.number);
++    const { closing, closingCommitOid, closerPullRequest, defaultBranch } = archivePullRequestReferences(issue.number);
+     const landedInto = (references, branch) => references.find((reference) => (
+       reference.state === 'MERGED' &&
+       reference.mergedAt &&
+@@ -906,22 +912,24 @@ function archivePlan(args, retired = false) {
+     ));
+     const mergedElsewhere = (references) => references.find((reference) => reference.state === 'MERGED' && reference.mergedAt)?.baseRefName;
+ 
+-    // Either proof suffices, so an ineligible keyword reference must not hide a valid commit closure.
+-    closingPullRequest = landedInto(closing, defaultBranch);
++    // Any one proof suffices, so an ineligible keyword reference must not hide a valid closure recorded
++    // by the ClosedEvent closer, whether GitHub stored it as the pull request or as the merge commit.
++    const closerReferences = closerPullRequest ? [closerPullRequest] : [];
++    closingPullRequest = landedInto(closing, defaultBranch) ?? landedInto(closerReferences, defaultBranch);
+     let associated;
+     if (!closingPullRequest && closingCommitOid) {
+       associated = associatedPullRequests(closingCommitOid);
+       closingPullRequest = landedInto(associated.pullRequests, associated.defaultBranch);
+     }
+     if (!closingPullRequest) {
+-      const wrongClosingBranch = mergedElsewhere(closing);
++      const wrongClosingBranch = mergedElsewhere([...closing, ...closerReferences]);
+       if (wrongClosingBranch) fail(`archive requires a pull request merged into ${defaultBranch}, found ${wrongClosingBranch}`);
+       if (associated) {
+         const wrongCommitBranch = mergedElsewhere(associated.pullRequests);
+         if (wrongCommitBranch) fail(`archive requires a pull request merged into ${associated.defaultBranch}, found ${wrongCommitBranch}`);
+         fail(`archive requires a merged closing pull request; closing commit ${closingCommitOid} has no associated merged pull request into ${associated.defaultBranch}`);
+       }
+-      if (closing.length > 0) fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
++      if (closing.length > 0 || closerReferences.length > 0) fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
+       fail('archive requires a merged closing pull request; issue has no closing commit');
+     }
+   }
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
+index 4b6d81a1..ec9bb0bc 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
+@@ -218,11 +218,12 @@ A manually linked pull request never proves a landing.
+ 
+ Either proof suffices, and the verifier tries them in one order. It first looks
+ for an eligible keyword closer. Only when that connection holds none does it
+-examine the latest closure. A commit closer supplies its `associatedPullRequests`.
+-Any other latest closer supplies no commit fallback proof. An ineligible keyword
+-reference, such as one still open, therefore never hides a valid commit proof.
+-The verifier accepts only merged pull requests whose base matches that
+-repository's default branch.
++examine the latest closure. A pull-request closer is itself verified as a
++candidate closing pull request. A commit closer supplies its
++`associatedPullRequests`. Any other latest closer supplies no fallback proof.
++An ineligible keyword reference, such as one still open, therefore never hides
++a valid closure proof. The verifier accepts only merged pull requests whose
++base matches that repository's default branch.
+ 
+ Earlier closure events do not count. An issue closed by a commit, reopened, then
+ closed by hand has no commit proof. A commit pushed straight to the default
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 43a51bc3..cffd464f 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -1541,14 +1541,78 @@ try {
+   assert.equal(
+     pullRequestLatestCloserArchive.status,
+     1,
+-    'a PullRequest latest closer must not reuse an earlier commit',
++    'an unmerged PullRequest latest closer must not reuse an earlier commit',
+   );
+   assert.equal(
+     pullRequestLatestCloserArchive.stderr.trim(),
+-    'archive requires a merged closing pull request; issue has no closing commit',
++    'archive requires a closing pull request merged into DocksDocks/fixture:main',
+   );
+   assert.deepEqual(issue(pullRequestLatestCloserNumber), beforePullRequestLatestCloserArchive);
+ 
++  const mergedCloserNumber = createPlan('merged-pull-request-closer-archive');
++  makeValid(mergedCloserNumber);
++  setIssueStatus(mergedCloserNumber, 'ongoing');
++  updateIssue(mergedCloserNumber, (entry) => {
++    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
++    entry.state = 'CLOSED';
++    entry.stateReason = 'COMPLETED';
++    entry.closedByPullRequestsReferences = [];
++    entry.timelineItems = [
++      {
++        closer: {
++          __typename: 'PullRequest',
++          number: 52,
++          url: 'https://github.com/DocksDocks/fixture/pull/52',
++          state: 'MERGED',
++          mergedAt: '2026-08-21T10:00:00Z',
++          baseRefName: 'main',
++          repository: { nameWithOwner: 'DocksDocks/fixture' },
++        },
++      },
++    ];
++  });
++  const mergedCloserArchive = run('archive', String(mergedCloserNumber));
++  assert.equal(
++    mergedCloserArchive.status,
++    0,
++    'a merged default-branch PullRequest closer must satisfy archive when the excluded connection is empty',
++  );
++  assert.match(
++    mergedCloserArchive.stdout,
++    /finished \(closed by https:\/\/github\.com\/DocksDocks\/fixture\/pull\/52\)/,
++  );
++
++  const wrongBranchCloserNumber = createPlan('wrong-branch-pull-request-closer-archive');
++  makeValid(wrongBranchCloserNumber);
++  setIssueStatus(wrongBranchCloserNumber, 'ongoing');
++  updateIssue(wrongBranchCloserNumber, (entry) => {
++    entry.body = replaceStepStatus(entry.body, 'done').replace('_No review yet._', 'Code-review: pass');
++    entry.state = 'CLOSED';
++    entry.stateReason = 'COMPLETED';
++    entry.closedByPullRequestsReferences = [];
++    entry.timelineItems = [
++      {
++        closer: {
++          __typename: 'PullRequest',
++          number: 53,
++          url: 'https://github.com/DocksDocks/fixture/pull/53',
++          state: 'MERGED',
++          mergedAt: '2026-08-21T11:00:00Z',
++          baseRefName: 'release',
++          repository: { nameWithOwner: 'DocksDocks/fixture' },
++        },
++      },
++    ];
++  });
++  const beforeWrongBranchCloserArchive = issue(wrongBranchCloserNumber);
++  const wrongBranchCloserArchive = run('archive', String(wrongBranchCloserNumber));
++  assert.equal(wrongBranchCloserArchive.status, 1, 'a PullRequest closer merged elsewhere must be refused');
++  assert.equal(
++    wrongBranchCloserArchive.stderr.trim(),
++    'archive requires a pull request merged into main, found release',
++  );
++  assert.deepEqual(issue(wrongBranchCloserNumber), beforeWrongBranchCloserArchive);
++
+   const directPushNumber = createPlan('direct-push-archive');
+   makeValid(directPushNumber);
+   setIssueStatus(directPushNumber, 'ongoing');
