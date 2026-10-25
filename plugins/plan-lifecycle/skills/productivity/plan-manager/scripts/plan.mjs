@@ -727,18 +727,27 @@ function printAdvice(text, status, extra = [], options = {}) {
 // delegation line record what the yolo invocation decided, not reviewed work, so they need no new round (#111).
 const PLANNED_WORK_SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch'];
 const YOLO_DELEGATION_LINE = 'Yolo: the user delegated every decision except the merge to the agent.';
-const isDelegationLine = (line) => line.trim() === YOLO_DELEGATION_LINE;
+// The indexes of the live delegation lines of Goal text. A fenced or indented code line that quotes the delegation
+// line is example text, so it stays reviewed work.
+const liveDelegationLines = (goal) =>
+  new Set(
+    blankFencedRegions(goal)
+      .split('\n')
+      .flatMap((line, index) => (!/^(?: {4}|\t)/.test(line) && line.trim() === YOLO_DELEGATION_LINE ? [index] : [])),
+  );
 // Normalization ends Goal with its one canonical Mode line.
-const goalWork = (goal) =>
-  goal
-    .replace(/(?:^|\n)Mode: [^\n]*$/, '')
+const goalWork = (goal) => {
+  const text = goal.replace(/(?:^|\n)Mode: [^\n]*$/, '');
+  const live = liveDelegationLines(text);
+  return text
     .split('\n')
-    .filter((line) => !isDelegationLine(line))
+    .filter((_, index) => !live.has(index))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+};
 function plannedWorkChanges(before, after) {
-  const yoloGoal = after.sections.get('Goal').split('\n').some(isDelegationLine);
+  const yoloGoal = liveDelegationLines(after.sections.get('Goal')).size > 0;
   return PLANNED_WORK_SECTIONS.filter((name) => {
     const [was, now] = [before.sections.get(name), after.sections.get(name)];
     return name === 'Goal' && yoloGoal ? goalWork(was) !== goalWork(now) : was !== now;

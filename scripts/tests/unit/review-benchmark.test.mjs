@@ -2737,8 +2737,9 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
 //   target, except grep, glob, find, and ast_grep: they search the working directory, so they give
 //   `<name> without a path`. A web_search call gives its query to `queries` (each once, in call order; the field is
 //   there only when the reviewer searched the web), and the target `web_search: <query>` when the query targets the
-//   benchmark repository: after each `-site:<text>` token is removed, it holds `DocksDocks` (in any case) that is not
-//   followed by `/<name>` of another repository. Each URL of its `resultUrls` that is a page of the benchmark
+//   benchmark repository: outside its `-site:<text>` tokens, it names `DocksDocks/docks` (in any case), or it names
+//   `DocksDocks` without `/<name>` of a repository and no `-site:` token excludes the benchmark repository or its
+//   owner. `DocksDocks/<name>` of another repository targets that repository. Each URL of its `resultUrls` that is a page of the benchmark
 //   repository (see the web rule below) gives the target `web_search result: <url>`. A local path also loses a JSON
 //   query selector: the text from `?q=` on.
 //   A relative path resolves against cwd. "Under a folder" means the folder itself or a path below it.
@@ -5065,12 +5066,17 @@ test('readScope records each web search query, and a query that targets the benc
     'GITHUB.COM/docksdocks plan-lifecycle',
     'DocksDocks docks plan-lifecycle archive fix',
     '"docks-kit" site:github.com/DocksDocks/public OR site:github.com/DocksDocks/docks',
+    // An exclusion does not cancel a query that names the repository itself.
+    'DocksDocks/docks sync lock -site:github.com/DocksDocks/docks',
+    // A dot that ends a sentence is not part of the repository name.
+    'see DocksDocks/docks.',
   ];
   // Another repository of the owner is not the benchmark repository, and `-site:` excludes the benchmark repository.
   const other = [
     'site:github.com/DocksDocks/public "docks-kit" "fast"',
     '"docks-kit" "sync omp" "DocksDocks/public"',
     '"docks-kit" "omp" "--fast" -site:github.com/DocksDocks/docks',
+    'DocksDocks "docks-kit" -site:github.com/DocksDocks/docks',
   ];
   const calls = [
     search('node lock release finally'),
@@ -5114,6 +5120,35 @@ test('a web search whose result cites a page of the benchmark repository is outs
   assert.deepEqual(score.readScope(toolCalls, scope), {
     outside: [`web_search result: ${cited}`],
     queries: ['docks-kit fast mode', 'compose anonymous volumes'],
+  });
+});
+
+test('a truncated result URL is outside only when its text names the owner of the benchmark repository', () => {
+  // omp cuts long result text with `…`, also inside a host name, so such a URL cannot be parsed, and its cut part
+  // can hold the repository name.
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  const search = (resultUrls) => ({ name: 'web_search', path: null, query: 'lock release', resultUrls });
+  const truncated = 'https://github.com/DocksDocks/do…';
+  assert.deepEqual(score.readScope([search(['https://news.ycombinator.c…', truncated])], scope), {
+    outside: [`web_search result: ${truncated}`],
+    queries: ['lock release'],
+  });
+});
+
+test('a page of another site that names the benchmark repository is outside', () => {
+  // A mirror, a code search, or a GitHub search can show the current text of the repository.
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  const mirrors = [
+    'https://deepwiki.com/DocksDocks/docks',
+    'https://sourcegraph.com/github.com/DocksDocks/docks/-/blob/plugins/plan-lifecycle/README.md',
+    'https://github.com/search?q=repo%3ADocksDocks%2Fdocks+lock&type=code',
+  ];
+  const allowed = ['https://deepwiki.com/DocksDocks/public', 'https://github.com/DocksDocks/docks-kit'];
+  assert.deepEqual(score.readScope(reads(...mirrors, ...allowed), scope), { outside: mirrors });
+  const search = { name: 'web_search', path: null, query: 'lock release', resultUrls: [mirrors[0], allowed[0]] };
+  assert.deepEqual(score.readScope([search], scope), {
+    outside: [`web_search result: ${mirrors[0]}`],
+    queries: ['lock release'],
   });
 });
 
