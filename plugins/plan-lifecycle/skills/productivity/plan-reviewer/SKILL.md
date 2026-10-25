@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-25"
-  content_hash: "4afeb29119dd028ad04f0d125b6dd2964183a1420e7c492836cdcb3c1f112ff8"
+  content_hash: "41647705e3b5a7f65d2af07a195afe7223b738123f976422310d9129b8d0ddd1"
 ---
 
 # Plan Reviewer
