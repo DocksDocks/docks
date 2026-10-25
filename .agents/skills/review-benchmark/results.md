@@ -642,3 +642,94 @@ The rule of decision 5 has three conditions against V17: fewer escaped known def
 - V17 had the lowest recall of the five variants on the held-out cases (0.82 known found per run), as the 0.17.1 plan prompt did against the 0.16.0 prompt in plan #100 step 6.
 - Tokens median: V16 624846, V17 527959, Va 594345, Vb 639642, Vc 801540. Va used more tokens than V17 and fewer than V16. Vc used the most.
 - The dev check pointed the same way: on dev, Va, Vb, and Vc also had fewer escaped defects than V17, with intervals that exclude zero.
+
+## Run 2026-10-25: plan-reviewer candidates with web evidence (plan #111)
+
+### Setup
+
+- Model: `openai-codex/gpt-6.1-sol`. Efforts: `xhigh` and `high`. Service tier: `default`. The user turned fast mode off for these tests.
+- Web evidence (plan #111 decision 1): the benchmark opening tells every reviewer to take repository evidence only from the snapshot and the named files. The reviewer may read official documentation on the web, but no page of the benchmark repository. Both judges get the same evidence: a judge may read official documentation pages to decide a claim about an external tool, library, or API, but no page of the benchmark repository.
+- The plan #100 and #109 comparisons ran without web evidence for every prompt except 0.16.0. Thus their absolute numbers for the current prompts are lower bounds.
+- Variants (arm `V<name>-<effort>`). The variant refs are local:
+  - `Vac`: candidate A of plan #109 plus the plan finding field `class:` and omp's `web_search` in the tools. Ref `bench-111/cand-ac`. It ran at `xhigh` and at `high`.
+  - `Vd1`: Ac plus the parts of candidate B that keep A's precision, plus three safeguards (plan #111 decision 2). Ref `bench-111/cand-d1`.
+  - `Vd2`: D1 plus the external-behavior check: for each external tool, command, library, or API that a step relies on, name the behavior that the step needs, read the official page, and report a contradiction or a gap. Ref `bench-111/cand-d2`.
+- One run is a single review.
+
+### Decision rule (plan #111, fixed before the held-out runs)
+
+At `xhigh`, default tier, with the arms mixed in one dispatch queue, D2 replaces Ac only when all of these are true. On the new held-out cases: D2 has fewer escaped known defects per 50 known than Ac; against Ac, its escaped-per-50 difference 90% interval stays below 2 and its round-1 recall difference interval stays above -0.05; and its wrong findings per run and its unknown findings per run are each at most 0.10 more than Ac's. On the #109 held-out cases: its escaped-per-50 difference interval against Ac stays below 2 and its recall difference interval stays above -0.05. When D2 does not pass, Ac ships. The same bounds compare Ac-high with Ac-xhigh (decision 3). The recommended effort becomes `high` only when Ac ships and Ac-high is not worse than Ac-xhigh. When D2 wins, the recommendation stays `xhigh`, because D2 is not measured at `high`.
+
+### Dev check
+
+The four arms ran 3 times on each of the 7 dev plan cases: `plan-102-r1`, `plan-23-r1`, `plan-57-r1`, `plan-83-r1`, `plan-89-r1`, `plan-96-delta-planted`, and `plan-96-r1`. Every run is valid. Every valid run shows the model `openai-codex/gpt-6.1-sol`, its effort, and the served tier `default`.
+
+#### Arms
+
+A script computed this table from the Runs table of the dev report, because the configuration tables of the report group the runs by effort, not by variant.
+
+| Measure | Vac-xhigh | Vac-high | Vd1-xhigh | Vd2-xhigh |
+|---|---:|---:|---:|---:|
+| Runs | 21 | 21 | 21 | 21 |
+| Cases | 7 | 7 | 7 | 7 |
+| Effort | xhigh | high | xhigh | xhigh |
+| Known found per run | 1.62 | 1.62 | 1.57 | 1.81 |
+| Escaped per run | 1.10 | 1.10 | 1.14 | 0.90 |
+| Escaped per 50 known | 20.18 | 20.18 | 21.05 | 16.67 |
+| Valid extras per run | 1.38 | 0.95 | 1.48 | 1.52 |
+| Wrong per run | 0.05 | 0.10 | 0.10 | 0.05 |
+| Unknown ratings per run | 0.00 | 0.00 | 0.00 | 0.00 |
+| Seconds median | 377.9 | 200.9 | 384.7 | 484.5 |
+| Seconds min | 177.3 | 94.8 | 153.3 | 192.1 |
+| Seconds max | 530.4 | 313.9 | 609.4 | 799.9 |
+| Tokens median | 842168 | 525164 | 881696 | 1207052 |
+
+#### Efforts
+
+The decision table of the dev report compares the efforts. Its `xhigh` column pools Vac-xhigh, Vd1-xhigh, and Vd2-xhigh (63 runs), so it is not Vac-xhigh alone. The `high` column is Vac-high (21 runs). An interval row gives the 90% paired bootstrap interval of the difference from `xhigh`.
+
+| Measure | xhigh | high |
+|---|---:|---:|
+| Runs | 63 | 21 |
+| Known found per run | 1.67 | 1.62 |
+| Escaped per 50 known | 19.30 | 20.18 |
+| Seconds median | 401.5 | 200.9 |
+| Round 1 recall difference from xhigh, 90% interval | - | [-0.04, 0.04] |
+| Escaped per 50 known difference from xhigh, 90% interval | - | [-2.08, 2.22] |
+
+#### Known defects found
+
+Each cell gives the number of runs, out of 3, that found the known defect. A script counted the `Found` column of the run table of the dev report. The table leaves out the known defects that no arm found.
+
+| Case | Known defect | Vac-high | Vac-xhigh | Vd1 | Vd2 |
+|---|---|---:|---:|---:|---:|
+| plan-102-r1 | P102-1 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-23-r1 | P23-1 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-57-r1 | P57-1 | 0 of 3 | 0 of 3 | 1 of 3 | 2 of 3 |
+| plan-57-r1 | P57-2 | 2 of 3 | 1 of 3 | 3 of 3 | 3 of 3 |
+| plan-57-r1 | P57-3 | 3 of 3 | 3 of 3 | 2 of 3 | 3 of 3 |
+| plan-57-r1 | P57-5 | 3 of 3 | 3 of 3 | 2 of 3 | 3 of 3 |
+| plan-83-r1 | P83-1 | 3 of 3 | 3 of 3 | 3 of 3 | 1 of 3 |
+| plan-83-r1 | P83-2 | 3 of 3 | 3 of 3 | 2 of 3 | 3 of 3 |
+| plan-89-r1 | P89-1 | 0 of 3 | 0 of 3 | 0 of 3 | 1 of 3 |
+| plan-89-r1 | P89-2 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-96-delta-planted | PPD96-1 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-96-r1 | P96-2 | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-96-r1 | P96-4 | 2 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| plan-96-r1 | P96-5 | 3 of 3 | 3 of 3 | 1 of 3 | 3 of 3 |
+| plan-96-r1 | P96-6 | 0 of 3 | 0 of 3 | 1 of 3 | 1 of 3 |
+
+#### Check of each change
+
+- Web evidence: with web evidence, Vac finds P83-2, P57-3, and P57-5 in 3 of 3 runs at both efforts. In plan #109, no current prompt (V17, Va, Vb, Vc) found these defects.
+- D1: Vd1 found no more known defects than Vac-xhigh (1.57 against 1.62 per run), with more wrong findings (0.10 against 0.05 per run). Thus D1 left the comparison: a plan edit after plan-review round 2 removed it, and plan-review round 3 reviewed that edit. D2 holds all of D1.
+- D2: the external-behavior check found these defects more often than Vac-xhigh: P57-1 (2 of 3 against 0 of 3), P57-2 (3 of 3 against 1 of 3), P89-1 (1 of 3 against 0 of 3), and P96-6 (1 of 3 against 0 of 3). It lost P83-1 (1 of 3 against 3 of 3). D2 is not revised: a revision aimed at one defect in three runs would fit the prompt to a dev case. Its median time is the longest (484.5 s).
+- Effort: Vac-high found as many known defects as Vac-xhigh (1.62 per run each) at about half the median time (200.9 s against 377.9 s). It gave fewer valid extras (0.95 against 1.38 per run) and 0.05 more wrong findings per run.
+
+### Capacity
+
+- At the `default` tier, the model service refused more than about 4 to 8 parallel reviewers with `turn_rate_limit_exceeded`.
+- The dev runs completed about 20 runs per hour.
+- Thus the held-out plan was cut to 3 arms (Vac-xhigh, Vac-high, and Vd2-xhigh) and to 2 runs on the #109 held-out cases. The new held-out cases keep 5 runs.
+
+The held-out results follow.
