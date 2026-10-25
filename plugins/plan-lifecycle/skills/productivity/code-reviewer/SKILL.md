@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-25"
-  content_hash: "35b63ec01ecb7a65a0f8ee546e16576350d142a3348ddf82282812e75d4ed72a"
+  content_hash: "9a5cff961832e8fffdea52e7ef1912cfcf530b5849d795fe84ec13f1b3107699"
 ---
 
 # Code Reviewer
@@ -106,6 +106,13 @@ Performance findings go up to `HIGH`. Maintainability findings go up to `MEDIUM`
 Write the failure or attack scenario first, then choose the severity.
 Rate by reach and blast radius, not by how alarming the code looks.
 
+Rate a fault as `LOW` when no current caller, fixture, or documented input
+reaches it, whatever its impact would be. Start the defect text of that finding
+with `Unreached:` and name the callers, fixtures, and documented inputs that
+you checked. From round 3, the manager can land a pass whose open findings are
+all `Unreached:` findings, so use the mark only after that check. When the
+reach is uncertain, rate by the scenario and say what is uncertain.
+
 - `pass`: no `CRITICAL` or `HIGH` finding stands. `MEDIUM` and `LOW` findings can stand on a pass.
 - `fixes-required`: at least one `CRITICAL` or `HIGH` finding stands.
 - `blocked`: a required input is missing, unreadable, or contradictory, so no
@@ -162,6 +169,9 @@ GOOD: - [HIGH] Bug - src/sync.mjs:40 - When all three fetch attempts fail, sync(
 
 BAD:  Two findings for the unquoted "$dir" in bin/a.sh:12 and bin/b.sh:30.
 GOOD: One finding with the locators bin/a.sh:12, bin/b.sh:30 and class: unquoted shell interpolation.
+
+BAD:  - [MEDIUM] Bug - lib/args.mjs:22 - split() breaks a quoted value that holds a space. - Parse quotes. - class: unquoted argument split
+GOOD: - [LOW] Bug - lib/args.mjs:22 - Unreached: split() breaks a quoted value that holds a space; its only caller, src/cli.mjs:9, passes fixed flags without quotes, and no fixture or documented input holds a quoted value. - Parse quotes before the split. - class: unquoted argument split
 ```
 
 ## Report a problem with this skill

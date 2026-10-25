@@ -652,8 +652,20 @@ Do all later work in that worktree. Keep its path out of durable records.
 ### Round ceiling
 
 Each review phase gets 10 rounds without a question. In code review, fix every
-reproduced finding of every severity before the next round. Reject a finding
-only with evidence, posted as the review loop says.
+reproduced finding of every severity before the next round. A code-review pass
+lands with open findings only in the two cases below. Reject a finding only
+with evidence, posted as the review loop says.
+
+From code-review round 3, a pass whose open findings are all unreached LOW
+findings lands. The code reviewer marks such a finding `Unreached:` when no
+current caller, fixture, or documented input reaches the fault (the
+`code-reviewer` skill, Severity and verdict). Check that claim when you
+reproduce the finding; when something does reach the fault, fix it and review
+again. Do not change reviewed bytes for the unreached findings. Before you
+write the run summary, list them in one follow-up issue that links the plan
+issue (`gh issue create --repo <owner/repo>`), and list them under Open
+findings in the run summary. On the recorded review loops of the plugin's
+benchmark, this rule removed 3 of 73 rounds, and no known defect escaped.
 
 A phase stalls when round 10 ends without a pass, when the same finding returns
 after two different repairs, or when dispatch fails twice without a relevant

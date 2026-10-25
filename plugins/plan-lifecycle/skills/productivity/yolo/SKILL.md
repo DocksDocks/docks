@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-25"
-  content_hash: "6bf9175c9595f32a1c5a27e9fc70aefb3d59b0c64212b396dd293ebe52261abc"
+  content_hash: "b2bdfd836a72fa67424e777bd684f8758b23fdea1be6989c1325a2b1a90ca3bd"
 ---
 
 # Yolo
@@ -268,7 +268,8 @@ comments says. The helper advises when an edit needs that round.
 | Plan `repair` | Reproduce each finding, repair a fresh export, and review again |
 | Plan `blocked` | Decide the finding with Research, record the decision, and review again |
 | Code `fixes-required` | Fix each reproduced finding, rerun its proof, and review again |
-| Code `pass` with MEDIUM or LOW findings | Fix each reproduced finding and review again, as a `delta` round when the contract's Code-review rounds allows it |
+| Code `pass` from round 3 whose open findings are all `Unreached:` LOW findings | Land with the follow-up issue, as the contract's Round ceiling says |
+| Code `pass` with other MEDIUM or LOW findings | Fix each reproduced finding and review again, as a `delta` round when the contract's Code-review rounds allows it |
 | Code `pass` with no open finding | Go to Landing |
 
 Make and record each repair as the contract's Repairs says, in both phases. A
