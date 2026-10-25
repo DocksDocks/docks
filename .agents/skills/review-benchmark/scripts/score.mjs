@@ -83,12 +83,13 @@ const ANY_DELIMITER = /[;,\s]/;
 const URI_DELIMITER = /;/;
 // The note of a list read for each path that omp could not read: `Could not read <path>: <reason>`.
 const UNREAD_NOTE = 'Could not read ';
-// A web search has a `query`, not a path. A query that targets the benchmark repository can find its pages: after
-// each `-site:` token (an exclusion) is removed, a mention of the owner that does not name another repository of the
-// owner targets it, because the owner alone or the owner and the word `docks` can find its pages. The URLs that the
-// result of a search cites show the pages that the reviewer saw (see webPageAllowed).
+// A web search has a `query`, not a path. A query that targets the benchmark repository can find its pages. Outside
+// its `-site:` tokens (exclusions), a query targets it when it names the repository, or when it names the owner
+// without a repository and no exclusion removes the repository or its owner: the owner alone or the owner and the
+// word `docks` can find its pages. The URLs that the result of a search cites show the pages that the reviewer saw
+// (see webPageAllowed).
 const WEB_SEARCH_TOOL = 'web_search';
-const SITE_EXCLUSION = /(?:^|\s)-site:\S+/gi;
+const SITE_EXCLUSION = /(?:^|\s)-site:(\S+)/gi;
 const OWNER_MENTION = /docksdocks(?:\/([\w.-]+))?/gi;
 const RESULT_URL = /https?:\/\/[^\s<>()[\]{}"'`]+/g;
 // The JSON query selector of an omp read of a local file (`omp://tools/read.md`), for example `config.json?q=.suites`.
@@ -1667,7 +1668,8 @@ function resultUrls(message) {
 // message (the `thinkingLevel` of the last `thinking_level_change` before it, else null), and the served tier; a
 // failed request (see failedRequest) also gets `failed: true`. An effort change before the first assistant message is
 // setup, so it shows only through the messages after it. When the assistant messages call tools, `toolCalls` lists
-// the calls in order; a transcript without a tool call gives no `toolCalls`.
+// the calls in order; a transcript without a tool call gives no `toolCalls`. A web search call whose tool result is in
+// the transcript also gets `resultUrls`: the URLs that the result cites (see resultUrls).
 export function transcriptFacts(text, source = 'transcript') {
   const facts = { requestedTier: null, messages: [], sideCalls: [] };
   const toolCalls = [];
@@ -1694,13 +1696,18 @@ export function transcriptFacts(text, source = 'transcript') {
   return toolCalls.length ? { ...facts, toolCalls } : facts;
 }
 
-// A web search query targets the benchmark repository when, without its `-site:` exclusions, it mentions the owner
-// without another repository of the owner (see OWNER_MENTION).
+// A web search query targets the benchmark repository when, outside its `-site:` exclusions, it names the repository,
+// or names the owner without a repository and no exclusion removes the repository or its owner (see OWNER_MENTION).
+// A dot that ends a sentence is not part of a repository name.
 function targetsBenchmark(query) {
-  const kept = query.replace(SITE_EXCLUSION, ' ');
-  return [...kept.matchAll(OWNER_MENTION)].some(
-    ([, name]) => name === undefined || BENCHMARK_REPOSITORY.names.has(name.toLowerCase()),
+  const repositoryName = (name) => (name === undefined ? undefined : name.replace(/\.+$/, '').toLowerCase());
+  const mentions = (text) => [...text.matchAll(OWNER_MENTION)].map(([, name]) => repositoryName(name));
+  const benchmark = (name) => BENCHMARK_REPOSITORY.names.has(name);
+  const excluded = [...query.matchAll(SITE_EXCLUSION)].some(([, site]) =>
+    mentions(site).some((name) => name === undefined || name === '' || benchmark(name)),
   );
+  const kept = mentions(query.replace(SITE_EXCLUSION, ' '));
+  return kept.some((name) => (name === undefined || name === '' ? !excluded : benchmark(name)));
 }
 
 // A line of the fixer reply: `<finding id>: repaired` or `<finding id>: not present` (see prepare.mjs fixerPrompt),
@@ -1911,20 +1918,32 @@ function localPathAllowed(target, cwd, rules) {
 }
 
 // A web page outside the benchmark repository. The pages of the repository can show the fixes of the corpus defects.
+// A web page is allowed unless it can show the benchmark repository: a page of the repository on GitHub, or a page of
+// any site whose host, path, or query names the owner and the repository, such as a mirror, a code search, or a GitHub
+// search. A URL that a search result cut with `…`, or that cannot be parsed, is allowed unless its text names the
+// owner, because its cut part can hold the repository name.
 function webPageAllowed(target) {
+  if (target.includes('…')) return !/docksdocks/i.test(target);
   let url;
   try {
     url = new URL(target);
   } catch {
-    return false;
+    return !/docksdocks/i.test(target);
   }
   const parts = url.pathname
     .split('/')
     .filter(Boolean)
     .map((part) => part.toLowerCase());
   const benchmark = ([owner, name]) => owner === BENCHMARK_REPOSITORY.owner && BENCHMARK_REPOSITORY.names.has(name);
-  if (REPOSITORY_HOSTS.has(url.hostname)) return !benchmark(parts);
-  return !(url.hostname === 'api.github.com' && parts[0] === 'repos' && benchmark(parts.slice(1)));
+  if (REPOSITORY_HOSTS.has(url.hostname) && benchmark(parts)) return false;
+  if (url.hostname === 'api.github.com' && parts[0] === 'repos' && benchmark(parts.slice(1))) return false;
+  let text = `${url.hostname}${url.pathname}${url.search}`;
+  try {
+    text = decodeURIComponent(text);
+  } catch {
+    // Keep the encoded text: a bad escape cannot hide the plain owner and repository names.
+  }
+  return !/docksdocks\/docks(?:\.git)?(?![\w.-])/i.test(text);
 }
 
 const uriScheme = (target) => URI_SCHEME.exec(target)?.[1].toLowerCase();
@@ -2086,7 +2105,7 @@ function readLists(text, source, cwd) {
 //   a `..` segment (a `skill://` URI of these skills can resolve to this copy); or a `skill://` URI of one of these two
 //   skills;
 // - an `artifact://` URI (the spilled output of the reviewer);
-// - an http or https URL that is not a page of the benchmark repository.
+// - an http or https URL that cannot show the benchmark repository (see webPageAllowed).
 // Every other target is outside, also the other skills of the repository that holds a plugin root: the reviewed
 // repository has its own copy of them under `snapshot/`. A `skill://` URI or a plugin cache copy of the code-reviewer
 // or plan-reviewer skill is outside for every reviewer: it resolves to the installed version of the skill, which can be
@@ -2097,9 +2116,10 @@ function readLists(text, source, cwd) {
 // paths. `lists` maps each target that omp read as a list to these paths, each without its read selector
 // (transcriptsCommand gives it, see readLists); a list target is allowed when each of these paths is allowed. Every
 // other target is one path.
-// A web search has no path: `queries` lists its queries, each once, in call order, and a query that names the owner of
-// the benchmark repository (`DocksDocks`, in any case) gives the outside target `web_search: <query>`. A reviewer
-// without a web search gets no `queries`.
+// A web search has no path: `queries` lists its queries, each once, in call order. A query that targets the benchmark
+// repository (see targetsBenchmark) gives the outside target `web_search: <query>`, and each cited URL of its result
+// that webPageAllowed refuses gives `web_search result: <url>`. A reviewer without a web search gets no `queries`.
+// A local path also loses its JSON query selector (`?q=`), because omp reads the file before it.
 // The reviewer setup is newer than the cases. When a case changes the file of an optional instruction read, that read
 // shows a later version of a file under review, which can show the fix. `changedFiles` are the repository paths that
 // the case changes (transcriptsCommand reads them). The rule compares keys, the paths from the skill folder name on:

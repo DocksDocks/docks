@@ -2737,11 +2737,11 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
 //   target, except grep, glob, find, and ast_grep: they search the working directory, so they give
 //   `<name> without a path`. A web_search call gives its query to `queries` (each once, in call order; the field is
 //   there only when the reviewer searched the web), and the target `web_search: <query>` when the query targets the
-//   benchmark repository: outside its `-site:<text>` tokens, it names `DocksDocks/docks` (in any case), or it names
-//   `DocksDocks` without `/<name>` of a repository and no `-site:` token excludes the benchmark repository or its
-//   owner. `DocksDocks/<name>` of another repository targets that repository. Each URL of its `resultUrls` that is a page of the benchmark
-//   repository (see the web rule below) gives the target `web_search result: <url>`. A local path also loses a JSON
-//   query selector: the text from `?q=` on.
+//   benchmark repository: outside its `-site:<text>` tokens, it names `DocksDocks/docks` (in any case, without a dot
+//   that ends a sentence), or it names `DocksDocks` without `/<name>` of a repository and no `-site:` token excludes
+//   the benchmark repository or its owner. `DocksDocks/<name>` of another repository targets that repository. Each
+//   URL of its `resultUrls` that the web rule below puts outside gives the target `web_search result: <url>`. A local
+//   path also loses a JSON query selector: the text from `?q=` on.
 //   A relative path resolves against cwd. "Under a folder" means the folder itself or a path below it.
 //   A target is allowed when it is:
 //   - a path under an input of the run. An input folder is the case folder, and the run folder (a run without round
@@ -2753,9 +2753,11 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
 //     `P/skills/plan-reviewer/`, `P/skills/<folder>/code-reviewer/`, or `P/skills/<folder>/plan-reviewer/`.
 //   - `skill://<name>` or `skill://<name>/...`, where name is code-review or code-clarity.
 //   - an `artifact://` URI.
-//   - an http or https URL that is not a page of the benchmark repository. The pages of the repository are the paths
-//     `/DocksDocks/docks` and below on github.com, www.github.com, and raw.githubusercontent.com, and
-//     `/repos/DocksDocks/docks` and below on api.github.com. The owner and the repository name match in any case.
+//   - an http or https URL that cannot show the benchmark repository. Such pages are the paths `/DocksDocks/docks`
+//     and below on github.com, www.github.com, and raw.githubusercontent.com, `/repos/DocksDocks/docks` and below on
+//     api.github.com, and a page of any site whose decoded host, path, or query names `DocksDocks/docks`. A URL with
+//     `…` (cut by a search result) cannot show it only when it does not name `DocksDocks`. The owner and the
+//     repository name match in any case.
 //   A path with a glob character (`*`, `?`, `[`, `{`) is allowed only when the segments before its first glob
 //   segment give a folder that a rule above allows, and no later segment holds `..`.
 //   Every other target is outside: every other local path, a relative path when cwd is null, and every other URI
