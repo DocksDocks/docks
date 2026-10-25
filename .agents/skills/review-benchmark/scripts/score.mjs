@@ -17,7 +17,7 @@ import {
 } from '../../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
 
 const USAGE =
-  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...>] [--lead <folder,...> --lead-ref <folder>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
+  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...> [--reference <folder>]] [--lead <folder,...> --lead-ref <folder>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
 const CASE_KINDS = new Set(['code', 'code-delta', 'plan', 'plan-delta']);
 const REVIEWER_ORDER = ['full', 'correctness', 'spec-and-tests', 'text-and-safety', 'delta', 'plan'];
 const RUN_DIR = /^run-(\d+)$/;
@@ -113,6 +113,13 @@ const SELF_REVIEW_AGENT_FILE = new RegExp(
     String.raw`${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md(?=$|[\s\x60'")>])`,
   'g',
 );
+
+// The plugin roots that an agent text names: the folder P of each absolute path `P/skills/[<folder>/]code-reviewer/
+// SKILL.md` or `P/skills/[<folder>/]plan-reviewer/SKILL.md`, each once, in text order. readScope lets a reviewer read
+// the instructions under these roots, and `prepare.mjs agents` refuses a variant agent that names another root.
+export function reviewerPluginRoots(text) {
+  return [...new Set(Array.from(text.matchAll(REVIEWER_SKILL), (match) => match[1]))];
+}
 
 function fail(message) {
   throw new Error(message);
@@ -1379,13 +1386,17 @@ function leadSection(runs, { lead, leadRef }) {
 
 // The report holds numbers, verdicts, configuration names, arm folder names, and known-defect ids only, so a held-out
 // reader learns no defect text. `configs` and `arms` set the columns of the comparison tables, one or the other;
-// `lead` (lead folders) and `leadRef` (the reference folder) together add the self-review lead.
+// `reference` sets the column that the intervals compare with (default: the column with the fewest escaped defects per
+// 50 known defects); `lead` (lead folders) and `leadRef` (the reference folder) together add the self-review lead.
 export function renderReport({ summaries, runs, agreement }, { configs, arms, reference, lead, leadRef } = {}) {
   if (configs && arms) fail('report takes --configs or --arms, not both');
   if (Boolean(lead) !== Boolean(leadRef)) fail('report takes --lead and --lead-ref together');
   const columnNote = arms
     ? 'An arm table has one column per arm folder in one case group. Its decision table also gives the cases of each column and the cases that the column and the reference column both ran.'
     : 'A configuration table has one column per configuration in one case group.';
+  const referenceNote = reference
+    ? `The reference column is ${reference}.`
+    : 'The reference column has the fewest escaped defects per 50 known defects.';
   const invalid = runs.filter((run) => run.invalid.length > 0);
   return [
     '# Review benchmark report',
@@ -1395,7 +1406,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
     'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose reviewer transcripts show another model, effort, or served tier than their configuration; loops whose fixer transcripts show another model, effort, or served tier than the fixer setting; runs with a reviewer or a fixer without transcript facts or without a served assistant message, also a loop round that gave findings to the fixer and has no transcript facts of its fixer (for example a repair with --fixer-patch); loops with a fixer but without a fixer setting; runs with a reviewer that read a file outside the inputs of its run; and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
-    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
+    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. ${referenceNote} The loop seconds interval compares loop runs only.`,
     '',
     '## Summary',
     '',
@@ -1693,7 +1704,7 @@ function transcriptSession(text, source) {
       .flat()
       .filter((part) => typeof part === 'string')
       .join('\n');
-    for (const match of prompt.matchAll(REVIEWER_SKILL)) pluginRoots.add(match[1]);
+    for (const root of reviewerPluginRoots(prompt)) pluginRoots.add(root);
     for (const [file] of prompt.matchAll(SELF_REVIEW_AGENT_FILE)) agentFiles.add(file);
   }
   return { cwd, pluginRoots: [...pluginRoots], agentFiles: [...agentFiles] };
@@ -2236,9 +2247,11 @@ function readMetas(ws, blocks) {
 
 // Writes report.md. It stops before it writes when a key under `keys` changed after `pairs`, or when a finding has
 // neither a `match` answer nor an adjudication. `<ws>/judgments-second.json`, when it exists, gives the agreement.
-// `configs` or `arms` sets the columns of the comparison tables, and `lead` with `leadRef` adds the self-review lead
-// (see renderReport).
-export function reportCommand(ws, { keys, configs, arms, lead, leadRef } = {}) {
+// `configs` or `arms` sets the columns of the comparison tables, `reference` (with `arms` only) sets the column that
+// the intervals compare with, and `lead` with `leadRef` adds the self-review lead (see renderReport).
+export function reportCommand(ws, { keys, configs, arms, reference, lead, leadRef } = {}) {
+  if (reference && !arms) fail('report takes --reference only with --arms');
+  if (reference && !arms.includes(reference)) fail(`report --reference names ${reference}, which is not in --arms`);
   const findings = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');
   const judgments = loadJudgments(ws);
@@ -2247,7 +2260,7 @@ export function reportCommand(ws, { keys, configs, arms, lead, leadRef } = {}) {
   requireJudgedFindings(findings.findings, judgments);
   const secondFile = path.join(ws, 'judgments-second.json');
   if (fs.existsSync(secondFile)) scores.agreement = judgeAgreement(judgments, readJson(secondFile));
-  fs.writeFileSync(path.join(ws, 'report.md'), renderReport(scores, { configs, arms, lead, leadRef }));
+  fs.writeFileSync(path.join(ws, 'report.md'), renderReport(scores, { configs, arms, reference, lead, leadRef }));
   return scores;
 }
 
@@ -2387,12 +2400,13 @@ const COMMANDS = {
     },
   },
   report: {
-    optional: ['--keys', '--configs', '--arms', '--lead', '--lead-ref'],
+    optional: ['--keys', '--configs', '--arms', '--reference', '--lead', '--lead-ref'],
     run: (ws, options) => {
       const scores = reportCommand(ws, {
         keys: options['--keys'],
         configs: nameList(options['--configs']),
         arms: nameList(options['--arms']),
+        reference: options['--reference'],
         lead: nameList(options['--lead']),
         leadRef: options['--lead-ref'],
       });

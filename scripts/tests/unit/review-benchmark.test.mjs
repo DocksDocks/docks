@@ -5154,3 +5154,469 @@ test('findings removes the judge answers of each finding whose text changed or t
   assert.equal(main(['findings', ws]).split('\n').length, 1);
   assert.deepEqual(findingsCommand(ws).removed, []);
 });
+
+// Plan #109 step 1: API note for the variant tests below (decision 2).
+//
+// prepare.mjs:
+// - prepareAgents takes `variants` (`--variants <name>=<git ref>[,...]`) and `full-only` (`--full-only <name,...>`).
+//   For each variant, it extracts plugins/plan-lifecycle at the ref into the folder `variant-<name>-plugin` next to
+//   the baseline copy (in the parent folder of the baseline dir). For each variant and configuration, it writes the
+//   agent `review-bench-variant-<name>-plan-<config>`: renderAgent of plugins/plan-lifecycle/agents/plan-reviewer.md
+//   at the ref, with the model and the effort of the configuration and the variant folder as the plugin root. The
+//   agent gets the tier override of the configuration. The list of configurations gets `variants`: one
+//   { name, ref, sha, delta } per variant, in --variants order. delta is false for a --full-only name. These refusals
+//   come before a file of the project changes:
+//   `--variants: the variant name <name> has a character other than a-z and 0-9`,
+//   `--variants: the variant name <name> occurs two times`,
+//   `plugins/plan-lifecycle/agents/plan-reviewer.md does not exist at <ref>`,
+//   `--full-only names <name>, which is not a variant`.
+// - prepareCase: a plan or plan-delta case also takes the arm `V<name>` for each variant of the list of
+//   configurations. A list without `variants` gives no variant arm. The refusal of an unknown arm lists the variant
+//   arms after the other arms of the kind. Code and code-delta cases take no variant arm.
+//   A variant arm runs its variant agent with the reviewer `plan`. Its mode is `full` on a plan case. On a plan-delta
+//   case, its mode is `delta`, or `full` when its delta is false. Its prompt is the prompt of the static arm of the
+//   same mode (P0 or P1 for `full`, Pd for `delta`); only the agent line differs.
+// - The case field `show_benchmark: true` puts the benchmark skill folder without its `cases/` folder in the snapshot.
+//   Without the field, the snapshot leaves out the whole folder, as before. The scripts hide the skill folder of their
+//   own repository, so the test of this field runs a copy of prepare.mjs, score.mjs, and the plan helper.
+// score.mjs:
+// - reportCommand takes the option `reference`, and `report` takes `--reference <folder>`. The shared-cases row and
+//   the interval rows then compare each column with that folder, and the report says `The reference column is
+//   <folder>.` instead of `The reference column has the fewest escaped defects per 50 known defects.`
+// - transcripts and readScope keep their rules: the agent text of a variant names the skill of its own plugin root,
+//   so its reviewer may read that root and no other variant root.
+
+const PREPARE_SCRIPT = path.join(import.meta.dirname, '../../../.agents/skills/review-benchmark/scripts/prepare.mjs');
+// The delta reference of the plan-reviewer skill, relative to a plugin root.
+const VARIANT_DELTA = 'skills/productivity/plan-reviewer/references/delta.md';
+// The variants of variantOptions and their refs.
+const VARIANT_REFS = { 16: 'v16', a: 'cand-a' };
+
+// The plan-reviewer agent at one ref of the variant repository. As the plugin agent does, it names the skill of its
+// plugin root.
+const variantAgentText = (label) => `---
+name: plan-reviewer
+description: Reviews plans.
+tools: Read, Glob, Grep
+---
+
+# Plan Reviewer ${label}
+
+Load and follow
+\`\${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/SKILL.md\`.
+`;
+
+// The plugin root of a variant: `agents` extracts it next to the baseline copy.
+const variantRoot = (root, name) => path.join(root, `variant-${name}-plugin`);
+
+// A git repository with three tags: `bare` (README.md only), `v16`, and `cand-a`, whose plugin also holds the delta
+// reference. HEAD, the work tree of the candidate agents, changes the plugin again. Each plugin file names its ref,
+// so a copy shows the ref that it came from.
+function variantRepo(t) {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  const project = path.join(root, 'project');
+  fs.mkdirSync(repo);
+  fs.mkdirSync(project);
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  const commit = (message, files) => {
+    for (const [file, content] of Object.entries(files)) put(repo, file, content);
+    gitIn(repo, 'add', '-A');
+    gitIn(repo, 'commit', '-q', '-m', message);
+    return gitIn(repo, 'rev-parse', 'HEAD').trim();
+  };
+  const plugin = 'plugins/plan-lifecycle';
+  const files = (label) => ({
+    [`${plugin}/agents/code-reviewer.md`]: `---\nname: code-reviewer\ndescription: Reviews.\n---\n\n# ${label}\n`,
+    [`${plugin}/agents/plan-reviewer.md`]: variantAgentText(label),
+    [`${plugin}/skills/productivity/plan-reviewer/SKILL.md`]: `# Plan reviewer ${label}\n`,
+    [`${plugin}/skills/productivity/plan-manager/references/plan-contract.md`]: `# Plan contract ${label}\n`,
+  });
+  const shas = {
+    bare: commit('bare', { 'README.md': '# Demo\n' }),
+    v16: commit('0.16.0', files('0.16.0')),
+    'cand-a': commit('candidate a', { ...files('A'), [`${plugin}/${VARIANT_DELTA}`]: '# Delta mode A\n' }),
+  };
+  for (const [tag, sha] of Object.entries(shas)) gitIn(repo, 'tag', tag, sha);
+  commit('live', files('live'));
+  return { root, repo, project, agentDir: path.join(project, '.omp', 'agents'), shas };
+}
+
+// The options of `agents` for the variants 16 (v16, full only) and a (cand-a), at the efforts low and xhigh with the
+// tiers default and priority.
+const variantOptions = ({ root, project }) => ({
+  'baseline-ref': 'v16',
+  variants: '16=v16,a=cand-a',
+  'full-only': '16',
+  model: MODEL,
+  efforts: 'low,xhigh',
+  tiers: 'default,priority',
+  'baseline-dir': path.join(root, 'baseline-plugin'),
+  project,
+});
+
+test('agents --variants writes an agent per variant and configuration from the plan reviewer at its ref', (t) => {
+  const fixture = variantRepo(t);
+  const { root, repo, project, agentDir, shas } = fixture;
+  prepare.prepareAgents(variantOptions(fixture), repo);
+  const list = readJson(path.join(agentDir, 'review-bench-configs.json'));
+  assert.deepEqual(
+    list.configs.map((config) => config.name),
+    ['low', 'low-fast', 'xhigh', 'xhigh-fast'],
+  );
+  assert.deepEqual(list.variants, [
+    { name: '16', ref: 'v16', sha: shas.v16, delta: false },
+    { name: 'a', ref: 'cand-a', sha: shas['cand-a'], delta: true },
+  ]);
+  assert.deepEqual(
+    fs
+      .readdirSync(agentDir)
+      .filter((file) => file.startsWith('review-bench-variant-'))
+      .sort(),
+    Object.keys(VARIANT_REFS)
+      .flatMap((name) => list.configs.map((config) => `review-bench-variant-${name}-plan-${config.name}.md`))
+      .sort(),
+  );
+  const overrides = readJson(path.join(project, '.omp', 'settings.json')).task.agentServiceTierOverrides;
+  for (const [name, ref] of Object.entries(VARIANT_REFS)) {
+    const pluginRoot = variantRoot(root, name);
+    const atRef = (file) => gitIn(repo, 'show', `${ref}:plugins/plan-lifecycle/${file}`);
+    for (const { name: config, model, effort, tier } of list.configs) {
+      const agent = `review-bench-variant-${name}-plan-${config}`;
+      const text = readText(path.join(agentDir, `${agent}.md`));
+      // The agent text at the ref, with the model and the effort of the configuration and the variant plugin root.
+      const rendered = prepare.renderAgent(atRef('agents/plan-reviewer.md'), {
+        name: agent,
+        model,
+        effortKey: 'thinking-level',
+        effort,
+        pluginRoot,
+      });
+      assert.equal(text, rendered);
+      assert.ok(text.includes(`\`${pluginRoot}/skills/productivity/plan-reviewer/SKILL.md\``));
+      assert.equal(overrides[agent], tier);
+    }
+    // The plugin root holds plugins/plan-lifecycle at the ref, not the files of the work tree.
+    for (const file of [
+      'agents/plan-reviewer.md',
+      'skills/productivity/plan-reviewer/SKILL.md',
+      'skills/productivity/plan-manager/references/plan-contract.md',
+    ]) {
+      assert.equal(readText(path.join(pluginRoot, file)), atRef(file));
+    }
+  }
+  assert.equal(fs.existsSync(path.join(variantRoot(root, 'a'), VARIANT_DELTA)), true);
+  assert.equal(fs.existsSync(path.join(variantRoot(root, '16'), VARIANT_DELTA)), false);
+  // clean removes the variant agents and their tier overrides with the other generated files.
+  const clean = spawnSync(process.execPath, [PREPARE_SCRIPT, 'clean', '--project', project], { encoding: 'utf8' });
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.equal(fs.existsSync(path.join(project, '.omp')), false);
+});
+
+test('agents refuses bad or repeated variant names, refs without a plan reviewer, and unknown full-only names', (t) => {
+  const fixture = variantRepo(t);
+  const { root, repo, project } = fixture;
+  const options = variantOptions(fixture);
+  const badName = (name) => `--variants: the variant name ${name} has a character other than a-z and 0-9`;
+  const refusals = [
+    [{ variants: 'A=v16', 'full-only': undefined }, badName('A')],
+    [{ variants: 'a-b=v16', 'full-only': undefined }, badName('a-b')],
+    [{ variants: '16=v16,16=cand-a' }, '--variants: the variant name 16 occurs two times'],
+    [{ variants: '16=v16,a=bare' }, 'plugins/plan-lifecycle/agents/plan-reviewer.md does not exist at bare'],
+    [{ 'full-only': '16,b' }, '--full-only names b, which is not a variant'],
+  ];
+  for (const [change, message] of refusals) {
+    assert.throws(() => prepare.prepareAgents({ ...options, ...change }, repo), new RegExp(escapeRegExp(message)));
+    // agents refuses before it writes a file of the project.
+    assert.equal(fs.existsSync(path.join(project, '.omp')), false);
+  }
+  // The command line takes both options.
+  const cli = (...args) =>
+    spawnSync(
+      process.execPath,
+      [
+        PREPARE_SCRIPT,
+        'agents',
+        '--baseline-ref',
+        'HEAD',
+        '--model',
+        MODEL,
+        '--efforts',
+        'low',
+        '--tiers',
+        'default',
+        '--baseline-dir',
+        path.join(root, 'cli-baseline-plugin'),
+        '--project',
+        project,
+        ...args,
+      ],
+      { encoding: 'utf8' },
+    );
+  const twice = cli('--variants', 'a=HEAD,a=HEAD');
+  assert.equal(twice.status, 1, twice.stderr);
+  assert.match(twice.stderr, /--variants: the variant name a occurs two times/);
+  const notVariant = cli('--variants', 'a=HEAD', '--full-only', 'b');
+  assert.equal(notVariant.status, 1, notVariant.stderr);
+  assert.match(notVariant.stderr, /--full-only names b, which is not a variant/);
+  assert.equal(fs.existsSync(path.join(project, '.omp')), false);
+});
+
+test('case builds variant arms in full mode, and in delta mode on plan-delta cases unless full only', (t) => {
+  const { root, repo, base, head } = loopRepo(t);
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const project = path.join(root, 'project');
+  const configsFile = '.omp/agents/review-bench-configs.json';
+  const variants = [
+    { name: '16', ref: 'v16', sha: base, delta: false },
+    { name: 'a', ref: 'cand-a', sha: head, delta: true },
+  ];
+  put(project, configsFile, { configs: [CONFIGS.low], fixer: FIXER_SETTING, variants });
+  const planCase = {
+    id: 'plan-3',
+    kind: 'plan',
+    split: 'dev',
+    issue: 3,
+    round: 1,
+    plan: 'plan-3-plan.md',
+    repo_ref: head,
+  };
+  const deltaCase = {
+    id: 'plan-4',
+    kind: 'plan-delta',
+    split: 'dev',
+    issue: 4,
+    round: 2,
+    plan: 'plan-4-plan.md',
+    repo_ref: head,
+    previous_body: 'plan-4-previous.md',
+    previous_review: 'plan-4-review.md',
+  };
+  const codeCase = { id: 'code-7', kind: 'code', split: 'dev', issue: 7, round: 1, plan: 'code-7-plan.md', base, head };
+  const codeDeltaCase = {
+    id: 'code-8',
+    kind: 'code-delta',
+    split: 'dev',
+    issue: 8,
+    round: 2,
+    plan: 'code-8-plan.md',
+    base,
+    head,
+    delta_base: base,
+    previous_review: 'code-8-review.md',
+  };
+  for (const caseData of [planCase, deltaCase, codeCase, codeDeltaCase]) {
+    caseData.known = [];
+    put(cases, `dev/${caseData.id}.json`, caseData);
+    put(cases, `dev/${caseData.plan}`, `# Plan ${caseData.issue}\n\nStep 1 and step 2.\n`);
+  }
+  put(cases, 'dev/plan-4-previous.md', '# Plan 4\n\nStep 1.\n');
+  put(cases, 'dev/plan-4-review.md', PLAN_BLOCK.replace('round 2', 'round 1'));
+  put(cases, 'dev/code-8-review.md', FULL_BLOCK);
+  const options = (id, arms) => ({
+    case: path.join(cases, 'dev', `${id}.json`),
+    arms,
+    runs: '1',
+    out: ws,
+    configs: 'low',
+    project,
+  });
+  const refuses = (id, arms, message) => assert.throws(() => prepare.prepareCase(options(id, arms), repo), message);
+  // The variant arms of the list of configurations join the arms of the plan kinds.
+  refuses('plan-3', 'Vb', /arm Vb does not apply to plan cases; use P0, P1, V16, Va$/);
+  refuses('plan-4', 'Vb', /arm Vb does not apply to plan-delta cases; use P0, Pd, V16, Va$/);
+  // Code and code-delta cases take no variant arm.
+  for (const arm of ['V16', 'Va']) {
+    refuses('code-7', arm, new RegExp(`arm ${arm} does not apply to code cases; use B0, B1, C1, C3, S1, S3$`));
+    refuses('code-8', arm, new RegExp(`arm ${arm} does not apply to code-delta cases; use B0, Cd$`));
+  }
+  // A list of configurations without variants gives no variant arm.
+  put(project, configsFile, { configs: [CONFIGS.low], fixer: FIXER_SETTING });
+  refuses('plan-3', 'Va', /arm Va does not apply to plan cases; use P0, P1$/);
+  for (const id of ['plan-3', 'plan-4', 'code-7', 'code-8']) assert.equal(fs.existsSync(path.join(ws, id)), false);
+
+  put(project, configsFile, { configs: [CONFIGS.low], fixer: FIXER_SETTING, variants });
+  prepare.prepareCase(options('plan-3', 'P1,V16,Va'), repo);
+  prepare.prepareCase(options('plan-4', 'V16,Va'), repo);
+  // The prompt of a static arm at the configuration low, without its agent line.
+  const promptOf = (caseData, arm) => {
+    const paths = prepare.workspacePaths(path.join(ws, caseData.id), caseData);
+    const file = prepare.buildPromptFile({ caseData, arm, config: 'low', reviewer: 'plan', paths });
+    return file.split('\n').slice(2).join('\n');
+  };
+  // The one prompt file of a run at the configuration low.
+  const built = (caseId, arm) => {
+    const runDir = path.join(ws, caseId, `${arm}-low`, 'run-1');
+    assert.deepEqual(fs.readdirSync(path.join(runDir, 'prompts')), ['plan.txt']);
+    assert.deepEqual(readJson(path.join(runDir, 'meta.json')).config, CONFIGS.low);
+    return promptFileParts(path.join(runDir, 'prompts', 'plan.txt'));
+  };
+  // On a plan case, each variant gets the full-mode prompt of P1 with its own agent.
+  const full = promptOf(planCase, 'P1');
+  assert.ok(full.split('\n').includes('Round mode: full.'));
+  assert.deepEqual(built('plan-3', 'P1'), { agent: 'agent: review-bench-candidate-plan-low', body: full });
+  assert.deepEqual(built('plan-3', 'V16'), { agent: 'agent: review-bench-variant-16-plan-low', body: full });
+  assert.deepEqual(built('plan-3', 'Va'), { agent: 'agent: review-bench-variant-a-plan-low', body: full });
+  // On a plan-delta case, Va gets the delta-mode prompt of Pd. V16 has no delta mode, so it gets the full-mode prompt
+  // of P0.
+  const deltaPaths = prepare.workspacePaths(path.join(ws, 'plan-4'), deltaCase);
+  const delta = promptOf(deltaCase, 'Pd');
+  assert.ok(delta.split('\n').includes('Round mode: delta.'));
+  assert.ok(delta.split('\n').includes(`Plan diff: ${deltaPaths.planDiff}`));
+  assert.ok(fs.existsSync(deltaPaths.planDiff));
+  assert.deepEqual(built('plan-4', 'Va'), { agent: 'agent: review-bench-variant-a-plan-low', body: delta });
+  const deltaFull = promptOf(deltaCase, 'P0');
+  assert.ok(deltaFull.split('\n').includes('Round mode: full.'));
+  assert.deepEqual(built('plan-4', 'V16'), { agent: 'agent: review-bench-variant-16-plan-low', body: deltaFull });
+  assert.deepEqual(
+    namesCommand(ws)
+      .map((entry) => entry.name)
+      .sort(),
+    ['Plan3P1LowR1Plan', 'Plan3V16LowR1Plan', 'Plan3VaLowR1Plan', 'Plan4V16LowR1Plan', 'Plan4VaLowR1Plan'],
+  );
+});
+
+test('transcripts lets a variant reviewer read its own plugin root and no other variant root', (t) => {
+  const fixture = variantRepo(t);
+  const { root, repo, agentDir } = fixture;
+  prepare.prepareAgents(variantOptions(fixture), repo);
+  const agent = 'review-bench-variant-a-plan-low';
+  const agentFile = path.join(agentDir, `${agent}.md`);
+  assert.ok(fs.existsSync(agentFile), `agents wrote no ${agent}.md`);
+  const ws = path.join(root, 'ws');
+  const sessions = path.join(root, 'sessions');
+  const caseDir = path.join(ws, 'plan-3');
+  const run = path.join(caseDir, 'Va-low', 'run-1');
+  put(caseDir, 'case.json', { id: 'plan-3', kind: 'plan', split: 'dev' });
+  put(caseDir, 'plan.md', '# Plan 3\n');
+  put(run, 'prompts/plan.txt', `agent: ${agent}\n\nReview.\n`);
+  put(run, 'meta.json', { config: CONFIGS.low });
+  const own = variantRoot(root, 'a');
+  const other = variantRoot(root, '16');
+  const ownReads = [
+    ['read', { path: `${own}/skills/productivity/plan-reviewer/SKILL.md` }],
+    ['read', { path: `${own}/${VARIANT_DELTA}:1-40` }],
+    ['glob', { path: `${own}/skills/productivity/plan-reviewer/references/*.md` }],
+    ['read', { path: `${own}/agents/plan-reviewer.md` }],
+    ['read', { path: `${own}/skills/productivity/plan-manager/references/plan-contract.md` }],
+  ];
+  // The skill and the agent file of the other variant, and the skill of the live checkout.
+  const outside = [
+    `${other}/skills/productivity/plan-reviewer/SKILL.md`,
+    `${other}/agents/plan-reviewer.md`,
+    `${LIVE_PLUGIN}/skills/productivity/plan-reviewer/SKILL.md`,
+  ];
+  const calls = [...ownReads, ...outside.map((target) => ['read', { path: target }])];
+  // The system prompt of the transcript holds the text of the variant agent.
+  const transcript = toolTranscript(caseDir, 30, calls, agent)
+    .split('\n')
+    .map((line) => {
+      const entry = JSON.parse(line);
+      if (entry.type === 'session_init') entry.systemPrompt = ['You are a coding assistant.', readText(agentFile)];
+      return JSON.stringify(entry);
+    })
+    .join('\n');
+  put(sessions, 'Plan3VaLowR1Plan.jsonl', transcript);
+  assert.deepEqual(transcriptsCommand(ws, sessions), ['Plan3VaLowR1Plan']);
+  assert.deepEqual(readJson(path.join(run, 'meta.json')).reviewers.plan.readScope, { outside });
+});
+
+test('report --reference compares every arm column with the named folder instead of the best one', (t) => {
+  const { ws, cases } = roundWorkspace(t, [
+    {
+      config: CONFIGS.low,
+      run: 1,
+      rounds: [
+        [FULL_BLOCK, 100, 1000, 'full'],
+        [PASS_ROUND, 40, 400, 'delta'],
+      ],
+    },
+    { config: CONFIGS['low-fast'], run: 1, rounds: [[PASS_ROUND.replace('round 2', 'round 1'), 50, 500, 'full']] },
+  ]);
+  findingsCommand(ws);
+  main(['pairs', ws, '--cases', cases]);
+  judgeAll(ws, (_, known) => (known === 'D1' ? 'match' : 'no'));
+  const arms = ['C1-low-fast', 'C1-low'];
+  const report = () => readText(path.join(ws, 'report.md'));
+  const fewest = 'The reference column has the fewest escaped defects per 50 known defects.';
+  // The shared-cases row and the three interval rows end the decision table.
+  const compared = () => tableAfter(report(), '### Decision: dev').slice(-4);
+  // C1-low finds D1 and escapes the fewest, so it is the reference by default.
+  reportCommand(ws, { arms });
+  assert.equal(compared()[0], '| Cases shared with C1-low | 1 | - |');
+  assert.ok(report().includes(fewest));
+  const named = [
+    '| Cases shared with C1-low-fast | - | 1 |',
+    '| Round 1 recall difference from C1-low-fast, 90% interval | - | [0.33, 0.33] |',
+    '| Escaped per 50 known difference from C1-low-fast, 90% interval | - | [-16.67, -16.67] |',
+    '| Loop seconds difference from C1-low-fast, 90% interval | - | [90.0, 90.0] |',
+  ];
+  reportCommand(ws, { arms, reference: 'C1-low-fast' });
+  assert.deepEqual(compared(), named);
+  assert.equal(report().includes(fewest), false);
+  assert.ok(report().includes('The reference column is C1-low-fast.'));
+  // The command line takes the same option.
+  reportCommand(ws, { arms });
+  assert.equal(main(['report', ws, '--arms', arms.join(','), '--reference', 'C1-low-fast']), 'report.md: 2 runs');
+  assert.deepEqual(compared(), named);
+});
+
+test('a case with show_benchmark gets the benchmark skill folder without its cases folder in the snapshot', (t) => {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const project = path.join(root, 'project');
+  // The scripts hide the skill folder of the repository that holds them, so this test runs a copy of them in a
+  // repository with a benchmark skill folder. score.mjs imports the plan helper of plan-lifecycle.
+  const skill = '.agents/skills/review-benchmark';
+  const helper = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+  const live = path.join(import.meta.dirname, '../../..');
+  for (const file of [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`, helper]) {
+    put(repo, file, readText(path.join(live, file)));
+  }
+  put(repo, `${skill}/SKILL.md`, '# Review benchmark\n');
+  put(repo, `${skill}/results.md`, '# Results\n');
+  put(repo, `${skill}/cases/dev/plan-1.json`, { id: 'plan-1', kind: 'plan', split: 'dev', known: [] });
+  put(repo, `${skill}/cases/heldout/plan-2.key.json`, { known: PLAN_KEY });
+  put(repo, '.agents/skills/other/SKILL.md', '# Other\n');
+  put(repo, 'README.md', '# Demo\n');
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'skill');
+  const head = gitIn(repo, 'rev-parse', 'HEAD').trim();
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low] });
+  const script = path.join(repo, skill, 'scripts', 'prepare.mjs');
+  for (const [id, field] of [
+    ['plan-5', { show_benchmark: true }],
+    ['plan-6', {}],
+  ]) {
+    const caseData = { id, kind: 'plan', split: 'dev', issue: 5, round: 1, plan: `${id}-plan.md`, repo_ref: head };
+    put(cases, `dev/${id}.json`, { ...caseData, known: [], ...field });
+    put(cases, `dev/${id}-plan.md`, '# Plan 5\n');
+    const args = ['--case', path.join(cases, 'dev', `${id}.json`), '--arms', 'P1', '--runs', '1', '--out', ws];
+    const build = spawnSync(process.execPath, [script, 'case', ...args, '--project', project], { encoding: 'utf8' });
+    assert.equal(build.status, 0, build.stderr);
+  }
+  const snapshotFiles = (id) => {
+    const dir = path.join(ws, id, 'snapshot');
+    return filesUnder(dir)
+      .map((file) => path.relative(dir, file).split(path.sep).join('/'))
+      .sort();
+  };
+  // The skill folder shows its files, and its cases folder with the keys stays out.
+  assert.deepEqual(snapshotFiles('plan-5'), [
+    '.agents/skills/other/SKILL.md',
+    `${skill}/SKILL.md`,
+    `${skill}/results.md`,
+    `${skill}/scripts/prepare.mjs`,
+    `${skill}/scripts/score.mjs`,
+    'README.md',
+    helper,
+  ]);
+  // Without the field, the whole skill folder stays out.
+  assert.deepEqual(snapshotFiles('plan-6'), ['.agents/skills/other/SKILL.md', 'README.md', helper]);
+});

@@ -3,6 +3,7 @@
 // configurations, and the rounds of review loops.
 //
 //   node prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
+//                           [--variants <name>=<git-ref>[,...] [--full-only <name,...>]]
 //                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
 //                           [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
 //   node prepare.mjs case --case <case.json> --arms <B0,C3,...> --runs <k> --out <ws> [--configs <list>]
@@ -28,6 +29,7 @@ import {
   loadJudgments,
   loopEnds,
   readKnown,
+  reviewerPluginRoots,
   runLabel,
   SELF_REVIEW_AGENT_PREFIX,
   unwrapBlock,
@@ -37,7 +39,8 @@ const SCRIPT_PATH = fs.realpathSync(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.dirname(path.dirname(SCRIPT_PATH));
 const PLUGIN_PATH = 'plugins/plan-lifecycle';
 const PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
-const BASELINE_MARKER = '.review-bench-ref';
+// The marker file of a plugin copy (the baseline or a variant) records the commit of the copy.
+const PLUGIN_COPY_MARKER = '.review-bench-ref';
 const RUNTIME_AGENT_DIRS = { omp: '.omp/agents', claude: '.claude/agents' };
 // Every file and setting that `agents` writes starts with this prefix, so `clean` finds them without a record.
 const GENERATED_PREFIX = 'review-bench-';
@@ -97,6 +100,9 @@ const LOOP_IDENTITY = {
 };
 const RUN_FOLDER = /^run-[1-9]\d*$/;
 const ROUND_FOLDER = /^round-([1-9]\d*)$/;
+// A variant is a plan-reviewer prompt at a git ref (`agents --variants`). Its name gives its arm `V<name>` and its
+// agents, so it holds only lower-case letters and digits; an arm folder name then splits at its first hyphen.
+const VARIANT_NAME = /^[a-z0-9]+$/;
 
 export const LENSES = ['correctness', 'spec-and-tests', 'text-and-safety'];
 
@@ -128,7 +134,8 @@ const lensOf = (reviewer) =>
 // Arms per case kind. `side` selects the released (baseline) or the working-tree (candidate) reviewer agent, or the
 // self-review agent. `mode` and `reviewers` give the one review of a run without --loop. With --loop, `policy` is the
 // round policy that `case` records in the meta.json of each run. A self-review arm runs one review only, before
-// code-review round 1, so it has no policy and takes no --loop.
+// code-review round 1, so it has no policy and takes no --loop. A plan kind also takes the variant arms of the list of
+// configurations (see armSpec).
 export const ARMS = {
   code: {
     B0: { side: 'baseline', mode: 'full', reviewers: ['full'], policy: 'full' },
@@ -228,10 +235,25 @@ export function selfReviewAgent(config) {
   return `${SELF_REVIEW_AGENT_PREFIX}${config}`;
 }
 
-export function armAgent(kind, arm, config) {
-  const { side } = ARMS[kind][arm];
+// The agent of `side` at a configuration: the reviewer agent of the side for the role of the case kind, or the
+// self-review agent.
+export function armAgent(kind, side, config) {
   if (side === SELF_REVIEW) return selfReviewAgent(config);
   return agentName(side, isPlanKind(kind) ? 'plan' : 'code', config);
+}
+
+// The side of the agents of a variant, `variant-<name>`.
+const variantSide = (name) => `variant-${name}`;
+
+// The arm `arm` of a case kind, or undefined when the kind has no such arm: an arm of ARMS, or on a plan kind the arm
+// `V<name>` of a variant of `variants` (the list that `agents --variants` wrote). A variant arm runs the variant agent
+// in full mode. On a plan-delta case, it runs in delta mode, unless the variant has no delta mode (`--full-only`).
+function armSpec(kind, arm, variants) {
+  if (Object.hasOwn(ARMS[kind], arm)) return ARMS[kind][arm];
+  const variant = isPlanKind(kind) ? variants.find((item) => `V${item.name}` === arm) : undefined;
+  if (!variant) return undefined;
+  const mode = kind === 'plan-delta' && variant.delta ? 'delta' : 'full';
+  return { side: variantSide(variant.name), mode, reviewers: ['plan'] };
 }
 
 // The folder of an arm at one configuration. Arm names have no hyphen, so the folder name splits at its first one.
@@ -304,6 +326,9 @@ export function validateCase(caseData) {
       if (!FILE_FIELDS.includes(field) || !Object.hasOwn(caseData, field))
         fail(`case ${id}: external names ${field}, which is not a file field of the case`);
     }
+  }
+  if (Object.hasOwn(caseData, 'show_benchmark') && typeof caseData.show_benchmark !== 'boolean') {
+    fail(`case ${id}: show_benchmark must be true or false`);
   }
   if (split === 'heldout') {
     if (Object.hasOwn(caseData, 'known')) fail(`held-out case ${id} lists known defects; move them to ${id}.key.json`);
@@ -402,24 +427,25 @@ export function buildTail({ caseData, side, mode, round, reviewer, paths }) {
 }
 
 // The prompt file of one reviewer. The arm gives the side; `mode` and `round` default to the arm's mode and the case
-// round, and a loop round gives its own.
+// round, and a loop round gives its own. `spec` is the arm (see armSpec); it defaults to the arm of ARMS.
 export function buildPromptFile({
   caseData,
   arm,
   config,
   reviewer,
   paths,
-  mode = ARMS[caseData.kind][arm].mode,
+  spec = ARMS[caseData.kind][arm],
+  mode = spec.mode,
   round = caseData.round,
 }) {
-  const { side } = ARMS[caseData.kind][arm];
+  const { side } = spec;
   const tail = buildTail({ caseData, side, mode, round, reviewer, paths });
   const prompt = `${buildOpening(caseData, paths, round)}\n\n${tail}\n`;
   const word = FORBIDDEN_PROMPT_WORDS.exec(prompt);
   if (word) {
     fail(`the ${arm} ${reviewer} prompt of case ${caseData.id} contains "${word[0]}"; choose an --out path without it`);
   }
-  return `agent: ${armAgent(caseData.kind, arm, config)}\n\n${prompt}`;
+  return `agent: ${armAgent(caseData.kind, side, config)}\n\n${prompt}`;
 }
 
 // The mode of a code-review round of a loop with the round policy `policy` (LOOP_POLICIES), by the rules of
@@ -545,24 +571,27 @@ const DIFF_FLAGS = [
   '--dst-prefix=b/',
 ];
 
-// The benchmark skill folder holds the held-out answer keys, so no reviewer input may contain it. The snapshot, the
-// changed-path list, and every diff use this one pathspec to leave the folder out. A repository that does not hold
-// the folder needs no pathspec.
-function hiddenPathspec(repo) {
+// The benchmark skill folder holds the held-out answer keys under `cases/`, so no reviewer input may contain them. The
+// snapshot, the changed-path list, and every diff of a case use this one pathspec. It leaves out the whole skill
+// folder, or only its `cases/` folder for a case with `show_benchmark`: a case whose plan changes the benchmark, so
+// that the reviewer can check the claims of the plan about the scripts. A repository that does not hold the folder
+// needs no pathspec.
+function hiddenPathspec(repo, caseData) {
   const relative = path.relative(repo, SKILL_DIR);
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return [];
-  return [`:(exclude,literal)${relative.split(path.sep).join('/')}`];
+  const hidden = caseData.show_benchmark ? path.join(relative, 'cases') : relative;
+  return [`:(exclude,literal)${hidden.split(path.sep).join('/')}`];
 }
 
-function treeDiff(repo, from, to, paths) {
-  const args = ['diff', ...DIFF_FLAGS, from, to, '--', ...hiddenPathspec(repo)];
+function treeDiff(repo, hidden, from, to, paths) {
+  const args = ['diff', ...DIFF_FLAGS, from, to, '--', ...hidden];
   if (paths) args.push(...paths.map((file) => `:(literal)${file}`));
   return git(repo, args);
 }
 
-function changedPaths(repo, from, to) {
+function changedPaths(repo, hidden, from, to) {
   const args = ['diff', '--name-only', '-z', '--no-relative', '--no-renames', from, to, '--'];
-  return git(repo, [...args, ...hiddenPathspec(repo)])
+  return git(repo, [...args, ...hidden])
     .toString()
     .split('\0')
     .filter(Boolean);
@@ -570,9 +599,9 @@ function changedPaths(repo, from, to) {
 
 // The size of the diff from `from` to `to` as plan-contract.md counts it: added plus removed lines, the sums of
 // `git diff --numstat`. A binary file adds nothing.
-function diffSize(repo, from, to) {
+function diffSize(repo, hidden, from, to) {
   const args = ['diff', '--numstat', '--no-ext-diff', '--no-textconv', '--no-relative', '--no-renames', from, to, '--'];
-  return git(repo, [...args, ...hiddenPathspec(repo)])
+  return git(repo, [...args, ...hidden])
     .toString()
     .split('\n')
     .filter(Boolean)
@@ -584,17 +613,17 @@ function diffSize(repo, from, to) {
 
 // Writes one focus diff per lens: the changes of the paths in the scope of the lens, or a copy of the full diff when
 // no changed path is in that scope.
-function writeFocusDiffs(repo, base, tree, paths, full) {
-  const changed = changedPaths(repo, base, tree);
+function writeFocusDiffs(repo, hidden, base, tree, paths, full) {
+  const changed = changedPaths(repo, hidden, base, tree);
   for (const lens of LENSES) {
     const inScope = changed.filter((file) => focusesForPath(file).includes(lens));
-    fs.writeFileSync(paths.focus[lens], inScope.length ? treeDiff(repo, base, tree, inScope) : full);
+    fs.writeFileSync(paths.focus[lens], inScope.length ? treeDiff(repo, hidden, base, tree, inScope) : full);
   }
 }
 
-// Writes the files of the index, except the benchmark skill folder, to `snapshotDir`.
-function checkoutSnapshot(repo, env, snapshotDir) {
-  const files = git(repo, ['ls-files', '-z', '--', ...hiddenPathspec(repo)], { env })
+// Writes the files of the index, except the paths that `hidden` leaves out, to `snapshotDir`.
+function checkoutSnapshot(repo, hidden, env, snapshotDir) {
+  const files = git(repo, ['ls-files', '-z', '--', ...hidden], { env })
     .toString()
     .split('\0')
     .filter(Boolean);
@@ -662,12 +691,15 @@ function parseList(value, option, allowed) {
   return items;
 }
 
-function parseArms(value, kind) {
+// The arms of --arms. A plan kind also takes the arm `V<name>` of each variant of `variants` (see armSpec).
+function parseArms(value, kind, variants) {
   if (!value) fail('case needs --arms, for example --arms B0,C3');
   const arms = parseList(value, '--arms');
   for (const arm of arms) {
-    if (!Object.hasOwn(ARMS[kind], arm)) {
-      fail(`arm ${arm} does not apply to ${kind} cases; use ${Object.keys(ARMS[kind]).join(', ')}`);
+    if (!armSpec(kind, arm, variants)) {
+      const variantArms = isPlanKind(kind) ? variants.map((variant) => `V${variant.name}`) : [];
+      const known = [...Object.keys(ARMS[kind]), ...variantArms];
+      fail(`arm ${arm} does not apply to ${kind} cases; use ${known.join(', ')}`);
     }
   }
   return arms;
@@ -725,6 +757,7 @@ function buildCaseWorkspace({ repo, caseData, casePath, sources, caseDir, paths 
   if (sources.previous_review) fs.copyFileSync(sources.previous_review, paths.previousReview);
   if (sources.rejection) fs.copyFileSync(sources.rejection, paths.rejection);
 
+  const hidden = hiddenPathspec(repo, caseData);
   const reviewed = withIndex(caseDir, (env) => {
     git(repo, ['read-tree', commits.head ?? commits.repo_ref], { env });
     if (sources.patch) {
@@ -733,12 +766,14 @@ function buildCaseWorkspace({ repo, caseData, casePath, sources, caseDir, paths 
     let tree = null;
     if (!isPlanKind(caseData.kind)) {
       tree = writeTree(repo, env);
-      const full = treeDiff(repo, commits.base, tree);
+      const full = treeDiff(repo, hidden, commits.base, tree);
       fs.writeFileSync(paths.fullDiff, full);
-      writeFocusDiffs(repo, commits.base, tree, paths, full);
-      if (caseData.kind === 'code-delta') fs.writeFileSync(paths.deltaDiff, treeDiff(repo, commits.delta_base, tree));
+      writeFocusDiffs(repo, hidden, commits.base, tree, paths, full);
+      if (caseData.kind === 'code-delta') {
+        fs.writeFileSync(paths.deltaDiff, treeDiff(repo, hidden, commits.delta_base, tree));
+      }
     }
-    checkoutSnapshot(repo, env, paths.snapshot);
+    checkoutSnapshot(repo, hidden, env, paths.snapshot);
     return { base: commits.base, tree };
   });
 
@@ -774,10 +809,11 @@ export function prepareCase(options, repo) {
   if (options.loop && caseData.kind !== 'code') {
     fail(`--loop takes code cases; ${caseData.id} is a ${caseData.kind} case`);
   }
-  const arms = parseArms(options.arms, caseData.kind);
+  // The list of configurations names the variants, which give the variant arms of the plan kinds.
+  const { configs, fixer, variants, file: configsFile } = selectConfigs(options, repo);
+  const arms = parseArms(options.arms, caseData.kind, variants);
   if (options.loop) checkLoopArms(caseData.kind, arms);
   const runs = parseRuns(options.runs);
-  const { configs, fixer, file: configsFile } = selectConfigs(options, repo);
   // A loop records the fixer setting, so that `score.mjs report` can check the transcript of each fixer against it.
   if (options.loop && !fixer) fail(`${configsFile} has no fixer setting; run prepare.mjs agents again`);
   const caseDir = path.join(path.resolve(options.out), caseData.id);
@@ -790,16 +826,17 @@ export function prepareCase(options, repo) {
   const loopModes = new Map();
   try {
     const { base, tree } = buildCaseWorkspace({ repo, caseData, casePath, sources, caseDir, paths });
-    const fullLines = options.loop ? diffSize(repo, base, tree) : null;
+    const fullLines = options.loop ? diffSize(repo, hiddenPathspec(repo, caseData), base, tree) : null;
     for (const config of configs) {
       for (const arm of arms) {
-        const { policy, mode: armMode, reviewers: armReviewers } = ARMS[caseData.kind][arm];
+        const spec = armSpec(caseData.kind, arm, variants);
+        const { policy, mode: armMode, reviewers: armReviewers } = spec;
         const mode = options.loop ? roundMode({ policy, round: 1, fullLines }) : armMode;
         const reviewers = options.loop ? MODE_REVIEWERS[mode] : armReviewers;
         if (options.loop) loopModes.set(arm, mode);
         const prompts = reviewers.map((reviewer) => ({
           reviewer,
-          text: buildPromptFile({ caseData, arm, config: config.name, reviewer, paths, mode }),
+          text: buildPromptFile({ caseData, arm, spec, config: config.name, reviewer, paths, mode }),
         }));
         for (let run = 1; run <= runs; run += 1) {
           const runDir = path.join(caseDir, armFolder(arm, config.name), `run-${run}`);
@@ -910,14 +947,14 @@ function fixerPrompt({ snapshot, planExport, findings, patch }) {
 // Writes what the fixer of a round needs to `fixerDir`: the snapshot of the index of `env` (the reviewed tree of the
 // round with the fix patches that apply) and the one fixer prompt, which lists `findings` and names the patch file in
 // `fixerDir`. It removes the prompts of an earlier call.
-function writeFixerInputs({ repo, env, fixerDir, planExport, findings }) {
+function writeFixerInputs({ repo, hidden, env, fixerDir, planExport, findings }) {
   const snapshot = path.join(fixerDir, 'snapshot');
   fs.rmSync(snapshot, { recursive: true, force: true });
   fs.mkdirSync(fixerDir, { recursive: true });
   for (const name of fs.readdirSync(fixerDir).filter((entry) => entry.endsWith('.txt'))) {
     fs.rmSync(path.join(fixerDir, name));
   }
-  checkoutSnapshot(repo, env, snapshot);
+  checkoutSnapshot(repo, hidden, env, snapshot);
   const patch = path.join(fixerDir, `${FIXER_NAME}.patch`);
   fs.writeFileSync(path.join(fixerDir, `${FIXER_NAME}.txt`), fixerPrompt({ snapshot, planExport, findings, patch }));
 }
@@ -1007,6 +1044,7 @@ export function prepareLoop(options, repo) {
     );
   }
   const keys = keyFolder(caseData, options.keys);
+  const hidden = hiddenPathspec(repo, caseData);
   const label = `${caseId}/${armName}/${runName}`;
   const k = lastRound(runDir, label);
   // The meta.json of the run records the round policy of the loop, and the later rounds follow it. `case --loop`
@@ -1107,7 +1145,7 @@ export function prepareLoop(options, repo) {
     const repair = fixerRepair(options['fixer-patch'], fixerIds.size > 0, fixerDir, roundLabel);
     if (!repair) {
       const fixerFindings = findings.filter((finding) => fixerIds.has(finding.id));
-      writeFixerInputs({ repo, env, fixerDir, planExport, findings: fixerFindings });
+      writeFixerInputs({ repo, hidden, env, fixerDir, planExport, findings: fixerFindings });
       const parts = [];
       if (plan.extras.length) {
         parts.push(`${plan.extras.length} valid extra findings for the fixer: ${plan.extras.join(', ')}`);
@@ -1142,8 +1180,8 @@ export function prepareLoop(options, repo) {
     if (noRepair.fixRepairedNothing) return { notApplied: split.notApplied, noRepair };
     const head = commitTree(repo, tree, parent, `Review loop ${label}, round ${nextRound}`);
     const base = resolveCommit(repo, caseData.base, `${caseId} base`);
-    const fullLines = diffSize(repo, base, tree);
-    const deltaLines = diffSize(repo, reviewedTree, tree);
+    const fullLines = diffSize(repo, hidden, base, tree);
+    const deltaLines = diffSize(repo, hidden, reviewedTree, tree);
     // A pulled-in patch that did not apply changed nothing.
     const repairsOnly = split.applied.every((fix) => !fix.pulled);
     // Round k completed, because loop refuses a round that did not complete.
@@ -1156,17 +1194,17 @@ export function prepareLoop(options, repo) {
     const meta = { config, mode: nextMode, head, repairsOnly, fullLines, deltaLines };
     fs.mkdirSync(nextDir);
     try {
-      checkoutSnapshot(repo, env, paths.snapshot);
-      const full = treeDiff(repo, base, tree);
+      checkoutSnapshot(repo, hidden, env, paths.snapshot);
+      const full = treeDiff(repo, hidden, base, tree);
       fs.writeFileSync(paths.fullDiff, full);
-      if (nextMode === 'panel') writeFocusDiffs(repo, base, tree, paths, full);
-      fs.writeFileSync(paths.deltaDiff, treeDiff(repo, reviewedTree, tree));
+      if (nextMode === 'panel') writeFocusDiffs(repo, hidden, base, tree, paths, full);
+      fs.writeFileSync(paths.deltaDiff, treeDiff(repo, hidden, reviewedTree, tree));
       fs.writeFileSync(paths.previousReview, roundComment(roundDir, blocks));
       if (paths.rejection) {
         fs.writeFileSync(paths.rejection, rejectionComment(promptRound, plan.rejections, findingsById));
       }
       fs.rmSync(judgeTree, { recursive: true, force: true });
-      checkoutSnapshot(repo, env, judgeTree);
+      checkoutSnapshot(repo, hidden, env, judgeTree);
       writeRuns([{ dir: nextDir, meta, prompts }]);
     } catch (error) {
       fs.rmSync(nextDir, { recursive: true, force: true });
@@ -1201,15 +1239,15 @@ export function prepareLoop(options, repo) {
   return nextDir;
 }
 
-// Extracts plugins/plan-lifecycle at `sha` into `dir`. A marker file records the commit,
-// so a later call reuses the copy or replaces a copy of another commit.
-function extractBaselinePlugin(repo, sha, dir) {
-  const marker = path.join(dir, BASELINE_MARKER);
+// Extracts plugins/plan-lifecycle at `sha` into `dir`: the baseline copy or the copy of a variant. A marker file
+// records the commit, so a later call reuses the copy or replaces a copy of another commit.
+function extractPlugin(repo, sha, dir) {
+  const marker = path.join(dir, PLUGIN_COPY_MARKER);
   if (fs.existsSync(marker)) {
     if (fs.readFileSync(marker, 'utf8').trim() === sha) return;
     fs.rmSync(dir, { recursive: true, force: true });
   } else if (fs.existsSync(dir) && fs.readdirSync(dir).length) {
-    fail(`${dir} exists and is not a baseline copy from this script; pass another --baseline-dir`);
+    fail(`${dir} exists and is not a plugin copy from this script; remove it, or pass another --out or --baseline-dir`);
   }
   fs.mkdirSync(dir, { recursive: true });
   const indexFile = path.join(dir, '.git-index');
@@ -1332,7 +1370,8 @@ function removeGenerated(project) {
 }
 
 // The configurations that --configs names, in its order, or else every configuration that `agents` wrote; the
-// setting of the fixer agent that `agents` wrote (undefined in a file without one); and the file that holds them.
+// setting of the fixer agent that `agents` wrote (undefined in a file without one); the variants that `agents` wrote
+// (none in a file without them); and the file that holds them.
 function selectConfigs(options, repo) {
   const project = projectDir(options, repo);
   const files = Object.values(RUNTIME_AGENT_DIRS)
@@ -1340,12 +1379,55 @@ function selectConfigs(options, repo) {
     .filter((file) => fs.existsSync(file));
   if (files.length === 0) fail(`${project} has no configurations; run prepare.mjs agents with the same --project`);
   if (files.length > 1) fail(`${files.join(' and ')} both exist; run prepare.mjs clean and then agents`);
-  const { configs, fixer } = readJson(files[0]);
+  const { configs, fixer, variants = [] } = readJson(files[0]);
   const known = configs.map((config) => config.name);
   const selected = options.configs
     ? parseList(options.configs, '--configs', known).map((name) => configs[known.indexOf(name)])
     : configs;
-  return { configs: selected, fixer, file: files[0] };
+  return { configs: selected, fixer, variants, file: files[0] };
+}
+
+// The variants of --variants, in its order: one { name, ref, sha, delta, dir, text } per `<name>=<git ref>` entry.
+// `dir` is the folder of the plugin copy of the variant, next to the baseline copy, and `text` is the plan-reviewer
+// agent at the ref. delta is false for a variant of --full-only, which has no delta mode. Every check runs here, before
+// `agents` changes a file.
+function parseVariants(options, repo, baselineDir) {
+  const fullOnly = options['full-only'] ? parseList(options['full-only'], '--full-only') : [];
+  if (!options.variants) {
+    if (fullOnly.length) fail('--full-only names variants of --variants; give --variants too');
+    return [];
+  }
+  const entries = options.variants.split(',').map((entry) => entry.trim());
+  if (entries.includes('')) fail(`--variants has an empty entry: ${options.variants}`);
+  const variants = entries.map((entry) => {
+    const at = entry.indexOf('=');
+    if (at < 1 || at === entry.length - 1) fail(`--variants: ${entry} is not <name>=<git ref>`);
+    const name = entry.slice(0, at);
+    if (!VARIANT_NAME.test(name)) fail(`--variants: the variant name ${name} has a character other than a-z and 0-9`);
+    return { name, ref: entry.slice(at + 1) };
+  });
+  const names = variants.map((variant) => variant.name);
+  const twice = names.find((name, index) => names.indexOf(name) !== index);
+  if (twice) fail(`--variants: the variant name ${twice} occurs two times`);
+  const other = fullOnly.find((name) => !names.includes(name));
+  if (other) fail(`--full-only names ${other}, which is not a variant`);
+  const source = `${PLUGIN_PATH}/agents/plan-reviewer.md`;
+  return variants.map(({ name, ref }) => {
+    const sha = resolveCommit(repo, ref, `variant ${name}: ref`);
+    const blob = runGit(repo, ['cat-file', 'blob', `${sha}:${source}`]);
+    if (blob.status !== 0) fail(`${source} does not exist at ${ref} (variant ${name})`);
+    const text = blob.stdout.toString();
+    const dir = path.join(path.dirname(baselineDir), `variant-${name}-plugin`);
+    // score.mjs takes the plugin root of a reviewer from the path of its reviewer skill in the agent text. An agent
+    // text that names no such path, or another root, would make every run of the variant read outside its inputs.
+    const roots = reviewerPluginRoots(text.replaceAll(PLUGIN_ROOT_TOKEN, dir));
+    if (roots.length !== 1 || roots[0] !== dir) {
+      fail(
+        `variant ${name}: ${source} at ${ref} must name its reviewer skill as ${PLUGIN_ROOT_TOKEN}/skills/<folder>/plan-reviewer/SKILL.md and name no other plugin root`,
+      );
+    }
+    return { name, ref, sha, delta: !fullOnly.includes(name), dir, text };
+  });
 }
 
 export function prepareAgents(options, repo) {
@@ -1366,8 +1448,15 @@ export function prepareAgents(options, repo) {
   else if (options.out) baselineDir = path.resolve(options.out, '..', 'baseline-plugin');
   else fail('agents needs --out <workspace dir> or --baseline-dir <dir> for the baseline plugin copy');
 
+  // The checks of the variants come before the first file changes.
+  const variants = parseVariants(options, repo, baselineDir);
   const sha = resolveCommit(repo, options['baseline-ref'], '--baseline-ref');
-  extractBaselinePlugin(repo, sha, baselineDir);
+  extractPlugin(repo, sha, baselineDir);
+  for (const variant of variants) {
+    extractPlugin(repo, variant.sha, variant.dir);
+    const modes = variant.delta ? 'full and delta mode' : 'full mode only';
+    console.log(`variant ${variant.name}: ${variant.ref} at ${variant.sha.slice(0, 12)}, ${modes}, in ${variant.dir}`);
+  }
   const sources = [];
   for (const role of ['code', 'plan']) {
     const source = `${PLUGIN_PATH}/agents/${role}-reviewer.md`;
@@ -1382,6 +1471,9 @@ export function prepareAgents(options, repo) {
         pluginRoot: path.join(repo, PLUGIN_PATH),
       },
     );
+  }
+  for (const { name, text, dir } of variants) {
+    sources.push({ side: variantSide(name), role: 'plan', text, pluginRoot: dir });
   }
 
   removeGenerated(project);
@@ -1415,7 +1507,8 @@ export function prepareAgents(options, repo) {
   });
   fs.writeFileSync(path.join(agentDir, `${FIXER_AGENT}.md`), fixerAgent);
   if (fixer.tier !== null) overrides[FIXER_AGENT] = fixer.tier;
-  writeJson(path.join(agentDir, CONFIGS_FILE), { configs, fixer });
+  const variantList = variants.map(({ name, ref, sha: commit, delta }) => ({ name, ref, sha: commit, delta }));
+  writeJson(path.join(agentDir, CONFIGS_FILE), { configs, fixer, variants: variantList });
   const names = configs.map((config) => config.name).join(', ');
   console.log(`wrote ${configs.length * (sources.length + 1)} agent files to ${agentDir} for ${names}`);
   const fixerTier = fixer.tier === null ? '' : `, tier ${fixer.tier}`;
@@ -1437,7 +1530,8 @@ function prepareProbe(options, repo) {
   writeRuns(
     configs.map((config) => {
       const dir = path.join(caseDir, armFolder(PROBE_ARM, config.name), 'run-1');
-      const text = `agent: ${armAgent('code', PROBE_ARM, config.name)}\n\n${PROBE_TASK}\n\nRun folder: ${dir}\n`;
+      const agent = armAgent('code', ARMS.code[PROBE_ARM].side, config.name);
+      const text = `agent: ${agent}\n\n${PROBE_TASK}\n\nRun folder: ${dir}\n`;
       return { dir, meta: { config }, prompts: [{ reviewer: 'full', text }] };
     }),
   );
@@ -1476,6 +1570,8 @@ const COMMANDS = {
       model: { type: 'string' },
       efforts: { type: 'string' },
       tiers: { type: 'string' },
+      variants: { type: 'string' },
+      'full-only': { type: 'string' },
       'fixer-model': { type: 'string' },
       'fixer-effort': { type: 'string' },
       'fixer-tier': { type: 'string' },
@@ -1494,6 +1590,7 @@ const COMMANDS = {
 
 const USAGE = `usage:
   prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
+                     [--variants <name>=<git-ref>[,...] [--full-only <name,...>]]
                      [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
                      [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
   prepare.mjs case --case <case.json> --arms <list> --runs <k> --out <ws> [--configs <list>] [--keys <dir>]
