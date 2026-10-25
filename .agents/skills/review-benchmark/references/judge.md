@@ -30,7 +30,7 @@ One finding can match several known defects. Several findings can match one know
 Then rate each finding of each run that got no `match` answer. Read the reviewed tree of the run at its locator and trace the claim through the code or the plan.
 
 - `valid`: the defect is real in the reviewed tree. The severity of the finding does not change the rating.
-- `wrong`: the claim is false in this code, the plan records the behavior as intended, or the finding describes no defect.
+- `wrong`: the claim is false in this code, the plan records the behavior as intended, or the finding describes no defect. A recorded intent does not make a finding wrong when the finding shows that the recorded behavior breaks a repository instruction file (`AGENTS.md`, `CLAUDE.md`), the plan contract, or the correctness of the code: rate it `valid` when the rule that it quotes applies to the path and its effect holds.
 - `unknown`: neither the snapshot nor official documentation shows whether the claim is true. Say what is missing.
 
 Give one sentence of reasons that names the file, plan section, or documentation URL that you read.

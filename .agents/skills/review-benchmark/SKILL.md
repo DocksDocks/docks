@@ -89,8 +89,10 @@ omp reads project agents and project settings from the working folder of the ses
 |---|---|---|---|---|
 | `B0` | code, code-delta | `review-bench-baseline-code-<config>` | `full` (on code-delta: today's full re-review) | `full` |
 | `B1` | code | `review-bench-baseline-code-<config>` | the three lenses, described in the prompt | `panel-delta` |
+| `B3` | code | `review-bench-baseline-code-<config>` | `correctness`, `spec-and-tests`, `text-and-safety`, with the prompt of `C3` | `panel-delta` |
 | `C1` | code | `review-bench-candidate-code-<config>` | `full` | `full-delta` |
 | `C3` | code | `review-bench-candidate-code-<config>` | `correctness`, `spec-and-tests`, `text-and-safety` | `panel-delta` |
+| `Bd` | code-delta | `review-bench-baseline-code-<config>` | `delta`, with the prompt of `Cd` | none |
 | `Cd` | code-delta | `review-bench-candidate-code-<config>` | `delta` | none |
 | `P0` | plan, plan-delta | `review-bench-baseline-plan-<config>` | `plan`, full round | none |
 | `P1` | plan | `review-bench-candidate-plan-<config>` | `plan`, full round | none |
@@ -98,6 +100,8 @@ omp reads project agents and project settings from the working folder of the ses
 | `V<name>` | plan, plan-delta | `review-bench-variant-<name>-plan-<config>` | `plan`: a full round on a plan case; on a plan-delta case the delta mode, or a full round for a `--full-only` variant | none |
 | `S1` | code | `review-bench-selfreview-<config>` | `self-review`: the full diff, with the prompt of `C1` | none |
 | `S3` | code | `review-bench-selfreview-<config>` | `self-review-correctness`, `self-review-spec-and-tests`, `self-review-text-and-safety`: the focus diff and the lens description of the `B1` lens | none |
+
+`B3` and `Bd` give the baseline reviewer the prompt of `C3` and `Cd`, so they compare a candidate with the reviewer at `--baseline-ref` (for example `main`) on the reviewer files alone; `B1` and `B0` keep the prompts that the released reviewer of plan #98 needed.
 
 Without `--loop`, a run is one review by the reviewers of its arm. With `--loop`, a run is a review loop, and the round policy that the `meta.json` of the run records picks the mode of each round (see Review loop). `case --loop` records the policy of the arm.
 

@@ -4283,7 +4283,7 @@ test('loop follows the round policy that the run meta.json records and refuses a
   // A self-review arm runs no loop.
   assert.throws(
     () => prepare.prepareLoop({ run: path.join(ws, 'code-7', 'S1-low', 'run-1'), cases }, repo),
-    /loop takes the runs of the code arms B0, B1, C1, C3; code-7 is a code case and S1 is its arm/,
+    /loop takes the runs of the code arms B0, B1, B3, C1, C3; code-7 is a code case and S1 is its arm/,
   );
 });
 
@@ -5538,8 +5538,8 @@ test('case builds variant arms in full mode, and in delta mode on plan-delta cas
   refuses('plan-4', 'Vb', /arm Vb does not apply to plan-delta cases; use P0, Pd, V16, Va$/);
   // Code and code-delta cases take no variant arm.
   for (const arm of ['V16', 'Va']) {
-    refuses('code-7', arm, new RegExp(`arm ${arm} does not apply to code cases; use B0, B1, C1, C3, S1, S3$`));
-    refuses('code-8', arm, new RegExp(`arm ${arm} does not apply to code-delta cases; use B0, Cd$`));
+    refuses('code-7', arm, new RegExp(`arm ${arm} does not apply to code cases; use B0, B1, B3, C1, C3, S1, S3$`));
+    refuses('code-8', arm, new RegExp(`arm ${arm} does not apply to code-delta cases; use B0, Bd, Cd$`));
   }
   // A list of configurations without variants gives no variant arm.
   put(project, configsFile, { configs: [CONFIGS.low], fixer: FIXER_SETTING });
@@ -5954,6 +5954,42 @@ test('agents --variants takes an --out folder whose parent has a space and keeps
   gitIn(repo, 'tag', 'other-space');
   const message = `variant a: ${agentFile} at other-space must name its reviewer skill as \${CLAUDE_PLUGIN_ROOT}/skills/<folder>/plan-reviewer/SKILL.md and name no other plugin root`;
   assert.throws(() => prepare.prepareAgents({ ...options, variants: '16=v16,a=other-space' }, repo), { message });
+});
+
+// B1 and B0 describe the lens or review the whole diff again, as the released reviewer of plan #98 needed. B3 and Bd
+// give the baseline reviewer the prompt of the candidate arms, so a comparison measures only the reviewer files (#113).
+test('the B3 and Bd arms give the baseline reviewer the prompts of the C3 and Cd arms', () => {
+  assert.ok(prepare.ARMS.code.B3, 'code cases have no B3 arm');
+  assert.ok(prepare.ARMS['code-delta'].Bd, 'code-delta cases have no Bd arm');
+  const focus = Object.fromEntries(prepare.LENSES.map((lens) => [lens, `/ws/code-7/focus-${lens}.diff`]));
+  const panelCase = { id: 'code-7', kind: 'code', issue: 7, round: 1 };
+  const panelPaths = {
+    snapshot: '/ws/code-7/snapshot',
+    plan: '/ws/code-7/plan.md',
+    fullDiff: '/ws/code-7/full.diff',
+    focus,
+  };
+  const prompt = (caseData, arm, reviewer, paths) => {
+    const [agent, , ...body] = prepare.buildPromptFile({ caseData, arm, config: 'low', reviewer, paths }).split('\n');
+    return { agent, body: body.join('\n') };
+  };
+  for (const lens of prepare.LENSES) {
+    const [baseline, candidate] = ['B3', 'C3'].map((arm) => prompt(panelCase, arm, lens, panelPaths));
+    assert.equal(baseline.agent, 'agent: review-bench-baseline-code-low');
+    assert.equal(candidate.agent, 'agent: review-bench-candidate-code-low');
+    assert.equal(baseline.body, candidate.body, `the B3 ${lens} prompt differs from the C3 prompt`);
+  }
+  const deltaCase = { id: 'code-8', kind: 'code-delta', issue: 8, round: 2 };
+  const deltaPaths = {
+    snapshot: '/ws/code-8/snapshot',
+    plan: '/ws/code-8/plan.md',
+    deltaDiff: '/ws/code-8/delta.diff',
+    previousReview: '/ws/code-8/previous-review.md',
+  };
+  const [baseline, candidate] = ['Bd', 'Cd'].map((arm) => prompt(deltaCase, arm, 'delta', deltaPaths));
+  assert.equal(baseline.agent, 'agent: review-bench-baseline-code-low');
+  assert.equal(baseline.body, candidate.body);
+  assert.ok(baseline.body.split('\n').includes('Round mode: delta.'));
 });
 
 test('case gives each run of an overlay variant a contract copy, its record, and a prompt that names the copy', (t) => {

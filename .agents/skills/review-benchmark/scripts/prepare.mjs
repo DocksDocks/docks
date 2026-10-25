@@ -136,7 +136,9 @@ const lensOf = (reviewer) =>
   reviewer.startsWith(`${SELF_REVIEW}-`) ? reviewer.slice(SELF_REVIEW.length + 1) : reviewer;
 
 // Arms per case kind. `side` selects the released (baseline) or the working-tree (candidate) reviewer agent, or the
-// self-review agent. `mode` and `reviewers` give the one review of a run without --loop. With --loop, `policy` is the
+// self-review agent. `prompt: 'candidate'` gives a baseline arm the prompt of the candidate arm of the same mode (B3,
+// Bd), so the arms differ only in the reviewer files (#113); the other baseline arms keep the prompt that the reviewer
+// of plan #98 needed. `mode` and `reviewers` give the one review of a run without --loop. With --loop, `policy` is the
 // round policy that `case` records in the meta.json of each run. A self-review arm runs one review only, before
 // code-review round 1, so it has no policy and takes no --loop. A plan kind also takes the variant arms of the list of
 // configurations (see armSpec).
@@ -144,6 +146,7 @@ export const ARMS = {
   code: {
     B0: { side: 'baseline', mode: 'full', reviewers: ['full'], policy: 'full' },
     B1: { side: 'baseline', mode: 'panel', reviewers: LENSES, policy: 'panel-delta' },
+    B3: { side: 'baseline', prompt: 'candidate', mode: 'panel', reviewers: LENSES, policy: 'panel-delta' },
     C1: { side: 'candidate', mode: 'full', reviewers: ['full'], policy: 'full-delta' },
     C3: { side: 'candidate', mode: 'panel', reviewers: LENSES, policy: 'panel-delta' },
     S1: { side: SELF_REVIEW, mode: 'full', reviewers: [SELF_REVIEW] },
@@ -151,6 +154,7 @@ export const ARMS = {
   },
   'code-delta': {
     B0: { side: 'baseline', mode: 'full', reviewers: ['full'] },
+    Bd: { side: 'baseline', prompt: 'candidate', mode: 'delta', reviewers: ['delta'] },
     Cd: { side: 'candidate', mode: 'delta', reviewers: ['delta'] },
   },
   plan: {
@@ -451,7 +455,7 @@ export function buildPromptFile({
   round = caseData.round,
 }) {
   const { side } = spec;
-  const tail = buildTail({ caseData, side, mode, round, reviewer, paths });
+  const tail = buildTail({ caseData, side: spec.prompt ?? side, mode, round, reviewer, paths });
   const prompt = `${buildOpening(caseData, paths, round)}\n\n${tail}\n`;
   const word = FORBIDDEN_PROMPT_WORDS.exec(prompt);
   if (word) {
