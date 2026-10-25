@@ -5620,3 +5620,477 @@ test('a case with show_benchmark gets the benchmark skill folder without its cas
   // Without the field, the whole skill folder stays out.
   assert.deepEqual(snapshotFiles('plan-6'), ['.agents/skills/other/SKILL.md', 'README.md', helper]);
 });
+
+// Plan #109 step 9: API note for the tests below (decision 2, and the refusals of code review round 1).
+//
+// prepare.mjs:
+// - prepareAgents takes `contract-overlay` (`--contract-overlay <name,...>`): variants of `variants` whose commit
+//   changes plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md against its first
+//   parent. The entry of such a variant in the list of configurations gets `contractDiff`, the git diff of that file
+//   from the first parent to the commit. Before it extracts a plugin or writes a file of the project, agents refuses: a
+//   name of --full-only or --contract-overlay that is not a variant, or one of these options without --variants; an
+//   empty or malformed --variants entry, and an empty --full-only; a commit that does not change the contract; plugin
+//   copies that would go to one folder (a --baseline-dir that is the folder of a variant copy); and a variant agent
+//   that does not name its own reviewer skill.
+// - prepareCase writes, for each run of a variant arm with `contractDiff`, `run-<k>/plan-contract.md`: the contract of
+//   the snapshot with the diff applied by `git apply`. The meta.json of the run gets `contractOverlay`: `applied`, or
+//   `not applicable` when the diff does not apply (the copy then holds the contract of the snapshot). The prompt of the
+//   run tells the reviewer to read the plan contract at the copy and every other repository file under the snapshot
+//   root. A snapshot without the contract stops the command.
+// - prepareCase takes `extend` (`--extend`): the case folder exists and holds the same case.json, and case adds the
+//   arm folders and keeps every other file. It refuses an arm folder that exists, a missing case folder, and a case
+//   folder of another case file. A failed call removes only the arm folders that it wrote.
+// score.mjs:
+// - readScope allows `<run folder>/plan-contract.md` of its own run, also when the case changes the plan contract.
+// - reportCommand refuses an empty `reference`.
+
+const CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
+// The prompt rule that sends the reviewer to the snapshot root for the plan contract, and the rule of a run with a
+// contract overlay, which sends the reviewer to the copy `copy`.
+const SNAPSHOT_CONTRACT_RULE =
+  '- Your own instruction files are your agent file and the files of your own skill folder. Read every other file, including the plan contract and other skills, under the snapshot root.';
+const copyContractRule = (copy) =>
+  `- Your own instruction files are your agent file and the files of your own skill folder. Read the plan contract at ${copy}. Read every other repository file, including other skills, under the snapshot root.`;
+// The refusal of a contract overlay on the snapshot `snapshot`, which has no plan contract.
+const noContract = (snapshot) => `${snapshot} has no ${CONTRACT}, so the contract overlay has no contract to change`;
+
+// Each file and folder under `dir`, without the .git folders: one key per path relative to `dir`, with the text of a
+// file, or '' for a folder, whose key ends with `/`. A refusal leaves this state as it was.
+function treeState(dir) {
+  const state = {};
+  const walk = (folder) => {
+    for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+      if (entry.name === '.git') continue;
+      const file = path.join(folder, entry.name);
+      const key = path.relative(dir, file).split(path.sep).join('/');
+      if (entry.isDirectory()) {
+        state[`${key}/`] = '';
+        walk(file);
+      } else {
+        state[key] = readText(file);
+      }
+    }
+  };
+  if (fs.existsSync(dir)) walk(dir);
+  return state;
+}
+
+// The variant repository after `agents` with the variants 16 and a (cand-a, with a contract overlay), and the case
+// files of the overlay tests: plan-3 at v16, whose contract the contract change of cand-a applies to; plan-4, a
+// plan-delta case at the last commit, whose contract does not hold the text that the change changes; plan-5 at bare,
+// which has no contract; and code-7 from bare to v16. `options(id, arms, more)` gives the options of `case` for one run
+// at the configuration low.
+function overlayFixture(t) {
+  const fixture = variantRepo(t);
+  const { root, repo, project, shas } = fixture;
+  prepare.prepareAgents({ ...variantOptions(fixture), 'contract-overlay': 'a' }, repo);
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const planCase = (id, repoRef) => ({
+    id,
+    kind: 'plan',
+    split: 'dev',
+    issue: 3,
+    round: 1,
+    plan: `${id}-plan.md`,
+    repo_ref: repoRef,
+    known: [],
+  });
+  const caseFiles = [
+    planCase('plan-3', shas.v16),
+    {
+      ...planCase('plan-4', gitIn(repo, 'rev-parse', 'HEAD').trim()),
+      kind: 'plan-delta',
+      round: 2,
+      previous_body: 'plan-4-previous.md',
+      previous_review: 'plan-4-review.md',
+    },
+    planCase('plan-5', shas.bare),
+    {
+      id: 'code-7',
+      kind: 'code',
+      split: 'dev',
+      issue: 7,
+      round: 1,
+      plan: 'code-7-plan.md',
+      base: shas.bare,
+      head: shas.v16,
+      known: [],
+    },
+  ];
+  for (const caseData of caseFiles) {
+    put(cases, `dev/${caseData.id}.json`, caseData);
+    put(cases, `dev/${caseData.plan}`, `# Plan ${caseData.issue}\n\nStep 1 and step 2.\n`);
+  }
+  put(cases, 'dev/plan-4-previous.md', '# Plan 3\n\nStep 1.\n');
+  put(cases, 'dev/plan-4-review.md', PLAN_BLOCK.replace('round 2', 'round 1'));
+  const options = (id, arms, more = {}) => ({
+    case: path.join(cases, 'dev', `${id}.json`),
+    arms,
+    runs: '1',
+    out: ws,
+    configs: 'low',
+    project,
+    ...more,
+  });
+  return { root, repo, project, ws, cases, caseFiles, options };
+}
+
+test('agents --contract-overlay records the contract change of a variant against its first parent', (t) => {
+  const fixture = variantRepo(t);
+  const { repo, agentDir, shas } = fixture;
+  prepare.prepareAgents({ ...variantOptions(fixture), 'contract-overlay': 'a' }, repo);
+  const change = gitIn(repo, 'diff', '--no-color', 'cand-a^1', 'cand-a', '--', CONTRACT);
+  assert.match(change, /^-# Plan contract 0\.16\.0\n\+# Plan contract A$/m);
+  assert.deepEqual(readJson(path.join(agentDir, 'review-bench-configs.json')).variants, [
+    { name: '16', ref: 'v16', sha: shas.v16, delta: false },
+    { name: 'a', ref: 'cand-a', sha: shas['cand-a'], delta: true, contractDiff: change },
+  ]);
+});
+
+test('agents refuses colliding plugin copies, bad variant options, and unusable refs before it writes', (t) => {
+  const fixture = variantRepo(t);
+  const { root, repo, project } = fixture;
+  const tagCommit = (tag, files) => {
+    for (const [file, content] of Object.entries(files)) put(repo, file, content);
+    gitIn(repo, 'add', '-A');
+    gitIn(repo, 'commit', '-q', '--allow-empty', '-m', tag);
+    gitIn(repo, 'tag', tag);
+  };
+  // A commit that does not change the plan contract, an agent that names no reviewer skill, and an agent that also
+  // names the reviewer skill of another plugin root.
+  const agentFile = 'plugins/plan-lifecycle/agents/plan-reviewer.md';
+  const noSkill = '---\nname: plan-reviewer\ndescription: Reviews plans.\n---\n\n# Plan Reviewer\n';
+  const otherRoot = `${variantAgentText('other')}Also load \`/opt/x/skills/productivity/plan-reviewer/SKILL.md\`.\n`;
+  tagCommit('same-contract', {});
+  tagCommit('no-skill', { [agentFile]: noSkill });
+  tagCommit('other-root', { [agentFile]: otherRoot });
+  const ownSkill = (ref) =>
+    `variant a: plugins/plan-lifecycle/agents/plan-reviewer.md at ${ref} must name its reviewer skill as \${CLAUDE_PLUGIN_ROOT}/skills/<folder>/plan-reviewer/SKILL.md and name no other plugin root`;
+  const refusals = [
+    // A variant copy in the folder of the baseline copy would replace the baseline plugin of the baseline agents.
+    [
+      { 'baseline-dir': variantRoot(root, 'a') },
+      `the baseline copy and the copy of variant a both go to ${variantRoot(root, 'a')}; give another --baseline-dir`,
+    ],
+    [{ variants: '' }, '--variants has an empty entry: '],
+    [{ variants: '16=v16,' }, '--variants has an empty entry: 16=v16,'],
+    [{ variants: '16=v16,a' }, '--variants: a is not <name>=<git ref>'],
+    [{ variants: '16=v16,=cand-a' }, '--variants: =cand-a is not <name>=<git ref>'],
+    [{ variants: '16=v16,a=' }, '--variants: a= is not <name>=<git ref>'],
+    [{ 'full-only': '' }, '--full-only has an empty entry: '],
+    [{ variants: undefined }, '--full-only names variants of --variants; give --variants too'],
+    [
+      { variants: undefined, 'full-only': undefined, 'contract-overlay': 'a' },
+      '--contract-overlay names variants of --variants; give --variants too',
+    ],
+    [{ 'contract-overlay': '16,b' }, '--contract-overlay names b, which is not a variant'],
+    [
+      { variants: '16=v16,a=same-contract', 'contract-overlay': 'a' },
+      `variant a: same-contract does not change ${CONTRACT} against its first parent; leave it out of --contract-overlay`,
+    ],
+    [{ variants: '16=v16,a=no-skill' }, ownSkill('no-skill')],
+    [{ variants: '16=v16,a=other-root' }, ownSkill('other-root')],
+  ];
+  const options = variantOptions(fixture);
+  const state = treeState(root);
+  for (const [change, message] of refusals) {
+    assert.throws(() => prepare.prepareAgents({ ...options, ...change }, repo), { message });
+    // agents refuses before it extracts a plugin copy or writes a file of the project.
+    assert.deepEqual(treeState(root), state);
+  }
+  // The command line takes --contract-overlay.
+  const args = ['--baseline-ref', 'HEAD', '--model', MODEL, '--efforts', 'low', '--tiers', 'default'];
+  const cliArgs = [...args, '--baseline-dir', path.join(root, 'cli-baseline-plugin'), '--project', project];
+  const overlayOnly = [PREPARE_SCRIPT, 'agents', ...cliArgs, '--contract-overlay', 'a'];
+  const cli = spawnSync(process.execPath, overlayOnly, { encoding: 'utf8' });
+  assert.equal(cli.status, 1, cli.stderr);
+  assert.match(cli.stderr, /--contract-overlay names variants of --variants; give --variants too/);
+  assert.deepEqual(treeState(root), state);
+});
+
+test('case gives each run of an overlay variant a contract copy, its record, and a prompt that names the copy', (t) => {
+  const { repo, ws, options } = overlayFixture(t);
+  prepare.prepareCase(options('plan-3', 'P1,V16,Va', { runs: '2' }), repo);
+  prepare.prepareCase(options('plan-4', 'Pd,Va'), repo);
+  const runDir = (caseId, arm, run = 1) => path.join(ws, caseId, `${arm}-low`, `run-${run}`);
+  const prompt = (caseId, arm, run = 1) => promptFileParts(path.join(runDir(caseId, arm, run), 'prompts', 'plan.txt'));
+  // A run without a contract overlay gets no copy, and its prompt sends the reviewer to the snapshot root.
+  const p1 = prompt('plan-3', 'P1').body;
+  assert.ok(p1.split('\n').includes(SNAPSHOT_CONTRACT_RULE));
+  for (const arm of ['P1', 'V16']) {
+    for (const run of [1, 2]) {
+      assert.equal(fs.existsSync(path.join(runDir('plan-3', arm, run), 'plan-contract.md')), false);
+      assert.deepEqual(readJson(path.join(runDir('plan-3', arm, run), 'meta.json')), { config: CONFIGS.low });
+    }
+  }
+  assert.equal(prompt('plan-3', 'V16').body, p1);
+  // The contract change of cand-a applies to the contract of v16. Each run gets a copy of its own, and its prompt names
+  // that copy as the plan contract.
+  for (const run of [1, 2]) {
+    const copy = path.join(runDir('plan-3', 'Va', run), 'plan-contract.md');
+    assert.equal(readText(copy), '# Plan contract A\n');
+    const meta = readJson(path.join(runDir('plan-3', 'Va', run), 'meta.json'));
+    assert.deepEqual(meta, { config: CONFIGS.low, contractOverlay: 'applied' });
+    assert.deepEqual(prompt('plan-3', 'Va', run), {
+      agent: 'agent: review-bench-variant-a-plan-low',
+      body: p1.replace(SNAPSHOT_CONTRACT_RULE, copyContractRule(copy)),
+    });
+  }
+  // git apply changed the copy, not the snapshot.
+  assert.equal(readText(path.join(ws, 'plan-3', 'snapshot', CONTRACT)), '# Plan contract 0.16.0\n');
+  // The contract of the last commit does not hold the text that the change changes. The copy then holds the contract
+  // of the snapshot, and the delta-mode prompt of Pd names the copy.
+  const deltaCopy = path.join(runDir('plan-4', 'Va'), 'plan-contract.md');
+  assert.equal(readText(deltaCopy), '# Plan contract live\n');
+  assert.equal(readText(path.join(ws, 'plan-4', 'snapshot', CONTRACT)), '# Plan contract live\n');
+  const deltaMeta = readJson(path.join(runDir('plan-4', 'Va'), 'meta.json'));
+  assert.deepEqual(deltaMeta, { config: CONFIGS.low, contractOverlay: 'not applicable' });
+  const pd = prompt('plan-4', 'Pd').body;
+  assert.ok(pd.split('\n').includes('Round mode: delta.'));
+  assert.equal(prompt('plan-4', 'Va').body, pd.replace(SNAPSHOT_CONTRACT_RULE, copyContractRule(deltaCopy)));
+  // A snapshot without the plan contract gives the overlay no contract to change, so case stops and writes no folder.
+  const message = noContract(path.join(ws, 'plan-5', 'snapshot'));
+  assert.throws(() => prepare.prepareCase(options('plan-5', 'P1,Va'), repo), { message });
+  assert.equal(fs.existsSync(path.join(ws, 'plan-5')), false);
+});
+
+test('readScope allows the contract copy of its own run, also when the case changes the plan contract', () => {
+  const caseDir = `${SCOPE_WS}/plan-3`;
+  const runDir = `${caseDir}/Va-low/run-1`;
+  const pluginRoot = '/work/variant-a-plugin';
+  const scope = { runDir, cwd: LIVE, pluginRoots: [pluginRoot], changedFiles: [CONTRACT] };
+  const copy = `${runDir}/plan-contract.md`;
+  assert.deepEqual(score.readScope(reads(copy, `${copy}:1-40`), scope), { outside: [] });
+  const outside = [
+    // The copies of another run and of another arm, and paths that hold no copy.
+    `${caseDir}/Va-low/run-2/plan-contract.md`,
+    `${caseDir}/Vb-low/run-1/plan-contract.md`,
+    `${caseDir}/Va-low/plan-contract.md`,
+    `${caseDir}/plan-contract.md`,
+    // The case changes the plan contract, so the contract of the plugin root shows a later version.
+    `${pluginRoot}/skills/productivity/plan-manager/references/plan-contract.md`,
+  ];
+  assert.deepEqual(score.readScope(reads(...outside), scope), { outside });
+});
+
+test('case --extend adds arm folders to a case folder and keeps its snapshot and its other arm folders', (t) => {
+  const { root, repo, project, ws, cases, caseFiles, options } = overlayFixture(t);
+  const extend = (id, arms, more = {}) => prepare.prepareCase(options(id, arms, { extend: true, ...more }), repo);
+  const caseDir = path.join(ws, 'plan-3');
+  prepare.prepareCase(options('plan-3', 'P1'), repo);
+  const before = treeState(caseDir);
+  extend('plan-3', 'V16,Va');
+  const after = treeState(caseDir);
+  // Every file and folder stays as it was, and the new ones are the files of the two arm folders.
+  for (const [key, text] of Object.entries(before)) assert.equal(after[key], text, key);
+  const runFiles = ['', 'run-1/', 'run-1/blocks/', 'run-1/meta.json', 'run-1/prompts/', 'run-1/prompts/plan.txt'];
+  const expected = [
+    ...runFiles.map((file) => `V16-low/${file}`),
+    ...[...runFiles, 'run-1/plan-contract.md'].map((file) => `Va-low/${file}`),
+  ];
+  const added = Object.keys(after).filter((key) => !Object.hasOwn(before, key));
+  assert.deepEqual(added.sort(), expected.sort());
+  // The new arms get the prompts of a new case folder: V16 the prompt of P1, and Va that prompt with the rule of its
+  // contract copy.
+  const prompt = (arm) => promptFileParts(path.join(caseDir, `${arm}-low`, 'run-1', 'prompts', 'plan.txt'));
+  const p1 = prompt('P1').body;
+  assert.deepEqual(prompt('V16'), { agent: 'agent: review-bench-variant-16-plan-low', body: p1 });
+  const copy = path.join(caseDir, 'Va-low', 'run-1', 'plan-contract.md');
+  assert.equal(readText(copy), '# Plan contract A\n');
+  const meta = readJson(path.join(caseDir, 'Va-low', 'run-1', 'meta.json'));
+  assert.deepEqual(meta, { config: CONFIGS.low, contractOverlay: 'applied' });
+  assert.equal(prompt('Va').body, p1.replace(SNAPSHOT_CONTRACT_RULE, copyContractRule(copy)));
+
+  // Each refusal leaves the workspace as it was.
+  const refused = (call, message) => {
+    const state = treeState(ws);
+    assert.throws(call, { message });
+    assert.deepEqual(treeState(ws), state);
+  };
+  refused(() => extend('plan-3', 'P0,P1'), `${path.join(caseDir, 'P1-low')} exists; leave its arm out of --arms`);
+  const exists = `${caseDir} exists; remove it, choose another --out, or add arms with --extend`;
+  refused(() => prepare.prepareCase(options('plan-3', 'P0'), repo), exists);
+  const noFolder = `${path.join(ws, 'code-7')} holds no case folder to extend; run case without --extend`;
+  refused(() => extend('code-7', 'C1', { loop: true }), noFolder);
+  // The case folder of another version of the case file stays as it is.
+  const changed = path.join(cases, 'changed', 'plan-3.json');
+  put(cases, 'changed/plan-3.json', { ...caseFiles[0], round: 2 });
+  put(cases, 'changed/plan-3-plan.md', '# Plan 3\n');
+  const other = `${path.join(caseDir, 'case.json')} differs from ${changed}; build the changed case in another --out`;
+  refused(() => prepare.prepareCase({ ...options('plan-3', 'P0'), case: changed, extend: true }, repo), other);
+  // A failed --extend keeps the case folder. The snapshot of plan-5 has no plan contract.
+  prepare.prepareCase(options('plan-5', 'P1'), repo);
+  refused(() => extend('plan-5', 'V16,Va'), noContract(path.join(ws, 'plan-5', 'snapshot')));
+  // A failed --extend removes the arm folders that it wrote: a prompt path with the word judge stops case after it
+  // wrote the contract copy of Va at the configuration low.
+  const configsFile = '.omp/agents/review-bench-configs.json';
+  const list = readJson(path.join(project, configsFile));
+  put(project, configsFile, { ...list, configs: [...list.configs, { ...CONFIGS.low, name: 'judge' }] });
+  prepare.prepareCase(options('plan-4', 'Pd'), repo);
+  const judged = 'the Va plan prompt of case plan-4 contains "judge"; choose an --out path without it';
+  refused(() => extend('plan-4', 'Va', { configs: 'low,judge' }), judged);
+
+  // With --loop, the new arm gets round 1 of its own policy on the diff of the case.
+  prepare.prepareCase(options('code-7', 'C3', { loop: true }), repo);
+  extend('code-7', 'C1', { loop: true });
+  const roundMeta = (arm) => readJson(path.join(ws, 'code-7', `${arm}-low`, 'run-1', 'round-1', 'meta.json'));
+  const { fullLines } = roundMeta('C3');
+  assert.ok(fullLines > 0);
+  assert.deepEqual(roundMeta('C1'), { config: CONFIGS.low, fixerConfig: FIXER_SETTING, mode: 'full', fullLines });
+  assert.deepEqual(readJson(path.join(ws, 'code-7', 'C1-low', 'run-1', 'meta.json')), { policy: 'full-delta' });
+
+  // The command line takes --extend.
+  const cliOut = path.join(root, 'cli-ws');
+  const cliArgs = [PREPARE_SCRIPT, 'case', '--case', path.join(cases, 'dev', 'plan-3.json'), '--arms', 'P0'];
+  const cliRun = [...cliArgs, '--runs', '1', '--out', cliOut, '--configs', 'low', '--project', project, '--extend'];
+  const cli = spawnSync(process.execPath, cliRun, { encoding: 'utf8' });
+  assert.equal(cli.status, 1, cli.stderr);
+  assert.match(cli.stderr, new RegExp(escapeRegExp(`${path.join(cliOut, 'plan-3')} holds no case folder to extend`)));
+  assert.equal(fs.existsSync(cliOut), false);
+});
+
+test('case refuses a show_benchmark that is not true or false and writes nothing', (t) => {
+  const root = neutralScratch(t);
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  put(cases, 'dev/plan-5-plan.md', '# Plan 5\n');
+  const message = 'case plan-5: show_benchmark must be true or false';
+  for (const value of ['true', 1, null]) {
+    const caseData = { id: 'plan-5', kind: 'plan', split: 'dev', issue: 5, round: 1, plan: 'plan-5-plan.md' };
+    put(cases, 'dev/plan-5.json', { ...caseData, repo_ref: 'HEAD', known: [], show_benchmark: value });
+    const options = { case: path.join(cases, 'dev', 'plan-5.json'), arms: 'P1', runs: '1', out: ws };
+    const state = treeState(root);
+    assert.throws(() => prepare.prepareCase(options, root), { message });
+    assert.deepEqual(treeState(root), state);
+  }
+  assert.equal(fs.existsSync(ws), false);
+});
+
+test('report refuses an empty --reference and one without --arms or outside --arms, and writes nothing', (t) => {
+  const { ws, cases } = roundWorkspace(t, [
+    {
+      config: CONFIGS.low,
+      run: 1,
+      rounds: [
+        [FULL_BLOCK, 100, 1000, 'full'],
+        [PASS_ROUND, 40, 400, 'delta'],
+      ],
+    },
+    { config: CONFIGS['low-fast'], run: 1, rounds: [[PASS_ROUND.replace('round 2', 'round 1'), 50, 500, 'full']] },
+  ]);
+  findingsCommand(ws);
+  main(['pairs', ws, '--cases', cases]);
+  judgeAll(ws, (_, known) => (known === 'D1' ? 'match' : 'no'));
+  const arms = ['C1-low-fast', 'C1-low'];
+  reportCommand(ws, { arms });
+  const empty = 'report --reference needs the name of an arm folder of --arms';
+  const withoutArms = 'report takes --reference only with --arms';
+  const refusals = [
+    [{ arms, reference: '' }, empty],
+    [{ reference: 'C1-low' }, withoutArms],
+    [{ configs: ['low'], reference: 'C1-low' }, withoutArms],
+    [{ arms: ['C1-low-fast'], reference: 'C1-low' }, 'report --reference names C1-low, which is not in --arms'],
+  ];
+  const state = treeState(ws);
+  for (const [options, message] of refusals) {
+    assert.throws(() => reportCommand(ws, options), { message });
+    assert.deepEqual(treeState(ws), state);
+  }
+  // The command line gives `--reference ''` as an empty reference.
+  assert.throws(() => main(['report', ws, '--arms', arms.join(','), '--reference', '']), { message: empty });
+  assert.deepEqual(treeState(ws), state);
+});
+
+test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of code and code-delta cases', (t) => {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const project = path.join(root, 'project');
+  // As in the snapshot test above, a copy of the scripts runs in a repository with a benchmark skill folder.
+  const skill = '.agents/skills/review-benchmark';
+  const helper = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+  const live = path.join(import.meta.dirname, '../../..');
+  for (const file of [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`, helper]) {
+    put(repo, file, readText(path.join(live, file)));
+  }
+  put(repo, `${skill}/SKILL.md`, '# Review benchmark\n');
+  put(repo, `${skill}/cases/dev/code-1.json`, { id: 'code-1', kind: 'code', split: 'dev', known: [] });
+  put(repo, 'src/app.mjs', 'export const a = 1;\n');
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  const commit = (message) => {
+    gitIn(repo, 'add', '-A');
+    gitIn(repo, 'commit', '-q', '-m', message);
+    return gitIn(repo, 'rev-parse', 'HEAD').trim();
+  };
+  const base = commit('base');
+  // The head changes a file of each lens in the skill folder, two files of its cases folder, and a file outside it.
+  const changes = {
+    [`${skill}/SKILL.md`]: '# Review benchmark\n\nRun the cases.\n',
+    [`${skill}/scripts/extra.mjs`]: 'export const extra = 1;\n',
+    [`${skill}/tests/extra.test.mjs`]: 'test();\n',
+    [`${skill}/cases/dev/code-1.json`]: '{ "id": "code-1", "known": [{ "id": "D1" }] }\n',
+    [`${skill}/cases/heldout/code-2.key.json`]: '{ "known": [] }\n',
+    'src/app.mjs': 'export const a = 2;\n',
+  };
+  for (const [file, content] of Object.entries(changes)) put(repo, file, content);
+  const head = commit('head');
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low] });
+  put(cases, 'dev/code-11-review.md', FULL_BLOCK);
+  const codeCase = (id) => ({
+    id,
+    kind: 'code',
+    split: 'dev',
+    issue: 10,
+    round: 1,
+    plan: `${id}-plan.md`,
+    base,
+    head,
+    known: [],
+  });
+  const deltaCase = {
+    ...codeCase('code-11'),
+    kind: 'code-delta',
+    round: 2,
+    delta_base: base,
+    previous_review: 'code-11-review.md',
+    show_benchmark: true,
+  };
+  const script = path.join(repo, skill, 'scripts', 'prepare.mjs');
+  for (const [caseData, arm] of [
+    [{ ...codeCase('code-10'), show_benchmark: true }, 'C1'],
+    [deltaCase, 'Cd'],
+    [codeCase('code-12'), 'C1'],
+  ]) {
+    const caseFile = path.join(cases, 'dev', `${caseData.id}.json`);
+    put(cases, `dev/${caseData.id}.json`, caseData);
+    put(cases, `dev/${caseData.plan}`, '# Plan 10\n');
+    const args = ['--case', caseFile, '--arms', arm, '--runs', '1', '--out', ws];
+    const build = spawnSync(process.execPath, [script, 'case', ...args, '--project', project], { encoding: 'utf8' });
+    assert.equal(build.status, 0, build.stderr);
+  }
+  // The paths that a diff file of a case folder changes, in sorted order.
+  const diffPaths = (caseId, name) =>
+    readText(path.join(ws, caseId, name))
+      .split('\n')
+      .filter((line) => line.startsWith('+++ b/'))
+      .map((line) => line.slice('+++ b/'.length))
+      .sort();
+  const skillFiles = [`${skill}/SKILL.md`, `${skill}/scripts/extra.mjs`, `${skill}/tests/extra.test.mjs`];
+  // With show_benchmark, the full diff, each focus diff, and the delta diff hold the changes of the skill folder in
+  // their scope, and no file of its cases folder.
+  for (const caseId of ['code-10', 'code-11']) {
+    assert.deepEqual(diffPaths(caseId, 'full.diff'), [...skillFiles, 'src/app.mjs']);
+    assert.deepEqual(diffPaths(caseId, 'focus-correctness.diff'), [`${skill}/scripts/extra.mjs`, 'src/app.mjs']);
+    assert.deepEqual(diffPaths(caseId, 'focus-spec-and-tests.diff'), [`${skill}/tests/extra.test.mjs`]);
+    assert.deepEqual(diffPaths(caseId, 'focus-text-and-safety.diff'), [`${skill}/SKILL.md`]);
+  }
+  assert.deepEqual(diffPaths('code-11', 'delta.diff'), [...skillFiles, 'src/app.mjs']);
+  // Without the field, the diffs leave out the whole skill folder. A focus diff without a path in its scope is a copy
+  // of the full diff.
+  for (const name of ['full', 'focus-correctness', 'focus-spec-and-tests', 'focus-text-and-safety']) {
+    assert.deepEqual(diffPaths('code-12', `${name}.diff`), ['src/app.mjs']);
+  }
+});

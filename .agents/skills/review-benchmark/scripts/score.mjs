@@ -40,6 +40,9 @@ const TOKEN_FIELDS = ['input', 'cacheRead', 'cacheWrite', 'output'];
 // `*.diff` files.
 const INPUT_FOLDERS = ['snapshot', 'prompts'];
 const INPUT_FILES = new Set(['plan.md', 'previous-review.md', 'rejection.md']);
+// The copy of the plan contract in the run folder of a variant with a contract overlay (`prepare.mjs case`). The prompt
+// of the run names it as the plan contract, so it is an input of that run and of no other run.
+export const CONTRACT_COPY = 'plan-contract.md';
 // The own skill folder of a reviewer of a plugin root has one of these names.
 const REVIEWER_SKILLS = new Set(['code-reviewer', 'plan-reviewer']);
 // A reviewer may read these skills through a `skill://` URI or in an installed plugin cache copy. Both resolve to the
@@ -1716,10 +1719,11 @@ function isUnder(folder, target) {
   return relative === '' || !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
 }
 
-// The input folders of a run, the folders that a reviewer may read with every path below them, the plugin roots, the
-// agent files of the reviewer, and the keys of the files that the case changes (see changedPathKeys). An input folder
-// is the case folder, and the run folder or each round folder up to `round`. The tree copies are those of the rounds
-// up to `round`. A reviewer with an agent file of its own is the self-review agent.
+// The input folders of a run, the folders that a reviewer may read with every path below them, the copy of the plan
+// contract of the run, the plugin roots, the agent files of the reviewer, and the keys of the files that the case
+// changes (see changedPathKeys). An input folder is the case folder, and the run folder or each round folder up to
+// `round`. The tree copies are those of the rounds up to `round`. A reviewer with an agent file of its own is the
+// self-review agent.
 function scopeRules(runDir, round, pluginRoots, agentFiles, changedFiles) {
   const armDir = path.dirname(runDir);
   const caseDir = path.dirname(armDir);
@@ -1733,6 +1737,7 @@ function scopeRules(runDir, round, pluginRoots, agentFiles, changedFiles) {
   return {
     inputDirs,
     folders: [...inputDirs.flatMap((dir) => INPUT_FOLDERS.map((name) => path.join(dir, name))), ...trees],
+    contractCopy: path.join(runDir, CONTRACT_COPY),
     pluginRoots,
     agentFiles: agentFiles.map((file) => path.resolve(file)),
     selfReview: agentFiles.length > 0,
@@ -1752,12 +1757,13 @@ function folderAllowed(target, { folders, pluginRoots }) {
   });
 }
 
-// An input file of an input folder, a reviewer agent file of a plugin root, or an agent file of the reviewer.
-function fileAllowed(target, { inputDirs, pluginRoots, agentFiles }) {
+// An input file of an input folder, the copy of the plan contract of the run, a reviewer agent file of a plugin root,
+// or an agent file of the reviewer.
+function fileAllowed(target, { inputDirs, contractCopy, pluginRoots, agentFiles }) {
   const dir = path.dirname(target);
   const name = path.basename(target);
   if (inputDirs.includes(dir) && (INPUT_FILES.has(name) || name.endsWith('.diff'))) return true;
-  if (agentFiles.includes(target)) return true;
+  if (target === contractCopy || agentFiles.includes(target)) return true;
   return name.endsWith('-reviewer.md') && pluginRoots.some((root) => path.join(root, 'agents') === dir);
 }
 
@@ -2012,6 +2018,9 @@ function readLists(text, source, cwd) {
 // is:
 // - under an input of the run: `snapshot/`, `prompts/`, a `*.diff` file, `plan.md`, `previous-review.md`, or
 //   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
+// - the copy `plan-contract.md` of the plan contract in the run folder, which the prompt of a run of a variant with a
+//   contract overlay names as its plan contract. It is an input of the run, so the case-change rule does not apply to
+//   it;
 // - under the tree copy of the judge for a round of the run up to `round`;
 // - an instruction file of the reviewer: `<root>/agents/<name>-reviewer.md`, a path under the code-reviewer or
 //   plan-reviewer skill folder of a plugin root, or a file of `agentFiles`. For the self-review agent (a reviewer with
@@ -2250,8 +2259,11 @@ function readMetas(ws, blocks) {
 // `configs` or `arms` sets the columns of the comparison tables, `reference` (with `arms` only) sets the column that
 // the intervals compare with, and `lead` with `leadRef` adds the self-review lead (see renderReport).
 export function reportCommand(ws, { keys, configs, arms, reference, lead, leadRef } = {}) {
-  if (reference && !arms) fail('report takes --reference only with --arms');
-  if (reference && !arms.includes(reference)) fail(`report --reference names ${reference}, which is not in --arms`);
+  if (reference !== undefined) {
+    if (!reference) fail('report --reference needs the name of an arm folder of --arms');
+    if (!arms) fail('report takes --reference only with --arms');
+    if (!arms.includes(reference)) fail(`report --reference names ${reference}, which is not in --arms`);
+  }
   const findings = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');
   const judgments = loadJudgments(ws);
