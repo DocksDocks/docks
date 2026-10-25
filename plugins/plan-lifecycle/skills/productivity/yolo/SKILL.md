@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-25"
-  content_hash: "2f5e5fc2fbeff7b1722f949e8ba344d37f7b181238c90dfdb660c095eacf46f4"
+  content_hash: "013a522abb02469a96b56c309bb4f8967e097599acb9c523da753fcfad2b81de"
 ---
 
 # Yolo
@@ -256,10 +256,11 @@ full candidate diff and its lens scope from the `code-reviewer` skill, and
 apply `code-clarity` in each. Post their findings as one issue comment whose
 first line is `Self-review`, with one section per lens; write `No findings.`
 for a lens that finds nothing. The helper does not read that comment as a
-review, so it adds no round. In the plugin's benchmark, one self-review per
-lens found more known defects than one self-review (0.67 against 0.50 per
-run) in about the same time, but also more wrong findings. Reproduce each one
-before you fix it, and reject a wrong one with evidence.
+review, so it does not count as a round of the ceiling. In the plugin's
+benchmark, one self-review per lens found more known defects than one
+self-review (0.67 against 0.50 per run) in about the same time, but also more
+wrong findings. Reproduce each one before you fix it, and reject a wrong one
+with evidence.
 
 After round 1 returns, fix the self-review findings together with the findings
 of round 1. Use `fix-workflow`, and commit the fixes.

@@ -179,7 +179,17 @@ Reviewers never fetch the issue. Save each posted round comment as
 A plan re-review after a repair may use the plan `delta` mode when the
 `plan-reviewer` skill offers it in its `references/delta.md`. Give that round
 the inputs that the file names. Otherwise each plan round reviews the whole
-export.
+export. A full plan-review round runs at the configured effort. A plan `delta`
+round runs one level lower where the runtime has a per-dispatch effort. In omp
+with the setting `task.enableEffort` on, dispatch it with `effort: med`; omp
+maps `med` one level below the model's top level, for example `high` instead of
+`xhigh` for `openai-codex/gpt-6.1-sol`. In Claude Code v2.1.292 or later, pass
+the invocation `effort` one level below the effort of round 1, for example
+`high` after `xhigh`. Where the runtime has no per-dispatch effort, or the
+environment variable `CLAUDE_CODE_EFFORT_LEVEL` overrides it, the delta round
+keeps the agent's effort. Code-review rounds keep the configured effort. In
+the plugin's benchmark, the one plan-delta case gave the same known defects at
+both efforts in less than half the time.
 
 A plan pass covers the body that the reviewer read. After `plan=pass`, collect
 the edits that change Goal, Research, Steps, Acceptance, or Do not touch.
@@ -671,8 +681,10 @@ reproduce the finding; when something does reach the fault, fix it and review
 again. Do not change reviewed bytes for the unreached findings. Before you
 write the run summary, list them in one follow-up issue that links the plan
 issue (`gh issue create --repo <owner/repo>`), and list them under Open
-findings in the run summary. On the recorded review loops of the plugin's
-benchmark, this rule removed 3 of 73 rounds, and no known defect escaped.
+findings in the run summary. A replay on the plugin's benchmark that applied
+this rule to every LOW finding, not only to unreached ones, removed at most 3
+of 73 rounds in one arm and 0 to 2 rounds in the others, and no known defect
+escaped.
 
 A phase stalls when round 10 ends without a pass, when the same finding returns
 after two different repairs, or when dispatch fails twice without a relevant
