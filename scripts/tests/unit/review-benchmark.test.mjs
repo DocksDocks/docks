@@ -3814,12 +3814,13 @@ function frontmatter(file) {
 }
 
 // Runs `agents` for the efforts low and high and the tiers priority and default on a git repository whose head holds
-// the reviewer agents that `agents` copies. It returns the project folder and its omp agent folder.
-function selfReviewAgents(t) {
+// the reviewer agents that `agents` copies. The project folder is `projectFolder` in the scratch folder. It returns the
+// project folder and its omp agent folder.
+function selfReviewAgents(t, projectFolder = 'project') {
   isolateGit(t);
   const root = neutralScratch(t);
   const repo = path.join(root, 'repo');
-  const project = path.join(root, 'project');
+  const project = path.join(root, projectFolder);
   fs.mkdirSync(repo);
   fs.mkdirSync(project);
   gitIn(repo, 'init', '-q', '-b', 'main');
@@ -3958,45 +3959,48 @@ test('case --arms S1,S3 writes one self-review prompt on the full diff and one p
   );
 });
 
-test('transcripts lets a self-review agent read its own agent file and no other agent file', (t) => {
-  const { root, agentDir } = selfReviewAgents(t);
-  const ws = path.join(root, 'ws');
-  const sessions = path.join(root, 'sessions');
-  const caseDir = path.join(ws, 'code-7');
-  const run = path.join(caseDir, 'S1-low', 'run-1');
-  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
-  put(caseDir, 'full.diff', '');
-  put(run, 'prompts/self-review.txt', 'agent: review-bench-selfreview-low\n\nReview.\n');
-  put(run, 'meta.json', { config: CONFIGS.low });
-  const own = path.join(agentDir, 'review-bench-selfreview-low.md');
-  const other = path.join(agentDir, 'review-bench-selfreview-high.md');
-  const reviewer = path.join(agentDir, 'review-bench-candidate-code-low.md');
-  const calls = [
-    ['read', { path: own }],
-    ['read', { path: `${own}:1-40` }],
-    ['read', { path: 'skill://code-review' }],
-    ['read', { path: 'skill://code-clarity/references/naming.md' }],
-    ['read', { path: path.join(run, 'prompts', 'self-review.txt') }],
-    ['read', { path: other }],
-    ['read', { path: reviewer }],
-  ];
-  // The system prompt of the transcript holds the text of the self-review agent.
-  const transcript = toolTranscript(caseDir, 30, calls, 'review-bench-selfreview-low')
-    .split('\n')
-    .map((line) => {
-      const entry = JSON.parse(line);
-      if (entry.type === 'session_init') entry.systemPrompt = ['You are a coding assistant.', readText(own)];
-      return JSON.stringify(entry);
-    })
-    .join('\n');
-  put(sessions, 'Code7S1LowR1SelfReview.jsonl', transcript);
-  assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7S1LowR1SelfReview']);
-  assert.deepEqual(readJson(path.join(run, 'meta.json')).reviewers['self-review'].readScope, {
-    outside: [other, reviewer],
+// The agent text names the agent file in backticks, so the path of the project folder can have a space.
+for (const folder of ['project', 'review project']) {
+  test(`transcripts lets a self-review agent in "${folder}" read its own agent file and no other agent file`, (t) => {
+    const { root, agentDir } = selfReviewAgents(t, folder);
+    const ws = path.join(root, 'ws');
+    const sessions = path.join(root, 'sessions');
+    const caseDir = path.join(ws, 'code-7');
+    const run = path.join(caseDir, 'S1-low', 'run-1');
+    put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+    put(caseDir, 'full.diff', '');
+    put(run, 'prompts/self-review.txt', 'agent: review-bench-selfreview-low\n\nReview.\n');
+    put(run, 'meta.json', { config: CONFIGS.low });
+    const own = path.join(agentDir, 'review-bench-selfreview-low.md');
+    const other = path.join(agentDir, 'review-bench-selfreview-high.md');
+    const reviewer = path.join(agentDir, 'review-bench-candidate-code-low.md');
+    const calls = [
+      ['read', { path: own }],
+      ['read', { path: `${own}:1-40` }],
+      ['read', { path: 'skill://code-review' }],
+      ['read', { path: 'skill://code-clarity/references/naming.md' }],
+      ['read', { path: path.join(run, 'prompts', 'self-review.txt') }],
+      ['read', { path: other }],
+      ['read', { path: reviewer }],
+    ];
+    // The system prompt of the transcript holds the text of the self-review agent.
+    const transcript = toolTranscript(caseDir, 30, calls, 'review-bench-selfreview-low')
+      .split('\n')
+      .map((line) => {
+        const entry = JSON.parse(line);
+        if (entry.type === 'session_init') entry.systemPrompt = ['You are a coding assistant.', readText(own)];
+        return JSON.stringify(entry);
+      })
+      .join('\n');
+    put(sessions, 'Code7S1LowR1SelfReview.jsonl', transcript);
+    assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7S1LowR1SelfReview']);
+    assert.deepEqual(readJson(path.join(run, 'meta.json')).reviewers['self-review'].readScope, {
+      outside: [other, reviewer],
+    });
+    // Without the agent file in the scope, the read of the own agent file is outside.
+    assert.deepEqual(score.readScope(reads(own), { runDir: run, cwd: LIVE }), { outside: [own] });
   });
-  // Without the agent file in the scope, the read of the own agent file is outside.
-  assert.deepEqual(score.readScope(reads(own), { runDir: run, cwd: LIVE }), { outside: [own] });
-});
+}
 
 // Changed export:
 // - readScope puts these reads outside for every reviewer: a `skill://code-reviewer` or `skill://plan-reviewer` URI,
@@ -5178,7 +5182,9 @@ test('findings removes the judge answers of each finding whose text changed or t
 //   same mode (P0 or P1 for `full`, Pd for `delta`); only the agent line differs.
 // - The case field `show_benchmark: true` puts the benchmark skill folder without its `cases/` folder in the snapshot.
 //   Without the field, the snapshot leaves out the whole folder, as before. The scripts hide the skill folder of their
-//   own repository, so the test of this field runs a copy of prepare.mjs, score.mjs, and the plan helper.
+//   own repository, so the test of this field runs a copy of prepare.mjs, score.mjs, and the plan helper. In a review
+//   loop, the fixer snapshot, the snapshot and the diffs of a later round, and the tree copy of the judge follow the
+//   same rule.
 // score.mjs:
 // - reportCommand takes the option `reference`, and `report` takes `--reference <folder>`. The shared-cases row and
 //   the interval rows then compare each column with that folder, and the report says `The reference column is
@@ -5634,15 +5640,21 @@ test('a case with show_benchmark gets the benchmark skill folder without its cas
 //   that does not name its own reviewer skill.
 // - prepareCase writes, for each run of a variant arm with `contractDiff`, `run-<k>/plan-contract.md`: the contract of
 //   the snapshot with the diff applied by `git apply`. The meta.json of the run gets `contractOverlay`: `applied`, or
-//   `not applicable` when the diff does not apply (the copy then holds the contract of the snapshot). The prompt of the
-//   run tells the reviewer to read the plan contract at the copy and every other repository file under the snapshot
-//   root. A snapshot without the contract stops the command.
+//   `not applicable` when the diff does not apply and the contract of the snapshot holds no line that the diff removes,
+//   blank lines aside (the copy then holds the contract of the snapshot). When the diff does not apply to a contract
+//   that holds a removed line, case stops with `the contract change does not apply to <snapshot contract> for the run
+//   <run folder>: <message of git>` and writes nothing for the case. The prompt of the run tells the reviewer to read
+//   the plan contract at the copy and every other repository file under the snapshot root. A snapshot without the
+//   contract stops the command.
 // - prepareCase takes `extend` (`--extend`): the case folder exists and holds the same case.json, and case adds the
 //   arm folders and keeps every other file. It refuses an arm folder that exists, a missing case folder, and a case
 //   folder of another case file. A failed call removes only the arm folders that it wrote.
 // score.mjs:
 // - readScope allows `<run folder>/plan-contract.md` of its own run, also when the case changes the plan contract.
 // - reportCommand refuses an empty `reference`.
+// - reviewerPluginRoots, and the agent files that transcripts finds in a system prompt, take an instruction path in
+//   backticks or quotes up to the closing quote, so the path can hold spaces. A bare path ends at the first space. So
+//   `agents --variants` takes an --out folder whose parent has a space in its path.
 
 const CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
 // The prompt rule that sends the reviewer to the snapshot root for the plan contract, and the rule of a run with a
@@ -5809,6 +5821,38 @@ test('agents refuses colliding plugin copies, bad variant options, and unusable 
   assert.deepEqual(treeState(root), state);
 });
 
+test('agents --variants takes an --out folder whose parent has a space and keeps the same-root check', (t) => {
+  const fixture = variantRepo(t);
+  const { root, repo, agentDir } = fixture;
+  const skill = 'skills/productivity/plan-reviewer/SKILL.md';
+  // Without --baseline-dir, the plugin copies go to the parent of --out, whose path has a space.
+  const parent = path.join(root, 'review runs');
+  const options = { ...variantOptions(fixture), 'baseline-dir': undefined, out: path.join(parent, 'heldout') };
+  prepare.prepareAgents(options, repo);
+  assert.ok(fs.existsSync(path.join(parent, 'baseline-plugin', skill)));
+  for (const name of Object.keys(VARIANT_REFS)) {
+    const pluginRoot = path.join(parent, `variant-${name}-plugin`);
+    assert.ok(fs.existsSync(path.join(pluginRoot, skill)));
+    for (const config of ['low', 'xhigh']) {
+      const text = readText(path.join(agentDir, `review-bench-variant-${name}-plan-${config}.md`));
+      assert.ok(text.includes(`\`${pluginRoot}/${skill}\``));
+      // The read scope takes the plugin root with its space from the path in backticks.
+      assert.deepEqual(score.reviewerPluginRoots(text), [pluginRoot]);
+    }
+  }
+  // A path in quotes can hold a space too. A bare path ends at the first space, so it names no root here.
+  const text = [`Load "/opt/q r/${skill}" and '/opt/s/${skill}',`, `then /opt/t/${skill}, not /opt/u v/${skill}.`];
+  assert.deepEqual(score.reviewerPluginRoots(text.join('\n')), ['/opt/q r', '/opt/s', '/opt/t']);
+  // An agent that also names the reviewer skill of another plugin root, whose path has a space, stays refused.
+  const agentFile = 'plugins/plan-lifecycle/agents/plan-reviewer.md';
+  put(repo, agentFile, `${variantAgentText('other')}Also load \`/opt/review x/${skill}\`.\n`);
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'other root');
+  gitIn(repo, 'tag', 'other-space');
+  const message = `variant a: ${agentFile} at other-space must name its reviewer skill as \${CLAUDE_PLUGIN_ROOT}/skills/<folder>/plan-reviewer/SKILL.md and name no other plugin root`;
+  assert.throws(() => prepare.prepareAgents({ ...options, variants: '16=v16,a=other-space' }, repo), { message });
+});
+
 test('case gives each run of an overlay variant a contract copy, its record, and a prompt that names the copy', (t) => {
   const { repo, ws, options } = overlayFixture(t);
   prepare.prepareCase(options('plan-3', 'P1,V16,Va', { runs: '2' }), repo);
@@ -5853,6 +5897,77 @@ test('case gives each run of an overlay variant a contract copy, its record, and
   const message = noContract(path.join(ws, 'plan-5', 'snapshot'));
   assert.throws(() => prepare.prepareCase(options('plan-5', 'P1,Va'), repo), { message });
   assert.equal(fs.existsSync(path.join(ws, 'plan-5')), false);
+});
+
+test('case records not applicable only without the removed text and else stops with the git message', (t) => {
+  const fixture = variantRepo(t);
+  const { root, repo, project } = fixture;
+  const contract = (...rules) => `# Plan contract\n\n${rules.join('\n\n')}\n`;
+  const commitContract = (tag, text) => {
+    put(repo, CONTRACT, text);
+    gitIn(repo, 'add', '-A');
+    gitIn(repo, 'commit', '-q', '-m', tag);
+    gitIn(repo, 'tag', tag);
+    return gitIn(repo, 'rev-parse', 'HEAD').trim();
+  };
+  // The contract change of cand-b removes the line `Rule 2.` and a blank line. The contract of `rewritten` does not
+  // hold that line, and the contract of `moved` holds it with other context lines. The change applies to neither.
+  commitContract('rules', contract('Rule 1.', 'Rule 2.', 'Rule 3.'));
+  commitContract('cand-b', contract('Rule 1.', 'Rule 3.'));
+  const rewritten = contract('Rule 1.', 'Rule 2 changed.', 'Rule 3.');
+  const shas = {
+    rewritten: commitContract('rewritten', rewritten),
+    moved: commitContract('moved', contract('Rule 2.', 'Rule 1.', 'Rule 3.')),
+  };
+  const change = gitIn(repo, 'diff', '--no-color', 'cand-b^1', 'cand-b', '--', CONTRACT);
+  const removed = change.split('\n').filter((line) => line.startsWith('-') && !line.startsWith('---'));
+  assert.deepEqual(removed.sort(), ['-', '-Rule 2.']);
+  const agentOptions = { ...variantOptions(fixture), variants: '16=v16,b=cand-b', 'contract-overlay': 'b' };
+  prepare.prepareAgents(agentOptions, repo);
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  for (const [id, ref] of [
+    ['plan-6', shas.rewritten],
+    ['plan-7', shas.moved],
+  ]) {
+    const caseData = { id, kind: 'plan', split: 'dev', issue: 6, round: 1, plan: `${id}-plan.md`, repo_ref: ref };
+    put(cases, `dev/${id}.json`, { ...caseData, known: [] });
+    put(cases, `dev/${id}-plan.md`, '# Plan 6\n');
+  }
+  const options = (id, arms, more = {}) => ({
+    case: path.join(cases, 'dev', `${id}.json`),
+    arms,
+    runs: '1',
+    out: ws,
+    configs: 'low',
+    project,
+    ...more,
+  });
+  const runDir = (id) => path.join(ws, id, 'Vb-low', 'run-1');
+
+  // The text that the change removes is absent, so the run records `not applicable` and its copy holds the contract of
+  // the snapshot. The blank line that the change removes does not count as text.
+  prepare.prepareCase(options('plan-6', 'P1,Vb'), repo);
+  assert.equal(readText(path.join(runDir('plan-6'), 'plan-contract.md')), rewritten);
+  const meta = readJson(path.join(runDir('plan-6'), 'meta.json'));
+  assert.deepEqual(meta, { config: CONFIGS.low, contractOverlay: 'not applicable' });
+
+  // The contract holds `Rule 2.`, so the failure of git apply is not an absent text: case stops with the message of
+  // git, which names the copy, and the run folder, and writes nothing for the case.
+  const snapshotContract = path.join(ws, 'plan-7', 'snapshot', CONTRACT);
+  const prefix = `the contract change does not apply to ${snapshotContract} for the run ${runDir('plan-7')}: `;
+  const stops = (error) => {
+    assert.ok(error.message.startsWith(prefix), error.message);
+    assert.match(error.message.slice(prefix.length), /plan-contract\.md/);
+    return true;
+  };
+  assert.throws(() => prepare.prepareCase(options('plan-7', 'P1,Vb'), repo), stops);
+  assert.equal(fs.existsSync(path.join(ws, 'plan-7')), false);
+  // With --extend, case keeps the case folder and the arm folders that exist, and removes the arm folder of Vb.
+  prepare.prepareCase(options('plan-7', 'P1'), repo);
+  const state = treeState(ws);
+  assert.throws(() => prepare.prepareCase(options('plan-7', 'Vb', { extend: true }), repo), stops);
+  assert.deepEqual(treeState(ws), state);
 });
 
 test('readScope allows the contract copy of its own run, also when the case changes the plan contract', () => {
@@ -6002,7 +6117,7 @@ test('report refuses an empty --reference and one without --arms or outside --ar
   assert.deepEqual(treeState(ws), state);
 });
 
-test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of code and code-delta cases', (t) => {
+test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of code cases and their loops', (t) => {
   isolateGit(t);
   const root = neutralScratch(t);
   const repo = path.join(root, 'repo');
@@ -6037,7 +6152,7 @@ test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of 
   };
   for (const [file, content] of Object.entries(changes)) put(repo, file, content);
   const head = commit('head');
-  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low] });
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low], fixer: FIXER_SETTING });
   put(cases, 'dev/code-11-review.md', FULL_BLOCK);
   const codeCase = (id) => ({
     id,
@@ -6071,13 +6186,14 @@ test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of 
     const build = spawnSync(process.execPath, [script, 'case', ...args, '--project', project], { encoding: 'utf8' });
     assert.equal(build.status, 0, build.stderr);
   }
-  // The paths that a diff file of a case folder changes, in sorted order.
-  const diffPaths = (caseId, name) =>
-    readText(path.join(ws, caseId, name))
+  // The paths that a diff file changes, in sorted order.
+  const diffFilePaths = (file) =>
+    readText(file)
       .split('\n')
       .filter((line) => line.startsWith('+++ b/'))
       .map((line) => line.slice('+++ b/'.length))
       .sort();
+  const diffPaths = (caseId, name) => diffFilePaths(path.join(ws, caseId, name));
   const skillFiles = [`${skill}/SKILL.md`, `${skill}/scripts/extra.mjs`, `${skill}/tests/extra.test.mjs`];
   // With show_benchmark, the full diff, each focus diff, and the delta diff hold the changes of the skill folder in
   // their scope, and no file of its cases folder.
@@ -6093,4 +6209,63 @@ test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of 
   for (const name of ['full', 'focus-correctness', 'focus-spec-and-tests', 'focus-text-and-safety']) {
     assert.deepEqual(diffPaths('code-12', `${name}.diff`), ['src/app.mjs']);
   }
+
+  // A review loop on a case with show_benchmark: `case --loop`, one repair of the fixer, and round 2. The fixer
+  // snapshot, the snapshot and the diffs of round 2, and the tree copy of round 2 for the judge show the skill folder
+  // without its cases folder. The loop gets a workspace of its own.
+  const loopWs = path.join(root, 'loop-ws');
+  const loopCase = { ...codeCase('code-13'), show_benchmark: true };
+  put(cases, 'dev/code-13.json', loopCase);
+  put(cases, 'dev/code-13-plan.md', '# Plan 10\n');
+  const runScript = (...args) => spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' });
+  const caseArgs = ['--case', path.join(cases, 'dev', 'code-13.json'), '--arms', 'C3', '--runs', '1'];
+  const loopBuild = runScript('case', ...caseArgs, '--out', loopWs, '--loop', '--project', project);
+  assert.equal(loopBuild.status, 0, loopBuild.stderr);
+  const run = path.join(loopWs, 'code-13', 'C3-low', 'run-1');
+  // The diff of the case has 6 lines, so round 1 is a full round. Its one finding is a valid extra for the fixer.
+  const extra = `${skill}/scripts/extra.mjs`;
+  const finding = `- [MEDIUM] Bug - ${extra}:1 - extra is 1 - set it to 2.`;
+  put(run, 'round-1/blocks/full.md', FULL_BLOCK.replace(/- \[HIGH\].*/, finding));
+  findingsCommand(loopWs);
+  judgeLoop(loopWs, [['code-13/C3-low/run-1/round-1/full#1', 'valid']]);
+  const loop = () => runScript('loop', '--run', run, '--cases', cases);
+  const stopped = loop();
+  assert.equal(stopped.status, 1, stopped.stderr);
+  assert.match(stopped.stderr, /round-1 has 1 valid extra findings for the fixer: /);
+  // The files of a tree copy, in sorted order.
+  const treeFiles = (dir) =>
+    filesUnder(dir)
+      .map((file) => path.relative(dir, file).split(path.sep).join('/'))
+      .sort();
+  const scripts = [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`];
+  const headFiles = [...skillFiles, ...scripts, helper, 'src/app.mjs'].sort();
+  const fixerDir = path.join(run, 'round-1', 'fixer');
+  assert.deepEqual(treeFiles(path.join(fixerDir, 'snapshot')), headFiles);
+  // The fixer repairs extra.mjs and adds a file of 60 lines, so round 2 is a panel round. The patch also adds a file
+  // to the cases folder, which no diff of round 2 shows.
+  const added = `${skill}/scripts/fix.mjs`;
+  const repairs = {
+    [extra]: 'export const extra = 2;\n',
+    [added]: Array.from({ length: 60 }, (_, index) => `export const f${index} = ${index};\n`).join(''),
+    [`${skill}/cases/dev/code-3.json`]: '{ "id": "code-3" }\n',
+  };
+  for (const [file, content] of Object.entries(repairs)) put(repo, file, content);
+  gitIn(repo, 'add', '-A');
+  const fixerPatch = gitIn(repo, 'diff', '--cached', '--no-color', '--src-prefix=a/', '--dst-prefix=b/');
+  gitIn(repo, 'reset', '-q', '--hard', 'HEAD');
+  fs.writeFileSync(path.join(fixerDir, 'fixer-1.patch'), fixerPatch);
+  const next = loop();
+  assert.equal(next.status, 0, next.stderr);
+  const round2 = path.join(run, 'round-2');
+  assert.equal(readJson(path.join(round2, 'meta.json')).mode, 'panel');
+  const round2Files = [...headFiles, added].sort();
+  assert.deepEqual(treeFiles(path.join(round2, 'snapshot')), round2Files);
+  const judgeTree = path.join(loopWs, score.JUDGE_TREES, score.runLabel('code-13', 'C3-low', 'run-1/round-2'));
+  assert.deepEqual(treeFiles(judgeTree), round2Files);
+  const round2Diff = (name) => diffFilePaths(path.join(round2, name));
+  assert.deepEqual(round2Diff('full.diff'), [...skillFiles, added, 'src/app.mjs'].sort());
+  assert.deepEqual(round2Diff('focus-correctness.diff'), [extra, added, 'src/app.mjs'].sort());
+  assert.deepEqual(round2Diff('focus-spec-and-tests.diff'), [`${skill}/tests/extra.test.mjs`]);
+  assert.deepEqual(round2Diff('focus-text-and-safety.diff'), [`${skill}/SKILL.md`]);
+  assert.deepEqual(round2Diff('delta.diff'), [extra, added].sort());
 });

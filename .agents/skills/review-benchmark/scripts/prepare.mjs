@@ -807,10 +807,21 @@ function buildCaseWorkspace({ repo, caseData, commits, hidden, casePath, sources
   return reviewed;
 }
 
+// The lines that a one-file diff removes, without the blank lines: the text that the diff changes.
+function removedText(diffText) {
+  return diffText
+    .slice(diffText.indexOf('\n@@') + 1)
+    .split('\n')
+    .filter((line) => line.startsWith('-') && line.slice(1).trim() !== '')
+    .map((line) => line.slice(1));
+}
+
 // Writes `copy`, the plan contract of the snapshot with the contract change `diff` of a variant of `agents
 // --contract-overlay`, and tells whether the change applied. `git apply` patches the copy, so the snapshot stays the
-// same. When the change does not apply, because the contract of the snapshot does not hold the text that the change
-// changes, the copy keeps the contract of the snapshot, and the result is 'not applicable'.
+// same. When the change does not apply because the contract of the snapshot holds no line that the change removes
+// (blank lines aside), the copy keeps the contract of the snapshot, and the result is 'not applicable'. Every other
+// failure of `git apply`, for example a removed line with other context lines, stops the command with the message of
+// git and the run folder of the copy.
 function writeContractCopy(snapshot, diff, copy) {
   const contract = path.join(snapshot, CONTRACT_PATH);
   if (!fs.existsSync(contract)) {
@@ -822,8 +833,13 @@ function writeContractCopy(snapshot, diff, copy) {
   // Outside a repository, git apply patches the files under its working folder. The ceiling stops git from taking a
   // repository above the run folder, for example when the workspace is in a checkout.
   const env = { GIT_CEILING_DIRECTORIES: path.dirname(dir) };
-  const applied = runGit(dir, ['apply', '-'], { env, input: relabelDiff(diff, path.basename(copy)) });
-  return applied.status === 0 ? 'applied' : 'not applicable';
+  const patch = relabelDiff(diff, path.basename(copy));
+  const applied = runGit(dir, ['apply', '-'], { env, input: patch });
+  if (applied.status === 0) return 'applied';
+  const lines = new Set(fs.readFileSync(contract, 'utf8').split('\n'));
+  const removed = removedText(patch);
+  if (removed.length && !removed.some((line) => lines.has(line))) return 'not applicable';
+  fail(`the contract change does not apply to ${contract} for the run ${dir}: ${applied.stderr.toString().trim()}`);
 }
 
 // `case --extend` adds arm folders to the case folder that the same case file gave, so the snapshot and the diffs of

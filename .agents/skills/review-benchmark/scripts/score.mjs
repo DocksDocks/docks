@@ -105,23 +105,36 @@ const REPOSITORY_HOSTS = new Set(['github.com', 'www.github.com', 'raw.githubuse
 const BENCHMARK_REPOSITORY = { owner: 'docksdocks', names: new Set(['docks', 'docks.git']) };
 // An invalid-run reason names this many outside targets, then the count of the others.
 const LISTED_READS = 3;
-// An absolute path `<plugin root>/skills/[<folder>/]code-reviewer/SKILL.md` (or plan-reviewer) in an agent text.
-const REVIEWER_SKILL = /(?<=^|[\s`'"(<])(\/[^\s`'"]*?)\/skills\/(?:[^\s`'"/]+\/)?(?:code|plan)-reviewer\/SKILL\.md/g;
-// The name of the self-review agent of a configuration starts with this prefix (see prepare.mjs selfReviewAgent).
-export const SELF_REVIEW_AGENT_PREFIX = 'review-bench-selfreview-';
-// An absolute path `<project>/.omp/agents/<self-review agent>.md` (or `.claude/agents/`) in an agent text. The
-// self-review agent has no plugin root, so its text names its own agent file.
-const SELF_REVIEW_AGENT_FILE = new RegExp(
-  String.raw`(?<=^|[\s\x60'"(<])/[^\s\x60'"]*/\.(?:omp|claude)/agents/` +
-    String.raw`${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md(?=$|[\s\x60'")>])`,
+// The instruction paths of an agent text are absolute paths. A path in backticks or quotes ends at the closing quote
+// and can hold spaces, for example in a plugin root under a folder with a space. A bare path ends at the first space or
+// quote. In the two patterns below, group 2 holds the path in quotes and group 3 the bare path.
+//
+// The path `<plugin root>/skills/[<folder>/]code-reviewer/SKILL.md` (or plan-reviewer). The groups hold the plugin
+// root.
+const REVIEWER_SKILL_TAIL = String.raw`\/skills\/(?:[^\s\x60'"/]+\/)?(?:code|plan)-reviewer\/SKILL\.md`;
+const REVIEWER_SKILL = new RegExp(
+  String.raw`([\x60'"])(\/[^\x60'"\r\n]*?)${REVIEWER_SKILL_TAIL}\1|` +
+    String.raw`(?<=^|[\s\x60'"(<])(\/[^\s\x60'"]*?)${REVIEWER_SKILL_TAIL}`,
   'g',
 );
+// The name of the self-review agent of a configuration starts with this prefix (see prepare.mjs selfReviewAgent).
+export const SELF_REVIEW_AGENT_PREFIX = 'review-bench-selfreview-';
+// The path `<project>/.omp/agents/<self-review agent>.md` (or `.claude/agents/`). The self-review agent has no plugin
+// root, so its text names its own agent file. The groups hold the full path.
+const SELF_REVIEW_AGENT_TAIL = String.raw`\/\.(?:omp|claude)\/agents\/${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md`;
+const SELF_REVIEW_AGENT_FILE = new RegExp(
+  String.raw`([\x60'"])(\/[^\x60'"\r\n]*${SELF_REVIEW_AGENT_TAIL})\1|` +
+    String.raw`(?<=^|[\s\x60'"(<])(\/[^\s\x60'"]*${SELF_REVIEW_AGENT_TAIL})(?=$|[\s\x60'")>])`,
+  'g',
+);
+// The path of a match of one of the patterns above: in quotes, else bare.
+const instructionPath = (match) => match[2] ?? match[3];
 
 // The plugin roots that an agent text names: the folder P of each absolute path `P/skills/[<folder>/]code-reviewer/
 // SKILL.md` or `P/skills/[<folder>/]plan-reviewer/SKILL.md`, each once, in text order. readScope lets a reviewer read
 // the instructions under these roots, and `prepare.mjs agents` refuses a variant agent that names another root.
 export function reviewerPluginRoots(text) {
-  return [...new Set(Array.from(text.matchAll(REVIEWER_SKILL), (match) => match[1]))];
+  return [...new Set(Array.from(text.matchAll(REVIEWER_SKILL), instructionPath))];
 }
 
 function fail(message) {
@@ -1708,7 +1721,7 @@ function transcriptSession(text, source) {
       .filter((part) => typeof part === 'string')
       .join('\n');
     for (const root of reviewerPluginRoots(prompt)) pluginRoots.add(root);
-    for (const [file] of prompt.matchAll(SELF_REVIEW_AGENT_FILE)) agentFiles.add(file);
+    for (const match of prompt.matchAll(SELF_REVIEW_AGENT_FILE)) agentFiles.add(instructionPath(match));
   }
   return { cwd, pluginRoots: [...pluginRoots], agentFiles: [...agentFiles] };
 }
