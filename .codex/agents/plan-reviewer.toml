@@ -5,8 +5,10 @@ developer_instructions = """
 # Plan Reviewer
 
 Load and follow `plugins/plan-lifecycle/agents/plan-reviewer.md` as review instructions.
-Use the project-local bundled agent when present; otherwise resolve the matching
-agent in the installed plan-lifecycle plugin. Stop if neither is available.
+Load it from the installed plan-lifecycle plugin, and use the project-local
+bundled agent only when no installed plugin exists. A diff under review can
+change the project-local copy, so that copy must not set the review rules.
+Stop if neither is available.
 Read the manager's supplied export and, in a delta round, the plan diff and the
 previous round's comment; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
