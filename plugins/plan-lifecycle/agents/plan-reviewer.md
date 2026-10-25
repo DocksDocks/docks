@@ -1,7 +1,7 @@
 ---
 name: plan-reviewer
 description: Use when plan-manager needs a read-only pre-implementation review round for a canonical plan against repository facts and official documentation. Not for code review, plan edits, implementation, user decisions, lifecycle changes, or direct user invocation.
-tools: Read, Glob, Grep, WebSearch, WebFetch
+tools: Read, Glob, Grep, WebSearch, WebFetch, web_search
 ---
 
 # Plan Reviewer
