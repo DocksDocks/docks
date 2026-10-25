@@ -181,9 +181,11 @@ A plan re-review after a repair may use the plan `delta` mode when the
 the inputs that the file names. Otherwise each plan round reviews the whole
 export. A full plan-review round runs at the configured effort. A plan `delta`
 round runs one level lower where the runtime has a per-dispatch effort. In omp
-with the setting `task.enableEffort` on, dispatch it with `effort: med`; omp
-maps `med` one level below the model's top level, for example `high` instead of
-`xhigh` for `openai-codex/gpt-6.1-sol`. In Claude Code v2.1.292 or later, pass
+with the setting `task.enableEffort` on, the `effort` values `lo`, `med`, and
+`hi` map to the lowest, middle, and highest level of the model's range. Dispatch
+the delta round with `effort: med` only when `med` is one level below the effort
+of round 1, for example for `openai-codex/gpt-6.1-sol` at `xhigh`, where `med`
+gives `high`; otherwise keep the agent's effort. In Claude Code v2.1.292 or later, pass
 the invocation `effort` one level below the effort of round 1, for example
 `high` after `xhigh`. Where the runtime has no per-dispatch effort, or the
 environment variable `CLAUDE_CODE_EFFORT_LEVEL` overrides it, the delta round
