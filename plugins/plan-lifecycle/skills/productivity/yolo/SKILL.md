@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-10-25"
-  content_hash: "e5f7d63b92106deeba5a2bc2b36d0a2b751d625ed256acd06ceee6dcab68f78d"
+  content_hash: "2f5e5fc2fbeff7b1722f949e8ba344d37f7b181238c90dfdb660c095eacf46f4"
 ---
 
 # Yolo
@@ -249,9 +249,17 @@ instructions. Post one comment per round, as the contract's review loop says.
 That comment counts as one round of the ceiling.
 
 Dispatch code review round 1 first. While it runs, run the `code-review`
-self-review with `code-clarity` on the full candidate diff. Post its findings
-as one issue comment whose first line is `Self-review`; write `No findings.`
-when it finds nothing. The helper does not read that comment as a review.
+self-review as one self-review per lens of the code-review panel:
+`correctness`, `spec-and-tests`, and `text-and-safety`. Run the three at the
+same time, or one after another when the runtime cannot. Give each one the
+full candidate diff and its lens scope from the `code-reviewer` skill, and
+apply `code-clarity` in each. Post their findings as one issue comment whose
+first line is `Self-review`, with one section per lens; write `No findings.`
+for a lens that finds nothing. The helper does not read that comment as a
+review, so it adds no round. In the plugin's benchmark, one self-review per
+lens found more known defects than one self-review (0.67 against 0.50 per
+run) in about the same time, but also more wrong findings. Reproduce each one
+before you fix it, and reject a wrong one with evidence.
 
 After round 1 returns, fix the self-review findings together with the findings
 of round 1. Use `fix-workflow`, and commit the fixes.
