@@ -1,0 +1,17 @@
+{
+  "id": "code-111-r3-delta",
+  "kind": "code-delta",
+  "split": "heldout",
+  "issue": 111,
+  "round": 3,
+  "base": "6b864fb0057663991a3adb2be011890c91fa5c4f",
+  "delta_base": "c26faa713fa7beb866a047eb6173a6629796b760",
+  "head": "83b4d9a5a63a63fcb665c74d143378bedcbb7298",
+  "plan": "code-111-r3-delta-plan.md",
+  "previous_review": "code-111-r3-delta-previous-review.md",
+  "external": [
+    "plan",
+    "previous_review"
+  ],
+  "show_benchmark": true
+}
