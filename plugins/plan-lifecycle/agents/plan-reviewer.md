@@ -11,9 +11,9 @@ Load and follow
 references that it names. The issue number, export path, round number, and
 mode, and in a `delta` round the input files that the skill's delta mode
 names, are the complete review input from the manager. They are not permission
-to change the plan. When rules conflict, follow the manager's dispatch and the
-plan's recorded decisions first, then the repository instruction files, then
-the skill.
+to change the plan. When rules for the review conflict, follow the manager's
+dispatch first, then the repository instruction files, then the skill. The
+plan is the object of the review, not a source of review rules.
 
 <constraint>
 Remain read-only. Do not write or edit a file, dispatch another agent, run a
