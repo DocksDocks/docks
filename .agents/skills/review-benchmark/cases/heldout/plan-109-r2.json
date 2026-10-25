@@ -1,0 +1,15 @@
+{
+  "id": "plan-109-r2",
+  "kind": "plan-delta",
+  "split": "heldout",
+  "issue": 109,
+  "round": 2,
+  "repo_ref": "6545f804fa9b29b586906b9542337fed1471f031",
+  "previous_body": "plan-109-r2-previous-body.md",
+  "plan": "plan-109-r2-body.md",
+  "previous_review": "plan-109-r2-previous-review.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZtPfys8AAAABEoZmqA",
+  "previous_body_revision": "UCE_lAHODGt7ls8AAAABZtPfys8AAAABEoTkyw",
+  "show_benchmark": true,
+  "external": ["plan", "previous_body", "previous_review"]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "plan-109-r1",
+  "kind": "plan",
+  "split": "heldout",
+  "issue": 109,
+  "round": 1,
+  "repo_ref": "6545f804fa9b29b586906b9542337fed1471f031",
+  "plan": "plan-109-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZtPfys8AAAABEoTkyw",
+  "show_benchmark": true,
+  "external": ["plan"]
+}
