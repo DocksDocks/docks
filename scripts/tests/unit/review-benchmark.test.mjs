@@ -5002,13 +5002,16 @@ test('transcripts splits a target on `;`, on white space, and on all three delim
   // A workspace folder without a space: a white-space split of a snapshot path in `bench-gpt 7` breaks the folder name.
   const fixture = listCase(scratch(t), 'bench');
   const { live, snapshot } = fixture;
-  for (const file of ['src/a.mjs', 'src/b.mjs']) put(snapshot, file, 'text\n');
+  for (const file of ['src/a.mjs', 'src/b.mjs', 'src/a,b.mjs']) put(snapshot, file, 'text\n');
   for (const file of ['src/b.mjs', 'src/c.mjs']) put(live, file, 'text\n');
   const [a, b] = [path.join(snapshot, 'src', 'a.mjs'), path.join(snapshot, 'src', 'b.mjs')];
   const [liveB, liveC] = [path.join(live, 'src', 'b.mjs'), path.join(live, 'src', 'c.mjs')];
   const whiteSpace = `${a} ${liveB}`;
   const semicolons = `${a};${liveB};missing.mjs`;
   const skills = 'skill://code-review/SKILL.md;skill://code-reviewer';
+  // Each part between white space exists, but no part between `,` and not every part of the split on all three
+  // delimiters exists, so only the white-space split reads this target as two paths.
+  const commaName = `${path.join(snapshot, 'src', 'a,b.mjs')} ${liveC}`;
   // No part between `,` exists, and the part `<b>,<live b>` between white space does not exist, so only the split on
   // all three delimiters has parts that each exist.
   const allThree = `${a} ${b},${liveB} ${liveC}`;
@@ -5023,9 +5026,10 @@ test('transcripts splits a target on `;`, on white space, and on all three delim
     // skill is allowed.
     ['read', { path: skills }],
     ['read', { path: 'skill://code-review/SKILL.md;skill://code-clarity' }],
+    ['grep', { pattern: 'lock', path: commaName }],
     ['read', { path: allThree }],
   ];
-  assert.deepEqual(listReadScope(fixture, calls), { outside: [whiteSpace, semicolons, skills, allThree] });
+  assert.deepEqual(listReadScope(fixture, calls), { outside: [whiteSpace, semicolons, skills, commaName, allThree] });
 });
 
 test('readScope records each web search query, and a query that names the repository owner is outside', () => {
