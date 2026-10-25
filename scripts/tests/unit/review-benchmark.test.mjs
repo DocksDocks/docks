@@ -2722,6 +2722,8 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
 // - transcriptFacts(text, source): when an assistant message of the transcript has a `toolCall` content item, the
 //   result also has `toolCalls`: one { name, path } per item, in transcript order. path is `arguments.path` when it
 //   is a string, else null. A `web_search` call also has `query`: `arguments.query` when it is a string, else null.
+//   When the transcript has a `toolResult` message for a `web_search` call (same `toolCallId`), the call also has
+//   `resultUrls`: the http and https URLs in the text content of that result, each once, in text order.
 //   A transcript without a tool call gives no `toolCalls` field, so the facts of the earlier tests do not change.
 //
 // New export:
@@ -2734,8 +2736,11 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
 //   `:<text>` parts without `/` at its end, for example `:1-260` or `:23-54:raw`. A call without a path gives no
 //   target, except grep, glob, find, and ast_grep: they search the working directory, so they give
 //   `<name> without a path`. A web_search call gives its query to `queries` (each once, in call order; the field is
-//   there only when the reviewer searched the web), and the target `web_search: <query>` when the query names the
-//   owner of the benchmark repository: `DocksDocks` anywhere in the query, in any case.
+//   there only when the reviewer searched the web), and the target `web_search: <query>` when the query targets the
+//   benchmark repository: after each `-site:<text>` token is removed, it holds `DocksDocks` (in any case) that is not
+//   followed by `/<name>` of another repository. Each URL of its `resultUrls` that is a page of the benchmark
+//   repository (see the web rule below) gives the target `web_search result: <url>`. A local path also loses a JSON
+//   query selector: the text from `?q=` on.
 //   A relative path resolves against cwd. "Under a folder" means the folder itself or a path below it.
 //   A target is allowed when it is:
 //   - a path under an input of the run. An input folder is the case folder, and the run folder (a run without round
@@ -5036,7 +5041,7 @@ test('transcripts splits a target on `;`, on white space, and on all three delim
   assert.deepEqual(listReadScope(fixture, calls), { outside: [whiteSpace, semicolons, skills, commaName, allThree] });
 });
 
-test('readScope records each web search query, and a query that names the repository owner is outside', () => {
+test('readScope records each web search query, and a query that targets the benchmark repository is outside', () => {
   const call = (name, args) => ({ type: 'toolCall', id: name, name, arguments: args });
   const reply = assistantLine(5, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 10 });
   reply.message.content = [
@@ -5052,27 +5057,73 @@ test('readScope records each web search query, and a query that names the reposi
   ]);
   const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
   const search = (query) => ({ name: 'web_search', path: null, query });
-  // The repository can show the fixes of the corpus defects. A query that names its owner anywhere, in any case, can
-  // find its pages, also without the repository name or a URL.
+  // The repository can show the fixes of the corpus defects. A query that names it, or names its owner without
+  // another repository, can find its pages, also without a URL.
   const repository = [
     'site:github.com/DocksDocks/docks sync lock',
     'docksdocks/DOCKS review fixes',
     'GITHUB.COM/docksdocks plan-lifecycle',
     'DocksDocks docks plan-lifecycle archive fix',
+    '"docks-kit" site:github.com/DocksDocks/public OR site:github.com/DocksDocks/docks',
+  ];
+  // Another repository of the owner is not the benchmark repository, and `-site:` excludes the benchmark repository.
+  const other = [
+    'site:github.com/DocksDocks/public "docks-kit" "fast"',
+    '"docks-kit" "sync omp" "DocksDocks/public"',
+    '"docks-kit" "omp" "--fast" -site:github.com/DocksDocks/docks',
   ];
   const calls = [
     search('node lock release finally'),
     ...repository.map(search),
+    ...other.map(search),
     search('node lock release finally'),
     search(null),
     ...reads(`${SCOPE_CASE}/plan.md`),
   ];
   assert.deepEqual(score.readScope(calls, scope), {
     outside: repository.map((query) => `web_search: ${query}`),
-    queries: ['node lock release finally', ...repository],
+    queries: ['node lock release finally', ...repository, ...other],
   });
   // A reviewer without a web search gets no queries.
   assert.deepEqual(score.readScope(reads(`${SCOPE_CASE}/plan.md`), scope), { outside: [] });
+});
+
+test('a web search whose result cites a page of the benchmark repository is outside', () => {
+  const call = (id, query) => ({ type: 'toolCall', id, name: 'web_search', arguments: { query } });
+  const reply = assistantLine(5, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 10 });
+  reply.message.content = [call('s1', 'docks-kit fast mode'), call('s2', 'compose anonymous volumes')];
+  const result = (toolCallId, text) => ({
+    type: 'message',
+    timestamp: isoAt(6),
+    message: { role: 'toolResult', toolCallId, toolName: 'web_search', content: [{ type: 'text', text }] },
+  });
+  const cited = 'https://github.com/DocksDocks/docks/blob/main/plugins/plan-lifecycle/README.md';
+  const docs = 'https://docs.docker.com/reference/cli/docker/compose/down/';
+  const text = jsonl([
+    { type: 'message', timestamp: isoAt(0), message: { role: 'user' } },
+    reply,
+    result('s1', `The toggle is documented in the plugin README (${cited}).`),
+    result('s2', `Anonymous volumes stay after down: ${docs}.`),
+  ]);
+  const toolCalls = score.transcriptFacts(text, 'search.jsonl').toolCalls;
+  assert.deepEqual(toolCalls, [
+    { name: 'web_search', path: null, query: 'docks-kit fast mode', resultUrls: [cited] },
+    { name: 'web_search', path: null, query: 'compose anonymous volumes', resultUrls: [docs] },
+  ]);
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  assert.deepEqual(score.readScope(toolCalls, scope), {
+    outside: [`web_search result: ${cited}`],
+    queries: ['docks-kit fast mode', 'compose anonymous volumes'],
+  });
+});
+
+test('readScope reads a local file with a JSON query selector as the file before the selector', () => {
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  const calls = reads(
+    `${SCOPE_CASE}/snapshot/scripts/config/test-contracts.json?q=.suites // .`,
+    `${SCOPE_CASE}/case.json?q=.known`,
+  );
+  assert.deepEqual(score.readScope(calls, scope), { outside: [`${SCOPE_CASE}/case.json`] });
 });
 
 test('a failed request without a served tier stays out of the model and tier checks and keeps its time', () => {

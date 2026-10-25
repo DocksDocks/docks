@@ -83,10 +83,16 @@ const ANY_DELIMITER = /[;,\s]/;
 const URI_DELIMITER = /;/;
 // The note of a list read for each path that omp could not read: `Could not read <path>: <reason>`.
 const UNREAD_NOTE = 'Could not read ';
-// A web search has a `query`, not a path. A query that names the owner of the benchmark repository can find the
-// pages of the repository.
+// A web search has a `query`, not a path. A query that targets the benchmark repository can find its pages: after
+// each `-site:` token (an exclusion) is removed, a mention of the owner that does not name another repository of the
+// owner targets it, because the owner alone or the owner and the word `docks` can find its pages. The URLs that the
+// result of a search cites show the pages that the reviewer saw (see webPageAllowed).
 const WEB_SEARCH_TOOL = 'web_search';
-const BENCHMARK_QUERY = /docksdocks/i;
+const SITE_EXCLUSION = /(?:^|\s)-site:\S+/gi;
+const OWNER_MENTION = /docksdocks(?:\/([\w.-]+))?/gi;
+const RESULT_URL = /https?:\/\/[^\s<>()[\]{}"'`]+/g;
+// The JSON query selector of an omp read of a local file (`omp://tools/read.md`), for example `config.json?q=.suites`.
+const JSON_QUERY_SELECTOR = /\?q=.*$/s;
 const URI_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
 const WEB_SCHEMES = new Set(['http', 'https']);
 // The selector of a read at the end of a path, for example `:1-260` or `:23-54:raw`. It can also take a tail that omp
@@ -1636,16 +1642,25 @@ export function parseTranscript(text, source = 'transcript', model) {
   return { seconds: Math.round((lastCounted - first) / 100) / 10, tokens };
 }
 
-// The tool calls of an assistant message: the name and the `path` argument (null without one) of each. A web search
-// has no path, so its call also gives its `query` argument (null without one).
+// The tool calls of an assistant message, each with its `id`: the name and the `path` argument (null without one). A
+// web search has no path, so its call also gives its `query` argument (null without one).
 const toolCallsOf = (message) =>
   (Array.isArray(message.content) ? message.content : [])
     .filter((item) => item?.type === 'toolCall')
     .map((item) => {
       const argument = (name) => (typeof item.arguments?.[name] === 'string' ? item.arguments[name] : null);
       const call = { name: item.name ?? null, path: argument('path') };
-      return call.name === WEB_SEARCH_TOOL ? { ...call, query: argument('query') } : call;
+      return { id: item.id, call: call.name === WEB_SEARCH_TOOL ? { ...call, query: argument('query') } : call };
     });
+
+// The http and https URLs in the text content of a tool result, each once, in text order, without the punctuation that
+// ends a sentence after a URL.
+function resultUrls(message) {
+  const text = (Array.isArray(message.content) ? message.content : [])
+    .map((item) => (typeof item?.text === 'string' ? item.text : ''))
+    .join('\n');
+  return [...new Set((text.match(RESULT_URL) ?? []).map((url) => url.replace(/[.,;:!?]+$/, '')))];
+}
 
 // The configuration that a transcript shows: the last requested OpenAI tier, one entry per assistant message, and the
 // `model_usage` side calls of helper models. A message entry gives the model, the effort that was active at the
@@ -1656,6 +1671,7 @@ const toolCallsOf = (message) =>
 export function transcriptFacts(text, source = 'transcript') {
   const facts = { requestedTier: null, messages: [], sideCalls: [] };
   const toolCalls = [];
+  const searches = new Map();
   let effort = null;
   for (const entry of transcriptEntries(text, source)) {
     if (entry.type === 'thinking_level_change') effort = entry.thinkingLevel ?? null;
@@ -1666,10 +1682,25 @@ export function transcriptFacts(text, source = 'transcript') {
       const { message } = entry;
       const fact = { model: modelId(message), effort, servedTier: message.serviceTier ?? null };
       facts.messages.push(failedRequest(message) ? { ...fact, failed: true } : fact);
-      toolCalls.push(...toolCallsOf(message));
+      for (const { id, call } of toolCallsOf(message)) {
+        toolCalls.push(call);
+        if (call.name === WEB_SEARCH_TOOL && id !== undefined) searches.set(id, call);
+      }
+    } else if (entry.type === 'message' && entry.message?.role === 'toolResult') {
+      const search = searches.get(entry.message.toolCallId);
+      if (search) search.resultUrls = resultUrls(entry.message);
     }
   }
   return toolCalls.length ? { ...facts, toolCalls } : facts;
+}
+
+// A web search query targets the benchmark repository when, without its `-site:` exclusions, it mentions the owner
+// without another repository of the owner (see OWNER_MENTION).
+function targetsBenchmark(query) {
+  const kept = query.replace(SITE_EXCLUSION, ' ');
+  return [...kept.matchAll(OWNER_MENTION)].some(
+    ([, name]) => name === undefined || BENCHMARK_REPOSITORY.names.has(name.toLowerCase()),
+  );
 }
 
 // A line of the fixer reply: `<finding id>: repaired` or `<finding id>: not present` (see prepare.mjs fixerPrompt),
@@ -1906,8 +1937,14 @@ function targetAllowed(target, cwd, rules) {
   return WEB_SCHEMES.has(scheme) && webPageAllowed(target);
 }
 
-// A local path or an internal URI without its read selector; a web URL stays as it is.
-const withoutSelector = (target) => (WEB_SCHEMES.has(uriScheme(target)) ? target : target.replace(READ_SELECTOR, ''));
+// A local path or an internal URI without its read selector, and a local path also without its JSON query selector; a
+// web URL stays as it is.
+const withoutSelector = (target) => {
+  const scheme = uriScheme(target);
+  if (WEB_SCHEMES.has(scheme)) return target;
+  const read = scheme === undefined ? target.replace(JSON_QUERY_SELECTOR, '') : target;
+  return read.replace(READ_SELECTOR, '');
+};
 
 // The targets of the `path` argument of a call of the tool `name`: for a tool whose path takes a list
 // (PATH_LIST_TOOLS), its `;`-separated parts, else the whole path; each trimmed, with its read selector.
@@ -2076,11 +2113,13 @@ export function readScope(
   const rules = scopeRules(path.resolve(runDir), round, pluginRoots, agentFiles, changedFiles);
   const outside = new Set();
   const queries = new Set();
-  for (const { name, path: value, query } of toolCalls) {
+  for (const { name, path: value, query, resultUrls: cited = [] } of toolCalls) {
     if (name === WEB_SEARCH_TOOL) {
-      if (typeof query !== 'string') continue;
-      queries.add(query);
-      if (BENCHMARK_QUERY.test(query)) outside.add(`${WEB_SEARCH_TOOL}: ${query}`);
+      if (typeof query === 'string') {
+        queries.add(query);
+        if (targetsBenchmark(query)) outside.add(`${WEB_SEARCH_TOOL}: ${query}`);
+      }
+      for (const url of cited) if (!webPageAllowed(url)) outside.add(`${WEB_SEARCH_TOOL} result: ${url}`);
       continue;
     }
     if (typeof value !== 'string' || !value.trim()) {
