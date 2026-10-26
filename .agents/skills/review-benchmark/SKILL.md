@@ -4,7 +4,7 @@ description: "Use when measuring a change to the plan-lifecycle reviewers in thi
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-25"
+  updated: "2026-10-26"
 ---
 
 # Review benchmark

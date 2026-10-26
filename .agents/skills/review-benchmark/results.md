@@ -1167,7 +1167,7 @@ Decision: no Cblk run returned a `blocked` verdict, also on the large readable c
 ### LOW rule in real runs
 
 - Plan #113: the code review passed in round 3 with no open finding, so the LOW rule did not apply.
-- Plan #115: code-review round 1 passed in all three lenses. Its findings and those of the self-review gave 9 distinct findings, the highest MEDIUM. The manager repaired each of them before round 2, because the LOW rule starts at round 3. The run summary of plan #115 records the final round; when the review reaches round 3, this list gets that round's record.
+- Plan #115: code-review round 1 passed in all three lenses. Its findings and those of the self-review gave 11 distinct findings, the highest MEDIUM. The manager repaired 9 of them before round 2. Round 2 (delta) passed with 3 LOW findings: the 2 round-1 findings that the first repair missed (a stale skill date and the a6 expected tree) and a wrong count in this record. The manager repaired them before round 3. The final round of the review is outside these reviewed bytes, so the Verification Results of plan #115 and its run summary record it, with whether the LOW rule applied.
 
 ### Limits
 
