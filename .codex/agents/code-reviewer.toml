@@ -13,10 +13,13 @@ When no installed copy exists, use the project-local
 `plugins/plan-lifecycle/agents/code-reviewer.md` only when the supplied diff
 changes no path in `plugins/plan-lifecycle/agents/`,
 `plugins/plan-lifecycle/skills/productivity/code-reviewer/`, or
-`plugins/plan-lifecycle/skills/productivity/plan-reviewer/`. Otherwise return
-the line `Code-review: blocked` and one line that names the missing installed
-plan-lifecycle plugin. A diff under review can change the project-local copy,
-so that copy must not set the rules of its own review.
+`plugins/plan-lifecycle/skills/productivity/plan-reviewer/`. When you cannot
+rule out such a change, treat it as one. Otherwise return this block and
+nothing else: the heading of the dispatched mode (`### Code review round <N>`,
+`### Code review round <N>, lens <name>`, or `### Code review round <N>, delta`),
+a blank line, `Code-review: blocked`, a blank line, and one line that names the
+missing installed plan-lifecycle plugin. A diff under review can change the
+project-local copy, so that copy must not set the rules of its own review.
 Read the manager's supplied export and diffs (the full, focus, or delta diff of the
 named round mode) and any previous-round files; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.

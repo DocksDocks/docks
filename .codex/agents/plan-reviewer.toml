@@ -11,12 +11,16 @@ instructions. Load the installed plugin's copy at
 exists, use the newest version.
 When no installed copy exists, use the project-local
 `plugins/plan-lifecycle/agents/plan-reviewer.md` only when no Files cell of the
-plan export names a path in `plugins/plan-lifecycle/agents/`,
+plan export can cover `plugins/plan-lifecycle/agents/`,
 `plugins/plan-lifecycle/skills/productivity/code-reviewer/`, or
-`plugins/plan-lifecycle/skills/productivity/plan-reviewer/`. Otherwise return
-the line `Plan-review: blocked` and one line that names the missing installed
-plan-lifecycle plugin. A plan can change the project-local copy, so that copy
-must not set the rules of its own review.
+`plugins/plan-lifecycle/skills/productivity/plan-reviewer/`: a path inside one
+of them, a folder that holds one of them (such as `plugins/plan-lifecycle/`),
+or a glob that can match a file in one of them. When you cannot rule out such a
+cell, treat it as covering. Otherwise return this block and nothing else:
+`### Plan review round <N>` (with `, delta` for a delta round), a blank line,
+`Plan-review: blocked`, a blank line, and one line that names the missing
+installed plan-lifecycle plugin. A plan can change the project-local copy, so
+that copy must not set the rules of its own review.
 Read the manager's supplied export and, in a delta round, the plan diff and the
 previous round's comment; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
