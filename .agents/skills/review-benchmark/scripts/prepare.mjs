@@ -4,7 +4,7 @@
 //
 //   node prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
 //                           [--variants <name>=<git-ref>[,...] [--full-only <name,...>]
-//                            [--contract-overlay <name,...>]]
+//                            [--contract-overlay <name,...>]] [--candidate-contract-overlay]
 //                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
 //                           [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
 //   node prepare.mjs case --case <case.json> --arms <B0,C3,...> --runs <k> --out <ws> [--configs <list>]
@@ -176,10 +176,10 @@ const KIND_FIELDS = {
 };
 const FILE_FIELDS = ['plan', 'patch', 'previous_review', 'previous_body', 'rejection'];
 
-// The candidate skill defines the lenses in its lens references, so a candidate panel prompt only names the lens. A
-// panel prompt of the baseline agent or of the self-review agent describes the lens in the dispatch: the 0.16.0
-// baseline agent and the self-review agent do not know the lenses. With a 0.17.1 baseline, the arm B1 so has the lens
-// text in the dispatch, and the arm C3 has it only in a reference.
+// The candidate skill defines the lenses in its lens references, so a candidate panel prompt only names the lens. The
+// panel prompt of a baseline arm with the baseline prompt shape (B1) or of the self-review agent describes the lens in
+// the dispatch: the 0.16.0 baseline agent and the self-review agent do not know the lenses. With a 0.17.1 baseline, the
+// arm B1 so has the lens text in the dispatch, and the arm C3 has it only in a reference. B3 has the prompt of C3.
 const PANEL_RULES = [
   'This round runs three reviewers at the same time, one per lens: correctness, spec-and-tests, and text-and-safety.',
   'Report only findings inside your lens. Write `None.` under an axis that your lens does not cover.',
@@ -256,9 +256,16 @@ const variantSide = (name) => `variant-${name}`;
 // The arm `arm` of a case kind, or undefined when the kind has no such arm: an arm of ARMS, or on a plan kind the arm
 // `V<name>` of a variant of `variants` (the list that `agents --variants` wrote). A variant arm runs the variant agent
 // in full mode. On a plan-delta case, it runs in delta mode, unless the variant has no delta mode (`--full-only`). The
-// arm of a variant of `--contract-overlay` also has `contractDiff`, the contract change of the variant.
-function armSpec(kind, arm, variants) {
-  if (Object.hasOwn(ARMS[kind], arm)) return ARMS[kind][arm];
+// arm of a variant of `--contract-overlay` also has `contractDiff`, the contract change of the variant, and so has a
+// candidate arm of a code kind when `agents --candidate-contract-overlay` recorded `candidateContractDiff`.
+function armSpec(kind, arm, variants, candidateContractDiff) {
+  if (Object.hasOwn(ARMS[kind], arm)) {
+    const spec = ARMS[kind][arm];
+    const codeKind = kind === 'code' || kind === 'code-delta';
+    return candidateContractDiff && codeKind && spec.side === 'candidate'
+      ? { ...spec, contractDiff: candidateContractDiff }
+      : spec;
+  }
   const variant = isPlanKind(kind) ? variants.find((item) => `V${item.name}` === arm) : undefined;
   if (!variant) return undefined;
   const mode = kind === 'plan-delta' && variant.delta ? 'delta' : 'full';
@@ -418,7 +425,8 @@ export function buildOpening(caseData, paths, round = caseData.round) {
 }
 
 // The mode's part of the prompt. Candidate skills define the modes and lenses, so a candidate tail only names them. A
-// panel tail of another agent describes the lens.
+// panel tail of another prompt shape describes the lens. `side` is the prompt shape of the arm: its `prompt` field, or
+// else its agent side.
 export function buildTail({ caseData, side, mode, round, reviewer, paths }) {
   const lines = [`Round mode: ${mode}.`];
   if (mode === 'full') {
@@ -881,7 +889,7 @@ export function prepareCase(options, repo) {
     fail(`--loop takes code cases; ${caseData.id} is a ${caseData.kind} case`);
   }
   // The list of configurations names the variants, which give the variant arms of the plan kinds.
-  const { configs, fixer, variants, file: configsFile } = selectConfigs(options, repo);
+  const { configs, fixer, variants, candidateContractDiff, file: configsFile } = selectConfigs(options, repo);
   const arms = parseArms(options.arms, caseData.kind, variants);
   if (options.loop) checkLoopArms(caseData.kind, arms);
   const runs = parseRuns(options.runs);
@@ -918,7 +926,7 @@ export function prepareCase(options, repo) {
     const fullLines = options.loop ? diffSize(repo, hidden, commits.base, tree) : null;
     for (const config of configs) {
       for (const arm of arms) {
-        const spec = armSpec(caseData.kind, arm, variants);
+        const spec = armSpec(caseData.kind, arm, variants, candidateContractDiff);
         const { policy, mode: armMode, reviewers: armReviewers, contractDiff } = spec;
         const mode = options.loop ? roundMode({ policy, round: 1, fullLines }) : armMode;
         const reviewers = options.loop ? MODE_REVIEWERS[mode] : armReviewers;
@@ -1479,12 +1487,21 @@ function selectConfigs(options, repo) {
     .filter((file) => fs.existsSync(file));
   if (files.length === 0) fail(`${project} has no configurations; run prepare.mjs agents with the same --project`);
   if (files.length > 1) fail(`${files.join(' and ')} both exist; run prepare.mjs clean and then agents`);
-  const { configs, fixer, variants = [] } = readJson(files[0]);
+  const { configs, fixer, variants = [], candidateContractDiff } = readJson(files[0]);
   const known = configs.map((config) => config.name);
   const selected = options.configs
     ? parseList(options.configs, '--configs', known).map((name) => configs[known.indexOf(name)])
     : configs;
-  return { configs: selected, fixer, variants, file: files[0] };
+  return { configs: selected, fixer, variants, candidateContractDiff, file: files[0] };
+}
+
+// The diff of the plan contract from the baseline commit `sha` (at the ref `ref`) to the working tree: the contract
+// change of the candidate code reviewer for `agents --candidate-contract-overlay`.
+function candidateContractDiff(repo, sha, ref) {
+  const diff = git(repo, ['diff', ...DIFF_FLAGS, sha, '--', `:(literal)${CONTRACT_PATH}`]).toString();
+  if (!diff)
+    fail(`agents --candidate-contract-overlay: the working tree does not change ${CONTRACT_PATH} against ${ref}`);
+  return diff;
 }
 
 // The diff of the plan contract from the first parent of the commit `sha` (at the ref `ref`) to the commit: the
@@ -1581,6 +1598,9 @@ export function prepareAgents(options, repo) {
   // The checks of the variants come before the first file changes.
   const variants = parseVariants(options, repo, baselineDir);
   const sha = resolveCommit(repo, options['baseline-ref'], '--baseline-ref');
+  const candidateDiff = options['candidate-contract-overlay']
+    ? candidateContractDiff(repo, sha, options['baseline-ref'])
+    : undefined;
   extractPlugin(repo, sha, baselineDir);
   for (const variant of variants) {
     extractPlugin(repo, variant.sha, variant.dir);
@@ -1646,7 +1666,12 @@ export function prepareAgents(options, repo) {
     delta,
     ...(diff && { contractDiff: diff }),
   }));
-  writeJson(path.join(agentDir, CONFIGS_FILE), { configs, fixer, variants: variantList });
+  writeJson(path.join(agentDir, CONFIGS_FILE), {
+    configs,
+    fixer,
+    variants: variantList,
+    ...(candidateDiff && { candidateContractDiff: candidateDiff }),
+  });
   const names = configs.map((config) => config.name).join(', ');
   console.log(`wrote ${configs.length * (sources.length + 1)} agent files to ${agentDir} for ${names}`);
   const fixerTier = fixer.tier === null ? '' : `, tier ${fixer.tier}`;
@@ -1712,6 +1737,7 @@ const COMMANDS = {
       variants: { type: 'string' },
       'full-only': { type: 'string' },
       'contract-overlay': { type: 'string' },
+      'candidate-contract-overlay': { type: 'boolean' },
       'fixer-model': { type: 'string' },
       'fixer-effort': { type: 'string' },
       'fixer-tier': { type: 'string' },
@@ -1731,6 +1757,7 @@ const COMMANDS = {
 const USAGE = `usage:
   prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
                      [--variants <name>=<git-ref>[,...] [--full-only <name,...>] [--contract-overlay <name,...>]]
+                     [--candidate-contract-overlay]
                      [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
                      [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
   prepare.mjs case --case <case.json> --arms <list> --runs <k> --out <ws> [--configs <list>] [--keys <dir>]

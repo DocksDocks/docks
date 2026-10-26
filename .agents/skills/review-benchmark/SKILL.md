@@ -63,6 +63,7 @@ A configuration is a model, an effort, and a service tier. `prepare.mjs agents` 
 | `--variants <name>=<git ref>[,...]` | plan-reviewer variants: a name of lower-case letters and digits, given one time, and a ref that holds `plugins/plan-lifecycle/agents/plan-reviewer.md` | none: each variant gets one plan agent per configuration (see Arms) |
 | `--full-only <name,...>` | variants of `--variants` without a delta mode, for example the 0.16.0 prompt | none |
 | `--contract-overlay <name,...>` | variants of `--variants` whose commit changes `plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md` against its first parent | none: `agents` records the change, and `case` applies it to a copy of the plan contract for each run of the variant (see Arms) |
+| `--candidate-contract-overlay` | none | none: `agents` records the change of the plan contract from `--baseline-ref` to the working tree, and `case` applies it to a copy of the plan contract for each run of a candidate code arm (`C1`, `C3`, `Cd`); the baseline arms keep the snapshot's contract. Use it when a code-reviewer candidate also changes the contract (plan #113) |
 
 For example, `--efforts low,xhigh --tiers priority,default` gives `low-fast`, `low`, `xhigh-fast`, and `xhigh`. With a second model, the names become `gpt-6.1-sol-low-fast` and so on. The same lists always give the same names, because the report uses them as column names.
 
@@ -107,7 +108,7 @@ Without `--loop`, a run is one review by the reviewers of its arm. With `--loop`
 
 The baseline agents are the released `code-reviewer.md` and `plan-reviewer.md` of `plugins/plan-lifecycle/agents/`; the candidate agents are the working-tree copies. In each configuration, both sides get the same model, effort, and tier, so only the instructions differ.
 
-A panel prompt of a baseline agent holds the lens text: the panel rules and the scope of its lens. The released 0.16.0 agent does not know the lenses. A candidate panel prompt only names the lens, and the candidate agent loads the lens text from a lens reference of its skill. When the baseline ref has the same reviewer as the working tree, for example `--baseline-ref plan-lifecycle--v0.17.1` on a checkout without later reviewer changes, `B1 --loop` and `C3 --loop` differ only in the dispatch of a panel round: the `B1` dispatch also holds the lens text. Both agents can load the lens reference of their skill. The `delta` and `full` prompts of `B1` are the prompts of `C3`, with the baseline agent.
+A panel prompt of the `B1` arm holds the lens text: the panel rules and the scope of its lens. The `B3` arm has the candidate prompt, which only names the lens, so it needs a baseline reviewer that loads its lens references itself, such as `main` after plan #98. The released 0.16.0 agent does not know the lenses. A candidate panel prompt only names the lens, and the candidate agent loads the lens text from a lens reference of its skill. When the baseline ref has the same reviewer as the working tree, for example `--baseline-ref plan-lifecycle--v0.17.1` on a checkout without later reviewer changes, `B1 --loop` and `C3 --loop` differ only in the dispatch of a panel round: the `B1` dispatch also holds the lens text. Both agents can load the lens reference of their skill. The `delta` and `full` prompts of `B1` are the prompts of `C3`, with the baseline agent.
 
 The self-review arms `S1` and `S3` measure the self-review of #98 on the candidate of code-review round 1, as one agent and as one agent per lens. Each run is one review in `run-<k>/blocks/<reviewer>.md`, so `case` refuses these arms with `--loop`. Their blocks have the code-review block format, so `score.mjs` reads them as code-review blocks.
 
@@ -231,7 +232,7 @@ A loop run replays a code-review loop of plan-lifecycle (`plan-contract.md`, Cod
 
    | Policy | Arms | Round modes |
    |---|---|---|
-   | `panel-delta` | `C3`, `B1` | the rules of plan-lifecycle 0.17.1, the production loop. Round 1 is a `panel` round when the full diff changes 50 or more lines (added plus removed lines), else a `full` round. A later round is a `delta` round when step 6 allows it, else a `panel` or `full` round by the same size rule |
+   | `panel-delta` | `C3`, `B1`, `B3` | the rules of plan-lifecycle 0.17.1, the production loop. Round 1 is a `panel` round when the full diff changes 50 or more lines (added plus removed lines), else a `full` round. A later round is a `delta` round when step 6 allows it, else a `panel` or `full` round by the same size rule |
    | `full-delta` | `C1` | the rules of `panel-delta` with one full reviewer: a `full` round where `panel-delta` gives a `panel` round |
    | `full` | `B0` | the policy of plan-lifecycle 0.16.0, which had no panel round and no delta round: every round is a `full` round on the full diff |
 
