@@ -348,6 +348,10 @@ export function validateCase(caseData) {
   }
   if (split === 'heldout') {
     if (Object.hasOwn(caseData, 'known')) fail(`held-out case ${id} lists known defects; move them to ${id}.key.json`);
+    // A reviewer can search the checkout, and the protected decisions show what the case tests, so they stay with the
+    // known defects in the key file, which stays outside the repository while reviewers run.
+    if (Object.hasOwn(caseData, 'protected'))
+      fail(`held-out case ${id} lists protected decisions; move them to ${id}.key.json`);
   } else if (split === 'dev') {
     if (!Array.isArray(caseData.known)) fail(`dev case ${id} needs a known array (it may be empty)`);
     validateFixFields(id, caseData.known);
