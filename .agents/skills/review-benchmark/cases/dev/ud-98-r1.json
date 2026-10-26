@@ -1,0 +1,47 @@
+{
+  "id": "ud-98-r1",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 98,
+  "round": 1,
+  "repo_ref": "e09d273fa2d020352337e5d97d8d47edbb4b7c80",
+  "plan": "ud-98-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZadH188AAAABETx6LA",
+  "known": [
+    {
+      "id": "P98-1",
+      "kind": "goal_fit",
+      "title": "Delta-round eligibility does not require that the previous round completed, so after a blocked lens an empty delta can leave unchanged code unreviewed",
+      "locator": "Research, Decisions, decision 2 (line 67); Steps, row 3 code_review_rounds (line 91)",
+      "source": "round",
+      "summary": "delta-round eligibility does not require that the previous round completed: when a lens returns blocked on unreadable input, fixing that input leaves an empty delta eligible, so unchanged code never gets reviewed; delta rounds must follow only a round in which every required lens completed against its recorded head",
+      "comment": 6368771254
+    },
+    {
+      "id": "P98-2",
+      "kind": "goal_fit",
+      "title": "Acceptance has no row for the shared report-section check that the skills AGENTS.md files require, and the CI gate does not run that check",
+      "locator": "Acceptance (lines 96-103); Steps, row 3 code_review_rounds (line 91)",
+      "source": "missed-by-round",
+      "summary": "Acceptance has no row for the shared report-section verification that plugins/plan-lifecycle/skills/AGENTS.md requires through plugins/docks/skills/AGENTS.md (Report section), and the CI gate does not run that check",
+      "comment": 6368938921
+    }
+  ],
+  "protected": [
+    {
+      "id": "UD98-1",
+      "section": "Research, Request corrections (line 74); Runtime facts (line 61)",
+      "summary": "Request correction: the user asked to use omp's `orchestrate` in plan-lifecycle. The manager dispatches the lens reviewers in parallel in every runtime that the plugin supports instead, because `orchestrate` is an omp prompt keyword for one turn and not an API that a skill can call."
+    },
+    {
+      "id": "UD98-2",
+      "section": "Research, Request corrections (line 76); Decisions, decision 5 (line 70); Do not touch (line 107)",
+      "summary": "Request correction: the user asked for fewer review rounds. Code review gets lens rounds and delta rounds; plan review does not change (no plan lenses and no plan delta round), because the plan-review benchmark showed no gain worth its cost."
+    },
+    {
+      "id": "UD98-3",
+      "section": "Research, Decisions, decision 1 (line 66); Goal (line 5)",
+      "summary": "Yolo decision: a full code-review round dispatches three `code-reviewer` lens reviewers (`correctness`, `spec-and-tests`, `text-and-safety`) at once and posts their blocks in one comment, an idea that the user suggested. The plan records the evidence: more real defects than one reviewer, at about 2.1 times the tokens."
+    }
+  ]
+}

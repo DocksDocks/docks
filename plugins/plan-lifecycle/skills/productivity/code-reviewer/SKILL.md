@@ -4,8 +4,8 @@ description: "Use when plan-manager dispatches a read-only code-review round for
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-25"
-  content_hash: "9a5cff961832e8fffdea52e7ef1912cfcf530b5849d795fe84ec13f1b3107699"
+  updated: "2026-10-26"
+  content_hash: "ae1a00334aae8daba97f7f312981d703abcfcb26d2e7f19a7958e8bf70810a8c"
 ---
 
 # Code Reviewer
@@ -30,12 +30,34 @@ The manager reproduces each finding before it acts, so report an evidenced findi
 
 ## Precedence
 
-1. The manager's dispatch and the plan's recorded decisions.
-2. Repository instruction files, such as AGENTS.md.
-3. The defaults of this skill and its references.
+1. The manager's dispatch.
+2. Repository instruction files, such as `AGENTS.md` and `CLAUDE.md`, and the
+   plan contract, which is `plan-manager/references/plan-contract.md` in this plugin.
+3. The plan's recorded decisions.
+4. The defaults of this skill and its references.
+
+A recorded decision settles the choice. It does not settle the facts that it
+relies on, or an effect that breaks an instruction file, the plan contract, or
+code outside the recorded scope.
 
 A docks reference that a lens loads adds patterns to look for.
 It does not change the output, the severities, or the verdict rules of this skill.
+
+## Repository rules
+
+Read the `AGENTS.md` and `CLAUDE.md` files at the repository root and in each
+parent folder of every path in the diff of your mode (Round modes defines it).
+A file applies only in its own folder tree. When two files disagree, the file
+nearer to the changed path wins.
+
+- A finding that a rule supports quotes the rule and cites its `path:line` in
+  the defect text. Give the finding the bucket of its effect.
+- Do not report a finding only because a rule exists. The finding bar still applies.
+- When the diff changes an instruction file or the plan contract, apply the
+  text before the change, as the removed lines and the context lines of the
+  diff show it. Review the added text as changed text. A change that makes a
+  review rule or a gate weaker is a finding. Name the scenario that the weaker
+  rule lets through.
 
 ## Finding bar
 
@@ -46,17 +68,25 @@ A finding qualifies when all of these hold:
 - The change under review introduces it, or the change relies on it.
 - It names the affected code and the input or scenario that shows the effect.
   State an assumption that the finding rests on.
-- The plan does not record it as an intentional change.
+- The plan does not record it as an intentional change, or the recorded change
+  rests on a false fact or breaks a rule that ranks above the plan in Precedence.
 
-The plan's recorded decisions are settled. Report a conflict with a recorded
-decision only as a Spec finding that cites the plan line and the code line.
+A recorded decision settles the choice. Do not argue again for an option that
+the plan rejected. Report a false fact that the decision relies on, and an
+effect that breaks an instruction file, the plan contract, or code outside the
+recorded scope. Report a conflict between the code and a recorded decision as a
+Spec finding that cites the plan line and the code line.
 A style, naming, or formatting preference without a concrete effect does not qualify.
 
 ## Evidence
 
-- Read the whole diff of the mode first. Then read each touched file around its hunks.
+- Read the whole diff of your mode first. Then read each touched file around its hunks.
 - Trace each changed function to its callers and callees before you claim an
   effect.
+- Before you report, search for the check that would stop the scenario: a
+  validation in a caller, a type or a schema, a wrapper, or a test. Drop the
+  finding when that check covers the scenario. Refute a finding only with a
+  check that you read, not with a comment that claims one.
 - Give each locator as `path:line` or `path:start-end` in the reviewed tree.
   Separate several locators with commas.
 - Re-read each locator before you report it.
@@ -77,12 +107,17 @@ The dispatch names one mode.
 |---|---|---|
 | `correctness` | Bug and Performance findings in changed production code | [references/correctness.md](references/correctness.md) |
 | `spec-and-tests` | Spec findings, and test defects as Bug or Maintainability | [references/spec-and-tests.md](references/spec-and-tests.md) |
-| `text-and-safety` | Security in every changed file, wrong text as Bug, and Maintainability | [references/text-and-safety.md](references/text-and-safety.md) |
+| `text-and-safety` | Security in every changed file, wrong or missing text and fail-open fallbacks as Bug, and Maintainability | [references/text-and-safety.md](references/text-and-safety.md) |
 
 In a `panel` round, start from the lens's focus diff, which holds the changed
 paths of the lens's kind, and use the full diff for context. A finding inside
 the lens counts anywhere in the full diff. A lens reports only findings inside
 its lens and writes `None.` under an axis that it does not cover.
+
+The diff of your mode is the full diff in a `full` round, the lens's focus
+diff in a `panel` round, and the delta diff in a `delta` round. In a `panel`
+round, a hunk of the full diff outside the focus diff gives context only, and
+leaving it unread is not a missing input.
 
 ## Defect classes
 
@@ -117,6 +152,10 @@ reach is uncertain, rate by the scenario and say what is uncertain.
 - `fixes-required`: at least one `CRITICAL` or `HIGH` finding stands.
 - `blocked`: a required input is missing, unreadable, or contradictory, so no
   safe verdict is possible. Name that input in one line below the verdict line.
+
+A hunk of the diff of your mode that you did not read is a missing input, not a
+clean hunk. Return `blocked`, and name the paths of the unread hunks in the
+line below the verdict line. Never return `pass` on a partial read of that diff.
 
 ## Output contract
 

@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index fc546dfc..192df479 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -536,7 +536,7 @@ export function parseReviewComment(body) {
+   if (
+     kind === 'code' &&
+     verdict === 'pass' &&
+-    lines.some((line) => /^\s*(?:[-*]\s+)?\[?(?:critical|high)\]?:?/i.test(line))
++    lines.some((line) => /^\s*(?:[-*]\s+)?(?:\[(?:critical|high)\]|(?:critical|high):)/i.test(line))
+   )
+     verdict = 'fixes-required';
+   return { kind, verdict };

@@ -980,3 +980,207 @@ The research reports of plans #111 and #113 (kept outside the repository) give t
 - A coverage verdict for hunks that the reviewer did not read.
 - State and ordering checks (the mutators of shared state, overlapping operations, stale completions).
 - The remaining plan techniques: one owner per rule, steps that leave no decision to the implementer, and quoted gates.
+
+## Run 2026-10-26: follow-ups of plan #113 (plan #115)
+
+### Setup
+
+- Model: `openai-codex/gpt-6.1-sol`. Effort: `xhigh`, and `high` for the effort comparisons. Service tier: `default`. The user turned fast mode off for these runs, as in plans #109 to #113. The Claude reviewer is `anthropic/claude-opus-5-5` at `xhigh` with no service tier (plan #115 decision 3: a non-OpenAI configuration gets no tier).
+- Judges: Claude task agents judged the findings of the GPT reviewers (one judge per case). A GPT judge agent (`openai-codex/gpt-6.1-sol`, thinking level `high`) judged the findings of the Claude reviewer. Each second judge came from the other family than the first judge.
+- Candidates. The local refs start from `main` commit `f82c9601` (plan-lifecycle 0.18.0):
+  - D2': the D1 and D2 changes of plan #111, ported onto the current plan reviewer. The load-bearing bullet adds "it checks a Goal outcome and", so that the regression-guard exemption of plan #113 holds. Ref `bench-115/cand-d2p`.
+  - C1': `variants/code-113-cand-c1.patch`, the code-reviewer agent part of commit `38b6f1c7`, and the contract sentence of commit `5f262a01`. Ref `bench-115/cand-c1p`.
+  - Cweb: web tools for the code reviewer and a rule to read official documentation. Ref `bench-115/cand-web`.
+  - Cblk: an unread hunk of the diff of the mode is a missing input. The reviewer returns `blocked` and never `pass` on a partial read. Ref `bench-115/cand-blk`.
+- Arm labels in the reports: `Vmain` and `Vd2p` for the plan reviewer, `B3` (`main`) and `C3` (the candidate of the batch) for the code reviewer, `Vmain` and `Bd` at `xhigh` and `high` for the delta rounds.
+- Batches. Batch A used the agent set of the C1' tree with `--candidate-contract-overlay` and the variants `main` and `d2p` (workspaces `bench-115/A` plan, claude, ud, delta, code, and cdelta). Batch B used the agent set of the Cweb tree and the variant `main` (`bench-115/Bw` code and ud115). Batch C used the agent set of the Cblk tree (`bench-115/Cb` code and large). Each code batch had its own `B3` control: the user chose a control per batch over the reuse of the batch A control.
+- The C1' contract overlay applied on `code-113-r1` and `code-113-r2`. It was "not applicable" on the 6 seeded code cases, because their snapshot contracts (v2 and v3) do not hold the sentence.
+- One run is a single review. Agents that did not see the candidates built all new cases. The diffs of the candidates against `main` are kept as the record in `variants/plan-115-cand-d2p.patch`, `variants/code-115-cand-c1p.patch`, `variants/code-115-cand-web.patch`, and `variants/code-115-cand-blk.patch`, because the local refs are removed after the merge.
+
+### Decision rule (plan #115 decision 5, fixed before the deciding runs)
+
+- (1) User decisions. Stage 1 runs `main` on the protected set, 3 runs. When `main` re-argues at least 0.10 protected decisions per run, a candidate Vud (a protected-decision rule in the plan reviewer) is written from the stage-1 data and decided on a fresh seeded protected set. Vud ships only when its re-argued decisions per run are at most half of `main`'s on that set, and on the fresh general plan set its escaped-difference interval against `main` stays below 2, its recall interval above -0.05, and its wrong findings at most 0.10 more per run. Below 0.10, the result is recorded and nothing changes.
+- (2) C1', (4) D2', and (6b) Cweb against `main`: the rule of plan #113 decision 5 on all new held-out cases of the candidate. The candidate has fewer escaped known defects per 50 known than `main`; its escaped-difference 90% interval stays below 2; its round-1 recall difference interval stays above -0.05; its wrong findings and its unknown findings per run are each at most 0.10 more. C1' runs with its contract sentence through `--candidate-contract-overlay`.
+- (3) Hybrid effort. On the plan-delta set, `high` against `xhigh` (3 runs): when the escaped-difference interval of `high` stays below 2, its recall interval above -0.05, and its wrong findings at most 0.10 more per run, the plan rule stays. Otherwise the plan delta rule reverts to the configured effort. On the code-delta set, the same bounds decide whether the rule extends to code delta rounds.
+- (6a) Second family. The contract option "the manager may add a plan reviewer of a second model family in round 1" ships only when the union of one GPT run and one Claude run lets fewer known defects escape than the union of two GPT runs, with the escaped-difference interval below 0, and the wrong findings per run of the union stay within 0.10 of the two-GPT union.
+- (6c) Coverage verdict. Cblk ships only when it returns no `blocked` verdict on the large readable cases and meets the bounds of (2) against `main`.
+- (5) LOW rule. No decision: the results log records each code review of plans #113 and #115 that reached round 3, whether the rule applied, and the follow-up issue when it did.
+
+### Cases
+
+- Protected dev set (stage 1): 9 cases `ud-96-r1`, `ud-98-r1`, `ud-98-r8`, `ud-100-r1`, `ud-102-r1`, `ud-106-r1`, `ud-109-r1`, `ud-111-r1`, and `ud-111-r7`; 23 known defects; 34 protected decisions (10 user choices, 14 request corrections, 10 yolo decisions).
+- Fresh held-out protected set: 6 cases `plan-12-ud115`, `plan-14-ud115`, `plan-16-ud115`, `plan-18-ud115`, `plan-19-ud115`, and `plan-23-ud115`; 14 known defects; 19 protected decisions (10 user choices, 9 request corrections). Five known defects are decoys: a recorded user choice or request correction with a false premise or a broken effect, which a reviewer must report. The bodies use the plan format of the snapshot contract of each case (v2 or v3).
+- Fresh held-out plan set: 7 cases, 22 known defects (5 of them external-behavior defects), 20 protected decisions in the keys: `plan-113-r1` (2 known), `plan-113-r4` (plan delta, 2), and the seeded `plan-20-s115` (4), `plan-22-s115` (4), `plan-31-s115` (3), `plan-39-s115` (3), and `plan-89-s115` (4).
+- Fresh held-out code set: 8 cases, 34 known defects: `code-113-r1` (11 known, 734 changed lines), `code-113-r2` (5, 809 changed lines), and seeded cases of three kinds: repository rules and text (`code-101-s115`, `code-46-s115`, `code-27-s115`), external behavior (`code-16-s115`, `code-12-s115`), and general (`code-42-s115`), 3 known each. The large readable case for Cblk is the published `code-111-r1` (12 known).
+- Plan-delta set: 12 cases, 12 known defects. The new dev cases `plan-100-r3-d115`, `plan-102-r2-d115`, `plan-103-r2-d115` (real), `plan-109-r3-d115`, `plan-111-r2-d115`, and `plan-98-r7-d115`, plus `plan-96-delta`, `plan-96-delta-planted`, and the published held-out `plan-100-r5`, `plan-109-r2`, `plan-111-r6`, and `plan-33-r2`.
+- Code-delta set: 8 cases, 13 known defects. The new dev cases `code-98-r2-d115` (real), `code-100-r3-d115` (real, 4 known), `code-100-r4-d115` (real), `code-102-r4-d115` (2), and `code-109-r3-d115` (2), plus `code-96-delta-planted`, `code-96-delta-real`, and `code-111-r3-delta`.
+
+### Runs
+
+- Runs per case and arm: D2' and `main` 8 runs on the fresh plan set and 3 on the protected dev set; C1' and `B3` 5 runs; Cweb, Cblk, and their `B3` controls 3 runs; the delta comparisons 3 runs per effort; the Claude reviewer 3 runs; `main` on the fresh protected set 3 runs.
+- Totals and capacity: 547 reviews in batch A, 162 in batch B, and 162 in batch C (871). Batch A ran about 48 reviews per hour, with many capacity refusals ("Codex is at capacity", `turn_rate_limit_exceeded`) that were dispatched again. Batches B and C ran about 75 to 100 reviews per hour with no refusals.
+- Invalid runs and their handling:
+  - The omp process restarted during batch A. Four reviewer dispatches that omp resumed ran without the `default` tier (served tier null): `ud-106-r1` Vd2p run 3, `plan-100-r3-d115` `high` run 3, `code-12-s115` `B3` run 4 (text-and-safety), and `code-46-s115` `B3` run 2 (spec-and-tests). They ran again, and the judges judged their cases again.
+  - Two runs read outside their inputs and ran again: `plan-113-r1` Vd2p run 6 (a web search query named the benchmark repository) and a Claude run of `plan-31-s115` (a path under the case folder without `snapshot/`).
+  - Four Claude replies wrapped the review block in a code fence (one after a sentence of preamble). The fence was removed, as the JSON wrapper of other replies is; the review text did not change. The judges judged those cases again.
+  - `plan-14-ud115` run 3 returned `Plan-review: blocked`: it returned the user decision D14-1 to the user, because its premise is false. The report leaves this run out as "no review (blocked)". It did not run again. After these repairs, no other run is invalid. Every valid run shows its configured model and effort and the served tier `default` (Claude: none).
+- The second judge checked 10% of the `matches` and `adjudications` answers, every `reargued` match, and 10% of the other `reargued` answers. It agreed with 235 of 235 answers in `bench-115/A` plan, 55 of 55 in claude, 126 of 128 (0.98) in ud, 12 of 12 in delta, 126 of 126 in code, 10 of 10 in cdelta, 78 of 78 in `bench-115/Bw` code, 33 of 33 in ud115, 76 of 76 in `bench-115/Cb` code, and 13 of 13 in large.
+
+In the tables, an interval row gives the 90% interval of the difference from the first column of the pair. The intervals of a single report are its paired bootstrap intervals. The pooled delta and family intervals are case-resample intervals (20,000 resamples) from the run tables of the reports. Seconds median comes from the single-review table of each report.
+
+### User decisions
+
+| Measure | `main`, protected dev set | `main`, fresh protected set |
+|---|---:|---:|
+| Runs | 27 | 17 (1 blocked) |
+| Cases | 9 | 6 |
+| Protected decisions | 34 | 19 |
+| Re-argued decisions per run | 0.00 | 0.00 |
+| Known found per run | 1.56 | 1.94 |
+| Escaped per 50 known | 19.57 | 7.69 |
+| Wrong per run | 0.11 | 0.12 |
+| Seconds median | 437.5 | 306.5 |
+
+- `main` re-argued 0.00 protected decisions per run on the dev set (D2' also 0.00), on the fresh plan set (20 protected decisions, 112 runs of both arms), for the Claude reviewer (21 runs), and on the fresh protected set. Before the re-run of `ud-106-r1` was judged, the judge had answered `match` for findings on UD106-2 (a yolo decision, `git diff -D`), which gave 0.07 per run. The case judged again gives none.
+- By kind of protected decision, the rate is 0.00 per run for user choices, for request corrections, and for yolo decisions, on each set that holds the kind (the fresh protected set holds no yolo decisions).
+- Decoys on the fresh protected set: 11 of 14 valid decoy-runs found the decoy (D12-1 3 of 3, D14-1 2 of 2 valid, D16-1 3 of 3, D19-1 0 of 3, D23-1 3 of 3). Every run missed D19-1, a user choice to merge with `--delete-branch`.
+- Decision: 0.00 is below 0.10, so Vud was not written (step `user_fix` skipped), and the plan reviewer does not change.
+
+### Code reviewer: C1'
+
+| Measure | `B3` (`main`) | C1' |
+|---|---:|---:|
+| Runs | 40 | 40 |
+| Cases | 8 | 8 |
+| Known found per run | 2.52 | 2.65 |
+| Escaped per 50 known | 20.29 | 18.82 |
+| Round 1 recall difference, 90% interval | - | [0.00, 0.06] |
+| Escaped per 50 known difference, 90% interval | - | [-3.24, 0.00] |
+| Wrong per run | 0.00 | 0.03 |
+| Seconds median | 375.6 | 425.2 |
+
+Target subset and rest. The target subset is the three seeded repository-rules-and-text cases (`code-101-s115`, `code-46-s115`, `code-27-s115`, 9 known); the rest is the other 5 cases (25 known).
+
+| Measure | `B3`, target | C1', target | `B3`, rest | C1', rest |
+|---|---:|---:|---:|---:|
+| Runs | 15 | 15 | 25 | 25 |
+| Known found per run | 2.13 | 2.33 | 2.76 | 2.84 |
+| Escaped per 50 known | 14.44 | 11.11 | 22.40 | 21.60 |
+
+Decision: C1' lets fewer known defects escape, both intervals stay inside their bounds, its wrong findings are 0.03 more per run, and its unknown findings are 0.00 in both arms. C1' passes and ships with its contract sentence.
+
+### Delta-round effort
+
+| Measure | Plan, `xhigh` | Plan, `high` | Code, `xhigh` | Code, `high` |
+|---|---:|---:|---:|---:|
+| Runs | 36 | 36 | 24 | 24 |
+| Cases | 12 | 12 | 8 | 8 |
+| Known found per run | 0.89 | 0.83 | 1.21 | 1.13 |
+| Escaped per 50 known | 5.56 | 8.33 | 12.82 | 15.38 |
+| Round 1 recall difference, 90% interval | - | [-0.13, 0.00] | - | [-0.12, 0.00] |
+| Escaped per 50 known difference, 90% interval | - | [0.00, 6.06] | - | [0.00, 7.14] |
+| Wrong per run | 0.03 | 0.00 | 0.00 | 0.00 |
+| Seconds median, dev group | 169.9 | 104.9 | 233.7 | 133.0 |
+
+- The dev cases alone show no difference: 7.14 against 7.14 escaped per 50 known for plan delta (8 cases), and 13.64 against 13.64 for code delta (7 cases). The published held-out cases carry the whole difference: plan delta 3.33 at `xhigh` against 10.00 at `high` (4 cases), and code delta 8.33 against 25.00 (`code-111-r3-delta`).
+- Decision: for plan delta rounds, the escaped interval of `high` reaches 6.06, above 2, and its recall interval reaches -0.13, below -0.05. So the plan delta rule reverts to the configured effort. For code delta rounds, `high` fails the same bounds ([0.00, 7.14] and [-0.12, 0.00]), so the rule does not extend to code delta rounds. `high` took about 40% less time.
+
+### Plan reviewer: D2'
+
+| Measure | `Vmain`, fresh plan set | D2', fresh plan set | `Vmain`, protected dev set | D2', protected dev set |
+|---|---:|---:|---:|---:|
+| Runs | 56 | 56 | 27 | 27 |
+| Cases | 7 | 7 | 9 | 9 |
+| Known found per run | 2.86 | 2.86 | 1.56 | 1.41 |
+| Escaped per 50 known | 4.55 | 4.55 | 19.57 | 22.46 |
+| Round 1 recall difference, 90% interval | - | [-0.03, 0.03] | - | [-0.12, -0.01] |
+| Escaped per 50 known difference, 90% interval | - | [-1.56, 1.56] | - | [0.69, 6.25] |
+| Wrong per run | 0.00 | 0.00 | 0.11 | 0.15 |
+| Seconds median | 427.5 | 456.3 | 437.5 | 505.2 |
+
+Target subset and rest. The target subset is the 5 external-behavior defects of the fresh plan set (`PS20-1`, `PS20-2`, `PS22-1`, `PS31-1`, `PS89-1`); the rest is the other 17 known defects.
+
+| Measure | `Vmain`, target | D2', target | `Vmain`, rest | D2', rest |
+|---|---:|---:|---:|---:|
+| Runs | 56 | 56 | 56 | 56 |
+| Known found per run | 0.71 | 0.71 | 2.14 | 2.14 |
+| Escaped per 50 known | 0.00 | 0.00 | 5.88 | 5.88 |
+
+Both arms found each external-behavior defect in all 8 runs, so this set could not show a gain of D2' on its target kind.
+
+Decision: on the fresh plan set, D2' does not let fewer known defects escape (4.55 against 4.55 per 50 known), so it fails and does not ship. On the protected dev set, which does not decide, D2' was worse.
+
+### Second model family
+
+| Measure | GPT, one run | Claude, one run | Union, GPT and Claude | Union, two GPT runs |
+|---|---:|---:|---:|---:|
+| Runs | 56 | 21 | - | - |
+| Cases | 7 | 7 | 7 | 7 |
+| Known found per run | 2.86 | 2.76 | - | - |
+| Escaped per 50 known | 4.55 | 6.06 | 3.50 | 2.27 |
+| Escaped per 50 known difference from the two-GPT union, 90% interval | - | - | [0.04, 3.62] | - |
+| Wrong per run | 0.00 | 0.19 | 0.19 | 0.00 |
+| Seconds median | 427.5 | 644.4 | - | - |
+
+The union script gives only the escaped and wrong rates of the unions, and no recall interval. Decision: the union of one GPT run and one Claude run lets more known defects escape than the union of two GPT runs, and its interval does not stay below 0. A second family adds less than a second GPT run, so the optional contract rule does not ship.
+
+### Code reviewer: web search (Cweb)
+
+| Measure | `B3` (`main`) | Cweb |
+|---|---:|---:|
+| Runs | 24 | 24 |
+| Cases | 8 | 8 |
+| Known found per run | 2.63 | 2.63 |
+| Escaped per 50 known | 19.12 | 19.12 |
+| Round 1 recall difference, 90% interval | - | [-0.06, 0.08] |
+| Escaped per 50 known difference, 90% interval | - | [-4.17, 2.92] |
+| Wrong per run | 0.13 | 0.04 |
+| Seconds median | 341.1 | 356.0 |
+
+Target subset and rest. The target subset is the two seeded external-behavior cases (`code-16-s115`, `code-12-s115`, 6 known); the rest is the other 6 cases (28 known).
+
+| Measure | `B3`, target | Cweb, target | `B3`, rest | Cweb, rest |
+|---|---:|---:|---:|---:|
+| Runs | 6 | 6 | 18 | 18 |
+| Known found per run | 3.00 | 2.83 | 2.50 | 2.56 |
+| Escaped per 50 known | 0.00 | 2.78 | 23.21 | 22.62 |
+
+On its target cases, Cweb missed one known defect in one run that `B3` found in every run.
+
+Decision: Cweb does not let fewer known defects escape, and its escaped interval reaches 2.92, above 2. It fails and does not ship. Its web searches went only to official documentation pages.
+
+### Code reviewer: blocked on unread hunks (Cblk)
+
+| Measure | `B3` (`main`) | Cblk | `B3`, `code-111-r1` | Cblk, `code-111-r1` |
+|---|---:|---:|---:|---:|
+| Runs | 24 | 24 | 3 | 3 |
+| Cases | 8 | 8 | 1 | 1 |
+| Known found per run | 2.75 | 2.79 | 3.67 | 3.00 |
+| Escaped per 50 known | 17.65 | 17.16 | 34.72 | 37.50 |
+| Round 1 recall difference, 90% interval | - | [-0.03, 0.03] | - | [-0.06, -0.06] |
+| Escaped per 50 known difference, 90% interval | - | [-1.67, 1.39] | - | [2.78, 2.78] |
+| Wrong per run | 0.21 | 0.04 | 0.00 | 0.00 |
+| Seconds median | 311.4 | 294.8 | 378.2 | 293.0 |
+
+Decision: no Cblk run returned a `blocked` verdict, also on the large readable case `code-111-r1`. On the 8 held-out cases, Cblk lets fewer known defects escape, both intervals stay inside their bounds, and its unknown findings are 0.00 in both arms. Cblk passes and ships. The large case has one case and 3 runs, so it does not decide.
+
+### LOW rule in real runs
+
+- Plan #113: the code review passed in round 3 with no open finding, so the LOW rule did not apply.
+- Plan #115: code-review round 1 passed in all three lenses. Its findings and those of the self-review gave 11 distinct findings, the highest MEDIUM. The manager repaired 9 of them before round 2. Round 2 (delta) passed with 3 LOW findings: the 2 round-1 findings that the first repair missed (a stale skill date and the a6 expected tree) and a wrong count in this record. The manager repaired them before round 3. The final round of the review is outside these reviewed bytes, so the Verification Results of plan #115 and its run summary record it, with whether the LOW rule applied.
+
+### Limits
+
+- C1' and Cblk both change the code reviewer. They apply in the order of plan #115 decision 6 (C1', then Cblk), and their diffs did not conflict apart from the `content_hash` field of the code-reviewer skill. The combination was not measured as a whole.
+- C1' ran without its contract sentence on 6 of the 8 code cases, because the snapshot contracts of the seeded cases do not hold the sentence.
+- The family comparison includes a judge difference: a GPT judge judged the Claude findings and Claude judges judged the GPT findings. No third family ran here.
+- The fresh plan set was easy: `main` found 2.86 of 3.14 known defects per run, so it left little room for D2' to show a gain.
+- The control spread across batches: `B3` (the same `main` reviewer) let 20.29, 19.12, and 17.65 known defects per 50 known escape in batches A, B, and C on the same 8 cases. This spread is larger than the measured gain of each code candidate.
+- Six of the new delta dev cases show, in their previous review, findings that are known defects of published held-out cases (`code-98-r1`, `code-102-r3`, `plan-103-r1`, `plan-109-r2`, `plan-111-r1`, and `plan-98-r6`).
+
+### What shipped
+
+- C1' with its contract sentence, then Cblk, applied to `main` in that order. The plan delta effort rule is reverted: every review round runs at the configured effort.
+- Code review of plan #115 repaired two gaps of Cblk that the benchmark did not measure: the code-reviewer skill now defines the diff of each mode (the full diff, the lens's focus diff in a panel round, the delta diff), and the plan contract, the plan-manager skill, and the yolo skill dispatch a code reviewer again when it returns `blocked` for unread hunks.
+- D2', Cweb, the second-family option, and the code delta effort rule did not ship.
+- The candidate diffs stay in `variants/plan-115-cand-d2p.patch`, `variants/code-115-cand-c1p.patch`, `variants/code-115-cand-web.patch`, and `variants/code-115-cand-blk.patch`.

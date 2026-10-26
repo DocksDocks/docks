@@ -1,0 +1,26 @@
+diff --git a/.agents/skills/review-benchmark/scripts/prepare.mjs b/.agents/skills/review-benchmark/scripts/prepare.mjs
+index 8b238c9c..47dd4fc1 100755
+--- a/.agents/skills/review-benchmark/scripts/prepare.mjs
++++ b/.agents/skills/review-benchmark/scripts/prepare.mjs
+@@ -838,7 +838,7 @@ function writeContractCopy(snapshot, diff, copy) {
+   if (applied.status === 0) return 'applied';
+   const lines = new Set(fs.readFileSync(contract, 'utf8').split('\n'));
+   const removed = removedText(patch);
+-  if (removed.length && !removed.some((line) => lines.has(line))) return 'not applicable';
++  if (!removed.every((line) => lines.has(line))) return 'not applicable';
+   fail(`the contract change does not apply to ${contract} for the run ${dir}: ${applied.stderr.toString().trim()}`);
+ }
+ 
+diff --git a/scripts/tests/unit/review-benchmark.test.mjs b/scripts/tests/unit/review-benchmark.test.mjs
+index c129e66f..464a05d1 100644
+--- a/scripts/tests/unit/review-benchmark.test.mjs
++++ b/scripts/tests/unit/review-benchmark.test.mjs
+@@ -3962,7 +3962,7 @@ test('case --arms S1,S3 writes one self-review prompt on the full diff and one p
+ // The agent text names the agent file in backticks, so the path of the project folder can have a space.
+ for (const folder of ['project', 'review project']) {
+   test(`transcripts lets a self-review agent in "${folder}" read its own agent file and no other agent file`, (t) => {
+-    const { root, agentDir } = selfReviewAgents(t, folder);
++    const { root, agentDir } = selfReviewAgents(t);
+     const ws = path.join(root, 'ws');
+     const sessions = path.join(root, 'sessions');
+     const caseDir = path.join(ws, 'code-7');

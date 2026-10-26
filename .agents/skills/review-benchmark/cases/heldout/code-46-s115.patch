@@ -1,0 +1,64 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 3fa20517..287df18c 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -5,7 +5,7 @@ user-invocable: true
+ metadata:
+   pattern: tool-wrapper
+   updated: "2026-09-09"
+-  content_hash: "01ad2e1eba8203c06281095b2ed264c12facd3982188cd9af57fce90afc493ee"
++  content_hash: "1e1c46c2ea4974a1faa4a140fd0ab48dde3a87ff04e1ad5b5414608737295b03"
+ ---
+ 
+ # Plan Manager
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 081e0ce0..92852b60 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -232,8 +232,9 @@ Re-list after failure. Stop without a verified link.
+ After code review passes, commit and push reviewed bytes and open a closing pull request.
+ Checks policy: wait up to five minutes for checks to appear, then wait for every
+ check to complete. A failed or cancelled check blocks the merge question until the
+-fix is reviewed. When the repository has no configured checks, treat the green local
+-gate as the check result and say so in the merge question.
++fix is reviewed. When the repository has no configured checks, run `node scripts/ci.mjs`
++as the local gate, treat its green result as the check result, and say so in the
++merge question.
+ Ask afresh: `Merge now` or `Leave pull request open`. Without `Merge now`, leave both
+ records open. Merge with `--match-head-commit` for the reviewed head.
+ A prior plan approval never authorizes merge.
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 192df479..c1923290 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -371,7 +371,7 @@ function sectionMap(body) {
+     const name = SECTIONS.find((known) => known.toLowerCase() === title.toLowerCase());
+     if (!name && !RETIRED_SECTIONS.has(title.toLowerCase()))
+       fail(
+-        `unknown section heading: ${title}; use only ${SECTIONS.join(', ')} or write it below an existing section as ### or plain text`,
++        `unknown section heading: ${title}; use only ${SECTIONS.join(', ')}, or demote it to ### inside an existing section`,
+       );
+     const key = name ?? title;
+     if (sections.has(key)) fail(`duplicate section heading: ${key}`);
+@@ -536,7 +536,7 @@ export function parseReviewComment(body) {
+   if (
+     kind === 'code' &&
+     verdict === 'pass' &&
+-    lines.some((line) => /^\s*(?:[-*]\s+)?(?:\[(?:critical|high)\]|(?:critical|high):)/i.test(line))
++    lines.some((line) => /^\s*(?:[-*]\s+)?\[?(?:critical|high)\]?:?/i.test(line))
+   )
+     verdict = 'fixes-required';
+   return { kind, verdict };
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index f15ad156..49225b30 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -604,7 +604,7 @@ try {
+   );
+   refuse(
+     edit(explicitNumber, (text) => text.replace('## Acceptance', '## Context\n\nDetails.\n\n## Acceptance')),
+-    'unknown section heading: Context; use only Goal, Research, Steps, Acceptance, Do not touch, Open questions, Verification Results or write it below an existing section as ### or plain text',
++    'unknown section heading: Context; use only Goal, Research, Steps, Acceptance, Do not touch, Open questions, Verification Results, or demote it to ### inside an existing section',
+   );
+   const embedded = run('new', '--title', 'embedded mode', '--goal', 'Ship it.\nMode: plan-and-implement');
+   expectSuccess(embedded, 'new with embedded mode only');

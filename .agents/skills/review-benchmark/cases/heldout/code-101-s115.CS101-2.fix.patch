@@ -1,0 +1,26 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 0a0c6979..8522c856 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -5,7 +5,7 @@ user-invocable: true
+ metadata:
+   pattern: tool-wrapper
+   updated: "2026-10-23"
+-  content_hash: "8ac749195d1260cea0e5a148db16a5a28577f9333860f0a58495b2b13ffc7300"
++  content_hash: "058b936f0f12abf14c8e1718997170c992c98570214e0e66871e76cc4ece6a97"
+ ---
+ 
+ # Plan Manager
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index f84d4e1e..02d86577 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -194,7 +194,7 @@ agents define the exact block they return, and that block follows these rules.
+ - A verdict line holds `plan-review:` or `code-review:`, then a verdict word.
+   A space can replace the hyphen.
+ - On each line, the helper ignores Markdown emphasis (`*`, `_`), code marks,
+-  blockquote markers, and list markers.
++  blockquote markers, and list markers when it reads a kind or a verdict.
+ 
+ | Verdict input | Plan result | Code result |
+ |---|---|---|

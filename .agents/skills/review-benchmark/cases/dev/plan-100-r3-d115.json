@@ -1,0 +1,22 @@
+{
+  "id": "plan-100-r3-d115",
+  "kind": "plan-delta",
+  "split": "dev",
+  "issue": 100,
+  "round": 3,
+  "repo_ref": "936ad562f84fe73f41753853ddde51edb7be57e5",
+  "previous_body": "plan-100-r3-d115-previous-body.md",
+  "plan": "plan-100-r3-d115-plan.md",
+  "previous_review": "plan-100-r3-d115-previous-review.md",
+  "show_benchmark": true,
+  "known": [
+    {
+      "id": "PD100R3-1",
+      "kind": "goal_fit",
+      "title": "Decision 4 keeps the old invalid-run rule without the model, but step 2 makes a run with a fallback-model message invalid",
+      "locator": "Research, Decisions 4 (line 55); Steps, row 2 scorer_report, Task and Done when (line 78); Research, Reviewer model settings (line 31)",
+      "source": "seeded",
+      "summary": "The round-3 repair adds the usage fallback to another model in Research (line 31). It adds the model to the invalid-run rule of step 2, and the step 2 Done when tests a run with a fallback-model message as invalid (line 78). Decision 4 (line 55) still makes a run invalid only when its transcript shows another effort or tier. So step 2 contradicts the decision that it implements, and the report of decision 4 keeps a run that the fallback moved to another model. Decision 4 also takes time and tokens only from the messages of the configured model, so that run shows less time and fewer tokens, and the findings of the other model count for the configuration."
+    }
+  ]
+}

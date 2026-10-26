@@ -1,0 +1,13 @@
+diff --git a/scripts/tests/unit/review-benchmark.test.mjs b/scripts/tests/unit/review-benchmark.test.mjs
+index 464a05d1..c129e66f 100644
+--- a/scripts/tests/unit/review-benchmark.test.mjs
++++ b/scripts/tests/unit/review-benchmark.test.mjs
+@@ -3962,7 +3962,7 @@ test('case --arms S1,S3 writes one self-review prompt on the full diff and one p
+ // The agent text names the agent file in backticks, so the path of the project folder can have a space.
+ for (const folder of ['project', 'review project']) {
+   test(`transcripts lets a self-review agent in "${folder}" read its own agent file and no other agent file`, (t) => {
+-    const { root, agentDir } = selfReviewAgents(t);
++    const { root, agentDir } = selfReviewAgents(t, folder);
+     const ws = path.join(root, 'ws');
+     const sessions = path.join(root, 'sessions');
+     const caseDir = path.join(ws, 'code-7');

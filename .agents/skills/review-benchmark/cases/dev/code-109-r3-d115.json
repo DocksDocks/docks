@@ -1,0 +1,36 @@
+{
+  "id": "code-109-r3-d115",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 109,
+  "round": 3,
+  "base": "6545f804fa9b29b586906b9542337fed1471f031",
+  "delta_base": "3e7c0ec299e70783d54e3285bbb63455825a17c4",
+  "head": "783eb7109765512a5766ed5201d79ce53a3f8487",
+  "patch": "code-109-r3-d115.patch",
+  "plan": "code-109-r3-d115-plan.md",
+  "previous_review": "code-109-r3-d115-previous-review.md",
+  "show_benchmark": true,
+  "known": [
+    {
+      "id": "S109-1",
+      "title": "The overlay fallback gives `not applicable` when the contract holds only some of the removed lines",
+      "locator": ".agents/skills/review-benchmark/scripts/prepare.mjs:819-842; .agents/skills/review-benchmark/SKILL.md:112; scripts/tests/unit/review-benchmark.test.mjs:5902-5970",
+      "severity": "MEDIUM",
+      "category": "code",
+      "source": "seeded",
+      "summary": "writeContractCopy returns `not applicable` when one removed line is missing from the snapshot contract (prepare.mjs:841). Its comment (lines 819-824), SKILL.md line 112, and the test header (review-benchmark.test.mjs:5643) give `not applicable` only to a contract that holds no removed line, and say that every other failure of `git apply` stops `case`. So when the contract holds one removed line, for example the settled-decision sentence of decision 7, and another removed line differs, the run records `not applicable` and measures the variant without its contract change. This is the hidden failure that the round-2 finding reported. The new test (lines 5902-5970) uses only contracts with all or none of the removed lines, so it still passes.",
+      "fix": "code-109-r3-d115.S109-1.fix.patch"
+    },
+    {
+      "id": "S109-2",
+      "title": "The self-review test for a project folder with a space does not give the folder to its fixture",
+      "locator": "scripts/tests/unit/review-benchmark.test.mjs:3962-3965; scripts/tests/unit/review-benchmark.test.mjs:3819; .agents/skills/review-benchmark/scripts/score.mjs:122-131",
+      "severity": "LOW",
+      "category": "test",
+      "source": "seeded",
+      "summary": "The test loop at review-benchmark.test.mjs:3963-3965 names the folder `review project`, but it calls `selfReviewAgents(t)` without the folder. So both runs use the folder `project`, and no test has a self-review agent file path with a space. The repair changed SELF_REVIEW_AGENT_FILE and its reader for quoted paths (score.mjs:122-131 and 1724), but a revert of that change passes every test. No caller sets the new `projectFolder` parameter of selfReviewAgents (line 3819).",
+      "fix": "code-109-r3-d115.S109-2.fix.patch"
+    }
+  ]
+}

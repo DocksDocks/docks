@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 417c3818..c324a0d2 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -347,7 +347,7 @@ function repositoryCoordinates() {
+ }
+ 
+ function archivePullRequestReferences(issueNumber) {
+-  const { owner, name } = repositoryCoordinates();
++  const { owner, repo: name } = repositoryCoordinates();
+   const closing = [];
+   let closingCommitOid;
+   let closerPullRequest;

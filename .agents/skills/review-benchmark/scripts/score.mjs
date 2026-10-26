@@ -440,15 +440,36 @@ function requireKnownList(caseId, known) {
   return known;
 }
 
+// The protected decisions of a case: one { id, section, summary } per decision that the user made or delegated, such as
+// a request correction or a decision that a yolo plan records, which a reviewer must not re-argue (see the `protected`
+// row of the Cases table in SKILL.md). The judge names them by id, so each id is a string, once.
+function requireProtectedList(caseId, decisions) {
+  if (!Array.isArray(decisions) || decisions.some((item) => typeof item?.id !== 'string'))
+    fail(`the protected decisions of ${caseId} must be a list of items with a string id`);
+  if (new Set(decisions.map((item) => item.id)).size !== decisions.length)
+    fail(`${caseId} repeats a protected decision id`);
+  return decisions;
+}
+
 const keyFile = (dir, caseId) => path.join(dir, `${caseId}.key.json`);
 
-// The known defects in `<dir>/<caseId>.key.json`: a list, or an object with a `known` list. The result is undefined
-// when the file does not exist. Every reader of a key file uses this function.
-export function readKey(dir, caseId) {
+// The known defects and the protected decisions in `<dir>/<caseId>.key.json`: a list of known defects, or an object
+// with a `known` list and an optional `protected` list. A list, or an object without `protected`, gives no protected
+// decisions. The result is undefined when the file does not exist. Every reader of a key file uses this function.
+function readKeyFile(dir, caseId) {
   const file = keyFile(dir, caseId);
   if (!fs.existsSync(file)) return undefined;
   const key = readJson(file);
-  return requireKnownList(caseId, Array.isArray(key) ? key : key?.known);
+  if (Array.isArray(key)) return { known: requireKnownList(caseId, key), protected: [] };
+  return {
+    known: requireKnownList(caseId, key?.known),
+    protected: requireProtectedList(caseId, key.protected ?? []),
+  };
+}
+
+// The known defects in `<dir>/<caseId>.key.json` (see readKeyFile), or undefined when the file does not exist.
+export function readKey(dir, caseId) {
+  return readKeyFile(dir, caseId)?.known;
 }
 
 // The case file `<casesDir>/<split>/<caseId>.json`, else `<casesDir>/<caseId>.json`.
@@ -460,22 +481,30 @@ export function caseFilePath(casesDir, caseId, split) {
   return caseFile;
 }
 
-// The known defects of a case: inline in a development case, or in the key file of a held-out case. With `keys`,
-// the key file is `<keys>/<id>.key.json`, and the key file next to the case file stays unread. `dir` is the folder
-// of the files that the known defects name, such as their fix patches: the case folder for inline defects, else the
-// folder of the key file.
+// The known defects and the protected decisions of a case: inline in a development case, or in the key file of a
+// held-out case. With `keys`, the key file is `<keys>/<id>.key.json`, and the key file next to the case file stays
+// unread. `dir` is the folder of the files that the known defects name, such as their fix patches: the case folder for
+// inline defects, else the folder of the key file.
 export function readKnown(casesDir, caseId, split, keys) {
   const caseFile = caseFilePath(casesDir, caseId, split);
   const data = readJson(caseFile);
-  if (data.known !== undefined)
-    return { kind: data.kind, known: requireKnownList(caseId, data.known), dir: path.dirname(caseFile) };
+  if (data.known !== undefined) {
+    return {
+      kind: data.kind,
+      known: requireKnownList(caseId, data.known),
+      protected: requireProtectedList(caseId, data.protected ?? []),
+      dir: path.dirname(caseFile),
+    };
+  }
   const keyDir = keys ?? path.dirname(caseFile);
-  const known = readKey(keyDir, caseId);
-  if (known === undefined) fail(`${keyFile(keyDir, caseId)} is missing and ${caseFile} has no known defects`);
-  return { kind: data.kind, known, dir: keyDir };
+  const key = readKeyFile(keyDir, caseId);
+  if (key === undefined) fail(`${keyFile(keyDir, caseId)} is missing and ${caseFile} has no known defects`);
+  return { kind: data.kind, known: key.known, protected: key.protected, dir: keyDir };
 }
 
-// Each review round of a run is one judge run with its own label. A run without round folders keeps its label.
+// Each review round of a run is one judge run with its own label. A run without round folders keeps its label. Each
+// finding pairs with each protected decision of its case without the shared-file rule of code pairs, because a finding
+// can re-argue a decision from any file.
 export function buildPairs(findingsDoc, cases) {
   const result = new Map();
   const labels = new Map();
@@ -483,15 +512,15 @@ export function buildPairs(findingsDoc, cases) {
   const runEntry = ({ case: caseId, arm, run, round }) => {
     if (!result.has(caseId)) {
       if (!cases[caseId]) fail(`no known defects for case ${caseId}`);
-      const { kind, split, known } = cases[caseId];
-      result.set(caseId, { case: caseId, kind, split: split ?? null, known, runs: new Map() });
+      const { kind, split, known, protected: decisions = [] } = cases[caseId];
+      result.set(caseId, { case: caseId, kind, split: split ?? null, known, protected: decisions, runs: new Map() });
     }
     const label = runLabel(caseId, arm, runPath(run, round));
     const key = `${caseId}/${arm}/${runPath(run, round)}`;
     if (labels.has(label) && labels.get(label) !== key) fail(`run label collision: ${key} and ${labels.get(label)}`);
     labels.set(label, key);
     const runs = result.get(caseId).runs;
-    if (!runs.has(label)) runs.set(label, { run: label, findings: [], pairs: [] });
+    if (!runs.has(label)) runs.set(label, { run: label, findings: [], pairs: [], protectedPairs: [] });
     return runs.get(label);
   };
   for (const block of findingsDoc.blocks) runEntry(block);
@@ -499,12 +528,13 @@ export function buildPairs(findingsDoc, cases) {
     if (blinds.has(finding.blind)) fail(`finding id collision: ${finding.id} and ${blinds.get(finding.blind)}`);
     blinds.set(finding.blind, finding.id);
     const target = runEntry(finding);
-    const { kind, known } = result.get(finding.case);
+    const { kind, known, protected: decisions } = result.get(finding.case);
     const { severity, category, locator, text } = finding;
     target.findings.push({ finding: finding.blind, severity, category, locator, text });
     for (const item of known) {
       if (pairWanted(caseFamily(kind), finding, item)) target.pairs.push({ finding: finding.blind, known: item.id });
     }
+    for (const item of decisions) target.protectedPairs.push({ finding: finding.blind, protected: item.id });
   }
   const sortedCases = [...result.values()].sort((a, b) => compare(a.case, b.case));
   return {
@@ -513,12 +543,16 @@ export function buildPairs(findingsDoc, cases) {
       kind: entry.kind,
       split: entry.split,
       known: entry.known,
+      protected: entry.protected,
       runs: [...entry.runs.values()]
         .sort((a, b) => compare(a.run, b.run))
         .map((run) => ({
           run: run.run,
           findings: run.findings.sort((a, b) => compare(a.finding, b.finding)),
           pairs: run.pairs.sort((a, b) => compare(a.finding, b.finding) || compare(a.known, b.known)),
+          protectedPairs: run.protectedPairs.sort(
+            (a, b) => compare(a.finding, b.finding) || compare(a.protected, b.protected),
+          ),
         })),
     })),
   };
@@ -541,7 +575,8 @@ function recordOnce(map, key, value, label) {
   map.set(key, value);
 }
 
-function readJudgments(judgments, byBlind, knownByCase) {
+// `knownByCase` and `protectedByCase` map each case to the ids of its known defects and of its protected decisions.
+function readJudgments(judgments, byBlind, knownByCase, protectedByCase) {
   const verdicts = new Map();
   const ratings = new Map();
   for (const entry of judgments.matches ?? []) {
@@ -557,6 +592,18 @@ function readJudgments(judgments, byBlind, knownByCase) {
     if (!RATINGS.has(entry.rating)) fail(`judgments.json has rating ${entry.rating}`);
     recordOnce(ratings, entry.finding, entry.rating, entry.finding);
   }
+  const rearguedAnswers = new Map();
+  for (const entry of judgments.reargued ?? []) {
+    const finding = byBlind.get(entry.finding);
+    if (!finding) fail(`judgments.json names unknown finding ${entry.finding}`);
+    if (!protectedByCase.get(finding.case).includes(entry.protected))
+      fail(
+        `judgments.json pairs ${entry.finding} with ${entry.protected}, which is not a protected decision of its case`,
+      );
+    if (!MATCH_VERDICTS.has(entry.verdict)) fail(`judgments.json has reargued verdict ${entry.verdict}`);
+    const pair = `${entry.finding} ${entry.protected}`;
+    recordOnce(rearguedAnswers, pair, entry.verdict, `${entry.finding} and ${entry.protected}`);
+  }
   // `match` pairs count as found. `unknown` pairs stay, because a known defect that a run did not find can still
   // hide behind one of them.
   const matched = new Map();
@@ -568,7 +615,17 @@ function readJudgments(judgments, byBlind, knownByCase) {
     if (!target.has(finding)) target.set(finding, new Set());
     target.get(finding).add(known);
   }
-  return { verdicts, matched, unsure, ratings };
+  // A reargued `match` names a protected decision that the finding re-argues. It finds no known defect and does not
+  // judge the finding, so the finding still needs a `match` answer for a known defect or a rating. A reargued
+  // `unknown` is no unknown pair, because no known defect can hide behind it.
+  const reargued = new Map();
+  for (const [pair, verdict] of rearguedAnswers) {
+    if (verdict !== 'match') continue;
+    const [finding, id] = pair.split(' ');
+    if (!reargued.has(finding)) reargued.set(finding, new Set());
+    reargued.get(finding).add(id);
+  }
+  return { verdicts, matched, unsure, ratings, rearguedAnswers, reargued };
 }
 
 // The judge's answers in `<ws>/judgments.json`. The operator skips the judge when no finding needs an answer, so a
@@ -589,8 +646,22 @@ function requirePairAnswers(pairs, verdicts) {
   fail(`judgments.json has no match answer for ${missing.length} candidate pairs of pairs.json: ${listSome(missing)}`);
 }
 
+// A protected pair without an answer would hide a re-argued decision, so the report refuses judgments that skip one,
+// as it refuses a candidate pair without an answer. `pairs` lists { finding, protected } with blind finding ids. The
+// fix step of a loop reads no reargued answer: a protected decision has no fix.
+function requireRearguedAnswers(pairs, answers) {
+  const missing = pairs
+    .filter((pair) => !answers.has(`${pair.finding} ${pair.protected}`))
+    .map((pair) => `${pair.finding} and ${pair.protected}`);
+  if (missing.length === 0) return;
+  fail(
+    `judgments.json has no reargued answer for ${missing.length} protected pairs of pairs.json: ${listSome(missing)}`,
+  );
+}
+
 // A finding with neither a `match` answer nor a rating would count as unjudged, so the report stops on it, as it
-// stops on a candidate pair without an answer. The fix step of a loop stops on it too, because it cannot decide it.
+// stops on a candidate pair without an answer. The fix step of a loop stops on it too, because it cannot decide it. A
+// reargued `match` answer (`reargued`) is no `match` answer here: it says nothing about the defect of the finding.
 function requireJudgedFindings(findings, judgments) {
   const judged = new Set([
     ...(judgments.matches ?? []).filter((entry) => entry.verdict === 'match').map((entry) => entry.finding),
@@ -695,12 +766,14 @@ export function loopEnds(round, { fixes, extras }) {
 }
 
 // Sorts findings by the judge's answers: the known defects that they found, the known defects of their `unknown`
-// pairs, the count of `unknown` pairs, and the ratings of the findings without a `match` answer.
-function judgeFindings(findings, { matched, unsure, ratings }) {
+// pairs, the count of `unknown` pairs, the protected decisions that they re-argue, and the ratings of the findings
+// without a `match` answer. A re-argued decision changes no other count, so the finding keeps its rating.
+function judgeFindings(findings, { matched, unsure, ratings, reargued }) {
   const result = {
     found: new Set(),
     doubtful: new Set(),
     unknownPairs: 0,
+    reargued: new Set(),
     validExtras: 0,
     wrong: 0,
     unknown: 0,
@@ -711,6 +784,7 @@ function judgeFindings(findings, { matched, unsure, ratings }) {
       result.doubtful.add(id);
       result.unknownPairs += 1;
     }
+    for (const id of reargued.get(finding.blind) ?? []) result.reargued.add(id);
     const hits = matched.get(finding.blind);
     if (hits) {
       for (const id of hits) result.found.add(id);
@@ -835,9 +909,12 @@ function runFacts(entries) {
 // round; its verdicts are those of its last round. A known defect is unresolved in a run when the run did not find it
 // and the judge answered `unknown` for a pair of it with at least one finding of the run. `unknownPairs` counts every
 // `unknown` pair answer of the run, also those that cannot change recall, such as a finding that may repeat a known
-// defect the run found.
+// defect the run found. `reargued` lists the protected decisions of the case that a finding of the run re-argues (a
+// reargued `match` answer), each once, in the order of the case's list. They are no known defects, so they count in
+// neither `known` nor recall.
 function scoreRun(run, caseEntry, judged, metas) {
   const knownIds = caseEntry.known.map((item) => item.id);
+  const protectedIds = (caseEntry.protected ?? []).map((item) => item.id);
   const metaOf = (round) => metas[run.hasRounds ? `${run.key}/round-${round}` : run.key];
   const config = metas[run.key]?.config ?? metaOf(1)?.config ?? null;
   const rounds = [...run.rounds.values()].sort((a, b) => a.round - b.round);
@@ -890,6 +967,7 @@ function scoreRun(run, caseEntry, judged, metas) {
     extraOnlyRounds,
     unresolved: knownIds.filter((id) => all.doubtful.has(id) && !all.found.has(id)).length,
     unknownPairs: all.unknownPairs,
+    reargued: protectedIds.filter((id) => all.reargued.has(id)),
     seconds: total(roundScores.map((round) => round.seconds)),
     tokens: total(roundScores.map((round) => round.tokens)),
     fixerSeconds: sum(roundScores.map((round) => round.fixerSeconds)),
@@ -907,6 +985,10 @@ function scoreRun(run, caseEntry, judged, metas) {
 export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, metas = {} }) {
   const caseEntries = new Map(pairsDoc.cases.map((entry) => [entry.case, entry]));
   const knownByCase = new Map(pairsDoc.cases.map((entry) => [entry.case, entry.known.map((item) => item.id)]));
+  // A pairs.json of an earlier version has no protected decisions and no protected pairs.
+  const protectedByCase = new Map(
+    pairsDoc.cases.map((entry) => [entry.case, (entry.protected ?? []).map((item) => item.id)]),
+  );
   const byBlind = new Map(findingsDoc.findings.map((finding) => [finding.blind, finding]));
   const runs = new Map();
   const roundOf = ({ case: caseId, arm, run, round }) => {
@@ -922,10 +1004,14 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
     if (!knownByCase.has(block.case)) fail(`pairs.json has no case ${block.case}; run score.mjs pairs first`);
     roundOf(block).blocks.push(block);
   }
-  const judged = readJudgments(judgments, byBlind, knownByCase);
+  const judged = readJudgments(judgments, byBlind, knownByCase, protectedByCase);
   requirePairAnswers(
     pairsDoc.cases.flatMap((entry) => entry.runs.flatMap((run) => run.pairs)),
     judged.verdicts,
+  );
+  requireRearguedAnswers(
+    pairsDoc.cases.flatMap((entry) => entry.runs.flatMap((run) => run.protectedPairs ?? [])),
+    judged.rearguedAnswers,
   );
   for (const finding of findingsDoc.findings) roundOf(finding).findings.push(finding);
   const runScores = [...runs.values()]
@@ -949,6 +1035,7 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
     unknown: mean(runsOfArm, 'unknown'),
     unresolved: mean(runsOfArm, 'unresolved'),
     unknownPairs: mean(runsOfArm, 'unknownPairs'),
+    reargued: summarize(runsOfArm.map((run) => run.reargued.length)).mean,
     seconds: summarize(runsOfArm.map((run) => run.seconds)),
     tokens: summarize(runsOfArm.map((run) => run.tokens)),
   }));
@@ -1006,12 +1093,17 @@ export function pairedBootstrap(cases, { seed = 1, resamples = 10000, level = 0.
   };
 }
 
-// Compares each answer of a second judge with the same answer of the first judge.
+// Compares each answer of a second judge with the same answer of the first judge: a `matches` answer with the answer
+// of the same finding and known defect, an adjudication with the rating of the same finding, and a `reargued` answer
+// with the reargued answer of the same finding and protected decision.
 export function judgeAgreement(judgments, second) {
   const verdicts = new Map(
     (judgments.matches ?? []).map((entry) => [`${entry.finding} ${entry.known}`, entry.verdict]),
   );
   const ratings = new Map((judgments.adjudications ?? []).map((entry) => [entry.finding, entry.rating]));
+  const reargued = new Map(
+    (judgments.reargued ?? []).map((entry) => [`${entry.finding} ${entry.protected}`, entry.verdict]),
+  );
   let answers = 0;
   let agreed = 0;
   for (const entry of second.matches ?? []) {
@@ -1028,6 +1120,16 @@ export function judgeAgreement(judgments, second) {
     if (!RATINGS.has(entry.rating)) fail(`judgments-second.json has rating ${entry.rating}`);
     answers += 1;
     if (ratings.get(entry.finding) === entry.rating) agreed += 1;
+  }
+  for (const entry of second.reargued ?? []) {
+    const pair = `${entry.finding} ${entry.protected}`;
+    if (!reargued.has(pair))
+      fail(
+        `judgments-second.json answers ${entry.finding} and ${entry.protected}, which judgments.json does not answer`,
+      );
+    if (!MATCH_VERDICTS.has(entry.verdict)) fail(`judgments-second.json has reargued verdict ${entry.verdict}`);
+    answers += 1;
+    if (reargued.get(pair) === entry.verdict) agreed += 1;
   }
   return { answers, agreed, rate: answers ? agreed / answers : null };
 }
@@ -1052,6 +1154,7 @@ const SUMMARY_COLUMNS = [
   ['Unknown mean', (entry) => ratio(entry.unknown), true],
   ['Unresolved mean', (entry) => ratio(entry.unresolved), true],
   ['Unknown pairs mean', (entry) => ratio(entry.unknownPairs), true],
+  ['Re-argued mean', (entry) => ratio(entry.reargued), true],
   ['Seconds median', (entry) => oneDecimal(entry.seconds.median), true],
   ['Seconds min', (entry) => oneDecimal(entry.seconds.min), true],
   ['Seconds max', (entry) => oneDecimal(entry.seconds.max), true],
@@ -1071,6 +1174,7 @@ const RUN_COLUMNS = [
   ['Unjudged', (run) => run.unjudged, true],
   ['Unresolved', (run) => run.unresolved, true],
   ['Unknown pairs', (run) => run.unknownPairs, true],
+  ['Re-argued', (run) => run.reargued.join(', ') || '-'],
   ['Seconds', (run) => oneDecimal(run.seconds), true],
   ['Tokens', (run) => whole(run.tokens), true],
   ['Round verdict', (run) => run.roundVerdict],
@@ -2247,11 +2351,13 @@ function caseChangedFiles(caseDir, family, round, dir) {
 const JUDGED_FIELDS = ['severity', 'category', 'locator', 'text'];
 // The files of the judge answers, by finding: the answers of the first judge and of the second judge.
 const JUDGMENT_FILES = ['judgments.json', 'judgments-second.json'];
+// The fields of a judgment file whose entries answer one finding each.
+const ANSWER_FIELDS = ['matches', 'adjudications', 'reargued'];
 
 // The answers of a judge hold for the text that the judge read. A finding of `previous` that `current` does not have,
-// or whose judged fields changed, is stale: the function removes each `matches` and `adjudications` entry of its
-// blind id from each judgment file of `ws` that exists. It returns the stable ids of the stale findings that had an
-// answer, in `previous` order.
+// or whose judged fields changed, is stale: the function removes each `matches`, `adjudications`, and `reargued`
+// entry of its blind id from each judgment file of `ws` that exists. It returns the stable ids of the stale findings
+// that had an answer, in `previous` order.
 function removeStaleAnswers(ws, previous, current) {
   const judgedText = (finding) => JSON.stringify(JUDGED_FIELDS.map((field) => finding[field] ?? null));
   const now = new Map(current.map((finding) => [finding.id, judgedText(finding)]));
@@ -2267,7 +2373,7 @@ function removeStaleAnswers(ws, previous, current) {
     if (!fs.existsSync(file)) continue;
     const judgments = readJson(file);
     let changed = false;
-    for (const field of ['matches', 'adjudications']) {
+    for (const field of ANSWER_FIELDS) {
       if (!Array.isArray(judgments[field])) continue;
       const staleEntries = judgments[field].filter((entry) => stale.has(entry.finding));
       if (staleEntries.length === 0) continue;
@@ -2297,27 +2403,36 @@ export function pairsCommand(ws, casesDir, { keys } = {}) {
   const cases = {};
   for (const caseId of new Set(findingsDoc.blocks.map((block) => block.case))) {
     const { split } = readJson(path.join(ws, caseId, 'case.json'));
-    const { kind, known } = readKnown(casesDir, caseId, split, keys);
-    cases[caseId] = { kind, known, split };
+    const { kind, known, protected: decisions } = readKnown(casesDir, caseId, split, keys);
+    cases[caseId] = { kind, known, protected: decisions, split };
   }
   const doc = buildPairs(findingsDoc, cases);
   writeJson(path.join(ws, 'pairs.json'), doc);
   return doc;
 }
 
-// A key that changed after `pairs` would score the runs against an old list of known defects.
+// A key that changed after `pairs` would score the runs against an old list of known defects or protected decisions.
 function requireCurrentKeys(pairsDoc, keys) {
-  const ids = (known) =>
-    known
+  const ids = (items) =>
+    items
       .map((item) => item.id)
       .sort(compare)
       .join(', ') || 'none';
   for (const entry of pairsDoc.cases) {
-    const key = readKey(keys, entry.case);
-    if (key === undefined || ids(key) === ids(entry.known)) continue;
-    fail(
-      `pairs.json is out of date for ${entry.case}: its key has ${ids(key)}, but pairs.json has ${ids(entry.known)}; run score.mjs pairs again`,
-    );
+    const key = readKeyFile(keys, entry.case);
+    if (key === undefined) continue;
+    if (ids(key.known) !== ids(entry.known)) {
+      fail(
+        `pairs.json is out of date for ${entry.case}: its key has ${ids(key.known)}, but pairs.json has ${ids(entry.known)}; run score.mjs pairs again`,
+      );
+    }
+    // A pairs.json of an earlier version has no protected decisions.
+    const paired = entry.protected ?? [];
+    if (ids(key.protected) !== ids(paired)) {
+      fail(
+        `pairs.json is out of date for ${entry.case}: its key has the protected decisions ${ids(key.protected)}, but pairs.json has ${ids(paired)}; run score.mjs pairs again`,
+      );
+    }
   }
 }
 
@@ -2335,8 +2450,9 @@ function readMetas(ws, blocks) {
   return metas;
 }
 
-// Writes report.md. It stops before it writes when a key under `keys` changed after `pairs`, or when a finding has
-// neither a `match` answer nor an adjudication. `<ws>/judgments-second.json`, when it exists, gives the agreement.
+// Writes report.md. It stops before it writes when a key under `keys` changed after `pairs`, when a candidate pair or
+// a protected pair has no answer, or when a finding has neither a `match` answer nor an adjudication.
+// `<ws>/judgments-second.json`, when it exists, gives the agreement.
 // `configs` or `arms` sets the columns of the comparison tables, `reference` (with `arms` only) sets the column that
 // the intervals compare with, and `lead` with `leadRef` adds the self-review lead (see renderReport).
 export function reportCommand(ws, { keys, configs, arms, reference, lead, leadRef } = {}) {

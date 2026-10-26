@@ -1,0 +1,29 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 287df18c..3fa20517 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -5,7 +5,7 @@ user-invocable: true
+ metadata:
+   pattern: tool-wrapper
+   updated: "2026-09-09"
+-  content_hash: "1e1c46c2ea4974a1faa4a140fd0ab48dde3a87ff04e1ad5b5414608737295b03"
++  content_hash: "01ad2e1eba8203c06281095b2ed264c12facd3982188cd9af57fce90afc493ee"
+ ---
+ 
+ # Plan Manager
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 92852b60..081e0ce0 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -232,9 +232,8 @@ Re-list after failure. Stop without a verified link.
+ After code review passes, commit and push reviewed bytes and open a closing pull request.
+ Checks policy: wait up to five minutes for checks to appear, then wait for every
+ check to complete. A failed or cancelled check blocks the merge question until the
+-fix is reviewed. When the repository has no configured checks, run `node scripts/ci.mjs`
+-as the local gate, treat its green result as the check result, and say so in the
+-merge question.
++fix is reviewed. When the repository has no configured checks, treat the green local
++gate as the check result and say so in the merge question.
+ Ask afresh: `Merge now` or `Leave pull request open`. Without `Merge now`, leave both
+ records open. Merge with `--match-head-commit` for the reviewed head.
+ A prior plan approval never authorizes merge.

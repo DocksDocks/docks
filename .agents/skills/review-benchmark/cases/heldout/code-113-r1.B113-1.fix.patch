@@ -1,0 +1,13 @@
+diff --git a/.agents/skills/review-benchmark/results.md b/.agents/skills/review-benchmark/results.md
+index dc27d755..74a49a40 100644
+--- a/.agents/skills/review-benchmark/results.md
++++ b/.agents/skills/review-benchmark/results.md
+@@ -940,7 +940,7 @@ The second judge agreed with 105 of 105 answers (1.00).
+ ### Decision
+ 
+ - P1 against `main`: P1 let fewer known defects escape (10.67 against 14.67 per 50 known). Its escaped-difference interval [-8.00, 0.00] stays below 2, its recall interval [0.00, 0.16] stays above -0.05, its wrong findings are 0.00 against 0.05 per run, and its unknown findings are 0.00 against 0.00 per run. So P1 passes decision 5 and ships. P1 gives the main gain of this plan: 4.00 fewer escaped known defects per 50 known. Its median time was shorter on the held-out cases (259.2 s against 279.6 s) and longer on the dev cases (257.6 s against 222.9 s).
+-- C1 against `main`: C3 let fewer known defects escape (24.60 against 25.40 per 50 known). Its escaped-difference interval [-1.25, 0.00] stays below 2, its recall interval [0.00, 0.03] stays above -0.05, and its wrong and unknown findings are 0.00 per run, as are `B3`'s. So C1 passes decision 5 and ships. The measured gain is small: 0.80 fewer escaped per 50 known, which is one more known defect (SR111-7) in 12 runs. C1 ships because it passes the rule, and because it adds the repository-rules review and the review of the base text of changed instruction files, whose safety value no corpus defect measures.
++- C1 against `main`: on the four panel cases, C3 let fewer known defects escape (24.60 against 25.40 per 50 known; interval [-1.25, 0.00]; recall [0.00, 0.03]; wrong and unknown 0.00 per run in both arms). On all five code cases of decision 5 (the panel cases and the delta case, pooled; 90% interval from 20,000 case resamples), C1 let 23.91 escape against 25.36 (interval [-3.33, 0.00]; recall [0.000, 0.067]), and its wrong and unknown findings are 0.00 per run, as are those of `B3` and `Bd`. So C1 passes decision 5 on its new held-out cases and ships. The measured gain is small: one more known defect (SR111-7) in 12 panel runs and one (B111-5) in 3 delta runs. C1 ships because it passes the rule, and because it adds the repository-rules review and the review of the base text of changed instruction files, whose safety value no corpus defect measures.
+ 
+ ### Sources of the techniques
+ 

@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-10-25"
-  content_hash: "013a522abb02469a96b56c309bb4f8967e097599acb9c523da753fcfad2b81de"
+  updated: "2026-10-26"
+  content_hash: "991c569c2e35e517145ac66938a88ace87f28cb423b109e3fbbd2705ba2cbaac"
 ---
 
 # Yolo
@@ -278,6 +278,8 @@ comments says. The helper advises when an edit needs that round.
 | Plan `repair` | Reproduce each finding, repair a fresh export, and review again |
 | Plan `blocked` | Decide the finding with Research, record the decision, and review again |
 | Code `fixes-required` | Fix each reproduced finding, rerun its proof, and review again |
+| Code `blocked` for unread hunks | Dispatch that reviewer again with the unread paths before you post the round, as the contract's Code-review rounds says |
+| Code `blocked` for another input | Resolve that input, as plan-manager phase 6 says, and review again |
 | Code `pass` from round 3 whose open findings are all `Unreached:` LOW findings | Land with the follow-up issue, as the contract's Round ceiling says |
 | Code `pass` with other MEDIUM or LOW findings | Fix each reproduced finding and review again, as a `delta` round when the contract's Code-review rounds allows it |
 | Code `pass` with no open finding | Go to Landing |

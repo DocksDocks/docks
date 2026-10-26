@@ -1,0 +1,16 @@
+diff --git a/scripts/tests/ci-plugin-targeting.mjs b/scripts/tests/ci-plugin-targeting.mjs
+index 73b1fee5..1c39f2c8 100755
+--- a/scripts/tests/ci-plugin-targeting.mjs
++++ b/scripts/tests/ci-plugin-targeting.mjs
+@@ -2583,7 +2583,10 @@ async function testReleaseAdapterGitContracts(createReleaseIo) {
+   try {
+     await runReleaseAdapterGitContracts(createReleaseIo);
+   } finally {
+-    Object.assign(process.env, inherited);
++    for (const [key, value] of Object.entries(inherited)) {
++      if (value === undefined) delete process.env[key];
++      else process.env[key] = value;
++    }
+   }
+ }
+ 

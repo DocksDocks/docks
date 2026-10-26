@@ -1,0 +1,385 @@
+diff --git a/.agents/skills/review-benchmark/SKILL.md b/.agents/skills/review-benchmark/SKILL.md
+index 72701ed1..466c6a18 100644
+--- a/.agents/skills/review-benchmark/SKILL.md
++++ b/.agents/skills/review-benchmark/SKILL.md
+@@ -130,7 +130,7 @@ The self-review arms `S1` and `S3` measure the self-review of #98 on the candida
+ | `sideCalls` | the `model`, `purpose`, and `tokens` of each `model_usage` record, for example a title call of a helper model; their tokens stay out of `tokens` |
+ | `readScope` | only for a reviewer that called tools: `outside`, the targets of its tool calls outside the inputs of its run, and, only for a reviewer that searched the web, `queries`, the query of each web search (see Read scope); `meta.json` keeps no tool calls |
+ 
+-A run of several review rounds keeps each round in a `round-<r>` folder, from `round-1` without a gap, with its own `prompts/`, `blocks/`, and `meta.json`. A round `meta.json` can add `mode` (the round mode), the fix step after the round (`fix`, `fixAlreadyApplied`, `fixedByFixer`, `fixLeftOut`, `fixerChangedNothing`, and `fixChangedNothing`), and `fixer` (the time, the transcript facts, and the reply of the fixer after the round), see Review loop. `report` reads `config` and `fixerConfig` from the run's `meta.json`, else from its `round-1/meta.json`. A run without round folders is round 1, and its finding ids and scores do not change. Each round folder is a dispatch of its own: the dispatch names of its prompts have `K<round>` after the run part, for example `Code7C1LowR1K2Delta`, and `transcripts` writes the `meta.json` of the round folder.
++A run of several review rounds keeps each round in a `round-<r>` folder, from `round-1` without a gap, with its own `prompts/`, `blocks/`, and `meta.json`. A round `meta.json` can add `mode` (the round mode), the fix step after the round (`fix`, `fixAlreadyApplied`, `fixedByFixer`, `fixLeftOut`, `fixerChangedNothing`, and `fixRepairedNothing`), and `fixer` (the time, the transcript facts, and the reply of the fixer after the round), see Review loop. `report` reads `config` and `fixerConfig` from the run's `meta.json`, else from its `round-1/meta.json`. A run without round folders is round 1, and its finding ids and scores do not change. Each round folder is a dispatch of its own: the dispatch names of its prompts have `K<round>` after the run part, for example `Code7C1LowR1K2Delta`, and `transcripts` writes the `meta.json` of the round folder.
+ 
+ The snapshot is the reviewed tree without Git history. This skill folder holds the held-out answer keys, so the snapshot, every diff, and the changed-path list of the focus diffs leave it out. Focus diffs split the changed paths by class:
+ 
+@@ -254,7 +254,7 @@ A loop run replays a code-review loop of plan-lifecycle (`plan-contract.md`, Cod
+ 
+    A fix patch that applies in reverse shows that the tree of round r already holds the fix, so the findings that match its defect do not stand. `loop` uses this check also for a defect that an earlier round fixed. When round r has no valid extra finding and each fix patch of a matched defect applies in reverse, no finding of round r stands: `loop` prints that the loop ends and writes nothing.
+ 
+-   A missing fix patch, or a fix patch that git cannot read, stops `loop`. Which fix patches apply depends only on the tree of round r and the fix patches, so each `loop` call on round r sorts the patches into the same rows, also the call after the fixer wrote its patch. An empty fixer patch changes nothing. `loop` compares the tree hashes before and after each part of the fix step. When the fixer patch leaves the tree as the fix patches left it, the fixer repaired no finding, and `loop` records `fixerChangedNothing: true`. When the whole fix step (the fix patches that applied and the fixer patch) leaves the tree of round r unchanged, it repaired no finding of round r, for example when the fixer finds each listed finding `not present`. Production rejects a finding that does not reproduce, so the loop ends: `loop` adds `fix`, each field of the table above that has a defect, `fixerChangedNothing`, and `fixChangedNothing: true` to `round-<r>/meta.json`, prints that the loop ends, and writes no round folder. Else `loop` commits the result as the reviewed head of round r + 1, with the head of round r as parent (for round 1, the case head) and the author and committer `Review loop`. No branch or tag points to these commits, so finish each loop before `git gc` can prune them (two weeks by default). Then `loop` adds `fix` (the fix plan: `fixes`, `extras`, and `rejections`) to `round-<r>/meta.json`, each field of the table above that has a defect, with the ids of its defects, and `fixerChangedNothing` when it applies. Then it writes `round-<r+1>/`:
++   A missing fix patch, or a fix patch that git cannot read, stops `loop`. Which fix patches apply depends only on the tree of round r and the fix patches, so each `loop` call on round r sorts the patches into the same rows, also the call after the fixer wrote its patch. An empty fixer patch changes nothing. `loop` compares the tree hashes before and after the fixer patch. When the fixer patch leaves the tree as the fix patches left it, the fixer repaired no finding, and `loop` records `fixerChangedNothing: true`. A pulled-in patch repairs no finding of round r, also when it changes the tree. So when no fix patch that is not pulled in applied and the fixer patch changed nothing, the fix step repaired no finding of round r, for example when the fixer finds each listed finding `not present`. Production rejects a finding that does not reproduce, so the loop ends: `loop` adds `fix`, each field of the table above that has a defect, `fixerChangedNothing`, and `fixRepairedNothing: true` to `round-<r>/meta.json`, prints that the loop ends, and writes no round folder. Else `loop` commits the result as the reviewed head of round r + 1, with the head of round r as parent (for round 1, the case head) and the author and committer `Review loop`. No branch or tag points to these commits, so finish each loop before `git gc` can prune them (two weeks by default). Then `loop` adds `fix` (the fix plan: `fixes`, `extras`, and `rejections`) to `round-<r>/meta.json`, each field of the table above that has a defect, with the ids of its defects, and `fixerChangedNothing` when it applies. Then it writes `round-<r+1>/`:
+ 
+    | File | Content |
+    |---|---|
+@@ -263,7 +263,7 @@ A loop run replays a code-review loop of plan-lifecycle (`plan-contract.md`, Cod
+    | `previous-review.md` | the blocks of round r in reviewer order |
+    | `rejection.md` | only when round r has rejected findings: `Rejected review findings, round <n>`, then each finding with its evidence |
+    | `prompts/`, `blocks/` | one prompt per reviewer of the round mode, and an empty folder |
+-   | `meta.json` | `config`, `mode`, `head`, `repairsOnly`, `fullLines`, and `deltaLines`. The `loop` call after round r + 1 adds `fix`, `fixAlreadyApplied`, `fixedByFixer`, `fixLeftOut`, `fixerChangedNothing`, and `fixChangedNothing` as for round r |
++   | `meta.json` | `config`, `mode`, `head`, `repairsOnly`, `fullLines`, and `deltaLines`. The `loop` call after round r + 1 adds `fix`, `fixAlreadyApplied`, `fixedByFixer`, `fixLeftOut`, `fixerChangedNothing`, and `fixRepairedNothing` as for round r |
+ 
+    The round policy in the `meta.json` of the run picks the mode (see step 1). Under `panel-delta` and `full-delta`, the mode follows `plan-contract.md`: `delta` only when round r completed (each block has the verdict `pass` or `fixes-required`; `loop` refuses every other round, see step 4), no pulled-in patch changed the tree (`repairsOnly`: each change repairs a finding of round r), and the delta diff is at most half the full diff. Otherwise the size rule of round 1 gives `panel` or `full`, and `full-delta` gives `full` in place of `panel`. Under `full`, every round is a `full` round. `loop` also writes the judge's copy of the new tree to `<ws>/trees/<run label>/`, where the run label is the label of the round in `pairs.json`.
+ 7. Do steps 2 to 6 again for round r + 1, until `loop` prints that the loop ends.
+@@ -280,7 +280,7 @@ In `## Configurations: <split>`, the table `### Code loops: <split>` gives these
+ | `Rounds median`, `Rounds max` | the rounds of each loop |
+ | `Loop seconds median` | the sum of the round seconds of each loop; the fix steps stay out |
+ | `Known found per run`, `Escaped per run` | the known defects that the loop found by its end, and the others |
+-| `Valid extras per run`, `Extra-only rounds per run` | the valid extra findings, and the rounds that only extra findings caused: rounds whose previous fix step gave valid extra findings to the fixer and repaired no known defect. A known defect that a finding of a round matches counts as repaired when its fix patch applied, or when the fixer got it (step 6), the fixer patch changed the tree (no `fixerChangedNothing`), and the fixer did not reply `not present` for each finding of the round that matches the defect (`fixer.replies`). A defect whose fix the tree already held, such as a repeat of a fixed defect or a defect that an earlier fix step pulled in, needs no repair, so it causes no round |
++| `Valid extras per run`, `Extra-only rounds per run` | the valid extra findings, and the rounds that only extra findings caused: rounds whose previous fix step repaired valid extra findings and no known defect. The fixer repaired the valid extras when it got them (step 5), the fixer patch changed the tree (no `fixerChangedNothing`), and the fixer did not reply `not present` for each of them (`fixer.replies`). A known defect that a finding of a round matches counts as repaired when its fix patch applied, or when the fixer got it (step 6), the fixer patch changed the tree, and the fixer did not reply `not present` for each finding of the round that matches the defect. A defect whose fix the tree already held, such as a repeat of a fixed defect or a defect that an earlier fix step pulled in, needs no repair, so it causes no round |
+ | `Loops with a fixer`, `Fixer seconds median`, `Fixer tokens median` | the loops that have `fixer` in the `meta.json` of a round, and the sum of `fixer.seconds` and the sum of `fixer.tokens` over the rounds of each loop, over these loops only |
+ 
+ ## Run the grid for a new model
+diff --git a/.agents/skills/review-benchmark/scripts/prepare.mjs b/.agents/skills/review-benchmark/scripts/prepare.mjs
+index 3f6aac42..15ceb415 100755
+--- a/.agents/skills/review-benchmark/scripts/prepare.mjs
++++ b/.agents/skills/review-benchmark/scripts/prepare.mjs
+@@ -984,8 +984,9 @@ function findingsOfDefect(findings, judgments, id) {
+ // it repairs every finding of round k that stands (score.mjs fixPlan), commits the repaired tree as the reviewed
+ // head of round k + 1, and writes round-<k+1>/ in the mode that roundMode gives for the round policy that the
+ // meta.json of the run records. It returns that folder, or null when the loop ends. It stops before the fix step when
+-// round k did not complete or when the judge did not answer a finding of round k. When the fix step changes no file,
+-// the loop ends after round k: the command records the fix step in round-k/meta.json and writes no round folder.
++// round k did not complete or when the judge did not answer a finding of round k. When the fix step repairs no finding
++// of round k (no fix patch that is not pulled in applied, and the fixer patch changed nothing), the loop ends after
++// round k: the command records the fix step in round-k/meta.json and writes no round folder.
+ // `repo` is the git repository of the case commits. ../SKILL.md, Review loop, describes the files.
+ export function prepareLoop(options, repo) {
+   if (!options.run) fail('loop needs --run <ws>/<case>/<arm>-<config>/run-<k>');
+@@ -1129,14 +1130,16 @@ export function prepareLoop(options, repo) {
+       applyPatch(repo, env, repair.patch, `the fixer patch does not apply to ${roundLabel} after its fix patches`);
+     }
+     const tree = writeTree(repo, env);
+-    // The tree hashes show what the fix step changed. A fixer patch that changed nothing repaired no finding. A fix
+-    // step that changed nothing repaired no finding of round k: production rejects a finding that does not reproduce,
+-    // so the loop ends after round k, as when no finding stands.
+-    const unchanged = {
+-      fixChangedNothing: tree === reviewedTree,
+-      fixerChangedNothing: fixedTree !== null && tree === fixedTree,
++    // A fixer patch that leaves the tree as the fix patches left it repaired no finding. A pulled-in patch repairs no
++    // finding of round k either, also when it changed the tree. So when no fix patch that is not pulled in applied and
++    // the fixer patch changed nothing, the fix step repaired no finding of round k: production rejects a finding that
++    // does not reproduce, so the loop ends after round k, as when no finding stands.
++    const fixerChangedNothing = fixedTree !== null && tree === fixedTree;
++    const noRepair = {
++      fixRepairedNothing: split.applied.every((fix) => fix.pulled) && fixerChangedNothing,
++      fixerChangedNothing,
+     };
+-    if (unchanged.fixChangedNothing) return { notApplied: split.notApplied, unchanged };
++    if (noRepair.fixRepairedNothing) return { notApplied: split.notApplied, noRepair };
+     const head = commitTree(repo, tree, parent, `Review loop ${label}, round ${nextRound}`);
+     const base = resolveCommit(repo, caseData.base, `${caseId} base`);
+     const fullLines = diffSize(repo, base, tree);
+@@ -1170,27 +1173,28 @@ export function prepareLoop(options, repo) {
+       fs.rmSync(judgeTree, { recursive: true, force: true });
+       throw error;
+     }
+-    return { mode: nextMode, notApplied: split.notApplied, unchanged };
++    return { mode: nextMode, notApplied: split.notApplied, noRepair };
+   });
+   if (!next) {
+     console.log(`the loop of ${label} ends after round ${k}`);
+     return null;
+   }
+-  const { mode, notApplied, unchanged } = next;
+-  // The fix plan, each list of known defects whose fix patch did not apply, and each flag of a fix step or fixer patch
+-  // that changed nothing. An empty list or a false flag removes its field, so a rebuilt round keeps no old value.
++  const { mode, notApplied, noRepair } = next;
++  // The fix plan, each list of known defects whose fix patch did not apply, and each flag of a fixer patch that changed
++  // nothing or a fix step that repaired nothing. An empty list or a false flag removes its field, so a rebuilt round
++  // keeps no old value.
+   const record = { ...roundMeta, fix: plan };
+   for (const [field, ids] of Object.entries(notApplied)) {
+     if (ids.length) record[field] = ids;
+     else delete record[field];
+   }
+-  for (const [field, flag] of Object.entries(unchanged)) {
++  for (const [field, flag] of Object.entries(noRepair)) {
+     if (flag) record[field] = true;
+     else delete record[field];
+   }
+   writeJson(roundMetaFile, record);
+-  if (unchanged.fixChangedNothing) {
+-    console.log(`the loop of ${label} ends after round ${k}: its fix step changed no file`);
++  if (noRepair.fixRepairedNothing) {
++    console.log(`the loop of ${label} ends after round ${k}: its fix step repaired no finding`);
+     return null;
+   }
+   console.log(`prepared ${nextDir}: a ${mode} round after ${plan.fixes.length} fixes and ${plan.extras.length} extras`);
+diff --git a/.agents/skills/review-benchmark/scripts/score.mjs b/.agents/skills/review-benchmark/scripts/score.mjs
+index 2be92b7c..9cd01a28 100755
+--- a/.agents/skills/review-benchmark/scripts/score.mjs
++++ b/.agents/skills/review-benchmark/scripts/score.mjs
+@@ -683,21 +702,23 @@ function judgeFindings(findings, { matched, unsure, ratings }) {
+ // transcriptsCommand): `knownRepair` tells if it repaired a known defect that a finding of the round matched, with a
+ // fix patch that applied or through the fixer. A patch that the tree already held and a pulled-in patch repair no
+ // finding of the round. A defect that the fixer got counts only when the fixer patch changed the tree and the fixer did
+-// not reply `not present` for each finding of the round that matches the defect. `extraRepair` tells if it gave valid
+-// extra findings to the fixer.
++// not reply `not present` for each finding of the round that matches the defect. `extraRepair` tells if the fixer
++// repaired valid extra findings: the fix step gave valid extras to the fixer, the fixer patch changed the tree, and
++// the fixer did not reply `not present` for each of these extras.
+ function scoreRound(round, knownIds, judged, meta) {
+   const costs = round.blocks.map((block) => meta?.reviewers?.[block.reviewer]);
+   const { found } = judgeFindings(round.findings, judged);
+   const present = new Set(meta?.fixAlreadyApplied ?? []);
+   const byFixer = new Set(meta?.fixedByFixer ?? []);
+   const replies = meta?.fixer?.replies ?? {};
+-  const fixerRepaired = (id) =>
+-    !meta?.fixerChangedNothing &&
+-    round.findings.some(
+-      (finding) => judged.matched.get(finding.blind)?.has(id) && replies[finding.id] !== 'not present',
+-    );
++  // The fixer repaired one of the findings `ids` when its patch changed the tree and it replied `not present` for not
++  // all of them.
++  const fixerRepaired = (ids) => !meta?.fixerChangedNothing && ids.some((id) => replies[id] !== 'not present');
++  const matching = (known) => round.findings.filter((finding) => judged.matched.get(finding.blind)?.has(known));
+   const repaired = (fix) =>
+-    !fix.pulled && !present.has(fix.known) && (!byFixer.has(fix.known) || fixerRepaired(fix.known));
++    !fix.pulled &&
++    !present.has(fix.known) &&
++    (!byFixer.has(fix.known) || fixerRepaired(matching(fix.known).map((finding) => finding.id)));
+   return {
+     round: round.round,
+     mode: meta?.mode ?? null,
+@@ -707,7 +728,7 @@ function scoreRound(round, knownIds, judged, meta) {
+     tokens: total(costs.map((cost) => cost?.tokens)),
+     found: knownIds.filter((id) => found.has(id)),
+     knownRepair: (meta?.fix?.fixes ?? []).some(repaired),
+-    extraRepair: (meta?.fix?.extras ?? []).length > 0,
++    extraRepair: fixerRepaired(meta?.fix?.extras ?? []),
+     fixer: Boolean(meta?.fixer),
+     fixerSeconds: typeof meta?.fixer?.seconds === 'number' ? meta.fixer.seconds : 0,
+     fixerTokens: typeof meta?.fixer?.tokens === 'number' ? meta.fixer.tokens : 0,
+@@ -813,9 +834,9 @@ function scoreRun(run, caseEntry, judged, metas) {
+     rounds.flatMap((round) => round.findings),
+     judged,
+   );
+-  // A round is caused only by extra findings when the fix step after the round before it gave valid extra findings to
+-  // the fixer and repaired no known defect (see scoreRound). A known defect that needed no repair, such as a repeat of
+-  // a fixed defect whose fix the tree holds or that the fixer found `not present`, causes no round.
++  // A round is caused only by extra findings when the fix step after the round before it repaired valid extra findings
++  // and no known defect (see scoreRound). A finding that needed no repair, such as a repeat of a fixed defect whose fix
++  // the tree holds or a finding that the fixer found `not present`, causes no round.
+   const extraOnlyRounds = roundScores.filter(
+     (_, index) => index > 0 && roundScores[index - 1].extraRepair && !roundScores[index - 1].knownRepair,
+   ).length;
+@@ -1374,7 +1395,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
+     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
+     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
+     'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose reviewer transcripts show another model, effort, or served tier than their configuration; loops whose fixer transcripts show another model, effort, or served tier than the fixer setting; runs with a reviewer or a fixer without transcript facts or without a served assistant message, also a loop round that gave findings to the fixer and has no transcript facts of its fixer (for example a repair with --fixer-patch); loops with a fixer but without a fixer setting; runs with a reviewer that read a file outside the inputs of its run; and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
+-    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step gave valid extra findings to the fixer and repaired no known defect that a finding of the previous round matched: no fix patch of such a defect applied, and the fixer repaired none (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
++    `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. The reference column has the fewest escaped defects per 50 known defects. The loop seconds interval compares loop runs only.`,
+     '',
+     '## Summary',
+     '',
+diff --git a/scripts/tests/unit/review-benchmark.test.mjs b/scripts/tests/unit/review-benchmark.test.mjs
+index a4a32226..3954ee2c 100644
+--- a/scripts/tests/unit/review-benchmark.test.mjs
++++ b/scripts/tests/unit/review-benchmark.test.mjs
+@@ -1743,9 +1743,10 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
+ //    lists the `known` ids of `fix.fixes` in the meta.json of rounds 1 to k - 1, in order. When
+ //    score.loopEnds(k, plan), the command writes nothing and returns null. It also ends so after it applies the fix
+ //    patches, when no extra stands and every fix of a matched defect applies in reverse (the tree holds the fix).
+-//    After the fixer patch (step 4), it also ends when the fix step left the round-k tree unchanged (the same tree
+-//    hash before the fix patches and after the fixer patch): it writes the round-k record of step 5 with
+-//    `fixChangedNothing: true`, writes no round folder, and returns null.
++//    After the fixer patch (step 4), it also ends when the fix step repaired no finding of round k: no fix patch that
++//    is not `pulled` applied, and the fixer patch changed nothing (step 4). A pulled-in patch repairs no finding, also
++//    when it changes the tree. Then it writes the round-k record of step 5 with `fixRepairedNothing: true`, writes no
++//    round folder, and returns null.
+ // 3. With plan.extras and no fixer patch, it writes round-k/fixer/ and stops before it writes round k + 1:
+ //    `<case>/<arm>/<run>/round-<k> has <n> valid extra findings for the fixer: <ids joined by ", ">; give their repair
+ //    with --fixer-patch <file>`. round-k/fixer/ holds snapshot/ (the round-k tree after the fix patches of plan.fixes)
+@@ -1760,7 +1761,7 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
+ //    so that it needs no user config. When the round has findings for the fixer and the tree after the fixer patch is
+ //    the tree after the fix patches, the record of step 5 gets `fixerChangedNothing: true`.
+ // 5. It adds `fix: plan` to round-k/meta.json, with `fixAlreadyApplied`, `fixedByFixer`, and `fixLeftOut` when they
+-//    list a defect and `fixerChangedNothing` and `fixChangedNothing` when they are true, keeps every other field
++//    list a defect and `fixerChangedNothing` and `fixRepairedNothing` when they are true, keeps every other field
+ //    there, and writes round-<k+1>/:
+ //    - snapshot/: the new tree, as `case` writes a snapshot.
+ //    - full.diff (case base to the new head), delta.diff (round-k head to the new head), and, for a panel round,
+@@ -1808,10 +1809,12 @@ test('pairs and report read held-out keys from --keys instead of the cases folde
+ //   and a collision names `<case>/<arm>/<run>/round-<r>/<reviewer>`. names and transcripts take workspaces with
+ //   round folders: each round folder is a dispatch of its own, and transcripts writes the meta.json of the round
+ //   folder.
+-// - scoreRuns: a round r >= 2 is extra-only when the fix step after round r - 1 gave valid extras to the fixer and
+-//   repaired no known defect: no fix in its `fix.fixes` that is not `pulled`, not in `fixAlreadyApplied`, and, when
+-//   it is in `fixedByFixer`, repaired by the fixer: the round has no `fixerChangedNothing`, and a finding of round
+-//   r - 1 that matches the defect has no `not present` in `fixer.replies`.
++// - scoreRuns: a round r >= 2 is extra-only when the fix step after round r - 1 repaired valid extras and no known
++//   defect. The fixer repaired the valid extras when it got them, the round has no `fixerChangedNothing`, and at least
++//   one of them has no `not present` in `fixer.replies`. A known defect was repaired when a fix in `fix.fixes` is not
++//   `pulled`, not in `fixAlreadyApplied`, and, when it is in `fixedByFixer`, repaired by the fixer: the round has no
++//   `fixerChangedNothing`, and a finding of round r - 1 that matches the defect has no `not present` in
++//   `fixer.replies`.
+ // - transcriptsCommand: the fixer entry of a round also gives `fixer.replies`: each finding id of a line
+ //   `<id>: repaired` or `<id>: not present` (a list marker and backticks allowed, any case) in the strings of the
+ //   arguments of the last `yield` call of the fixer transcript, or without such a call, of the text of the last
+@@ -2316,8 +2319,8 @@ test('loop writes one fixer prompt for all valid extras of a round and takes an
+   assert.equal(fs.existsSync(round(2)), false);
+   fs.rmSync(stale);
+ 
+-  // The fixer found no finding that needs a change, so it wrote an empty patch file. The fix patch of D1 still changed
+-  // the tree, so round 2 follows, and round 1 records that the fixer patch changed nothing.
++  // The fixer found no finding that needs a change, so it wrote an empty patch file. The fix patch of D1 still applied
++  // and repaired the finding of D1, so round 2 follows, and round 1 records that the fixer patch changed nothing.
+   fs.writeFileSync(path.join(fixerDir, 'fixer-1.patch'), '');
+   assert.equal(prepare.prepareLoop({ run, cases }, repo), round(2));
+   const round1Record = readJson(path.join(round(1), 'meta.json'));
+@@ -2326,7 +2329,7 @@ test('loop writes one fixer prompt for all valid extras of a round and takes an
+     extras,
+     rejections: [],
+   });
+-  assert.deepEqual([round1Record.fixerChangedNothing, round1Record.fixChangedNothing], [true, undefined]);
++  assert.deepEqual([round1Record.fixerChangedNothing, round1Record.fixRepairedNothing], [true, undefined]);
+   const meta = readJson(path.join(round(2), 'meta.json'));
+   assert.deepEqual(meta, {
+     config: CONFIGS.low,
+@@ -4415,7 +4425,7 @@ test('loop repairs a defect again when a later repair brings it back, and ends w
+   assert.deepEqual(readJson(path.join(round(3), 'meta.json')), meta);
+ });
+ 
+-test('loop gives a defect that a later repair changed to the fixer, and ends when its fix changes no file', (t) => {
++test('loop gives a defect that a later repair changed to the fixer, and ends when its fix repairs nothing', (t) => {
+   const { root, repo, ws, cases, run, round, round1Answers } = devLoop(t);
+   // The fixer of round 1 sets v5 to 50, so the fix patch of D1 applies neither forward nor in reverse.
+   const fixer = path.join(root, 'changing-fixer.patch');
+@@ -4441,7 +4451,7 @@ test('loop gives a defect that a later repair changed to the fixer, and ends whe
+     prompt.filter((line) => line.startsWith('Finding ')),
+     [`Finding ${finding}: - [HIGH] Bug - src/sync.mjs:5 - v5 is 50 instead of 5 - set it to 5.`],
+   );
+-  // The fixer finds the finding not present and writes an empty patch, so the fix step changes no file. Production
++  // The fixer finds the finding not present and writes an empty patch, so the fix step repairs no finding. Production
+   // rejects a finding that does not reproduce: the loop ends after round 2, and round 2 records the fix step.
+   const round2Meta = readJson(path.join(round(2), 'meta.json'));
+   fs.writeFileSync(path.join(fixerDir, 'fixer-1.patch'), '');
+@@ -4452,7 +4462,65 @@ test('loop gives a defect that a later repair changed to the fixer, and ends whe
+     fix: { fixes: [{ known: 'D1', patch: 'code-7.D1.fix.patch' }], extras: [], rejections: [] },
+     fixedByFixer: ['D1'],
+     fixerChangedNothing: true,
+-    fixChangedNothing: true,
++    fixRepairedNothing: true,
++  });
++});
++
++test('loop ends when the fixer patch changed nothing and only a pulled-in fix patch changed the tree', (t) => {
++  const { repo, ws, cases, run, round } = devLoop(t);
++  // The fix patch of D2 needs v9 to be 90, so it applies to the case head neither forward nor in reverse. It needs the
++  // fix of D1 first (fix_after), and that patch applies.
++  const d2Patch = filePatch(repo, 'src/sync.mjs', syncFile({ 7: 0, 9: 90 }), syncFile({ 9: 90 }));
++  fs.writeFileSync(path.join(cases, 'dev', 'code-7.D2.fix.patch'), d2Patch);
++  // Round 1 has a valid extra (#1) and a finding of D2 (#2).
++  const block = [
++    '### Code review round 1',
++    '',
++    'Code-review: fixes-required',
++    '',
++    '## Standards',
++    '',
++    '- [MEDIUM] Bug - src/extra.mjs:2 - b is 0, and the callers divide by it - set it to 2.',
++    '- [HIGH] Bug - src/sync.mjs:7 - v7 is 0 instead of 7 - set it to 7.',
++    '',
++    '## Spec',
++    '',
++    'None.',
++    '',
++  ].join('\n');
++  put(run, 'round-1/blocks/full.md', block);
++  findingsCommand(ws);
++  const [extra, d2] = [`${LOOP_R1}#1`, `${LOOP_R1}#2`];
++  judgeLoop(ws, [
++    [extra, 'valid'],
++    [d2, 'D2'],
++  ]);
++  assert.throws(
++    () => prepare.prepareLoop({ run, cases }, repo),
++    new RegExp(
++      `round-1 has 1 valid extra findings for the fixer: ${escapeRegExp(extra)} and 1 known defects whose fix patches do not apply, for the fixer: D2 \\(found by ${escapeRegExp(d2)}\\); give their repair with --fixer-patch`,
++    ),
++  );
++  // The fixer finds both findings not present and writes an empty patch. The pulled-in fix of D1 changed the tree, but
++  // a pulled-in patch repairs no finding of round 1. So the fix step repaired no finding, and the loop ends after
++  // round 1.
++  const round1Meta = readJson(path.join(round(1), 'meta.json'));
++  fs.writeFileSync(path.join(round(1), 'fixer', 'fixer-1.patch'), '');
++  assert.equal(prepare.prepareLoop({ run, cases }, repo), null);
++  assert.equal(fs.existsSync(round(2)), false);
++  assert.deepEqual(readJson(path.join(round(1), 'meta.json')), {
++    ...round1Meta,
++    fix: {
++      fixes: [
++        { known: 'D1', patch: 'code-7.D1.fix.patch', pulled: true },
++        { known: 'D2', patch: 'code-7.D2.fix.patch' },
++      ],
++      extras: [extra],
++      rejections: [],
++    },
++    fixedByFixer: ['D2'],
++    fixerChangedNothing: true,
++    fixRepairedNothing: true,
+   });
+ });
+ 
+@@ -4478,6 +4546,12 @@ test('extra-only rounds count the rounds whose previous fix step repaired valid
+       config: 'high',
+       rounds: [round(50, 500, 'full', 10, ['D1', 'valid']), round(20, 200, 'delta', 0, [])],
+     },
++    {
++      case: 'code-7',
++      config: 'high',
++      run: 2,
++      rounds: [round(50, 500, 'full', 10, ['valid']), round(20, 200, 'delta', 0, [])],
++    },
+     {
+       case: 'code-7',
+       config: 'xhigh-fast',
+@@ -4499,25 +4573,32 @@ test('extra-only rounds count the rounds whose previous fix step repaired valid
+     'code-7/C1-high/run-1/round-1/full#1': 'not present',
+     'code-7/C1-high/run-1/round-1/full#2': 'repaired',
+   };
++  // high, run 2: the fixer replied `not present` for the only valid extra, so it repaired nothing, and the valid extra
++  // caused no round.
++  fixture.metas['code-7/C1-high/run-2/round-1'].fixer.replies = {
++    'code-7/C1-high/run-2/round-1/full#1': 'not present',
++  };
+   // xhigh-fast: the fix patch of D2 did not apply, and the fix step pulled in the fix of D1, which changed the tree.
+-  // The fixer patch changed nothing, so the fixer repaired no known defect, and D2 caused no round.
++  // The fixer patch changed nothing, so the fixer repaired neither D2 nor the valid extra, and no finding caused
++  // round 2. (`loop` now ends after such a fix step, see the test above; the score reads the record as it is.)
+   const xhigh = fixture.metas['code-7/C1-xhigh-fast/run-1/round-1'];
+   xhigh.fix.fixes.unshift({ known: 'D1', patch: 'code-7.D1.fix.patch', pulled: true });
+   xhigh.fixedByFixer = ['D2'];
+   xhigh.fixerChangedNothing = true;
+   const scores = scoreRuns(fixture);
+   assert.deepEqual(
+-    scores.runs.map((run) => [run.arm, run.extraOnlyRounds]),
++    scores.runs.map((run) => [run.arm, run.run, run.extraOnlyRounds]),
+     [
+-      ['C1-high', 1],
+-      ['C1-low', 1],
+-      ['C1-low-fast', 0],
+-      ['C1-xhigh-fast', 1],
++      ['C1-high', 'run-1', 1],
++      ['C1-high', 'run-2', 0],
++      ['C1-low', 'run-1', 1],
++      ['C1-low-fast', 'run-1', 0],
++      ['C1-xhigh-fast', 'run-1', 0],
+     ],
+   );
+   const configs = ['low', 'low-fast', 'high', 'xhigh-fast'];
+   const table = tableAfter(renderReport(scores, { configs }), '### Code loops: dev');
+-  assert.ok(table.includes('| Extra-only rounds per run | 1.00 | 0.00 | 1.00 | 1.00 |'));
++  assert.ok(table.includes('| Extra-only rounds per run | 1.00 | 0.00 | 0.50 | 0.00 |'));
+ });
+ 
+ // The meta.json reviewer entry of a transcript, as `score.mjs transcripts` writes it for the configured model `model`.

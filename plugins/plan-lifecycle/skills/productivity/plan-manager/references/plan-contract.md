@@ -179,19 +179,9 @@ Reviewers never fetch the issue. Save each posted round comment as
 A plan re-review after a repair may use the plan `delta` mode when the
 `plan-reviewer` skill offers it in its `references/delta.md`. Give that round
 the inputs that the file names. Otherwise each plan round reviews the whole
-export. A full plan-review round runs at the configured effort. A plan `delta`
-round runs one level lower where the runtime has a per-dispatch effort. In omp
-with the setting `task.enableEffort` on, the `effort` values `lo`, `med`, and
-`hi` map to the lowest, middle, and highest level of the model's range. Dispatch
-the delta round with `effort: med` only when `med` is one level below the effort
-of round 1, for example for `openai-codex/gpt-6.1-sol` at `xhigh`, where `med`
-gives `high`; otherwise keep the agent's effort. In Claude Code v2.1.292 or later, pass
-the invocation `effort` one level below the effort of round 1, for example
-`high` after `xhigh`. Where the runtime has no per-dispatch effort, or the
-environment variable `CLAUDE_CODE_EFFORT_LEVEL` overrides it, the delta round
-keeps the agent's effort. Code-review rounds keep the configured effort. In
-the plugin's benchmark, the one plan-delta case gave the same known defects at
-both efforts in less than half the time.
+export. Every review round, plan or code and full or delta, runs at the
+configured effort. In the plugin's benchmark, a plan or code delta round one
+effort level lower let more known defects escape on 20 delta cases.
 
 A plan pass covers the body that the reviewer read. After `plan=pass`, collect
 the edits that change Goal, Research, Steps, Acceptance, or Do not touch.
@@ -323,6 +313,15 @@ merge of the default branch into the linked branch always gets a `panel` or a
 
 When a reviewer fails or returns no block with a verdict line, dispatch it
 again before you post the round.
+
+When a code reviewer returns `blocked` because it left hunks of the diff of its
+mode unread (the `code-reviewer` skill, Round modes), dispatch it again before
+you post the round, with the same inputs and the unread paths that its block
+names. Count each such block as a failed dispatch. A second such block from
+that reviewer on the same reviewed head is the second failed dispatch without a
+relevant change: follow step 5 of the review loop, or in a yolo run the stall
+rule of the Round ceiling. A `blocked` verdict for another input keeps the
+route of plan-manager phase 6: resolve that input before you request a verdict.
 
 Dispatch every lens and every delta round as the `code-reviewer` agent. A
 per-agent model setting, such as omp `task.agentModelOverrides.code-reviewer`
@@ -624,6 +623,7 @@ question. All other contract rules stay in force.
 | Dirty checkout at linked-branch setup | A separate clean worktree, without a question |
 | Review-loop continuation | The round ceiling below |
 | Plan-review `blocked` verdict | The manager decides with evidence |
+| Code-review `blocked` verdict for unread hunks | Dispatch that reviewer again, as Code-review rounds says; a second such block on the same head stalls the phase (round ceiling below) |
 | Public disclosure of a sensitive finding | Stop before any write |
 | Production cleanup in Teardown | Its own question, like a step after the landing merge |
 
@@ -634,9 +634,9 @@ The Goal of a yolo plan contains this exact line:
 `Yolo: the user delegated every decision except the merge to the agent.`
 
 The manager records each decision in Research with its evidence. Open questions
-holds only a `Blocked:` line. Plan reviewers treat the choice of a recorded
-decision as settled, and report a false premise or a broken effect. Code
-reviewers treat a recorded decision as settled.
+holds only a `Blocked:` line. Plan reviewers and code reviewers treat the choice
+of a recorded decision as settled, and report a false premise or a broken
+effect.
 
 ### Effects before the landing merge
 

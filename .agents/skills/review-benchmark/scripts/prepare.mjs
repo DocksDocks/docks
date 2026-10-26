@@ -287,9 +287,16 @@ export function modelSlug(model) {
     .replace(/^-+|-+$/g, '');
 }
 
+// omp sets a service tier only for OpenAI models: a model whose provider part, the text of the selector before the
+// first `/`, starts with `openai`. The configurations and the fixer use this one test.
+function takesServiceTier(model) {
+  return model.split('/')[0].startsWith('openai');
+}
+
 // Every model at every effort with every tier. A name is the effort plus the part of the tier (`TIER_NAMES`; a
 // runtime without tiers adds nothing). With more than one model, the model slug comes first. The report uses the
-// names as column names, so the same lists always give the same names.
+// names as column names, so the same lists always give the same names. A model that takes no service tier (see
+// takesServiceTier) gets the single tier null: no name part, no tier override, and no served-tier check.
 export function buildConfigs({ models, efforts, tiers }) {
   const configs = [];
   for (const model of models) {
@@ -299,8 +306,9 @@ export function buildConfigs({ models, efforts, tiers }) {
       if (!slug) fail(`model ${model} gives no name for its configurations`);
       prefix = `${slug}-`;
     }
+    const modelTiers = takesServiceTier(model) ? tiers : [null];
     for (const effort of efforts) {
-      for (const tier of tiers) {
+      for (const tier of modelTiers) {
         const suffix = tier === null ? '' : (TIER_NAMES[tier] ?? `-${tier}`);
         configs.push({ name: `${prefix}${effort}${suffix}`, model, effort, tier });
       }
@@ -348,6 +356,10 @@ export function validateCase(caseData) {
   }
   if (split === 'heldout') {
     if (Object.hasOwn(caseData, 'known')) fail(`held-out case ${id} lists known defects; move them to ${id}.key.json`);
+    // A reviewer can search the checkout, and the protected decisions show what the case tests, so they stay with the
+    // known defects in the key file, which stays outside the repository while reviewers run.
+    if (Object.hasOwn(caseData, 'protected'))
+      fail(`held-out case ${id} lists protected decisions; move them to ${id}.key.json`);
   } else if (split === 'dev') {
     if (!Array.isArray(caseData.known)) fail(`dev case ${id} needs a known array (it may be empty)`);
     validateFixFields(id, caseData.known);
@@ -1386,11 +1398,21 @@ function projectDir(options, repo) {
   return dir;
 }
 
-function parseModels(value) {
+// An omp model selector names its provider before the first `/`, and takesServiceTier tests that part. A selector
+// without it would get the tier null also for an OpenAI model, so its agents would run at the global tier of the
+// session.
+function requireProvider(option, model) {
+  if (model.indexOf('/') < 1) {
+    fail(`${option} ${model} has no provider part; give <provider>/<model>, for example ${FIXER_DEFAULTS.model}`);
+  }
+}
+
+function parseModels(value, runtime) {
   if (!value) fail('agents needs --model <selector>[,<selector>...]');
   const models = parseList(value, '--model');
   const suffixed = models.find((model) => EFFORT_SUFFIX.test(model));
   if (suffixed) fail(`--model ${suffixed} has an effort suffix; give the effort with --efforts`);
+  if (runtime === 'omp') for (const model of models) requireProvider('--model', model);
   return models;
 }
 
@@ -1404,7 +1426,8 @@ function parseTiers(value, runtime) {
 }
 
 // The model, effort, and tier of the fixer agent. The defaults hold for omp; Claude Code needs a model of its own and
-// takes no tier.
+// takes no tier. With omp, a fixer model that takes no service tier (see takesServiceTier) gets the tier null and
+// takes no --fixer-tier.
 function parseFixer(options, runtime, levels) {
   const model = options['fixer-model'] ?? (runtime === 'omp' ? FIXER_DEFAULTS.model : null);
   if (!model) fail('Claude Code cannot run the default fixer model; give --fixer-model with --runtime claude');
@@ -1416,6 +1439,15 @@ function parseFixer(options, runtime, levels) {
   if (runtime === 'claude') {
     if (options['fixer-tier']) {
       fail('Claude Code sets no service tier per agent; omit --fixer-tier with --runtime claude');
+    }
+    return { model, effort, tier: null };
+  }
+  requireProvider('--fixer-model', model);
+  if (!takesServiceTier(model)) {
+    if (options['fixer-tier']) {
+      fail(
+        `--fixer-tier: omp sets no service tier for ${model}, whose provider does not start with openai; omit --fixer-tier`,
+      );
     }
     return { model, effort, tier: null };
   }
@@ -1591,11 +1623,10 @@ export function prepareAgents(options, repo) {
   if (!Object.hasOwn(RUNTIME_AGENT_DIRS, runtime)) fail('--runtime must be omp or claude');
   if (!options.efforts) fail('agents needs --efforts <list>, for example --efforts low,medium,high,xhigh');
   const { key: effortKey, levels } = RUNTIME_EFFORTS[runtime];
-  const configs = buildConfigs({
-    models: parseModels(options.model),
-    efforts: parseList(options.efforts, '--efforts', levels),
-    tiers: parseTiers(options.tiers, runtime),
-  });
+  const models = parseModels(options.model, runtime);
+  const efforts = parseList(options.efforts, '--efforts', levels);
+  const tiers = parseTiers(options.tiers, runtime);
+  const configs = buildConfigs({ models, efforts, tiers });
   const fixer = parseFixer(options, runtime, levels);
   const project = projectDir(options, repo);
   let baselineDir;
@@ -1682,6 +1713,15 @@ export function prepareAgents(options, repo) {
   });
   const names = configs.map((config) => config.name).join(', ');
   console.log(`wrote ${configs.length * (sources.length + 1)} agent files to ${agentDir} for ${names}`);
+  if (runtime === 'omp') {
+    // A model that takes no service tier drops the --tiers list. The line makes that visible.
+    for (const model of models.filter((item) => !takesServiceTier(item))) {
+      const dropped = `--tiers ${tiers.join(',')} does not apply to it`;
+      console.log(
+        `${model} gets the tier null: omp sets a service tier only for a model whose provider starts with openai, so ${dropped}`,
+      );
+    }
+  }
   const fixerTier = fixer.tier === null ? '' : `, tier ${fixer.tier}`;
   console.log(`wrote the fixer agent ${FIXER_AGENT}: ${fixer.model}, effort ${fixer.effort}${fixerTier}`);
   if (runtime === 'omp') writeTierOverrides(project, overrides);

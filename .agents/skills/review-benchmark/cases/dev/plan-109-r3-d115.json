@@ -1,0 +1,22 @@
+{
+  "id": "plan-109-r3-d115",
+  "kind": "plan-delta",
+  "split": "dev",
+  "issue": 109,
+  "round": 3,
+  "repo_ref": "6545f804fa9b29b586906b9542337fed1471f031",
+  "previous_body": "plan-109-r3-d115-previous-body.md",
+  "plan": "plan-109-r3-d115-plan.md",
+  "previous_review": "plan-109-r3-d115-previous-review.md",
+  "show_benchmark": true,
+  "known": [
+    {
+      "id": "S109R3-1",
+      "kind": "goal_fit",
+      "title": "The repair adds plan-manager/SKILL.md to the Files cell of step 3 but not of step 6, which ships the same contract change and refreshes the content hashes",
+      "locator": "Steps, row 6 ship_prompt, Files (line 73); Steps, row 3 candidates, Files (line 70); Research, Decisions 7 (line 48); Research, Engineering standards (line 61)",
+      "source": "seeded",
+      "summary": "The round-2 finding named the Files cells of steps 3 and 6. The repair adds plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md to step 3 only. Step 6 ships plan-contract.md when the winner changed it, and it refreshes the content hashes. The hash of plan-manager/SKILL.md covers its references/*.md (scripts/skills/content-hash.mjs, line 5 at repo_ref), and the backfill rewrites its updated and content_hash fields (plan-manager/SKILL.md, lines 7-8). So step 6 must edit a file that its Files cell does not name, or it skips the backfill and the content-hash check of the plugin gate fails (scripts/ci.mjs, line 573)."
+    }
+  ]
+}
