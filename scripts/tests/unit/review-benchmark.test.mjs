@@ -3824,9 +3824,9 @@ function frontmatter(file) {
 }
 
 // Runs `agents` for the efforts low and high and the tiers priority and default on a git repository whose head holds
-// the reviewer agents that `agents` copies. The project folder is `projectFolder` in the scratch folder. It returns the
-// project folder and its omp agent folder.
-function selfReviewAgents(t, projectFolder = 'project') {
+// the reviewer agents that `agents` copies. The project folder is `projectFolder` in the scratch folder, and `options`
+// replaces options of `agents`. It returns the project folder and its omp agent folder.
+function selfReviewAgents(t, projectFolder = 'project', options = {}) {
   isolateGit(t);
   const root = neutralScratch(t);
   const repo = path.join(root, 'repo');
@@ -3840,15 +3840,16 @@ function selfReviewAgents(t, projectFolder = 'project') {
   }
   gitIn(repo, 'add', '-A');
   gitIn(repo, 'commit', '-q', '-m', 'agents');
-  const options = {
+  const agentsOptions = {
     'baseline-ref': 'HEAD',
     model: MODEL,
     efforts: 'low,high',
     tiers: 'priority,default',
     'baseline-dir': path.join(root, 'baseline-plugin'),
     project,
+    ...options,
   };
-  prepare.prepareAgents(options, repo);
+  prepare.prepareAgents(agentsOptions, repo);
   return { root, project, agentDir: path.join(project, '.omp', 'agents') };
 }
 
@@ -3884,6 +3885,107 @@ test('agents writes one self-review agent per configuration with the effort and 
   const clean = spawnSync(process.execPath, [script, 'clean', '--project', project], { encoding: 'utf8' });
   assert.equal(clean.status, 0, clean.stderr);
   assert.equal(fs.existsSync(path.join(project, '.omp')), false);
+});
+
+// Plan #115, decision 3: omp sets a service tier only for OpenAI models and records `serviceTier: null` on the
+// messages of other providers. So a configuration whose model provider does not start with `openai` gets the single
+// tier null: no tier part in its name, no tier override, and no served-tier check. More tiers then give no second
+// configuration of that model.
+const CLAUDE_MODEL = 'anthropic/claude-opus-5-5';
+
+test('agents gives a configuration of a non-OpenAI model the tier null and no tier override', (t) => {
+  const { project, agentDir } = selfReviewAgents(t, 'project', {
+    model: `${MODEL},${CLAUDE_MODEL}`,
+    efforts: 'xhigh',
+    tiers: 'default',
+  });
+  const { configs } = readJson(path.join(agentDir, 'review-bench-configs.json'));
+  assert.deepEqual(configs, [
+    { name: 'gpt-6.1-sol-xhigh', model: MODEL, effort: 'xhigh', tier: 'default' },
+    { name: 'claude-opus-5-5-xhigh', model: CLAUDE_MODEL, effort: 'xhigh', tier: null },
+  ]);
+  const overrides = readJson(path.join(project, '.omp', 'settings.json')).task.agentServiceTierOverrides;
+  const agentsOf = (config) =>
+    ['baseline-code', 'baseline-plan', 'candidate-code', 'candidate-plan', 'selfreview'].map(
+      (part) => `review-bench-${part}-${config}`,
+    );
+  // Every review-bench file of a configuration is a valid agent with the model and effort of that configuration.
+  for (const { name, model, effort, tier } of configs) {
+    assert.deepEqual(
+      fs
+        .readdirSync(agentDir)
+        .filter((file) => file.startsWith('review-bench-') && file.endsWith(`-${name}.md`))
+        .sort(),
+      agentsOf(name).map((agent) => `${agent}.md`),
+    );
+    for (const agent of agentsOf(name)) {
+      const fields = frontmatter(path.join(agentDir, `${agent}.md`));
+      assert.deepEqual([fields.name, fields.model, fields['thinking-level']], [agent, model, effort]);
+      assert.equal(overrides[agent], tier ?? undefined);
+    }
+  }
+  assert.deepEqual(
+    Object.keys(overrides).filter((agent) => agent.includes('claude')),
+    [],
+  );
+  // The fixer keeps its OpenAI tier.
+  assert.equal(overrides['review-bench-fixer'], FIXER_SETTING.tier);
+  // Two tiers give two OpenAI configurations and one non-OpenAI configuration, without a tier part in its name.
+  const grid = prepare.buildConfigs({
+    models: [MODEL, CLAUDE_MODEL],
+    efforts: ['xhigh'],
+    tiers: ['priority', 'default'],
+  });
+  assert.deepEqual(
+    grid.map(({ name, tier }) => [name, tier]),
+    [
+      ['gpt-6.1-sol-xhigh-fast', 'priority'],
+      ['gpt-6.1-sol-xhigh', 'default'],
+      ['claude-opus-5-5-xhigh', null],
+    ],
+  );
+});
+
+test('report accepts a null-tier run served without a tier and refuses an OpenAI run served at another tier', () => {
+  const [openai, claude] = prepare.buildConfigs({
+    models: [MODEL, CLAUDE_MODEL],
+    efforts: ['xhigh'],
+    tiers: ['default'],
+  });
+  const transcript = (provider, model, requested, served) => {
+    const reply = assistantLine(5, provider, model, served, { input: 10, output: 5 });
+    reply.message.serviceTier = served;
+    return jsonl([
+      { type: 'thinking_level_change', timestamp: isoAt(0), thinkingLevel: 'xhigh' },
+      ...(requested ? [{ type: 'service_tier_change', timestamp: isoAt(0), serviceTier: { openai: requested } }] : []),
+      { type: 'message', timestamp: isoAt(1), message: { role: 'user' } },
+      reply,
+    ]);
+  };
+  const runs = [
+    [claude, transcript('anthropic', 'claude-opus-5-5', null, null)],
+    [openai, transcript('openai-codex', 'gpt-6.1-sol', 'default', 'default')],
+    [openai, transcript('openai-codex', 'gpt-6.1-sol', 'default', 'priority')],
+  ];
+  const costs = runs.map(([config, text]) => transcriptEntry(text, config.model));
+  assert.deepEqual(costs[0].messages, [{ model: CLAUDE_MODEL, effort: 'xhigh', servedTier: null }]);
+  const fixture = judgedArm(CODE_KNOWN.slice(0, 1), [[], [], []], costs);
+  for (const [index, [config]] of runs.entries()) fixture.metas[`code-7/C3/run-${index + 1}`].config = config;
+  const scores = scoreRuns(fixture);
+  assert.deepEqual(
+    scores.runs.map((run) => [run.run, run.invalid]),
+    [
+      ['run-1', []],
+      ['run-2', []],
+      ['run-3', ['correctness: served tier priority, not default']],
+    ],
+  );
+  const lines = renderReport(scores).split('\n');
+  assert.ok(lines.includes('- code-7/C3/run-3: correctness: served tier priority, not default'));
+  assert.equal(
+    lines.some((line) => /run-[12]: /.test(line) && line.startsWith('- ')),
+    false,
+  );
 });
 
 test('case --arms S1,S3 writes one self-review prompt on the full diff and one per lens on its focus diff', (t) => {

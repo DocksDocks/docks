@@ -289,7 +289,9 @@ export function modelSlug(model) {
 
 // Every model at every effort with every tier. A name is the effort plus the part of the tier (`TIER_NAMES`; a
 // runtime without tiers adds nothing). With more than one model, the model slug comes first. The report uses the
-// names as column names, so the same lists always give the same names.
+// names as column names, so the same lists always give the same names. omp sets a service tier only for OpenAI
+// models, so a model whose provider does not start with `openai` gets the single tier null: no name part, no tier
+// override, and no served-tier check.
 export function buildConfigs({ models, efforts, tiers }) {
   const configs = [];
   for (const model of models) {
@@ -299,8 +301,9 @@ export function buildConfigs({ models, efforts, tiers }) {
       if (!slug) fail(`model ${model} gives no name for its configurations`);
       prefix = `${slug}-`;
     }
+    const modelTiers = model.split('/')[0].startsWith('openai') ? tiers : [null];
     for (const effort of efforts) {
-      for (const tier of tiers) {
+      for (const tier of modelTiers) {
         const suffix = tier === null ? '' : (TIER_NAMES[tier] ?? `-${tier}`);
         configs.push({ name: `${prefix}${effort}${suffix}`, model, effort, tier });
       }
