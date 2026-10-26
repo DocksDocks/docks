@@ -29,8 +29,9 @@ qualifying finding in one pass. An empty review is a valid result. Do not ask
 for style, naming, formatting, line counts, more citations, additional probes,
 mutation tests, acceptance rows beyond the checks that repository instructions
 require, cosmetic work, or restructuring for its own sake. An Acceptance row
-that passes without the change is a defect of that row, not a request for a
-new test.
+that checks a Goal outcome and passes without the change is a defect of that
+row, not a request for a new test. A row that is a regression guard, or a gate
+that must pass before and after the change, is not a finding.
 </constraint>
 
 ## Workflow
