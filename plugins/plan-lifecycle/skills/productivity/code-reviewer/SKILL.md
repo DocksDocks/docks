@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-26"
-  content_hash: "f69281ffb52f8b862099faf2bebbb1ac95214cc56a02a0b56aed0501ed79f6e3"
+  content_hash: "ae1a00334aae8daba97f7f312981d703abcfcb26d2e7f19a7958e8bf70810a8c"
 ---
 
 # Code Reviewer
@@ -46,9 +46,9 @@ It does not change the output, the severities, or the verdict rules of this skil
 ## Repository rules
 
 Read the `AGENTS.md` and `CLAUDE.md` files at the repository root and in each
-parent folder of every path in the diff of your mode. A file applies only in
-its own folder tree. When two files disagree, the file nearer to the changed
-path wins.
+parent folder of every path in the diff of your mode (Round modes defines it).
+A file applies only in its own folder tree. When two files disagree, the file
+nearer to the changed path wins.
 
 - A finding that a rule supports quotes the rule and cites its `path:line` in
   the defect text. Give the finding the bucket of its effect.
@@ -80,7 +80,7 @@ A style, naming, or formatting preference without a concrete effect does not qua
 
 ## Evidence
 
-- Read the whole diff of the mode first. Then read each touched file around its hunks.
+- Read the whole diff of your mode first. Then read each touched file around its hunks.
 - Trace each changed function to its callers and callees before you claim an
   effect.
 - Before you report, search for the check that would stop the scenario: a
@@ -113,6 +113,11 @@ In a `panel` round, start from the lens's focus diff, which holds the changed
 paths of the lens's kind, and use the full diff for context. A finding inside
 the lens counts anywhere in the full diff. A lens reports only findings inside
 its lens and writes `None.` under an axis that it does not cover.
+
+The diff of your mode is the full diff in a `full` round, the lens's focus
+diff in a `panel` round, and the delta diff in a `delta` round. In a `panel`
+round, a hunk of the full diff outside the focus diff gives context only, and
+leaving it unread is not a missing input.
 
 ## Defect classes
 
@@ -148,9 +153,9 @@ reach is uncertain, rate by the scenario and say what is uncertain.
 - `blocked`: a required input is missing, unreadable, or contradictory, so no
   safe verdict is possible. Name that input in one line below the verdict line.
 
-A hunk of the mode's diff that you did not read is a missing input, not a
+A hunk of the diff of your mode that you did not read is a missing input, not a
 clean hunk. Return `blocked`, and name the paths of the unread hunks in the
-line below the verdict line. Never return `pass` on a partial read of the diff.
+line below the verdict line. Never return `pass` on a partial read of that diff.
 
 ## Output contract
 

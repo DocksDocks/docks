@@ -1042,6 +1042,7 @@ In the tables, an interval row gives the 90% interval of the difference from the
 | Seconds median | 437.5 | 306.5 |
 
 - `main` re-argued 0.00 protected decisions per run on the dev set (D2' also 0.00), on the fresh plan set (20 protected decisions, 112 runs of both arms), for the Claude reviewer (21 runs), and on the fresh protected set. Before the re-run of `ud-106-r1` was judged, the judge had answered `match` for findings on UD106-2 (a yolo decision, `git diff -D`), which gave 0.07 per run. The case judged again gives none.
+- By kind of protected decision, the rate is 0.00 per run for user choices, for request corrections, and for yolo decisions, on each set that holds the kind (the fresh protected set holds no yolo decisions).
 - Decoys on the fresh protected set: 11 of 14 valid decoy-runs found the decoy (D12-1 3 of 3, D14-1 2 of 2 valid, D16-1 3 of 3, D19-1 0 of 3, D23-1 3 of 3). Every run missed D19-1, a user choice to merge with `--delete-branch`.
 - Decision: 0.00 is below 0.10, so Vud was not written (step `user_fix` skipped), and the plan reviewer does not change.
 
@@ -1057,6 +1058,14 @@ In the tables, an interval row gives the 90% interval of the difference from the
 | Escaped per 50 known difference, 90% interval | - | [-3.24, 0.00] |
 | Wrong per run | 0.00 | 0.03 |
 | Seconds median | 375.6 | 425.2 |
+
+Target subset and rest. The target subset is the three seeded repository-rules-and-text cases (`code-101-s115`, `code-46-s115`, `code-27-s115`, 9 known); the rest is the other 5 cases (25 known).
+
+| Measure | `B3`, target | C1', target | `B3`, rest | C1', rest |
+|---|---:|---:|---:|---:|
+| Runs | 15 | 15 | 25 | 25 |
+| Known found per run | 2.13 | 2.33 | 2.76 | 2.84 |
+| Escaped per 50 known | 14.44 | 11.11 | 22.40 | 21.60 |
 
 Decision: C1' lets fewer known defects escape, both intervals stay inside their bounds, its wrong findings are 0.03 more per run, and its unknown findings are 0.00 in both arms. C1' passes and ships with its contract sentence.
 
@@ -1089,6 +1098,16 @@ Decision: C1' lets fewer known defects escape, both intervals stay inside their 
 | Wrong per run | 0.00 | 0.00 | 0.11 | 0.15 |
 | Seconds median | 427.5 | 456.3 | 437.5 | 505.2 |
 
+Target subset and rest. The target subset is the 5 external-behavior defects of the fresh plan set (`PS20-1`, `PS20-2`, `PS22-1`, `PS31-1`, `PS89-1`); the rest is the other 17 known defects.
+
+| Measure | `Vmain`, target | D2', target | `Vmain`, rest | D2', rest |
+|---|---:|---:|---:|---:|
+| Runs | 56 | 56 | 56 | 56 |
+| Known found per run | 0.71 | 0.71 | 2.14 | 2.14 |
+| Escaped per 50 known | 0.00 | 0.00 | 5.88 | 5.88 |
+
+Both arms found each external-behavior defect in all 8 runs, so this set could not show a gain of D2' on its target kind.
+
 Decision: on the fresh plan set, D2' does not let fewer known defects escape (4.55 against 4.55 per 50 known), so it fails and does not ship. On the protected dev set, which does not decide, D2' was worse.
 
 ### Second model family
@@ -1118,6 +1137,16 @@ The union script gives only the escaped and wrong rates of the unions, and no re
 | Wrong per run | 0.13 | 0.04 |
 | Seconds median | 341.1 | 356.0 |
 
+Target subset and rest. The target subset is the two seeded external-behavior cases (`code-16-s115`, `code-12-s115`, 6 known); the rest is the other 6 cases (28 known).
+
+| Measure | `B3`, target | Cweb, target | `B3`, rest | Cweb, rest |
+|---|---:|---:|---:|---:|
+| Runs | 6 | 6 | 18 | 18 |
+| Known found per run | 3.00 | 2.83 | 2.50 | 2.56 |
+| Escaped per 50 known | 0.00 | 2.78 | 23.21 | 22.62 |
+
+On its target cases, Cweb missed one known defect in one run that `B3` found in every run.
+
 Decision: Cweb does not let fewer known defects escape, and its escaped interval reaches 2.92, above 2. It fails and does not ship. Its web searches went only to official documentation pages.
 
 ### Code reviewer: blocked on unread hunks (Cblk)
@@ -1137,11 +1166,12 @@ Decision: no Cblk run returned a `blocked` verdict, also on the large readable c
 
 ### LOW rule in real runs
 
-The code review of plan #113 passed in round 3 with no open finding, so the LOW rule did not apply. The code review of plan #115 is added here after it runs.
+- Plan #113: the code review passed in round 3 with no open finding, so the LOW rule did not apply.
+- Plan #115: code-review round 1 passed in all three lenses. Its findings and those of the self-review gave 9 distinct findings, the highest MEDIUM. The manager repaired each of them before round 2, because the LOW rule starts at round 3. The run summary of plan #115 records the final round; when the review reaches round 3, this list gets that round's record.
 
 ### Limits
 
-- C1' and Cblk both change the code reviewer. They apply in the order of plan #115 decision 6 (C1', then Cblk), and their diffs did not conflict. The combination was not measured as a whole.
+- C1' and Cblk both change the code reviewer. They apply in the order of plan #115 decision 6 (C1', then Cblk), and their diffs did not conflict apart from the `content_hash` field of the code-reviewer skill. The combination was not measured as a whole.
 - C1' ran without its contract sentence on 6 of the 8 code cases, because the snapshot contracts of the seeded cases do not hold the sentence.
 - The family comparison includes a judge difference: a GPT judge judged the Claude findings and Claude judges judged the GPT findings. No third family ran here.
 - The fresh plan set was easy: `main` found 2.86 of 3.14 known defects per run, so it left little room for D2' to show a gain.
@@ -1151,5 +1181,6 @@ The code review of plan #113 passed in round 3 with no open finding, so the LOW 
 ### What shipped
 
 - C1' with its contract sentence, then Cblk, applied to `main` in that order. The plan delta effort rule is reverted: every review round runs at the configured effort.
+- Code review of plan #115 repaired two gaps of Cblk that the benchmark did not measure: the code-reviewer skill now defines the diff of each mode (the full diff, the lens's focus diff in a panel round, the delta diff), and the plan contract, the plan-manager skill, and the yolo skill dispatch a code reviewer again when it returns `blocked` for unread hunks.
 - D2', Cweb, the second-family option, and the code delta effort rule did not ship.
 - The candidate diffs stay in `variants/plan-115-cand-d2p.patch`, `variants/code-115-cand-c1p.patch`, `variants/code-115-cand-web.patch`, and `variants/code-115-cand-blk.patch`.

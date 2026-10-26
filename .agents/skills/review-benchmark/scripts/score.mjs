@@ -440,8 +440,9 @@ function requireKnownList(caseId, known) {
   return known;
 }
 
-// The protected decisions of a case: one { id, section, summary } per decision that the user made, such as a request
-// correction, which a reviewer must not re-argue. The judge names them by id, so each id is a string, once.
+// The protected decisions of a case: one { id, section, summary } per decision that the user made or delegated, such as
+// a request correction or a decision that a yolo plan records, which a reviewer must not re-argue (see the `protected`
+// row of the Cases table in SKILL.md). The judge names them by id, so each id is a string, once.
 function requireProtectedList(caseId, decisions) {
   if (!Array.isArray(decisions) || decisions.some((item) => typeof item?.id !== 'string'))
     fail(`the protected decisions of ${caseId} must be a list of items with a string id`);

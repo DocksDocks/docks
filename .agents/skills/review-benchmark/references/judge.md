@@ -27,7 +27,7 @@ One finding can match several known defects. Several findings can match one know
 
 ## Decision pass
 
-A case can list protected decisions: decisions that the user made, such as a request correction or a choice of the user that the plan records. A reviewer must not re-argue them. Each protected decision has an `id`, the plan `section` that records it, and a `summary`. `pairs.json` pairs each finding of a run with each protected decision of its case (`protectedPairs`), whatever files the finding names.
+A case can list protected decisions: decisions that the user made or delegated. A protected decision is a request correction, a choice of the user that the plan records, or a decision that a yolo plan records under the user's delegation (the plan contract treats it as settled; a reviewer may still report its false premise or broken effect). A reviewer must not re-argue them. Each protected decision has an `id`, the plan `section` that records it, and a `summary`. `pairs.json` pairs each finding of a run with each protected decision of its case (`protectedPairs`), whatever files the finding names.
 
 For each case, read its protected decisions and the plan sections that record them first. Then do these steps for each protected pair in each run:
 

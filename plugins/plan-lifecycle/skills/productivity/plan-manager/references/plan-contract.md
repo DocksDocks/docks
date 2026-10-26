@@ -314,6 +314,15 @@ merge of the default branch into the linked branch always gets a `panel` or a
 When a reviewer fails or returns no block with a verdict line, dispatch it
 again before you post the round.
 
+When a code reviewer returns `blocked` because it left hunks of the diff of its
+mode unread (the `code-reviewer` skill, Round modes), dispatch it again before
+you post the round, with the same inputs and the unread paths that its block
+names. Count each such block as a failed dispatch. A second such block from
+that reviewer on the same reviewed head is the second failed dispatch without a
+relevant change: follow step 5 of the review loop, or in a yolo run the stall
+rule of the Round ceiling. A `blocked` verdict for another input keeps the
+route of plan-manager phase 6: resolve that input before you request a verdict.
+
 Dispatch every lens and every delta round as the `code-reviewer` agent. A
 per-agent model setting, such as omp `task.agentModelOverrides.code-reviewer`
 or the `model` key of a Codex agent file, then applies to each of them.
@@ -614,6 +623,7 @@ question. All other contract rules stay in force.
 | Dirty checkout at linked-branch setup | A separate clean worktree, without a question |
 | Review-loop continuation | The round ceiling below |
 | Plan-review `blocked` verdict | The manager decides with evidence |
+| Code-review `blocked` verdict for unread hunks | Dispatch that reviewer again, as Code-review rounds says; a second such block on the same head stalls the phase (round ceiling below) |
 | Public disclosure of a sensitive finding | Stop before any write |
 | Production cleanup in Teardown | Its own question, like a step after the landing merge |
 

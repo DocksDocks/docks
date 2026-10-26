@@ -123,9 +123,11 @@ Report a Spec finding when the change uses a temporary workaround instead of the
     - `fixes-required`: At least one `CRITICAL` or `HIGH` finding stands.
     - `blocked`: Required review input is missing, unreadable, or
       contradictory, so no safe verdict can be reached. Name that input in one
-      line below the verdict line. A hunk of the mode's diff that you did not
-      read is a missing input: return `blocked`, and name the paths of the
-      unread hunks in that line. Never return `pass` on a partial read.
+      line below the verdict line. A hunk of the diff of your mode (the
+      skill's Round modes section defines it; without the skill, the full
+      diff) that you did not read is a missing input: return `blocked`, and
+      name the paths of the unread hunks in that line. Never return `pass` on
+      a partial read.
 12. Return one markdown block; the manager posts it unchanged in the round's
     issue comment.
 

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-26"
-  content_hash: "de3f37c82098b5769212df50388bbcafa880266ef70aea1be03e7161692e324f"
+  content_hash: "7466a36edaf3d5c5bd9975e3c45b8842917c72dec9cf888e045a9fa7e4105f29"
 ---
 
 # Plan Manager
@@ -156,6 +156,9 @@ or a matcher, list its input forms, such as delimiters, white space, quotes,
 `--`, aliases, and nested fields, and test each form before the commit. In
 recorded plans, more than half of the later code findings were faults in the
 repair of an earlier finding.
+
+When a code reviewer returns `blocked` because it left hunks unread, dispatch
+it again as the contract's Code-review rounds says.
 
 Resolve unreadable input before you request a verdict. If you block after
 implementation, commit and push current work to the linked branch before you

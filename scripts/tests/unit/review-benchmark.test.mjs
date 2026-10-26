@@ -3988,6 +3988,119 @@ test('report accepts a null-tier run served without a tier and refuses an OpenAI
   );
 });
 
+// Plan #115 code review: omp tells an OpenAI model by the provider part of its selector, the text before the first
+// `/`. So with `--runtime omp`, agents refuses a `--model` or `--fixer-model` selector without a provider part, before
+// it writes a file: `<option> <selector> has no provider part; give <provider>/<model>, for example
+// openai-codex/gpt-6.1-sol`. It prints one line for each model that gets the tier null: `<model> gets the tier null:
+// omp sets a service tier only for a model whose provider starts with openai, so --tiers <tiers> does not apply to
+// it`. Claude Code takes model names without a provider part. The fixer follows the same provider rule: a fixer model
+// whose provider does not start with `openai` gets the tier null, so no tier override and no served-tier check of its
+// loop entries, and agents refuses `--fixer-tier` for it: `--fixer-tier: omp sets no service tier for <model>, whose
+// provider does not start with openai; omit --fixer-tier`.
+
+// The result of `fn` and the lines that it logs with console.log.
+function logged(fn) {
+  const lines = [];
+  const log = console.log;
+  console.log = (...args) => lines.push(args.join(' '));
+  try {
+    return { result: fn(), lines };
+  } finally {
+    console.log = log;
+  }
+}
+
+// The options of `agents` at the effort low and the tier default in the project and scratch folder of
+// selfReviewAgents.
+const agentsOptions = ({ root, project }) => ({
+  'baseline-ref': 'HEAD',
+  model: MODEL,
+  efforts: 'low',
+  tiers: 'default',
+  'baseline-dir': path.join(root, 'baseline-plugin'),
+  project,
+});
+
+test('agents --runtime omp refuses a selector without a provider part and prints each model without a tier', (t) => {
+  const grid = { model: `${MODEL},${CLAUDE_MODEL}`, efforts: 'xhigh', tiers: 'priority,default' };
+  const { result, lines } = logged(() => selfReviewAgents(t, 'project', grid));
+  const { root, project } = result;
+  assert.deepEqual(
+    lines.filter((line) => line.includes('tier null')),
+    [
+      `${CLAUDE_MODEL} gets the tier null: omp sets a service tier only for a model whose provider starts with openai, so --tiers priority,default does not apply to it`,
+    ],
+  );
+  const repo = path.join(root, 'repo');
+  const options = agentsOptions(result);
+  const noProvider = (option, model) =>
+    `${option} ${model} has no provider part; give <provider>/<model>, for example openai-codex/gpt-6.1-sol`;
+  const state = treeState(root);
+  for (const [change, message] of [
+    [{ model: 'gpt-6.1-sol' }, noProvider('--model', 'gpt-6.1-sol')],
+    [{ model: `${MODEL},/gpt-6.1-sol` }, noProvider('--model', '/gpt-6.1-sol')],
+    [{ 'fixer-model': 'gpt-6.1-sol' }, noProvider('--fixer-model', 'gpt-6.1-sol')],
+  ]) {
+    assert.throws(() => prepare.prepareAgents({ ...options, ...change }, repo), { message });
+    // agents refuses before it writes a file.
+    assert.deepEqual(treeState(root), state);
+  }
+  // Claude Code takes model names without a provider part. It sets no tier at all, so it prints no tier line.
+  const claudeOptions = { ...options, runtime: 'claude', tiers: undefined, model: 'opus', 'fixer-model': 'sonnet' };
+  const claude = logged(() => prepare.prepareAgents(claudeOptions, repo));
+  assert.deepEqual(
+    claude.lines.filter((line) => line.includes('tier null')),
+    [],
+  );
+  const { configs, fixer } = readJson(path.join(project, '.claude', 'agents', 'review-bench-configs.json'));
+  assert.deepEqual(configs, [{ name: 'low', model: 'opus', effort: 'low', tier: null }]);
+  assert.deepEqual(fixer, { model: 'sonnet', effort: 'high', tier: null });
+});
+
+test('agents gives a non-OpenAI fixer model the tier null and refuses --fixer-tier for it', (t) => {
+  const fixture = selfReviewAgents(t, 'project', { 'fixer-model': CLAUDE_MODEL });
+  const { root, project, agentDir } = fixture;
+  const configsFile = path.join(agentDir, 'review-bench-configs.json');
+  const settingsFile = path.join(project, '.omp', 'settings.json');
+  const { fixer } = readJson(configsFile);
+  assert.deepEqual(fixer, { model: CLAUDE_MODEL, effort: 'high', tier: null });
+  const overrides = readJson(settingsFile).task.agentServiceTierOverrides;
+  assert.equal(Object.hasOwn(overrides, 'review-bench-fixer'), false);
+  // The reviewer agents keep their tiers.
+  assert.equal(overrides['review-bench-candidate-code-low'], 'default');
+  // agents refuses --fixer-tier for such a model before it writes a file. An OpenAI fixer model takes it.
+  const repo = path.join(root, 'repo');
+  const options = agentsOptions(fixture);
+  const state = treeState(root);
+  const message = `--fixer-tier: omp sets no service tier for ${CLAUDE_MODEL}, whose provider does not start with openai; omit --fixer-tier`;
+  const claudeTier = { ...options, 'fixer-model': CLAUDE_MODEL, 'fixer-tier': 'priority' };
+  assert.throws(() => prepare.prepareAgents(claudeTier, repo), { message });
+  assert.deepEqual(treeState(root), state);
+  prepare.prepareAgents({ ...options, 'fixer-tier': 'flex' }, repo);
+  assert.deepEqual(readJson(configsFile).fixer, { model: MODEL, effort: 'high', tier: 'flex' });
+  assert.equal(readJson(settingsFile).task.agentServiceTierOverrides['review-bench-fixer'], 'flex');
+  // omp records `serviceTier: null` on the messages of the fixer. Its loop entries get no served-tier check.
+  const loop = {
+    case: 'code-7',
+    config: 'low',
+    rounds: [
+      [100, 1000, 'full', 20, ['valid']],
+      [40, 1000, 'delta', 0, []],
+    ],
+  };
+  const scored = gridFixture({ 'code-7': { split: 'dev', known: ['D1'] } }, [loop]);
+  const round1 = scored.metas['code-7/C1-low/run-1/round-1'];
+  round1.fixerConfig = fixer;
+  round1.fixer.agents = { 'fixer-1': provenCost(fixer, 20, 100) };
+  assert.deepEqual(round1.fixer.agents['fixer-1'].messages, [
+    { model: CLAUDE_MODEL, effort: 'high', servedTier: null },
+  ]);
+  assert.deepEqual(
+    scoreRuns(scored).runs.map((run) => [run.run, run.invalid]),
+    [['run-1', []]],
+  );
+});
+
 test('case --arms S1,S3 writes one self-review prompt on the full diff and one per lens on its focus diff', (t) => {
   const { root, repo, base, head } = loopRepo(t);
   const ws = path.join(root, 'ws');
@@ -6594,9 +6707,11 @@ test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of 
 // Plan #115 step 1: API note for the tests below (decision 2, protected decisions).
 //
 // Case and key files:
-// - A dev case file can list `protected`: one { id, section, summary } per decision that the user made, such as a
-//   request correction, which a reviewer must not re-argue. A held-out key file can be an object { known, protected };
-//   a key file that is a list, or an object without `protected`, gives no protected decisions.
+// - A dev case file can list `protected`: one { id, section, summary } per decision that the user made or delegated: a
+//   request correction, a choice of the user that the plan records, or a decision that a yolo plan records under the
+//   user's delegation (the plan contract treats it as settled; a reviewer may still report its false premise or broken
+//   effect). A reviewer must not re-argue it. A held-out key file can be an object { known, protected }; a key file
+//   that is a list, or an object without `protected`, gives no protected decisions.
 // prepare.mjs:
 // - validateCase, and so `case`, refuses `protected` in a held-out case file, also an empty list, before `case` writes
 //   a file: `held-out case <id> lists protected decisions; move them to <id>.key.json`.
@@ -6605,6 +6720,9 @@ test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of 
 //   `--keys` rule of `known`. Each run entry gets `protectedPairs`: one { finding, protected } for each finding of the
 //   run and each protected decision of its case, without the shared-file rule of code pairs, sorted by finding and then
 //   by protected id.
+// - pairs, as every reader of a case file or key file, refuses a `protected` value that is not a list of items with a
+//   string id: `the protected decisions of <id> must be a list of items with a string id`; and a list that repeats an
+//   id: `<id> repeats a protected decision id`.
 // - judgments.json gets `reargued`: one { finding, protected, verdict, reason } per protected pair, with the verdict
 //   `match`, `no`, or `unknown`. A missing `reargued` array holds no answers. scoreRuns, and so `report`, refuses as
 //   it refuses `matches`: `judgments.json names unknown finding <blind>`; `judgments.json pairs <blind> with <id>,
@@ -6753,6 +6871,38 @@ test('pairs.json lists the protected decisions of each case and pairs each one w
   );
   put(keys, 'plan-3.key.json', { known: PLAN_KEY, protected: PROTECTED.slice(1, 2) });
   assert.deepEqual(pairsCommand(ws, cases, { keys }).cases[1].protected, PROTECTED.slice(1, 2));
+});
+
+test('pairs refuses protected decisions that are no list of items with a string id, or that repeat an id', (t) => {
+  const { ws, cases } = protectedWorkspace(t);
+  findingsCommand(ws);
+  const keys = path.join(path.dirname(ws), 'keys');
+  const [first, second] = PROTECTED;
+  // Each bad `protected` value of the case `id`, with the message that stops pairs.
+  const refusals = (id) => {
+    const notList = `the protected decisions of ${id} must be a list of items with a string id`;
+    return [
+      [first, notList],
+      [[first, { section: second.section, summary: second.summary }], notList],
+      [[first, { ...second, id: 2 }], notList],
+      [[first, null], notList],
+      [[first, second, { ...first, summary: 'Another summary' }], `${id} repeats a protected decision id`],
+    ];
+  };
+  // The held-out key of the --keys folder.
+  for (const [decisions, message] of refusals('plan-3')) {
+    put(keys, 'plan-3.key.json', { known: PLAN_KEY, protected: decisions });
+    assert.throws(() => pairsCommand(ws, cases, { keys }), { message });
+  }
+  // A dev case file.
+  put(keys, 'plan-3.key.json', { known: PLAN_KEY, protected: PROTECTED.slice(0, 2) });
+  const codeCase = { id: 'code-7', kind: 'code', split: 'dev', known: CODE_KNOWN };
+  for (const [decisions, message] of refusals('code-7')) {
+    put(cases, 'dev/code-7.json', { ...codeCase, protected: decisions });
+    assert.throws(() => pairsCommand(ws, cases, { keys }), { message });
+  }
+  // pairs refuses before it writes pairs.json.
+  assert.equal(fs.existsSync(path.join(ws, 'pairs.json')), false);
 });
 
 test('case refuses protected decisions in a held-out case file, as it refuses known defects, and a dev case takes them', (t) => {
