@@ -28,7 +28,10 @@ A plan-review finding is exactly one of `goal_fit`, `research_gap`, or
 qualifying finding in one pass. An empty review is a valid result. Do not ask
 for style, naming, formatting, line counts, more citations, additional probes,
 mutation tests, acceptance rows beyond the checks that repository instructions
-require, cosmetic work, or restructuring for its own sake.
+require, cosmetic work, or restructuring for its own sake. An Acceptance row
+that checks a Goal outcome and passes without the change is a defect of that
+row, not a request for a new test. A row that is a regression guard, or a gate
+that must pass before and after the change, is not a finding.
 </constraint>
 
 ## Workflow
@@ -48,7 +51,8 @@ require, cosmetic work, or restructuring for its own sake.
    to direct attention. It does not limit the review.
 5. Read the repository files, symbols, tests, and local instructions needed to
    verify the plan. Trace each load-bearing claim against actual callers and
-   behavior.
+   behavior. Trace each format, location, or rule that a step changes to its
+   readers.
 6. Verify library, framework, runtime, and external API claims against current
    official documentation. Use web search only to locate an official source.
 7. Keep each observation that meets the finding bar, in one of the three kinds:

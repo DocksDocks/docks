@@ -4,8 +4,8 @@ description: "Use when plan-manager needs a read-only pre-implementation review 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-25"
-  content_hash: "41647705e3b5a7f65d2af07a195afe7223b738123f976422310d9129b8d0ddd1"
+  updated: "2026-10-26"
+  content_hash: "9ac3ed53cb70e2c17b949a9e14139ee4c5369708bf0b1424c67832a12f7b7a07"
 ---
 
 # Plan Reviewer
@@ -27,7 +27,10 @@ Report only `goal_fit`, `research_gap`, or `security_risk` findings that meet
 the finding bar. Do not ask for cosmetic changes, naming, formatting, line
 counts, extra citations, probes, tests, or acceptance rows without a
 load-bearing defect, because such a request adds a repair round and does not
-change whether the plan works.
+change whether the plan works. An Acceptance row that checks a Goal outcome and
+cannot fail without the change is a load-bearing defect. A row that is a
+regression guard, or a gate that must pass before and after the change, is not
+a finding.
 </constraint>
 
 ## Precedence

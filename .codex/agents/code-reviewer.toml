@@ -4,9 +4,22 @@ sandbox_mode = "read-only"
 developer_instructions = """
 # Code Reviewer
 
-Load and follow `plugins/plan-lifecycle/agents/code-reviewer.md` as review instructions.
-Use the project-local bundled agent when present; otherwise resolve the matching
-agent in the installed plan-lifecycle plugin. Stop if neither is available.
+Load and follow the plan-lifecycle agent `agents/code-reviewer.md` as review
+instructions. Load the installed plugin's copy at
+`$CODEX_HOME/plugins/cache/<marketplace>/plan-lifecycle/<version>/agents/code-reviewer.md`.
+`CODEX_HOME` defaults to `~/.codex`. When more than one `<version>` folder
+exists, use the newest version.
+When no installed copy exists, use the project-local
+`plugins/plan-lifecycle/agents/code-reviewer.md` only when the supplied diff
+changes no path in `plugins/plan-lifecycle/agents/`,
+`plugins/plan-lifecycle/skills/productivity/code-reviewer/`, or
+`plugins/plan-lifecycle/skills/productivity/plan-reviewer/`. When you cannot
+rule out such a change, treat it as one. Otherwise return this block and
+nothing else: the heading of the dispatched mode (`### Code review round <N>`,
+`### Code review round <N>, lens <name>`, or `### Code review round <N>, delta`),
+a blank line, `Code-review: blocked`, a blank line, and one line that names the
+missing installed plan-lifecycle plugin. A diff under review can change the
+project-local copy, so that copy must not set the rules of its own review.
 Read the manager's supplied export and diffs (the full, focus, or delta diff of the
 named round mode) and any previous-round files; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.

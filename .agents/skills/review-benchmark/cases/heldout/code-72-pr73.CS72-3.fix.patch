@@ -1,0 +1,13 @@
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 40bf4c3d..ce999aca 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -286,7 +286,7 @@ try {
+     ['Portable ~/.local/state/docks/x, $HOME/x, bare /tmp, /tmp/ and /home/', []],
+     ["Regex `'\\\\d+\\\\.'`", []],
+   ])
+-    for (const line of expected) assert.ok(machinePathAdvice(text).includes(line), `${text}: ${line}`);
++    assert.deepEqual(machinePathAdvice(text), expected, text);
+ 
+   // Ids that differ only by case or dash collapse after normalization; the write refuses the collision.
+   const collision = createPlan('id-collision');

@@ -1,0 +1,17 @@
+diff --git a/scripts/tests/plan-cli/reviews.test.mjs b/scripts/tests/plan-cli/reviews.test.mjs
+index 7755213..098eabc 100644
+--- a/scripts/tests/plan-cli/reviews.test.mjs
++++ b/scripts/tests/plan-cli/reviews.test.mjs
+@@ -250,6 +250,12 @@ test('a plan-review pass covers the Mode line and the delegation line that a yol
+       `Fix the parser.\n   ${delegation}  \n\n   Mode: plan-and-implement`,
+       false,
+     ],
++    [
++      'a delegation line between two goal paragraphs',
++      `Fix the parser.\n\n${delegation}\n\nKeep the flags.\n\nMode: plan-and-implement`,
++      false,
++      'Fix the parser.\n\nKeep the flags.',
++    ],
+     ['a Mode change without the delegation line', 'Fix the parser.\n\nMode: plan-and-implement', true],
+     ['a delegation line in a code span', `Fix the parser.\n\n\`${delegation}\`\n\nMode: plan-and-implement`, true],
+     [

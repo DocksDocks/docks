@@ -42,7 +42,7 @@ A case is `cases/<split>/<id>.json` plus the files it names in the same folder.
 | `show_benchmark` | all | Optional `true` for a case whose plan changes this skill: the snapshot and the diffs then hold this skill folder without its `cases/` folder (see Workspace) |
 | `known` | dev only | Known defects: `id`, `title`, `locator`, and `severity` (code) or `kind` (plan). A code defect adds `fix`, its fix patch (a file in the case folder), and optionally `fix_after`, the ids of the known defects whose patches its patch needs first |
 
-A held-out case file has no `known` field. Its known defects are in `<id>.key.json`, in the same form as the `known` list of a dev case, and the fix patches are in the folder of the key file. Of the agents, only the judge reads key files; `score.mjs` and `prepare.mjs loop` read them too. The keys of the current held-out cases are in `cases/heldout/`: plans #100, #109, and #111 published them after their decisions, so these cases build and score without `--keys`. While reviewers run on a new held-out set, keep its keys outside the repository until its decision, because a reviewer can search the checkout: for example in `$XDG_STATE_HOME/docks/review-bench/keys/` with mode 0700. Give that folder to `score.mjs pairs` and `score.mjs report` with `--keys <dir>`. `pairs` then reads `<dir>/<id>.key.json` for each case without `known`, and never the key file next to the case file. `report` stops when a key in that folder has other known-defect ids than `pairs.json`; run `pairs` again.
+A held-out case file has no `known` field. Its known defects are in `<id>.key.json`, in the same form as the `known` list of a dev case, and the fix patches are in the folder of the key file. Of the agents, only the judge reads key files; `score.mjs` and `prepare.mjs loop` read them too. The keys of the current held-out cases are in `cases/heldout/`: plans #100, #109, #111, and #113 published them after their decisions, so these cases build and score without `--keys`. While reviewers run on a new held-out set, keep its keys outside the repository until its decision, because a reviewer can search the checkout: for example in `$XDG_STATE_HOME/docks/review-bench/keys/` with mode 0700. Give that folder to `score.mjs pairs` and `score.mjs report` with `--keys <dir>`. `pairs` then reads `<dir>/<id>.key.json` for each case without `known`, and never the key file next to the case file. `report` stops when a key in that folder has other known-defect ids than `pairs.json`; run `pairs` again.
 
 With `--keys`, every key comes from the keys folder, also the key of a case whose key file is in `cases/heldout/` (plan #109, decision 6). So when a held-out set mixes cases with published keys and cases whose keys stay outside the repository, copy the published `<id>.key.json` files into the keys folder before `pairs`, `report`, and `loop`, and for a code case also its fix patches. A plan known defect has no fix patch, so its key file is enough.
 
@@ -63,6 +63,7 @@ A configuration is a model, an effort, and a service tier. `prepare.mjs agents` 
 | `--variants <name>=<git ref>[,...]` | plan-reviewer variants: a name of lower-case letters and digits, given one time, and a ref that holds `plugins/plan-lifecycle/agents/plan-reviewer.md` | none: each variant gets one plan agent per configuration (see Arms) |
 | `--full-only <name,...>` | variants of `--variants` without a delta mode, for example the 0.16.0 prompt | none |
 | `--contract-overlay <name,...>` | variants of `--variants` whose commit changes `plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md` against its first parent | none: `agents` records the change, and `case` applies it to a copy of the plan contract for each run of the variant (see Arms) |
+| `--candidate-contract-overlay` | none | none: `agents` records the change of the plan contract from `--baseline-ref` to the working tree, and `case` applies it to a copy of the plan contract for each run of a candidate code arm (`C1`, `C3`, `Cd`); the baseline arms keep the snapshot's contract. `case --loop` refuses a candidate arm with this overlay, because the later rounds of a loop would review without the copy. Use it when a code-reviewer candidate also changes the contract (plan #113) |
 
 For example, `--efforts low,xhigh --tiers priority,default` gives `low-fast`, `low`, `xhigh-fast`, and `xhigh`. With a second model, the names become `gpt-6.1-sol-low-fast` and so on. The same lists always give the same names, because the report uses them as column names.
 
@@ -89,8 +90,10 @@ omp reads project agents and project settings from the working folder of the ses
 |---|---|---|---|---|
 | `B0` | code, code-delta | `review-bench-baseline-code-<config>` | `full` (on code-delta: today's full re-review) | `full` |
 | `B1` | code | `review-bench-baseline-code-<config>` | the three lenses, described in the prompt | `panel-delta` |
+| `B3` | code | `review-bench-baseline-code-<config>` | `correctness`, `spec-and-tests`, `text-and-safety`, with the prompt of `C3` | `panel-delta` |
 | `C1` | code | `review-bench-candidate-code-<config>` | `full` | `full-delta` |
 | `C3` | code | `review-bench-candidate-code-<config>` | `correctness`, `spec-and-tests`, `text-and-safety` | `panel-delta` |
+| `Bd` | code-delta | `review-bench-baseline-code-<config>` | `delta`, with the prompt of `Cd` | none |
 | `Cd` | code-delta | `review-bench-candidate-code-<config>` | `delta` | none |
 | `P0` | plan, plan-delta | `review-bench-baseline-plan-<config>` | `plan`, full round | none |
 | `P1` | plan | `review-bench-candidate-plan-<config>` | `plan`, full round | none |
@@ -99,11 +102,13 @@ omp reads project agents and project settings from the working folder of the ses
 | `S1` | code | `review-bench-selfreview-<config>` | `self-review`: the full diff, with the prompt of `C1` | none |
 | `S3` | code | `review-bench-selfreview-<config>` | `self-review-correctness`, `self-review-spec-and-tests`, `self-review-text-and-safety`: the focus diff and the lens description of the `B1` lens | none |
 
+`B3` and `Bd` give the baseline reviewer the prompt of `C3` and `Cd`, so they compare a candidate with the reviewer at `--baseline-ref` (for example `main`) on the reviewer files alone; `B1` and `B0` keep the prompts that the released reviewer of plan #98 needed.
+
 Without `--loop`, a run is one review by the reviewers of its arm. With `--loop`, a run is a review loop, and the round policy that the `meta.json` of the run records picks the mode of each round (see Review loop). `case --loop` records the policy of the arm.
 
 The baseline agents are the released `code-reviewer.md` and `plan-reviewer.md` of `plugins/plan-lifecycle/agents/`; the candidate agents are the working-tree copies. In each configuration, both sides get the same model, effort, and tier, so only the instructions differ.
 
-A panel prompt of a baseline agent holds the lens text: the panel rules and the scope of its lens. The released 0.16.0 agent does not know the lenses. A candidate panel prompt only names the lens, and the candidate agent loads the lens text from a lens reference of its skill. When the baseline ref has the same reviewer as the working tree, for example `--baseline-ref plan-lifecycle--v0.17.1` on a checkout without later reviewer changes, `B1 --loop` and `C3 --loop` differ only in the dispatch of a panel round: the `B1` dispatch also holds the lens text. Both agents can load the lens reference of their skill. The `delta` and `full` prompts of `B1` are the prompts of `C3`, with the baseline agent.
+A panel prompt of the `B1` arm holds the lens text: the panel rules and the scope of its lens. The `B3` arm has the candidate prompt, which only names the lens, so it needs a baseline reviewer that loads its lens references itself, such as `main` after plan #98. The released 0.16.0 agent does not know the lenses. A candidate panel prompt only names the lens, and the candidate agent loads the lens text from a lens reference of its skill. When the baseline ref has the same reviewer as the working tree, for example `--baseline-ref plan-lifecycle--v0.17.1` on a checkout without later reviewer changes, `B1 --loop` and `C3 --loop` differ only in the dispatch of a panel round: the `B1` dispatch also holds the lens text. Both agents can load the lens reference of their skill. The `delta` and `full` prompts of `B1` are the prompts of `C3`, with the baseline agent.
 
 The self-review arms `S1` and `S3` measure the self-review of #98 on the candidate of code-review round 1, as one agent and as one agent per lens. Each run is one review in `run-<k>/blocks/<reviewer>.md`, so `case` refuses these arms with `--loop`. Their blocks have the code-review block format, so `score.mjs` reads them as code-review blocks.
 
@@ -227,7 +232,7 @@ A loop run replays a code-review loop of plan-lifecycle (`plan-contract.md`, Cod
 
    | Policy | Arms | Round modes |
    |---|---|---|
-   | `panel-delta` | `C3`, `B1` | the rules of plan-lifecycle 0.17.1, the production loop. Round 1 is a `panel` round when the full diff changes 50 or more lines (added plus removed lines), else a `full` round. A later round is a `delta` round when step 6 allows it, else a `panel` or `full` round by the same size rule |
+   | `panel-delta` | `C3`, `B1`, `B3` | the rules of plan-lifecycle 0.17.1, the production loop. Round 1 is a `panel` round when the full diff changes 50 or more lines (added plus removed lines), else a `full` round. A later round is a `delta` round when step 6 allows it, else a `panel` or `full` round by the same size rule |
    | `full-delta` | `C1` | the rules of `panel-delta` with one full reviewer: a `full` round where `panel-delta` gives a `panel` round |
    | `full` | `B0` | the policy of plan-lifecycle 0.16.0, which had no panel round and no delta round: every round is a `full` round on the full diff |
 

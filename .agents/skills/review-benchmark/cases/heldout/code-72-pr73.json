@@ -1,0 +1,11 @@
+{
+  "id": "code-72-pr73",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 72,
+  "round": 1,
+  "base": "3ac23ad8d45b485374ae33ae025f199bd8a34d27",
+  "head": "0cf2555c089f32f7844c25201398106c3cfacce2",
+  "plan": "code-72-pr73-plan.md",
+  "patch": "code-72-pr73.patch"
+}

@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index df62a3e6..841b615f 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -567,7 +567,7 @@ export function normalizePlan(text, { mode: explicitMode } = {}) {
+     ACCEPTANCE_SEPARATOR,
+     table(sections.get('Acceptance') ?? '', ACCEPTANCE_HEADER).rows,
+   );
+-  const machinePaths = new Set(Array.from(text.matchAll(MACHINE_PATH), ([match]) => match.replace(/[.:]+$/, '')));
++  const machinePaths = new Set(Array.from(cleaned.matchAll(MACHINE_PATH), ([match]) => match.replace(/[.:]+$/, '')));
+   for (const machinePath of machinePaths) advice.push(`body contains an absolute machine path: ${machinePath}`);
+   return { body: render(sections), advice };
+ }

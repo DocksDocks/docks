@@ -30,6 +30,21 @@ the kind that fits the defect.
   flags, the paths, the working directory, and the runtime exist where the plan
   runs the command, and the expected result is what the command prints or
   returns. (`goal_fit`)
+- Each row that checks a Goal outcome can fail. Read the command and each file
+  that the command reads in the repository. Predict the result on the tree
+  before the steps, and on a partial change that does not make the outcome.
+  Look for:
+  - a pattern that already matches, or that cannot match because the text
+    spans two lines;
+  - a parser or a regex that already accepts the input;
+  - a command that reads a fixed path, not the copy that the row changes;
+  - an assertion that uses only the first match;
+  - a test that does not assert the property that the row or Research says it
+    checks.
+
+  Cite the `path:line` that makes the row pass. The fix changes the row. A row
+  that is a regression guard, or a gate that must pass before and after the
+  change, is not a finding. (`goal_fit`)
 
 ## Research
 
@@ -50,6 +65,15 @@ the kind that fits the defect.
 
 - No step contradicts another step, the Goal, a recorded decision, or the Do
   not touch section. Cite both lines. (`goal_fit`)
+- When a step changes a format, a grammar, a location, a key, a default, or a
+  rule text, search the repository for each reader of the old form: scripts,
+  tests, fixtures, stored records and queue files that a reader reads again,
+  text that states the rule again, and the tools or agents that load that
+  text. A reader on a supported path that no step updates is a finding only
+  when evidence shows that the reader misreads the new form or that a
+  supported outcome breaks. Cite the reader as `path:line` and the line that
+  misreads the new form. A reader that handles the new form, for example one
+  that lists entries generically, is not a finding. (`goal_fit`)
 - The plan keeps the invariants of the plan contract, which is
   `plan-manager/references/plan-contract.md` in this plugin. Read the contract
   when a step touches one of these areas. (`security_risk` or `goal_fit`)

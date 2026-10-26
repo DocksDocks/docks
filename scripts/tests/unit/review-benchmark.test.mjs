@@ -4088,7 +4088,7 @@ test('the round policy limits the modes that the rules of plan-contract.md give'
   assert.equal(prepare.roundMode({ policy: 'full', ...pulledIn }), 'full');
 });
 
-const POLICY_ARMS = { B0: 'full', B1: 'panel-delta', C1: 'full-delta', C3: 'panel-delta' };
+const POLICY_ARMS = { B0: 'full', B1: 'panel-delta', B3: 'panel-delta', C1: 'full-delta', C3: 'panel-delta' };
 const POLICY_FIXER = { model: MODEL, effort: 'high', tier: 'priority' };
 
 // The block of a round-1 reviewer of a policy loop: the full reviewer and the correctness lens find the known defect
@@ -4163,8 +4163,26 @@ function policyLoops(t, count) {
 
 // The round modes of each arm: round 1 from `case --loop`, round 2 from `loop` after the fix of D1 in one line.
 for (const [count, modes] of [
-  [49, { B0: ['full', 'full'], B1: ['full', 'delta'], C1: ['full', 'delta'], C3: ['full', 'delta'] }],
-  [50, { B0: ['full', 'full'], B1: ['panel', 'delta'], C1: ['full', 'delta'], C3: ['panel', 'delta'] }],
+  [
+    49,
+    {
+      B0: ['full', 'full'],
+      B1: ['full', 'delta'],
+      B3: ['full', 'delta'],
+      C1: ['full', 'delta'],
+      C3: ['full', 'delta'],
+    },
+  ],
+  [
+    50,
+    {
+      B0: ['full', 'full'],
+      B1: ['panel', 'delta'],
+      B3: ['panel', 'delta'],
+      C1: ['full', 'delta'],
+      C3: ['panel', 'delta'],
+    },
+  ],
 ]) {
   test(`case --loop and loop give each arm the rounds of its policy on a diff of ${count} lines`, (t) => {
     const { repo, ws, cases, caseData, caseDir, run } = policyLoops(t, count);
@@ -4244,6 +4262,11 @@ for (const [count, modes] of [
     // The B1 delta prompt is the C3 delta prompt with the files of its own round folder.
     const [b1, c3] = ['B1', 'C3'].map((arm) => promptFileParts(promptFile(arm, 2, 'delta')).body);
     assert.equal(b1.replaceAll(run('B1'), run('C3')), c3);
+    // B3 has the C3 prompt in every round, with the files of its own run folder (#113).
+    for (const [round, reviewer] of [...reviewersOf(modes.C3[0]).map((name) => [1, name]), [2, 'delta']]) {
+      const [b3, candidate] = ['B3', 'C3'].map((arm) => promptFileParts(promptFile(arm, round, reviewer)).body);
+      assert.equal(b3.replaceAll(run('B3'), run('C3')), candidate, `the B3 round ${round} ${reviewer} prompt`);
+    }
   });
 }
 
@@ -4283,7 +4306,7 @@ test('loop follows the round policy that the run meta.json records and refuses a
   // A self-review arm runs no loop.
   assert.throws(
     () => prepare.prepareLoop({ run: path.join(ws, 'code-7', 'S1-low', 'run-1'), cases }, repo),
-    /loop takes the runs of the code arms B0, B1, C1, C3; code-7 is a code case and S1 is its arm/,
+    /loop takes the runs of the code arms B0, B1, B3, C1, C3; code-7 is a code case and S1 is its arm/,
   );
 });
 
@@ -5538,8 +5561,8 @@ test('case builds variant arms in full mode, and in delta mode on plan-delta cas
   refuses('plan-4', 'Vb', /arm Vb does not apply to plan-delta cases; use P0, Pd, V16, Va$/);
   // Code and code-delta cases take no variant arm.
   for (const arm of ['V16', 'Va']) {
-    refuses('code-7', arm, new RegExp(`arm ${arm} does not apply to code cases; use B0, B1, C1, C3, S1, S3$`));
-    refuses('code-8', arm, new RegExp(`arm ${arm} does not apply to code-delta cases; use B0, Cd$`));
+    refuses('code-7', arm, new RegExp(`arm ${arm} does not apply to code cases; use B0, B1, B3, C1, C3, S1, S3$`));
+    refuses('code-8', arm, new RegExp(`arm ${arm} does not apply to code-delta cases; use B0, Bd, Cd$`));
   }
   // A list of configurations without variants gives no variant arm.
   put(project, configsFile, { configs: [CONFIGS.low], fixer: FIXER_SETTING });
@@ -5956,6 +5979,42 @@ test('agents --variants takes an --out folder whose parent has a space and keeps
   assert.throws(() => prepare.prepareAgents({ ...options, variants: '16=v16,a=other-space' }, repo), { message });
 });
 
+// B1 and B0 describe the lens or review the whole diff again, as the released reviewer of plan #98 needed. B3 and Bd
+// give the baseline reviewer the prompt of the candidate arms, so a comparison measures only the reviewer files (#113).
+test('the B3 and Bd arms give the baseline reviewer the prompts of the C3 and Cd arms', () => {
+  assert.ok(prepare.ARMS.code.B3, 'code cases have no B3 arm');
+  assert.ok(prepare.ARMS['code-delta'].Bd, 'code-delta cases have no Bd arm');
+  const focus = Object.fromEntries(prepare.LENSES.map((lens) => [lens, `/ws/code-7/focus-${lens}.diff`]));
+  const panelCase = { id: 'code-7', kind: 'code', issue: 7, round: 1 };
+  const panelPaths = {
+    snapshot: '/ws/code-7/snapshot',
+    plan: '/ws/code-7/plan.md',
+    fullDiff: '/ws/code-7/full.diff',
+    focus,
+  };
+  const prompt = (caseData, arm, reviewer, paths) => {
+    const [agent, , ...body] = prepare.buildPromptFile({ caseData, arm, config: 'low', reviewer, paths }).split('\n');
+    return { agent, body: body.join('\n') };
+  };
+  for (const lens of prepare.LENSES) {
+    const [baseline, candidate] = ['B3', 'C3'].map((arm) => prompt(panelCase, arm, lens, panelPaths));
+    assert.equal(baseline.agent, 'agent: review-bench-baseline-code-low');
+    assert.equal(candidate.agent, 'agent: review-bench-candidate-code-low');
+    assert.equal(baseline.body, candidate.body, `the B3 ${lens} prompt differs from the C3 prompt`);
+  }
+  const deltaCase = { id: 'code-8', kind: 'code-delta', issue: 8, round: 2 };
+  const deltaPaths = {
+    snapshot: '/ws/code-8/snapshot',
+    plan: '/ws/code-8/plan.md',
+    deltaDiff: '/ws/code-8/delta.diff',
+    previousReview: '/ws/code-8/previous-review.md',
+  };
+  const [baseline, candidate] = ['Bd', 'Cd'].map((arm) => prompt(deltaCase, arm, 'delta', deltaPaths));
+  assert.equal(baseline.agent, 'agent: review-bench-baseline-code-low');
+  assert.equal(baseline.body, candidate.body);
+  assert.ok(baseline.body.split('\n').includes('Round mode: delta.'));
+});
+
 test('case gives each run of an overlay variant a contract copy, its record, and a prompt that names the copy', (t) => {
   const { repo, ws, options } = overlayFixture(t);
   prepare.prepareCase(options('plan-3', 'P1,V16,Va', { runs: '2' }), repo);
@@ -6000,6 +6059,61 @@ test('case gives each run of an overlay variant a contract copy, its record, and
   const message = noContract(path.join(ws, 'plan-5', 'snapshot'));
   assert.throws(() => prepare.prepareCase(options('plan-5', 'P1,Va'), repo), { message });
   assert.equal(fs.existsSync(path.join(ws, 'plan-5')), false);
+});
+
+// A candidate code reviewer can change the plan contract too, which the reviewer reads. `--candidate-contract-overlay`
+// records the change from the baseline ref to the working tree, and each run of a candidate code arm gets a copy of
+// the snapshot's contract with that change; the baseline arms keep the snapshot's contract (#113).
+test('agents --candidate-contract-overlay gives the runs of candidate code arms the working-tree contract change', (t) => {
+  const fixture = variantRepo(t);
+  const { root, repo, project, agentDir, shas } = fixture;
+  // The working tree changes the contract against the baseline ref v16.
+  put(repo, CONTRACT, '# Plan contract working tree\n');
+  const agentOptions = { ...variantOptions(fixture), 'candidate-contract-overlay': true };
+  prepare.prepareAgents(agentOptions, repo);
+  const change = gitIn(repo, 'diff', '--no-color', 'v16', '--', CONTRACT);
+  assert.match(change, /^-# Plan contract 0\.16\.0\n\+# Plan contract working tree$/m);
+  assert.equal(readJson(path.join(agentDir, 'review-bench-configs.json')).candidateContractDiff, change);
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const codeCase = { id: 'code-7', kind: 'code', split: 'dev', issue: 7, round: 1, plan: 'code-7-plan.md' };
+  put(cases, 'dev/code-7.json', { ...codeCase, base: shas.bare, head: shas.v16, known: [] });
+  put(cases, 'dev/code-7-plan.md', '# Plan 7\n\nStep 1.\n');
+  const caseOptions = { case: path.join(cases, 'dev', 'code-7.json'), runs: '1', out: ws, configs: 'low', project };
+  prepare.prepareCase({ ...caseOptions, arms: 'B3,C3' }, repo);
+  const runDir = (arm) => path.join(ws, 'code-7', `${arm}-low`, 'run-1');
+  const copy = path.join(runDir('C3'), 'plan-contract.md');
+  assert.equal(readText(copy), '# Plan contract working tree\n');
+  assert.deepEqual(readJson(path.join(runDir('C3'), 'meta.json')), { config: CONFIGS.low, contractOverlay: 'applied' });
+  assert.equal(fs.existsSync(path.join(runDir('B3'), 'plan-contract.md')), false);
+  for (const lens of prepare.LENSES) {
+    const [baseline, candidate] = ['B3', 'C3'].map(
+      (arm) => promptFileParts(path.join(runDir(arm), 'prompts', `${lens}.txt`)).body,
+    );
+    assert.ok(baseline.split('\n').includes(SNAPSHOT_CONTRACT_RULE));
+    assert.equal(candidate, baseline.replace(SNAPSHOT_CONTRACT_RULE, copyContractRule(copy)));
+  }
+  // The later rounds of a loop would review without the contract copy, so case --loop refuses a candidate arm and
+  // writes no folder; a baseline arm still builds its loop.
+  const loopOptions = { ...caseOptions, out: path.join(root, 'loop-ws'), loop: true };
+  assert.throws(() => prepare.prepareCase({ ...loopOptions, arms: 'B3,C3' }, repo), {
+    message:
+      'case --loop does not take a candidate contract overlay (C3): the later rounds of a loop would review without the contract copy; build single-round runs, or run agents without --candidate-contract-overlay',
+  });
+  assert.equal(fs.existsSync(path.join(root, 'loop-ws', 'code-7')), false);
+  prepare.prepareCase({ ...loopOptions, arms: 'B3' }, repo);
+  assert.ok(fs.existsSync(path.join(root, 'loop-ws', 'code-7', 'B3-low', 'run-1', 'round-1', 'meta.json')));
+  // The command line takes the flag: without --baseline-ref, agents names that option, not an unknown flag.
+  const cli = spawnSync(process.execPath, [PREPARE_SCRIPT, 'agents', '--candidate-contract-overlay'], {
+    encoding: 'utf8',
+  });
+  assert.notEqual(cli.status, 0);
+  assert.match(cli.stderr, /agents needs --baseline-ref/);
+  // Without a working-tree change, the option has nothing to record, so agents stops before it writes.
+  put(repo, CONTRACT, '# Plan contract 0.16.0\n');
+  assert.throws(() => prepare.prepareAgents(agentOptions, repo), {
+    message: `agents --candidate-contract-overlay: the working tree does not change ${CONTRACT} against v16`,
+  });
 });
 
 test('case records not applicable only without the removed text and else stops with the git message', (t) => {

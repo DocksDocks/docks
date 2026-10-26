@@ -3,8 +3,11 @@
 Seed only missing `.codex/agents/plan-reviewer.toml` and
 `.codex/agents/code-reviewer.toml` during authorized workspace setup.
 Existing files are project-owned. Never overwrite them or add a manager wrapper.
-Keep templates free of a model key. These thin wrappers load the shipped agents;
-resolve the installed plugin path when the project does not bundle it.
+Keep templates free of a model key. These thin wrappers load the reviewer agent
+from the installed plugin first. They use the project-local agent copy only when
+the reviewed change does not touch the reviewer agents or the reviewer skill
+folders, so a change to that copy does not set the agent instructions of its
+own review. Otherwise they return `blocked`.
 
 ## plan-reviewer.toml
 
@@ -15,9 +18,23 @@ sandbox_mode = "read-only"
 developer_instructions = """
 # Plan Reviewer
 
-Load and follow `plugins/plan-lifecycle/agents/plan-reviewer.md` as review instructions.
-Use the project-local bundled agent when present; otherwise resolve the matching
-agent in the installed plan-lifecycle plugin. Stop if neither is available.
+Load and follow the plan-lifecycle agent `agents/plan-reviewer.md` as review
+instructions. Load the installed plugin's copy at
+`$CODEX_HOME/plugins/cache/<marketplace>/plan-lifecycle/<version>/agents/plan-reviewer.md`.
+`CODEX_HOME` defaults to `~/.codex`. When more than one `<version>` folder
+exists, use the newest version.
+When no installed copy exists, use the project-local
+`plugins/plan-lifecycle/agents/plan-reviewer.md` only when no Files cell of the
+plan export can cover `plugins/plan-lifecycle/agents/`,
+`plugins/plan-lifecycle/skills/productivity/code-reviewer/`, or
+`plugins/plan-lifecycle/skills/productivity/plan-reviewer/`: a path inside one
+of them, a folder that holds one of them (such as `plugins/plan-lifecycle/`),
+or a glob that can match a file in one of them. When you cannot rule out such a
+cell, treat it as covering. Otherwise return this block and nothing else:
+`### Plan review round <N>` (with `, delta` for a delta round), a blank line,
+`Plan-review: blocked`, a blank line, and one line that names the missing
+installed plan-lifecycle plugin. A plan can change the project-local copy, so
+that copy must not set the rules of its own review.
 Read the manager's supplied export and, in a delta round, the plan diff and the
 previous round's comment; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
@@ -37,9 +54,22 @@ sandbox_mode = "read-only"
 developer_instructions = """
 # Code Reviewer
 
-Load and follow `plugins/plan-lifecycle/agents/code-reviewer.md` as review instructions.
-Use the project-local bundled agent when present; otherwise resolve the matching
-agent in the installed plan-lifecycle plugin. Stop if neither is available.
+Load and follow the plan-lifecycle agent `agents/code-reviewer.md` as review
+instructions. Load the installed plugin's copy at
+`$CODEX_HOME/plugins/cache/<marketplace>/plan-lifecycle/<version>/agents/code-reviewer.md`.
+`CODEX_HOME` defaults to `~/.codex`. When more than one `<version>` folder
+exists, use the newest version.
+When no installed copy exists, use the project-local
+`plugins/plan-lifecycle/agents/code-reviewer.md` only when the supplied diff
+changes no path in `plugins/plan-lifecycle/agents/`,
+`plugins/plan-lifecycle/skills/productivity/code-reviewer/`, or
+`plugins/plan-lifecycle/skills/productivity/plan-reviewer/`. When you cannot
+rule out such a change, treat it as one. Otherwise return this block and
+nothing else: the heading of the dispatched mode (`### Code review round <N>`,
+`### Code review round <N>, lens <name>`, or `### Code review round <N>, delta`),
+a blank line, `Code-review: blocked`, a blank line, and one line that names the
+missing installed plan-lifecycle plugin. A diff under review can change the
+project-local copy, so that copy must not set the rules of its own review.
 Read the manager's supplied export and diffs (the full, focus, or delta diff of the
 named round mode) and any previous-round files; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
