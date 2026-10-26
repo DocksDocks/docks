@@ -1,9 +1,9 @@
 # Text-and-safety lens
 
 This lens reports Security findings in every changed file, text that disagrees
-with the code, and Maintainability findings.
-In a `panel` round, report Bug findings only for wrong text, report no
-Performance finding, and write `None.` under `## Spec`.
+with the code, fail-open fallbacks, and Maintainability findings.
+In a `panel` round, report Bug findings only for wrong or missing text and for
+a fail-open fallback, report no Performance finding, and write `None.` under `## Spec`.
 In a `full` round, this checklist runs next to the other two lens references.
 
 The lists below direct your attention. They do not limit it.
@@ -32,6 +32,9 @@ Look for:
 - Publication of private data: output, comments, commits, or logs that publish
   absolute machine paths, private names, email addresses, internal hostnames,
   or environment values.
+- A gate that fails open: a guard that refuses only the listed bad cases where
+  the gate must allow only the listed good cases, and an error, a timeout, an
+  empty input, or a default that leads to allow or pass.
 - A destructive operation, such as a force push, a hard reset, or a recursive
   delete, without a confirmation or a guard.
 
@@ -50,6 +53,11 @@ Look for:
 - Two changed texts that contradict each other.
 - An instruction that an agent would follow literally into a wrong action, such
   as a rule whose scope is wider than its author intended.
+- A rule, command, flag, label, default, or record format that the change
+  edits or deletes, and another file that states it or reads it and now
+  disagrees, also when the diff does not touch that file. Search the wrappers,
+  references, templates, the plan contract, helper scripts, and tests for it.
+- A deleted instruction that a later step, check, or script still needs is a Bug.
 
 ## Maintainability (at most MEDIUM)
 
@@ -59,7 +67,9 @@ Look for:
 - Duplicated logic, or a fact copied into several places that will drift apart.
 - An abstraction or indirection that no second caller needs.
 - A fallback or default that hides a bad state, such as a catch-all handler or
-  an empty default for missing data.
+  an empty default for missing data. When the hidden state decides a check, a
+  permission, a verdict, or a proof, report a Bug or a Security finding
+  instead, without the `MEDIUM` cap.
 - A deletion that the plan does not request: removed behavior, tests, or documentation.
 - Stale comments, comments that narrate mechanics in place of reasons, and
   names that mislead.
