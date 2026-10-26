@@ -1,0 +1,68 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 7dd18ae..27923cd 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -5,7 +5,7 @@ user-invocable: true
+ metadata:
+   pattern: tool-wrapper
+   updated: "2026-10-21"
+-  content_hash: "37cfc75fba999189e56e877a1cb3ad02be4e26c5e3f289bd83e1d3e3f08a427b"
++  content_hash: "4e761e2d90154d3632a4242add837922bc396a79a17cb488ec4a6c6cd99e8ba4"
+ ---
+ 
+ # Plan Manager
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 98fd84b..db06197 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -408,12 +408,12 @@ Run these steps in order after `archive <n>` succeeds:
+    Follow Production resources for every other remote resource.
+ 3. Run the next commands from the main worktree, not from the plan's worktree.
+    A removal from inside the worktree leaves the shell in a deleted directory.
+-4. If the plan made a worktree, run `git worktree remove -- <worktree>`, then
++4. If the plan made a worktree, run `git worktree remove -- <branch>`, then
+    `git worktree prune`. Never add `--force`. When git refuses because of
+    untracked or modified files or a lock, keep the worktree. List it with the
+    reason from git.
+ 5. If the plan used the user's checkout and `git status --porcelain` prints
+-   nothing, run `git switch <default>` and `git pull --ff-only origin <default>`.
++   nothing, run `git pull --ff-only origin <default>`, then `git switch <default>`.
+ 6. Run `git branch -d <branch>`. When git refuses, keep the branch and list it.
+    Git refuses after a squash or rebase merge once the remote branch is gone.
+    Never run `git branch -D` or add `--force`, even when the git hint suggests it.
+diff --git a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+index cb4c15e..b44eb15 100644
+--- a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+@@ -6,7 +6,7 @@ disable-model-invocation: true
+ metadata:
+   pattern: pipeline
+   updated: "2026-10-21"
+-  content_hash: "ebf4d1d091f01934dd8c0f88536c85f430a208218cfbe27ba2ac2a92ff3bce4f"
++  content_hash: "f192654a1ddcfd82444963d8dfc3ef8625ee59e6e22f258dd3820e96e0a28eae"
+ ---
+ 
+ # Yolo
+@@ -299,7 +299,8 @@ without a merge. The contract's Round ceiling also says this.
+    contract's Checks and merge says, including `git branch -d <branch>`.
+ 9. On `Merge now`, merge and archive as the contract says. Then run the
+    contract's Teardown and report Kept resources. Ask separately before each
+-   plan step that runs after the merge and before each production cleanup.
++   plan step that runs after the merge. The `Merge now` answer confirms each
++   production cleanup that the merge question names.
+ 10. On any other answer, or when no answer is possible, leave the pull request
+     and the issue open. Run Teardown's exit without a merge. Report both links
+     and Kept resources.
+diff --git a/plugins/plan-lifecycle/skills/productivity/yolo/references/run-summary.md b/plugins/plan-lifecycle/skills/productivity/yolo/references/run-summary.md
+index 3fbc2dd..b124873 100644
+--- a/plugins/plan-lifecycle/skills/productivity/yolo/references/run-summary.md
++++ b/plugins/plan-lifecycle/skills/productivity/yolo/references/run-summary.md
+@@ -35,7 +35,7 @@ failures. Report a check that partly failed as a failure with its cause, not as
+ a pass.
+ 
+ In Kept resources, list what stays after `Merge now`: the recorded compose
+-volumes, the resources that Teardown keeps, and the production resources that
++volumes, the merged local branch, and the production resources that
+ need their own question. Also list what stays after `Leave pull request open`:
+ the worktree, the branch, and the remote resources. Name each resource without
+ an absolute machine path. After the merge answer, report the actual Kept

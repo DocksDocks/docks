@@ -7,9 +7,5 @@
   "base": "40143916778914145fb456034a7d216c1f3815f3",
   "head": "14691074a87c1fd714314d46322c7a9f40498b8a",
   "plan": "code-83-pr84-plan.md",
-  "patch": "code-83-pr84.patch",
-  "external": [
-    "plan",
-    "patch"
-  ]
+  "patch": "code-83-pr84.patch"
 }

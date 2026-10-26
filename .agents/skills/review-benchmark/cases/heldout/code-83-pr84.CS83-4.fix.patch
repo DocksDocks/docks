@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index db06197..dfb78b7 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -413,7 +413,7 @@ Run these steps in order after `archive <n>` succeeds:
+    untracked or modified files or a lock, keep the worktree. List it with the
+    reason from git.
+ 5. If the plan used the user's checkout and `git status --porcelain` prints
+-   nothing, run `git pull --ff-only origin <default>`, then `git switch <default>`.
++   nothing, run `git switch <default>` and `git pull --ff-only origin <default>`.
+ 6. Run `git branch -d <branch>`. When git refuses, keep the branch and list it.
+    Git refuses after a squash or rebase merge once the remote branch is gone.
+    Never run `git branch -D` or add `--force`, even when the git hint suggests it.

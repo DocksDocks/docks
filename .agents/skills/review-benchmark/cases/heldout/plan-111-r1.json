@@ -6,9 +6,6 @@
   "round": 1,
   "repo_ref": "6b864fb0057663991a3adb2be011890c91fa5c4f",
   "plan": "plan-111-r1-body.md",
-  "external": [
-    "plan"
-  ],
   "body_revision": "UCE_lAHODGt7ls8AAAABZxqaE88AAAABEs-D_Q",
   "show_benchmark": true
 }

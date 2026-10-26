@@ -9,9 +9,5 @@
   "head": "83b4d9a5a63a63fcb665c74d143378bedcbb7298",
   "plan": "code-111-r3-delta-plan.md",
   "previous_review": "code-111-r3-delta-previous-review.md",
-  "external": [
-    "plan",
-    "previous_review"
-  ],
   "show_benchmark": true
 }

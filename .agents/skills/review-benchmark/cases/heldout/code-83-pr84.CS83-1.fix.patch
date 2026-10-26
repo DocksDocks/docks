@@ -1,0 +1,14 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+index b44eb15..7ed079a 100644
+--- a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+@@ -299,8 +299,7 @@ without a merge. The contract's Round ceiling also says this.
+    contract's Checks and merge says, including `git branch -d <branch>`.
+ 9. On `Merge now`, merge and archive as the contract says. Then run the
+    contract's Teardown and report Kept resources. Ask separately before each
+-   plan step that runs after the merge. The `Merge now` answer confirms each
+-   production cleanup that the merge question names.
++   plan step that runs after the merge and before each production cleanup.
+ 10. On any other answer, or when no answer is possible, leave the pull request
+     and the issue open. Run Teardown's exit without a merge. Report both links
+     and Kept resources.
