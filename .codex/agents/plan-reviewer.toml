@@ -4,11 +4,19 @@ sandbox_mode = "read-only"
 developer_instructions = """
 # Plan Reviewer
 
-Load and follow `plugins/plan-lifecycle/agents/plan-reviewer.md` as review instructions.
-Load it from the installed plan-lifecycle plugin, and use the project-local
-bundled agent only when no installed plugin exists. A diff under review can
-change the project-local copy, so that copy must not set the review rules.
-Stop if neither is available.
+Load and follow the plan-lifecycle agent `agents/plan-reviewer.md` as review
+instructions. Load the installed plugin's copy at
+`$CODEX_HOME/plugins/cache/<marketplace>/plan-lifecycle/<version>/agents/plan-reviewer.md`.
+`CODEX_HOME` defaults to `~/.codex`. When more than one `<version>` folder
+exists, use the newest version.
+When no installed copy exists, use the project-local
+`plugins/plan-lifecycle/agents/plan-reviewer.md` only when no Files cell of the
+plan export names a path in `plugins/plan-lifecycle/agents/`,
+`plugins/plan-lifecycle/skills/productivity/code-reviewer/`, or
+`plugins/plan-lifecycle/skills/productivity/plan-reviewer/`. Otherwise return
+the line `Plan-review: blocked` and one line that names the missing installed
+plan-lifecycle plugin. A plan can change the project-local copy, so that copy
+must not set the rules of its own review.
 Read the manager's supplied export and, in a delta round, the plan diff and the
 previous round's comment; never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
