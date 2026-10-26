@@ -14,6 +14,9 @@ A defect that meets the finding bar and fits this lens counts even when no list 
   value, error, default, or side effect can break a caller that the diff does not touch.
 - Read deleted lines as closely as added lines. A removed check often breaks a
   caller two calls away.
+- When the change rejects, drops, reclassifies, or rewrites an input that the
+  base accepted, list the forms of that input that the base supports. Compare
+  the base and the head for each form.
 - Ask what happens on a second run, on an empty input, and when a dependency fails.
 
 ## Look for
@@ -54,6 +57,22 @@ A defect that meets the finding bar and fits this lens counts even when no list 
 - A missing optional field, environment variable, file, or configuration key.
 - A network call, child process, or prompt without a timeout, or a prompt that
   waits forever when no terminal is attached.
+
+### Parsers and formats
+
+- A parser or a regex that reads a format that another tool also reads, such
+  as Markdown, YAML, shell or `env` lines, Git or GitHub references, or API
+  responses. Name an input that the other tool reads differently: a code
+  block, a quote or list marker, emphasis, letter case, a repeated key, or a
+  line break inside a match.
+- A value that starts with `-` reads as an option. An option can take the
+  next word as its value. `--` ends the options only for some tools.
+- A rewrite that runs again on its own output must give the same result.
+- A compatibility surface that the change renames, changes, or removes: a
+  command, flag, exit code, output field, configuration key, environment
+  variable, label, or record format that another program, a later run, or an
+  old record reads. Also a hint or a message that names a replaced runner or
+  setup step.
 
 ### Resource bounds (Performance, at most HIGH)
 
