@@ -1,0 +1,88 @@
+{
+  "id": "ud-96-r1",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 96,
+  "round": 1,
+  "repo_ref": "e49e144d074ab14fd1c404a250d61ea05cdbb99a",
+  "plan": "ud-96-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZSYN388AAAABEKeLWA",
+  "known": [
+    {
+      "id": "P96-1",
+      "kind": "research_gap",
+      "title": "The settle wait counts from the createdAt of the close event alone, but the #90 workaround waited after it saw both CLOSED and the close event, so the two safeguards are not equivalent",
+      "locator": "Research, Decisions, decision 1 (lines 47-48); Research, Open issues (line 18)",
+      "source": "round",
+      "summary": "the settle wait needs only the close event and counts from its createdAt; the #90 workaround waited about 10 s after seeing both CLOSED and the matching close event, so the two safeguards are not equivalent",
+      "comment": 6357668243
+    },
+    {
+      "id": "P96-2",
+      "kind": "research_gap",
+      "title": "'No claim, because the reopen writes no body' contradicts the claim rule of the contract, and no fresh ownership read comes after the wait and before the reopen",
+      "locator": "Research, Decisions, decision 1 (lines 44, 48)",
+      "source": "round",
+      "summary": "'no claim, because the reopen writes no body' contradicts the contract (mutations claim unassigned plans), and the plan has no fresh ownership read after the wait and before the reopen",
+      "comment": 6357668243
+    },
+    {
+      "id": "P96-3",
+      "kind": "security_risk",
+      "title": "The no-docks fallback of the report section gives only a minimum draft and the approval rule, so it cannot carry the safeguards of the missing skill",
+      "locator": "Research, Decisions, decisions 4-5 (lines 55-60); Steps, row 3 report_skill (line 82)",
+      "source": "round",
+      "summary": "the no-docks fallback of the report section states only a minimum draft and the approval rule, so it cannot carry the public-destination warning, redaction rules, and the security-report prohibition of the missing skill",
+      "comment": 6357668243
+    },
+    {
+      "id": "P96-4",
+      "kind": "goal_fit",
+      "title": "Acceptance a9 is one dry run and omits the required near-miss routing checks and the baseline comparison on a fresh instance",
+      "locator": "Acceptance, a9 (line 99)",
+      "source": "round",
+      "summary": "acceptance a9 is a single dry run; it omits the required manual sibling-collision (near-miss routing) checks and the fresh-instance baseline comparison on the smallest target model",
+      "comment": 6357668243
+    },
+    {
+      "id": "P96-5",
+      "kind": "research_gap",
+      "title": "Release steps 5 and 6 declare Files 'none', but the release command writes and commits the plugin manifests and the marketplace file",
+      "locator": "Steps, rows 5-6 release_docks and release_plan_lifecycle, Files (lines 84-85)",
+      "source": "round",
+      "summary": "release steps 5 and 6 declare Files 'none', but the release command writes and commits the plugin's Claude and Codex manifests and .claude-plugin/marketplace.json",
+      "comment": 6357668243
+    },
+    {
+      "id": "P96-6",
+      "kind": "research_gap",
+      "title": "Acceptance a7 runs the validator on a scratch copy of the registry, but the validator always reads the registry next to its own script",
+      "locator": "Acceptance, a7 (line 97)",
+      "source": "round",
+      "summary": "acceptance a7 runs the validator on a scratch copy of the registry, but the validator always reads the registry relative to its own script location, so the negative check never reads the altered copy",
+      "comment": 6357668243
+    }
+  ],
+  "protected": [
+    {
+      "id": "UD96-1",
+      "section": "Research, Request corrections (line 66)",
+      "summary": "Request correction: the user asked to check the open issues. The plan fixes #90, the only open issue that `gh issue list --state open` lists, and explains #91 to #94 as the closed probe issues of #89."
+    },
+    {
+      "id": "UD96-2",
+      "section": "Research, Decisions, decision 4 (line 58)",
+      "summary": "Yolo decision: the plan adds no `.github/ISSUE_TEMPLATE` form, because agents file through `gh issue create` and a second copy of the template would drift."
+    },
+    {
+      "id": "UD96-3",
+      "section": "Research, Decisions, decision 6 (line 61)",
+      "summary": "Yolo decision: the selection kinds `node-script` and `node-test-file` keep their names, because they name the selection shape and a rename changes no behavior."
+    },
+    {
+      "id": "UD96-4",
+      "section": "Research, Decisions, decision 7 (line 62)",
+      "summary": "Yolo decision: `plugins/plan-lifecycle/compatibility.json` stays at `minimum_docks_major: 0`, so plan-lifecycle does not require docks. The text of the no-docks fallback in decision 5 is not part of this decision."
+    }
+  ]
+}

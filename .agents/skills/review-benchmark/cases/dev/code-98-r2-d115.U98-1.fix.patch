@@ -1,0 +1,167 @@
+diff --git a/.agents/skills/review-benchmark/SKILL.md b/.agents/skills/review-benchmark/SKILL.md
+index 1e3597be..b836b6c1 100644
+--- a/.agents/skills/review-benchmark/SKILL.md
++++ b/.agents/skills/review-benchmark/SKILL.md
+@@ -113,7 +113,7 @@ A path can be in more than one class. When no changed path is in a lens's scope,
+ 
+    Between `pairs` and `report`, dispatch one judge agent from another model family than the reviewers. Give it `references/judge.md`, the workspace path, and the cases path. The judge reads `pairs.json`, the key files, and the snapshots, and writes `judgments.json`. It does not read `findings.json` or the arm folders, because they name the arms.
+ 
+-   `report.md` has one summary row for each case and arm and one row for each run. The summary gives the mean, median, minimum, and maximum of recall; the mean of valid extras, wrong, unknown, and unresolved per run; and the median, minimum, and maximum of seconds and tokens. Valid extras, wrong, unknown, and unjudged count the findings that match no known defect, by their adjudication rating. Unresolved counts the known defects that a run did not find, where the judge answered `unknown` for a pair of the defect with a finding of the run. Each unresolved defect can be a missed match. In a dev workspace, read its `unknown` pairs in `judgments.json` before the decision.
++   `report.md` has one summary row for each case and arm and one row for each run. The summary gives the mean, median, minimum, and maximum of recall; the mean of valid extras, wrong, unknown, unresolved, and unknown pairs per run; and the median, minimum, and maximum of seconds and tokens. Valid extras, wrong, unknown, and unjudged count the findings that match no known defect, by their adjudication rating. Unknown pairs counts every `unknown` answer of the judge for a pair of a finding of the run and a known defect. Such an answer can hide a missed match, or a valid extra that only repeats a found defect. Unresolved is the subset that can change recall: the known defects that the run did not find, where the judge answered `unknown` for a pair of the defect with a finding of the run. In a dev workspace, read the `unknown` pairs in `judgments.json` before the decision.
+ 5. Apply the decision rule in `results.md` to `report.md`. For a losing candidate, read the transcripts of its misses before the next dev iteration.
+ 6. After the dev iterations, prepare and run the held-out cases once in their own workspace, under the constraint above.
+ 7. Append the result tables, the commit, the baseline ref, the models, and the decision to `results.md`.
+diff --git a/.agents/skills/review-benchmark/scripts/score.mjs b/.agents/skills/review-benchmark/scripts/score.mjs
+index da7af750..9b7b9092 100755
+--- a/.agents/skills/review-benchmark/scripts/score.mjs
++++ b/.agents/skills/review-benchmark/scripts/score.mjs
+@@ -358,13 +358,18 @@ function readJudgments(judgments, byBlind, knownByCase) {
+ }
+ 
+ // A known defect is unresolved in a run when the run did not find it and the judge answered `unknown` for a pair
+-// of it with at least one finding of the run.
++// of it with at least one finding of the run. `unknownPairs` counts every `unknown` pair answer of the run, also
++// those that cannot change recall, such as a finding that may repeat a known defect the run found.
+ function scoreRun(run, knownIds, { matched, unsure, ratings }, meta) {
+   const found = new Set();
+   const doubtful = new Set();
++  let unknownPairs = 0;
+   const counts = { validExtras: 0, wrong: 0, unknown: 0, unjudged: 0 };
+   for (const finding of run.findings) {
+-    for (const id of unsure.get(finding.blind) ?? []) doubtful.add(id);
++    for (const id of unsure.get(finding.blind) ?? []) {
++      doubtful.add(id);
++      unknownPairs += 1;
++    }
+     const hits = matched.get(finding.blind);
+     if (hits) {
+       for (const id of hits) found.add(id);
+@@ -393,6 +398,7 @@ function scoreRun(run, knownIds, { matched, unsure, ratings }, meta) {
+     recall: knownIds.length ? found.size / knownIds.length : null,
+     ...counts,
+     unresolved: knownIds.filter((id) => doubtful.has(id) && !found.has(id)).length,
++    unknownPairs,
+     seconds,
+     tokens,
+     verdicts: run.blocks.map((block) => ({ reviewer: block.reviewer, verdict: block.verdict })),
+@@ -434,6 +440,7 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
+     wrong: mean(runsOfArm, 'wrong'),
+     unknown: mean(runsOfArm, 'unknown'),
+     unresolved: mean(runsOfArm, 'unresolved'),
++    unknownPairs: mean(runsOfArm, 'unknownPairs'),
+     seconds: summarize(runsOfArm.map((run) => run.seconds)),
+     tokens: summarize(runsOfArm.map((run) => run.tokens)),
+   }));
+@@ -459,6 +466,7 @@ const SUMMARY_COLUMNS = [
+   ['Wrong mean', (entry) => ratio(entry.wrong), true],
+   ['Unknown mean', (entry) => ratio(entry.unknown), true],
+   ['Unresolved mean', (entry) => ratio(entry.unresolved), true],
++  ['Unknown pairs mean', (entry) => ratio(entry.unknownPairs), true],
+   ['Seconds median', (entry) => oneDecimal(entry.seconds.median), true],
+   ['Seconds min', (entry) => oneDecimal(entry.seconds.min), true],
+   ['Seconds max', (entry) => oneDecimal(entry.seconds.max), true],
+@@ -477,6 +485,7 @@ const RUN_COLUMNS = [
+   ['Unknown', (run) => run.unknown, true],
+   ['Unjudged', (run) => run.unjudged, true],
+   ['Unresolved', (run) => run.unresolved, true],
++  ['Unknown pairs', (run) => run.unknownPairs, true],
+   ['Seconds', (run) => oneDecimal(run.seconds), true],
+   ['Tokens', (run) => whole(run.tokens), true],
+   ['Round verdict', (run) => run.roundVerdict],
+@@ -497,6 +506,7 @@ export function renderReport({ summaries, runs }) {
+     '',
+     'Recall is the number of known defects that at least one reviewer of a run found, divided by the known defects of the case.',
+     'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
++    'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
+     'Seconds is the slowest reviewer of a run. Tokens is the sum over the reviewers of a run. A dash means no value.',
+     '',
+     '## Summary',
+diff --git a/scripts/config/test-contracts.json b/scripts/config/test-contracts.json
+index 53b74d6a..2bd7a301 100644
+--- a/scripts/config/test-contracts.json
++++ b/scripts/config/test-contracts.json
+@@ -297,7 +297,7 @@
+       "selection": {
+         "kind": "node-test-file",
+         "selector": "scripts/tests/unit/review-benchmark.test.mjs",
+-        "expected_min": 22
++        "expected_min": 23
+       },
+       "platforms": ["linux", "macos"],
+       "toolchains": ["bun-1"],
+diff --git a/scripts/tests/unit/review-benchmark.test.mjs b/scripts/tests/unit/review-benchmark.test.mjs
+index c522d864..1b14412c 100644
+--- a/scripts/tests/unit/review-benchmark.test.mjs
++++ b/scripts/tests/unit/review-benchmark.test.mjs
+@@ -481,18 +481,37 @@ function judgedArm(known, runs, costs = []) {
+ test('an unknown pair with a missed known defect counts as unresolved, and the finding keeps its rating', () => {
+   const scores = scoreRuns(judgedArm(CODE_KNOWN.slice(0, 1), [[{ matches: { D1: 'unknown' }, rating: 'valid' }]]));
+   const [run] = scores.runs;
+-  assert.deepEqual([run.recall, run.validExtras, run.unknown, run.unjudged, run.unresolved], [0, 1, 0, 0, 1]);
+-  assert.equal(scores.summaries[0].unresolved, 1);
++  assert.deepEqual(
++    [run.recall, run.validExtras, run.unknown, run.unjudged, run.unresolved, run.unknownPairs],
++    [0, 1, 0, 0, 1, 1],
++  );
++  assert.deepEqual([scores.summaries[0].unresolved, scores.summaries[0].unknownPairs], [1, 1]);
++  const lines = renderReport(scores).split('\n');
++  assert.ok(
++    lines.includes('| code-7 | C3 | run-1 | 0.00 | - | 1 | 0 | 0 | 0 | 1 | 1 | - | - | pass | correctness: pass |'),
++  );
++});
++
++test('an unknown pair with a known defect that the run found counts as an unknown pair, not as unresolved', () => {
++  const scores = scoreRuns(
++    judgedArm(CODE_KNOWN.slice(0, 1), [
++      [{ matches: { D1: 'match' } }, { matches: { D1: 'unknown' }, rating: 'valid' }],
++    ]),
++  );
++  const [run] = scores.runs;
++  assert.deepEqual([run.recall, run.validExtras, run.unresolved, run.unknownPairs], [1, 1, 0, 1]);
++  assert.deepEqual([scores.summaries[0].unresolved, scores.summaries[0].unknownPairs], [0, 1]);
+   const lines = renderReport(scores).split('\n');
+   assert.ok(
+-    lines.includes('| code-7 | C3 | run-1 | 0.00 | - | 1 | 0 | 0 | 0 | 1 | - | - | pass | correctness: pass |'),
++    lines.includes('| code-7 | C3 | run-1 | 1.00 | D1 | 1 | 0 | 0 | 0 | 0 | 1 | - | - | pass | correctness: pass |'),
+   );
++  assert.ok(lines.some((line) => line.includes('| Unresolved mean | Unknown pairs mean |')));
+ });
+ 
+ test('a finding that matches one known defect and has an unknown pair with a missed one leaves it unresolved', () => {
+   const scores = scoreRuns(judgedArm(CODE_KNOWN.slice(0, 2), [[{ matches: { D1: 'match', D2: 'unknown' } }]]));
+   const [run] = scores.runs;
+-  assert.deepEqual([run.found, run.recall, run.unresolved], [['D1'], 0.5, 1]);
++  assert.deepEqual([run.found, run.recall, run.unresolved, run.unknownPairs], [['D1'], 0.5, 1, 1]);
+ });
+ 
+ test('an unknown pair with a known defect that another finding of the run matches is not unresolved', () => {
+@@ -503,9 +522,9 @@ test('an unknown pair with a known defect that another finding of the run matche
+     ]),
+   );
+   const [first, second] = scores.runs;
+-  assert.deepEqual([first.found, first.unresolved], [['D1', 'D2'], 0]);
+-  assert.deepEqual([second.found, second.unresolved], [[], 1]);
+-  assert.equal(scores.summaries[0].unresolved, 0.5);
++  assert.deepEqual([first.found, first.unresolved, first.unknownPairs], [['D1', 'D2'], 0, 1]);
++  assert.deepEqual([second.found, second.unresolved, second.unknownPairs], [[], 1, 1]);
++  assert.deepEqual([scores.summaries[0].unresolved, scores.summaries[0].unknownPairs], [0.5, 1]);
+ });
+ 
+ test('the summary gives the median and the range of seconds and tokens, so one slow run does not move the median', () => {
+@@ -550,11 +569,11 @@ test('report.md lists known-defect ids and no defect text', (t) => {
+   const report = fs.readFileSync(path.join(ws, 'report.md'), 'utf8');
+   const lines = report.split('\n');
+   for (const expected of [
+-    '| code-7 | B0 | 1 | 3 | 0.33 | 0.33 | 0.33 | 0.33 | 0.00 | 0.00 | 0.00 | 0.00 | 61.5 | 61.5 | 61.5 | 4200 | 4200 | 4200 |',
+-    '| code-7 | B0 | run-1 | 0.33 | D1 | 0 | 0 | 0 | 0 | 0 | 61.5 | 4200 | fixes-required | full: fixes-required |',
+-    '| code-7 | C3 | run-1 | 0.67 | D1, D2 | 1 | 1 | 0 | 0 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
+-    '| code-7 | C3 | run-2 | 0.00 | - | 0 | 0 | 0 | 3 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
+-    '| plan-3 | P0 | run-1 | 0.50 | K1 | 0 | 0 | 0 | 1 | 0 | - | - | repair | plan: repair |',
++    '| code-7 | B0 | 1 | 3 | 0.33 | 0.33 | 0.33 | 0.33 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 61.5 | 61.5 | 61.5 | 4200 | 4200 | 4200 |',
++    '| code-7 | B0 | run-1 | 0.33 | D1 | 0 | 0 | 0 | 0 | 0 | 0 | 61.5 | 4200 | fixes-required | full: fixes-required |',
++    '| code-7 | C3 | run-1 | 0.67 | D1, D2 | 1 | 1 | 0 | 0 | 0 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
++    '| code-7 | C3 | run-2 | 0.00 | - | 0 | 0 | 0 | 3 | 0 | 0 | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
++    '| plan-3 | P0 | run-1 | 0.50 | K1 | 0 | 0 | 0 | 1 | 0 | 0 | - | - | repair | plan: repair |',
+   ]) {
+     assert.ok(lines.includes(expected), `report.md lacks ${expected}`);
+   }

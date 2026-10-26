@@ -1,0 +1,34 @@
+{
+  "id": "ud-98-r8",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 98,
+  "round": 8,
+  "repo_ref": "7f7fdbe6ae48f755a68ecd29e87e149429c6dc14",
+  "plan": "ud-98-r8-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZadH188AAAABEWWKoA",
+  "show_benchmark": true,
+  "known": [],
+  "protected": [
+    {
+      "id": "UD98-1",
+      "section": "Research, Request corrections (line 89); Runtime facts (line 66); Decisions, decision 1 (line 72)",
+      "summary": "Request correction: the user asked to use omp's `orchestrate` in plan-lifecycle. The manager dispatches the lens reviewers in parallel in every runtime that the plugin supports instead, because `orchestrate` is an omp prompt keyword for one turn and not an API that a skill can call."
+    },
+    {
+      "id": "UD98-4",
+      "section": "Goal (line 5); Research, Decisions, decision 8 (line 84)",
+      "summary": "User: token cost is not a limit. The user accepts more tokens when the reviews find more defects or finish sooner, so later decisions report tokens but do not let them block a change."
+    },
+    {
+      "id": "UD98-5",
+      "section": "Research, Request corrections (line 93); Decisions, decision 1 (line 72)",
+      "summary": "Request correction: after the benchmark, the user said \"dont care about spending more tokens to be faster\". Code-review round 1 is again a three-lens panel by default for a diff of 50 or more changed lines, at about twice the tokens per loop; one reviewer by default is rejected."
+    },
+    {
+      "id": "UD98-6",
+      "section": "Research, Request corrections (line 91)",
+      "summary": "Request correction: the user asked to optimize the plan reviewer too. Plan review gets a better prompt, a checklist reference, and a delta mode under the benchmark rule, but no lenses, because benchmark 1 showed no gain from plan lenses."
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "id": "ud-106-r1",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 106,
+  "round": 1,
+  "repo_ref": "936ad562f84fe73f41753853ddde51edb7be57e5",
+  "plan": "ud-106-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZfkpPM8AAAABEZN3Eg",
+  "known": [],
+  "protected": [
+    {
+      "id": "UD106-1",
+      "section": "Research, Decisions, decision 3 (line 26); Goal (line 5)",
+      "summary": "User: the no-bespoke-gates guard goes, with its test, fixtures, registry row, gate step, and references. The user chose removal over a guard that reads plan issues and over a plan citation in code."
+    },
+    {
+      "id": "UD106-2",
+      "section": "Research, Decisions, decision 5 (line 28)",
+      "summary": "Yolo decision: the review diffs show each deleted file by name only (`git diff -D`), and the dispatch lists the deleted paths, because the text of the removed archive is not under review."
+    },
+    {
+      "id": "UD106-3",
+      "section": "Research, Decisions, decision 4 (line 27)",
+      "summary": "Yolo decision: `durable-anchors.mjs` loses `SKIP_PATHS` and its docs/plans comments, so every AGENTS.md node is in scope."
+    }
+  ]
+}

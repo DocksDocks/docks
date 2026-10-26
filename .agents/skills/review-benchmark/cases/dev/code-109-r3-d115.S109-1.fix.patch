@@ -1,0 +1,13 @@
+diff --git a/.agents/skills/review-benchmark/scripts/prepare.mjs b/.agents/skills/review-benchmark/scripts/prepare.mjs
+index 47dd4fc1..8b238c9c 100755
+--- a/.agents/skills/review-benchmark/scripts/prepare.mjs
++++ b/.agents/skills/review-benchmark/scripts/prepare.mjs
+@@ -838,7 +838,7 @@ function writeContractCopy(snapshot, diff, copy) {
+   if (applied.status === 0) return 'applied';
+   const lines = new Set(fs.readFileSync(contract, 'utf8').split('\n'));
+   const removed = removedText(patch);
+-  if (!removed.every((line) => lines.has(line))) return 'not applicable';
++  if (removed.length && !removed.some((line) => lines.has(line))) return 'not applicable';
+   fail(`the contract change does not apply to ${contract} for the run ${dir}: ${applied.stderr.toString().trim()}`);
+ }
+ 

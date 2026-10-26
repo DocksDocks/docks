@@ -1,0 +1,25 @@
+{
+  "id": "code-100-r4-d115",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 100,
+  "round": 4,
+  "base": "ecd1a12d826d6ef916fbc140312e0a1047d27f3a",
+  "delta_base": "ec46bab17f91343177bf633f8cd7b97d2f0f99bf",
+  "head": "a99ab29c0d66ac327adf75950b55eeb736ba9334",
+  "plan": "code-100-r4-d115-plan.md",
+  "previous_review": "code-100-r4-d115-previous-review.md",
+  "show_benchmark": true,
+  "known": [
+    {
+      "id": "D100R4-1",
+      "title": "The new list-split rows of delimitedParts have no test that runs them through transcripts",
+      "locator": ".agents/skills/review-benchmark/scripts/score.mjs:73-78; .agents/skills/review-benchmark/scripts/score.mjs:1929-1947; scripts/tests/unit/review-benchmark.test.mjs:4936-4986",
+      "severity": "LOW",
+      "category": "test",
+      "source": "review-round",
+      "summary": "The delta adds list-split rows in LIST_SPLITS (score.mjs:73-78) that delimitedParts uses (score.mjs:1929-1947): the `;` split that needs no part to exist, the white-space split, the split on all three delimiters, and the URI list on `;`. No test runs these rows through transcriptsCommand. The new transcripts test (review-benchmark.test.mjs:4936-4986) covers only the `,` split and targets that stay one path, and the readScope test gives a hand-built `lists` map. So a change that removes the white-space row or the all-three row, or makes the `;` row need existing parts, fails no test, and a grep path `<snapshot>/src <live>/src` then counts as one allowed path. Plan step 9 (line 88) asks for unit tests that show a run invalid for a read under the live checkout.",
+      "fix": "code-100-r4-d115.D100R4-1.fix.patch"
+    }
+  ]
+}

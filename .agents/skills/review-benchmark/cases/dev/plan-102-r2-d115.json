@@ -1,0 +1,21 @@
+{
+  "id": "plan-102-r2-d115",
+  "kind": "plan-delta",
+  "split": "dev",
+  "issue": 102,
+  "round": 2,
+  "repo_ref": "163acb53e4ce6c01ea7595a62971a494a81b81b7",
+  "previous_body": "plan-102-r2-d115-previous-body.md",
+  "plan": "plan-102-r2-d115-plan.md",
+  "previous_review": "plan-102-r2-d115-previous-review.md",
+  "known": [
+    {
+      "id": "PD102-1",
+      "kind": "research_gap",
+      "title": "The repaired close test uses a close by a second pull request, but plan.mjs refuses that close with another message before the settle-wait check",
+      "locator": "Research, Decisions 3 (line 27); Steps, row 3 settle_refusal_tests, Done when (line 47); Do not touch (line 65)",
+      "source": "seeded",
+      "summary": "Decision 3 (line 27) says that a later close by a second merged pull request reaches the settle-wait refusal without a change to plan.mjs. At repo_ref, the settle-wait check first calls closedByPullRequest (plan.mjs lines 1230-1231). That function fails with \"plan #<n> was closed by <closer> after pull request #<pr> merged\" when the closer is not the merged pull request (plan.mjs lines 1135-1149); the test at scripts/tests/plan-cli/reopen.test.mjs line 117 shows this path. So the test gets that refusal, not \"changed during the settle wait\", and step 3 cannot pass without a change to plan.mjs, which Do not touch forbids. Only a later close by the same pull request reaches the settle-wait refusal."
+    }
+  ]
+}
