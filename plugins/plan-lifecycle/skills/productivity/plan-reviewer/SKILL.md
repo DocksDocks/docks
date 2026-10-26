@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-25"
-  content_hash: "41647705e3b5a7f65d2af07a195afe7223b738123f976422310d9129b8d0ddd1"
+  content_hash: "f008db16b55b5641b8d555f01991b48a2f52b17303dccd5439c00b6a964cf71e"
 ---
 
 # Plan Reviewer
@@ -27,7 +27,8 @@ Report only `goal_fit`, `research_gap`, or `security_risk` findings that meet
 the finding bar. Do not ask for cosmetic changes, naming, formatting, line
 counts, extra citations, probes, tests, or acceptance rows without a
 load-bearing defect, because such a request adds a repair round and does not
-change whether the plan works.
+change whether the plan works. An Acceptance row that cannot fail without the
+change is a load-bearing defect.
 </constraint>
 
 ## Precedence
