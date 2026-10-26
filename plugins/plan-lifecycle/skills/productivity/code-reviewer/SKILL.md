@@ -148,6 +148,10 @@ reach is uncertain, rate by the scenario and say what is uncertain.
 - `blocked`: a required input is missing, unreadable, or contradictory, so no
   safe verdict is possible. Name that input in one line below the verdict line.
 
+A hunk of the mode's diff that you did not read is a missing input, not a
+clean hunk. Return `blocked`, and name the paths of the unread hunks in the
+line below the verdict line. Never return `pass` on a partial read of the diff.
+
 ## Output contract
 
 Return exactly one Markdown block with no surrounding commentary. The manager
