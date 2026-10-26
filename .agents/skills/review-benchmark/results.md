@@ -791,3 +791,189 @@ The rule under test: from code-review round 3, a `pass` whose open findings are 
 | `step6d`, `B1-xhigh-fast` | 30 | 86 | 1 | 1 | 175 of 16,065 | 0 |
 
 From round 2 instead of round 3, the rule would remove 7 rounds (1,042 s) in `step6c` `C3-xhigh-fast` and 4 rounds (438 s) in `step6d` `C3-xhigh-fast`, also with no known defect that escapes. The rule ships from round 3, because the real history shows faults in the repairs of rounds 2 and 3 (plans #100 and #102). No known defect escapes, so the rule ships (plan #111 decision 6). The saving is small in the replay; the real history estimates 3 rounds in 7 plans.
+
+## Run 2026-10-25: reviewer candidates from other vendors' review techniques (plan #113)
+
+### Setup
+
+- Model: `openai-codex/gpt-6.1-sol`. Effort: `xhigh`. Service tier: `default`. The user turned fast mode off for these tests (plan #113 decision 4). The arms of each reviewer ran mixed in one dispatch queue.
+- Arms. The candidate refs are local and start from `main` commit `398b6a57`:
+  - `Vmain`: the plan reviewer on `main`.
+  - `Vp1`: candidate P1. It adds two plan checklist items: each Acceptance row that checks a Goal outcome can fail (the reviewer predicts the result of the row before the steps and on a partial change), and each changed format, location, key, default, or rule is traced to its readers. Ref `bench-113/cand-p1`.
+  - `B3`: the code reviewer on `main` as a panel, with the prompt shape of the candidate arm.
+  - `C3`: candidate C1 as a panel. C1 adds the precedence of #109 (instruction files and the plan contract above recorded decisions), a repository-rules section (quote the rule and cite `path:line`; apply the text of a changed instruction file as of the base and review the new text as changed text), a restatement search, a per-form check for parsers and formats that another tool also reads, compatibility surfaces, fail-open gates as Bug or Security findings, and a search for the guard before a finding is reported. Ref `bench-113/cand-c1`.
+  - `Bd` and `Cd`: the delta arms of `main` and of C1 on the code-delta case.
+- `B3` and `Bd` are new arms of this plan (plan #113 decision 2). The earlier baseline arms `B1` and `B0` add the old lens description to the prompt (`buildTail`), so `B1` against `C3` did not compare only the reviewer files. `B3` and `Bd` have the same prompt tail as `C3` and `Cd`. Thus `B3`/`Bd` against `C3`/`Cd` compares only the reviewer files at `--baseline-ref main` and in the candidate tree.
+- Judge rubric (plan #113 decision 2): the Adjudication pass of `references/judge.md` now rates a finding `valid` when the finding shows that a recorded intent breaks a repository instruction file, the plan contract, or correctness, and its rule or effect holds. A finding is `wrong` because the plan records the behavior as intended only when it does not show this. The rule applies to every arm of this run. The earlier entries used the rubric before this change.
+- One run is a single review.
+- The diff of each candidate against `main` is kept as the record in `variants/plan-113-cand-p1.patch` and `variants/code-113-cand-c1.patch`, because the local refs are removed after the merge.
+
+### Decision rule (plan #113 decision 5, fixed before the held-out runs)
+
+For each reviewer on its new held-out cases: the candidate replaces `main` only when its escaped known defects per 50 known are fewer than `main`'s, its escaped-difference 90% interval against `main` stays below 2 and its round-1 recall difference interval stays above -0.05, and its wrong findings per run and its unknown findings per run are each at most 0.10 more than `main`'s. A candidate that does not pass is recorded with its measured differences and does not ship.
+
+### Dev check
+
+All dev cases are published cases (plan #113 decision 6). Plan: `Vmain` and `Vp1` ran 2 times on each of 6 plan cases with always-missed defects: `plan-27-r1`, `plan-42-r1`, `plan-57-r1`, `plan-72-r1`, `plan-85-r1`, and `plan-96-r1`. Code: `B3` and `C3` ran 1 time on each of 4 code cases: `code-102-r1`, `code-44-r1`, `code-74-pr75`, and `code-98-r1`. No run is invalid. Every run shows the model `openai-codex/gpt-6.1-sol`, the effort `xhigh`, and the served tier `default`.
+
+#### Arms
+
+The dev report splits these cases into its `dev` and `heldout` groups by the folder of each case. Thus a script computed this table from the Runs table of the dev report.
+
+| Measure | Vmain | Vp1 | B3 | C3 |
+|---|---:|---:|---:|---:|
+| Runs | 12 | 12 | 4 | 4 |
+| Cases | 6 | 6 | 4 | 4 |
+| Known found per run | 2.75 | 3.00 | 2.00 | 1.50 |
+| Escaped per 50 known | 19.44 | 16.67 | 34.62 | 38.46 |
+| Valid extras per run | 0.58 | 0.67 | 3.75 | 4.00 |
+| Wrong per run | 0.00 | 0.08 | 1.25 | 0.75 |
+| Unknown ratings per run | 0.00 | 0.00 | 0.00 | 0.25 |
+| Seconds median | 222.9 | 257.6 | 341.8 | 388.0 |
+
+#### Known defects found
+
+Each cell gives the number of runs that found the known defect. The table shows only the known defects whose count differs between the two arms of a reviewer.
+
+| Case | Known defect | `main` arm | Candidate arm |
+|---|---|---:|---:|
+| plan-27-r1 | P27-2 | 1 of 2 | 0 of 2 |
+| plan-27-r1 | P27-3 | 2 of 2 | 1 of 2 |
+| plan-57-r1 | P57-1 | 2 of 2 | 0 of 2 |
+| plan-57-r1 | P57-5 | 1 of 2 | 2 of 2 |
+| plan-72-r1 | S72-3 | 0 of 2 | 1 of 2 |
+| plan-85-r1 | S85-2 | 0 of 2 | 2 of 2 |
+| plan-96-r1 | P96-5 | 1 of 2 | 2 of 2 |
+| plan-96-r1 | P96-6 | 0 of 2 | 2 of 2 |
+| code-102-r1 | C102-2 | 1 of 1 | 0 of 1 |
+| code-44-r1 | C44-9 | 1 of 1 | 0 of 1 |
+
+#### Check of each change
+
+- P1: P1 found the Acceptance defects that can fail more often: P96-6 (2 of 2 against 0 of 2), S72-3 (1 against 0), and S85-2 (2 against 0). It lost P57-1 (0 of 2 against 2 of 2), P27-2 (0 against 1), and P27-3 (1 against 2). Its wrong findings rose from 0.00 to 0.08 per run.
+- C1: each code arm ran once per case, so the dev check did not decide. C3 found fewer known defects than B3 (1.50 against 2.00 per run), with fewer wrong findings (0.75 against 1.25 per run).
+- No candidate was revised.
+
+### Held-out runs
+
+The arms ran 3 times on each of 12 new held-out cases (plan #113 decision 3). A builder agent that did not see the candidates wrote the seeded cases, and the keys stayed outside the repository until the decision.
+
+- Plan, 7 cases, 25 known defects: `plan-111-r1` (4), `plan-111-r6` (plan delta, 1), and the seeded cases `plan-103-r1`, `plan-40-r1`, `plan-65-r1`, `plan-79-r1`, and `plan-87-r1` (4 each).
+- Code panel, 4 cases, 21 known defects: `code-111-r1` (12), `code-111-r4` (1), and the seeded cases `code-72-pr73` and `code-83-pr84` (4 each).
+- Code delta, 1 case, 2 known defects: `code-111-r3-delta`.
+
+No run is invalid. Every run shows the model `openai-codex/gpt-6.1-sol`, the effort `xhigh`, and the served tier `default`. An interval row gives the 90% paired bootstrap interval of the difference from the `main` arm.
+
+#### Plan reviewer
+
+| Measure | Vmain | Vp1 |
+|---|---:|---:|
+| Runs | 21 | 21 |
+| Cases | 7 | 7 |
+| Known found per run | 2.52 | 2.81 |
+| Escaped per 50 known | 14.67 | 10.67 |
+| Round 1 recall difference from Vmain, 90% interval | - | [0.00, 0.16] |
+| Escaped per 50 known difference from Vmain, 90% interval | - | [-8.00, 0.00] |
+| Valid extras per run | 0.90 | 0.90 |
+| Wrong per run | 0.05 | 0.00 |
+| Unknown ratings per run | 0.00 | 0.00 |
+| Seconds median | 279.6 | 259.2 |
+| Tokens median | 739207 | 766622 |
+
+#### Code reviewer, panel
+
+| Measure | B3 | C3 |
+|---|---:|---:|
+| Runs | 12 | 12 |
+| Cases | 4 | 4 |
+| Known found per run | 2.58 | 2.67 |
+| Escaped per 50 known | 25.40 | 24.60 |
+| Round 1 recall difference from B3, 90% interval | - | [0.00, 0.03] |
+| Escaped per 50 known difference from B3, 90% interval | - | [-1.25, 0.00] |
+| Valid extras per run | 1.08 | 1.08 |
+| Wrong per run | 0.00 | 0.00 |
+| Unknown ratings per run | 0.00 | 0.00 |
+| Seconds median | 276.0 | 280.5 |
+| Tokens median | 1880728 | 2054085 |
+
+#### Code reviewer, delta
+
+| Measure | Bd | Cd |
+|---|---:|---:|
+| Runs | 3 | 3 |
+| Cases | 1 | 1 |
+| Known found per run | 1.00 | 1.33 |
+| Escaped per 50 known | 25.00 | 16.67 |
+| Valid extras per run | 0.00 | 0.00 |
+| Wrong per run | 0.00 | 0.00 |
+| Unknown ratings per run | 0.00 | 0.00 |
+| Seconds median | 185.1 | 216.0 |
+| Tokens median | 497507 | 641613 |
+
+With one case, each interval of the delta arms has one value (recall difference [0.17, 0.17], escaped difference [-8.33, -8.33]) and shows no spread. Thus the code decision uses the panel cases.
+
+#### Known defects that differ
+
+Each cell gives the number of runs, out of 3, that found the known defect. A script counted the `Found` column of the run table of the held-out report. The table shows only the known defects whose count differs between the two arms of a reviewer.
+
+| Case | Known defect | `main` arm | Candidate arm |
+|---|---|---:|---:|
+| plan-111-r1 | P111-3 | 2 of 3 | 3 of 3 |
+| plan-103-r1 | PS103-4 | 0 of 3 | 3 of 3 |
+| plan-65-r1 | PS65-2 | 0 of 3 | 3 of 3 |
+| plan-79-r1 | PS79-1 | 1 of 3 | 0 of 3 |
+| code-111-r1 | SR111-7 | 0 of 3 | 1 of 3 |
+| code-111-r3-delta | B111-5 | 0 of 3 | 1 of 3 |
+
+#### Real `*-111-*` cases alone (does not decide)
+
+A script computed this table from the run table of the held-out report. A known-run is one known defect in one run.
+
+| Reviewer | Cases | Known-runs per arm | Escaped per 50 known, `main` arm | Escaped per 50 known, candidate arm |
+|---|---|---:|---:|---:|
+| Plan (`Vmain`, `Vp1`) | `plan-111-r1`, `plan-111-r6` | 15 | 10.00 | 6.67 |
+| Code panel (`B3`, `C3`) | `code-111-r1`, `code-111-r4` | 39 | 38.46 | 37.18 |
+| Code delta (`Bd`, `Cd`) | `code-111-r3-delta` | 6 | 25.00 | 16.67 |
+
+The second judge agreed with 105 of 105 answers (1.00).
+
+### Decision
+
+- P1 against `main`: P1 let fewer known defects escape (10.67 against 14.67 per 50 known). Its escaped-difference interval [-8.00, 0.00] stays below 2, its recall interval [0.00, 0.16] stays above -0.05, its wrong findings are 0.00 against 0.05 per run, and its unknown findings are 0.00 against 0.00 per run. So P1 passes decision 5 and ships. P1 gives the main gain of this plan: 4.00 fewer escaped known defects per 50 known. Its median time was shorter on the held-out cases (259.2 s against 279.6 s) and longer on the dev cases (257.6 s against 222.9 s).
+- C1 against `main`: C3 let fewer known defects escape (24.60 against 25.40 per 50 known). Its escaped-difference interval [-1.25, 0.00] stays below 2, its recall interval [0.00, 0.03] stays above -0.05, and its wrong and unknown findings are 0.00 per run, as are `B3`'s. So C1 passes decision 5 and ships. The measured gain is small: 0.80 fewer escaped per 50 known, which is one more known defect (SR111-7) in 12 runs. C1 ships because it passes the rule, and because it adds the repository-rules review and the review of the base text of changed instruction files, whose safety value no corpus defect measures.
+
+### Sources of the techniques
+
+The research reports of plans #111 and #113 (kept outside the repository) give these sources. The candidate text is written in this repository's own words and copies no vendor text, so no license notice is needed (plan #113 decision 1).
+
+| Candidate | Technique | Vendor | Source |
+|---|---|---|---|
+| P1 | Acceptance row that can fail | Anthropic (Claude Code) | `skill-creator` grader: https://github.com/anthropics/skills/blob/main/skills/skill-creator/agents/grader.md |
+| P1 | Acceptance row that can fail | OpenAI (Codex) | `code-review-testing` skill: https://github.com/openai/codex/tree/5e96aabd68dc6194f5ad928cb7f5d0bc71b72df9/.codex/skills; label review prompt (whole-value assertions): https://github.com/openai/codex/blob/main/.github/codex/labels/codex-rust-review.md |
+| P1 | Acceptance row that can fail | poteto (pstack in `cursor/plugins`) | `interrogate` rubric, Verification lens: https://github.com/cursor/plugins/blob/main/pstack/skills/interrogate/references/rubric.md; `blast-radius` proof ladder: https://github.com/cursor/plugins/blob/main/pstack/skills/blast-radius/SKILL.md |
+| P1 | Readers of a changed form | Anthropic (Claude Code) | `feature-dev` `code-architect` data flow: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/feature-dev |
+| P1 | Readers of a changed form | OpenAI (Codex) | `maintainer-review` changed-behavior pass: https://github.com/openai/openai-agents-python/blob/main/.agents/skills/maintainer-review/SKILL.md, https://github.com/openai/openai-agents-python/blob/main/.agents/skills/maintainer-review/references/evaluation-framework.md |
+| P1 | Readers of a changed form | poteto (pstack in `cursor/plugins`) | `blast-radius`, breakage past grep: https://github.com/cursor/plugins/blob/main/pstack/skills/blast-radius/SKILL.md |
+| C1 | Precedence: a recorded decision does not excuse a rule violation | Cursor (Bugbot) | Bugbot release notes, week of 2026-10-12: https://cursor.com/docs/release-notes/bugbot |
+| C1 | Precedence: the intent settles the choice, not its effects | Cursor | `thermo-nuclear-review`: https://github.com/cursor/plugins/blob/main/thermos/skills/thermo-nuclear-review/SKILL.md |
+| C1 | Repository rules quoted by path | Anthropic (Claude Code) | `/code-review` command: https://github.com/anthropics/claude-code/blob/main/plugins/code-review/commands/code-review.md |
+| C1 | Repository rules quoted by path | OpenAI (Codex) | `/review` rubric (rule attribution, PR #34637): https://github.com/openai/codex/blob/main/codex-rs/prompts/templates/review/rubric.md; blog "Custom Code Review rules for Codex": https://developers.openai.com/blog/custom-code-review-rules-for-codex |
+| C1 | Repository rules quoted by path | CodeRabbit | Code guidelines: https://docs.coderabbit.ai/knowledge-base/code-guidelines |
+| C1 | Repository rules quoted by path | Cursor (Bugbot) | Bugbot documentation (`.cursor/BUGBOT.md` of each changed path): https://cursor.com/docs/bugbot |
+| C1 | Base text of changed instruction files | Anthropic (Claude Code Review) | https://code.claude.com/docs/en/code-review |
+| C1 | Base text of changed instruction files | Cursor (Bugbot) | https://cursor.com/docs/bugbot |
+| C1 | Restatement search | CodeRabbit | Custom check "Agent guidance structure" of `coderabbitai/skills`: https://github.com/coderabbitai/skills/blob/main/.coderabbit.yaml |
+| C1 | Parser and format forms | Anthropic (Claude Code) | `security-guidance` plugin, parser and validator differentials: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance |
+| C1 | Compatibility surfaces | OpenAI (Codex) | `code-review-breaking-changes` skill: https://github.com/openai/codex/tree/5e96aabd68dc6194f5ad928cb7f5d0bc71b72df9/.codex/skills; root `AGENTS.md` Code Review Rules: https://github.com/openai/codex/blob/5c18cc0acc3734f0e78e422a7fd94ea4a2be652e/AGENTS.md#L85-L110 |
+| C1 | Fail-open gates | Anthropic (Claude Code) | `security-guidance` plugin, fail-open state drift and control regression: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance |
+| C1 | Search for the guard | CodeRabbit | Verification scripts: https://www.coderabbit.ai/blog/context-engineering-ai-code-reviews |
+| C1 | Search for the guard | Cursor | `thermo-nuclear-review` (no finding with unfinished research when the code is readable): https://github.com/cursor/plugins/blob/main/thermos/skills/thermo-nuclear-review/SKILL.md |
+| C1 | Search for the guard | Anthropic (Claude Code) | `security-guidance` plugin, self-refute stage with cited evidence: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance; `/security-review` false-positive filtering: https://github.com/anthropics/claude-code-security-review/blob/main/.claude/commands/security-review.md |
+
+### Leads
+
+- A second reviewer model family. It needs a judge from a family outside both reviewer families, and only two families run here.
+- Web search for the code reviewer.
+- A coverage verdict for hunks that the reviewer did not read.
+- State and ordering checks (the mutators of shared state, overlapping operations, stale completions).
+- The remaining plan techniques: one owner per rule, steps that leave no decision to the implementer, and quoted gates.

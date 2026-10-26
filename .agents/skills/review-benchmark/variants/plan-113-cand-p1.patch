@@ -1,0 +1,87 @@
+diff --git a/plugins/plan-lifecycle/agents/plan-reviewer.md b/plugins/plan-lifecycle/agents/plan-reviewer.md
+index e608c132..d67169f4 100644
+--- a/plugins/plan-lifecycle/agents/plan-reviewer.md
++++ b/plugins/plan-lifecycle/agents/plan-reviewer.md
+@@ -28,7 +28,9 @@ A plan-review finding is exactly one of `goal_fit`, `research_gap`, or
+ qualifying finding in one pass. An empty review is a valid result. Do not ask
+ for style, naming, formatting, line counts, more citations, additional probes,
+ mutation tests, acceptance rows beyond the checks that repository instructions
+-require, cosmetic work, or restructuring for its own sake.
++require, cosmetic work, or restructuring for its own sake. An Acceptance row
++that passes without the change is a defect of that row, not a request for a
++new test.
+ </constraint>
+ 
+ ## Workflow
+@@ -48,7 +50,8 @@ require, cosmetic work, or restructuring for its own sake.
+    to direct attention. It does not limit the review.
+ 5. Read the repository files, symbols, tests, and local instructions needed to
+    verify the plan. Trace each load-bearing claim against actual callers and
+-   behavior.
++   behavior. Trace each format, location, or rule that a step changes to its
++   readers.
+ 6. Verify library, framework, runtime, and external API claims against current
+    official documentation. Use web search only to locate an official source.
+ 7. Keep each observation that meets the finding bar, in one of the three kinds:
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
+index a3813fee..eb7593d7 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md
+@@ -5,7 +5,7 @@ user-invocable: false
+ metadata:
+   pattern: tool-wrapper
+   updated: "2026-10-25"
+-  content_hash: "41647705e3b5a7f65d2af07a195afe7223b738123f976422310d9129b8d0ddd1"
++  content_hash: "f008db16b55b5641b8d555f01991b48a2f52b17303dccd5439c00b6a964cf71e"
+ ---
+ 
+ # Plan Reviewer
+@@ -27,7 +27,8 @@ Report only `goal_fit`, `research_gap`, or `security_risk` findings that meet
+ the finding bar. Do not ask for cosmetic changes, naming, formatting, line
+ counts, extra citations, probes, tests, or acceptance rows without a
+ load-bearing defect, because such a request adds a repair round and does not
+-change whether the plan works.
++change whether the plan works. An Acceptance row that cannot fail without the
++change is a load-bearing defect.
+ </constraint>
+ 
+ ## Precedence
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+index ddb707f0..2c985150 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+@@ -30,6 +30,21 @@ the kind that fits the defect.
+   flags, the paths, the working directory, and the runtime exist where the plan
+   runs the command, and the expected result is what the command prints or
+   returns. (`goal_fit`)
++- Each row that checks a Goal outcome can fail. Read the command and each file
++  that the command reads in the repository. Predict the result on the tree
++  before the steps, and on a partial change that does not make the outcome.
++  Look for:
++  - a pattern that already matches, or that cannot match because the text
++    spans two lines;
++  - a parser or a regex that already accepts the input;
++  - a command that reads a fixed path, not the copy that the row changes;
++  - an assertion that uses only the first match;
++  - a test that does not assert the property that the row or Research says it
++    checks.
++
++  Cite the `path:line` that makes the row pass. The fix changes the row. A row
++  that is a regression guard, or a gate that must pass before and after the
++  change, is not a finding. (`goal_fit`)
+ 
+ ## Research
+ 
+@@ -50,6 +65,12 @@ the kind that fits the defect.
+ 
+ - No step contradicts another step, the Goal, a recorded decision, or the Do
+   not touch section. Cite both lines. (`goal_fit`)
++- When a step changes a format, a grammar, a location, a key, a default, or a
++  rule text, search the repository for each reader of the old form: scripts,
++  tests, fixtures, stored records and queue files that a reader reads again,
++  text that states the rule again, and the tools or agents that load that
++  text. A reader on a supported path that no step updates is a finding. Cite
++  the reader as `path:line`. (`goal_fit`)
+ - The plan keeps the invariants of the plan contract, which is
+   `plan-manager/references/plan-contract.md` in this plugin. Read the contract
+   when a step touches one of these areas. (`security_risk` or `goal_fit`)
