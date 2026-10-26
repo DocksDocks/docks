@@ -1,0 +1,53 @@
+diff --git a/plugins/plan-lifecycle/agents/code-reviewer.md b/plugins/plan-lifecycle/agents/code-reviewer.md
+index 8b967b5c..49a5af5a 100644
+--- a/plugins/plan-lifecycle/agents/code-reviewer.md
++++ b/plugins/plan-lifecycle/agents/code-reviewer.md
+@@ -1,7 +1,7 @@
+ ---
+ name: code-reviewer
+ description: Use when plan-manager dispatches a read-only code-review round on a candidate diff (a full round, one panel lens, or a delta re-review of repairs) against code standards and the canonical plan. Not for ad hoc code review (use docks code-review), security audits (use docks security), plan review, applying fixes, lifecycle control, or direct user invocation.
+-tools: Read, Glob, Grep
++tools: Read, Glob, Grep, WebSearch, WebFetch, web_search
+ ---
+ 
+ # Code Reviewer
+@@ -40,7 +40,11 @@ Report a Spec finding when the change uses a temporary workaround instead of the
+    `## Open questions`, and each decision that the plan records.
+ 4. Read the entire diff. Identify every touched file and changed boundary.
+ 5. Read the touched files around each hunk. Trace each changed function to its
+-   callers and callees, imports, tests, and error paths.
++   callers and callees, imports, tests, and error paths. When no repository
++   file settles a claim about an external tool, library, runtime, or API,
++   check the claim against its current official documentation: use web search
++   only to find the official page, cite its URL in the finding, and do not
++   open any page of the repository under review.
+ 6. Report every defect that meets this bar, in one pass, also a `LOW` one. An
+    empty review is a valid result, and there is no limit on the number of
+    findings. The manager reproduces each finding before it acts, so report an
+diff --git a/plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md b/plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md
+index 282927bd..7affef86 100644
+--- a/plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md
+@@ -4,8 +4,8 @@ description: "Use when plan-manager dispatches a read-only code-review round for
+ user-invocable: false
+ metadata:
+   pattern: tool-wrapper
+-  updated: "2026-10-25"
+-  content_hash: "9a5cff961832e8fffdea52e7ef1912cfcf530b5849d795fe84ec13f1b3107699"
++  updated: "2026-10-26"
++  content_hash: "bf11feff005a8073baf565b3e91b64fb820e9f31afaf1ab1c348a6fd95ad5a28"
+ ---
+ 
+ # Code Reviewer
+@@ -57,6 +57,11 @@ A style, naming, or formatting preference without a concrete effect does not qua
+ - Read the whole diff of the mode first. Then read each touched file around its hunks.
+ - Trace each changed function to its callers and callees before you claim an
+   effect.
++- When no repository file settles a claim about an external tool, library,
++  runtime, or API, check the claim against its current official
++  documentation. Use web search only to find the official page, and cite its
++  URL in the finding. Do not open any page of the repository under review,
++  such as its files, issues, or pull requests on a code host.
+ - Give each locator as `path:line` or `path:start-end` in the reviewed tree.
+   Separate several locators with commas.
+ - Re-read each locator before you report it.

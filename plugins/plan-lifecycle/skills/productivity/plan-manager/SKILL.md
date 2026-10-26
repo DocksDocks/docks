@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-26"
-  content_hash: "a856e91ab503a40e8c4bd17725230c7ba1e48ddd7f14274d85f7c304e0a2060d"
+  content_hash: "de3f37c82098b5769212df50388bbcafa880266ef70aea1be03e7161692e324f"
 ---
 
 # Plan Manager
@@ -88,10 +88,10 @@ Done when: `status <n> planned` succeeds and no advice needs a decision.
 Run the contract's review loop with `plan-reviewer`. For each round, export
 fresh input and dispatch `plan-reviewer` with the issue number, export path, and
 round number. A re-review round after a repair may use the plan `delta` mode,
-as the contract's review loop allows. Set the effort of a delta round as that
-loop says. If no wrapper exists, dispatch a fresh read-only reviewer with the
-`plan-reviewer` skill. Route a user-only decision through Open questions and
-`ask`. Never implement a repaired plan that has not passed review.
+as the contract's review loop allows. If no wrapper exists, dispatch a fresh
+read-only reviewer with the `plan-reviewer` skill. Route a user-only decision
+through Open questions and `ask`. Never implement a repaired plan that has not
+passed review.
 
 A plan-only run stops after the pass, at planned. Report the issue and verdict.
 Do not create a branch or implement without a new instruction.

@@ -179,19 +179,9 @@ Reviewers never fetch the issue. Save each posted round comment as
 A plan re-review after a repair may use the plan `delta` mode when the
 `plan-reviewer` skill offers it in its `references/delta.md`. Give that round
 the inputs that the file names. Otherwise each plan round reviews the whole
-export. A full plan-review round runs at the configured effort. A plan `delta`
-round runs one level lower where the runtime has a per-dispatch effort. In omp
-with the setting `task.enableEffort` on, the `effort` values `lo`, `med`, and
-`hi` map to the lowest, middle, and highest level of the model's range. Dispatch
-the delta round with `effort: med` only when `med` is one level below the effort
-of round 1, for example for `openai-codex/gpt-6.1-sol` at `xhigh`, where `med`
-gives `high`; otherwise keep the agent's effort. In Claude Code v2.1.292 or later, pass
-the invocation `effort` one level below the effort of round 1, for example
-`high` after `xhigh`. Where the runtime has no per-dispatch effort, or the
-environment variable `CLAUDE_CODE_EFFORT_LEVEL` overrides it, the delta round
-keeps the agent's effort. Code-review rounds keep the configured effort. In
-the plugin's benchmark, the one plan-delta case gave the same known defects at
-both efforts in less than half the time.
+export. Every review round, plan or code and full or delta, runs at the
+configured effort. In the plugin's benchmark, a plan or code delta round one
+effort level lower let more known defects escape on 20 delta cases.
 
 A plan pass covers the body that the reviewer read. After `plan=pass`, collect
 the edits that change Goal, Research, Steps, Acceptance, or Do not touch.

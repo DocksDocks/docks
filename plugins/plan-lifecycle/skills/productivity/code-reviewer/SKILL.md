@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-10-26"
-  content_hash: "f86e517e197ef6258716c9e837b3c241ce14907e0c81e535157f070d474c3b96"
+  content_hash: "f69281ffb52f8b862099faf2bebbb1ac95214cc56a02a0b56aed0501ed79f6e3"
 ---
 
 # Code Reviewer
