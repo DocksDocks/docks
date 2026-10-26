@@ -6093,6 +6093,22 @@ test('agents --candidate-contract-overlay gives the runs of candidate code arms 
     assert.ok(baseline.split('\n').includes(SNAPSHOT_CONTRACT_RULE));
     assert.equal(candidate, baseline.replace(SNAPSHOT_CONTRACT_RULE, copyContractRule(copy)));
   }
+  // The later rounds of a loop would review without the contract copy, so case --loop refuses a candidate arm and
+  // writes no folder; a baseline arm still builds its loop.
+  const loopOptions = { ...caseOptions, out: path.join(root, 'loop-ws'), loop: true };
+  assert.throws(() => prepare.prepareCase({ ...loopOptions, arms: 'B3,C3' }, repo), {
+    message:
+      'case --loop does not take a candidate contract overlay (C3): the later rounds of a loop would review without the contract copy; build single-round runs, or run agents without --candidate-contract-overlay',
+  });
+  assert.equal(fs.existsSync(path.join(root, 'loop-ws', 'code-7')), false);
+  prepare.prepareCase({ ...loopOptions, arms: 'B3' }, repo);
+  assert.ok(fs.existsSync(path.join(root, 'loop-ws', 'code-7', 'B3-low', 'run-1', 'round-1', 'meta.json')));
+  // The command line takes the flag: without --baseline-ref, agents names that option, not an unknown flag.
+  const cli = spawnSync(process.execPath, [PREPARE_SCRIPT, 'agents', '--candidate-contract-overlay'], {
+    encoding: 'utf8',
+  });
+  assert.notEqual(cli.status, 0);
+  assert.match(cli.stderr, /agents needs --baseline-ref/);
   // Without a working-tree change, the option has nothing to record, so agents stops before it writes.
   put(repo, CONTRACT, '# Plan contract 0.16.0\n');
   assert.throws(() => prepare.prepareAgents(agentOptions, repo), {

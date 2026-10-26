@@ -892,6 +892,14 @@ export function prepareCase(options, repo) {
   const { configs, fixer, variants, candidateContractDiff, file: configsFile } = selectConfigs(options, repo);
   const arms = parseArms(options.arms, caseData.kind, variants);
   if (options.loop) checkLoopArms(caseData.kind, arms);
+  // A candidate contract overlay reaches only the prompts that case writes; the later rounds of a loop would review
+  // without the contract copy, so a loop of a candidate arm cannot measure the change.
+  const overlaid = candidateContractDiff ? arms.filter((arm) => ARMS[caseData.kind][arm]?.side === 'candidate') : [];
+  if (options.loop && overlaid.length) {
+    fail(
+      `case --loop does not take a candidate contract overlay (${overlaid.join(', ')}): the later rounds of a loop would review without the contract copy; build single-round runs, or run agents without --candidate-contract-overlay`,
+    );
+  }
   const runs = parseRuns(options.runs);
   // A loop records the fixer setting, so that `score.mjs report` can check the transcript of each fixer against it.
   if (options.loop && !fixer) fail(`${configsFile} has no fixer setting; run prepare.mjs agents again`);
