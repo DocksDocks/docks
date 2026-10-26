@@ -1,0 +1,33 @@
+diff --git a/.github/AGENTS.md b/.github/AGENTS.md
+index 3fc490b5..0103a1ca 100644
+--- a/.github/AGENTS.md
++++ b/.github/AGENTS.md
+@@ -108,3 +108,3 @@ Mitigations against npm and GitHub Actions supply-chain attacks. Each is load-be
+ - **`claude-code` is pinned rather than installed globally**: it is an exact-version devDependency in `package.json` and hash-locked in `bun.lock`, including its eight platform-binary optional dependencies. `bunfig.toml` sets `minimumReleaseAge = 259200` seconds to quarantine fresh publishes; bump the dependency only to a version older than that quarantine.
+-- **Lifecycle scripts are denied by default.** Bun runs the lifecycle scripts of a dependency only when `package.json` lists it in `trustedDependencies`, so the field is left out and no dependency script runs.
++- **Lifecycle scripts are denied in `package.json` with `"trustedDependencies": []`.** The empty array is the only spelling that denies every lifecycle script. Omitting the field instead trusts Bun's built-in list, which includes `@anthropic-ai/claude-code`.
+ - **The PR `core` lane and every non-PR `validate` execution** run `bun install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the approximately 230 MB CLI binary whose lifecycle script was denied, and put `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. The PR `validate` job is only the authoritative lane-result join. Node 24 remains the validator runtime; Bun is the package manager and script runner.
+diff --git a/bunfig.toml b/bunfig.toml
+index 8d2b7501..c7e48df2 100644
+--- a/bunfig.toml
++++ b/bunfig.toml
+@@ -13,6 +13,7 @@ hoist = false
+ 
+-# Lifecycle scripts stay denied by default. Bun runs the lifecycle scripts of a dependency
+-# only when package.json lists it in `trustedDependencies`, so leaving the field out keeps
+-# pnpm's `allowBuilds: {'@anthropic-ai/claude-code': false}` behavior.
+-# The claude-code postinstall materializes a ~230MB CLI binary that only the plugin-validate CI job
++# Lifecycle scripts stay denied by default. `trustedDependencies: []` in package.json
++# trusts nothing, replacing pnpm's `allowBuilds: {'@anthropic-ai/claude-code': false}`.
++# An empty array is the only spelling that denies everything: omitting the field trusts
++# every package on Bun's built-in list, which includes @anthropic-ai/claude-code.
++# Its postinstall materializes a ~230MB CLI binary that only the plugin-validate CI job
+ # needs, and that job runs `node install.cjs` itself.
+diff --git a/package.json b/package.json
+index 9d3ea8a3..6655b1fe 100644
+--- a/package.json
++++ b/package.json
+@@ -17,2 +17,3 @@
+   },
++  "trustedDependencies": [],
+   "devDependencies": {

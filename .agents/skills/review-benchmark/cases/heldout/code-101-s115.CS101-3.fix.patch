@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index dcae83e4..9394e962 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -751,7 +751,7 @@ const severeFinding = (text) =>
+ // A heading line has `#` after at most three spaces, so a `*` list marker is not emphasis here; only the title after
+ // the `#` markers is read through emphasis and code marks.
+ function blockHeadingKind(rawLine) {
+-  const heading = /^\s*#+(.*)$/.exec(rawLine);
++  const heading = /^ {0,3}#+(.*)$/.exec(rawLine);
+   return heading && /^\s*(plan|code) review/i.exec(heading[1].replace(/[*_`]/g, ''))?.[1].toLowerCase();
+ }
+ const VERDICT_SEVERITY = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };

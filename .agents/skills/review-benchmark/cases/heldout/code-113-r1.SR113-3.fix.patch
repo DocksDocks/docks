@@ -1,0 +1,29 @@
+diff --git a/.agents/skills/review-benchmark/scripts/prepare.mjs b/.agents/skills/review-benchmark/scripts/prepare.mjs
+index a3e91b15..1db9ff56 100755
+--- a/.agents/skills/review-benchmark/scripts/prepare.mjs
++++ b/.agents/skills/review-benchmark/scripts/prepare.mjs
+@@ -176,10 +176,10 @@ const KIND_FIELDS = {
+ };
+ const FILE_FIELDS = ['plan', 'patch', 'previous_review', 'previous_body', 'rejection'];
+ 
+-// The candidate skill defines the lenses in its lens references, so a candidate panel prompt only names the lens. A
+-// panel prompt of the baseline agent or of the self-review agent describes the lens in the dispatch: the 0.16.0
+-// baseline agent and the self-review agent do not know the lenses. With a 0.17.1 baseline, the arm B1 so has the lens
+-// text in the dispatch, and the arm C3 has it only in a reference.
++// The candidate skill defines the lenses in its lens references, so a candidate panel prompt only names the lens. The
++// panel prompt of a baseline arm with the baseline prompt shape (B1) or of the self-review agent describes the lens in
++// the dispatch: the 0.16.0 baseline agent and the self-review agent do not know the lenses. With a 0.17.1 baseline, the
++// arm B1 so has the lens text in the dispatch, and the arm C3 has it only in a reference. B3 has the prompt of C3.
+ const PANEL_RULES = [
+   'This round runs three reviewers at the same time, one per lens: correctness, spec-and-tests, and text-and-safety.',
+   'Report only findings inside your lens. Write `None.` under an axis that your lens does not cover.',
+@@ -418,7 +418,8 @@ export function buildOpening(caseData, paths, round = caseData.round) {
+ }
+ 
+ // The mode's part of the prompt. Candidate skills define the modes and lenses, so a candidate tail only names them. A
+-// panel tail of another agent describes the lens.
++// panel tail of another prompt shape describes the lens. `side` is the prompt shape of the arm: its `prompt` field, or
++// else its agent side.
+ export function buildTail({ caseData, side, mode, round, reviewer, paths }) {
+   const lines = [`Round mode: ${mode}.`];
+   if (mode === 'full') {

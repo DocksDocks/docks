@@ -7,6 +7,5 @@
   "base": "bc04b64a8b5ef537e696b7ec0c52ed06a8a994d6",
   "head": "595e9e72b769fe3957d4672e8d1f4cbb9a379343",
   "plan": "code-27-s115-plan.md",
-  "patch": "code-27-s115.patch",
-  "external": ["plan", "patch"]
+  "patch": "code-27-s115.patch"
 }

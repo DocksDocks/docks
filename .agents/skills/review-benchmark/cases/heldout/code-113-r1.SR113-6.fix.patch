@@ -1,0 +1,13 @@
+diff --git a/.agents/skills/review-benchmark/SKILL.md b/.agents/skills/review-benchmark/SKILL.md
+index 7f9ea258..4a6370fb 100644
+--- a/.agents/skills/review-benchmark/SKILL.md
++++ b/.agents/skills/review-benchmark/SKILL.md
+@@ -231,7 +231,7 @@ A loop run replays a code-review loop of plan-lifecycle (`plan-contract.md`, Cod
+ 
+    | Policy | Arms | Round modes |
+    |---|---|---|
+-   | `panel-delta` | `C3`, `B1` | the rules of plan-lifecycle 0.17.1, the production loop. Round 1 is a `panel` round when the full diff changes 50 or more lines (added plus removed lines), else a `full` round. A later round is a `delta` round when step 6 allows it, else a `panel` or `full` round by the same size rule |
++   | `panel-delta` | `C3`, `B1`, `B3` | the rules of plan-lifecycle 0.17.1, the production loop. Round 1 is a `panel` round when the full diff changes 50 or more lines (added plus removed lines), else a `full` round. A later round is a `delta` round when step 6 allows it, else a `panel` or `full` round by the same size rule |
+    | `full-delta` | `C1` | the rules of `panel-delta` with one full reviewer: a `full` round where `panel-delta` gives a `panel` round |
+    | `full` | `B0` | the policy of plan-lifecycle 0.16.0, which had no panel round and no delta round: every round is a `full` round on the full diff |
+ 

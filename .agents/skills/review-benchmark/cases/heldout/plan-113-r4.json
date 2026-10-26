@@ -8,6 +8,5 @@
   "previous_body": "plan-113-r4-previous-body.md",
   "plan": "plan-113-r4-body.md",
   "previous_review": "plan-113-r4-previous-review.md",
-  "external": ["plan", "previous_body", "previous_review"],
   "show_benchmark": true
 }

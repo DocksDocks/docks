@@ -1,0 +1,26 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index c1923290..fc546dfc 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -371,7 +371,7 @@ function sectionMap(body) {
+     const name = SECTIONS.find((known) => known.toLowerCase() === title.toLowerCase());
+     if (!name && !RETIRED_SECTIONS.has(title.toLowerCase()))
+       fail(
+-        `unknown section heading: ${title}; use only ${SECTIONS.join(', ')}, or demote it to ### inside an existing section`,
++        `unknown section heading: ${title}; use only ${SECTIONS.join(', ')} or write it below an existing section as ### or plain text`,
+       );
+     const key = name ?? title;
+     if (sections.has(key)) fail(`duplicate section heading: ${key}`);
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 49225b30..f15ad156 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -604,7 +604,7 @@ try {
+   );
+   refuse(
+     edit(explicitNumber, (text) => text.replace('## Acceptance', '## Context\n\nDetails.\n\n## Acceptance')),
+-    'unknown section heading: Context; use only Goal, Research, Steps, Acceptance, Do not touch, Open questions, Verification Results, or demote it to ### inside an existing section',
++    'unknown section heading: Context; use only Goal, Research, Steps, Acceptance, Do not touch, Open questions, Verification Results or write it below an existing section as ### or plain text',
+   );
+   const embedded = run('new', '--title', 'embedded mode', '--goal', 'Ship it.\nMode: plan-and-implement');
+   expectSuccess(embedded, 'new with embedded mode only');

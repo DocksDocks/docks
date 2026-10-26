@@ -1,0 +1,16 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 417c3818..ecc31009 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -899,7 +899,10 @@ function editPlan(args) {
+     // belongs to a follow-up plan - an appended planned row plus finished-plan `step ... done` would
+     // smuggle unreviewed work into a merged record. Open started plans append planned-born rows only.
+     const closed = String(issue.state).toUpperCase() === 'CLOSED';
+-    const lastRemotePosition = remoteRows.length - 1;
++    const lastRemotePosition = incomingRows.reduce(
++      (last, row, index) => (remoteIds.has(row.id) ? index : last),
++      -1,
++    );
+     incomingRows.forEach((row, index) => {
+       if (remoteIds.has(row.id)) return;
+       if (closed) violations.push(`step ${row.id} added to a closed plan (new work takes a follow-up plan)`);

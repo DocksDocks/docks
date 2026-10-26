@@ -7,8 +7,5 @@
   "base": "398b6a575baf77ce62b4658fe1b2c8dbf541f11a",
   "head": "3bc364869ed8193804b5af5ae0914725127fad9a",
   "plan": "code-113-r2-plan.md",
-  "external": [
-    "plan"
-  ],
   "show_benchmark": true
 }

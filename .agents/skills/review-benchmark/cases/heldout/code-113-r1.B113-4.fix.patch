@@ -1,0 +1,13 @@
+diff --git a/.agents/skills/review-benchmark/SKILL.md b/.agents/skills/review-benchmark/SKILL.md
+index 7f9ea258..8c80217c 100644
+--- a/.agents/skills/review-benchmark/SKILL.md
++++ b/.agents/skills/review-benchmark/SKILL.md
+@@ -107,7 +107,7 @@ Without `--loop`, a run is one review by the reviewers of its arm. With `--loop`
+ 
+ The baseline agents are the released `code-reviewer.md` and `plan-reviewer.md` of `plugins/plan-lifecycle/agents/`; the candidate agents are the working-tree copies. In each configuration, both sides get the same model, effort, and tier, so only the instructions differ.
+ 
+-A panel prompt of a baseline agent holds the lens text: the panel rules and the scope of its lens. The released 0.16.0 agent does not know the lenses. A candidate panel prompt only names the lens, and the candidate agent loads the lens text from a lens reference of its skill. When the baseline ref has the same reviewer as the working tree, for example `--baseline-ref plan-lifecycle--v0.17.1` on a checkout without later reviewer changes, `B1 --loop` and `C3 --loop` differ only in the dispatch of a panel round: the `B1` dispatch also holds the lens text. Both agents can load the lens reference of their skill. The `delta` and `full` prompts of `B1` are the prompts of `C3`, with the baseline agent.
++A panel prompt of the `B1` arm holds the lens text: the panel rules and the scope of its lens. The `B3` arm has the candidate prompt, which only names the lens, so it needs a baseline reviewer that loads its lens references itself, such as `main` after plan #98. The released 0.16.0 agent does not know the lenses. A candidate panel prompt only names the lens, and the candidate agent loads the lens text from a lens reference of its skill. When the baseline ref has the same reviewer as the working tree, for example `--baseline-ref plan-lifecycle--v0.17.1` on a checkout without later reviewer changes, `B1 --loop` and `C3 --loop` differ only in the dispatch of a panel round: the `B1` dispatch also holds the lens text. Both agents can load the lens reference of their skill. The `delta` and `full` prompts of `B1` are the prompts of `C3`, with the baseline agent.
+ 
+ The self-review arms `S1` and `S3` measure the self-review of #98 on the candidate of code-review round 1, as one agent and as one agent per lens. Each run is one review in `run-<k>/blocks/<reviewer>.md`, so `case` refuses these arms with `--loop`. Their blocks have the code-review block format, so `score.mjs` reads them as code-review blocks.
+ 

@@ -1,0 +1,33 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 4bf39ec5..8f358db1 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -263,6 +263,7 @@ export function checkPlan(planText, planRef) {
+     if (!command || !expected) failures.push(`check 9: acceptance ${id || '(empty)'} has an empty required cell`);
+   }
+   if (machinePathCitations(planText).length > 0) failures.push('check 10: body contains an absolute machine path');
++  if (blankFencedRegions(planText).includes('\u2014')) failures.push('check 10: body contains an em dash');
+   const researchIsPlaceholder = (sections.get('Research') ?? '').includes('_Not researched yet._');
+   if (researchIsPlaceholder && status !== undefined && status !== 'drafting') {
+     failures.push('check 11: Research must be filled once the plan leaves drafting');
+@@ -275,7 +276,6 @@ export function checkPlan(planText, planRef) {
+   }
+   const modes = [...(sections.get('Goal') ?? '').matchAll(/^Mode: (plan-and-implement|plan-only)$/gm)];
+   if (modes.length !== 1) failures.push('check 13: Goal must contain exactly one valid Mode line');
+-  if (blankFencedRegions(planText).includes('\u2014')) failures.push('check 14: body contains an em dash');
+   return failures;
+ }
+ 
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index ee30c528..9d109e03 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -565,7 +565,7 @@ try {
+       (entry) => {
+         entry.body = entry.body.replace('_Not researched yet._', `_Not researched yet._ ${FORBIDDEN_DASH}`);
+       },
+-      /check 14: body contains an em dash/,
++      /check 10: body contains an em dash/,
+     ],
+     [
+       'self-reference introduced',

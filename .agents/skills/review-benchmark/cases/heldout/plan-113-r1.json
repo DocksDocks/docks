@@ -6,6 +6,5 @@
   "round": 1,
   "repo_ref": "398b6a575baf77ce62b4658fe1b2c8dbf541f11a",
   "plan": "plan-113-r1-body.md",
-  "external": ["plan"],
   "show_benchmark": true
 }

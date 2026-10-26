@@ -1,0 +1,16 @@
+diff --git a/plugins/plan-lifecycle/agents/code-reviewer.md b/plugins/plan-lifecycle/agents/code-reviewer.md
+index 22e35d17..a76ca2e6 100644
+--- a/plugins/plan-lifecycle/agents/code-reviewer.md
++++ b/plugins/plan-lifecycle/agents/code-reviewer.md
+@@ -41,7 +41,10 @@ Report a Spec finding when the change uses a temporary workaround instead of the
+ 4. Read the entire diff. Identify every touched file and changed boundary.
+    Read the `AGENTS.md` and `CLAUDE.md` files at the root and in each parent
+    folder of every touched path; the nearer file wins, and a finding that a
+-   rule supports quotes the rule and cites its `path:line`.
++   rule supports quotes the rule and cites its `path:line`. When the diff
++   changes an instruction file or the plan contract, apply the text before the
++   change, as the removed lines and the context lines of the diff show it, and
++   review the added text as changed text.
+ 5. Read the touched files around each hunk. Trace each changed function to its
+    callers and callees, imports, tests, and error paths.
+ 6. Report every defect that meets this bar, in one pass, also a `LOW` one. An
