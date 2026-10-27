@@ -1041,9 +1041,9 @@ In the tables, an interval row gives the 90% interval of the difference from the
 | Wrong per run | 0.11 | 0.12 |
 | Seconds median | 437.5 | 306.5 |
 
-- `main` re-argued 0.00 protected decisions per run on the dev set (D2' also 0.00), on the fresh plan set (20 protected decisions, 112 runs of both arms), for the Claude reviewer (21 runs), and on the fresh protected set. Before the re-run of `ud-106-r1` was judged, the judge had answered `match` for findings on UD106-2 (a yolo decision, `git diff -D`), which gave 0.07 per run. The case judged again gives none.
+- `main` re-argued 0.00 protected decisions per run on the dev set (D2' also 0.00), on the fresh plan set (20 protected decisions, 112 runs of both arms), for the Claude reviewer (21 runs), and on the fresh protected set. Before the re-run of `ud-106-r1` was judged, the judge had answered `match` for findings on UD106-2 (a yolo decision, `git diff -D`), which gave 0.07 per run. The case judged again gives none. The second-judge sample takes every `match` answer of the decision pass but only 10% of the other answers, so it did not have to include those UD106-2 pairs. Under either reading, the rate stays below 0.10.
 - By kind of protected decision, the rate is 0.00 per run for user choices, for request corrections, and for yolo decisions, on each set that holds the kind (the fresh protected set holds no yolo decisions).
-- Decoys on the fresh protected set: 11 of 14 valid decoy-runs found the decoy (D12-1 3 of 3, D14-1 2 of 2 valid, D16-1 3 of 3, D19-1 0 of 3, D23-1 3 of 3). Every run missed D19-1, a user choice to merge with `--delete-branch`.
+- Decoys on the fresh protected set: 11 of 14 valid decoy-runs found the decoy (D12-1 3 of 3, D14-1 2 of 2 valid, D16-1 3 of 3, D19-1 0 of 3, D23-1 3 of 3). Every run missed D19-1, a user choice to merge with `--delete-branch`. The run of `plan-14-ud115` that the report leaves out returned `blocked` because it challenged the false premise of D14-1, so with that run 12 of 15 runs reported the decoy. The report counts a `blocked` plan block as no review, so this hand count is outside its tables.
 - Decision: 0.00 is below 0.10, so Vud was not written (step `user_fix` skipped), and the plan reviewer does not change.
 
 ### Code reviewer: C1'
@@ -1176,6 +1176,7 @@ Decision: no Cblk run returned a `blocked` verdict, also on the large readable c
 - The family comparison includes a judge difference: a GPT judge judged the Claude findings and Claude judges judged the GPT findings. No third family ran here.
 - The fresh plan set was easy: `main` found 2.86 of 3.14 known defects per run, so it left little room for D2' to show a gain.
 - The control spread across batches: `B3` (the same `main` reviewer) let 20.29, 19.12, and 17.65 known defects per 50 known escape in batches A, B, and C on the same 8 cases. This spread is larger than the measured gain of each code candidate.
+- Cblk on the large case: on `code-111-r1` (3 runs per arm), Cblk let 37.50 known defects per 50 known escape against 34.72, with a median round time of 293.0 s against 378.2 s. Shorter rounds with lower recall on the largest diff can mean that lenses skim, which Cblk is meant to stop. Pooled with the 8 deciding cases, Cblk lets about 22.5 escape against 22.1 per 50. The rule of decision 5 (6c) used this case only for the `blocked` check, and one case with 3 runs cannot separate the difference from the spread between runs. Issue #117 measures Cblk on more large diffs.
 - Six of the new delta dev cases show, in their previous review, findings that are known defects of published held-out cases (`code-98-r1`, `code-102-r3`, `plan-103-r1`, `plan-109-r2`, `plan-111-r1`, and `plan-98-r6`).
 
 ### What shipped
