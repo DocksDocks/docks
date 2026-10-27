@@ -181,7 +181,9 @@ A plan re-review after a repair may use the plan `delta` mode when the
 the inputs that the file names. Otherwise each plan round reviews the whole
 export. Every review round, plan or code and full or delta, runs at the
 configured effort. In the plugin's benchmark, a plan or code delta round one
-effort level lower let more known defects escape on 20 delta cases.
+effort level lower did not stay within the escaped-defect bound on 20 delta
+cases: the upper ends of its 90% intervals were 6.06 (plan) and 7.14 (code)
+more escaped known defects per 50 known, against a bound of 2.
 
 A plan pass covers the body that the reviewer read. After `plan=pass`, collect
 the edits that change Goal, Research, Steps, Acceptance, or Do not touch.

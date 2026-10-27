@@ -1185,3 +1185,49 @@ Decision: no Cblk run returned a `blocked` verdict, also on the large readable c
 - Code review of plan #115 repaired two gaps of Cblk that the benchmark did not measure: the code-reviewer skill now defines the diff of each mode (the full diff, the lens's focus diff in a panel round, the delta diff), and the plan contract, the plan-manager skill, and the yolo skill dispatch a code reviewer again when it returns `blocked` for unread hunks.
 - D2', Cweb, the second-family option, and the code delta effort rule did not ship.
 - The candidate diffs stay in `variants/plan-115-cand-d2p.patch`, `variants/code-115-cand-c1p.patch`, `variants/code-115-cand-web.patch`, and `variants/code-115-cand-blk.patch`.
+
+## Run 2026-10-27: Cblk on large diffs (plan #119)
+
+### Setup
+
+- Issue #117 asked for this run. In plan #115, Cblk passed its rule on 8 held-out cases, but on the large case `code-111-r1` (3 runs) it let more known defects escape and finished faster (see the Limits of plan #115).
+- Arms: `B3` is the code reviewer of `main` with Cblk, as a panel. `C3` is the same reviewer with only the Cblk trigger removed (the unread-hunk sentences of agent step 11 and of the skill's Severity and verdict section), on the local ref `bench-119/cand-nocblk`. Its diff is `variants/code-119-cand-nocblk.patch`. The definition of the diff of each mode stays in both arms.
+- Cases: every code case with at least 1,400 changed lines and at least 4 known defects (`code-44-r1`, 8116 changed lines, 14 known; `code-96-r1`, 1405, 6; `code-89`, 3478 plus its seeded patch, 6; `code-14-pr15`, 3279, 4), and `code-111-r1` (588 changed lines as the harness counts them, 12 known), because it is the case of the plan #115 signal that issue #117 names; 42 known defects. Plan #115 and issue #117 gave `code-111-r1` 1464 changed lines; the reviewed diff has 588. All are published cases; the candidate removes a rule and was not tuned on any case.
+- 5 runs per case and arm, 150 lens reviews, arms mixed in one dispatch queue. Model `openai-codex/gpt-6.1-sol`, effort `xhigh`, service tier `default`; the user turned fast mode off for these runs. Every run is valid.
+- Judges: one Claude task agent per case. A GPT second judge agreed with 232 of 235 sampled answers (0.99): with 18 of 19 sampled `match` answers and with 28 of 30 sampled ratings.
+- New harness fact (plan #119 decision 2): `transcripts` records `diffCoverage`, the share of the lines of a reviewer's own diff that its read results showed, and `report` gives `Diff read mean` and `Diff read`. It is an observation and does not decide.
+
+### Decision rule (plan #119 decision 3, fixed before the runs)
+
+Cblk stays only when all of these hold on the 5 cases, pooled with a 90% case-resample interval: (a) the escaped known defects per 50 known of `B3` minus those of `C3` have an upper bound below 2; (b) the round-1 recall of `B3` minus that of `C3` has a lower bound above -0.05; (c) the wrong findings per run of `B3` are at most 0.10 more than those of `C3`; (d) at most 1 in 20 `B3` lens reviews returns `blocked`. Otherwise Cblk is removed.
+
+### Results
+
+| Measure | `B3` (Cblk) | `C3` (no Cblk) |
+|---|---:|---:|
+| Runs | 25 | 25 |
+| Cases | 5 | 5 |
+| Known found per run | 2.84 | 2.72 |
+| Escaped per 50 known | 33.10 | 33.81 |
+| Escaped per 50 known difference (`B3` minus `C3`), 90% interval | [-2.81, 0.52] | - |
+| Round 1 recall difference (`B3` minus `C3`), 90% interval | [0.00, 0.07] | - |
+| Wrong per run | 0.04 | 0.04 |
+| Unknown per run | 0.00 | 0.00 |
+| `blocked` lens reviews | 0 of 75 | 0 of 75 |
+| Seconds median | 460.8 | 424.6 |
+| Diff read mean | 1.00 | 1.00 |
+| Lens reviews that read every line of their own diff whole | 74 of 75 | 64 of 75 |
+
+- Escaped known defects per run, `B3` against `C3`: `code-44-r1` 10.0 against 9.6, `code-111-r1` 8.6 against 8.8, `code-96-r1` 4.4 against 4.8, `code-89` 1.8 against 1.8, `code-14-pr15` 3.0 against 3.4.
+- The report splits the cases by folder: on the 3 dev cases `B3` let 28.75 escape against 31.25 (interval [-4.29, -1.11]); on the 2 held-out cases 35.77 against 35.38 ([-0.83, 1.43]). The pooled numbers above come from a case-resample script over the run table of the report, as in plan #115.
+- Coverage: every lens review in both arms saw at least 99.3% of the lines of its own diff. The reviews below 100% (1 with Cblk, 11 without) missed only lines longer than 768 characters, which omp showed cut and which the reviewer did not read again with `:raw` (at most 5 of 752 lines). Two `C3` `spec-and-tests` reviews of `code-89` read their focus hunks through `full.diff`, which `diffCoverage` counts after the code-review repair of this plan. So no lens skimmed its diff in either arm on these cases.
+
+### Decision
+
+All four conditions hold, so Cblk stays. The signal of plan #115 on `code-111-r1` did not repeat: with 5 runs, Cblk let 8.6 of 12 known defects escape per run there against 8.8, and Cblk rounds took longer, not shorter (460.8 s against 424.6 s median over the 5 cases).
+
+### Limits
+
+- The cases are published, and one case (`code-44-r1`, 14 known) carries a third of the known defects.
+- `diffCoverage` counts read results only (also the hunks of a panel lens's focus diff that a reviewer read in `full.diff`). A reviewer that searched its diff with grep, or read it through another file, shows a lower share than it saw.
+- This run also corrected the contract sentence on delta-round effort: a delta round one effort level lower did not stay within the escaped-defect bound of plan #115 (upper interval ends 6.06 and 7.14 against 2), which is not a proof that it is worse.
