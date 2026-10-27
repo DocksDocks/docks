@@ -559,7 +559,9 @@ test('an unknown pair with a missed known defect counts as unresolved, and the f
   assert.deepEqual([scores.summaries[0].unresolved, scores.summaries[0].unknownPairs], [1, 1]);
   const lines = renderReport(scores).split('\n');
   assert.ok(
-    lines.includes('| code-7 | C3 | run-1 | 0.00 | - | 1 | 0 | 0 | 0 | 1 | 1 | - | - | - | pass | correctness: pass |'),
+    lines.includes(
+      '| code-7 | C3 | run-1 | 0.00 | - | 1 | 0 | 0 | 0 | 1 | 1 | - | - | - | - | pass | correctness: pass |',
+    ),
   );
 });
 
@@ -575,7 +577,7 @@ test('an unknown pair with a known defect that the run found counts as an unknow
   const lines = renderReport(scores).split('\n');
   assert.ok(
     lines.includes(
-      '| code-7 | C3 | run-1 | 1.00 | D1 | 1 | 0 | 0 | 0 | 0 | 1 | - | - | - | pass | correctness: pass |',
+      '| code-7 | C3 | run-1 | 1.00 | D1 | 1 | 0 | 0 | 0 | 0 | 1 | - | - | - | - | pass | correctness: pass |',
     ),
   );
   assert.ok(lines.some((line) => line.includes('| Unresolved mean | Unknown pairs mean |')));
@@ -614,7 +616,7 @@ test('the summary gives the median and the range of seconds and tokens, so one s
   assert.ok(
     report.includes('| Seconds median | Seconds min | Seconds max | Tokens median | Tokens min | Tokens max |'),
   );
-  assert.ok(report.includes('| 0.00 | 100.0 | 100.0 | 400.0 | 10 | 10 | 40 |'));
+  assert.ok(report.includes('| 0.00 | - | 100.0 | 100.0 | 400.0 | 10 | 10 | 40 |'));
   const open = scoreRuns(judgedArm(CODE_KNOWN, [[], []], [{ seconds: 50, tokens: null }]));
   assert.deepEqual(open.summaries[0].seconds, { mean: 50, median: 50, min: 50, max: 50 });
   assert.deepEqual(open.summaries[0].tokens, { mean: null, median: null, min: null, max: null });
@@ -654,11 +656,11 @@ test('report.md lists known-defect ids and no defect text', (t) => {
   const report = fs.readFileSync(path.join(ws, 'report.md'), 'utf8');
   const lines = report.split('\n');
   for (const expected of [
-    '| code-7 | B0 | 1 | 3 | 0.33 | 0.33 | 0.33 | 0.33 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 61.5 | 61.5 | 61.5 | 4200 | 4200 | 4200 |',
-    '| code-7 | B0 | run-1 | 0.33 | D1 | 0 | 0 | 0 | 0 | 0 | 0 | - | 61.5 | 4200 | fixes-required | full: fixes-required |',
-    '| code-7 | C3 | run-1 | 0.67 | D1, D2 | 1 | 1 | 0 | 0 | 0 | 0 | - | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
-    '| code-7 | C3 | run-2 | 0.00 | - | 1 | 1 | 1 | 0 | 0 | 0 | - | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
-    '| plan-3 | P0 | run-1 | 0.50 | K1 | 1 | 0 | 0 | 0 | 0 | 0 | - | - | - | repair | plan: repair |',
+    '| code-7 | B0 | 1 | 3 | 0.33 | 0.33 | 0.33 | 0.33 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | - | 61.5 | 61.5 | 61.5 | 4200 | 4200 | 4200 |',
+    '| code-7 | B0 | run-1 | 0.33 | D1 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | 61.5 | 4200 | fixes-required | full: fixes-required |',
+    '| code-7 | C3 | run-1 | 0.67 | D1, D2 | 1 | 1 | 0 | 0 | 0 | 0 | - | - | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
+    '| code-7 | C3 | run-2 | 0.00 | - | 1 | 1 | 1 | 0 | 0 | 0 | - | - | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
+    '| plan-3 | P0 | run-1 | 0.50 | K1 | 1 | 0 | 0 | 0 | 0 | 0 | - | - | - | - | repair | plan: repair |',
   ]) {
     assert.ok(lines.includes(expected), `report.md lacks ${expected}`);
   }
@@ -1603,7 +1605,7 @@ test('report stops on a finding that has neither a match nor an adjudication and
   const lines = fs.readFileSync(path.join(ws, 'report.md'), 'utf8').split('\n');
   assert.ok(
     lines.includes(
-      '| code-7 | C3 | run-2 | 0.00 | - | 3 | 0 | 0 | 0 | 0 | 0 | - | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
+      '| code-7 | C3 | run-2 | 0.00 | - | 3 | 0 | 0 | 0 | 0 | 0 | - | - | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
     ),
   );
 });
@@ -6960,10 +6962,10 @@ test('a reargued match counts as a re-argued decision of its run, not in recall,
   assert.deepEqual(summary.recall, { mean: 0.5 / 3, median: 0, min: 0, max: 0.5 });
   const lines = renderReport(scores).split('\n');
   for (const expected of [
-    '| code-7 | C3 | 3 | 2 | 0.17 | 0.00 | 0.00 | 0.50 | 0.67 | 0.67 | 0.00 | 0.00 | 0.00 | 1.33 | - | - | - | - | - | - |',
-    '| code-7 | C3 | run-1 | 0.50 | D1 | 1 | 1 | 0 | 0 | 0 | 0 | U1, U2 | - | - | pass | correctness: pass |',
-    '| code-7 | C3 | run-2 | 0.00 | - | 1 | 1 | 0 | 0 | 0 | 0 | U2 | - | - | pass | correctness: pass |',
-    '| code-7 | C3 | run-3 | 0.00 | - | 0 | 0 | 0 | 1 | 0 | 0 | U3 | - | - | pass | correctness: pass |',
+    '| code-7 | C3 | 3 | 2 | 0.17 | 0.00 | 0.00 | 0.50 | 0.67 | 0.67 | 0.00 | 0.00 | 0.00 | 1.33 | - | - | - | - | - | - | - |',
+    '| code-7 | C3 | run-1 | 0.50 | D1 | 1 | 1 | 0 | 0 | 0 | 0 | U1, U2 | - | - | - | pass | correctness: pass |',
+    '| code-7 | C3 | run-2 | 0.00 | - | 1 | 1 | 0 | 0 | 0 | 0 | U2 | - | - | - | pass | correctness: pass |',
+    '| code-7 | C3 | run-3 | 0.00 | - | 0 | 0 | 0 | 1 | 0 | 0 | U3 | - | - | - | pass | correctness: pass |',
   ]) {
     assert.ok(lines.includes(expected), `the report lacks ${expected}`);
   }
@@ -7065,22 +7067,22 @@ test('report.md gives the re-argued decisions of each run, and a reargued match 
   const [summaryHeader, , ...summaryRows] = tableAfter(report, '## Summary');
   assert.equal(
     summaryHeader,
-    '| Case | Arm | Runs | Known | Recall mean | Recall median | Recall min | Recall max | Valid extras mean | Wrong mean | Unknown mean | Unresolved mean | Unknown pairs mean | Re-argued mean | Seconds median | Seconds min | Seconds max | Tokens median | Tokens min | Tokens max |',
+    '| Case | Arm | Runs | Known | Recall mean | Recall median | Recall min | Recall max | Valid extras mean | Wrong mean | Unknown mean | Unresolved mean | Unknown pairs mean | Re-argued mean | Diff read mean | Seconds median | Seconds min | Seconds max | Tokens median | Tokens min | Tokens max |',
   );
   assert.deepEqual(summaryRows, [
-    '| code-7 | B0 | 1 | 3 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 | 1.00 | - | - | - | - | - | - |',
-    '| plan-3 | P0 | 1 | 2 | 0.50 | 0.50 | 0.50 | 0.50 | 1.00 | 0.00 | 0.00 | 0.00 | 0.00 | 2.00 | - | - | - | - | - | - |',
+    '| code-7 | B0 | 1 | 3 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 1.00 | 0.00 | 0.00 | 0.00 | 1.00 | - | - | - | - | - | - | - |',
+    '| plan-3 | P0 | 1 | 2 | 0.50 | 0.50 | 0.50 | 0.50 | 1.00 | 0.00 | 0.00 | 0.00 | 0.00 | 2.00 | - | - | - | - | - | - | - |',
   ]);
   const [runHeader, , ...runRows] = tableAfter(report, '## Runs');
   assert.equal(
     runHeader,
-    '| Case | Arm | Run | Recall | Found | Valid extras | Wrong | Unknown | Unjudged | Unresolved | Unknown pairs | Re-argued | Seconds | Tokens | Round verdict | Block verdicts |',
+    '| Case | Arm | Run | Recall | Found | Valid extras | Wrong | Unknown | Unjudged | Unresolved | Unknown pairs | Re-argued | Diff read | Seconds | Tokens | Round verdict | Block verdicts |',
   );
   assert.deepEqual(runRows, [
-    '| code-7 | B0 | run-1 | 0.00 | - | 0 | 1 | 0 | 0 | 0 | 0 | U1 | - | - | fixes-required | full: fixes-required |',
-    '| code-7 | C3 | run-1 | 0.00 | - | 4 | 0 | 0 | 0 | 0 | 0 | U1 | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
-    '| code-7 | C3 | run-2 | 0.00 | - | 3 | 0 | 0 | 0 | 0 | 0 | - | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
-    '| plan-3 | P0 | run-1 | 0.50 | K1 | 1 | 0 | 0 | 0 | 0 | 0 | U1, U2 | - | - | repair | plan: repair |',
+    '| code-7 | B0 | run-1 | 0.00 | - | 0 | 1 | 0 | 0 | 0 | 0 | U1 | - | - | - | fixes-required | full: fixes-required |',
+    '| code-7 | C3 | run-1 | 0.00 | - | 4 | 0 | 0 | 0 | 0 | 0 | U1 | - | - | - | incomplete | correctness: fixes-required, spec-and-tests: fixes-required, text-and-safety: unreadable |',
+    '| code-7 | C3 | run-2 | 0.00 | - | 3 | 0 | 0 | 0 | 0 | 0 | - | - | - | - | incomplete | correctness: fixes-required, spec-and-tests: unreadable, text-and-safety: missing |',
+    '| plan-3 | P0 | run-1 | 0.50 | K1 | 1 | 0 | 0 | 0 | 0 | 0 | U1, U2 | - | - | - | repair | plan: repair |',
   ]);
   // The report names protected ids and no text of a protected decision.
   for (const { section, summary } of PROTECTED) {
@@ -7226,4 +7228,258 @@ test('report --keys refuses a key whose protected decisions changed after pairs'
   // The same protected ids in another order do not stop the report.
   put(keys, 'plan-3.key.json', { known: PLAN_KEY, protected: [decisions[1], decisions[0]] });
   assert.equal(main(['report', ws, '--keys', keys]), 'report.md: 4 runs');
+});
+
+// Plan #119 step coverage: API note for the tests below (decision 2, read coverage).
+//
+// score.mjs:
+// - transcriptsCommand gives each reviewer entry `diffCoverage`: the share of the lines of the own diff of the reviewer
+//   that the tool results of its `read` calls showed, as an exact ratio from 0 to 1 (the shown lines divided by the
+//   lines of the diff, not rounded). The own diff of the panel lens `correctness`, `spec-and-tests`, or
+//   `text-and-safety` is `focus-<lens>.diff`, of `full` it is `full.diff`, and of `delta` it is `delta.diff`: in the
+//   case folder for a run without round folders and for round 1 of a loop, and in the round folder for a later round
+//   of a loop. The lines of a diff are its lines as omp counts them in `totalLines`: the last newline ends the last
+//   line and starts no line.
+// - A read call counts when its path without the read selector is the own diff. Its shown lines come from its tool
+//   result, the `toolResult` message with the same `toolCallId`:
+//   - `details.meta.truncation.shownRange` { start, end } when the result has it (omp cut the output);
+//   - else the lines that the read selector names, up to `details.totalLines`, or up to the last line of the own diff
+//     when the result has no totalLines (omp gives none for a comma list): `:a-b` is a to b, `:a+n` is n lines from a,
+//     `:a` and `:a-` are a to the last line, `:-n` is the last n lines, and a comma list joins ranges and single lines
+//     (`:a-b,c` is a to b and line c, as omp reads it). A `:raw` part, before or after the range, changes no line, and
+//     a read without a selector (also `:raw` alone) shows lines 1 to totalLines.
+//   A read call without a tool result shows no line. A line that several reads showed counts once. Reads of other
+//   files and calls of other tools (grep, for example) show no line of the own diff.
+// - A reviewer without a read of its own diff gets 0, also a reviewer without a tool call. A reviewer whose own diff
+//   does not exist or has no line gets no field, and transcripts removes an earlier value of the field then.
+// - report.md: the Summary table gets the column `Diff read mean` after `Re-argued mean`: the mean of the diffCoverage
+//   values of the reviewers of all rounds of the valid runs of the row (a reviewer without the field gives no value),
+//   with 2 decimals, or `-` without a value. The Runs table gets the column `Diff read` after `Re-argued`: the lowest
+//   diffCoverage of the reviewers of all rounds of the run, also of an invalid run, with 2 decimals, or `-` without a
+//   value. The earlier tests of these tables get the new cells.
+
+// The text of a diff file of `lines` lines, each with its newline.
+const diffOf = (lines) => Array.from({ length: lines }, (_, index) => `+line ${index + 1}\n`).join('');
+// The details of the tool result of a read of a file of `totalLines` lines that omp did not cut.
+const uncut = (totalLines) => ({ totalLines });
+// The details of the tool result of a read of a file of `totalLines` lines that omp cut to the lines start to end.
+const cut = (totalLines, start, end) => ({
+  totalLines,
+  meta: { truncation: { truncatedBy: 'lines', totalLines, shownRange: { start, end }, nextOffset: end + 1 } },
+});
+
+// The read calls of `readList` and their tool results, as toolTranscript takes them. Each read is [path, details of
+// its tool result]; a read with the details null gets no tool result.
+function readSession(readList) {
+  return {
+    calls: readList.map(([target]) => ['read', { path: target }]),
+    results: Object.fromEntries(
+      readList.flatMap(([, details], index) => (details === null ? [] : [[`call-${index + 1}`, details]])),
+    ),
+  };
+}
+
+// The workspace of the selector test below: case code-7 with a full diff of 30 lines and a correctness focus diff of
+// 400 lines, and the panel run C3-low/run-1 with the correctness lens only.
+function coverageCase(t) {
+  const root = scratch(t);
+  const ws = path.join(root, 'ws');
+  const caseDir = path.join(ws, 'code-7');
+  const runDir = path.join(caseDir, 'C3-low', 'run-1');
+  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+  put(caseDir, 'full.diff', diffOf(30));
+  put(caseDir, 'focus-correctness.diff', diffOf(400));
+  put(runDir, 'prompts/correctness.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
+  put(runDir, 'meta.json', { config: CONFIGS.low });
+  return { ws, sessions: path.join(root, 'sessions'), caseDir, runDir };
+}
+
+// The correctness entry that transcripts writes for `coverageCase` from a session with the tool calls `calls` and the
+// tool results `results` (see toolTranscript).
+function correctnessEntry({ ws, sessions, caseDir, runDir }, { calls, results = {} }) {
+  put(sessions, 'Code7C3LowR1Correctness.jsonl', toolTranscript(caseDir, 30, calls, undefined, { results }));
+  assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7C3LowR1Correctness']);
+  return readJson(path.join(runDir, 'meta.json')).reviewers.correctness;
+}
+
+test('transcripts gives a reviewer the share of the lines of its own diff that its read results showed', (t) => {
+  const fixture = coverageCase(t);
+  const focus = path.join(fixture.caseDir, 'focus-correctness.diff');
+  const full = path.join(fixture.caseDir, 'full.diff');
+  // The diffCoverage of the correctness lens after the reads `readList` (see readSession), and the share of `lines`
+  // lines of its focus diff of 400 lines.
+  const coverage = (...readList) => correctnessEntry(fixture, readSession(readList)).diffCoverage;
+  const share = (lines) => lines / 400;
+  // A read without a selector shows the whole diff, or the lines of the output that omp cut.
+  assert.equal(coverage([focus, uncut(400)]), 1);
+  assert.equal(coverage([`${focus}:raw`, uncut(400)]), 1);
+  assert.equal(coverage([focus, cut(400, 1, 300)]), share(300));
+  // The shown range of a cut output decides: omp showed 3 lines after the range 1-300, and 1 line before line 51.
+  assert.equal(coverage([`${focus}:1-300`, cut(400, 1, 303)]), share(303));
+  assert.equal(coverage([`${focus}:51`, cut(400, 50, 350)]), share(301));
+  // Without a cut, the selector decides, up to the last line of the diff.
+  assert.equal(coverage([`${focus}:301-500`, uncut(400)]), share(100));
+  assert.equal(coverage([`${focus}:51+20`, uncut(400)]), share(20));
+  assert.equal(coverage([`${focus}:381`, uncut(400)]), share(20));
+  assert.equal(coverage([`${focus}:391-`, uncut(400)]), share(10));
+  assert.equal(coverage([`${focus}:-30`, uncut(400)]), share(30));
+  assert.equal(coverage([`${focus}:raw:11-20`, uncut(400)]), share(10));
+  assert.equal(coverage([`${focus}:11-20:raw`, uncut(400)]), share(10));
+  // omp gives no totalLines for a comma list, and a single line of the list is one line.
+  assert.equal(coverage([`${focus}:1-3,8-9`, {}]), share(5));
+  assert.equal(coverage([`${focus}:2-3,7,398-410`, {}]), share(6));
+  // A line that several reads showed counts once.
+  assert.equal(coverage([`${focus}:1-300`, cut(400, 1, 303)], [`${focus}:301-500`, uncut(400)]), 1);
+  assert.equal(
+    coverage([`${focus}:1-10`, uncut(400)], [`${focus}:5-15`, uncut(400)], [`${focus}:1-3,8-9`, {}]),
+    share(15),
+  );
+  // Reads of other files show no line of the own diff, and a read without a tool result shows none.
+  assert.equal(coverage([full, uncut(30)], [`${full}:1-30`, uncut(30)], [`${focus}:1-4`, uncut(400)]), share(4));
+  assert.equal(coverage([`${focus}:1-200`, null]), 0);
+  // A search of the own diff shows none of its lines, and a reviewer without a tool call read none.
+  assert.equal(correctnessEntry(fixture, { calls: [['grep', { pattern: 'line', path: focus }]] }).diffCoverage, 0);
+  assert.equal(correctnessEntry(fixture, { calls: [] }).diffCoverage, 0);
+  // The share is exact, next to the other facts of the entry.
+  assert.deepEqual(correctnessEntry(fixture, readSession([[`${focus}:1-300`, cut(400, 1, 303)]])), {
+    ...provenCost(CONFIGS.low, 30, 100),
+    readScope: { outside: [] },
+    diffCoverage: 0.7575,
+  });
+});
+
+test('transcripts measures each reviewer on its own diff: the focus, full, or delta diff of its run or round', (t) => {
+  const root = scratch(t);
+  const ws = path.join(root, 'ws');
+  const sessions = path.join(root, 'sessions');
+  const { low } = CONFIGS;
+  const caseDir = path.join(ws, 'code-7');
+  const runDir = (arm) => path.join(caseDir, arm, 'run-1');
+  const roundDir = (round) => path.join(runDir('C1-low'), `round-${round}`);
+  const roundDiff = (round, name) => path.join(roundDir(round), name);
+  const full = path.join(caseDir, 'full.diff');
+  const focus = path.join(caseDir, 'focus-correctness.diff');
+  const delta = path.join(caseDir, 'delta.diff');
+  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+  // The case folder has no focus diff of text-and-safety. Rounds 2 and 3 of the loop have diffs of their own, and the
+  // full diff of round 3 has no line.
+  put(caseDir, 'full.diff', diffOf(20));
+  put(caseDir, 'focus-correctness.diff', diffOf(10));
+  put(caseDir, 'focus-spec-and-tests.diff', diffOf(8));
+  put(caseDir, 'delta.diff', diffOf(4));
+  put(roundDir(2), 'full.diff', diffOf(12));
+  put(roundDir(2), 'delta.diff', diffOf(6));
+  put(roundDir(3), 'full.diff', '');
+  // Writes the prompt of `reviewer` in run 1 of `arm` (in its round folder `round`, when set) and a transcript of the
+  // reads `readList` (see readSession).
+  const review = (arm, round, reviewer, ...readList) => {
+    const dir = round === undefined ? runDir(arm) : path.join(runDir(arm), `round-${round}`);
+    put(dir, `prompts/${reviewer}.txt`, 'agent: review-bench-candidate-code-low\n\nReview.\n');
+    const { calls, results } = readSession(readList);
+    const name = dispatchName('code-7', arm, 'run-1', reviewer, round);
+    put(sessions, `${name}.jsonl`, toolTranscript(caseDir, 30, calls, undefined, { results }));
+  };
+  // correctness read 5 of the 10 lines of its focus diff, and spec-and-tests read only the diffs of other reviewers.
+  review('C3-low', undefined, 'correctness', [full, uncut(20)], [`${focus}:1-5`, uncut(10)]);
+  review('C3-low', undefined, 'spec-and-tests', [focus, uncut(10)], [full, uncut(20)]);
+  review('C3-low', undefined, 'text-and-safety', [full, uncut(20)], [focus, uncut(10)]);
+  // A full review reads the full diff, and a delta review the delta diff.
+  review('B0-low', undefined, 'full', [`${full}:6-20`, uncut(20)], [focus, uncut(10)]);
+  review('Bd-low', undefined, 'delta');
+  // Round 1 of a loop reviews the diffs of the case folder, and a later round the diffs of its round folder.
+  review('C1-low', 1, 'full', [`${full}:1-10`, uncut(20)]);
+  review('C1-low', 2, 'delta', [delta, uncut(4)], [`${roundDiff(2, 'delta.diff')}:3-6`, uncut(6)]);
+  review('C1-low', 3, 'full', [roundDiff(3, 'full.diff'), uncut(0)], [full, uncut(20)]);
+  // An earlier transcripts run gave text-and-safety a value, which the missing focus diff now removes.
+  put(runDir('C3-low'), 'meta.json', { config: low, reviewers: { 'text-and-safety': { diffCoverage: 1 } } });
+  put(runDir('B0-low'), 'meta.json', { config: low });
+  put(runDir('Bd-low'), 'meta.json', { config: low });
+  put(roundDir(1), 'meta.json', { config: low, mode: 'full' });
+  put(roundDir(2), 'meta.json', { config: low, mode: 'delta' });
+  put(roundDir(3), 'meta.json', { config: low, mode: 'full' });
+  assert.equal(transcriptsCommand(ws, sessions).length, 8);
+  // The diffCoverage of each reviewer entry of the meta.json in `dir`, or `none` for an entry without the field.
+  const coverages = (dir) => {
+    const { reviewers } = readJson(path.join(dir, 'meta.json'));
+    return Object.fromEntries(
+      Object.entries(reviewers).map(([name, entry]) => [name, 'diffCoverage' in entry ? entry.diffCoverage : 'none']),
+    );
+  };
+  assert.deepEqual(coverages(runDir('C3-low')), { correctness: 0.5, 'spec-and-tests': 0, 'text-and-safety': 'none' });
+  assert.deepEqual(coverages(runDir('B0-low')), { full: 0.75 });
+  // The delta reviewer made no tool call, so it read none of its delta diff.
+  assert.deepEqual(coverages(runDir('Bd-low')), { delta: 0 });
+  assert.deepEqual(coverages(roundDir(1)), { full: 0.5 });
+  assert.deepEqual(coverages(roundDir(2)), { delta: 4 / 6 });
+  // The full diff of round 3 has no line, so its reviewer gets no value.
+  assert.deepEqual(coverages(roundDir(3)), { full: 'none' });
+});
+
+test('report.md gives the mean diff coverage of the valid runs and the lowest diff coverage of each run', () => {
+  // Blocks without findings of code-7: one full review of B0, four panel runs of C3, and one loop of L1 with a full
+  // round and a delta round. Run 4 of C3 has a blocked block, so it is invalid.
+  const block = (arm, run, reviewer, { round, verdict = 'pass' } = {}) => ({
+    case: 'code-7',
+    kind: 'code',
+    arm,
+    run,
+    ...(round === undefined ? {} : { round }),
+    reviewer,
+    verdict,
+    findings: 0,
+  });
+  const panel = (run, verdicts = {}) =>
+    prepare.LENSES.map((lens) => block('C3', run, lens, { verdict: verdicts[lens] }));
+  const blocks = [
+    block('B0', 'run-1', 'full'),
+    ...panel('run-1'),
+    ...panel('run-2'),
+    ...panel('run-3'),
+    ...panel('run-4', { 'text-and-safety': 'blocked' }),
+    block('L1', 'run-1', 'full', { round: 1 }),
+    block('L1', 'run-1', 'delta', { round: 2 }),
+  ];
+  // A meta.json whose reviewers have the diffCoverage `values`; a null value gives an entry without the field.
+  const meta = (values) => ({
+    reviewers: Object.fromEntries(
+      Object.entries(values).map(([reviewer, value]) => [reviewer, value === null ? {} : { diffCoverage: value }]),
+    ),
+  });
+  const metas = {
+    'code-7/C3/run-1': meta({ correctness: 0.5, 'spec-and-tests': 1, 'text-and-safety': 0.25 }),
+    'code-7/C3/run-2': meta({ correctness: 1, 'spec-and-tests': null, 'text-and-safety': 0.8 }),
+    'code-7/C3/run-3': meta({ correctness: null }),
+    'code-7/C3/run-4': meta({ correctness: 0.1 }),
+    'code-7/L1/run-1/round-1': meta({ full: 1 }),
+    'code-7/L1/run-1/round-2': meta({ delta: 0.5 }),
+  };
+  const pairs = { cases: [{ case: 'code-7', kind: 'code', known: CODE_KNOWN.slice(0, 1), runs: [] }] };
+  const judgments = { matches: [], adjudications: [] };
+  const report = renderReport(scoreRuns({ findings: { blocks, findings: [] }, pairs, judgments, metas }));
+  const [summaryHeader, , ...summaryRows] = tableAfter(report, '## Summary');
+  assert.equal(
+    summaryHeader,
+    '| Case | Arm | Runs | Known | Recall mean | Recall median | Recall min | Recall max | Valid extras mean | Wrong mean | Unknown mean | Unresolved mean | Unknown pairs mean | Re-argued mean | Diff read mean | Seconds median | Seconds min | Seconds max | Tokens median | Tokens min | Tokens max |',
+  );
+  // C3 gives the mean of the 5 values of its valid runs 1 to 3, without the value of run 4, and L1 the mean of the
+  // values of its rounds.
+  assert.deepEqual(summaryRows, [
+    '| code-7 | B0 | 1 | 1 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | - | - | - | - | - | - | - |',
+    '| code-7 | C3 | 3 | 1 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.71 | - | - | - | - | - | - |',
+    '| code-7 | L1 | 1 | 1 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.75 | - | - | - | - | - | - |',
+  ]);
+  const [runHeader, , ...runRows] = tableAfter(report, '## Runs');
+  assert.equal(
+    runHeader,
+    '| Case | Arm | Run | Recall | Found | Valid extras | Wrong | Unknown | Unjudged | Unresolved | Unknown pairs | Re-argued | Diff read | Seconds | Tokens | Round verdict | Block verdicts |',
+  );
+  // Each run gives the lowest value of its reviewers, also over the rounds of a loop and in the invalid run 4 of C3.
+  assert.deepEqual(runRows, [
+    '| code-7 | B0 | run-1 | 0.00 | - | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - | - | pass | full: pass |',
+    '| code-7 | C3 | run-1 | 0.00 | - | 0 | 0 | 0 | 0 | 0 | 0 | - | 0.25 | - | - | pass | correctness: pass, spec-and-tests: pass, text-and-safety: pass |',
+    '| code-7 | C3 | run-2 | 0.00 | - | 0 | 0 | 0 | 0 | 0 | 0 | - | 0.80 | - | - | pass | correctness: pass, spec-and-tests: pass, text-and-safety: pass |',
+    '| code-7 | C3 | run-3 | 0.00 | - | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - | - | pass | correctness: pass, spec-and-tests: pass, text-and-safety: pass |',
+    '| code-7 | C3 | run-4 | 0.00 | - | 0 | 0 | 0 | 0 | 0 | 0 | - | 0.10 | - | - | blocked | correctness: pass, spec-and-tests: pass, text-and-safety: blocked |',
+    '| code-7 | L1 | run-1 | 0.00 | - | 0 | 0 | 0 | 0 | 0 | 0 | - | 0.50 | - | - | pass | delta: pass |',
+  ]);
 });

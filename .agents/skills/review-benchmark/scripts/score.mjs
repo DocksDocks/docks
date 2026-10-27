@@ -2,8 +2,8 @@
 // Scores review benchmark runs. `findings` parses the returned review blocks and removes the judge answers of each
 // finding whose text changed or that is gone, `pairs` builds the judge input, `report` turns the judgments and the run
 // metadata into recall, cost, configuration or arm tables, and the self-review lead, `transcripts` fills the run
-// metadata and the read scope of each reviewer from omp subagent transcripts, and `names` prints the dispatch name of
-// every prompt that the operator still dispatches (a fixer prompt only until its patch exists).
+// metadata, the read scope, and the read coverage of each reviewer from omp subagent transcripts, and `names` prints
+// the dispatch name of every prompt that the operator still dispatches (a fixer prompt only until its patch exists).
 // `loadJudgments`, `fixPlan`, and `loopEnds` give the judge's answers and the fix step of a review loop to
 // `prepare.mjs loop`.
 import { createHash } from 'node:crypto';
@@ -105,6 +105,13 @@ const READ_SELECTOR = /(?::[^:/]*)+$/;
 const LINE_RANGE = String.raw`(?:L?\d+(?:(?:-|\.\.)(?:L?\d+)?|\+L?\d+)?|-\d+)`;
 const LINE_RANGES = `${LINE_RANGE}(?:,:?${LINE_RANGE})*`;
 const OMP_SELECTOR = new RegExp(`:(?:raw|img|conflicts|${LINE_RANGES}(?::raw)?|raw:${LINE_RANGES})$`, 'i');
+// A part of a line selector of omp without its `L` prefixes: `-N` (group 1), `A+C` (groups 2 and 3), `A-B` or `A..B`
+// (groups 4 and 5), `A-` or `A..` (group 4 only), and `A` (group 6).
+const LINE_PART = /^(?:-(\d+)|(\d+)\+(\d+)|(\d+)(?:-|\.\.)(\d+)?|(\d+))$/;
+// The own diff of a reviewer (see ownDiffFile) comes from its name. A self-review lens has the name of its lens after
+// this prefix (see prepare.mjs ARMS).
+const PANEL_LENSES = new Set(['correctness', 'spec-and-tests', 'text-and-safety']);
+const SELF_REVIEW = 'self-review';
 const GLOB_CHARACTER = /[*?[{]/;
 // Hosts whose paths start with the owner and the name of a repository.
 const GITHUB_WEB_HOSTS = new Set(['github.com', 'www.github.com']);
@@ -911,7 +918,9 @@ function runFacts(entries) {
 // `unknown` pair answer of the run, also those that cannot change recall, such as a finding that may repeat a known
 // defect the run found. `reargued` lists the protected decisions of the case that a finding of the run re-argues (a
 // reargued `match` answer), each once, in the order of the case's list. They are no known defects, so they count in
-// neither `known` nor recall.
+// neither `known` nor recall. `diffCoverages` lists the read coverage (`diffCoverage`, see transcriptsCommand) of each
+// reviewer of each round that has one, and `lowestDiffCoverage` is the lowest of them, so the Runs table shows the
+// reviewer that read the least of its own diff. The read coverage is an observation: it makes no run invalid.
 function scoreRun(run, caseEntry, judged, metas) {
   const knownIds = caseEntry.known.map((item) => item.id);
   const protectedIds = (caseEntry.protected ?? []).map((item) => item.id);
@@ -925,6 +934,9 @@ function scoreRun(run, caseEntry, judged, metas) {
       entry: metaOf(round.round)?.reviewers?.[block.reviewer],
     })),
   );
+  const diffCoverages = reviewers
+    .map((reviewer) => reviewer.entry?.diffCoverage)
+    .filter((value) => typeof value === 'number');
   // The fixer of each loop round that ran one (`fixer.agents` of the round meta.json), against the fixer setting. A
   // round whose fix step gave findings to the fixer (`fix.extras` or `fixedByFixer`) needs the transcript facts of its
   // fixer: a repair by hand (`loop --fixer-patch`) or by an agent of another setting changes the later rounds too. Such
@@ -968,6 +980,8 @@ function scoreRun(run, caseEntry, judged, metas) {
     unresolved: knownIds.filter((id) => all.doubtful.has(id) && !all.found.has(id)).length,
     unknownPairs: all.unknownPairs,
     reargued: protectedIds.filter((id) => all.reargued.has(id)),
+    diffCoverages,
+    lowestDiffCoverage: summarize(diffCoverages).min,
     seconds: total(roundScores.map((round) => round.seconds)),
     tokens: total(roundScores.map((round) => round.tokens)),
     fixerSeconds: sum(roundScores.map((round) => round.fixerSeconds)),
@@ -981,7 +995,8 @@ function scoreRun(run, caseEntry, judged, metas) {
 }
 
 // metas maps `<case>/<arm>/<run>` to the content of that run's meta.json, and `<case>/<arm>/<run>/round-<r>` to the
-// meta.json of a round folder. Summaries leave out invalid runs.
+// meta.json of a round folder. Summaries leave out invalid runs. The read coverage of a summary is the mean over the
+// reviewers of its runs, not over the runs, so a run counts with the number of its reviewers that have a value.
 export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, metas = {} }) {
   const caseEntries = new Map(pairsDoc.cases.map((entry) => [entry.case, entry]));
   const knownByCase = new Map(pairsDoc.cases.map((entry) => [entry.case, entry.known.map((item) => item.id)]));
@@ -1036,6 +1051,7 @@ export function scoreRuns({ findings: findingsDoc, pairs: pairsDoc, judgments, m
     unresolved: mean(runsOfArm, 'unresolved'),
     unknownPairs: mean(runsOfArm, 'unknownPairs'),
     reargued: summarize(runsOfArm.map((run) => run.reargued.length)).mean,
+    diffCoverage: summarize(runsOfArm.flatMap((run) => run.diffCoverages)).mean,
     seconds: summarize(runsOfArm.map((run) => run.seconds)),
     tokens: summarize(runsOfArm.map((run) => run.tokens)),
   }));
@@ -1155,6 +1171,7 @@ const SUMMARY_COLUMNS = [
   ['Unresolved mean', (entry) => ratio(entry.unresolved), true],
   ['Unknown pairs mean', (entry) => ratio(entry.unknownPairs), true],
   ['Re-argued mean', (entry) => ratio(entry.reargued), true],
+  ['Diff read mean', (entry) => ratio(entry.diffCoverage), true],
   ['Seconds median', (entry) => oneDecimal(entry.seconds.median), true],
   ['Seconds min', (entry) => oneDecimal(entry.seconds.min), true],
   ['Seconds max', (entry) => oneDecimal(entry.seconds.max), true],
@@ -1175,6 +1192,7 @@ const RUN_COLUMNS = [
   ['Unresolved', (run) => run.unresolved, true],
   ['Unknown pairs', (run) => run.unknownPairs, true],
   ['Re-argued', (run) => run.reargued.join(', ') || '-'],
+  ['Diff read', (run) => ratio(run.lowestDiffCoverage), true],
   ['Seconds', (run) => oneDecimal(run.seconds), true],
   ['Tokens', (run) => whole(run.tokens), true],
   ['Round verdict', (run) => run.roundVerdict],
@@ -1532,6 +1550,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
     'Recall is the number of known defects that at least one reviewer of a run found, divided by the known defects of the case.',
     'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
+    'Diff read is the share of the lines of the own diff of a reviewer (its focus, full, or delta diff) that its read results showed. The Runs table gives the lowest share of the reviewers of a run, and the summary gives the mean over the reviewers of its runs. It is an observation: it makes no run invalid.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
     'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose reviewer transcripts show another model, effort, or served tier than their configuration; loops whose fixer transcripts show another model, effort, or served tier than the fixer setting; runs with a reviewer or a fixer without transcript facts or without a served assistant message, also a loop round that gave findings to the fixer and has no transcript facts of its fixer (for example a repair with --fixer-patch); loops with a fixer but without a fixer setting; runs with a reviewer that read a file outside the inputs of its run; and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
     `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. ${referenceNote} The loop seconds interval compares loop runs only.`,
@@ -2159,35 +2178,138 @@ function recordedParts(details) {
     .filter((part) => part && !unread(part));
 }
 
-// The list targets of the tool calls of a transcript: a map from each target (see pathTargets) that omp read as a list
-// of paths to these paths, each without its read selector. A relative path stays relative, and readScope resolves it
-// against the working directory `cwd` of the session, as omp did. For a `read` call whose tool result records a list,
-// the tool result decides, because it shows what omp read (see recordedParts). For every other call, the files decide
-// as they decided for omp (see delimitedParts); readLists checks them when it runs, after the session. Without a
-// record, readLists cannot see which paths omp could not read, so each path of the split counts. When two calls give
-// paths for the same target, the map keeps the paths of both.
-function readLists(text, source, cwd) {
+// The tool calls of the assistant messages of a transcript, in order, and the tool result message of each call, by the
+// id of the call (its `toolCallId`). readLists and diffCoverage read them.
+function toolCallResults(text, source) {
   const calls = [];
-  const resultDetails = new Map();
+  const results = new Map();
   for (const entry of transcriptEntries(text, source)) {
     const message = entry.type === 'message' ? entry.message : undefined;
     if (message?.role === 'assistant' && Array.isArray(message.content)) {
       calls.push(...message.content.filter((item) => item?.type === 'toolCall'));
     } else if (message?.role === 'toolResult' && typeof message.toolCallId === 'string') {
-      resultDetails.set(message.toolCallId, message.details);
+      results.set(message.toolCallId, message);
     }
   }
+  return { calls, results };
+}
+
+// The list targets of the tool calls `calls` of a transcript: a map from each target (see pathTargets) that omp read
+// as a list of paths to these paths, each without its read selector. A relative path stays relative, and readScope
+// resolves it against the working directory `cwd` of the session, as omp did. For a `read` call whose tool result (in
+// `results`, see toolCallResults) records a list, the tool result decides, because it shows what omp read (see
+// recordedParts). For every other call, the files decide as they decided for omp (see delimitedParts); readLists
+// checks them when it runs, after the session. Without a record, readLists cannot see which paths omp could not read,
+// so each path of the split counts. When two calls give paths for the same target, the map keeps the paths of both.
+function readLists({ calls, results }, cwd) {
   const lists = new Map();
   for (const call of calls) {
     const value = call.arguments?.path;
     if (typeof value !== 'string') continue;
-    const recorded = call.name === 'read' ? recordedParts(resultDetails.get(call.id)) : null;
+    const recorded = call.name === 'read' ? recordedParts(results.get(call.id)?.details) : null;
     for (const target of pathTargets(call.name, value)) {
       const parts = recorded ?? delimitedParts(target, cwd);
       if (parts !== null) lists.set(target, distinct([...(lists.get(target) ?? []), ...parts.map(withoutSelector)]));
     }
   }
   return lists;
+}
+
+// The own diff of a reviewer in `folder`, the folder of the inputs of its round, by the name of the reviewer (see
+// prepare.mjs ARMS and buildTail): the focus diff of a panel lens, also of a self-review lens; the full diff of a full
+// review, also of the self-review of the full diff; and the delta diff of a delta review. A plan reviewer has none.
+function ownDiffFile(reviewer, folder) {
+  const lens = reviewer.startsWith(`${SELF_REVIEW}-`) ? reviewer.slice(SELF_REVIEW.length + 1) : reviewer;
+  if (PANEL_LENSES.has(lens)) return path.join(folder, `focus-${lens}.diff`);
+  if (reviewer === 'full' || reviewer === SELF_REVIEW) return path.join(folder, 'full.diff');
+  return reviewer === 'delta' ? path.join(folder, 'delta.diff') : null;
+}
+
+// The lines of a text as omp counts them in `totalLines`: the last newline ends the last line and starts no line.
+function lineCount(text) {
+  if (text === '') return 0;
+  const newlines = text.split('\n').length - 1;
+  return text.endsWith('\n') ? newlines : newlines + 1;
+}
+
+// The read selector of the read target `target` when the target names the file `file` (an absolute path): '' for a
+// target without a selector, else the selector as omp parses it (see OMP_SELECTOR). Null for a target that names
+// another file, and for a URI. A relative target resolves against the working directory `cwd`, as omp resolves it.
+function selectorOfRead(target, file, cwd) {
+  if (uriScheme(target) !== undefined) return null;
+  const selector = OMP_SELECTOR.exec(target)?.[0] ?? '';
+  const read = ompFile(target.slice(0, target.length - selector.length), cwd);
+  return read !== null && path.resolve(read) === file ? selector : null;
+}
+
+// The lines that the read selector `selector` names in a file whose last line is `last`, as [start, end] ranges up to
+// `last`, by the selector grammar of omp (omp://tools/read.md): no selector and `:raw` alone name every line; `:A-B`
+// and `:A..B` name A to B; `:A+C` names C lines from A; `:A`, `:A-`, and `:A..` name A to the last line; `:-N` names
+// the last N lines; and a comma list joins its parts, in which a bare `A` is the single line A. A `:raw` before or
+// after the lines changes no line, but omp reads a lone bare `A` with `:raw` as the single line A. `:img` and
+// `:conflicts` show no line of the file.
+function selectorRanges(selector, last) {
+  const lower = selector.toLowerCase();
+  const raw = lower.startsWith(':raw') || lower.endsWith(':raw');
+  const lines = lower.replace(/^:raw(?=:|$)/, '').replace(/:raw$/, '');
+  if (lines === '') return [[1, last]];
+  if (lines === ':img' || lines === ':conflicts') return [];
+  const parts = lines.slice(1).split(/,:?/);
+  return parts.map((part) => {
+    const [, tail, start, count, from, to, single] = LINE_PART.exec(part.replaceAll('l', ''));
+    if (tail !== undefined) return [Math.max(1, last - Number(tail) + 1), last];
+    if (start !== undefined) return [Number(start), Math.min(last, Number(start) + Number(count) - 1)];
+    if (from !== undefined) return [Number(from), to === undefined ? last : Math.min(last, Number(to))];
+    return [Number(single), parts.length > 1 || raw ? Math.min(last, Number(single)) : last];
+  });
+}
+
+// The lines that the tool result `result` of a read call with the selector `selector` showed, as [start, end] ranges.
+// The shown range of the result decides when omp cut the output (it holds the context lines that omp adds around a
+// range), else the selector decides (see selectorRanges), up to the `totalLines` of the result, or up to `lines`, the
+// last line of the file, when the result has no totalLines (omp gives none for a comma list). A call without a tool
+// result and a result with an error show no line.
+function shownRanges(result, selector, lines) {
+  if (result === undefined || result.isError === true) return [];
+  const shown = result.details?.meta?.truncation?.shownRange;
+  if (Number.isInteger(shown?.start) && Number.isInteger(shown?.end)) return [[shown.start, shown.end]];
+  const total = result.details?.totalLines;
+  return selectorRanges(selector, Number.isInteger(total) ? total : lines);
+}
+
+// The count of the lines from 1 to `last` that at least one of the [start, end] ranges `ranges` holds.
+function coveredLines(ranges, last) {
+  let count = 0;
+  // The last line that the ranges before the current range hold.
+  let covered = 0;
+  for (const [start, end] of ranges.sort((a, b) => a[0] - b[0])) {
+    const from = Math.max(start, covered + 1);
+    const to = Math.min(end, last);
+    if (to < from) continue;
+    count += to - from + 1;
+    covered = to;
+  }
+  return count;
+}
+
+// The read coverage of a reviewer: the share of the lines of its own diff `file` (an absolute path, see ownDiffFile)
+// that the tool results of its `read` calls showed, as an exact ratio from 0 to 1, not rounded. A read call counts when
+// its path without the read selector names the file (see selectorOfRead), and its tool result gives its lines (see
+// shownRanges). A line that several reads showed counts once. Reads of other files and calls of other tools, for
+// example a grep of the file, show no line of it. The result is null when the file does not exist or has no line.
+// `calls` and `results` come from toolCallResults, and `cwd` is the working directory of the session.
+function diffCoverage({ calls, results }, file, cwd) {
+  if (!fs.existsSync(file)) return null;
+  const lines = lineCount(fs.readFileSync(file, 'utf8'));
+  if (lines === 0) return null;
+  const ranges = [];
+  for (const call of calls) {
+    const value = call.arguments?.path;
+    if (call.name !== 'read' || typeof value !== 'string') continue;
+    const selector = selectorOfRead(value.trim(), file, cwd);
+    if (selector !== null) ranges.push(...shownRanges(results.get(call.id), selector, lines));
+  }
+  return coveredLines(ranges, lines) / lines;
 }
 
 // The reviewers run in the live checkout, which holds the fixes of the corpus defects, so a reviewer that reads a
@@ -2491,13 +2613,16 @@ export function namesCommand(ws) {
 // (`config.model`; every model without a configuration) and the transcript facts. When the reviewer called tools, it
 // also gets `readScope` (see readScope) for the working directory and the plugin roots that its transcript shows, for
 // the targets that omp read as lists of paths (see readLists), and for the files that its case changes (see
-// caseChangedFiles); the command stops when an input that names these files is missing. The fixer entry of a round,
-// under `fixer.agents`, gets the time and tokens of every assistant message and the transcript facts, which `report`
-// checks against the fixer setting of the loop (see invalidReasons). A round has one fixer, so `fixer.seconds` and
-// `fixer.tokens` are its time and tokens, and `fixer.replies` maps each finding id that the fixer reply names to
-// `repaired` or `not present` (see fixerReplies; no field when the reply names no finding). meta.json keeps no tool
-// calls. The command checks every dispatch name before it writes, writes what it finds, then fails with the names of
-// the dispatches that have no transcript.
+// caseChangedFiles); the command stops when an input that names these files is missing. A reviewer with an own diff
+// (see ownDiffFile) also gets `diffCoverage`, the share of the lines of that diff that its read results showed (see
+// diffCoverage). Its own diff is in the case folder for a run without round folders and for round 1 of a loop, and in
+// the round folder for a later round, as prepare.mjs writes them. A reviewer whose own diff does not exist or has no
+// line gets no `diffCoverage`. The fixer entry of a round, under `fixer.agents`, gets the time and tokens of every
+// assistant message and the transcript facts, which `report` checks against the fixer setting of the loop (see
+// invalidReasons). A round has one fixer, so `fixer.seconds` and `fixer.tokens` are its time and tokens, and
+// `fixer.replies` maps each finding id that the fixer reply names to `repaired` or `not present` (see fixerReplies; no
+// field when the reply names no finding). meta.json keeps no tool calls. The command checks every dispatch name before
+// it writes, writes what it finds, then fails with the names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
   const wsDir = path.resolve(ws);
@@ -2537,16 +2662,22 @@ export function transcriptsCommand(ws, sessionsDir) {
       } else {
         meta.reviewers ??= {};
         const entry = { ...meta.reviewers[reviewer], ...parseTranscript(text, file, meta.config?.model), ...facts };
-        // The read scope comes from this transcript only: a transcript without tool calls read no file.
+        // The read scope and the read coverage come from this transcript only: a transcript without tool calls read no
+        // file.
         delete entry.readScope;
+        delete entry.diffCoverage;
+        const session = transcriptSession(text, file);
+        const tools = toolCallResults(text, file);
         if (toolCalls) {
           const caseDir = path.join(ws, caseId);
           changedFiles ??= caseChangedFiles(caseDir, family, round, dir);
           const runDir = path.join(caseDir, arm, run);
-          const session = transcriptSession(text, file);
-          const lists = readLists(text, file, session.cwd);
+          const lists = readLists(tools, session.cwd);
           entry.readScope = readScope(toolCalls, { runDir, round, changedFiles, ...session, lists });
         }
+        const ownDiff = ownDiffFile(reviewer, round === undefined || round === 1 ? caseFolder : path.resolve(dir));
+        const coverage = ownDiff === null ? null : diffCoverage(tools, ownDiff, session.cwd);
+        if (coverage !== null) entry.diffCoverage = coverage;
         meta.reviewers[reviewer] = entry;
       }
       updated.push(name);
