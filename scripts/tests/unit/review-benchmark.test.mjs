@@ -2797,10 +2797,11 @@ const agentText = (root) =>
   'Without `CLAUDE_PLUGIN_ROOT`, resolve `../skills/productivity/code-reviewer/SKILL.md`\nfrom this file.\n';
 // A transcript of one agent that runs in the live checkout at the `low` configuration. Its last assistant message
 // makes the tool calls, each [name, arguments], and `cwd` is the working directory of its session. `results` maps the
-// id `call-<n>` of the n-th call to the details of its tool result; a call without an entry gets no tool result. With
-// `isError`, each tool result is an error result (`isError: true`), as omp writes it for a call that it did not run.
+// id `call-<n>` of the n-th call to the details of its tool result; a call without an entry gets no tool result.
+// `texts` maps the id of a call to the text of its tool result (`Read.` without an entry). With `isError`, each tool
+// result is an error result (`isError: true`), as omp writes it for a call that it did not run.
 function toolTranscript(caseDir, seconds, calls, agent = 'review-bench-candidate-code-low', options = {}) {
-  const { cwd = LIVE, results = {}, isError = false } = options;
+  const { cwd = LIVE, results = {}, texts = {}, isError = false } = options;
   const last = assistantLine(seconds, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 90, output: 10 });
   last.message.content = [
     { type: 'text', text: 'Done.' },
@@ -2812,7 +2813,7 @@ function toolTranscript(caseDir, seconds, calls, agent = 'review-bench-candidate
     message: {
       role: 'toolResult',
       toolCallId: id,
-      content: [{ type: 'text', text: 'Read.' }],
+      content: [{ type: 'text', text: texts[id] ?? 'Read.' }],
       details,
       ...(isError ? { isError: true } : {}),
     },
@@ -7267,10 +7268,19 @@ test('report --keys refuses a key whose protected decisions changed after pairs'
 //   When the result has `details.meta.limits.columnTruncated` { maxColumn }, a line of the own diff longer than
 //   maxColumn characters shows cut and does not count from that read; only a read that shows it whole (a raw read)
 //   counts it. A read that omp read as a list of paths (`a;b`, or the paths that it records in
-//   `details.displayReadTargets`, without a path that a `Could not read <path>: ` note names) counts the path of the
-//   own diff with the lines of its own selector. A read call without a tool result or with an error result
-//   (`isError: true`) shows no line. A line that several reads showed counts once. Reads of other files and calls of
-//   other tools (grep, for example) show no line of the own diff.
+//   `details.displayReadTargets`, without a path that a `Could not read <path>: ` note names) counts only when a path
+//   of the list is the own diff, and only from the text of its result: omp records no details of a path of a list.
+//   The text is the note `Note: interpreted as <n> paths: <paths>`, then the output of each path after a blank line,
+//   without a header and without line numbers. The output of a path that omp cut ends with a blank line and the footer
+//   row `[Showing lines A-B of N. ...]`, with A to B the shown range (with the context lines of a range); outline rows
+//   after an elision row `…` can come before and after the rows of A to B. A footer whose N is the number of lines of
+//   the own diff counts the lines A to B when the rows before it, after the footer row of the output before it, hold
+//   lines A to B in order. A row that is the line shows it whole; a row that is its first maxColumn characters and `…`
+//   (the footer then has `Some lines truncated to <maxColumn> chars`) shows it cut, and the line does not count. Other
+//   rows show no line, and a path output without such a footer (a comma list, or an output up to the last line of the
+//   file) counts no line. A read call without a tool result or with an error result (`isError: true`) shows no line.
+//   A line that several reads showed counts once. Reads of other files and calls of other tools (grep, for example)
+//   show no line of the own diff.
 // - A line of a focus diff also counts when the reads of `full.diff` in the same folder showed the same line: each
 //   file section of the focus diff (from its `diff --git` line to the next) maps line for line to the section of the
 //   full diff with the same `diff --git` line and the same lines. A section without such a section maps no line.
@@ -7299,14 +7309,37 @@ const cut = (totalLines, start, end) => ({
 const shown = (details, rows) => ({ ...details, displayContent: { lineNumbers: rows } });
 // The line numbers from start to end.
 const lineSpan = (start, end) => Array.from({ length: end - start + 1 }, (_, index) => start + index);
+// The rows of the lines start to end of a diff file of diffOf, as a read without line numbers shows them.
+const diffRows = (start, end) => lineSpan(start, end).map((number) => `+line ${number}`);
+// The output of a read that omp cut to the lines start to end of a file of `total` lines, as the text of its result
+// shows it: the rows `rows`, a blank line, and the footer row of omp, with the clauses `clauses` after the range.
+const pageOutput = (rows, start, end, total, clauses = `. Use :${end + 1} to continue`) =>
+  `${rows.join('\n')}\n\n[Showing lines ${start}-${end} of ${total}${clauses}]`;
+// A read that omp read as a list of the paths `targets`, as readSession takes it, for the call path `target`. Each
+// path has its output in `outputs`, in the same order (see pageOutput), or null when omp could not read it. omp
+// records each path in displayReadTargets and a note `Could not read <path>: <reason>` for each path that it could
+// not read, but no lines of a path. The text of the result is the note of omp and then the output of each path (the
+// note in brackets for a path that it could not read), each after a blank line, without a header for a path.
+const listRead = (targets, outputs, target = targets.join(';')) => {
+  const note = `Note: interpreted as ${targets.length} paths: ${targets.join(', ')}`;
+  const unread = targets.map((part) => `Could not read ${part}: Path '${part}' not found`);
+  return [
+    target,
+    { notes: [note, ...unread.filter((_, index) => outputs[index] === null)], displayReadTargets: targets },
+    [note, ...outputs.map((output, index) => output ?? `[${unread[index]}]`)].join('\n\n'),
+  ];
+};
 
 // The read calls of `readList` and their tool results, as toolTranscript takes them. Each read is [path, details of
-// its tool result]; a read with the details null gets no tool result.
+// its tool result, text of its tool result (optional)]; a read with the details null gets no tool result.
 function readSession(readList) {
   return {
     calls: readList.map(([target]) => ['read', { path: target }]),
     results: Object.fromEntries(
       readList.flatMap(([, details], index) => (details === null ? [] : [[`call-${index + 1}`, details]])),
+    ),
+    texts: Object.fromEntries(
+      readList.flatMap(([, , text], index) => (text === undefined ? [] : [[`call-${index + 1}`, text]])),
     ),
   };
 }
@@ -7327,12 +7360,13 @@ function coverageCase(t) {
 }
 
 // The correctness entry that transcripts writes for `coverageCase` from a session with the tool calls `calls`, the
-// tool results `results`, the working directory `cwd`, and the error results `isError` (see toolTranscript).
-function correctnessEntry({ ws, sessions, caseDir, runDir }, { calls, results = {}, cwd, isError }) {
+// tool results `results` and their texts `texts`, the working directory `cwd`, and the error results `isError` (see
+// toolTranscript).
+function correctnessEntry({ ws, sessions, caseDir, runDir }, { calls, results = {}, texts, cwd, isError }) {
   put(
     sessions,
     'Code7C3LowR1Correctness.jsonl',
-    toolTranscript(caseDir, 30, calls, undefined, { results, cwd, isError }),
+    toolTranscript(caseDir, 30, calls, undefined, { results, texts, cwd, isError }),
   );
   assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7C3LowR1Correctness']);
   return readJson(path.join(runDir, 'meta.json')).reviewers.correctness;
@@ -7367,9 +7401,12 @@ test('transcripts gives a reviewer the share of the lines of its own diff that i
   assert.equal(coverage([`${focus}:391-`, uncut(400)]), share(10));
   assert.equal(coverage([`${focus}:raw:11-20`, uncut(400)]), share(10));
   assert.equal(coverage([`${focus}:11-20:raw`, uncut(400)]), share(10));
-  // A lone line with `:raw` is that line only. `L` prefixes and `..` ranges name the same lines as the plain ranges,
-  // and `:img` and `:conflicts` show no line of the file.
+  // A lone line with `:raw` is that line only, and without `:raw` it is that line to the last line. A tail `:-n` is the
+  // last n lines. `L` prefixes and `..` ranges name the same lines as the plain ranges, and `:img` and `:conflicts` show
+  // no line of the file.
   assert.equal(coverage([`${focus}:381:raw`, uncut(400)]), share(1));
+  assert.equal(coverage([`${focus}:381`, uncut(400)]), share(20));
+  assert.equal(coverage([`${focus}:-30`, uncut(400)]), share(30));
   assert.equal(coverage([`${focus}:L5-L9`, uncut(400)]), share(5));
   assert.equal(coverage([`${focus}:5..9`, uncut(400)]), share(5));
   assert.equal(coverage([`${focus}:img`, uncut(400)]), 0);
@@ -7436,33 +7473,72 @@ test('transcripts counts a line that omp cut at its column limit only from a rea
   assert.equal(coverage([`${focus}:raw`, shown(uncut(10), lineSpan(1, 10))]), 1);
   // Without a column cut in the result, the read showed each of its lines whole.
   assert.equal(coverage([focus, shown(uncut(10), lineSpan(1, 10))]), 1);
+  // A list read shows the lines of the footer range of the own diff output, 1 line before and 3 lines after the range
+  // 2-4. A row that the footer cut at 768 characters shows its line cut, and a raw range shows each line whole.
+  const full = path.join(fixture.caseDir, 'full.diff');
+  const shownRow = (number) => (line(number).length > 768 ? `${line(number).slice(0, 768)}…` : line(number));
+  const columnClauses =
+    '. Use :8 to continue. Some lines truncated to 768 chars. Use :raw:3-3 to read line 3 whole; cut lines run to ' +
+    'line 7, each read the same way';
+  const cutOutput = pageOutput(lineSpan(1, 7).map(shownRow), 1, 7, 10, columnClauses);
+  assert.equal(coverage(listRead([`${focus}:2-4`, full], [cutOutput, diffRows(1, 30).join('\n')])), 0.5);
+  const rawOutput = pageOutput(lineSpan(1, 7).map(line), 1, 7, 10);
+  assert.equal(coverage(listRead([`${focus}:1-7:raw`, full], [rawOutput, diffRows(1, 30).join('\n')])), 0.7);
 });
 
-test('transcripts counts the part of a list read that names the own diff with the selector of that part', (t) => {
+test('transcripts counts the lines that the footer range of a list read output shows of the own diff', (t) => {
   const fixture = coverageCase(t);
   const focus = path.join(fixture.caseDir, 'focus-correctness.diff');
   const full = path.join(fixture.caseDir, 'full.diff');
   const coverage = (...readList) => correctnessEntry(fixture, readSession(readList)).diffCoverage;
   const share = (lines) => lines / 400;
-  // The details of the tool result of a read that omp read as a list of the paths `targets`: omp records each path in
-  // displayReadTargets and a note for each path of `unread` that it could not read, but no lines of the paths.
-  const list = (targets, unread = []) => ({
-    notes: [
-      `Note: interpreted as ${targets.length} paths: ${targets.join(', ')}`,
-      ...unread.map((target) => `Could not read ${target}: Path '${target}' not found`),
-    ],
-    displayReadTargets: targets,
-  });
-  // omp split a raw comma list after its first range into two paths, and the second path read no file.
+  // The output of a read of the whole full diff of 30 lines: omp did not cut it, so it has no footer.
+  const wholeFull = diffRows(1, 30).join('\n');
+  // omp split a raw comma list after its first range into two paths, and the second path read no file. A raw range
+  // has no context lines.
   const split = [`${focus}:1-100:raw`, '246-363:raw'];
-  assert.equal(coverage([`${focus}:1-100:raw,246-363:raw`, list(split, ['246-363:raw'])]), share(100));
-  // A list of two files shows the lines of the selector of the own diff part.
-  assert.equal(coverage([`${full};${focus}:51-60`, list([full, `${focus}:51-60`])]), share(10));
-  assert.equal(coverage([`${focus}:raw;${full}`, list([`${focus}:raw`, full])]), 1);
+  const splitRead = listRead(split, [pageOutput(diffRows(1, 100), 1, 100, 400), null], `${split[0]},${split[1]}`);
+  assert.equal(coverage(splitRead), share(100));
+  // The footer range of the own diff output decides: 1 line before and 3 lines after the range 51-60, and the default
+  // limit of 300 lines for a path without a range.
+  assert.equal(
+    coverage(listRead([full, `${focus}:51-60`], [wholeFull, pageOutput(diffRows(50, 63), 50, 63, 400)])),
+    share(14),
+  );
+  assert.equal(
+    coverage(listRead([`${focus}:raw`, full], [pageOutput(diffRows(1, 300), 1, 300, 400), wholeFull])),
+    share(300),
+  );
+  // The outline rows that omp shows after an elision row, before and after the rows of the range, show no line.
+  const outline = ['+line 1', '…', ...diffRows(300, 323), '…', '+line 399'];
+  assert.equal(
+    coverage(listRead([`${focus}:301-320`, full], [pageOutput(outline, 300, 323, 400), wholeFull])),
+    share(24),
+  );
   // Without a record, the paths of the list come from the delimiter, as omp splits them.
-  assert.equal(coverage([`${full};${focus}:301-`, {}]), share(100));
+  const [delimited, , delimitedText] = listRead(
+    [full, `${focus}:101-200`],
+    [wholeFull, pageOutput(diffRows(100, 203), 100, 203, 400)],
+  );
+  assert.equal(coverage([delimited, {}, delimitedText]), share(104));
+  // An output without a footer gives no line numbers, so it shows no line: a comma list, and a range up to the last
+  // line. The footer of the full diff output names its 30 lines, so its rows show no line of the own diff, also where
+  // they are the same as its lines.
+  const comma = [...diffRows(1, 10), '…', ...diffRows(21, 30)].join('\n');
+  assert.equal(coverage(listRead([`${focus}:1-10,21-30`, full], [comma, wholeFull])), 0);
+  const tail = diffRows(390, 400).join('\n');
+  assert.equal(
+    coverage(listRead([`${full}:1-10`, `${focus}:391-`], [pageOutput(diffRows(1, 13), 1, 13, 30), tail])),
+    0,
+  );
+  // A footer shows no line when the rows before it are not its lines of the own diff, for example when the diff
+  // changed after the read.
+  assert.equal(
+    coverage(listRead([`${focus}:51-60`, full], [pageOutput(diffRows(150, 163), 50, 63, 400), wholeFull])),
+    0,
+  );
   // A part that omp could not read shows no line.
-  assert.equal(coverage([`${focus}:1-10;${full}`, list([`${focus}:1-10`, full], [`${focus}:1-10`])]), 0);
+  assert.equal(coverage(listRead([`${focus}:1-10`, full], [null, wholeFull])), 0);
 });
 
 test('transcripts counts a line of a focus diff that a read of the same section of the full diff showed', (t) => {

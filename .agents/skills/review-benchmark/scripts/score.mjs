@@ -108,6 +108,13 @@ const OMP_SELECTOR = new RegExp(`:(?:raw|img|conflicts|${LINE_RANGES}(?::raw)?|r
 // A part of a line selector of omp without its `L` prefixes: `-N` (group 1), `A+C` (groups 2 and 3), `A-B` or `A..B`
 // (groups 4 and 5), `A-` or `A..` (group 4 only), and `A` (group 6).
 const LINE_PART = /^(?:-(\d+)|(\d+)\+(\d+)|(\d+)(?:-|\.\.)(\d+)?|(\d+))$/;
+// The rows of the text of a list read result that end the output of a path (see listResultLines): the footer row
+// that omp writes under an output that it cut, and the note row of a path that it could not read. The footer
+// `[Showing lines A-B of N. ...]` gives the shown range A to B of a file of N lines (groups 1 to 3), and its clause
+// `Some lines truncated to M chars` gives the column limit M (group 1).
+const OUTPUT_END = /^\[(?:Showing |Some lines truncated to |Could not read ).*\]$/;
+const RANGE_FOOTER = /^\[Showing lines (\d+)-(\d+) of (\d+)\b/;
+const COLUMN_FOOTER = /Some lines truncated to (\d+) chars\b/;
 // The own diff of a reviewer (see ownDiffFile) comes from its name. A self-review lens has the name of its lens after
 // this prefix (see prepare.mjs ARMS).
 const PANEL_LENSES = new Set(['correctness', 'spec-and-tests', 'text-and-safety']);
@@ -2297,13 +2304,52 @@ function resultLines(details, selector, lines) {
   return numbers.filter((line) => line >= 1 && line <= lines.length && whole(line));
 }
 
+// The lines of a file with the lines `lines` (see textLines) that the text `content` of the tool result of a read that
+// omp read as a list of paths showed whole, as line numbers. omp records no details of a path of a list: it writes its
+// note `Note: interpreted as <n> paths: <paths>` and then the output of each path after a blank line, without a header
+// and without line numbers. The output of a path that omp cut ends with a blank line and the footer row
+// `[Showing lines A-B of N. ...]` (see RANGE_FOOTER): A to B is its shown range, with the context lines of a range.
+// The rows of lines A to B come before the footer in order, and omp can add outline rows, each after an elision row
+// `…`, before and after them. So a footer whose N is the number of lines of the file shows lines A to B when the rows
+// of its output (after the row that ends the output before it, see OUTPUT_END) hold rows of lines A to B in order. A
+// row that is the line shows it whole. A row that is the first `maxColumn` characters of the line and `…`, where the
+// footer has `Some lines truncated to <maxColumn> chars`, shows it cut, so the line does not count. An output without
+// such a footer (of a comma list, or of a range up to the last line of the file) gives no line numbers, so it shows no
+// line: an undercount is safer than a count of lines that omp may not have shown.
+function listResultLines(content, lines) {
+  const rows = (Array.isArray(content) ? content : [])
+    .filter((item) => item?.type === 'text' && typeof item.text === 'string')
+    .flatMap((item) => item.text.split('\n'));
+  const numbers = [];
+  let outputStart = 0;
+  rows.forEach((row, index) => {
+    if (!OUTPUT_END.test(row)) return;
+    const [start, end, total] = (RANGE_FOOTER.exec(row)?.slice(1) ?? []).map(Number);
+    if (total === lines.length && start >= 1 && start <= end && end <= total) {
+      const range = lines.slice(start - 1, end);
+      const maxColumn = Number(COLUMN_FOOTER.exec(row)?.[1]);
+      const shows = (line, shownRow) =>
+        shownRow === line || (line.length > maxColumn && shownRow === `${line.slice(0, maxColumn)}…`);
+      for (let first = index - range.length; first >= outputStart; first -= 1) {
+        if (!range.every((line, offset) => shows(line, rows[first + offset]))) continue;
+        range.forEach((line, offset) => {
+          if (rows[first + offset] === line) numbers.push(start + offset);
+        });
+        break;
+      }
+    }
+    outputStart = index + 1;
+  });
+  return numbers;
+}
+
 // The lines of the file `file` (an absolute path; `lines` are its lines, see textLines) that the tool results of the
 // `read` calls of `calls` showed, as a set of line numbers. A read call counts when its path without the read
 // selector names the file (see selectorOfRead), and its tool result gives its lines (see resultLines). A read that omp
-// read as a list of paths counts each path of the list as readLists finds them: the paths of the result
-// (recordedParts), else the paths of the delimiters (delimitedParts). omp records no lines of the paths of a list, so
-// the selector of each path decides. A call without a tool result, a result with an error, a read of another file,
-// and a call of another tool, for example a grep of the file, show no line of it. `calls` and `results` come from
+// read as a list of paths (as readLists finds them: the paths of the result, see recordedParts, else the paths of the
+// delimiters, see delimitedParts) counts when a path of the list names the file, and the text of its result gives its
+// lines (see listResultLines). A call without a tool result, a result with an error, a read of another file, and a
+// call of another tool, for example a grep of the file, show no line of it. `calls` and `results` come from
 // toolCallResults, and `cwd` is the working directory of the session.
 function shownLines({ calls, results }, file, lines, cwd) {
   const shown = new Set();
@@ -2314,11 +2360,14 @@ function shownLines({ calls, results }, file, lines, cwd) {
     if (result === undefined || result.isError === true) continue;
     const target = value.trim();
     const parts = recordedParts(result.details) ?? delimitedParts(target, cwd);
-    const reads = parts === null ? [[target, result.details]] : parts.map((part) => [part, undefined]);
-    for (const [read, details] of reads) {
-      const selector = selectorOfRead(read, file, cwd);
-      if (selector !== null) for (const line of resultLines(details, selector, lines)) shown.add(line);
+    let numbers = [];
+    if (parts === null) {
+      const selector = selectorOfRead(target, file, cwd);
+      if (selector !== null) numbers = resultLines(result.details, selector, lines);
+    } else if (parts.some((part) => selectorOfRead(part, file, cwd) !== null)) {
+      numbers = listResultLines(result.content, lines);
     }
+    for (const line of numbers) shown.add(line);
   }
   return shown;
 }
