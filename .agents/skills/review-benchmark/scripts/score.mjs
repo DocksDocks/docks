@@ -108,13 +108,10 @@ const OMP_SELECTOR = new RegExp(`:(?:raw|img|conflicts|${LINE_RANGES}(?::raw)?|r
 // A part of a line selector of omp without its `L` prefixes: `-N` (group 1), `A+C` (groups 2 and 3), `A-B` or `A..B`
 // (groups 4 and 5), `A-` or `A..` (group 4 only), and `A` (group 6).
 const LINE_PART = /^(?:-(\d+)|(\d+)\+(\d+)|(\d+)(?:-|\.\.)(\d+)?|(\d+))$/;
-// The rows of the text of a list read result that end the output of a path (see listResultLines): the footer row
-// that omp writes under an output that it cut, and the note row of a path that it could not read. The footer
-// `[Showing lines A-B of N. ...]` gives the shown range A to B of a file of N lines (groups 1 to 3), and its clause
-// `Some lines truncated to M chars` gives the column limit M (group 1).
-const OUTPUT_END = /^\[(?:Showing |Some lines truncated to |Could not read ).*\]$/;
-const RANGE_FOOTER = /^\[Showing lines (\d+)-(\d+) of (\d+)\b/;
-const COLUMN_FOOTER = /Some lines truncated to (\d+) chars\b/;
+// The elision row of omp: a row `…` that stands for the lines that an output leaves out between two rows.
+const ELISION = '…';
+// The context of omp before a range of a read that is not raw: it shows 1 line before the first line of the range.
+const CONTEXT_BEFORE = 1;
 // The own diff of a reviewer (see ownDiffFile) comes from its name. A self-review lens has the name of its lens after
 // this prefix (see prepare.mjs ARMS).
 const PANEL_LENSES = new Set(['correctness', 'spec-and-tests', 'text-and-safety']);
@@ -2173,18 +2170,27 @@ function delimitedParts(target, cwd) {
   return null;
 }
 
-// The paths of a list that omp read for a `read` call, from the details of its tool result, or null when the result
-// records no list. omp records each path of the list in `displayReadTargets` (for a path that a unique suffix match
-// resolved, the path that it found), and writes a note `Could not read <path>: <reason>` for each path that it could
-// not read. Such a path read no file, so it is not in the result.
-function recordedParts(details) {
+// The paths of a list that omp read for a `read` call, from the details of its tool result, in the order of their
+// outputs in the text of the result, or null when the result records no list. omp records each path of the list in
+// `displayReadTargets` (for a path that a unique suffix match resolved, the path that it found), also a path that it
+// could not read.
+function recordedTargets(details) {
   if (!Array.isArray(details?.displayReadTargets)) return null;
-  const notes = Array.isArray(details.notes) ? details.notes.filter((note) => typeof note === 'string') : [];
-  const unread = (part) => notes.some((note) => note.startsWith(`${UNREAD_NOTE}${part}: `));
   return details.displayReadTargets
     .filter((part) => typeof part === 'string')
     .map((part) => part.trim())
-    .filter((part) => part && !unread(part));
+    .filter(Boolean);
+}
+
+// The paths of a list that omp read for a `read` call (see recordedTargets) without the paths that it could not read,
+// or null when the result records no list. omp writes a note `Could not read <path>: <reason>` for each path that it
+// could not read. Such a path read no file, so it is not in the result.
+function recordedParts(details) {
+  const targets = recordedTargets(details);
+  if (targets === null) return null;
+  const notes = Array.isArray(details.notes) ? details.notes.filter((note) => typeof note === 'string') : [];
+  const unread = (part) => notes.some((note) => note.startsWith(`${UNREAD_NOTE}${part}: `));
+  return targets.filter((part) => !unread(part));
 }
 
 // The tool calls of the assistant messages of a transcript, in order, and the tool result message of each call, by the
@@ -2304,41 +2310,82 @@ function resultLines(details, selector, lines) {
   return numbers.filter((line) => line >= 1 && line <= lines.length && whole(line));
 }
 
-// The lines of a file with the lines `lines` (see textLines) that the text `content` of the tool result of a read that
-// omp read as a list of paths showed whole, as line numbers. omp records no details of a path of a list: it writes its
-// note `Note: interpreted as <n> paths: <paths>` and then the output of each path after a blank line, without a header
-// and without line numbers. The output of a path that omp cut ends with a blank line and the footer row
-// `[Showing lines A-B of N. ...]` (see RANGE_FOOTER): A to B is its shown range, with the context lines of a range.
-// The rows of lines A to B come before the footer in order, and omp can add outline rows, each after an elision row
-// `…`, before and after them. So a footer whose N is the number of lines of the file shows lines A to B when the rows
-// of its output (after the row that ends the output before it, see OUTPUT_END) hold rows of lines A to B in order. A
-// row that is the line shows it whole. A row that is the first `maxColumn` characters of the line and `…`, where the
-// footer has `Some lines truncated to <maxColumn> chars`, shows it cut, so the line does not count. An output without
-// such a footer (of a comma list, or of a range up to the last line of the file) gives no line numbers, so it shows no
-// line: an undercount is safer than a count of lines that omp may not have shown.
-function listResultLines(content, lines) {
+// The blocks of the rows `rows` of the text of a list read result: the runs of rows between blank rows, without these
+// blank rows. omp joins its note and the outputs of the paths with a blank line, and an output and its footer row
+// (for example `[Showing lines A-B of N. ...]`) too. A blank row next to an elision row that has a blank row on its
+// other side stays in its block: omp joins the ranges of a raw comma list with a blank line, `…`, and a blank line.
+function outputBlocks(rows) {
+  const gap = (index) =>
+    (rows[index + 1] === ELISION && rows[index + 2] === '') || (rows[index - 1] === ELISION && rows[index - 2] === '');
+  const blocks = [[]];
+  rows.forEach((row, index) => {
+    if (row !== '' || gap(index)) blocks.at(-1).push(row);
+    else if (blocks.at(-1).length > 0) blocks.push([]);
+  });
+  return blocks.filter((block) => block.length > 0);
+}
+
+// The lines of a file that the rows `rows` of its output show, as line numbers, from the line `start` on. `numbersOf`
+// maps the text of each line of the file to its line numbers, in order. omp writes the rows of an output in the order
+// of their lines, so the rows align with the lines in order: each row shows the first line after the line of the row
+// before it (from `start` on for the first row) whose text is the row. The rows before the first such row show lines
+// before it (omp writes outline rows before the rows of a range): back from it, each shows the last line before the
+// line of the row after it whose text is the row. A row that is no such line shows no line: an elision row, a note, a
+// footer row, and a row that omp cut at its column limit (the first characters of a longer line and `…`).
+function alignedLines(rows, start, numbersOf) {
+  const shown = [];
+  let last = start - 1;
+  let first;
+  rows.forEach((row, index) => {
+    const line = numbersOf.get(row)?.find((number) => number > last);
+    if (line === undefined) return;
+    first ??= index;
+    shown.push(line);
+    last = line;
+  });
+  if (first === undefined) return shown;
+  let next = shown[0];
+  for (let index = first - 1; index >= 0; index -= 1) {
+    const line = numbersOf.get(rows[index])?.findLast((number) => number < next);
+    if (line === undefined) continue;
+    shown.push(line);
+    next = line;
+  }
+  return shown;
+}
+
+// The lines of the file `file` (an absolute path; `lines` are its lines, see textLines) that the text `content` of the
+// tool result of a read that omp read as the list of paths `parts` (in the order of their outputs, see
+// recordedTargets) showed whole, as line numbers. omp records no details of a path of a list: it writes its note
+// `Note: interpreted as <n> paths: <paths>` and then the output of each path after a blank line, without a header and
+// without line numbers, or the note `[Could not read <path>: <reason>]` for a path that it could not read. Each path
+// that names the file with a selector of lines (see selectorOfRead and selectorRanges) shows lines from its search
+// start: the first line of its selector minus the line that omp shows before a range (CONTEXT_BEFORE), or line 1. A
+// diff has no empty line, so the rows of its output are one block (see outputBlocks), and the output of each path
+// before it takes at least one block. So its rows are the first block after these blocks that holds a line of the
+// file from the search start on, and they show the lines that alignedLines finds from the search start. A row that omp
+// cut at its column limit is no line of the file, so a line that omp showed cut does not count.
+function listResultLines(content, parts, file, lines, cwd) {
   const rows = (Array.isArray(content) ? content : [])
     .filter((item) => item?.type === 'text' && typeof item.text === 'string')
-    .flatMap((item) => item.text.split('\n'));
+    .flatMap((item) => ['', ...item.text.split('\n')]);
+  // The first block is the note of omp.
+  const outputs = outputBlocks(rows).slice(1);
+  const numbersOf = new Map();
+  for (const [index, line] of lines.entries()) {
+    if (!numbersOf.has(line)) numbersOf.set(line, []);
+    numbersOf.get(line).push(index + 1);
+  }
   const numbers = [];
-  let outputStart = 0;
-  rows.forEach((row, index) => {
-    if (!OUTPUT_END.test(row)) return;
-    const [start, end, total] = (RANGE_FOOTER.exec(row)?.slice(1) ?? []).map(Number);
-    if (total === lines.length && start >= 1 && start <= end && end <= total) {
-      const range = lines.slice(start - 1, end);
-      const maxColumn = Number(COLUMN_FOOTER.exec(row)?.[1]);
-      const shows = (line, shownRow) =>
-        shownRow === line || (line.length > maxColumn && shownRow === `${line.slice(0, maxColumn)}…`);
-      for (let first = index - range.length; first >= outputStart; first -= 1) {
-        if (!range.every((line, offset) => shows(line, rows[first + offset]))) continue;
-        range.forEach((line, offset) => {
-          if (rows[first + offset] === line) numbers.push(start + offset);
-        });
-        break;
-      }
-    }
-    outputStart = index + 1;
+  parts.forEach((part, index) => {
+    const selector = selectorOfRead(part, file, cwd);
+    if (selector === null || rows.some((row) => row.startsWith(`[${UNREAD_NOTE}${part}: `))) return;
+    const ranges = selectorRanges(selector, lines.length);
+    if (ranges.length === 0) return;
+    const start = Math.max(1, Math.min(...ranges.map(([first]) => first)) - CONTEXT_BEFORE);
+    const isLine = (row) => numbersOf.get(row)?.some((number) => number >= start) === true;
+    const output = outputs.slice(index).find((block) => block.some(isLine));
+    if (output !== undefined) numbers.push(...alignedLines(output, start, numbersOf));
   });
   return numbers;
 }
@@ -2346,10 +2393,10 @@ function listResultLines(content, lines) {
 // The lines of the file `file` (an absolute path; `lines` are its lines, see textLines) that the tool results of the
 // `read` calls of `calls` showed, as a set of line numbers. A read call counts when its path without the read
 // selector names the file (see selectorOfRead), and its tool result gives its lines (see resultLines). A read that omp
-// read as a list of paths (as readLists finds them: the paths of the result, see recordedParts, else the paths of the
-// delimiters, see delimitedParts) counts when a path of the list names the file, and the text of its result gives its
-// lines (see listResultLines). A call without a tool result, a result with an error, a read of another file, and a
-// call of another tool, for example a grep of the file, show no line of it. `calls` and `results` come from
+// read as a list of paths (as readLists finds them: the paths of the result, see recordedTargets, else the paths of
+// the delimiters, see delimitedParts) counts when a path of the list names the file, and the text of its result shows
+// its lines (see listResultLines). A call without a tool result, a result with an error, a read of another file, and
+// a call of another tool, for example a grep of the file, show no line of it. `calls` and `results` come from
 // toolCallResults, and `cwd` is the working directory of the session.
 function shownLines({ calls, results }, file, lines, cwd) {
   const shown = new Set();
@@ -2359,13 +2406,13 @@ function shownLines({ calls, results }, file, lines, cwd) {
     const result = results.get(call.id);
     if (result === undefined || result.isError === true) continue;
     const target = value.trim();
-    const parts = recordedParts(result.details) ?? delimitedParts(target, cwd);
+    const parts = recordedTargets(result.details) ?? delimitedParts(target, cwd);
     let numbers = [];
     if (parts === null) {
       const selector = selectorOfRead(target, file, cwd);
       if (selector !== null) numbers = resultLines(result.details, selector, lines);
     } else if (parts.some((part) => selectorOfRead(part, file, cwd) !== null)) {
-      numbers = listResultLines(result.content, lines);
+      numbers = listResultLines(result.content, parts, file, lines, cwd);
     }
     for (const line of numbers) shown.add(line);
   }

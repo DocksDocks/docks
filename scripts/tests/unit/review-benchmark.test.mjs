@@ -7272,13 +7272,17 @@ test('report --keys refuses a key whose protected decisions changed after pairs'
 //   of the list is the own diff, and only from the text of its result: omp records no details of a path of a list.
 //   The text is the note `Note: interpreted as <n> paths: <paths>`, then the output of each path after a blank line,
 //   without a header and without line numbers. The output of a path that omp cut ends with a blank line and the footer
-//   row `[Showing lines A-B of N. ...]`, with A to B the shown range (with the context lines of a range); outline rows
-//   after an elision row `…` can come before and after the rows of A to B. A footer whose N is the number of lines of
-//   the own diff counts the lines A to B when the rows before it, after the footer row of the output before it, hold
-//   lines A to B in order. A row that is the line shows it whole; a row that is its first maxColumn characters and `…`
-//   (the footer then has `Some lines truncated to <maxColumn> chars`) shows it cut, and the line does not count. Other
-//   rows show no line, and a path output without such a footer (a comma list, or an output up to the last line of the
-//   file) counts no line. A read call without a tool result or with an error result (`isError: true`) shows no line.
+//   row `[Showing lines A-B of N. ...]`; an output that omp did not cut (a whole short file, a comma list, a range up to
+//   the last line) has no footer. The rows of an output show lines of the file in order: the lines of the range, with
+//   the context lines of omp, and outline rows before and after them, with an elision row `…` at each gap (for a raw
+//   comma list, `…` with a blank row on each side). The rows of the own diff output are one run of rows without another
+//   blank row (a diff has no empty line), in the output order of the paths of the list. They align with the own diff in
+//   order: from the first selected line minus 1 (line 1 without a selector), each row shows the next line with the same
+//   text after the line of the row before it. The rows before the first such row (outline rows) show, back from it, the
+//   nearest line before with the same text. A row that is no such line shows no line: a `…` row, a note, and a row
+//   that omp cut at its column limit (its first maxColumn characters and `…`). The rows of another path show no line
+//   of the own diff, also where they are the same as its lines. A read call without a tool result or with an error
+//   result (`isError: true`) shows no line.
 //   A line that several reads showed counts once. Reads of other files and calls of other tools (grep, for example)
 //   show no line of the own diff.
 // - A line of a focus diff also counts when the reads of `full.diff` in the same folder showed the same line: each
@@ -7473,8 +7477,8 @@ test('transcripts counts a line that omp cut at its column limit only from a rea
   assert.equal(coverage([`${focus}:raw`, shown(uncut(10), lineSpan(1, 10))]), 1);
   // Without a column cut in the result, the read showed each of its lines whole.
   assert.equal(coverage([focus, shown(uncut(10), lineSpan(1, 10))]), 1);
-  // A list read shows the lines of the footer range of the own diff output, 1 line before and 3 lines after the range
-  // 2-4. A row that the footer cut at 768 characters shows its line cut, and a raw range shows each line whole.
+  // A list read shows the rows of the own diff output: the range 2-4 with 1 line before and 3 lines after it. A row that
+  // omp cut at 768 characters shows its line cut, and a raw range shows each line whole.
   const full = path.join(fixture.caseDir, 'full.diff');
   const shownRow = (number) => (line(number).length > 768 ? `${line(number).slice(0, 768)}…` : line(number));
   const columnClauses =
@@ -7486,7 +7490,7 @@ test('transcripts counts a line that omp cut at its column limit only from a rea
   assert.equal(coverage(listRead([`${focus}:1-7:raw`, full], [rawOutput, diffRows(1, 30).join('\n')])), 0.7);
 });
 
-test('transcripts counts the lines that the footer range of a list read output shows of the own diff', (t) => {
+test('transcripts counts the lines that the output of a list read shows of the own diff', (t) => {
   const fixture = coverageCase(t);
   const focus = path.join(fixture.caseDir, 'focus-correctness.diff');
   const full = path.join(fixture.caseDir, 'full.diff');
@@ -7499,8 +7503,8 @@ test('transcripts counts the lines that the footer range of a list read output s
   const split = [`${focus}:1-100:raw`, '246-363:raw'];
   const splitRead = listRead(split, [pageOutput(diffRows(1, 100), 1, 100, 400), null], `${split[0]},${split[1]}`);
   assert.equal(coverage(splitRead), share(100));
-  // The footer range of the own diff output decides: 1 line before and 3 lines after the range 51-60, and the default
-  // limit of 300 lines for a path without a range.
+  // The rows of the own diff output decide: 1 line before and 3 lines after the range 51-60, and the default limit of
+  // 300 lines for a path without a range.
   assert.equal(
     coverage(listRead([full, `${focus}:51-60`], [wholeFull, pageOutput(diffRows(50, 63), 50, 63, 400)])),
     share(14),
@@ -7509,11 +7513,12 @@ test('transcripts counts the lines that the footer range of a list read output s
     coverage(listRead([`${focus}:raw`, full], [pageOutput(diffRows(1, 300), 1, 300, 400), wholeFull])),
     share(300),
   );
-  // The outline rows that omp shows after an elision row, before and after the rows of the range, show no line.
+  // The outline rows that omp shows before and after the rows of the range, each on the other side of an elision row,
+  // show their lines.
   const outline = ['+line 1', '…', ...diffRows(300, 323), '…', '+line 399'];
   assert.equal(
     coverage(listRead([`${focus}:301-320`, full], [pageOutput(outline, 300, 323, 400), wholeFull])),
-    share(24),
+    share(26),
   );
   // Without a record, the paths of the list come from the delimiter, as omp splits them.
   const [delimited, , delimitedText] = listRead(
@@ -7521,24 +7526,41 @@ test('transcripts counts the lines that the footer range of a list read output s
     [wholeFull, pageOutput(diffRows(100, 203), 100, 203, 400)],
   );
   assert.equal(coverage([delimited, {}, delimitedText]), share(104));
-  // An output without a footer gives no line numbers, so it shows no line: a comma list, and a range up to the last
-  // line. The footer of the full diff output names its 30 lines, so its rows show no line of the own diff, also where
-  // they are the same as its lines.
+  // An output without a footer shows its rows too: a comma list, with an elision row between its ranges (with a blank
+  // row on each side for a raw list), and a range up to the last line. The rows of the full diff output show no line
+  // of the own diff, also where they are the same as its lines.
   const comma = [...diffRows(1, 10), '…', ...diffRows(21, 30)].join('\n');
-  assert.equal(coverage(listRead([`${focus}:1-10,21-30`, full], [comma, wholeFull])), 0);
+  assert.equal(coverage(listRead([`${focus}:1-10,21-30`, full], [comma, wholeFull])), share(20));
+  const rawComma = [...diffRows(1, 3), '', '…', '', ...diffRows(8, 9)].join('\n');
+  assert.equal(coverage(listRead([`${focus}:1-3,8-9:raw`, full], [rawComma, wholeFull])), share(5));
   const tail = diffRows(390, 400).join('\n');
   assert.equal(
     coverage(listRead([`${full}:1-10`, `${focus}:391-`], [pageOutput(diffRows(1, 13), 1, 13, 30), tail])),
-    0,
+    share(11),
   );
-  // A footer shows no line when the rows before it are not its lines of the own diff, for example when the diff
-  // changed after the read.
+  // Two paths of the list can be the own diff: each output shows its own rows.
   assert.equal(
-    coverage(listRead([`${focus}:51-60`, full], [pageOutput(diffRows(150, 163), 50, 63, 400), wholeFull])),
-    0,
+    coverage(
+      listRead(
+        [`${focus}:1-10`, `${focus}:51-60`],
+        [pageOutput(diffRows(1, 13), 1, 13, 400), pageOutput(diffRows(50, 63), 50, 63, 400)],
+      ),
+    ),
+    share(27),
   );
+  // An output shows no line when its rows are not lines of the own diff, for example when the diff changed after the
+  // read.
+  const changed = diffRows(50, 63).map((row) => row.replace('+', '-'));
+  assert.equal(coverage(listRead([`${focus}:51-60`, full], [pageOutput(changed, 50, 63, 400), wholeFull])), 0);
   // A part that omp could not read shows no line.
   assert.equal(coverage(listRead([`${focus}:1-10`, full], [null, wholeFull])), 0);
+  // A complete output without a footer: the whole own diff of 20 lines, after the output of the range 21-30 of the
+  // full diff, whose rows are also lines of the own diff.
+  put(fixture.caseDir, 'focus-correctness.diff', diffOf(20));
+  assert.equal(
+    coverage(listRead([`${full}:21-30`, focus], [diffRows(20, 30).join('\n'), diffRows(1, 20).join('\n')])),
+    1,
+  );
 });
 
 test('transcripts counts a line of a focus diff that a read of the same section of the full diff showed', (t) => {
