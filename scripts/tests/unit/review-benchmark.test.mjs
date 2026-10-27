@@ -1455,6 +1455,7 @@ test('the configuration table gives one column per configuration and the rows of
     '| Known found per run | 1.00 | 1.50 | 0.50 |',
     '| Escaped per run | 0.50 | 0.00 | 1.00 |',
     '| Escaped per 50 known | 16.67 | 0.00 | 33.33 |',
+    '| Diff read mean | - | - | - |',
     `| Model | ${MODEL} | ${MODEL} | ${MODEL} |`,
     '| Effort | low | low | high |',
     '| Served tier | default | priority | default |',
@@ -2796,9 +2797,10 @@ const agentText = (root) =>
   'Without `CLAUDE_PLUGIN_ROOT`, resolve `../skills/productivity/code-reviewer/SKILL.md`\nfrom this file.\n';
 // A transcript of one agent that runs in the live checkout at the `low` configuration. Its last assistant message
 // makes the tool calls, each [name, arguments], and `cwd` is the working directory of its session. `results` maps the
-// id `call-<n>` of the n-th call to the details of its tool result; a call without an entry gets no tool result.
+// id `call-<n>` of the n-th call to the details of its tool result; a call without an entry gets no tool result. With
+// `isError`, each tool result is an error result (`isError: true`), as omp writes it for a call that it did not run.
 function toolTranscript(caseDir, seconds, calls, agent = 'review-bench-candidate-code-low', options = {}) {
-  const { cwd = LIVE, results = {} } = options;
+  const { cwd = LIVE, results = {}, isError = false } = options;
   const last = assistantLine(seconds, 'openai-codex', 'gpt-6.1-sol', 'default', { input: 90, output: 10 });
   last.message.content = [
     { type: 'text', text: 'Done.' },
@@ -2807,7 +2809,13 @@ function toolTranscript(caseDir, seconds, calls, agent = 'review-bench-candidate
   const toolResults = Object.entries(results).map(([id, details]) => ({
     type: 'message',
     timestamp: isoAt(seconds),
-    message: { role: 'toolResult', toolCallId: id, content: [{ type: 'text', text: 'Read.' }], details },
+    message: {
+      role: 'toolResult',
+      toolCallId: id,
+      content: [{ type: 'text', text: 'Read.' }],
+      details,
+      ...(isError ? { isError: true } : {}),
+    },
   }));
   return jsonl([
     { type: 'session', timestamp: isoAt(0), cwd },
@@ -3406,25 +3414,26 @@ test('the code-loop rows leave out single reviews, and the fixer median leaves o
   const report = renderReport(scores, { configs: ['low', 'low-fast'] });
   // The decision table covers the loops and the single reviews together.
   const decision = tableAfter(report, '### Decision: dev');
-  assert.deepEqual(decision.slice(0, 9), [
+  assert.deepEqual(decision.slice(0, 10), [
     '| Measure | low | low-fast |',
     '|---|---:|---:|',
     '| Runs | 4 | 4 |',
     '| Known found per run | 0.75 | 1.25 |',
     '| Escaped per run | 0.75 | 0.25 |',
     '| Escaped per 50 known | 25.00 | 8.33 |',
+    '| Diff read mean | - | - |',
     `| Model | ${MODEL} | ${MODEL} |`,
     '| Effort | low | low |',
     '| Served tier | default | priority |',
   ]);
-  const intervalLabels = decision.slice(9).map((row) => row.split(' | ')[0]);
+  const intervalLabels = decision.slice(10).map((row) => row.split(' | ')[0]);
   assert.deepEqual(intervalLabels, [
     '| Round 1 recall difference from low-fast, 90% interval',
     '| Escaped per 50 known difference from low-fast, 90% interval',
     '| Loop seconds difference from low-fast, 90% interval',
   ]);
   // Loops only: code-7 differs by 80 seconds and code-8 by 40. The single reviews, 100 seconds each, stay out.
-  assert.equal(decision[11], '| Loop seconds difference from low-fast, 90% interval | [40.0, 80.0] | - |');
+  assert.equal(decision[12], '| Loop seconds difference from low-fast, 90% interval | [40.0, 80.0] | - |');
   assert.deepEqual(tableAfter(report, '### Code loops: dev'), [
     '| Measure | low | low-fast |',
     '|---|---:|---:|',
@@ -3576,6 +3585,7 @@ test('report --arms gives one column per arm folder and compares it with the arm
     '| Known found per run | 1.50 | 1.00 |',
     '| Escaped per run | 0.00 | 0.50 |',
     '| Escaped per 50 known | 0.00 | 16.67 |',
+    '| Diff read mean | - | - |',
     `| Model | ${MODEL} | ${MODEL} |`,
     '| Effort | xhigh | xhigh |',
     '| Served tier | priority | priority |',
@@ -3687,6 +3697,7 @@ test('arm columns can hold different cases, and the decision table says how many
     '| Known found per run | 1.00 | 1.50 | 1.00 |',
     '| Escaped per run | 0.33 | 0.00 | 0.00 |',
     '| Escaped per 50 known | 12.50 | 0.00 | 0.00 |',
+    '| Diff read mean | - | - | - |',
     `| Model | ${MODEL} | ${MODEL} | ${MODEL} |`,
     '| Effort | xhigh | xhigh | xhigh |',
     '| Served tier | priority | priority | priority |',
@@ -7236,27 +7247,42 @@ test('report --keys refuses a key whose protected decisions changed after pairs'
 // - transcriptsCommand gives each reviewer entry `diffCoverage`: the share of the lines of the own diff of the reviewer
 //   that the tool results of its `read` calls showed, as an exact ratio from 0 to 1 (the shown lines divided by the
 //   lines of the diff, not rounded). The own diff of the panel lens `correctness`, `spec-and-tests`, or
-//   `text-and-safety` is `focus-<lens>.diff`, of `full` it is `full.diff`, and of `delta` it is `delta.diff`: in the
-//   case folder for a run without round folders and for round 1 of a loop, and in the round folder for a later round
-//   of a loop. The lines of a diff are its lines as omp counts them in `totalLines`: the last newline ends the last
-//   line and starts no line.
-// - A read call counts when its path without the read selector is the own diff. Its shown lines come from its tool
-//   result, the `toolResult` message with the same `toolCallId`:
-//   - `details.meta.truncation.shownRange` { start, end } when the result has it (omp cut the output);
+//   `text-and-safety` and of the self-review lens `self-review-<lens>` is `focus-<lens>.diff`, of `full` and
+//   `self-review` it is `full.diff`, and of `delta` it is `delta.diff`: in the case folder for a run without round
+//   folders and for round 1 of a loop, and in the round folder for a later round of a loop. The lines of a diff are
+//   its lines as omp counts them in `totalLines`: the last newline ends the last line and starts no line.
+// - A read call counts when its path without the read selector is the own diff; a relative path resolves against the
+//   `cwd` of the session. Its shown lines come from its tool result, the `toolResult` message with the same
+//   `toolCallId`:
+//   - the numbers in `details.displayContent.lineNumbers` when the result has them, without the null rows (omp adds
+//     context lines around a range that is not raw, also outside the shown range of a cut output);
+//   - else `details.meta.truncation.shownRange` { start, end } when the result has it (omp cut the output);
 //   - else the lines that the read selector names, up to `details.totalLines`, or up to the last line of the own diff
-//     when the result has no totalLines (omp gives none for a comma list): `:a-b` is a to b, `:a+n` is n lines from a,
-//     `:a` and `:a-` are a to the last line, `:-n` is the last n lines, and a comma list joins ranges and single lines
-//     (`:a-b,c` is a to b and line c, as omp reads it). A `:raw` part, before or after the range, changes no line, and
-//     a read without a selector (also `:raw` alone) shows lines 1 to totalLines.
-//   A read call without a tool result shows no line. A line that several reads showed counts once. Reads of other
-//   files and calls of other tools (grep, for example) show no line of the own diff.
+//     when the result has no totalLines (omp gives none for a comma list): `:a-b` and `:a..b` are a to b (also with
+//     `L` prefixes, `:La-Lb`), `:a+n` is n lines from a, `:a` and `:a-` are a to the last line, `:-n` is the last n
+//     lines, and a comma list joins ranges and single lines (`:a-b,c` is a to b and line c, as omp reads it). A `:raw`
+//     part, before or after the range, changes no line, except that a bare `:a` with `:raw` (`:a:raw` or `:raw:a`) is
+//     the single line a, as omp reads it. A read without a selector (also `:raw` alone) shows lines 1 to totalLines,
+//     and `:img` and `:conflicts` show no line.
+//   When the result has `details.meta.limits.columnTruncated` { maxColumn }, a line of the own diff longer than
+//   maxColumn characters shows cut and does not count from that read; only a read that shows it whole (a raw read)
+//   counts it. A read that omp read as a list of paths (`a;b`, or the paths that it records in
+//   `details.displayReadTargets`, without a path that a `Could not read <path>: ` note names) counts the path of the
+//   own diff with the lines of its own selector. A read call without a tool result or with an error result
+//   (`isError: true`) shows no line. A line that several reads showed counts once. Reads of other files and calls of
+//   other tools (grep, for example) show no line of the own diff.
+// - A line of a focus diff also counts when the reads of `full.diff` in the same folder showed the same line: each
+//   file section of the focus diff (from its `diff --git` line to the next) maps line for line to the section of the
+//   full diff with the same `diff --git` line and the same lines. A section without such a section maps no line.
 // - A reviewer without a read of its own diff gets 0, also a reviewer without a tool call. A reviewer whose own diff
 //   does not exist or has no line gets no field, and transcripts removes an earlier value of the field then.
 // - report.md: the Summary table gets the column `Diff read mean` after `Re-argued mean`: the mean of the diffCoverage
 //   values of the reviewers of all rounds of the valid runs of the row (a reviewer without the field gives no value),
 //   with 2 decimals, or `-` without a value. The Runs table gets the column `Diff read` after `Re-argued`: the lowest
 //   diffCoverage of the reviewers of all rounds of the run, also of an invalid run, with 2 decimals, or `-` without a
-//   value. The earlier tests of these tables get the new cells.
+//   value. The decision table of the arm and configuration sections gets the row `Diff read mean` after
+//   `Escaped per 50 known`: the mean over the reviewers of all rounds of the valid runs of its column, in the same
+//   format. The earlier tests of these tables get the new cells.
 
 // The text of a diff file of `lines` lines, each with its newline.
 const diffOf = (lines) => Array.from({ length: lines }, (_, index) => `+line ${index + 1}\n`).join('');
@@ -7267,6 +7293,12 @@ const cut = (totalLines, start, end) => ({
   totalLines,
   meta: { truncation: { truncatedBy: 'lines', totalLines, shownRange: { start, end }, nextOffset: end + 1 } },
 });
+// The details `details` of the tool result of a read with the rows that omp showed, as omp records them in
+// `displayContent.lineNumbers`: each row is the number of the line that it shows, or null for a row without a line
+// (an elision row).
+const shown = (details, rows) => ({ ...details, displayContent: { lineNumbers: rows } });
+// The line numbers from start to end.
+const lineSpan = (start, end) => Array.from({ length: end - start + 1 }, (_, index) => start + index);
 
 // The read calls of `readList` and their tool results, as toolTranscript takes them. Each read is [path, details of
 // its tool result]; a read with the details null gets no tool result.
@@ -7294,10 +7326,14 @@ function coverageCase(t) {
   return { ws, sessions: path.join(root, 'sessions'), caseDir, runDir };
 }
 
-// The correctness entry that transcripts writes for `coverageCase` from a session with the tool calls `calls` and the
-// tool results `results` (see toolTranscript).
-function correctnessEntry({ ws, sessions, caseDir, runDir }, { calls, results = {} }) {
-  put(sessions, 'Code7C3LowR1Correctness.jsonl', toolTranscript(caseDir, 30, calls, undefined, { results }));
+// The correctness entry that transcripts writes for `coverageCase` from a session with the tool calls `calls`, the
+// tool results `results`, the working directory `cwd`, and the error results `isError` (see toolTranscript).
+function correctnessEntry({ ws, sessions, caseDir, runDir }, { calls, results = {}, cwd, isError }) {
+  put(
+    sessions,
+    'Code7C3LowR1Correctness.jsonl',
+    toolTranscript(caseDir, 30, calls, undefined, { results, cwd, isError }),
+  );
   assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7C3LowR1Correctness']);
   return readJson(path.join(runDir, 'meta.json')).reviewers.correctness;
 }
@@ -7317,28 +7353,50 @@ test('transcripts gives a reviewer the share of the lines of its own diff that i
   // The shown range of a cut output decides: omp showed 3 lines after the range 1-300, and 1 line before line 51.
   assert.equal(coverage([`${focus}:1-300`, cut(400, 1, 303)]), share(303));
   assert.equal(coverage([`${focus}:51`, cut(400, 50, 350)]), share(301));
-  // Without a cut, the selector decides, up to the last line of the diff.
+  // The line numbers of the shown rows decide before the shown range and the selector. omp shows 1 line before and 3
+  // lines after a single range that is not raw, and it can add lines outside the shown range of a cut output (here
+  // lines 343 and 352, each after an elision row).
+  assert.equal(coverage([`${focus}:381`, shown(uncut(400), lineSpan(380, 400))]), share(21));
+  assert.equal(coverage([`${focus}:51-80`, shown(uncut(400), lineSpan(50, 83))]), share(34));
+  assert.equal(coverage([`${focus}:-30`, shown(uncut(400), lineSpan(370, 400))]), share(31));
+  assert.equal(coverage([focus, shown(cut(400, 1, 300), [...lineSpan(1, 300), null, 343, null, 352])]), share(302));
+  assert.equal(coverage([`${focus}:381:raw`, shown(cut(400, 381, 381), [381])]), share(1));
+  // Without line numbers and without a cut, the selector decides, up to the last line of the diff.
   assert.equal(coverage([`${focus}:301-500`, uncut(400)]), share(100));
   assert.equal(coverage([`${focus}:51+20`, uncut(400)]), share(20));
-  assert.equal(coverage([`${focus}:381`, uncut(400)]), share(20));
   assert.equal(coverage([`${focus}:391-`, uncut(400)]), share(10));
-  assert.equal(coverage([`${focus}:-30`, uncut(400)]), share(30));
   assert.equal(coverage([`${focus}:raw:11-20`, uncut(400)]), share(10));
   assert.equal(coverage([`${focus}:11-20:raw`, uncut(400)]), share(10));
-  // omp gives no totalLines for a comma list, and a single line of the list is one line.
-  assert.equal(coverage([`${focus}:1-3,8-9`, {}]), share(5));
-  assert.equal(coverage([`${focus}:2-3,7,398-410`, {}]), share(6));
+  // A lone line with `:raw` is that line only. `L` prefixes and `..` ranges name the same lines as the plain ranges,
+  // and `:img` and `:conflicts` show no line of the file.
+  assert.equal(coverage([`${focus}:381:raw`, uncut(400)]), share(1));
+  assert.equal(coverage([`${focus}:L5-L9`, uncut(400)]), share(5));
+  assert.equal(coverage([`${focus}:5..9`, uncut(400)]), share(5));
+  assert.equal(coverage([`${focus}:img`, uncut(400)]), 0);
+  assert.equal(coverage([`${focus}:conflicts`, uncut(400)]), 0);
+  // omp gives no line numbers and no totalLines for a raw comma list, and a single line of the list is one line.
+  assert.equal(coverage([`${focus}:1-3,8-9:raw`, {}]), share(5));
+  assert.equal(coverage([`${focus}:2-3,7,398-410:raw`, {}]), share(6));
   // A line that several reads showed counts once.
   assert.equal(coverage([`${focus}:1-300`, cut(400, 1, 303)], [`${focus}:301-500`, uncut(400)]), 1);
   assert.equal(
-    coverage([`${focus}:1-10`, uncut(400)], [`${focus}:5-15`, uncut(400)], [`${focus}:1-3,8-9`, {}]),
+    coverage([`${focus}:1-10`, uncut(400)], [`${focus}:5-15`, uncut(400)], [`${focus}:1-3,8-9:raw`, {}]),
     share(15),
   );
   // Reads of other files show no line of the own diff, and a read without a tool result shows none.
   assert.equal(coverage([full, uncut(30)], [`${full}:1-30`, uncut(30)], [`${focus}:1-4`, uncut(400)]), share(4));
   assert.equal(coverage([`${focus}:1-200`, null]), 0);
-  // A search of the own diff shows none of its lines, and a reviewer without a tool call read none.
-  assert.equal(correctnessEntry(fixture, { calls: [['grep', { pattern: 'line', path: focus }]] }).diffCoverage, 0);
+  // An error result shows no line: omp did not run the call.
+  const failed = readSession([[`${focus}:1-200`, { isError: true, error: 'The tool was not run.' }]]);
+  assert.equal(correctnessEntry(fixture, { ...failed, isError: true }).diffCoverage, 0);
+  // A relative path resolves against the working directory of the session.
+  const relative = readSession([['code-7/focus-correctness.diff:1-10', uncut(400)]]);
+  assert.equal(correctnessEntry(fixture, { ...relative, cwd: fixture.ws }).diffCoverage, share(10));
+  assert.equal(correctnessEntry(fixture, relative).diffCoverage, 0);
+  // A search of the own diff shows none of its lines, also with a tool result, and a reviewer without a tool call
+  // read none.
+  const grep = { calls: [['grep', { pattern: 'line', path: focus }]], results: { 'call-1': { matchCount: 400 } } };
+  assert.equal(correctnessEntry(fixture, grep).diffCoverage, 0);
   assert.equal(correctnessEntry(fixture, { calls: [] }).diffCoverage, 0);
   // The share is exact, next to the other facts of the entry.
   assert.deepEqual(correctnessEntry(fixture, readSession([[`${focus}:1-300`, cut(400, 1, 303)]])), {
@@ -7346,6 +7404,102 @@ test('transcripts gives a reviewer the share of the lines of its own diff that i
     readScope: { outside: [] },
     diffCoverage: 0.7575,
   });
+});
+
+test('transcripts counts a line that omp cut at its column limit only from a read that showed it whole', (t) => {
+  const fixture = coverageCase(t);
+  const focus = path.join(fixture.caseDir, 'focus-correctness.diff');
+  // A focus diff of 10 lines: lines 3 and 7 have 769 characters, one more than the column limit of 768, and line 5
+  // has 768 characters.
+  const length = { 3: 769, 5: 768, 7: 769 };
+  const line = (number) => (length[number] ? `+${'x'.repeat(length[number] - 1)}` : `+line ${number}`);
+  put(
+    fixture.caseDir,
+    'focus-correctness.diff',
+    lineSpan(1, 10)
+      .map((number) => `${line(number)}\n`)
+      .join(''),
+  );
+  // The details of a read result whose output omp cut at 768 characters in the lines first to last.
+  const columnCut = (details, first, last) => ({
+    ...details,
+    meta: { limits: { columnTruncated: { maxColumn: 768, unit: 'chars', lines: { first, last }, selectorBase: '' } } },
+  });
+  const coverage = (...readList) => correctnessEntry(fixture, readSession(readList)).diffCoverage;
+  // A read that cut lines shows them cut, so they count only from a raw read, which shows each line whole.
+  assert.equal(coverage([focus, columnCut(shown(uncut(10), lineSpan(1, 10)), 3, 7)]), 0.8);
+  assert.equal(coverage([`${focus}:1-4`, columnCut(shown(uncut(10), lineSpan(1, 7)), 3, 7)]), 0.5);
+  assert.equal(
+    coverage([focus, columnCut(shown(uncut(10), lineSpan(1, 10)), 3, 7)], [`${focus}:3:raw`, shown(uncut(10), [3])]),
+    0.9,
+  );
+  assert.equal(coverage([`${focus}:raw`, shown(uncut(10), lineSpan(1, 10))]), 1);
+  // Without a column cut in the result, the read showed each of its lines whole.
+  assert.equal(coverage([focus, shown(uncut(10), lineSpan(1, 10))]), 1);
+});
+
+test('transcripts counts the part of a list read that names the own diff with the selector of that part', (t) => {
+  const fixture = coverageCase(t);
+  const focus = path.join(fixture.caseDir, 'focus-correctness.diff');
+  const full = path.join(fixture.caseDir, 'full.diff');
+  const coverage = (...readList) => correctnessEntry(fixture, readSession(readList)).diffCoverage;
+  const share = (lines) => lines / 400;
+  // The details of the tool result of a read that omp read as a list of the paths `targets`: omp records each path in
+  // displayReadTargets and a note for each path of `unread` that it could not read, but no lines of the paths.
+  const list = (targets, unread = []) => ({
+    notes: [
+      `Note: interpreted as ${targets.length} paths: ${targets.join(', ')}`,
+      ...unread.map((target) => `Could not read ${target}: Path '${target}' not found`),
+    ],
+    displayReadTargets: targets,
+  });
+  // omp split a raw comma list after its first range into two paths, and the second path read no file.
+  const split = [`${focus}:1-100:raw`, '246-363:raw'];
+  assert.equal(coverage([`${focus}:1-100:raw,246-363:raw`, list(split, ['246-363:raw'])]), share(100));
+  // A list of two files shows the lines of the selector of the own diff part.
+  assert.equal(coverage([`${full};${focus}:51-60`, list([full, `${focus}:51-60`])]), share(10));
+  assert.equal(coverage([`${focus}:raw;${full}`, list([`${focus}:raw`, full])]), 1);
+  // Without a record, the paths of the list come from the delimiter, as omp splits them.
+  assert.equal(coverage([`${full};${focus}:301-`, {}]), share(100));
+  // A part that omp could not read shows no line.
+  assert.equal(coverage([`${focus}:1-10;${full}`, list([`${focus}:1-10`, full], [`${focus}:1-10`])]), 0);
+});
+
+test('transcripts counts a line of a focus diff that a read of the same section of the full diff showed', (t) => {
+  const fixture = coverageCase(t);
+  const focus = path.join(fixture.caseDir, 'focus-correctness.diff');
+  const full = path.join(fixture.caseDir, 'full.diff');
+  // The file section of `name`: its `diff --git` line and `count` changed lines, each with the sign `sign`.
+  const section = (name, count, sign = '+') => [
+    `diff --git a/${name} b/${name}`,
+    ...lineSpan(1, count).map((number) => `${sign}${name} ${number}`),
+  ];
+  const diffText = (...sections) =>
+    sections
+      .flat()
+      .map((line) => `${line}\n`)
+      .join('');
+  // full.diff has the sections of a.mjs (lines 1-5), b.mjs (6-10), c.mjs (11-14), and d.mjs (15-18). The focus diff has
+  // the same sections of a.mjs (lines 1-5) and c.mjs (6-9), a section of d.mjs with other lines (10-13), and a section
+  // of e.mjs (14-16) that full.diff does not have.
+  put(fixture.caseDir, 'full.diff', diffText(section('a', 4), section('b', 4), section('c', 3), section('d', 3)));
+  put(
+    fixture.caseDir,
+    'focus-correctness.diff',
+    diffText(section('a', 4), section('c', 3), section('d', 3, '-'), section('e', 2)),
+  );
+  const coverage = (...readList) => correctnessEntry(fixture, readSession(readList)).diffCoverage;
+  const share = (lines) => lines / 16;
+  // A read of the whole full diff shows the 9 lines of the sections of a.mjs and c.mjs.
+  assert.equal(coverage([full, shown(uncut(18), lineSpan(1, 18))]), share(9));
+  // A range of the full diff shows its lines of these sections only, also the lines of its context.
+  assert.equal(coverage([`${full}:11-12`, shown(uncut(18), lineSpan(10, 15))]), share(4));
+  assert.equal(coverage([`${full}:11-12`, uncut(18)]), share(2));
+  // A line that a read of the full diff and a read of the focus diff showed counts once.
+  assert.equal(coverage([full, shown(uncut(18), lineSpan(1, 18))], [`${focus}:1-3,14-16:raw`, {}]), share(12));
+  // A line that the read of the full diff showed cut does not count: here each line is longer than 3 characters.
+  const columnCut = { meta: { limits: { columnTruncated: { maxColumn: 3, unit: 'chars' } } } };
+  assert.equal(coverage([full, shown({ ...uncut(18), ...columnCut }, lineSpan(1, 18))]), 0);
 });
 
 test('transcripts measures each reviewer on its own diff: the focus, full, or delta diff of its run or round', (t) => {
@@ -7386,6 +7540,10 @@ test('transcripts measures each reviewer on its own diff: the focus, full, or de
   // A full review reads the full diff, and a delta review the delta diff.
   review('B0-low', undefined, 'full', [`${full}:6-20`, uncut(20)], [focus, uncut(10)]);
   review('Bd-low', undefined, 'delta');
+  // The self-review of the full diff reads the full diff, and a self-review lens the focus diff of its lens.
+  review('S1-low', undefined, 'self-review', [`${full}:1-5`, uncut(20)], [focus, uncut(10)]);
+  review('S3-low', undefined, 'self-review-correctness', [`${focus}:1-8`, uncut(10)], [full, uncut(20)]);
+  review('S3-low', undefined, 'self-review-spec-and-tests', [focus, uncut(10)], [full, uncut(20)]);
   // Round 1 of a loop reviews the diffs of the case folder, and a later round the diffs of its round folder.
   review('C1-low', 1, 'full', [`${full}:1-10`, uncut(20)]);
   review('C1-low', 2, 'delta', [delta, uncut(4)], [`${roundDiff(2, 'delta.diff')}:3-6`, uncut(6)]);
@@ -7394,10 +7552,12 @@ test('transcripts measures each reviewer on its own diff: the focus, full, or de
   put(runDir('C3-low'), 'meta.json', { config: low, reviewers: { 'text-and-safety': { diffCoverage: 1 } } });
   put(runDir('B0-low'), 'meta.json', { config: low });
   put(runDir('Bd-low'), 'meta.json', { config: low });
+  put(runDir('S1-low'), 'meta.json', { config: low });
+  put(runDir('S3-low'), 'meta.json', { config: low });
   put(roundDir(1), 'meta.json', { config: low, mode: 'full' });
   put(roundDir(2), 'meta.json', { config: low, mode: 'delta' });
   put(roundDir(3), 'meta.json', { config: low, mode: 'full' });
-  assert.equal(transcriptsCommand(ws, sessions).length, 8);
+  assert.equal(transcriptsCommand(ws, sessions).length, 11);
   // The diffCoverage of each reviewer entry of the meta.json in `dir`, or `none` for an entry without the field.
   const coverages = (dir) => {
     const { reviewers } = readJson(path.join(dir, 'meta.json'));
@@ -7409,6 +7569,8 @@ test('transcripts measures each reviewer on its own diff: the focus, full, or de
   assert.deepEqual(coverages(runDir('B0-low')), { full: 0.75 });
   // The delta reviewer made no tool call, so it read none of its delta diff.
   assert.deepEqual(coverages(runDir('Bd-low')), { delta: 0 });
+  assert.deepEqual(coverages(runDir('S1-low')), { 'self-review': 0.25 });
+  assert.deepEqual(coverages(runDir('S3-low')), { 'self-review-correctness': 0.8, 'self-review-spec-and-tests': 0 });
   assert.deepEqual(coverages(roundDir(1)), { full: 0.5 });
   assert.deepEqual(coverages(roundDir(2)), { delta: 4 / 6 });
   // The full diff of round 3 has no line, so its reviewer gets no value.
@@ -7455,7 +7617,8 @@ test('report.md gives the mean diff coverage of the valid runs and the lowest di
   };
   const pairs = { cases: [{ case: 'code-7', kind: 'code', known: CODE_KNOWN.slice(0, 1), runs: [] }] };
   const judgments = { matches: [], adjudications: [] };
-  const report = renderReport(scoreRuns({ findings: { blocks, findings: [] }, pairs, judgments, metas }));
+  const scores = scoreRuns({ findings: { blocks, findings: [] }, pairs, judgments, metas });
+  const report = renderReport(scores);
   const [summaryHeader, , ...summaryRows] = tableAfter(report, '## Summary');
   assert.equal(
     summaryHeader,
@@ -7482,4 +7645,8 @@ test('report.md gives the mean diff coverage of the valid runs and the lowest di
     '| code-7 | C3 | run-4 | 0.00 | - | 0 | 0 | 0 | 0 | 0 | 0 | - | 0.10 | - | - | blocked | correctness: pass, spec-and-tests: pass, text-and-safety: blocked |',
     '| code-7 | L1 | run-1 | 0.00 | - | 0 | 0 | 0 | 0 | 0 | 0 | - | 0.50 | - | - | pass | delta: pass |',
   ]);
+  // The decision table of each arm or configuration column gives the mean over the reviewers of all rounds of its
+  // valid runs, as the summary gives it for each case.
+  const decision = tableAfter(renderReport(scores, { arms: ['B0', 'C3', 'L1'] }), '### Decision: -');
+  assert.ok(decision.includes('| Diff read mean | - | 0.71 | 0.75 |'), decision.join('\n'));
 });

@@ -1357,7 +1357,8 @@ function sharedCasesRow(reference, runsOf) {
 
 // The measures of the decision rule over all runs of a case group, with the intervals against the reference column.
 // With `sharedCases`, the table also gives the cases of each column and the cases that it shares with the reference
-// column, because the columns can hold different cases.
+// column, because the columns can hold different cases. `Diff read mean` is the mean of the read coverage of the
+// reviewers of all rounds of the runs (see scoreRun), as the summary gives it for one case.
 function decisionTable(runs, columns, columnOf, { reference, sharedCases }) {
   const runsOf = columnRuns(runs, columnOf);
   const base = reference ?? fewestEscaped(columns, runsOf);
@@ -1366,6 +1367,7 @@ function decisionTable(runs, columns, columnOf, { reference, sharedCases }) {
     ...(sharedCases ? [CASES_ROW] : []),
     ...KNOWN_ROWS.map(perRunRow),
     ['Escaped per 50 known', (list) => ratio(escapedPer50(list))],
+    ['Diff read mean', (list) => ratio(summarize(list.flatMap((run) => run.diffCoverages)).mean)],
     ...FACT_ROWS,
     ...(base === null ? [] : [...(sharedCases ? [sharedCasesRow(base, runsOf)] : []), ...intervalRows(base, runsOf)]),
   ];
@@ -1550,7 +1552,7 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
     'Recall is the number of known defects that at least one reviewer of a run found, divided by the known defects of the case.',
     'Unresolved is the number of known defects that a run did not find, where the judge answered unknown for a pair of the defect with a finding of the run.',
     'Unknown pairs is the number of unknown answers for pairs of a finding of the run and a known defect. Unresolved counts the known defects of those answers that can change recall.',
-    'Diff read is the share of the lines of the own diff of a reviewer (its focus, full, or delta diff) that its read results showed. The Runs table gives the lowest share of the reviewers of a run, and the summary gives the mean over the reviewers of its runs. It is an observation: it makes no run invalid.',
+    'Diff read is the share of the lines of the own diff of a reviewer (its focus, full, or delta diff) that its read results showed whole; a line of a focus diff also counts when a read of the full diff showed it. The Runs table gives the lowest share of the reviewers of a run. The summary and the decision tables give the mean over the reviewers of their runs. It is an observation: it makes no run invalid.',
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
     'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose reviewer transcripts show another model, effort, or served tier than their configuration; loops whose fixer transcripts show another model, effort, or served tier than the fixer setting; runs with a reviewer or a fixer without transcript facts or without a served assistant message, also a loop round that gave findings to the fixer and has no transcript facts of its fixer (for example a repair with --fixer-patch); loops with a fixer but without a fixer setting; runs with a reviewer that read a file outside the inputs of its run; and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
     `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% paired bootstrap interval of the difference from the reference column, over the cases that both columns ran. ${referenceNote} The loop seconds interval compares loop runs only.`,
@@ -2226,11 +2228,15 @@ function ownDiffFile(reviewer, folder) {
 }
 
 // The lines of a text as omp counts them in `totalLines`: the last newline ends the last line and starts no line.
-function lineCount(text) {
-  if (text === '') return 0;
-  const newlines = text.split('\n').length - 1;
-  return text.endsWith('\n') ? newlines : newlines + 1;
+function textLines(text) {
+  if (text === '') return [];
+  const lines = text.split('\n');
+  if (text.endsWith('\n')) lines.pop();
+  return lines;
 }
+
+// The line numbers from `start` to `end`; none when `end` is before `start`.
+const lineSpan = (start, end) => Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
 
 // The read selector of the read target `target` when the target names the file `file` (an absolute path): '' for a
 // target without a selector, else the selector as omp parses it (see OMP_SELECTOR). Null for a target that names
@@ -2264,52 +2270,112 @@ function selectorRanges(selector, last) {
   });
 }
 
-// The lines that the tool result `result` of a read call with the selector `selector` showed, as [start, end] ranges.
-// The shown range of the result decides when omp cut the output (it holds the context lines that omp adds around a
-// range), else the selector decides (see selectorRanges), up to the `totalLines` of the result, or up to `lines`, the
-// last line of the file, when the result has no totalLines (omp gives none for a comma list). A call without a tool
-// result and a result with an error show no line.
-function shownRanges(result, selector, lines) {
-  if (result === undefined || result.isError === true) return [];
-  const shown = result.details?.meta?.truncation?.shownRange;
-  if (Number.isInteger(shown?.start) && Number.isInteger(shown?.end)) return [[shown.start, shown.end]];
-  const total = result.details?.totalLines;
-  return selectorRanges(selector, Number.isInteger(total) ? total : lines);
-}
-
-// The count of the lines from 1 to `last` that at least one of the [start, end] ranges `ranges` holds.
-function coveredLines(ranges, last) {
-  let count = 0;
-  // The last line that the ranges before the current range hold.
-  let covered = 0;
-  for (const [start, end] of ranges.sort((a, b) => a[0] - b[0])) {
-    const from = Math.max(start, covered + 1);
-    const to = Math.min(end, last);
-    if (to < from) continue;
-    count += to - from + 1;
-    covered = to;
+// The lines of a file with the lines `lines` (see textLines) that the details `details` of the tool result of a read
+// call with the selector `selector` give as shown whole, as line numbers. The line numbers of the rows that omp showed
+// decide when the result has them (`displayContent.lineNumbers`, without the rows that show no line, such as an
+// elision row): they hold the context lines that omp adds around a range, also outside the shown range of a cut
+// output. Else the shown range decides when omp cut the output, else the selector decides (see selectorRanges), up to
+// the `totalLines` of the result, or up to the last line of the file when the result has no totalLines (omp gives
+// neither for a raw comma list). omp cuts a line of a read that is not raw after `maxColumn` characters (JavaScript
+// string length) and then records `meta.limits.columnTruncated`; a line longer than that limit shows cut, so it is
+// not shown whole.
+function resultLines(details, selector, lines) {
+  const rows = details?.displayContent?.lineNumbers;
+  const shown = details?.meta?.truncation?.shownRange;
+  const total = details?.totalLines;
+  let numbers;
+  if (Array.isArray(rows)) numbers = rows.filter(Number.isInteger);
+  else {
+    const ranges =
+      Number.isInteger(shown?.start) && Number.isInteger(shown?.end)
+        ? [[shown.start, shown.end]]
+        : selectorRanges(selector, Number.isInteger(total) ? total : lines.length);
+    numbers = ranges.flatMap(([start, end]) => lineSpan(start, end));
   }
-  return count;
+  const maxColumn = details?.meta?.limits?.columnTruncated?.maxColumn;
+  const whole = (line) => !Number.isInteger(maxColumn) || lines[line - 1].length <= maxColumn;
+  return numbers.filter((line) => line >= 1 && line <= lines.length && whole(line));
 }
 
-// The read coverage of a reviewer: the share of the lines of its own diff `file` (an absolute path, see ownDiffFile)
-// that the tool results of its `read` calls showed, as an exact ratio from 0 to 1, not rounded. A read call counts when
-// its path without the read selector names the file (see selectorOfRead), and its tool result gives its lines (see
-// shownRanges). A line that several reads showed counts once. Reads of other files and calls of other tools, for
-// example a grep of the file, show no line of it. The result is null when the file does not exist or has no line.
-// `calls` and `results` come from toolCallResults, and `cwd` is the working directory of the session.
-function diffCoverage({ calls, results }, file, cwd) {
-  if (!fs.existsSync(file)) return null;
-  const lines = lineCount(fs.readFileSync(file, 'utf8'));
-  if (lines === 0) return null;
-  const ranges = [];
+// The lines of the file `file` (an absolute path; `lines` are its lines, see textLines) that the tool results of the
+// `read` calls of `calls` showed, as a set of line numbers. A read call counts when its path without the read
+// selector names the file (see selectorOfRead), and its tool result gives its lines (see resultLines). A read that omp
+// read as a list of paths counts each path of the list as readLists finds them: the paths of the result
+// (recordedParts), else the paths of the delimiters (delimitedParts). omp records no lines of the paths of a list, so
+// the selector of each path decides. A call without a tool result, a result with an error, a read of another file,
+// and a call of another tool, for example a grep of the file, show no line of it. `calls` and `results` come from
+// toolCallResults, and `cwd` is the working directory of the session.
+function shownLines({ calls, results }, file, lines, cwd) {
+  const shown = new Set();
   for (const call of calls) {
     const value = call.arguments?.path;
     if (call.name !== 'read' || typeof value !== 'string') continue;
-    const selector = selectorOfRead(value.trim(), file, cwd);
-    if (selector !== null) ranges.push(...shownRanges(results.get(call.id), selector, lines));
+    const result = results.get(call.id);
+    if (result === undefined || result.isError === true) continue;
+    const target = value.trim();
+    const parts = recordedParts(result.details) ?? delimitedParts(target, cwd);
+    const reads = parts === null ? [[target, result.details]] : parts.map((part) => [part, undefined]);
+    for (const [read, details] of reads) {
+      const selector = selectorOfRead(read, file, cwd);
+      if (selector !== null) for (const line of resultLines(details, selector, lines)) shown.add(line);
+    }
   }
-  return coveredLines(ranges, lines) / lines;
+  return shown;
+}
+
+// The file sections of the diff lines `lines`: each from a `diff --git` line up to the next one or the end, as
+// [start, end] pairs of 0-based indexes, with `end` after the last line of the section.
+function diffSections(lines) {
+  const starts = [];
+  lines.forEach((line, index) => {
+    if (line.startsWith('diff --git ')) starts.push(index);
+  });
+  return starts.map((start, index) => [start, starts[index + 1] ?? lines.length]);
+}
+
+// The lines that the focus diff with the lines `focusLines` and the full diff with the lines `fullLines` share, as
+// [focus diff line, full diff line] pairs of line numbers. Each file section of the focus diff (see diffSections) maps
+// line for line to the first section of the full diff with the same `diff --git` line and the same lines; a section
+// without such a section in the full diff maps no line. prepare.mjs writes a focus diff as the diff of a part of the
+// changed files, so each of its sections is also a section of the full diff.
+function sharedSectionLines(focusLines, fullLines) {
+  const byHeader = new Map();
+  for (const [start, end] of diffSections(fullLines)) {
+    const header = fullLines[start];
+    if (!byHeader.has(header)) byHeader.set(header, []);
+    byHeader.get(header).push([start, end]);
+  }
+  const pairs = [];
+  for (const [start, end] of diffSections(focusLines)) {
+    const length = end - start;
+    const same = ([fullStart, fullEnd]) =>
+      fullEnd - fullStart === length &&
+      focusLines.slice(start, end).every((line, k) => line === fullLines[fullStart + k]);
+    const match = byHeader.get(focusLines[start])?.find(same);
+    if (match) for (let k = 0; k < length; k += 1) pairs.push([start + k + 1, match[0] + k + 1]);
+  }
+  return pairs;
+}
+
+// The read coverage of a reviewer: the share of the lines of its own diff `file` (an absolute path, see ownDiffFile)
+// that the tool results of its `read` calls showed (see shownLines), as an exact ratio from 0 to 1, not rounded. A
+// focus diff (`focus-<lens>.diff`, the own diff of a panel lens or a self-review lens) holds sections of `full.diff` in
+// the same folder, which the lens can read there. So a line of a focus diff also counts when the reads of that full
+// diff showed the same line of the same file section (see sharedSectionLines). A line that several reads showed
+// counts once. The result is null when the file does not exist or has no line. `tools` comes from toolCallResults,
+// and `cwd` is the working directory of the session.
+function diffCoverage(tools, file, cwd) {
+  if (!fs.existsSync(file)) return null;
+  const lines = textLines(fs.readFileSync(file, 'utf8'));
+  if (lines.length === 0) return null;
+  const shown = shownLines(tools, file, lines, cwd);
+  const full = path.join(path.dirname(file), 'full.diff');
+  if (path.basename(file).startsWith('focus-') && fs.existsSync(full)) {
+    const fullLines = textLines(fs.readFileSync(full, 'utf8'));
+    const fullShown = shownLines(tools, full, fullLines, cwd);
+    for (const [line, fullLine] of sharedSectionLines(lines, fullLines)) if (fullShown.has(fullLine)) shown.add(line);
+  }
+  return shown.size / lines.length;
 }
 
 // The reviewers run in the live checkout, which holds the fixes of the corpus defects, so a reviewer that reads a
