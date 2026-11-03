@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-03"
-  content_hash: "7bd1faa33e2cb5fa574452f9e9ad6d736c90e9ef0c3fc87a6c719696aa2a7fdf"
+  content_hash: "45bea0c21228a0f05c641f646be467299d63baa49eef2d8600b50428df986e41"
 ---
 
 # Effect (TypeScript)
@@ -214,7 +214,7 @@ The entry-file check finds `Effect.run*` calls outside the entry files. The type
 )
 ```
 
-Each command must exit 0. A failed check means that you fix the code. It never means that you add a suppression.
+Each command must exit 0. A failed check means that you fix the code. It never means that you add a suppression. Before a command becomes the gate, run it once on the current tree and fix what it reports, for example a missing `@types/*` package that `compilerOptions.types` names.
 
 ## Gotchas
 
