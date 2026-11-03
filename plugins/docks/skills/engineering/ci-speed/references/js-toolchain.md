@@ -26,8 +26,7 @@ Use this file to make the continuous integration (CI) install, format, lint, and
 - Also cache the `pnpm cache path` directory. The pnpm docs say that a store cache alone may not make the install faster.
 - `npm ci` deletes an existing `node_modules`. Cache `~/.npm`, not `node_modules`.
 - Let only trusted events write dependency caches, such as `push` to the default branch. `github-actions.md` explains the cache scope.
-- In jobs without browser tests, set `CYPRESS_INSTALL_BINARY=0` and `PUPPETEER_SKIP_DOWNLOAD=true`. Bun jobs need them too.
-- In the end-to-end (E2E) job, run `cypress install`. Cache the `CYPRESS_CACHE_FOLDER` directory.
+- In jobs without browser tests, set `CYPRESS_INSTALL_BINARY=0` and `PUPPETEER_SKIP_DOWNLOAD=true`. Bun jobs need them too. In the end-to-end (E2E) job, run `cypress install`. Cache the `CYPRESS_CACHE_FOLDER` directory.
 - In a monorepo, install only the packages that the job needs: `pnpm install --filter "<pkg>..."` or `bun install --filter "<pkg>..."`. The Linear engineering team measured a filtered install faster than a `node_modules` cache restore. Measure both on your repository.
 
 ## Format
@@ -65,8 +64,7 @@ Oxlint implements many rules from ESLint core, typescript-eslint, React, Jest, V
 
 TypeScript 7 `tsc` is the native compiler and the default checker. Install the `typescript` package at major 7. Do not add `@typescript/native-preview` or `tsgo`: the `tsc` of TypeScript 7 supersedes them.
 
-- `--checkers <n>` sets the checker worker count. In TypeScript 7.0, the default is 4 ([announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/)). `--builders <n>` applies to `tsc -b` and multiplies with `--checkers`.
-- Give `--checkers` one fixed value in every environment, because different values can rarely change results. Other tools detect the cores, such as Vitest `maxWorkers` and Bun.
+- `--checkers <n>` sets the checker worker count. In TypeScript 7.0, the default is 4 ([announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/)). `--builders <n>` applies to `tsc -b` and multiplies with `--checkers`. Give `--checkers` one fixed value in every environment, because different values can rarely change results. Other tools detect the cores, such as Vitest `maxWorkers` and Bun.
 - For a warm start, set `incremental`. Cache the `.tsbuildinfo` files, keyed on the lockfile and the tsconfig files, with a restore key. Before you rely on that cache, compare a warm run and a clean run on the same commit.
 - TypeScript 7 turns TypeScript 6 defaults and deprecations into errors, for example `baseUrl` and `moduleResolution: node10`. Plan that migration as its own change.
 - Another option is `oxlint --type-aware --type-check`. It reports TypeScript errors in the lint run. It is experimental.
@@ -84,12 +82,15 @@ TypeScript 7.0 has no programmatic application programming interface (API). Tool
 - If `package.json` has a `check` script, `bun check` runs that script. Pass `--no-script`, or name the script `typecheck`. Do not define `"check": "bun check"`: a Bun version without the checker runs it in an endless loop.
 - Inside GitHub Actions, it prints `::error` annotations. Add `--threads <n>` on shared runners.
 
-Before you switch checkers, prove parity on the same commit. Compare error codes and counts, because the output formats differ. Then add one known type error. Both checkers must fail, and both outputs must list its code.
+Before you switch checkers, prove parity on the same commit. The script `parity.sh` below compares error codes and counts, because the output formats differ. Run `bash parity.sh` on the commit. Then run `bash parity.sh <code>` on a commit with one planted error of that code, for example `TS2322`. Exit 1 means that the counts differ. Exit 2 means that a checker did not start, the exit statuses differ, or an output lacks the planted code.
 
 ```bash
-# Read each exit status: a checker that did not start also prints no TS codes.
-bun x --no-install tsc --noEmit --pretty false > old.txt; echo "tsc exit: $?"   # the checker in use
-bun check --no-script --no-pretty > new.txt; echo "bun check exit: $?"          # the candidate
+planted=${1-}   # empty on the clean run
+if bun x --no-install tsc --noEmit --pretty false > old.txt 2>&1; then old=0; else old=$?; fi   # the checker in use; "if" keeps the status with and without set -e
+if bun check --no-script --no-pretty > new.txt 2>&1; then new=0; else new=$?; fi                # the candidate
+if [ "$old" = 127 ] || [ "$new" = 127 ] || grep -qE '^error: (Script not found|Could not find an existing)' old.txt new.txt; then echo 'a checker did not start'; exit 2; fi   # Bun exits 1, not 127, for a missing script or binary
+if [ "$old" != "$new" ]; then echo "exit statuses differ: $old and $new"; exit 2; fi
+if [ -n "$planted" ] && { [ "$old" = 0 ] || ! grep -qw -- "$planted" old.txt || ! grep -qw -- "$planted" new.txt; }; then echo "both checkers must fail and list $planted"; exit 2; fi
 diff <(grep -oE 'TS[0-9]+' old.txt | sort | uniq -c) <(grep -oE 'TS[0-9]+' new.txt | sort | uniq -c)
 ```
 

@@ -72,9 +72,11 @@ jobs:
 
 ## Pattern 3: scheduled guard
 
-Optional. A scheduled workflow on a GitHub-hosted runner checks two things: the month-to-date Blacksmith cost against `CI_BLACKSMITH_BUDGET`, and jobs that wait too long for a `blacksmith-` label. Set `CI_BLACKSMITH_BUDGET` to a plain-number copy of the Spending Alerts threshold, because the `blacksmith` CLI cannot read the threshold. On either finding, the guard sets `CI_FORCE_GITHUB=1` for Pattern 2 and switches the label variables of Pattern 1 to GitHub-hosted labels. Then it cancels and re-runs the stuck runs. A re-run serves the required checks of a pull request, and a `workflow_dispatch` run does not (https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
+Optional. Use Pattern 3 only in a repository that can use environments, because the guard keeps its secrets in an environment. Public repositories have environments on every plan. Private repositories need GitHub Pro, Team, or Enterprise (https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments, https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments#environment-secrets). Without environments, set a Spending Alerts threshold in Blacksmith (https://docs.blacksmith.sh/introduction/settings). When its email arrives, switch the variables with the Pattern 1 commands.
 
-- Warning: a Blacksmith organization token can manage the cache entries and sticky disks of every installed repository (https://docs.blacksmith.sh/blacksmith-cli/overview). So store it only as the secret `BLACKSMITH_ORG_TOKEN` of an environment that only the default branch can deploy to. Add no required reviewers, because a reviewer blocks each scheduled run (https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments). Pull request runs never receive the token. An admin creates it with `blacksmith org-token create`. On a GitHub Free plan, private repositories have no environments, so leave out the cost check there.
+A scheduled workflow on a GitHub-hosted runner checks two things: the month-to-date Blacksmith cost against `CI_BLACKSMITH_BUDGET`, and jobs that wait too long for a `blacksmith-` label. Set `CI_BLACKSMITH_BUDGET` to a plain-number copy of the Spending Alerts threshold, because the `blacksmith` CLI cannot read the threshold. On either finding, the guard sets `CI_FORCE_GITHUB=1` for Pattern 2 and switches the label variables of Pattern 1 to GitHub-hosted labels. Then it cancels and re-runs the stuck runs. A re-run serves the required checks of a pull request, and a `workflow_dispatch` run does not (https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
+
+- Warning: a Blacksmith organization token can manage the cache entries and sticky disks of every installed repository (https://docs.blacksmith.sh/blacksmith-cli/overview). So store it only as the secret `BLACKSMITH_ORG_TOKEN` of an environment that only the default branch can deploy to. Add no required reviewers, because a reviewer blocks each scheduled run (https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments). Pull request runs never receive the token. An admin creates it with `blacksmith org-token create`.
 - `GITHUB_TOKEN` cannot write variables (https://docs.github.com/en/rest/actions/variables). Create a GitHub App with the repository permission Variables (read and write). Install it on the repository. Put its client ID in the variable `CI_GUARD_APP_CLIENT_ID` and its private key in the environment secret `CI_GUARD_APP_KEY`. The job mints a token each run, because installation tokens expire after 1 hour (https://github.com/actions/create-github-app-token).
 
 ```yaml
@@ -90,20 +92,20 @@ jobs:
     environment: { name: runner-guard, deployment: false }   # default branch only; no deployment record per run
     env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
     steps:
-      - run: curl -fsSL https://get.blacksmith.sh | BLACKSMITH_INSTALL_DIR="$RUNNER_TEMP/bin" sh && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"   # no secret in this step
+      - continue-on-error: true                           # a failed install, for example in a Blacksmith outage, must not stop the guard
+        run: curl -fsSL https://get.blacksmith.sh | BLACKSMITH_INSTALL_DIR="$RUNNER_TEMP/bin" sh && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"   # no secret in this step
       - id: decide
         env: { BLACKSMITH_TOKEN: '${{ secrets.BLACKSMITH_ORG_TOKEN }}', BLACKSMITH_DISABLE_AUTO_UPDATE: '1', BUDGET: '${{ vars.CI_BLACKSMITH_BUDGET }}' }
         run: |
-          cost=$(printf '%s\n' "$BLACKSMITH_TOKEN" | blacksmith auth login --api-token - --non-interactive --organization <org> > /dev/null &&
+          cost=$(command -v blacksmith > /dev/null && printf '%s\n' "$BLACKSMITH_TOKEN" | blacksmith auth login --api-token - --non-interactive --organization <org> > /dev/null &&
             blacksmith usage --start-time "$(date -u +%Y-%m-01T00:00:00Z)" --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | jq -r '<cost-path>') || cost=invalid
-          num='^[0-9]+([.][0-9]+)?$'; over=true            # a missing or invalid number counts as over budget
+          num='^[0-9]+([.][0-9]+)?$'; over=true            # no CLI, a failed login, or an invalid number counts as over budget
           if [[ $cost =~ $num && $BUDGET =~ $num ]] && awk -v c="$cost" -v b="$BUDGET" 'BEGIN { exit !(c+0 < b+0) }'; then over=false; fi
           for s in queued in_progress; do gh api --paginate "repos/$GH_REPO/actions/runs?status=$s&per_page=100" --jq '.workflow_runs[].id'; done > runs.txt
           while read -r id; do                            # runs with a job that waits over 900 s for a blacksmith- label
             gh api --paginate "repos/$GH_REPO/actions/runs/$id/jobs?per_page=100" \
               --jq "if any(.jobs[]; .status == \"queued\" and any(.labels[]; startswith(\"blacksmith-\")) and now - (.created_at | fromdate) > 900) then $id else empty end"
-          done < runs.txt > hits.txt
-          sort -u hits.txt > stuck.txt
+          done < runs.txt > hits.txt; sort -u hits.txt > stuck.txt
           switch=false; if [ "$over" = true ] || [ -s stuck.txt ]; then switch=true; fi
           echo "cost=$cost budget=$BUDGET over=$over stuck_runs=$(wc -l < stuck.txt) switch=$switch"; echo "switch=$switch" >> "$GITHUB_OUTPUT"
       - id: app
@@ -120,7 +122,7 @@ jobs:
           while read -r id; do gh run cancel "$id"; done < stuck.txt
           while read -r id; do gh run watch "$id" > /dev/null; gh run rerun "$id"; done < stuck.txt   # a run must stop before it can re-run
 ```
-- The usage output schema is not documented. Run `blacksmith usage --since 30d` once. Copy the path of the estimated cost into `<cost-path>` (https://docs.blacksmith.sh/blacksmith-cli/usage).
+- The usage output schema is not documented. Run `blacksmith usage --since 30d` once. Copy the path of the estimated cost into `<cost-path>` (https://docs.blacksmith.sh/blacksmith-cli/usage). Then check that `blacksmith usage --since 30d | jq -r '<cost-path>'` prints a number.
 - After a switch, check the runner label of each re-run with the command in [Proof](#proof). If a re-run still asks for a `blacksmith-` label, push a new commit. The guard never switches back. When Blacksmith works again and the budget allows, run `gh variable delete CI_FORCE_GITHUB`. Then delete the label variables, or set them back to the Blacksmith labels.
 - The schedule starts 144 runs per day. In private repositories, GitHub bills each job at least one minute (https://docs.github.com/en/billing/reference/actions-runner-pricing). Scheduled runs can start late or drop at high load. GitHub disables a schedule in a public repository after 60 days without repository activity (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 
@@ -145,5 +147,4 @@ jobs:
 1. Pattern 1: run `gh variable set CI_RUNNER_LINUX --body blacksmith-4vcpu-ubuntu-2404`. Push a commit. Then run `gh variable delete CI_RUNNER_LINUX` and push again.
 2. Pattern 2: run `gh variable set CI_FORCE_GITHUB --body 1`. Push a commit. Then run `gh variable delete CI_FORCE_GITHUB` and push again.
 3. For each run, print the label and the runner of every job: `gh api "repos/OWNER/REPO/actions/runs/<run-id>/jobs" --jq '.jobs[] | [.name, (.labels | join(",")), .runner_name] | @tsv'`. Check each label against the mode. The "Set up job" log also names the runner.
-4. Pattern 3: check that `<cost-path>` prints a number: `blacksmith usage --since 30d | jq -r '<cost-path>'`.
-5. Pattern 3: run `gh workflow run <guard-file>.yml -f dry_run=true`. Read the `over=` and `switch=` lines with `gh run view <run-id> --log`. Check with `gh variable list` that no variable changed.
+4. Pattern 3: run `gh workflow run <guard-file>.yml -f dry_run=true`. Read the `over=` and `switch=` lines with `gh run view <run-id> --log`. Check with `gh variable list` that no variable changed.
