@@ -82,14 +82,15 @@ TypeScript 7.0 has no programmatic application programming interface (API). Tool
 - If `package.json` has a `check` script, `bun check` runs that script. Pass `--no-script`, or name the script `typecheck`. Do not define `"check": "bun check"`: a Bun version without the checker runs it in an endless loop.
 - Inside GitHub Actions, it prints `::error` annotations. Add `--threads <n>` on shared runners.
 
-Before you switch checkers, prove parity on the same commit. The script `parity.sh` below compares error codes and counts, because the output formats differ. Run `bash parity.sh` on the commit. Then run `bash parity.sh <code>` on a commit with one planted error of that code, for example `TS2322`. Exit 1 means that the counts differ. Exit 2 means that a checker did not start, the exit statuses differ, or an output lacks the planted code.
+Before you switch checkers, prove parity on the same commit. The script `parity.sh` below compares error codes and counts, because the output formats differ. Run `bash parity.sh` on the commit. Then run `bash parity.sh <code>` on a commit with one planted error of that code, for example `TS2322`. Exit 1 means that the counts differ. Exit 2 means that a checker did not start, one checker passed while the other found errors, or an output lacks the planted code.
 
 ```bash
 planted=${1-}   # empty on the clean run
 if bun x --no-install tsc --noEmit --pretty false > old.txt 2>&1; then old=0; else old=$?; fi   # the checker in use; "if" keeps the status with and without set -e
 if bun check --no-script --no-pretty > new.txt 2>&1; then new=0; else new=$?; fi                # the candidate
 if [ "$old" = 127 ] || [ "$new" = 127 ] || grep -qE '^error: (Script not found|Could not find an existing)' old.txt new.txt; then echo 'a checker did not start'; exit 2; fi   # Bun exits 1, not 127, for a missing script or binary
-if [ "$old" != "$new" ]; then echo "exit statuses differ: $old and $new"; exit 2; fi
+class() { case $1 in 0) echo clean ;; 1|2) echo errors ;; *) echo failed ;; esac; }   # tsc exits 1 or 2 on diagnostics, depending on emit; bun check exits 1
+if [ "$(class "$old")" = failed ] || [ "$(class "$new")" = failed ]; then echo "a checker failed to run: $old and $new"; exit 2; elif [ "$(class "$old")" != "$(class "$new")" ]; then echo "one checker passed and one found errors: $old and $new"; exit 2; fi
 if [ -n "$planted" ] && { [ "$old" = 0 ] || ! grep -qw -- "$planted" old.txt || ! grep -qw -- "$planted" new.txt; }; then echo "both checkers must fail and list $planted"; exit 2; fi
 diff <(grep -oE 'TS[0-9]+' old.txt | sort | uniq -c) <(grep -oE 'TS[0-9]+' new.txt | sort | uniq -c)
 ```

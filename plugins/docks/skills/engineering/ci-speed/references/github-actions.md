@@ -20,12 +20,12 @@ Snippets pin action majors. The release marked Latest can be an older major. So 
 
 ```yaml
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: true # stale pull request runs stop; default-branch runs never share a group
 ```
 
 - Warning: in one group, GitHub replaces an older pending run with the newer one, even with `cancel-in-progress: false`. So never put default-branch runs in a shared group.
-- On `pull_request` events, `github.ref` is `refs/pull/<N>/merge`, so each pull request gets one group ([`pull_request`](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)). Every other run gets its own group through `github.run_id`. Never key the group on the source branch name: two fork pull requests from branches with the same name then cancel each other.
+- Pull request events carry `github.event.pull_request.number`, so each pull request gets one group, also for `closed` events, whose `github.ref` is the target branch ([`pull_request`](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)). Every other run gets its own group through `github.run_id`. Never key the group on the source branch name (`github.head_ref`): two fork pull requests from branches with the same name then cancel each other.
 - Keep `github.workflow` in the group. Without it, two workflows cancel each other. A group can use only the `github`, `inputs`, and `vars` contexts ([concurrency](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency)).
 
 ## Path filters and required checks
