@@ -103,7 +103,8 @@ GitHub Actions steps for a job with `timeout-minutes` and a checkout with `persi
 ```yaml
 - run: bun install --frozen-lockfile
 - run: bun run typecheck
-- run: bun x --no-install effect-tsgo diagnostics --project tsconfig.json --format github-actions --strict
+- if: ${{ !cancelled() }} # annotate also when the type check failed
+  run: bun x --no-install effect-tsgo diagnostics --project tsconfig.json --format github-actions --strict
 # pnpm: pnpm install --frozen-lockfile, pnpm run typecheck, pnpm exec effect-tsgo diagnostics ...
 ```
 
