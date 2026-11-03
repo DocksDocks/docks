@@ -57,6 +57,7 @@ Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfa
 | `react-component-patterns` | React 19+ effects (3 acceptable categories) + composition (compound, slot/`asChild`, polymorphic, headless, provider+hook, cva variants) |
 | `solid` | Generic SOLID for TS/Python/Go modules — strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate — TS primary; references for Rust/Kotlin/Python |
+| `ci-speed` | Slow or costly CI and test runs — queue time, checkout, installs, caches, lint, type check, tests, sharding, affected-only runs, pre-push hooks, Blacksmith runners with a GitHub-hosted fallback |
 
 Plus `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-maintenance`, `write-skill`, and `zoom-out` under `productivity/`.
 
