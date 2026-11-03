@@ -25,7 +25,7 @@ concurrency:
 ```
 
 - Warning: in one group, GitHub replaces an older pending run with the newer one, even with `cancel-in-progress: false`. So never put default-branch runs in a shared group.
-- Pull request events carry `github.event.pull_request.number`, so each pull request gets one group, also for `closed` events, whose `github.ref` is the target branch ([`pull_request`](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)). Every other run gets its own group through `github.run_id`. Never key the group on the source branch name (`github.head_ref`): two fork pull requests from branches with the same name then cancel each other.
+- Pull request events carry `github.event.pull_request.number`, so each pull request gets one group. This also holds for a `closed` event of a merged pull request, whose `github.ref` is the target branch ([`pull_request`](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)). Every other run gets its own group through `github.run_id`. Never key the group on the source branch name (`github.head_ref`): two fork pull requests from branches with the same name then cancel each other.
 - Keep `github.workflow` in the group. Without it, two workflows cancel each other. A group can use only the `github`, `inputs`, and `vars` contexts ([concurrency](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency)).
 
 ## Path filters and required checks

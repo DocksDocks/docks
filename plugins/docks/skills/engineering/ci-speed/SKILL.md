@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-03"
-  content_hash: "9a1fdd2f71c57c1f62b08a18d080b126aaae8b345cf5948cb96442fca94979ee"
+  content_hash: "09695c4d2062706bf735bad662c61f5c90a3b932bf0611903eb736da7dd8d5ab"
 ---
 
 # CI Speed
