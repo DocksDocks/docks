@@ -62,6 +62,7 @@ Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfa
 | `solid` | Generic SOLID for TS/Python/Go modules - strategy maps, discriminated unions, fat-interface splits, dependency injection |
 | `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate - TS primary; references for Rust/Kotlin/Python |
 | `ci-speed` | Slow or costly CI and test runs - queue time, checkout, installs, caches, lint, type check, tests, sharding, affected-only runs, pre-push hooks, Blacksmith runners with a GitHub-hosted fallback |
+| `effect-ts` | TypeScript code that uses Effect v4 - services, layers, typed errors, `@effect/vitest` tests, Effect diagnostics as lint rules, agent rules that keep code on the installed version |
 
 The `productivity/` category contains `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-agent-pipeline`, `skill-maintenance`, `write-skill`, and `zoom-out`.
 
