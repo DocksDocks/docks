@@ -71,9 +71,9 @@ export class Greeter extends Context.Service<Greeter, {
 ```ts
 // test/Greeter.test.ts
 import { assert, describe, it, layer } from "@effect/vitest"
-import { Effect, Exit, Fiber, Schema } from "effect"
+import { Effect, Fiber, Schema } from "effect"
 import { TestClock } from "effect/testing"
-import { Greeter } from "../src/Greeter.ts"
+import { Greeter } from "../src/Greeter" // use the project's import-extension style
 
 layer(Greeter.layer)("Greeter", (it) => {
   it.effect("greets after the clock advances", () =>
@@ -85,8 +85,9 @@ layer(Greeter.layer)("Greeter", (it) => {
     }))
   it.effect("fails with a typed error", () =>
     Effect.gen(function*() {
-      const exit = yield* Effect.exit((yield* Greeter).greet(""))
-      assert.isTrue(Exit.isFailure(exit))
+      // flip moves the typed error to the success channel; a defect still fails the test
+      const error = yield* Effect.flip((yield* Greeter).greet(""))
+      assert.strictEqual(error._tag, "EmptyName")
     }))
 })
 describe("props", () => {
@@ -102,7 +103,7 @@ Replace each service with a layer. A test never calls the real network.
 ```ts
 import { assert, layer } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { Greeter } from "../src/Greeter.ts"
+import { Greeter } from "../src/Greeter" // use the project's import-extension style
 
 // A double has the same interface, so the code under test does not change
 const GreeterTest = Layer.succeed(Greeter, Greeter.of({ greet: (name) => Effect.succeed(`Hi ${name}`) }))
@@ -120,8 +121,8 @@ layer(GreeterTest)("with a double", (it) => {
 
 ## Assert failures
 
-- `Effect.flip` moves the typed error into the success channel. Then assert on `error._tag` and the error fields.
-- `Effect.exit` returns an `Exit`. Check it with `Exit.isFailure`.
+- `Effect.flip` moves the typed error into the success channel. Then assert on `error._tag` and the error fields. A defect or an interruption still fails the test.
+- Do not stop at `Exit.isFailure`: it also accepts defects and interruptions. Assert the error tag.
 - `@effect/vitest/utils` gives `assertExitSuccess` and `assertExitFailure` for an `Exit`, and `assertSuccess` and `assertFailure` for a `Result`.
 
 ## Names and helpers that do not exist

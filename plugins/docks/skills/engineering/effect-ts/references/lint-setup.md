@@ -15,21 +15,24 @@ The Effect language service reports Effect mistakes as diagnostics. This file co
 
 ## Pick the package
 
-| TypeScript major | Package | Binary |
-|---|---|---|
-| 7 | `@effect/tsgo` | `effect-tsgo` |
-| 5 or 6 | `@effect/language-service` | `effect-language-service` |
+| TypeScript major | Package | Binary | `$schema` in `tsconfig.json` |
+|---|---|---|---|
+| 7 | `@effect/tsgo` | `effect-tsgo` | `./node_modules/@effect/tsgo/schema.json` |
+| 5 or 6 | `@effect/language-service` | `effect-language-service` | `./node_modules/@effect/language-service/schema.json` |
 
-Both packages use the plugin name `@effect/language-service` in `tsconfig.json`. On TypeScript 5 or 6, the plugin loads only in the editor. Add `"prepare": "effect-language-service patch"`, so that plain `tsc` reports Effect diagnostics. After the patch, delete the `.tsbuildinfo` files. Use the schema `./node_modules/@effect/language-service/schema.json`. The rest of this file is for TypeScript 7.
+Both packages use the plugin name `@effect/language-service` in `tsconfig.json`. On TypeScript 5 or 6, the plugin loads only in the editor. The gate needs no patch: run `tsc --noEmit` and `effect-language-service diagnostics --project tsconfig.json --strict`. `effect-language-service patch` rewrites files in `node_modules/typescript/lib`, so the shared-store risk under [Scripts and CI](#scripts-and-ci) applies. After a patch, delete the `.tsbuildinfo` files. The rest of this file is for TypeScript 7.
 
 ## Install
 
-`@effect/tsgo` is pre-1.0. Pick a `typescript` version from the "Supported Package Versions" table in the tsgo README. Pin both packages exactly. Pin every Effect package to the exact `effect` version too.
+Each `@effect/tsgo` version supports the `typescript` versions in the "Supported Package Versions" table of its own README. The README on the GitHub default branch can name a tsgo version that is not on npm yet. Pin both packages exactly. `@effect/tsgo` has its own version numbers. Pin each Effect library package (`@effect/vitest`, `@effect/platform-*`, and others) to the exact `effect` version.
 
 ```sh
+npm view @effect/tsgo version   # the tsgo version on the npm latest tag
+# The support table of that version. npm view @effect/tsgo@<v> readme prints the README of the latest tag instead.
+curl -fsSL "$(npm view @effect/tsgo@<tsgo-version> dist.tarball)" | tar -xzO package/README.md | grep -n -A8 'Supported Package Versions'
 bun add -d -E @effect/tsgo@<tsgo-version> typescript@<typescript-version>    # Bun
 pnpm add -D -E @effect/tsgo@<tsgo-version> typescript@<typescript-version>   # pnpm
-grep -n -A8 'Supported Package Versions' node_modules/@effect/tsgo/README.md  # confirm the pair
+grep -n -A8 'Supported Package Versions' node_modules/@effect/tsgo/README.md  # confirm the installed pair
 ```
 
 ## tsconfig plugin block
@@ -93,15 +96,14 @@ The defaults already fail on errors and warnings, for example `floatingEffect`, 
 - `lint:effect` reports only Effect diagnostics. A plain type error does not make it fail.
 - Do not name a script `check`: `bun check` runs that script instead of the type checker.
 - Prefer `effect-tsgo tsc` to `effect-tsgo patch`. `patch` rewrites the compiler in `node_modules`. With a shared store (pnpm global virtual store, Yarn PnP, Nix), the change reaches other projects.
-- An install with `--ignore-scripts` skips `prepare`. Then stock `tsc` runs without Effect diagnostics and exits 0.
-- Add `"prepare": "effect-tsgo patch"` only when an editor or a tool starts stock `tsc` and the store is not shared. `effect-tsgo unpatch` restores the files.
+- Add `"prepare": "effect-tsgo patch"` only when an editor or a tool starts stock `tsc` and the store is not shared. `effect-tsgo unpatch` restores the files. An install with `--ignore-scripts` skips `prepare`, so stock `tsc` then exits 0 without Effect diagnostics.
 
-GitHub Actions steps. `--strict` makes Effect warnings fail. The last step adds annotations to the pull request and type checks a second time.
+GitHub Actions steps for a job with `timeout-minutes` and a checkout with `persist-credentials: false`. `--strict` makes Effect warnings fail. The last step adds annotations to the pull request and type checks a second time.
 
 ```yaml
 - run: bun install --frozen-lockfile
 - run: bun run typecheck
-- run: bun x effect-tsgo diagnostics --project tsconfig.json --format github-actions --strict
+- run: bun x --no-install effect-tsgo diagnostics --project tsconfig.json --format github-actions --strict
 # pnpm: pnpm install --frozen-lockfile, pnpm run typecheck, pnpm exec effect-tsgo diagnostics ...
 ```
 
@@ -110,8 +112,7 @@ GitHub Actions steps. `--strict` makes Effect warnings fail. The last step adds 
 | Command | Output | Exits 1 on |
 |---|---|---|
 | `effect-tsgo tsc -p tsconfig.json` | `src/main.ts(4,3): error TS377001: <message> effect(floatingEffect)` | type errors, Effect errors, Effect warnings |
-| `effect-tsgo diagnostics --format text` | `<path>(4,3): error effect(floatingEffect): <message>`, then a summary | Effect errors |
-| `diagnostics` with `--strict` | as above | Effect errors and warnings |
+| `effect-tsgo diagnostics --format text` | `<path>(4,3): error effect(floatingEffect): <message>`, then a summary | Effect errors; with `--strict`, Effect warnings too |
 | `diagnostics --format github-actions` or `json` | `::error file=<path>,line=4,...,title=floatingEffect::<message>`, or `{ "diagnostics": [...], "summary": {...} }` | as for `text` |
 | `effect-tsgo oxlint --type-aware` | `src/main.ts:4:3: error effecttsgo(floating-effect): <message>` | errors |
 
@@ -119,28 +120,30 @@ GitHub Actions steps. `--strict` makes Effect warnings fail. The last step adds 
 
 **Suppression.** Fix the code first: see the `lint-no-suppressions` skill. When the user approves an exception, write `// @effect-diagnostics-next-line floatingEffect:off` with the bare rule name. The `effect/floatingEffect:off` form does not work in `@effect/tsgo`.
 
-**Oxlint (optional, experimental).** Use it only when the project already runs type-aware Oxlint.
+**Oxlint (optional, experimental).** It adds Effect findings to a project that already runs type-aware Oxlint. `effect-tsgo tsc` stays the gate.
 
 1. Install `oxlint` and `oxlint-tsgolint` at versions from the tsgo support table.
 2. In `.oxlintrc.json`, set `"$schema": "./node_modules/@effect/tsgo/oxlint-schema.json"` and `"extends": ["./node_modules/@effect/tsgo/oxlint-presets/recommended.json"]`. Other presets: `strict`, `correctness`, `antipattern`, `effect-native`, `style`, `maintainers`.
 3. Run `effect-tsgo oxlint --type-aware`. Stock `oxlint` fails with `Unknown plugin: 'effecttsgo'`.
-4. Set `"diagnostics": false` in the tsconfig plugin to stop duplicate reports. Then the Oxlint command is the Effect gate in hooks and CI.
+4. To make Oxlint the Effect gate instead, do all of this in one change: set every rule that the tsconfig plugin enables, with its severity, in `.oxlintrc.json`; add `--deny-warnings`; update every gate command (package script, CI, hook, `AGENTS.md`).
 
-**Editors.** Use `effect-tsgo` instead of `tsgo`, not next to it, because two servers give duplicate diagnostics. A Language Server Protocol (LSP) client starts `effect-tsgo tsc --lsp --stdio`. For VS Code, run `npx @effect/tsgo setup --non-interactive --accept-defaults --typescript --vscode`. Without `--apply`, it prints the changes and writes nothing. The VS Code settings include `"js/ts.experimental.useTsgo": true` and need the patched `typescript` (`effect-tsgo patch`).
+**Editors.** Use `effect-tsgo` instead of `tsgo`, not next to it, because two servers give duplicate diagnostics. A Language Server Protocol (LSP) client starts `effect-tsgo tsc --lsp --stdio`. For VS Code, run `pnpm exec effect-tsgo setup --project tsconfig.json --non-interactive --accept-defaults --typescript --vscode` (Bun: `bun x --no-install effect-tsgo setup` with the same flags). Without `--apply`, it prints the changes and writes nothing. With `--apply`, it writes `.vscode/settings.json` (`"js/ts.experimental.useTsgo": true`) and a `prepare` script that runs `effect-tsgo patch`, because these settings need the patched `typescript`. Keep that script only when the store is not shared.
 
 ## Setup check
 
-Confirm that the gate fails on a floating Effect. The file must be inside the `include` paths of `tsconfig.json`.
+Confirm that the gate fails on a floating Effect. The probe gets a unique name in a folder of the tsconfig `include`. No-clobber mode (`set -C`) never writes over a file, and the trap removes only the probe.
 
 ```sh
-printf 'import { Effect } from "effect"\nexport const program = Effect.gen(function*() {\n  Effect.log("never runs")\n})\n' > src/effect-setup-check.ts
-bun run typecheck   # must exit 1 and print effect(floatingEffect)
-rm src/effect-setup-check.ts
+( # the subshell keeps the trap and exit out of your shell
+  probe="src/effect-setup-probe-$$.ts"   # a folder in tsconfig "include"
+  (set -C; printf 'import { Effect } from "effect"\nexport const probe = Effect.gen(function*() {\n  Effect.log("never runs")\n})\n' > "$probe") || exit 1
+  trap 'rm -f -- "$probe"' EXIT
+  bun run typecheck   # or pnpm run typecheck; must exit 1 and print effect(floatingEffect)
+)
 ```
 
 ## Sources
 
-- https://github.com/Effect-TS/tsgo: support table, `tsc`, `patch`, `diagnostics`, `allowedUnstableApis`, LSP command
-- https://github.com/Effect-TS/tsgo/blob/main/docs/README.md: Oxlint setup and presets
-- https://github.com/Effect-TS/language-service: TypeScript 5 and 6 plugin and `patch`
-- https://bun.com/docs/runtime/check, https://pnpm.io/global-virtual-store, https://oxc.rs/docs/guide/usage/linter/config
+- https://github.com/Effect-TS/tsgo: support table, `tsc`, `patch`, `diagnostics`, `setup`, `allowedUnstableApis`, LSP command. Oxlint setup and presets: https://github.com/Effect-TS/tsgo/blob/main/docs/README.md
+- https://github.com/Effect-TS/language-service: TypeScript 5 and 6 plugin, `diagnostics`, and `patch`
+- https://bun.com/docs/runtime/check, https://bun.com/docs/pm/bunx, https://pnpm.io/global-virtual-store, https://oxc.rs/docs/guide/usage/linter/config, https://oxc.rs/docs/guide/usage/linter/cli (`--deny-warnings`)
