@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-03"
-  content_hash: "f9e4a0244abeb5deba6cf44be2cdaea0cb816b7b65f2b7a7488d20c2f25fcf15"
+  content_hash: "7bd1faa33e2cb5fa574452f9e9ad6d736c90e9ef0c3fc87a6c719696aa2a7fdf"
 ---
 
 # Effect (TypeScript)
