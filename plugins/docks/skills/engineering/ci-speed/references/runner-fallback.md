@@ -19,7 +19,7 @@ Read this file when a Blacksmith workflow must still run on GitHub-hosted runner
 | A job with no matching runner waits, up to 24 hours for self-hosted runners. For `timeout-minutes`, the docs bound run time only | A missing backend shows queued jobs, not failed jobs | https://docs.github.com/en/actions/reference/runners/self-hosted-runners |
 | Blacksmith has no hard spend cap. It can suspend an account that is behind on payment | A budget stop looks like stuck queued jobs, not red jobs | https://docs.blacksmith.sh/introduction/settings, https://docs.blacksmith.sh/about/terms-of-service |
 | `runs-on` accepts only the `github`, `needs`, `strategy`, `matrix`, `vars`, and `inputs` contexts | `secrets`, `env`, `runner`, and `steps` cannot choose the runner | https://docs.github.com/en/actions/reference/workflows-and-actions/contexts |
-| Configuration variables are empty in fork pull request runs and Dependabot runs. An empty `runs-on` fails | Every `runs-on` expression needs a literal fallback | https://github.com/orgs/community/discussions/44322 |
+| Configuration variables are empty in fork pull request runs. Dependabot runs get them. An empty `runs-on` fails | Every `runs-on` expression needs a literal fallback | https://github.com/orgs/community/discussions/44322, https://github.com/orgs/community/discussions/44088 |
 
 ## Pattern 1: one variable per runner class
 
@@ -28,7 +28,7 @@ Required. Give each runner class one configuration variable. Put a GitHub-hosted
 ```yaml
 jobs:
   test:
-    runs-on: ${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}    # the literal serves forks, Dependabot, and fallback
+    runs-on: ${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}    # the literal serves fork pull requests and the fallback
     timeout-minutes: 30
   e2e:
     runs-on: ${{ vars.CI_RUNNER_LINUX_LARGE || '<github-large-label>' }}
@@ -60,8 +60,8 @@ jobs:
         env: { FORCE: '${{ vars.CI_FORCE_GITHUB }}', IS_FORK: '${{ github.event.pull_request.head.repo.fork }}' }
         run: |
           use() { echo "linux=$1" >> "$GITHUB_OUTPUT"; exit 0; }
-          # Untrusted code never runs on the Blacksmith bill
-          [ "$IS_FORK" != true ] && [ "$GITHUB_ACTOR" != 'dependabot[bot]' ] || use ubuntu-latest
+          # Fork code never runs on the Blacksmith bill; Pattern 1 sends forks to the literal too
+          [ "$IS_FORK" != true ] || use ubuntu-latest
           [ "$FORCE" != 1 ] || use ubuntu-latest
           status=$(curl -fsS -m 5 https://status.blacksmith.sh/summary.json | jq -r .page.status) || status=error
           [ "$status" = UP ] || use ubuntu-latest

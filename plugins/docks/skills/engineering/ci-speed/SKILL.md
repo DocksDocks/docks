@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-03"
-  content_hash: "09695c4d2062706bf735bad662c61f5c90a3b932bf0611903eb736da7dd8d5ab"
+  content_hash: "b96a9e86d6cb73d6c1a6d00e2c91979e4f3da1ea6285d10d6922e04f13d7b5bf"
 ---
 
 # CI Speed
@@ -102,7 +102,7 @@ A faster job off the critical path saves billed minutes only. It does not cut th
 - For Blacksmith setup, read [references/blacksmith.md](references/blacksmith.md).
 - For one workflow that runs on both runner types, read [references/runner-fallback.md](references/runner-fallback.md).
 
-Rule: each `runs-on` that reads a variable keeps a literal GitHub-hosted fallback. GitHub passes no configuration variables to `pull_request` runs from forks or to Dependabot runs. An empty `runs-on` fails ([community discussion](https://github.com/orgs/community/discussions/44322)).
+Rule: each `runs-on` that reads a variable keeps a literal GitHub-hosted fallback. GitHub passes no configuration variables to `pull_request` runs from forks, and an empty `runs-on` fails ([community discussion](https://github.com/orgs/community/discussions/44322)).
 
 ## BAD / GOOD
 
@@ -202,7 +202,7 @@ jobs:
 Runner variable ([`vars` context](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#vars-context)):
 
 ```yaml
-# BAD: fork pull requests and Dependabot runs get no variables, so the job cannot start
+# BAD: fork pull requests get no variables, so the job cannot start
 runs-on: ${{ vars.CI_RUNNER_LINUX }}
 ```
 
