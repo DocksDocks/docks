@@ -92,8 +92,9 @@ jobs:
     environment: { name: runner-guard, deployment: false }   # default branch only; no deployment record per run
     env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
     steps:
-      - continue-on-error: true                           # a failed install, for example in a Blacksmith outage, must not stop the guard
-        run: curl -fsSL https://get.blacksmith.sh | BLACKSMITH_INSTALL_DIR="$RUNNER_TEMP/bin" sh && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"   # no secret in this step
+      - continue-on-error: true                           # a failed or hung install, for example in a Blacksmith outage, must not stop the guard
+        timeout-minutes: 3                                # a stalled download ends here, and the decide step then counts the cost as unknown
+        run: curl -fsSL --max-time 60 https://get.blacksmith.sh | BLACKSMITH_INSTALL_DIR="$RUNNER_TEMP/bin" sh && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"   # no secret in this step
       - id: decide
         env: { BLACKSMITH_TOKEN: '${{ secrets.BLACKSMITH_ORG_TOKEN }}', BLACKSMITH_DISABLE_AUTO_UPDATE: '1', BUDGET: '${{ vars.CI_BLACKSMITH_BUDGET }}' }
         run: |
@@ -122,9 +123,8 @@ jobs:
           while read -r id; do gh run cancel "$id"; done < stuck.txt
           while read -r id; do gh run watch "$id" > /dev/null; gh run rerun "$id"; done < stuck.txt   # a run must stop before it can re-run
 ```
-- The usage output schema is not documented. Run `blacksmith usage --since 30d` once. Copy the path of the estimated cost into `<cost-path>` (https://docs.blacksmith.sh/blacksmith-cli/usage). Then check that `blacksmith usage --since 30d | jq -r '<cost-path>'` prints a number.
-- After a switch, check the runner label of each re-run with the command in [Proof](#proof). If a re-run still asks for a `blacksmith-` label, push a new commit. The guard never switches back. When Blacksmith works again and the budget allows, run `gh variable delete CI_FORCE_GITHUB`. Then delete the label variables, or set them back to the Blacksmith labels.
-- The schedule starts 144 runs per day. In private repositories, GitHub bills each job at least one minute (https://docs.github.com/en/billing/reference/actions-runner-pricing). Scheduled runs can start late or drop at high load. GitHub disables a schedule in a public repository after 60 days without repository activity (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+- The usage output schema is not documented. Run `blacksmith usage --since 30d` once. Copy the path of the estimated cost into `<cost-path>` (https://docs.blacksmith.sh/blacksmith-cli/usage). Then check that `blacksmith usage --since 30d | jq -r '<cost-path>'` prints a number. After a switch, check the runner label of each re-run with the command in [Proof](#proof). If a re-run still asks for a `blacksmith-` label, push a new commit.
+- The guard never switches back. When Blacksmith works again and the budget allows, run `gh variable delete CI_FORCE_GITHUB`, then delete the label variables or set them back to the Blacksmith labels. The schedule starts 144 runs per day. In private repositories, GitHub bills each job at least one minute (https://docs.github.com/en/billing/reference/actions-runner-pricing). Scheduled runs can start late or drop at high load. GitHub disables a schedule in a public repository after 60 days without repository activity (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 
 ## Portable steps
 

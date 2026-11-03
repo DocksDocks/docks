@@ -89,7 +89,7 @@ Heavy jobs use `needs: changes` and `if: needs.changes.outputs.app == 'true'`. I
 | No files (aggregate, label, or API-only jobs) | No checkout step |
 
 - `filter` does not change `fetch-depth`. With the default depth, `filter: blob:none` is still a shallow clone. `filter` overrides `sparse-checkout`.
-- In a blobless clone, `git log -- <path>` and `git blame` fetch file contents over the network. Treeless clones work poorly with submodules ([partial clones](https://github.blog/open-source/git/get-up-to-speed-with-partial-clone-and-shallow-clone/)).
+- In a blobless clone, `git log -- <path>` uses the local commits and trees, but `git blame` and patch output (`git log -p`) fetch file contents over the network. Treeless clones work poorly with submodules ([partial clones](https://github.blog/open-source/git/get-up-to-speed-with-partial-clone-and-shallow-clone/)).
 - If no later step runs git against the remote, set `persist-credentials: false`. Pair it with `permissions: { contents: read }` at the workflow level.
 - Keep the default credentials when a later step fetches. A partial clone (`filter`) fetches missing objects on demand. `dorny/paths-filter` runs `git fetch` on `push` and `merge_group`. Affected-only tools fetch history.
 - `lfs` is off by default. Turn it on only in jobs that read the large files.
