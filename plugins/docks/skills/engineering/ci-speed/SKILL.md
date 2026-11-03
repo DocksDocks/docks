@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-03"
-  content_hash: "21c574c641fa43e1c696d62093f1b41ad18c9f56f9faa4d060af13b14bc41c02"
+  content_hash: "b7c7cbf3b94afa96f43ee23ec553482bfd34855390e0b7ac605af2f352205a96"
 ---
 
 # CI Speed
@@ -19,7 +19,7 @@ Measure before and after each change. Measure each job, and split its time into 
 </constraint>
 
 <constraint>
-A speed change must not lose coverage. Required checks must still report. The same test files and the same test count must still run. A skipped suite must never report green. Before you keep an isolation change or an affected-only change, prove that it still catches a known failure.
+A speed change must not lose coverage. Required checks must still report. The same test files and the same test count must still run. A suite that the change must run must never be skipped while the required check reports green. Before you keep an isolation change or an affected-only change, prove that it still catches a known failure.
 </constraint>
 
 <constraint>
@@ -62,6 +62,8 @@ Speed and cost move separately, so report both for each change. A tool swap or a
 
 3. **Pick levers.** Start with the largest measured bucket on the critical path. Use the [bottleneck table](#bottleneck-to-lever).
 4. **Change one lever at a time and prove it.** Put the reason in a YAML comment. Lint the workflow files with [`actionlint`](https://github.com/rhysd/actionlint). Run the proof from the table.
+   - actionlint can reject keys that are newer than its release, for example `cache-mode` and in-job parallel steps.
+   - If actionlint rejects a key, confirm the key on the [workflow syntax page](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax). Do not remove a valid key to satisfy the linter.
 5. **Measure again and report.** Leave out the cold first run. Use the report template in [references/measure.md](references/measure.md).
 
 A faster job off the critical path saves billed minutes only. It does not cut the wall time.
@@ -70,15 +72,15 @@ A faster job off the critical path saves billed minutes only. It does not cut th
 
 | Measured bottleneck | First lever | Proof | Reference |
 |---|---|---|---|
-| Queue time | Check the plan concurrency limit and the runner label. Then try a larger or third-party runner. | Queue median and p90 per label fall | [references/measure.md](references/measure.md), [references/blacksmith.md](references/blacksmith.md) |
-| Duplicate or stale runs | Limit `push` to the default branch. Cancel stale pull request runs with `concurrency`. | One run per pull request head; every default-branch run finishes | [references/github-actions.md](references/github-actions.md) |
+| Queue time | Check the plan concurrency limit and the runner label. Then try a third-party runner. | Queue median and p90 per label fall | [references/measure.md](references/measure.md), [references/blacksmith.md](references/blacksmith.md) |
+| Duplicate or stale runs | Limit `push` to the default branch. Cancel stale pull request runs with a `concurrency` group on `github.head_ref \|\| github.run_id`. | One run per pull request head; every default-branch run finishes | [references/github-actions.md](references/github-actions.md) |
 | Serial single job | Split independent checks into parallel jobs or in-job parallel steps | Critical path falls; billed minutes reported | [references/github-actions.md](references/github-actions.md) |
 | Checkout | Keep `fetch-depth: 1`. If the job needs history, use `fetch-depth: 0` with `filter: blob:none`. | Checkout step falls; history commands still work | [references/github-actions.md](references/github-actions.md) |
 | Install | Frozen install of only the packages that the job needs | Install step falls; lockfile unchanged | [references/js-toolchain.md](references/js-toolchain.md) |
 | Cache misses | Key on the lockfile. Seed the cache from `push` on the default branch. | Hit rate on pull request runs rises | [references/github-actions.md](references/github-actions.md) |
 | Format | If the formatter needs no install, run its check before the install | A known bad file still fails | [references/js-toolchain.md](references/js-toolchain.md) |
-| Lint | Measure the rule cost. Propose a faster linter only on request. | Same findings on the same commit | [references/js-toolchain.md](references/js-toolchain.md) |
-| Type check | TypeScript 7 `tsc` with workers matched to the runner's virtual CPUs (vCPUs). `bun check` is a faster option. | Same errors on a commit with a known type error | [references/js-toolchain.md](references/js-toolchain.md) |
+| Lint | Measure the rule cost: [`TIMING=all eslint .`](https://eslint.org/docs/latest/extend/custom-rules#profile-rule-performance) prints time per rule, and [`eslint --stats`](https://eslint.org/docs/latest/use/command-line-interface#--stats) adds statistics. Propose a faster linter with its measured gain; swap only on request. | Same findings on a commit with one planted violation per enabled rule family; rules that oxlint lacks stay in ESLint | [references/js-toolchain.md](references/js-toolchain.md) |
+| Type check | TypeScript 7 `tsc` with one fixed `--checkers` value in every environment. `bun check` is a faster option. | Same errors on a commit with a known type error | [references/js-toolchain.md](references/js-toolchain.md) |
 | Unit tests | Read the phase breakdown. Cut setup and import time before you add shards. | Same test files and same test count | [references/tests.md](references/tests.md) |
 | Browser tests | Shard by file. Install only the browsers that the suite uses. | Same test count over all shards | [references/tests.md](references/tests.md) |
 | Every suite on every pull request | Affected-only runs, plus the full suite on the default branch | A planted change in each area still runs its suite | [references/affected-and-hooks.md](references/affected-and-hooks.md) |
@@ -104,10 +106,10 @@ Rule: each `runs-on` that reads a variable keeps a literal GitHub-hosted fallbac
 
 ## BAD / GOOD
 
-Snippets pin action majors. Before you copy a snippet, read the release tag of each action:
+Snippets pin action majors. The release marked Latest can be an older major. So before you copy a snippet, read the highest release tag of each action:
 
 ```bash
-gh release view --repo <owner>/<repo> --json tagName -q .tagName
+git ls-remote --tags --refs https://github.com/<owner>/<repo> | sed 's|.*/||' | grep -E '^v[0-9]+(\.[0-9]+)*$' | sort -V | tail -1
 ```
 
 Cache key ([dependency caching](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)):
@@ -121,22 +123,29 @@ Cache key ([dependency caching](https://docs.github.com/en/actions/reference/wor
 ```
 
 ```yaml
-# GOOD: the key changes only with the lockfile, and default-branch pushes seed it
+# GOOD: the key changes only with the lockfile, and only default-branch pushes save it
 on:
   pull_request:
   push:
     branches: [main] # pull request runs restore caches from the default branch
+permissions: { contents: read }
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v6
+        with: { persist-credentials: false } # no later step talks to the remote
+      - id: deps
+        uses: actions/cache/restore@v6
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
+      - run: bun ci
+      - if: github.event_name == 'push' && steps.deps.outputs.cache-hit != 'true' # untrusted runs never write
+        uses: actions/cache/save@v6
+        with: { path: ~/.bun/install/cache, key: "${{ steps.deps.outputs.cache-primary-key }}" }
 ```
 
 Required check and path filter ([skipped but required checks](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#handling-skipped-but-required-checks), [`dorny/paths-filter`](https://github.com/dorny/paths-filter)):
@@ -152,14 +161,17 @@ on:
 # GOOD: the workflow always runs, and one aggregate job is the only required check
 on:
   pull_request:
+permissions: { contents: read }
 jobs:
   changes:
     runs-on: ubuntu-slim
     timeout-minutes: 5
-    permissions: { pull-requests: read }
+    permissions: { contents: read, pull-requests: read }
     outputs:
       app: ${{ steps.filter.outputs.app }}
     steps:
+      - if: github.event_name != 'pull_request' # push and merge_group runs: paths-filter runs git fetch, so keep the credentials
+        uses: actions/checkout@v7
       - id: filter
         uses: dorny/paths-filter@v4
         with:
@@ -175,6 +187,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with: { persist-credentials: false }
       - run: <test command>
   ci-ok:
     needs: [changes, test]
@@ -207,11 +220,12 @@ runs-on: ${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
 | `bun check` or `bun fmt` runs something unexpected | A `package.json` script with the same name runs instead ([check](https://bun.com/docs/runtime/check), [fmt](https://bun.com/docs/format)) | Use `bun check --no-script` and `bun fmt --no-script --check` |
 | An `ubuntu-slim` job fails at 15 minutes despite a higher `timeout-minutes` | `ubuntu-slim` terminates jobs at 15 minutes ([docs](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#single-cpu-runners), [report](https://github.com/orgs/community/discussions/185983)) | Set `timeout-minutes: 15` or less, or move the job to `ubuntu-latest` |
 | `oxlint --type-aware` reports thousands of findings in dependencies | No `.gitignore` covers `node_modules`, so oxlint lints it | Add `node_modules` and build output to `.gitignore`, or set `ignorePatterns` ([config](https://oxc.rs/docs/guide/usage/linter/config)) |
-| A copied snippet pins an old action major | Doc page examples lag behind action releases | Run `gh release view --repo <owner>/<repo> --json tagName -q .tagName` |
+| A copied snippet pins an old action major | Doc examples lag behind action releases, and the release marked Latest can be an older major | Read the highest tag with the `git ls-remote` command in [BAD / GOOD](#bad--good) |
+| A tool started with `bun x` or `npx` is a different program | When the tool is not installed, `bun x` and `npx` fetch the npm package whose name equals the binary name. That package is not always the tool you mean: the npm package named `tsc` is not TypeScript ([bun x](https://bun.com/docs/pm/bunx), [npx](https://docs.npmjs.com/cli/v11/commands/npx)). | Run tools through a package script (`bun run <script>`, `pnpm run <script>`), `pnpm exec <binary>`, or `bun x --no-install <binary>` |
 | A merge queue never merges | The workflow has no `merge_group` trigger, so required checks never report ([docs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#merge_group)) | Add `merge_group:` next to `pull_request` |
 | `filter: blob:none` gives no history | `filter` does not change `fetch-depth`, which stays 1 ([checkout](https://github.com/actions/checkout)) | Set `fetch-depth: 0` too |
-| Bun packages download on every run | `oven-sh/setup-bun` caches only the Bun executable ([setup-bun](https://github.com/oven-sh/setup-bun)) | Add `actions/cache` on `~/.bun/install/cache` |
-| A job that waits for an absent runner does not fail | GitHub keeps the job queued until a matching runner comes online ([routing](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#routing-precedence-for-self-hosted-runners)) | Use the fallback rule and the watchdog in [references/runner-fallback.md](references/runner-fallback.md) |
+| Bun packages download on every run | `oven-sh/setup-bun` caches only the Bun executable ([setup-bun](https://github.com/oven-sh/setup-bun)) | Restore `~/.bun/install/cache` with `actions/cache/restore`, and save it on default-branch pushes, as in the GOOD cache key snippet |
+| A job that waits for an absent runner does not fail | GitHub keeps the job queued until a matching runner comes online ([routing](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#routing-precedence-for-self-hosted-runners)) | Use the fallback rule and the scheduled guard in [references/runner-fallback.md](references/runner-fallback.md) |
 
 ## References
 
@@ -222,6 +236,8 @@ runs-on: ${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
 - [references/affected-and-hooks.md](references/affected-and-hooks.md): affected-only runs, skip-logic proof, and pre-push hooks.
 - [references/blacksmith.md](references/blacksmith.md): Blacksmith runners.
 - [references/runner-fallback.md](references/runner-fallback.md): one workflow for Blacksmith and GitHub-hosted runners, with a fallback.
+
+Ideas restated, no text copied: enesgules `optimise-github-actions` (https://github.com/enesgules/dotfiles/tree/main/skills/optimise-github-actions), Owen Gretzinger's CI post (https://x.com/owengretzinger/status/2117003552472355024), and Linear's CI post (https://linear.app/now/ci-bottleneck-reworked).
 
 ## Report a problem with this skill
 

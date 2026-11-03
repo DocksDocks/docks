@@ -20,6 +20,7 @@ Affected-only tools compare the change with a base commit. The default `actions/
 - Fetch full history cheaply: `fetch-depth: 0` with `filter: blob:none`, or `filter: tree:0` (the Nx docs use it).
 - Do not use `--depth=0`. Some Turborepo docs show it, but git rejects it: "depth 0 is not a positive number".
 - As an alternative, fetch the base branch explicitly.
+- Verify each action major before you copy the snippet: `git ls-remote --tags --refs https://github.com/<owner>/<repo> | sed 's|.*/||' | grep -E '^v[0-9]+(\.[0-9]+)*$' | sort -V | tail -1`.
 
 | Tool | Result without a merge base |
 |---|---|
@@ -28,19 +29,23 @@ Affected-only tools compare the change with a base commit. The default `actions/
 | pnpm | Compares against `<since>` directly: the selection is wrong |
 
 ```yaml
-# Verify each action major first: gh release view --repo <owner>/<repo> --json tagName -q .tagName
-      - uses: actions/checkout@v7
+  affected:
+    runs-on: ${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    permissions: { contents: read, actions: read } # nx-set-shas reads past runs; merge queues also need pull-requests: read
+    steps:
+      - uses: actions/checkout@v7 # keep the credentials: the partial clone fetches file contents on demand
         with:
           fetch-depth: 0        # affected tools need the merge base
           filter: blob:none     # commits and trees only; file contents load on demand
-      - uses: nrwl/nx-set-shas@v5   # Nx only: base = last successful commit on the main branch
-      - run: npx nx affected -t lint test build
+      - uses: nrwl/nx-set-shas@v5   # Nx only: sets NX_BASE and NX_HEAD
+      - run: pnpm exec nx affected -t lint test build
 ```
 
 ## Nx
 
 - Run `nx affected -t <targets> --base=<ref> --head=<ref>`, or set `NX_BASE` and `NX_HEAD`.
-- In CI, run `nrwl/nx-set-shas` first. It sets both variables from the last successful run on the main branch.
+- In CI, run `nrwl/nx-set-shas` first. It sets both variables. On `pull_request`, the base is the commit that the pull request started from. On a push to the main branch, the base is the last successful commit.
 - Nx 24 selects by task inputs by default. `affected.legacy` keeps the selection by project.
 - A lockfile change affects all projects unless `projectsAffectedByDependencyUpdates` is `"auto"`.
 - Add `--explain` to see why Nx selected each task. Nx prints the reasons and runs nothing.
@@ -49,8 +54,7 @@ Affected-only tools compare the change with a base commit. The default `actions/
 ## Turborepo
 
 - Run `turbo run lint test build --affected`. It equals `--filter=...[main...HEAD]`.
-- Set `TURBO_SCM_BASE` and `TURBO_SCM_HEAD` to change the comparison.
-- If every run selects all packages, check the clone depth first.
+- Set `TURBO_SCM_BASE` and `TURBO_SCM_HEAD` to change the comparison. If every run selects all packages, check the clone depth first.
 - Turborepo selects by package by default. `futureFlags.affectedUsingTaskInputs` narrows it to task inputs.
 - `--dry=json` prints the selection without a run.
 
@@ -79,7 +83,8 @@ A skip that hides a real change gives a false green. Test the selector like othe
   ci-ok:                                   # the only required check
     if: ${{ always() }}                    # runs when a needed job failed or was skipped
     needs: [changes, server-tests]
-    runs-on: ${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim                   # a gate job must run when the runner vendor is down
+    timeout-minutes: 5
     steps:
       - env:
           SELECTOR: ${{ needs.changes.result }}
@@ -94,8 +99,15 @@ Add a canary check for the selector. Run it on a schedule:
 
 1. For each required suite, pick a file whose change must select that suite.
 2. Make a throwaway commit that changes that file.
-3. Print the selection for that commit with the list or dry-run command above.
-4. Fail the canary when the suite is not in the selection.
+3. Read the selection for that commit into a variable, with the list or dry-run command above.
+4. Fail the canary when the list command fails or when the suite is not in the selection.
+
+Warning: do not pipe the list command into `grep -q` inside a test. Under `pipefail`, the list command can die of SIGPIPE and flip the result.
+
+```bash
+selection=$(<list command>) || { echo "the selector failed" >&2; exit 2; }   # one name per line
+grep -qxF -- '<suite>' <<<"$selection" || { echo "<suite> is not selected" >&2; exit 1; }
+```
 
 ## Pre-push hooks
 
@@ -109,8 +121,7 @@ A pre-push hook checks the changed files before CI starts. An agent can skip a s
 
 Hooks never replace CI:
 
-- `git push --no-verify` skips the hook.
-- A fresh clone has no hooks until the hook manager installs them.
+- `git push --no-verify` skips the hook. A fresh clone has no hooks until the hook manager installs them.
 - A check of changed files misses breakage in the files that import them. So the type check runs on the whole project.
 
 ```yaml
@@ -123,9 +134,9 @@ pre-push:
       run: bun fmt --no-script --check {push_files}
     lint:
       glob: "*.{js,jsx,ts,tsx}"
-      run: bun x oxlint --deny-warnings {push_files}
+      run: bun x --no-install oxlint --deny-warnings {push_files}
     types:
-      run: bun x tsc --noEmit   # whole project: a changed file can break its importers
+      run: bun x --no-install tsc --noEmit   # whole project: a changed file can break its importers
 ```
 
 ## Sources

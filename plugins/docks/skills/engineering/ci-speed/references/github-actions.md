@@ -10,7 +10,7 @@
 - [Artifacts and timeouts](#artifacts-and-timeouts)
 - [Runner classes and merge queue](#runner-classes-and-merge-queue)
 
-Snippets pin action majors. Before you copy a snippet, read the release tag of each action: `gh release view --repo <owner>/<repo> --json tagName -q .tagName`.
+Snippets pin action majors. The release marked Latest can be an older major. So read the highest release tag of each action before you copy a snippet: `git ls-remote --tags --refs https://github.com/<owner>/<repo> | sed 's|.*/||' | grep -E '^v[0-9]+(\.[0-9]+)*$' | sort -V | tail -1`.
 
 ## Triggers and concurrency
 
@@ -20,11 +20,12 @@ Snippets pin action majors. Before you copy a snippet, read the release tag of e
 
 ```yaml
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # every default-branch run finishes and saves caches
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true # stale pull request runs stop; default-branch runs never share a group
 ```
 
-- On a pull request, `github.ref` is `refs/pull/<N>/merge`, so each pull request gets one group.
+- Warning: in one group, GitHub replaces an older pending run with the newer one, even with `cancel-in-progress: false`. So never put default-branch runs in a shared group.
+- `github.head_ref` is set only on pull request events. So each pull request branch gets one group, and every other run gets its own group through `github.run_id`.
 - Keep `github.workflow` in the group. Without it, two workflows cancel each other. A group can use only the `github`, `inputs`, and `vars` contexts ([concurrency](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency)).
 
 ## Path filters and required checks
@@ -48,9 +49,8 @@ jobs:
     permissions: { contents: read, pull-requests: read }
     outputs: { app: "${{ steps.filter.outputs.app }}" }
     steps:
-      - if: github.event_name != 'pull_request'
+      - if: github.event_name != 'pull_request' # push and merge_group runs: paths-filter runs git fetch, so keep the credentials
         uses: actions/checkout@v7
-        with: { persist-credentials: false }
       - id: filter
         uses: dorny/paths-filter@v4
         with:
@@ -76,7 +76,7 @@ Heavy jobs use `needs: changes` and `if: needs.changes.outputs.app == 'true'`. I
 - Each job pays queue, runner start, checkout, and install again. Move work that gates nothing (reports, coverage uploads) off the critical path.
 - Merge tiny jobs that are mostly setup. This cuts billed minutes, because each job rounds up to a whole minute. It can raise wall time.
 - In-job parallel steps (`background: true`, `wait`, `wait-all`, `cancel`, `parallel:` groups) run several checks in one job with one setup.
-- Limits of in-job parallel steps: 10 background steps per job, none in composite actions, and outputs only after `wait` ([parallel steps](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsparallel)).
+- At most 10 background steps run at the same time in one job; more wait in a queue. Composite actions cannot contain them, and their outputs appear only after `wait` ([parallel steps](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsparallel)).
 - Run Windows and macOS legs only for code that depends on the platform. Their per-minute rates are higher ([pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing)).
 
 ## Checkout
@@ -90,7 +90,8 @@ Heavy jobs use `needs: changes` and `if: needs.changes.outputs.app == 'true'`. I
 
 - `filter` does not change `fetch-depth`. With the default depth, `filter: blob:none` is still a shallow clone. `filter` overrides `sparse-checkout`.
 - In a blobless clone, `git log -- <path>` and `git blame` fetch file contents over the network. Treeless clones work poorly with submodules ([partial clones](https://github.blog/open-source/git/get-up-to-speed-with-partial-clone-and-shallow-clone/)).
-- Set `persist-credentials: false` unless a later step pushes with the checkout token.
+- If no later step runs git against the remote, set `persist-credentials: false`. Pair it with `permissions: { contents: read }` at the workflow level.
+- Keep the default credentials when a later step fetches. A partial clone (`filter`) fetches missing objects on demand. `dorny/paths-filter` runs `git fetch` on `push` and `merge_group`. Affected-only tools fetch history.
 - `lfs` is off by default. Turn it on only in jobs that read the large files.
 
 ## Caching
@@ -127,7 +128,7 @@ Heavy jobs use `needs: changes` and `if: needs.changes.outputs.app == 'true'`. I
 - `lookup-only: true` checks for an entry without a download. A gate job can use it to skip an install ([`actions/cache`](https://github.com/actions/cache)).
 - Do not cache `node_modules` with `npm ci` ([examples](https://github.com/actions/cache/blob/main/examples.md)). Cache the package store, or measure a filtered install. Never cache secrets.
 - The default limit is 10 GB per repository. Entries unused for 7 days are deleted. Over the limit, the entries with the oldest last access go first ([eviction policy](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)).
-- Docker layers: set `cache-from: type=gha` and `cache-to: type=gha,mode=max,scope=<image>`. One scope per image stops images from overwriting each other ([gha cache](https://docs.docker.com/build/cache/backends/gha/)).
+- Docker layers: set `cache-from: type=gha,scope=<image>` and `cache-to: type=gha,mode=max,scope=<image>`. Use the same scope on both. One scope per image stops images from overwriting each other ([gha cache](https://docs.docker.com/build/cache/backends/gha/)).
 
 ## Artifacts and timeouts
 

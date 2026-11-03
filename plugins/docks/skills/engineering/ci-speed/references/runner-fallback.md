@@ -5,12 +5,11 @@
 - [Facts that shape the design](#facts-that-shape-the-design)
 - [Pattern 1: one variable per runner class](#pattern-1-one-variable-per-runner-class)
 - [Pattern 2: picker job](#pattern-2-picker-job)
-- [Pattern 3: stuck-queue watchdog](#pattern-3-stuck-queue-watchdog)
+- [Pattern 3: scheduled guard](#pattern-3-scheduled-guard)
 - [Portable steps](#portable-steps)
-- [Label map](#label-map)
 - [Proof](#proof)
 
-Read this file when a Blacksmith workflow must still run on GitHub-hosted runners without the Blacksmith budget, account, or service. Pattern 1 is required. Patterns 2 and 3 are optional. Blacksmith facts are in [blacksmith.md](blacksmith.md). Check each action major in a snippet with `gh release view --repo <owner>/<repo> --json tagName -q .tagName`.
+Read this file when a Blacksmith workflow must still run on GitHub-hosted runners without the Blacksmith budget, account, or service. Pattern 1 is required. Patterns 2 and 3 are optional. Blacksmith facts and the label pairs of both vendors are in [blacksmith.md](blacksmith.md#labels-and-sizing). Before you copy a snippet, read the highest release tag of each action: `git ls-remote --tags --refs https://github.com/<owner>/<repo> | sed 's|.*/||' | grep -E '^v[0-9]+(\.[0-9]+)*$' | sort -V | tail -1`.
 
 ## Facts that shape the design
 
@@ -28,12 +27,12 @@ Required. Give each runner class one configuration variable. Put a GitHub-hosted
 
 ```yaml
 jobs:
-  changes:
-    runs-on: ubuntu-slim                                       # small gate job: GitHub-hosted in both modes
   test:
     runs-on: ${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}    # the literal serves forks, Dependabot, and fallback
+    timeout-minutes: 30
   e2e:
     runs-on: ${{ vars.CI_RUNNER_LINUX_LARGE || '<github-large-label>' }}
+    timeout-minutes: 45
 ```
 
 Switch a class with `gh`, the GitHub command-line interface (CLI), in a clone. Outside a clone, add `-R OWNER/REPO` (https://cli.github.com/manual/gh_variable_set). A repository variable overrides an organization variable of the same name. Environment-level variables cannot choose the runner (https://docs.github.com/en/actions/reference/workflows-and-actions/variables).
@@ -42,108 +41,109 @@ Switch a class with `gh`, the GitHub command-line interface (CLI), in a clone. O
 gh variable set CI_RUNNER_LINUX --body blacksmith-4vcpu-ubuntu-2404   # this repository to Blacksmith
 gh variable delete CI_RUNNER_LINUX                                     # back to the organization value or the literal
 gh variable set CI_RUNNER_LINUX --org <org> --repos <repo-a>,<repo-b> --body blacksmith-4vcpu-ubuntu-2404  # only repositories with the Blacksmith app
-gh variable set CI_RUNNER_LINUX --body ubuntu-latest                   # keep one repository GitHub-hosted while the organization uses Blacksmith
 ```
 - GitHub larger runners need a Team or Enterprise plan and a custom label that you create. Without them, use `ubuntu-latest` as the literal (https://docs.github.com/en/actions/concepts/runners/larger-runners).
-- Keep gate jobs on `ubuntu-slim` when they fit its limits (https://docs.github.com/en/actions/reference/runners/github-hosted-runners). It is a small unprivileged container with no Docker and a short job time cap.
+- Keep gate jobs on `ubuntu-slim` in both modes when they fit its limits (https://docs.github.com/en/actions/reference/runners/github-hosted-runners). It has no Blacksmith twin. It is a small unprivileged container with no Docker and a short job time cap.
 
 ## Pattern 2: picker job
 
-Optional. A picker job on `ubuntu-slim` writes the label to a job output. Later jobs set `needs: pick` and `runs-on: ${{ needs.pick.outputs.linux }}`. Cost: one more job on the critical path of every run.
+Optional. A picker job on `ubuntu-slim` writes the label to a job output. It holds no secret: it reads only `CI_FORCE_GITHUB` and the Blacksmith status page. Later jobs set `needs: pick` and `runs-on: ${{ needs.pick.outputs.linux }}`. Cost: one more job on the critical path of every run.
 
 ```yaml
 jobs:
   pick:
     runs-on: ubuntu-slim                                  # GitHub-hosted, so it runs when Blacksmith does not
+    timeout-minutes: 5
     outputs: { linux: '${{ steps.pick.outputs.linux }}' }
     steps:
       - id: pick
-        env: { FORCE: '${{ vars.CI_FORCE_GITHUB }}', BUDGET: '${{ vars.CI_BLACKSMITH_BUDGET }}', BLACKSMITH_TOKEN: '${{ secrets.BLACKSMITH_ORG_TOKEN }}' }
+        env: { FORCE: '${{ vars.CI_FORCE_GITHUB }}', IS_FORK: '${{ github.event.pull_request.head.repo.fork }}' }
         run: |
           use() { echo "linux=$1" >> "$GITHUB_OUTPUT"; exit 0; }
+          # Untrusted code never runs on the Blacksmith bill
+          [ "$IS_FORK" != true ] && [ "$GITHUB_ACTOR" != 'dependabot[bot]' ] || use ubuntu-latest
+          [ "$FORCE" != 1 ] || use ubuntu-latest
           status=$(curl -fsS -m 5 https://status.blacksmith.sh/summary.json | jq -r .page.status) || status=error
-          [ "$FORCE" != 1 ] && [ "$status" = UP ] || use ubuntu-latest
-          # Optional cost check. Forks and Dependabot get no variables, and forks get no secrets, so both fall back.
-          [ -n "$BLACKSMITH_TOKEN" ] && [ -n "$BUDGET" ] || use ubuntu-latest
-          { curl -fsSL https://get.blacksmith.sh | sh && echo "$BLACKSMITH_TOKEN" | blacksmith auth login --api-token - --non-interactive --organization <org>; } || use ubuntu-latest
-          cost=$(blacksmith usage --start-time "$(date -u +%Y-%m-01T00:00:00Z)" --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | jq -r '<cost-path>')
-          awk -v c="$cost" -v b="$BUDGET" 'BEGIN { exit !(c ~ /^[0-9.]+$/ && c < b) }' || use ubuntu-latest   # unknown cost: do not spend
+          [ "$status" = UP ] || use ubuntu-latest
           use blacksmith-4vcpu-ubuntu-2404
 ```
-- `CI_FORCE_GITHUB=1` forces GitHub-hosted runners. `CI_BLACKSMITH_BUDGET` holds a copy of the Spending Alerts threshold, because the `blacksmith` CLI cannot read it. `page.status` is `UP` when the status page reports no problem, and any other value falls back (https://status.blacksmith.sh, https://instatus.com/help/api/public-data).
-- An admin creates the organization token with `blacksmith org-token create` (https://docs.blacksmith.sh/blacksmith-cli/overview). Fork pull request runs get no secrets (https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets).
-- The usage output schema is not documented. Run `blacksmith usage --since 30d` once. Copy the path of the estimated cost into `<cost-path>` (https://docs.blacksmith.sh/blacksmith-cli/usage). Then run the picker once. Check in its log that `blacksmith` is on `PATH`.
+- `CI_FORCE_GITHUB=1` forces GitHub-hosted runners. `page.status` is `UP` when the status page reports no problem. Any other value or a failed probe falls back (https://status.blacksmith.sh, https://instatus.com/help/api/public-data).
+- Warning: when `pick` fails, the jobs that need it are skipped, and a skipped job reports success to a required check (https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-jobs-with-conditions). Add `pick` to the `needs` of the aggregate required job ([affected-and-hooks.md](affected-and-hooks.md#prove-the-skip-logic)).
 
-## Pattern 3: stuck-queue watchdog
+## Pattern 3: scheduled guard
 
-Optional. A scheduled workflow on a GitHub-hosted runner finds jobs that wait too long for a `blacksmith-` label. It cancels their runs, switches the variables, and re-runs the runs. Use a re-run, not `workflow_dispatch`: a dispatched run does not satisfy the required checks of a pull request (https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks). Warning: `GITHUB_TOKEN` has no variables permission. Store a GitHub App token or a fine-grained token with Variables write as the secret `CI_VARS_TOKEN` (https://docs.github.com/en/rest/actions/variables).
+Optional. A scheduled workflow on a GitHub-hosted runner checks two things: the month-to-date Blacksmith cost against `CI_BLACKSMITH_BUDGET`, and jobs that wait too long for a `blacksmith-` label. Set `CI_BLACKSMITH_BUDGET` to a plain-number copy of the Spending Alerts threshold, because the `blacksmith` CLI cannot read the threshold. On either finding, the guard sets `CI_FORCE_GITHUB=1` for Pattern 2 and switches the label variables of Pattern 1 to GitHub-hosted labels. Then it cancels and re-runs the stuck runs. A re-run serves the required checks of a pull request, and a `workflow_dispatch` run does not (https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
+
+- Warning: a Blacksmith organization token can manage the cache entries and sticky disks of every installed repository (https://docs.blacksmith.sh/blacksmith-cli/overview). So store it only as the secret `BLACKSMITH_ORG_TOKEN` of an environment that only the default branch can deploy to. Add no required reviewers, because a reviewer blocks each scheduled run (https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments). Pull request runs never receive the token. An admin creates it with `blacksmith org-token create`. On a GitHub Free plan, private repositories have no environments, so leave out the cost check there.
+- `GITHUB_TOKEN` cannot write variables (https://docs.github.com/en/rest/actions/variables). Create a GitHub App with the repository permission Variables (read and write). Install it on the repository. Put its client ID in the variable `CI_GUARD_APP_CLIENT_ID` and its private key in the environment secret `CI_GUARD_APP_KEY`. The job mints a token each run, because installation tokens expire after 1 hour (https://github.com/actions/create-github-app-token).
 
 ```yaml
-on: { schedule: [{ cron: '*/10 * * * *' }] }
-permissions: { actions: write }                           # cancel and re-run workflow runs
+on:
+  schedule: [{ cron: '3-59/10 * * * *' }]                 # off minute 0, when GitHub delays scheduled runs most
+  workflow_dispatch: { inputs: { dry_run: { type: boolean, default: true } } }   # prints the decision and switches nothing
+permissions: { actions: write }                           # list, cancel, and re-run workflow runs
+concurrency: runner-guard
 jobs:
-  watch:
-    runs-on: ubuntu-slim                                  # never the variable: it must run when Blacksmith does not
-    env: { GH_TOKEN: '${{ github.token }}', VARS_TOKEN: '${{ secrets.CI_VARS_TOKEN }}', GH_REPO: '${{ github.repository }}' }
+  guard:
+    runs-on: ubuntu-slim                                  # never a variable: it must run when Blacksmith does not
+    timeout-minutes: 15
+    environment: { name: runner-guard, deployment: false }   # default branch only; no deployment record per run
+    env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
     steps:
-      - run: |
-          # Queued jobs and their age in seconds (TSV: run_id, job, labels, age_s)
-          for id in $(gh run list -s queued -L 20 --json databaseId -q '.[].databaseId') \
-                    $(gh run list -s in_progress -L 20 --json databaseId -q '.[].databaseId'); do
+      - run: curl -fsSL https://get.blacksmith.sh | BLACKSMITH_INSTALL_DIR="$RUNNER_TEMP/bin" sh && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"   # no secret in this step
+      - id: decide
+        env: { BLACKSMITH_TOKEN: '${{ secrets.BLACKSMITH_ORG_TOKEN }}', BLACKSMITH_DISABLE_AUTO_UPDATE: '1', BUDGET: '${{ vars.CI_BLACKSMITH_BUDGET }}' }
+        run: |
+          cost=$(printf '%s\n' "$BLACKSMITH_TOKEN" | blacksmith auth login --api-token - --non-interactive --organization <org> > /dev/null &&
+            blacksmith usage --start-time "$(date -u +%Y-%m-01T00:00:00Z)" --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | jq -r '<cost-path>') || cost=invalid
+          num='^[0-9]+([.][0-9]+)?$'; over=true            # a missing or invalid number counts as over budget
+          if [[ $cost =~ $num && $BUDGET =~ $num ]] && awk -v c="$cost" -v b="$BUDGET" 'BEGIN { exit !(c+0 < b+0) }'; then over=false; fi
+          for s in queued in_progress; do gh api --paginate "repos/$GH_REPO/actions/runs?status=$s&per_page=100" --jq '.workflow_runs[].id'; done > runs.txt
+          while read -r id; do                            # runs with a job that waits over 900 s for a blacksmith- label
             gh api --paginate "repos/$GH_REPO/actions/runs/$id/jobs?per_page=100" \
-              --jq ".jobs[] | select(.status==\"queued\") | [\"$id\", .name, (.labels|join(\",\")), ((now-(.created_at|fromdate))|floor)] | @tsv"
-          done > queued.tsv
-          awk -F'\t' '$3 ~ /(^|,)blacksmith-/ && $4 > 900 { print $1 }' queued.tsv | sort -u > stuck.txt   # 900 s: above a normal Blacksmith queue
-          [ -s stuck.txt ] || exit 0
-          while read -r id; do gh run cancel "$id"; done < stuck.txt
+              --jq "if any(.jobs[]; .status == \"queued\" and any(.labels[]; startswith(\"blacksmith-\")) and now - (.created_at | fromdate) > 900) then $id else empty end"
+          done < runs.txt > hits.txt
+          sort -u hits.txt > stuck.txt
+          switch=false; if [ "$over" = true ] || [ -s stuck.txt ]; then switch=true; fi
+          echo "cost=$cost budget=$BUDGET over=$over stuck_runs=$(wc -l < stuck.txt) switch=$switch"; echo "switch=$switch" >> "$GITHUB_OUTPUT"
+      - id: app
+        if: steps.decide.outputs.switch == 'true' && !inputs.dry_run
+        uses: actions/create-github-app-token@v3
+        with: { client-id: '${{ vars.CI_GUARD_APP_CLIENT_ID }}', private-key: '${{ secrets.CI_GUARD_APP_KEY }}' }
+      - if: steps.app.outcome == 'success'
+        env: { VARS_TOKEN: '${{ steps.app.outputs.token }}' }
+        run: |
+          # Switch every variable before any cancel. A failed switch ends the step before the cancels.
+          GH_TOKEN="$VARS_TOKEN" gh variable set CI_FORCE_GITHUB --body 1
           GH_TOKEN="$VARS_TOKEN" gh variable set CI_RUNNER_LINUX --body ubuntu-latest
           GH_TOKEN="$VARS_TOKEN" gh variable set CI_RUNNER_LINUX_LARGE --body '<github-large-label>'
+          while read -r id; do gh run cancel "$id"; done < stuck.txt
           while read -r id; do gh run watch "$id" > /dev/null; gh run rerun "$id"; done < stuck.txt   # a run must stop before it can re-run
 ```
-- `gh` reads the repository from `GH_REPO` (https://cli.github.com/manual/gh_help_environment). To list queued jobs by hand, run the `for` loop with `GH_REPO=OWNER/REPO` (https://docs.github.com/en/rest/actions/workflow-jobs).
-- Confirm the runner label of each re-run with the command in [Proof](#proof), or in its "Set up job" log. If the re-run still asks for a `blacksmith-` label, push a new commit.
-- The repository variables override an organization value. When Blacksmith works again, delete them with `gh variable delete`.
+- The usage output schema is not documented. Run `blacksmith usage --since 30d` once. Copy the path of the estimated cost into `<cost-path>` (https://docs.blacksmith.sh/blacksmith-cli/usage).
+- After a switch, check the runner label of each re-run with the command in [Proof](#proof). If a re-run still asks for a `blacksmith-` label, push a new commit. The guard never switches back. When Blacksmith works again and the budget allows, run `gh variable delete CI_FORCE_GITHUB`. Then delete the label variables, or set them back to the Blacksmith labels.
+- The schedule starts 144 runs per day. In private repositories, GitHub bills each job at least one minute (https://docs.github.com/en/billing/reference/actions-runner-pricing). Scheduled runs can start late or drop at high load. GitHub disables a schedule in a public repository after 60 days without repository activity (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 
 ## Portable steps
 
 | Feature | On Blacksmith | On GitHub-hosted | Portable choice |
 |---|---|---|---|
 | `actions/cache`, `actions/setup-*` caches | Blacksmith cache ([docs](https://docs.blacksmith.sh/blacksmith-caching/dependencies-actions)) | GitHub cache | Keep the upstream actions. The backends do not share entries, so the first run after each switch is cold |
-| Docker `cache-from`/`cache-to` `type=gha` | GitHub cache (same docs) | GitHub cache | Works on both |
-| `useblacksmith/build-push-action` | Works | Not supported: it works only on Blacksmith runners ([README](https://github.com/useblacksmith/build-push-action)) | Gate it with `if: startsWith(vars.CI_RUNNER_LINUX, 'blacksmith-')`. Add a `docker/build-push-action` twin with the opposite condition |
+| Docker `cache-from`/`cache-to` `type=gha` | GitHub cache (same docs) | GitHub cache | Works on both. Set `scope=<image>` on both keys ([docs](https://docs.docker.com/build/cache/backends/gha/)). Write `cache-to` only in default-branch `push` jobs |
+| `useblacksmith/build-push-action` | Works | Not supported: it works only on Blacksmith runners ([README](https://github.com/useblacksmith/build-push-action)) | Gate it with `if: startsWith(vars.CI_RUNNER_LINUX, 'blacksmith-')`. Add a `docker/build-push-action` twin with `if: ${{ !startsWith(vars.CI_RUNNER_LINUX, 'blacksmith-') }}`: a leading `!` needs `${{ }}`. With Pattern 2, test `needs.pick.outputs.linux` |
 | `useblacksmith/setup-docker-builder` | Sticky-disk builder | Falls back to a local builder unless `nofallback: true` ([README](https://github.com/useblacksmith/setup-docker-builder)) | Gate it the same way. Add a `docker/setup-buildx-action` twin, so `type=gha` gets a builder that exports cache |
 | `useblacksmith/stickydisk` | Persistent disk | Plain directory that does not persist ([source](https://github.com/useblacksmith/stickydisk/blob/main/src/main.ts)) | Gate it. Use `actions/cache` on GitHub-hosted runners |
 | `astral-sh/setup-uv` | `enable-cache: auto` is off ([source](https://github.com/astral-sh/setup-uv/blob/main/src/utils/inputs.ts)) | `enable-cache: auto` is on | Set `enable-cache: true` |
 | Go, Turborepo, Bazel server-side caches | Transparent ([blacksmith.md](blacksmith.md#caches)) | Absent | Keep a cache step for GitHub-hosted runners |
 | Docker Hub pulls | Rate limits apply ([limits](https://docs.github.com/en/actions/reference/limits)) | Public pulls are not limited | Log in to Docker Hub or use a registry mirror |
 | Matrix width | No documented concurrency limit ([docs](https://docs.blacksmith.sh/blacksmith-runners/concurrency)) | Plan concurrency limit ([limits](https://docs.github.com/en/actions/reference/limits)) | Set `max-parallel` to a value that the GitHub plan allows |
-| Tool worker counts | Blacksmith runner size | GitHub-hosted runner size | Let tools detect cores. Do not hard-code a count sized for the Blacksmith runner |
+| Tool worker counts | Blacksmith runner size | GitHub-hosted runner size | `tsc --checkers` takes one fixed value everywhere, because different values can rarely change results ([js-toolchain.md](js-toolchain.md)). Other tools detect cores |
 | Run History, Test Analytics, Monitors, Secure Shell (SSH) access | Available ([blacksmith.md](blacksmith.md#observability)) | Absent | Do not let them decide a required check |
-
-```yaml
-# Twin build steps. With Pattern 2, test needs.pick.outputs.linux in place of vars.CI_RUNNER_LINUX.
-- if: startsWith(vars.CI_RUNNER_LINUX, 'blacksmith-')
-  uses: useblacksmith/build-push-action@v2              # works only on Blacksmith runners
-  with: { push: true, tags: '<registry>/<image>:<tag>' }
-- if: ${{ !startsWith(vars.CI_RUNNER_LINUX, 'blacksmith-') }}   # a leading ! needs ${{ }}
-  uses: docker/build-push-action@v7
-  with: { push: true, tags: '<registry>/<image>:<tag>', cache-from: type=gha, cache-to: 'type=gha,mode=max' }
-```
-
-## Label map
-
-| GitHub label ([reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)) | Closest Blacksmith label ([overview](https://docs.blacksmith.sh/blacksmith-runners/overview), [quickstart](https://docs.blacksmith.sh/introduction/quickstart)) | Difference |
-|---|---|---|
-| `ubuntu-slim` | None | No twin. Keep gate jobs on `ubuntu-slim` in both modes |
-| `ubuntu-latest`, `ubuntu-24.04`, `ubuntu-26.04` | `blacksmith-2vcpu-ubuntu-2404`, `blacksmith-2vcpu-ubuntu-2604` | Same size as the GitHub-hosted runner for private repositories. Public repositories get a larger GitHub-hosted runner. Pin a release, because `ubuntu-latest` follows GitHub image rollouts |
-| `ubuntu-24.04-arm`, `ubuntu-26.04-arm` | `blacksmith-2vcpu-ubuntu-2404-arm`, `blacksmith-2vcpu-ubuntu-2604-arm` | Less memory on Blacksmith. No nested virtualization on Blacksmith arm64 |
-| Larger runner (custom label) | `blacksmith-<N>vcpu-ubuntu-2404` | GitHub needs a Team or Enterprise plan. The largest sizes differ |
-| `windows-latest`, `windows-2025` | `blacksmith-2vcpu-windows-2025` | Beta on Blacksmith. No Linux containers and no full Visual Studio application |
-| `macos-latest`, `macos-15`, `macos-26` | `blacksmith-6vcpu-macos-latest`, `blacksmith-6vcpu-macos-15`, `blacksmith-6vcpu-macos-26` | The smallest Blacksmith size is larger. Compare cost per job |
 
 ## Proof
 
-1. Set the variable with `gh variable set CI_RUNNER_LINUX --body blacksmith-4vcpu-ubuntu-2404`. Push a commit to start the workflow.
-2. Delete the variable with `gh variable delete CI_RUNNER_LINUX`. Push a commit again.
-3. For each run, print the label and the runner of every job: `gh api "repos/OWNER/REPO/actions/runs/<run-id>/jobs" --jq '.jobs[] | [.name, (.labels | join(",")), .runner_name] | @tsv'`.
-4. Check that each job shows the label that you expect for the mode. The "Set up job" log of each job also names the runner.
+1. Pattern 1: run `gh variable set CI_RUNNER_LINUX --body blacksmith-4vcpu-ubuntu-2404`. Push a commit. Then run `gh variable delete CI_RUNNER_LINUX` and push again.
+2. Pattern 2: run `gh variable set CI_FORCE_GITHUB --body 1`. Push a commit. Then run `gh variable delete CI_FORCE_GITHUB` and push again.
+3. For each run, print the label and the runner of every job: `gh api "repos/OWNER/REPO/actions/runs/<run-id>/jobs" --jq '.jobs[] | [.name, (.labels | join(",")), .runner_name] | @tsv'`. Check each label against the mode. The "Set up job" log also names the runner.
+4. Pattern 3: check that `<cost-path>` prints a number: `blacksmith usage --since 30d | jq -r '<cost-path>'`.
+5. Pattern 3: run `gh workflow run <guard-file>.yml -f dry_run=true`. Read the `over=` and `switch=` lines with `gh run view <run-id> --log`. Check with `gh variable list` that no variable changed.
