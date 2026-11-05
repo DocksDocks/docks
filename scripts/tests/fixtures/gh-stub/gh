@@ -968,13 +968,33 @@ if (group === 'issue' && command === 'view') {
   process.exit(0);
 }
 
+// gh posts the --comment as the viewer and then closes the issue. The close names no closer, as a close by hand does.
+// `issueCloseErrorOnce` fails one close before gh writes anything.
 if (group === 'issue' && command === 'close') {
   const issue = issueByNumber(issueNumber());
   const reason = value('--reason');
   if (!new Set(['completed', 'not planned']).has(reason)) die('issue close requires a supported --reason');
+  if (state.issueCloseErrorOnce) {
+    const message = state.issueCloseErrorOnce;
+    delete state.issueCloseErrorOnce;
+    die(message);
+  }
+  touch(issue);
+  const comment = value('--comment');
+  if (comment !== undefined) {
+    state.nextComment ??= 1;
+    issue.comments ??= [];
+    issue.comments.push({
+      id: state.nextComment++,
+      body: comment,
+      author: state.viewerLogin,
+      createdAt: issue.updatedAt,
+    });
+  }
   issue.state = 'CLOSED';
   issue.stateReason = reason === 'completed' ? 'COMPLETED' : 'NOT_PLANNED';
-  touch(issue);
+  issue.timelineItems ??= [];
+  issue.timelineItems.push({ __typename: 'ClosedEvent', closer: null, createdAt: issue.updatedAt });
   save();
   process.exit(0);
 }

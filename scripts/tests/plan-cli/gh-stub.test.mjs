@@ -13,18 +13,23 @@ const PR_URL = `https://github.com/DocksDocks/fixture/pull/${PR}`;
 const MERGED_AT = '2026-08-21T00:00:00Z';
 const OID = 'c0ffee0000000000000000000000000000000007';
 
-// Run `gh api graphql` on the fake gh with the state file that `planCliContext` keeps in its scratch folder.
-// A number variable goes with -F, as the helper sends it, and a string variable with -f.
-function graphql({ scratch }, query, variables = {}) {
-  const args = ['api', 'graphql', '-f', `query=${query}`, '-f', 'owner=DocksDocks', '-f', 'name=fixture'];
-  for (const [key, value] of Object.entries(variables)) {
-    args.push(typeof value === 'number' ? '-F' : '-f', `${key}=${value}`);
-  }
+// Run the fake gh with the state file that `planCliContext` keeps in its scratch folder.
+function gh({ scratch }, args) {
   return spawnSync(GH_STUB, args, {
     cwd: scratch,
     encoding: 'utf8',
     env: { ...process.env, GH_STUB_STATE: path.join(scratch, 'gh-state.json') },
   });
+}
+
+// Run `gh api graphql` on the fake gh. A number variable goes with -F, as the helper sends it, and a string variable
+// with -f.
+function graphql(context, query, variables = {}) {
+  const args = ['api', 'graphql', '-f', `query=${query}`, '-f', 'owner=DocksDocks', '-f', 'name=fixture'];
+  for (const [key, value] of Object.entries(variables)) {
+    args.push(typeof value === 'number' ? '-F' : '-f', `${key}=${value}`);
+  }
+  return gh(context, args);
 }
 
 function responseData(result) {
@@ -173,4 +178,28 @@ test('the fake gh refuses a response key that names two different fields', (t) =
   const result = pullRequest(context, 'number: url number');
   assert.equal(result.status, 1);
   assert.equal(result.stderr, "Field 'number' has a field conflict: url or number?\n");
+});
+
+test('the fake gh records `issue close --comment` as a comment by the viewer and a close without a closer', (t) => {
+  const context = planCliContext(t);
+  const number = context.createPlan('closed through gh issue close');
+  const closed = gh(context, [
+    'issue',
+    'close',
+    String(number),
+    '--reason',
+    'completed',
+    '--comment',
+    'Closed by hand.',
+    '--repo',
+    'DocksDocks/fixture',
+  ]);
+  assert.equal(closed.status, 0, closed.stderr);
+  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){comments(first:100){nodes{author{login} body}} timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{... on ClosedEvent{closer{__typename}}}}}}}`;
+  const { issue } = responseData(graphql(context, query, { number })).repository;
+  assert.deepEqual(
+    issue.comments.nodes.map(({ author, body }) => ({ author, body })),
+    [{ author: { login: 'plan-agent' }, body: 'Closed by hand.' }],
+  );
+  assert.deepEqual(issue.timelineItems, { nodes: [{ closer: null }] });
 });

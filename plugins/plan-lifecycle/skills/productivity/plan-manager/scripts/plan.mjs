@@ -28,11 +28,11 @@ const PLAN_LIST_ARGS = ',labels:["plan"],states:[OPEN,CLOSED],orderBy:{field:CRE
 const PLAN_LIST_FIELDS = 'number title state stateReason labels(first:100){nodes{name}}';
 const GH_MAX_BUFFER_MIB = 256;
 const PLAN_LIST_LIMIT = 500;
-// `reopen` reads the plan up to REOPEN_READS times until GitHub records the close by the merged pull request. Between
-// reads it pauses for the next entry of REOPEN_PAUSES_MS, and the last entry repeats: about 60 s in all. Once the
-// close shows, it waits REOPEN_SETTLE_MS before it reads the plan again and writes (see sleep).
-const REOPEN_PAUSES_MS = [250, 500, 1000, 2000];
-const REOPEN_READS = 34;
+// `reopen` and `archive` read the plan up to CLOSE_WAIT_READS times until GitHub records the close by the merged pull
+// request. Between reads they pause for the next entry of CLOSE_WAIT_PAUSES_MS, and the last entry repeats: about 60 s
+// in all. Once the close shows, `reopen` waits REOPEN_SETTLE_MS before it reads the plan again and writes (see sleep).
+const CLOSE_WAIT_PAUSES_MS = [250, 500, 1000, 2000];
+const CLOSE_WAIT_READS = 34;
 const REOPEN_SETTLE_MS = 10_000;
 // A machine path points into a user or root home, a mount, a named temporary or runtime directory,
 // a Windows drive, or a network share. URL routes, slash prose, and portable system paths such as
@@ -98,7 +98,7 @@ function parseJson(output, command) {
 const ISSUE_LABEL_FIELDS = 'name id';
 const ASSIGNEE_FIELDS = '... on Actor{login}';
 const LABELED_EVENT_FIELDS = '... on LabeledEvent{label{name}}';
-const CLOSED_EVENT_FIELDS = `... on ClosedEvent{createdAt closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS} body} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
+const CLOSED_EVENT_FIELDS = `... on ClosedEvent{createdAt closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS}} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
 
 function issueConnectionSelection(field, nodeFields, extraArgs = '', after = false) {
   return `${field}(first:100${after ? ',after:$after' : ''}${extraArgs}){nodes{${nodeFields}} ${PAGE_INFO}}`;
@@ -177,9 +177,15 @@ function associatedNodes(commit) {
 
 function readSnapshot(
   number,
-  { acting = false, labelLookup = false, comments = false, history = false, archive = false, closure = false } = {},
+  {
+    acting = false,
+    labelLookup = false,
+    comments = false,
+    history = false,
+    defaultBranch = false,
+    closure = false,
+  } = {},
 ) {
-  const readsClosure = closure || archive;
   const issueFields =
     number === undefined
       ? ''
@@ -191,11 +197,9 @@ function readSnapshot(
           history
             ? issueConnectionSelection('history:timelineItems', LABELED_EVENT_FIELDS, ',itemTypes:[LABELED_EVENT]')
             : '',
-          readsClosure
-            ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}`
-            : '',
+          closure ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}` : '',
         ].join(' ');
-  const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
+  const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${defaultBranch ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
   const data = graphql(query, number === undefined ? {} : { number });
   const repo = data.repository;
   if (
@@ -205,6 +209,8 @@ function readSnapshot(
     typeof repo.visibility !== 'string'
   )
     fail('gh api graphql returned malformed repository');
+  if (defaultBranch && typeof repo.defaultBranchRef?.name !== 'string')
+    fail('gh api graphql returned malformed default branch');
   repository = repo;
   const login = data.viewer?.login;
   const viewerId = data.viewer?.id;
@@ -269,9 +275,7 @@ function readSnapshot(
     if (issue.history.some((event) => typeof event.label?.name !== 'string'))
       fail('gh api graphql returned malformed label history');
   }
-  if (archive && typeof repo.defaultBranchRef?.name !== 'string')
-    fail('gh api graphql returned malformed latest closure');
-  if (readsClosure) {
+  if (closure) {
     if (!Array.isArray(issue.latestClosure?.nodes)) fail('gh api graphql returned malformed latest closure');
     const latest = issue.latestClosure.nodes.at(-1);
     const closer = latest?.closer;
@@ -284,10 +288,8 @@ function readSnapshot(
     )
       fail('gh api graphql returned malformed latest closure');
     if (closer?.__typename === 'PullRequest') pullRequestNodes([closer]);
-    if (closer?.__typename === 'Commit') {
-      if (typeof closer.oid !== 'string' || !closer.oid) fail('gh api graphql returned malformed closing commit');
-      if (archive) issue.associatedPullRequests = pullRequestNodes(associatedNodes(closer));
-    }
+    if (closer?.__typename === 'Commit' && (typeof closer.oid !== 'string' || !closer.oid))
+      fail('gh api graphql returned malformed closing commit');
     issue.closer = closer;
     issue.closedEventAt = latest?.createdAt;
   }
@@ -1071,76 +1073,112 @@ function listPlans(args) {
   }
   if (issues.length >= PLAN_LIST_LIMIT) console.log('advice: list stopped at 500 plans; more plans may exist');
 }
-function archivePlan(args, retired = false) {
+// GitHub closes a plan for its merged pull request a while after the merge, so an archive takes the plan open and
+// ongoing as well as closed and finished.
+function refuseUnarchivable(plan) {
+  const { issue, parsed, status } = plan;
+  refuseStuck(issue);
+  if (status !== (isClosed(plan) ? 'finished' : 'ongoing'))
+    fail(`archive requires ongoing or finished status, found ${status}`);
+  if (parsed.steps.length === 0) fail('archive refused: no Steps rows parsed');
+  const unfinished = parsed.steps.find((row) => !terminal(row.status));
+  if (unfinished) fail(`archive refused: non-terminal step ${unfinished.id}`);
+  if (reviewVerdicts(issue).code !== 'pass') fail('archive requires Code-review: pass');
+}
+// The archive of a plan whose work landed through the pull request that `--pr` names. That pull request is the landing
+// proof: the latest close of the plan can come from a commit, another pull request, or a person.
+function archivePlan(args) {
   const [value, ...flags] = args,
-    options = parseOptions(flags, new Set(retired ? ['--reason'] : []));
-  if (retired && (!options['--reason']?.trim() || /[\r\n]/.test(options['--reason'])))
-    fail('retire requires a single-line --reason');
-  const { issue, parsed, status } = readPlanIssue(value, true, retired ? {} : { comments: true, archive: true });
-  if (retired && String(issue.state).toUpperCase() === 'CLOSED') fail(`cannot retire a ${status} plan`);
-  if (!retired && status !== 'finished') fail(`archive requires finished status, found ${status}`);
-  let closer;
-  if (!retired) {
-    if (parsed.steps.length === 0) fail('archive refused: no Steps rows parsed');
-    const unfinished = parsed.steps.find((row) => !terminal(row.status));
-    if (unfinished) fail(`archive refused: non-terminal step ${unfinished.id}`);
-    if (reviewVerdicts(issue).code !== 'pass') fail('archive requires Code-review: pass');
-    const defaultBranch = repository.defaultBranchRef.name;
-    const references =
-      issue.closer?.__typename === 'PullRequest'
-        ? typeof issue.closer.body === 'string' &&
-          hasClosingKeyword(issue.closer.body, issue.number, repository.nameWithOwner)
-          ? [issue.closer]
-          : []
-        : issue.closer?.__typename === 'Commit'
-          ? issue.associatedPullRequests
-          : [];
-    closer = references.find(
-      (pr) =>
-        pr.state === 'MERGED' &&
-        pr.mergedAt &&
-        pr.repository?.nameWithOwner === repository.nameWithOwner &&
-        pr.baseRefName === defaultBranch,
-    );
-    if (!closer)
-      fail(`archive requires a closing pull request merged into ${repository.nameWithOwner}:${defaultBranch}`);
+    pr = parseOptions(flags, new Set(['--pr']))['--pr'];
+  if (!value || !pr) fail('archive requires an issue and --pr');
+  const number = parseIssueNumber(value),
+    pullRequest = readPullRequest(parseIssueNumber(pr, 'pull request'), number);
+  if (!pullRequest.merged) fail(`pull request #${pullRequest.number} is not merged`);
+  // Each read is a snapshot for the write: it checks ownership, decides the claim, and must still be archivable.
+  const read = () => {
+    const plan = readPlanIssue(number, true, { comments: true, defaultBranch: true });
+    refuseUnarchivable(plan);
+    return plan;
+  };
+  let observed = read();
+  const { nameWithOwner } = repository,
+    defaultBranch = repository.defaultBranchRef.name;
+  if (
+    pullRequest.repository.nameWithOwner !== nameWithOwner ||
+    pullRequest.baseRefName !== defaultBranch ||
+    typeof pullRequest.body !== 'string' ||
+    !hasClosingKeyword(pullRequest.body, number, nameWithOwner)
+  )
+    fail(`archive requires a closing pull request merged into ${nameWithOwner}:${defaultBranch}`);
+  // A state change that races GitHub's own close for a merge can leave the plan stuck (#90), so an open plan gets the
+  // waits of reopen before archive closes it.
+  for (let reads = 1; !isClosed(observed) && reads < CLOSE_WAIT_READS; reads += 1) {
+    sleep(CLOSE_WAIT_PAUSES_MS[Math.min(reads, CLOSE_WAIT_PAUSES_MS.length) - 1]);
+    observed = read();
   }
-  writeIssueIfUnchanged(issue, { remove: labelsToRemove(issue) });
-  if (retired)
+  // The close comes before the label removal: a failed close leaves the plan ongoing and a failed removal leaves it
+  // finished, so a rerun archives it either way. Without its phase label, an open plan would no longer be archivable.
+  if (!isClosed(observed))
     runGh([
       'issue',
       'close',
-      String(issue.number),
+      String(number),
       '--reason',
-      'not planned',
+      'completed',
       '--comment',
-      options['--reason'].replaceAll('\u2014', ' - ').replace(/ {2,}/g, ' '),
+      `Closed by archive: pull request #${pullRequest.number} merged into ${defaultBranch} and closes this plan, but GitHub left the plan open.`,
       '--repo',
-      repository.nameWithOwner,
+      nameWithOwner,
     ]);
-  console.log(
-    retired
-      ? `plan #${issue.number} retired`
-      : `plan #${issue.number} finished (closed by ${closer.url ?? `https://github.com/${repository.nameWithOwner}/pull/${closer.number}`})`,
-  );
+  writeIssueIfUnchanged(observed.issue, { remove: labelsToRemove(observed.issue) });
+  console.log(`plan #${number} finished (closed by ${pullRequest.url})`);
+}
+function retirePlan(args) {
+  const [value, ...flags] = args,
+    options = parseOptions(flags, new Set(['--reason']));
+  if (!options['--reason']?.trim() || /[\r\n]/.test(options['--reason']))
+    fail('retire requires a single-line --reason');
+  const { issue, status } = readPlanIssue(value, true);
+  if (String(issue.state).toUpperCase() === 'CLOSED') fail(`cannot retire a ${status} plan`);
+  writeIssueIfUnchanged(issue, { remove: labelsToRemove(issue) });
+  runGh([
+    'issue',
+    'close',
+    String(issue.number),
+    '--reason',
+    'not planned',
+    '--comment',
+    options['--reason'].replaceAll('\u2014', ' - ').replace(/ {2,}/g, ' '),
+    '--repo',
+    repository.nameWithOwner,
+  ]);
+  console.log(`plan #${issue.number} retired`);
 }
 // Block the process for `ms` milliseconds. A reopen 1 s after GitHub closed a plan for a merged pull request raced
-// that close and left the issue stuck closed with reason REOPENED (#90). So `reopen` pauses between its reads until
-// it sees the close, then waits REOPEN_SETTLE_MS for the close to settle before it writes.
+// that close and left the issue stuck closed with reason REOPENED (#90). So `reopen` and `archive` pause between their
+// reads until they see the close, and `reopen` then waits REOPEN_SETTLE_MS for the close to settle before it writes.
 function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
-// Pull request `number`: whether and when it merged, and whether it closes plan `planNumber` of this repository.
+function isClosed({ issue }) {
+  return String(issue.state).toUpperCase() === 'CLOSED';
+}
+// Pull request `number`: whether, when, and where it merged, its description, and whether GitHub lists plan
+// `planNumber` of this repository among the issues that it closes.
 function readPullRequest(number, planNumber) {
   const references = (after) =>
     issueConnectionSelection('closingIssuesReferences', 'number repository{nameWithOwner}', '', after);
-  const query = `query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){merged mergedAt ${references(false)}}}}`;
+  const query = `query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){url merged mergedAt baseRefName body repository{nameWithOwner} ${references(false)}}}}`;
   const repo = graphql(query, { pr: number }).repository;
   const pullRequest = repo?.pullRequest;
   if (
     typeof repo?.nameWithOwner !== 'string' ||
-    typeof pullRequest?.merged !== 'boolean' ||
-    (pullRequest.merged && !Number.isFinite(Date.parse(pullRequest.mergedAt)))
+    typeof pullRequest?.url !== 'string' ||
+    typeof pullRequest.merged !== 'boolean' ||
+    (pullRequest.merged && !Number.isFinite(Date.parse(pullRequest.mergedAt))) ||
+    typeof pullRequest.baseRefName !== 'string' ||
+    (pullRequest.body !== null && typeof pullRequest.body !== 'string') ||
+    typeof pullRequest.repository?.nameWithOwner !== 'string'
   )
     fail('gh api graphql returned malformed pull request');
   const pageQuery = `query($owner:String!,$name:String!,$pr:Int!,$after:String!){repository(owner:$owner,name:$name){pullRequest(number:$pr){${references(true)}}}}`;
@@ -1153,8 +1191,12 @@ function readPullRequest(number, planNumber) {
     fail('gh api graphql returned malformed closing issue references');
   return {
     number,
+    url: pullRequest.url,
     merged: pullRequest.merged,
     mergedAt: pullRequest.mergedAt,
+    baseRefName: pullRequest.baseRefName,
+    body: pullRequest.body,
+    repository: pullRequest.repository,
     closesPlan: closed.some(
       (issue) => issue.number === planNumber && issue.repository.nameWithOwner === repo.nameWithOwner,
     ),
@@ -1235,10 +1277,9 @@ function reopenPlan(args) {
   }
   // Each read is a snapshot for the write: it checks ownership and decides the claim.
   const read = () => readPlanIssue(number, true, { closure: true });
-  const isClosed = ({ issue }) => String(issue.state).toUpperCase() === 'CLOSED';
   let observed = read();
   for (let reads = 1; !closedByPullRequest(observed.issue, pullRequest); reads += 1) {
-    if (reads === REOPEN_READS) {
+    if (reads === CLOSE_WAIT_READS) {
       // GitHub cannot close a closed issue, so a plan that still reads closed by an earlier close never gets the
       // close from this merge; telling the caller to run reopen again would loop forever.
       if (isClosed(observed))
@@ -1249,7 +1290,7 @@ function reopenPlan(args) {
         `GitHub has not closed plan #${number} for pull request #${pullRequest.number} yet; run reopen again once it has`,
       );
     }
-    sleep(REOPEN_PAUSES_MS[Math.min(reads, REOPEN_PAUSES_MS.length) - 1]);
+    sleep(CLOSE_WAIT_PAUSES_MS[Math.min(reads, CLOSE_WAIT_PAUSES_MS.length) - 1]);
     observed = read();
   }
   // A plan that reads open was reopened after that close. A closed plan gets the settle wait and one more read,
@@ -1281,7 +1322,7 @@ function main([command, ...args]) {
     step: setStepStatus,
     list: listPlans,
     archive: archivePlan,
-    retire: (values) => archivePlan(values, true),
+    retire: retirePlan,
     reopen: reopenPlan,
   };
   if (!Object.hasOwn(commands, command))

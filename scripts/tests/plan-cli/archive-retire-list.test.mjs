@@ -1,46 +1,69 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { expectSuccess, planCliContext, refuse } from './harness.mjs';
+import { expectSuccess, planCliContext, refuse, SKIP_WAITS } from './harness.mjs';
 
-test('archive refuses a closer merged into a branch other than the default branch', (t) => {
-  const { run, closedPlan } = planCliContext(t);
-  const wrongBase = closedPlan('wrong base', { base: 'release' });
-  refuse(
-    run('archive', String(wrongBase.number)),
-    'archive requires a closing pull request merged into DocksDocks/fixture:main',
-  );
+// Every archive loads the skip-waits hook, so a pause for an open plan returns at once and gets recorded.
+function archive({ runWith }, plan) {
+  return runWith(['--import', SKIP_WAITS], 'archive', String(plan.number), '--pr', String(plan.pr));
+}
+
+test('archive refuses a closing pull request merged into a branch other than the default branch', (t) => {
+  const context = planCliContext(t);
+  const plan = context.closedPlan('wrong base', { base: 'release' });
+  refuse(archive(context, plan), 'archive requires a closing pull request merged into DocksDocks/fixture:main');
 });
 
 test('archive refuses a plan with a non-terminal step', (t) => {
-  const { run, closedPlan } = planCliContext(t);
-  const unfinished = closedPlan('unfinished step', { status: 'in-flight' });
-  refuse(run('archive', String(unfinished.number)), 'archive refused: non-terminal step fix_parser');
+  const context = planCliContext(t);
+  const plan = context.closedPlan('unfinished step', { status: 'in-flight' });
+  refuse(archive(context, plan), 'archive refused: non-terminal step fix_parser');
 });
 
 test('archive refuses a broken Steps table that parses to zero rows', (t) => {
-  const { run, updateIssue, closedPlan } = planCliContext(t);
+  const context = planCliContext(t);
   // A broken Steps table parses to zero rows; that never counts as complete work.
-  const tableless = closedPlan('broken steps table');
-  updateIssue(tableless.number, (entry) => {
+  const plan = context.closedPlan('broken steps table');
+  context.updateIssue(plan.number, (entry) => {
     entry.body = entry.body.replace('| # | Id | Task | Files | Depends | Effect | Status | Done when |\n', '');
   });
-  refuse(run('archive', String(tableless.number)), 'archive refused: no Steps rows parsed');
+  refuse(archive(context, plan), 'archive refused: no Steps rows parsed');
 });
 
-test('archive refuses a merged closer when the latest code review asks for repair', (t) => {
-  const { run, issue, addIssueComment, closedPlan } = planCliContext(t);
-  // A merged closer does not replace review approval.
-  const unapproved = closedPlan('review repair');
-  addIssueComment(unapproved.number, '## Code review\n\ncode-review: repair\nFix data loss.');
-  refuse(run('archive', String(unapproved.number)), 'archive requires Code-review: pass');
-  assert.ok(issue(unapproved.number).labels.includes('plan:ongoing'));
+test('archive refuses a merged closing pull request when the latest code review asks for repair', (t) => {
+  const context = planCliContext(t);
+  // A merged closing pull request does not replace review approval.
+  const plan = context.closedPlan('review repair');
+  context.addIssueComment(plan.number, '## Code review\n\ncode-review: repair\nFix data loss.');
+  refuse(archive(context, plan), 'archive requires Code-review: pass');
+  assert.ok(context.issue(plan.number).labels.includes('plan:ongoing'));
+});
+
+test('archive refuses an open plan that is not ongoing and writes nothing', (t) => {
+  const context = planCliContext(t);
+  const plan = context.landedPlan('blocked plan');
+  context.updateIssue(plan.number, (entry) => {
+    entry.labels = ['plan', 'plan:blocked'];
+  });
+  refuse(archive(context, plan), 'archive requires ongoing or finished status, found blocked');
+  assert.deepEqual(context.writes(), []);
+  assert.deepEqual(context.waits(), []);
+});
+
+test('archive refuses a retired plan and writes nothing', (t) => {
+  const context = planCliContext(t);
+  const plan = context.closedPlan('retired plan');
+  context.updateIssue(plan.number, (entry) => {
+    entry.stateReason = 'NOT_PLANNED';
+  });
+  refuse(archive(context, plan), 'archive requires ongoing or finished status, found retired');
+  assert.deepEqual(context.writes(), []);
 });
 
 test('show and archive read every page of large comments', (t) => {
-  const { run, updateState, closedPlan } = planCliContext(t);
-  const largeComments = closedPlan('large comment pages');
-  updateState((state) => {
-    const entry = state.issues.find((candidate) => candidate.number === largeComments.number);
+  const context = planCliContext(t);
+  const plan = context.closedPlan('large comment pages');
+  context.updateState((state) => {
+    const entry = state.issues.find((candidate) => candidate.number === plan.number);
     for (let i = 0; i < 20; i += 1) {
       const id = state.nextComment++;
       entry.comments.push({
@@ -51,15 +74,12 @@ test('show and archive read every page of large comments', (t) => {
       });
     }
   });
-  const largeShow = run('show', String(largeComments.number));
+  const largeShow = context.run('show', String(plan.number));
   expectSuccess(largeShow, 'show large comment pages');
   assert.match(largeShow.stdout, /^reviews: plan=none code=pass$/m);
-  const largeArchive = run('archive', String(largeComments.number));
+  const largeArchive = archive(context, plan);
   expectSuccess(largeArchive, 'archive large comment pages');
-  assert.equal(
-    largeArchive.stdout.trim(),
-    `plan #${largeComments.number} finished (closed by ${largeComments.closer.url})`,
-  );
+  assert.equal(largeArchive.stdout, `plan #${plan.number} finished (closed by ${plan.closer.url})\n`);
 });
 
 test('show advises on a plan closed with unfinished work, and step needs a reopen before it writes', (t) => {
