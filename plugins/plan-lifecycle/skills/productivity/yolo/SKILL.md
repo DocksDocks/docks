@@ -322,9 +322,10 @@ without a merge. The contract's Round ceiling also says this.
    `Merge pull request #<pr> into <default>?`, with the options `Merge now` and
    `Leave pull request open`. The `Merge now` option states the teardown, as the
    contract's Checks and merge says, including `git branch -d <branch>`.
-9. On `Merge now`, merge and archive as the contract says. Then run the
-   contract's Teardown and report Kept resources. Ask separately before each
-   plan step that runs after the merge and before each production cleanup.
+9. On `Merge now`, merge as the contract says. Ask separately before each plan
+   step that runs after the merge, and run it. Then archive with
+   `archive <n> --pr <pr>`, run the contract's Teardown, and report Kept
+   resources. Ask separately before each production cleanup.
 10. On any other answer, or when no answer is possible, leave the pull request
     and the issue open. Run Teardown's exit without a merge. Report both links
     and Kept resources.

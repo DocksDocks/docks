@@ -174,14 +174,16 @@ commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
 on `Merge now`. The `Merge now` option states the teardown, as the contract's
 Checks and merge says. After a partial merge, run `reopen <n> --pr <pr>` as the
-contract states. Archive only after the landing merge, when every step is terminal.
+contract states. After the landing merge, run each step that runs after the
+merge, then run `archive <n> --pr <pr>` with the landing pull request once every
+step is terminal.
 After archive, run the contract's Teardown. Without `Merge now`, run Teardown's
 exit without a merge. Report Kept resources in both cases.
 
 Render the body only when the user names the plan and asks to see it. After a
 write, report the header strip and changed lines.
 
-Done when: `archive <n>` prints `plan #<n> finished (closed by <pr-url>)` and
+Done when: `archive <n> --pr <pr>` prints `plan #<n> finished (closed by <pr-url>)` and
 you reported Kept resources, or the user chose `Leave pull request open` and
 you reported the open pull request and Kept resources.
 

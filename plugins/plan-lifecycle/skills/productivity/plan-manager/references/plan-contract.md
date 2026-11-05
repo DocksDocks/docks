@@ -343,7 +343,7 @@ prefixed with `#`. The header strip is `#<n> · <status> · <title> · <url>`.
 | `status <n> <status> [--reason <text>]` | `plan #<n> status: <old> -> <new>` |
 | `step <n> <id> <status>` | `plan #<n> step <id>: <old> -> <new>` |
 | `list [--status <s>]` | `<status>\t#<n>\t<title>`; open first, then closed, each in ascending number order; prints advice when it reaches 500 plans |
-| `archive <n>` | `plan #<n> finished (closed by <pr-url>)`; removes stale phase labels |
+| `archive <n> --pr <pr>` | `plan #<n> finished (closed by <pr-url>)`; waits up to about 60 s for GitHub to close an open plan, closes it as completed when GitHub does not, and removes stale phase labels |
 | `retire <n> --reason <t>` | `plan #<n> retired`; closes as not planned and removes phase labels |
 | `reopen <n> --pr <pr>` | `plan #<n> reopened: <status>`; `plan #<n> is open: <status>` when the plan is already open again; `pull request #<pr> does not close plan #<n>; nothing to reopen` when that pull request does not close the plan |
 
@@ -407,7 +407,8 @@ status <status> requires a filled Research section
 illegal step status transition: <from> -> <to>
 plan #<n> is finished; reopen it before moving step <id> to <status>
 plan status is <status>; expected ongoing
-archive requires finished status, found <status>
+archive requires an issue and --pr
+archive requires ongoing or finished status, found <status>
 archive refused: non-terminal step <id>
 archive refused: no Steps rows parsed
 duplicate step id after normalization: <id>
@@ -490,6 +491,13 @@ For a partial pull request:
    reopen the issue by hand right after the merge.
 3. Run `show <n>` again. Continue only when the status is `ongoing`.
 
+GitHub closes the issue on that merge only while the repository setting "Auto-close
+issues with merged linked pull requests" is on
+(<https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/managing-auto-closing-issues>).
+When the setting is off, `reopen` reports that GitHub has not closed the plan
+yet. Run `reopen` once more. When it reports the same again and `show <n>`
+reads `ongoing`, the plan is still open, so continue without a reopen.
+
 GitHub can leave an issue closed with reason `REOPENED`. It then refuses every
 state change on the issue, also in the web page (DocksDocks/docks#90). Do not
 retry the reopen. Record the remaining step results in one issue comment,
@@ -518,18 +526,29 @@ never authorizes a merge.
 ### Steps after the landing merge
 
 A step that must run after the merge, such as `deploy`, stays `planned` until
-the landing merge closes the issue. Then ask in session, run the step, and mark
-it `done` or `skipped` with `step`. A finished plan accepts only those targets.
+the landing pull request merges. It does not wait for GitHub to close the
+plan, because GitHub can leave the plan open after that merge (Archive). Then
+ask in session, run the step, and mark it with `step`. An open plan is
+`ongoing`, so `step` accepts the result. A finished plan accepts only `done` or
+`skipped`.
 
 ### Archive
 
-Run `archive <n>` after the landing merge, when every step is terminal.
-Archive requires finished status, terminal steps, and a trusted latest Code-review pass.
-Its latest closure must be a merged pull request into this repository's default branch,
-or a commit associated with such a merged pull request. A pull-request closer must
-carry a GitHub closing keyword for this issue in its description; a title or sidebar
-link is not proof. A merely linked pull request, another repository, or a non-default
-target is not proof.
+Run `archive <n> --pr <pr>` with the landing pull request after the landing
+merge, when every step is terminal. Archive requires terminal steps, a trusted
+latest Code-review pass, and proof from that pull request: it merged into this
+repository's default branch, and its description carries a GitHub closing
+keyword for this issue. A title or sidebar link is not proof. Another
+repository or a non-default target is not proof.
+
+The plan must be `ongoing` or `finished`. GitHub can leave the plan open after
+the landing merge, for example when the repository turns off its auto-close
+setting (Pull requests). For an open plan, archive first waits up to about 60 s
+for GitHub's close. When GitHub does not close the plan, archive closes it as
+completed with a comment that names the pull request, and then removes the
+phase labels. Do not close the plan by hand. A plan that someone already closed
+as completed archives with the same proof. When archive fails after it closed
+the plan, run the same command again.
 
 ### Teardown
 
@@ -557,7 +576,7 @@ A partial pull request merge does not end the plan. Do not run teardown then.
 
 #### After archive
 
-Run these steps in order after `archive <n>` succeeds:
+Run these steps in order after `archive <n> --pr <pr>` succeeds:
 
 1. Stop each process and compose stack that the plan started and that still
    runs.
