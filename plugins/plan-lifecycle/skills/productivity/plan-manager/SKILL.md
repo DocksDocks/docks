@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-05"
-  content_hash: "1e097a3c09e4ad4b281d6abe628622b8034283e5c620866af65f72ecbba2e079"
+  content_hash: "0802986cbeb15d01a7e4447ab2142cddca92d0d76e60b6f480ed2024ebcef4c9"
 ---
 
 # Plan Manager
@@ -162,7 +162,8 @@ it again as the contract's Code-review rounds says.
 
 Resolve unreadable input before you request a verdict. If you block after
 implementation, commit and push current work to the linked branch before you
-record the blocker, so repairs are not stranded. Then run the contract's
+record the blocker, so repairs are not stranded. A hook that refuses that
+commit or push follows the contract's Repository hooks. Then run the contract's
 Teardown for an exit without a merge.
 
 Done when: `show <n>` reports `code=pass`.
@@ -175,8 +176,8 @@ checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
 on `Merge now`. The `Merge now` option states the teardown, as the contract's
 Checks and merge says. After a partial merge, run `reopen <n> --pr <pr>` as the
 contract states. After the landing merge, run each step that runs after the
-merge, then run `archive <n> --pr <pr>` with the landing pull request once every
-step is terminal.
+merge. Once every step is terminal, run `archive <n> --pr <pr>` with the
+landing pull request.
 After archive, run the contract's Teardown. Without `Merge now`, run Teardown's
 exit without a merge. Report Kept resources in both cases.
 

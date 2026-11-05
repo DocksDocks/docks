@@ -469,21 +469,36 @@ A yolo run uses the timing and worktree rules in Yolo runs instead.
 ### Repository hooks
 
 A repository hook, such as a pre-commit or pre-push hook, is a required check.
-Never skip or turn it off. Do not pass `--no-verify` or `-n`, change
-`core.hooksPath`, or set a variable that turns hooks off, such as `HUSKY=0`.
-When a hook fails on a commit or a push:
+Never skip or turn it off. Do not pass `--no-verify`. Do not pass `-n` to
+`git commit`. Do not change `core.hooksPath`. Do not set a variable that turns
+hooks off, such as `HUSKY=0`. When a hook fails on a commit or a push:
 
-1. When this plan causes the failure, fix it, and run the command again.
-2. When files that the plan did not make cause it, such as untracked or
-   modified files in the checkout, run the command again from a clean worktree
-   of the linked branch. Never delete, stash, or move those files.
-3. Otherwise, run the hook's check on the default branch in a clean worktree.
-   When it fails the same way there, it is a baseline failure. Record the
-   hook, the check, and both results in Verification Results. Then block the
-   plan with that reason, and ask the user how to continue. A yolo run uses
-   the hook rule in Yolo runs instead of the question.
-4. When the check passes on the default branch, this plan causes the failure.
+1. When this plan causes the failure, fix it. Then run the command again.
+2. Untracked or modified files that the plan did not make can make a pre-push
+   hook fail. Then push from a clean detached worktree of the branch. Run
+   `git worktree add --detach <path> <branch>`, and run
+   `git push origin HEAD:refs/heads/<branch>` in that worktree. Remove the
+   worktree after the push. Never delete, stash, or move those files.
+3. Files that the plan did not make can also make a commit hook fail. Then
+   record those files, and block as item 4 says.
+4. Otherwise, run `git fetch origin <default>`. Then run the hook's check on
+   `origin/<default>` in a clean worktree. When it fails the same way there, it
+   is a baseline failure. Record the hook, the check, and both results in
+   Verification Results. Block the plan with that reason. Then ask the user how
+   to continue. A yolo run uses the hook row in Yolo runs instead of the
+   question.
+5. When the check passes on `origin/<default>`, this plan causes the failure.
    Fix it as item 1 says.
+
+A block or a stall needs a commit and a push of current work (Round ceiling,
+and `plan-manager` phase 6). When a hook refuses that commit or push, keep the
+work where it is. List the branch under Kept resources as `not pushed`. Then
+continue with the block or the stall question.
+
+A step after the landing merge, such as a release, can also meet a failing
+hook. Then leave that step `planned`, and keep the plan status. Record the
+hook, the check, and the result in an issue comment. Report the failure to the
+user. Ask again before you run that step again.
 
 ### Pull requests
 
@@ -546,28 +561,30 @@ never authorizes a merge.
 
 A step that must run after the merge, such as `deploy`, stays `planned` until
 the landing pull request merges. It does not wait for GitHub to close the
-plan, because GitHub can leave the plan open after that merge (Archive). Then
-ask in session, run the step, and mark it with `step`. An open plan is
-`ongoing`, so `step` accepts the result. A finished plan accepts only `done` or
-`skipped`.
+plan, because GitHub can leave the plan open after that merge (Archive). After
+the merge, ask in session, and run the step. Mark it `done` when it ran, or
+`skipped` when the user declines it. Use `step` for both. An open plan is
+`ongoing`, so `step` accepts either target. A finished plan accepts only these
+two targets.
 
 ### Archive
 
-Run `archive <n> --pr <pr>` with the landing pull request after the landing
-merge, when every step is terminal. Archive requires terminal steps, a trusted
-latest Code-review pass, and proof from that pull request: it merged into this
-repository's default branch, and its description carries a GitHub closing
-keyword for this issue. A title or sidebar link is not proof. Another
-repository or a non-default target is not proof.
+Run `archive <n> --pr <pr>` after the landing merge, when every step is
+terminal. `<pr>` is the landing pull request. Archive requires terminal steps
+and a trusted latest Code-review pass. It also requires proof from that pull
+request. The pull request merged into the default branch of this repository,
+and its description carries a GitHub closing keyword for this issue. A title
+or sidebar link is not proof. A merge into another branch is not proof.
 
 The plan must be `ongoing` or `finished`. GitHub can leave the plan open after
 the landing merge, for example when the repository turns off its auto-close
-setting (Pull requests). For an open plan, archive first waits up to about 60 s
-for GitHub's close. When GitHub does not close the plan, archive closes it as
-completed with a comment that names the pull request, and then removes the
-phase labels. Do not close the plan by hand. A plan that someone already closed
-as completed archives with the same proof. When archive fails after it closed
-the plan, run the same command again.
+setting (Pull requests). For an open plan, archive first waits up to about
+60 s for GitHub's close. When GitHub does not close the plan, archive closes it
+as completed, with a comment that names the pull request. Then archive removes
+the phase labels. Do not close the plan by hand. A plan that someone already
+closed as completed archives with the same proof. When archive fails after it
+closed the plan, run the same command again. This rule replaces step 3 of the
+retry steps in Normalization, advice, and refusals.
 
 ### Teardown
 
@@ -666,7 +683,7 @@ question. All other contract rules stay in force.
 | Code-review `blocked` verdict for unread hunks | Dispatch that reviewer again, as Code-review rounds says; a second such block on the same head stalls the phase (round ceiling below) |
 | Public disclosure of a sensitive finding | Stop before any write |
 | Production cleanup in Teardown | Its own question, like a step after the landing merge |
-| Repository hook that fails on a baseline failure (Repository hooks) | Record it, set the plan `blocked` with the hook and the failing check, run Teardown's exit without a merge, and list the branch under Kept resources, with `not pushed` when the push failed |
+| Repository hook that blocks the plan (Repository hooks, items 3 and 4) | Record the failure. Set the plan `blocked` with the hook and the failing check. Run Teardown's exit without a merge. List the branch under Kept resources, with `not pushed` when the push failed |
 
 ### Delegation line
 
@@ -735,7 +752,8 @@ change. When round 10 ends on a code-review pass that still lists MEDIUM or LOW
 findings, land, and list those findings in the run summary.
 
 On a stall, commit and push current work to the linked branch first, when code
-exists. Then ask once, with the options `Continue yolo` and `Leave plan
+exists. A hook that refuses them follows Repository hooks. Then ask once, with
+the options `Continue yolo` and `Leave plan
 blocked`. Keep the status unchanged while you ask, because the helper does not
 move a blocked plan back to `drafting` or `planned`. `Continue yolo` gives the
 phase 10 more rounds. On `Leave plan blocked`, or without an answer, set the
