@@ -457,9 +457,11 @@ A yolo run uses the timing and worktree rules in Yolo runs instead.
 
 1. Run `git status --porcelain`. Continue only when it prints nothing. Never
    stash, move, or commit ambient work to make it clean.
-2. If the checkout is dirty, use a separate clean worktree only when the user
-   approves it in this session through `ask`. Otherwise block the plan and
-   report the dirty paths.
+2. If the checkout is dirty, run the checkout check of Worktree hooks. When it
+   passes, ask through `ask` whether to use a separate clean worktree. On
+   approval, set it up with Linked branch timing items 1 to 5, and skip items
+   3 to 5 here. Otherwise block the plan. Report the dirty paths as Worktree
+   hooks says.
 3. Run `gh issue develop <n> --list --repo <owner/repo>`. Reuse a listed branch.
 4. If no branch is listed, run
    `gh issue develop <n> --repo <owner/repo> --base <default> --checkout`.
@@ -477,8 +479,8 @@ hooks off, such as `HUSKY=0`. When a hook fails on a commit or a push:
 2. Files that the plan did not make, such as untracked or modified files in
    the checkout, can make a hook fail. Record those files, and block as item 3
    says. Never delete, stash, or move those files. Do not run the command from
-   another worktree to avoid them, because a new worktree can lack the hook
-   setup of the checkout, such as the generated `.husky/_` directory.
+   another worktree to avoid them. A new worktree can run other hooks than the
+   checkout (Worktree hooks).
 3. Otherwise, run `git fetch origin <default>`. Then run the hook's check on
    `origin/<default>` in a clean worktree. When it fails the same way there, it
    is a baseline failure. Record the hook, the check, and both results in
@@ -497,6 +499,53 @@ A step after the landing merge, such as a release, can also meet a failing
 hook. Then leave that step `planned`, and keep the plan status. Record the
 hook, the check, and the result in an issue comment. Report the failure to the
 user. Ask again before you run that step again.
+
+### Worktree hooks
+
+A new worktree can run other hooks than the checkout, or none. For example,
+Husky keeps its hook wrappers in an ignored directory, and its dispatcher skips
+a hook script that is missing. A check of hook files cannot show that two
+worktrees run the same hooks for every hook manager. So a plan uses a separate
+worktree for a dirty checkout only when neither the checkout nor the new
+worktree runs a hook.
+
+This section is about hooks that can stop a commit, a merge, or a push. The
+`core.fsmonitor` helper is not such a hook. Git uses it only to limit the
+files that it checks, and git checks all files when the helper fails.
+
+The hook check is this script. Run it with `sh` from the root of a checkout or
+of a worktree:
+
+```sh
+hooks=$(git rev-parse --git-path hooks && echo .) || exit 1
+hooks=${hooks%?.}
+if [ -e "$hooks" ]; then
+  find -L "$hooks" -mindepth 1 -maxdepth 1 ! -name '*.sample' -exec test -x {} \; -print || exit 1
+fi
+git config --get-regexp '^hook\..*\.command$'
+[ $? -le 1 ]
+```
+
+Each line that it prints is a hook that git runs: an executable entry of the
+hooks directory, or a hook from configuration. An executable directory at a
+hook name also counts, because git tries to run it. The `echo .` keeps a hooks
+path that ends in a newline. The check passes only when the script exits 0
+and prints nothing.
+
+1. The checkout check: before `git worktree add`, run the check in the
+   checkout.
+2. The worktree check: after `git worktree add`, run the check in the new
+   worktree before any other work there. Configuration that depends on the
+   branch, and a relative hooks path, can give the worktree a hook that the
+   checkout lacks.
+3. When a check fails or prints a hook, do not use the worktree. If you
+   created it, go back to the checkout first. Then run
+   `git worktree remove -- <worktree>` and `git worktree prune`. Never add
+   `--force`. When git refuses, keep the worktree, and list it with the reason
+   from git. Block the plan. Name the dirty paths, and the hooks or the error
+   that the check printed. Under Kept resources, list the branch, and list no
+   removed worktree. The user can commit or move their own changes, and run the
+   plan again.
 
 ### Pull requests
 
@@ -675,7 +724,7 @@ question. All other contract rules stay in force.
 | Request that names an existing plan, or an incomplete request | The yolo skill's Existing plans and incomplete requests rule |
 | Non-local Effect step before the landing merge | The effect table below |
 | Linked-branch timing | Right after `new`, while the plan is drafting |
-| Dirty checkout at linked-branch setup | A separate clean worktree, without a question |
+| Dirty checkout at linked-branch setup | A separate clean worktree, without a question, when the checks of Worktree hooks pass; otherwise block (Linked branch timing) |
 | Review-loop continuation | The round ceiling below |
 | Plan-review `blocked` verdict | The manager decides with evidence |
 | Code-review `blocked` verdict for unread hunks | Dispatch that reviewer again, as Code-review rounds says; a second such block on the same head stalls the phase (round ceiling below) |
@@ -713,7 +762,8 @@ effect that the table permits.
 
 Set up the linked branch right after `new`, before research. The status stays
 `drafting`. Run Linked branch item 1. When the checkout is clean, continue with
-items 3 to 5. When it is dirty, do not ask. Use these commands instead:
+items 3 to 5. When it is dirty, do not ask. Run the checkout check of Worktree
+hooks. When it passes, use these commands instead:
 
 1. If `gh issue develop <n> --list --repo <owner/repo>` lists no branch, run
    `gh issue develop <n> --repo <owner/repo> --base <default>`.
@@ -721,8 +771,12 @@ items 3 to 5. When it is dirty, do not ask. Use these commands instead:
 3. Run `git fetch origin <branch>`.
 4. Run `git worktree add <worktree> <branch>`, where `<worktree>` is
    `${XDG_DATA_HOME:-$HOME/.local/share}/agent-worktrees/<repository-name>/issue-<n>`.
+5. Run the worktree check of Worktree hooks in that worktree.
 
-Do all later work in that worktree. Keep its path out of durable records.
+When a check of Worktree hooks fails or prints a hook, follow its item 3. Set
+the plan `blocked` with that reason, run Teardown's exit without a merge, and
+report. Otherwise do all later work in that worktree. Keep its path out of
+durable records.
 
 ### Round ceiling
 
