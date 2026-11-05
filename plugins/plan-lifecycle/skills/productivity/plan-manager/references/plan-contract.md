@@ -466,6 +466,25 @@ A yolo run uses the timing and worktree rules in Yolo runs instead.
 5. If a call fails, list again. Continue only when the list shows the branch.
    Otherwise block the plan. Never work on an unlinked branch.
 
+### Repository hooks
+
+A repository hook, such as a pre-commit or pre-push hook, is a required check.
+Never skip or turn it off. Do not pass `--no-verify` or `-n`, change
+`core.hooksPath`, or set a variable that turns hooks off, such as `HUSKY=0`.
+When a hook fails on a commit or a push:
+
+1. When this plan causes the failure, fix it, and run the command again.
+2. When files that the plan did not make cause it, such as untracked or
+   modified files in the checkout, run the command again from a clean worktree
+   of the linked branch. Never delete, stash, or move those files.
+3. Otherwise, run the hook's check on the default branch in a clean worktree.
+   When it fails the same way there, it is a baseline failure. Record the
+   hook, the check, and both results in Verification Results. Then block the
+   plan with that reason, and ask the user how to continue. A yolo run uses
+   the hook rule in Yolo runs instead of the question.
+4. When the check passes on the default branch, this plan causes the failure.
+   Fix it as item 1 says.
+
 ### Pull requests
 
 Open every plan pull request from the linked branch, after code review passes.
@@ -647,6 +666,7 @@ question. All other contract rules stay in force.
 | Code-review `blocked` verdict for unread hunks | Dispatch that reviewer again, as Code-review rounds says; a second such block on the same head stalls the phase (round ceiling below) |
 | Public disclosure of a sensitive finding | Stop before any write |
 | Production cleanup in Teardown | Its own question, like a step after the landing merge |
+| Repository hook that fails on a baseline failure (Repository hooks) | Record it, set the plan `blocked` with the hook and the failing check, run Teardown's exit without a merge, and list the branch under Kept resources, with `not pushed` when the push failed |
 
 ### Delegation line
 
