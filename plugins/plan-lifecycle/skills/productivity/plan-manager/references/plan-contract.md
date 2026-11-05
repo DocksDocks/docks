@@ -722,14 +722,7 @@ items 3 to 5. When it is dirty, do not ask. Use these commands instead:
 4. Run `git worktree add <worktree> <branch>`, where `<worktree>` is
    `${XDG_DATA_HOME:-$HOME/.local/share}/agent-worktrees/<repository-name>/issue-<n>`.
 
-Do all later work in that worktree. Keep its path out of durable records. A
-new worktree can lack the hook setup of the checkout, such as a generated
-`.husky/_` directory. So before the first commit there, run the hook setup
-that the repository instructions name, such as its install command. Then list
-the executable files in the directory that `git rev-parse --git-path hooks`
-prints, in the checkout and in the worktree. When the worktree lacks a hook
-that the checkout has, block the plan with the missing hook as the reason, as
-Repository hooks item 3 says.
+Do all later work in that worktree. Keep its path out of durable records.
 
 ### Round ceiling
 
