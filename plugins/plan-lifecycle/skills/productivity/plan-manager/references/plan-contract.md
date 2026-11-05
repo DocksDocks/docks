@@ -520,15 +520,17 @@ of a worktree:
 hooks=$(git rev-parse --git-path hooks && echo .) || exit 1
 hooks=${hooks%?.}
 if [ -e "$hooks" ]; then
-  find -L "$hooks" -maxdepth 1 -type f ! -name '*.sample' -exec test -x {} \; -print || exit 1
+  find -L "$hooks" -mindepth 1 -maxdepth 1 ! -name '*.sample' -exec test -x {} \; -print || exit 1
 fi
 git config --get-regexp '^hook\..*\.command$'
 [ $? -le 1 ]
 ```
 
-Each line that it prints is a hook that git runs: an executable hook file, or
-a hook from configuration. The `echo .` keeps a hooks path that ends in a
-newline. The check passes only when the script exits 0 and prints nothing.
+Each line that it prints is a hook that git runs: an executable entry of the
+hooks directory, or a hook from configuration. An executable directory at a
+hook name also counts, because git tries to run it. The `echo .` keeps a hooks
+path that ends in a newline. The check passes only when the script exits 0
+and prints nothing.
 
 1. The checkout check: before `git worktree add`, run the check in the
    checkout.
