@@ -11,7 +11,7 @@ const GH_STUB_DIR = path.join(ROOT, 'scripts/tests/fixtures/gh-stub');
 // The state a repository reaches after its first `new`: every plan label exists as the fake gh
 // `label create` stores it. A case that depends on label metadata replaces this map itself.
 const PLAN_LABELS = ['plan', 'plan:drafting', 'plan:planned', 'plan:ongoing', 'plan:blocked'];
-// The cases load this hook through `--import` so the waits of `reopen` return at once and get recorded.
+// The cases load this hook through `--import` so the waits of `reopen` and `archive` return at once and get recorded.
 export const SKIP_WAITS = new URL('./skip-waits.mjs', import.meta.url).href;
 // A partial pull request merges at MERGED_AT, and GitHub records its close 2 s later, as it did for #89.
 const MERGED_AT = '2026-08-21T00:00:00Z';
@@ -70,6 +70,22 @@ export function body(status = 'planned') {
 // The change GitHub makes when `closer` closes a plan as completed, for a scheduled change of the fake gh.
 export function closedBy(closer, createdAt = CLOSED_AT) {
   return { state: 'CLOSED', stateReason: 'COMPLETED', closedEvent: { closer, createdAt } };
+}
+
+// Pull request 100 + `number` as the fake gh stores it in state.prs. Like a pull request from the plan's linked branch,
+// it lists the plan in closingIssuesReferences unless `closes` is false. It merged into `base` unless `merged` is false.
+function pullRequestEntry(number, { merged = true, closes = true, base = 'main', description } = {}) {
+  const pr = 100 + number;
+  return {
+    number: pr,
+    url: `https://github.com/DocksDocks/fixture/pull/${pr}`,
+    state: merged ? 'MERGED' : 'OPEN',
+    mergedAt: merged ? MERGED_AT : null,
+    baseRefName: base,
+    body: description,
+    repository: 'DocksDocks/fixture',
+    closingIssuesReferences: closes ? [number] : [],
+  };
 }
 
 // Each test gets its own scratch repository, fake gh state, and XDG_STATE_HOME, so tests share no
@@ -224,26 +240,33 @@ export function planCliContext(t) {
     return run('edit', String(number), '--file', file);
   }
 
-  function closedPlan(name, { status = 'done', base = 'main', prBody } = {}) {
+  // A plan whose work landed: every step has `status`, the plan carries `plan:ongoing` and a trusted
+  // `code-review: pass`, and its pull request 100 + number merged into `base` (or is still open when `merged` is
+  // false) with the description `prBody`, where ISSUE stands for the plan number. The plan still reads OPEN, as
+  // when GitHub has not closed it for the merge. The call log then holds only what the case itself runs.
+  function landedPlan(name, { status = 'done', base = 'main', prBody = 'Closes #ISSUE', merged = true } = {}) {
     const number = createPlan(name, body(status));
-    const closer = {
-      __typename: 'PullRequest',
-      number: 100 + number,
-      url: `https://github.com/DocksDocks/fixture/pull/${100 + number}`,
-      state: 'MERGED',
-      mergedAt: '2026-08-21T00:00:00Z',
-      baseRefName: base,
-      body: prBody === undefined ? `Closes #${number}` : prBody?.replaceAll('ISSUE', String(number)),
-      repository: { nameWithOwner: 'DocksDocks/fixture' },
-    };
-    updateIssue(number, (entry) => {
+    const description = prBody?.replaceAll('ISSUE', String(number)) ?? null;
+    const pullRequest = pullRequestEntry(number, { merged, base, description });
+    addIssueComment(number, '### Code review (round 2)\n\ncode-review: pass');
+    updateState((state) => {
+      state.issues.find((candidate) => candidate.number === number).labels = ['plan', 'plan:ongoing'];
+      state.prs.push(pullRequest);
+      state.calls = [];
+    });
+    const { number: pr, url } = pullRequest;
+    return { number, pr, closer: { __typename: 'PullRequest', number: pr, url } };
+  }
+
+  // A landed plan that its pull request closed as completed.
+  function closedPlan(name, options) {
+    const plan = landedPlan(name, options);
+    updateIssue(plan.number, (entry) => {
       entry.state = 'CLOSED';
       entry.stateReason = 'COMPLETED';
-      entry.labels = ['plan', 'plan:ongoing'];
-      entry.timelineItems = [{ closer }];
+      entry.timelineItems = [{ __typename: 'ClosedEvent', closer: plan.closer }];
     });
-    addIssueComment(number, '### Code review (round 2)\n\ncode-review: pass');
-    return { number, closer };
+    return plan;
   }
 
   // An ongoing plan after the merge of a partial pull request that lists it in closingIssuesReferences.
@@ -255,15 +278,7 @@ export function planCliContext(t) {
       const entry = state.issues.find((candidate) => candidate.number === number);
       entry.labels = ['plan', 'plan:ongoing'];
       entry.assignees = assignees;
-      state.prs.push({
-        number: pr,
-        url: `https://github.com/DocksDocks/fixture/pull/${pr}`,
-        state: merged ? 'MERGED' : 'OPEN',
-        mergedAt: merged ? MERGED_AT : null,
-        baseRefName: 'main',
-        repository: 'DocksDocks/fixture',
-        closingIssuesReferences: closes ? [number] : [],
-      });
+      state.prs.push(pullRequestEntry(number, { merged, closes }));
       // The call log then holds only what the case itself runs.
       state.calls = [];
     });
@@ -285,6 +300,7 @@ export function planCliContext(t) {
     createPlan,
     exported,
     edit,
+    landedPlan,
     closedPlan,
     partialMerge,
   };

@@ -1,46 +1,143 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { expectSuccess, planCliContext, refuse } from './harness.mjs';
+import { expectSuccess, planCliContext, refuse, SKIP_WAITS } from './harness.mjs';
 
-test('archive refuses a closer merged into a branch other than the default branch', (t) => {
-  const { run, closedPlan } = planCliContext(t);
-  const wrongBase = closedPlan('wrong base', { base: 'release' });
-  refuse(
-    run('archive', String(wrongBase.number)),
-    'archive requires a closing pull request merged into DocksDocks/fixture:main',
-  );
-});
+// Every archive loads the skip-waits hook, so a pause for an open plan returns at once and gets recorded.
+function archive({ runWith }, plan) {
+  return runWith(['--import', SKIP_WAITS], 'archive', String(plan.number), '--pr', String(plan.pr));
+}
 
-test('archive refuses a plan with a non-terminal step', (t) => {
-  const { run, closedPlan } = planCliContext(t);
-  const unfinished = closedPlan('unfinished step', { status: 'in-flight' });
-  refuse(run('archive', String(unfinished.number)), 'archive refused: non-terminal step fix_parser');
+// A landed plan that GitHub left open, which an archive closes after its waits, and one that GitHub closed.
+function landings({ landedPlan, closedPlan }) {
+  return [
+    ['open', landedPlan, 'OPEN'],
+    ['closed', closedPlan, 'CLOSED'],
+  ];
+}
+
+// A refused archive leaves the plan as it found it, with `plan:ongoing`, and neither writes nor waits.
+function assertUntouched({ issue, writes, waits }, plan, state, label) {
+  const { state: stored, labels } = issue(plan.number);
+  assert.deepEqual({ state: stored, labels }, { state, labels: ['plan', 'plan:ongoing'] }, label);
+  assert.deepEqual(writes(), [], label);
+  assert.deepEqual(waits(), [], label);
+}
+
+test('archive refuses an open or closed plan without landing proof, finished work, a review pass, or ownership', (t) => {
+  const context = planCliContext(t);
+  const unproven = 'archive requires a closing pull request merged into DocksDocks/fixture:main';
+  for (const { name, options, prepare, refusal } of [
+    { name: 'no closing keyword', options: { prBody: 'Refs #ISSUE' }, refusal: () => unproven },
+    { name: 'a merge into another branch', options: { base: 'release' }, refusal: () => unproven },
+    {
+      name: 'a non-terminal step',
+      options: { status: 'in-flight' },
+      refusal: () => 'archive refused: non-terminal step fix_parser',
+    },
+    {
+      // A merged closing pull request does not replace review approval.
+      name: 'a review that asks for repair',
+      prepare: (plan) => context.addIssueComment(plan.number, '## Code review\n\ncode-review: repair\nFix data loss.'),
+      refusal: () => 'archive requires Code-review: pass',
+    },
+    {
+      name: 'another owner',
+      prepare: (plan) =>
+        context.updateIssue(plan.number, (entry) => {
+          entry.assignees = ['other-agent'];
+        }),
+      refusal: (plan) => `plan #${plan.number} is owned by other-agent`,
+    },
+  ]) {
+    for (const [kind, land, state] of landings(context)) {
+      const label = `${name}, ${kind} plan`;
+      const plan = land(label, options);
+      prepare?.(plan);
+      refuse(archive(context, plan), refusal(plan));
+      assertUntouched(context, plan, state, label);
+    }
+  }
 });
 
 test('archive refuses a broken Steps table that parses to zero rows', (t) => {
-  const { run, updateIssue, closedPlan } = planCliContext(t);
+  const context = planCliContext(t);
   // A broken Steps table parses to zero rows; that never counts as complete work.
-  const tableless = closedPlan('broken steps table');
-  updateIssue(tableless.number, (entry) => {
+  const plan = context.closedPlan('broken steps table');
+  context.updateIssue(plan.number, (entry) => {
     entry.body = entry.body.replace('| # | Id | Task | Files | Depends | Effect | Status | Done when |\n', '');
   });
-  refuse(run('archive', String(tableless.number)), 'archive refused: no Steps rows parsed');
+  refuse(archive(context, plan), 'archive refused: no Steps rows parsed');
 });
 
-test('archive refuses a merged closer when the latest code review asks for repair', (t) => {
-  const { run, issue, addIssueComment, closedPlan } = planCliContext(t);
-  // A merged closer does not replace review approval.
-  const unapproved = closedPlan('review repair');
-  addIssueComment(unapproved.number, '## Code review\n\ncode-review: repair\nFix data loss.');
-  refuse(run('archive', String(unapproved.number)), 'archive requires Code-review: pass');
-  assert.ok(issue(unapproved.number).labels.includes('plan:ongoing'));
+test('archive refuses an open or closed plan whose Steps table holds a malformed row beside a done row', (t) => {
+  const context = planCliContext(t);
+  // The nine-cell row is work that the done row does not finish.
+  const malformed = '| 2 | broken | Unescaped a | b | src | - | local | planned | Lost |';
+  for (const [kind, land, state] of landings(context)) {
+    const plan = land(`malformed row, ${kind} plan`);
+    context.updateIssue(plan.number, (entry) => {
+      entry.body = entry.body.replace('| Records round-trip |\n', `| Records round-trip |\n${malformed}\n`);
+    });
+    refuse(
+      archive(context, plan),
+      'Steps row 2 has 9 cells; expected 8. Escape a literal pipe as \\| so the row is preserved.',
+    );
+    assertUntouched(context, plan, state, `${kind} plan`);
+  }
+});
+
+test('archive refuses a pull request number that exists only in another repository', (t) => {
+  const context = planCliContext(t);
+  const plan = context.landedPlan('pull request of another repository');
+  context.updateState((state) => {
+    state.prs.find((entry) => entry.number === plan.pr).repository = 'Another/repo';
+  });
+  refuse(
+    archive(context, plan),
+    `gh api graphql failed: gh: Could not resolve to a PullRequest with the number of ${plan.pr}.`,
+  );
+  assertUntouched(context, plan, 'OPEN');
+});
+
+test('archive refuses an open plan that is not ongoing and writes nothing', (t) => {
+  const context = planCliContext(t);
+  const plan = context.landedPlan('blocked plan');
+  context.updateIssue(plan.number, (entry) => {
+    entry.labels = ['plan', 'plan:blocked'];
+  });
+  refuse(archive(context, plan), 'archive requires ongoing or finished status, found blocked');
+  assert.deepEqual(context.writes(), []);
+  assert.deepEqual(context.waits(), []);
+});
+
+test('archive refuses a retired plan and writes nothing', (t) => {
+  const context = planCliContext(t);
+  const plan = context.closedPlan('retired plan');
+  context.updateIssue(plan.number, (entry) => {
+    entry.stateReason = 'NOT_PLANNED';
+  });
+  refuse(archive(context, plan), 'archive requires ongoing or finished status, found retired');
+  assert.deepEqual(context.writes(), []);
+});
+
+test('archive refuses a plan that GitHub left closed with reason REOPENED and writes nothing', (t) => {
+  const context = planCliContext(t);
+  const plan = context.closedPlan('stuck plan');
+  context.updateIssue(plan.number, (entry) => {
+    entry.stateReason = 'REOPENED';
+  });
+  refuse(
+    archive(context, plan),
+    `GitHub left plan #${plan.number} closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it`,
+  );
+  assertUntouched(context, plan, 'CLOSED');
 });
 
 test('show and archive read every page of large comments', (t) => {
-  const { run, updateState, closedPlan } = planCliContext(t);
-  const largeComments = closedPlan('large comment pages');
-  updateState((state) => {
-    const entry = state.issues.find((candidate) => candidate.number === largeComments.number);
+  const context = planCliContext(t);
+  const plan = context.closedPlan('large comment pages');
+  context.updateState((state) => {
+    const entry = state.issues.find((candidate) => candidate.number === plan.number);
     for (let i = 0; i < 20; i += 1) {
       const id = state.nextComment++;
       entry.comments.push({
@@ -51,15 +148,12 @@ test('show and archive read every page of large comments', (t) => {
       });
     }
   });
-  const largeShow = run('show', String(largeComments.number));
+  const largeShow = context.run('show', String(plan.number));
   expectSuccess(largeShow, 'show large comment pages');
   assert.match(largeShow.stdout, /^reviews: plan=none code=pass$/m);
-  const largeArchive = run('archive', String(largeComments.number));
+  const largeArchive = archive(context, plan);
   expectSuccess(largeArchive, 'archive large comment pages');
-  assert.equal(
-    largeArchive.stdout.trim(),
-    `plan #${largeComments.number} finished (closed by ${largeComments.closer.url})`,
-  );
+  assert.equal(largeArchive.stdout, `plan #${plan.number} finished (closed by ${plan.closer.url})\n`);
 });
 
 test('show advises on a plan closed with unfinished work, and step needs a reopen before it writes', (t) => {

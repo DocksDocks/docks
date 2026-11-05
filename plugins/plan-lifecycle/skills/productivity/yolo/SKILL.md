@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-10-26"
-  content_hash: "991c569c2e35e517145ac66938a88ace87f28cb423b109e3fbbd2705ba2cbaac"
+  updated: "2026-11-05"
+  content_hash: "8338805f3ecc56a8dd1d7ed0fb97bf11a78c5e71504505596c54a6ba7fa9c06c"
 ---
 
 # Yolo
@@ -39,8 +39,9 @@ documentation on the web, or a throwaway experiment.
 
 <constraint>
 Do not access production, deploy to production, publish, or release before the
-merge. Do not force-push or rewrite history. Do not stash, move, commit, or
-delete work that the user made. Do not merge without a fresh `Merge now` answer.
+merge. Do not force-push or rewrite history. Do not skip or turn off a
+repository hook. Do not stash, move, commit, or delete work that the user made.
+Do not merge without a fresh `Merge now` answer.
 Do not run a production cleanup without its own question. This invocation does
 not answer it.
 Before each issue, comment, commit, or pull request write, remove secrets,
@@ -217,7 +218,8 @@ can write the spec tests.
 
 1. Commit each step on the linked branch when its proof passes, as
    `commit-discipline` says. Each commit must pass the focused tests, the type
-   check, and the lint for its files.
+   check, and the lint for its files. When a commit hook fails, follow the
+   contract's Repository hooks.
 2. When you split finished work into commits, check each commit in a temporary
    worktree: `git worktree add --detach <path> <sha>`, run the checks, then
    `git worktree remove -- <path>` and `git worktree prune`. `<path>` is
@@ -239,6 +241,10 @@ When a required check fails on files that the plan does not change:
    command, the failing files, and the default-branch result in Verification
    Results. Do not fix it unless the Goal covers it.
 3. When it passes there, this change causes the failure. Fix it in this plan.
+
+A repository hook that fails, such as a pre-push hook, is a required check too.
+Follow the contract's Repository hooks for it. A hook failure that blocks the
+plan stops the run, as the hook row of the contract's Yolo runs table says.
 
 ## Review loops
 
@@ -301,7 +307,8 @@ without a merge. The contract's Round ceiling also says this.
 2. Fetch the default branch. If it is not an ancestor of `HEAD`, merge
    `origin/<default>` into the linked branch. Do not rebase. Rerun acceptance,
    and run a code-review round on the result. Commit each repair.
-3. Push the linked branch with a normal push.
+3. Push the linked branch with a normal push. When a repository hook fails,
+   follow the contract's Repository hooks. Never skip the hook.
 4. Write the run summary from `references/run-summary.md` to a file in the
    review scratch directory. The run summary is the whole pull request
    description; do not add the `commit-discipline` description sections. Write
@@ -322,9 +329,10 @@ without a merge. The contract's Round ceiling also says this.
    `Merge pull request #<pr> into <default>?`, with the options `Merge now` and
    `Leave pull request open`. The `Merge now` option states the teardown, as the
    contract's Checks and merge says, including `git branch -d <branch>`.
-9. On `Merge now`, merge and archive as the contract says. Then run the
-   contract's Teardown and report Kept resources. Ask separately before each
-   plan step that runs after the merge and before each production cleanup.
+9. On `Merge now`, merge as the contract says. Ask separately before each plan
+   step that runs after the merge, and run it. Then archive with
+   `archive <n> --pr <pr>`, run the contract's Teardown, and report Kept
+   resources. Ask separately before each production cleanup.
 10. On any other answer, or when no answer is possible, leave the pull request
     and the issue open. Run Teardown's exit without a merge. Report both links
     and Kept resources.
@@ -361,6 +369,9 @@ GOOD: Continue to the Yolo runs ceiling, then ask the one stalled-review questio
 
 BAD: Paste an error log that contains a token into the issue.
 GOOD: Remove the token and name its variable.
+
+BAD: Run the push with `--no-verify` when the pre-push hook fails.
+GOOD: Fix the cause, or record the baseline failure and block, as the contract's Repository hooks says.
 ```
 
 ## Report a problem with this skill

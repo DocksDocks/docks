@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-27"
-  content_hash: "2155415225e7a57990548fe9ca5055075ce23eb38a8dfe8ac242857693e0c40a"
+  updated: "2026-11-05"
+  content_hash: "f19b78a7ae39d2e532aacfcebdf7bd8f80f3496a3e646b696ace0a4fd5acdfff"
 ---
 
 # Plan Manager
@@ -162,7 +162,8 @@ it again as the contract's Code-review rounds says.
 
 Resolve unreadable input before you request a verdict. If you block after
 implementation, commit and push current work to the linked branch before you
-record the blocker, so repairs are not stranded. Then run the contract's
+record the blocker, so repairs are not stranded. A hook that refuses that
+commit or push follows the contract's Repository hooks. Then run the contract's
 Teardown for an exit without a merge.
 
 Done when: `show <n>` reports `code=pass`.
@@ -174,14 +175,16 @@ commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
 on `Merge now`. The `Merge now` option states the teardown, as the contract's
 Checks and merge says. After a partial merge, run `reopen <n> --pr <pr>` as the
-contract states. Archive only after the landing merge, when every step is terminal.
+contract states. After the landing merge, run each step that runs after the
+merge. Once every step is terminal, run `archive <n> --pr <pr>` with the
+landing pull request.
 After archive, run the contract's Teardown. Without `Merge now`, run Teardown's
 exit without a merge. Report Kept resources in both cases.
 
 Render the body only when the user names the plan and asks to see it. After a
 write, report the header strip and changed lines.
 
-Done when: `archive <n>` prints `plan #<n> finished (closed by <pr-url>)` and
+Done when: `archive <n> --pr <pr>` prints `plan #<n> finished (closed by <pr-url>)` and
 you reported Kept resources, or the user chose `Leave pull request open` and
 you reported the open pull request and Kept resources.
 
