@@ -474,20 +474,18 @@ Never skip or turn it off. Do not pass `--no-verify`. Do not pass `-n` to
 hooks off, such as `HUSKY=0`. When a hook fails on a commit or a push:
 
 1. When this plan causes the failure, fix it. Then run the command again.
-2. Untracked or modified files that the plan did not make can make a pre-push
-   hook fail. Then push from a clean detached worktree of the branch. Run
-   `git worktree add --detach <path> <branch>`, and run
-   `git push origin HEAD:refs/heads/<branch>` in that worktree. Remove the
-   worktree after the push. Never delete, stash, or move those files.
-3. Files that the plan did not make can also make a commit hook fail. Then
-   record those files, and block as item 4 says.
-4. Otherwise, run `git fetch origin <default>`. Then run the hook's check on
+2. Files that the plan did not make, such as untracked or modified files in
+   the checkout, can make a hook fail. Record those files, and block as item 3
+   says. Never delete, stash, or move those files. Do not run the command from
+   another worktree to avoid them, because a new worktree can lack the hook
+   setup of the checkout, such as the generated `.husky/_` directory.
+3. Otherwise, run `git fetch origin <default>`. Then run the hook's check on
    `origin/<default>` in a clean worktree. When it fails the same way there, it
    is a baseline failure. Record the hook, the check, and both results in
    Verification Results. Block the plan with that reason. Then ask the user how
    to continue. A yolo run uses the hook row in Yolo runs instead of the
    question.
-5. When the check passes on `origin/<default>`, this plan causes the failure.
+4. When the check passes on `origin/<default>`, this plan causes the failure.
    Fix it as item 1 says.
 
 A block or a stall needs a commit and a push of current work (Round ceiling,
@@ -683,7 +681,7 @@ question. All other contract rules stay in force.
 | Code-review `blocked` verdict for unread hunks | Dispatch that reviewer again, as Code-review rounds says; a second such block on the same head stalls the phase (round ceiling below) |
 | Public disclosure of a sensitive finding | Stop before any write |
 | Production cleanup in Teardown | Its own question, like a step after the landing merge |
-| Repository hook that blocks the plan (Repository hooks, items 3 and 4) | Record the failure. Set the plan `blocked` with the hook and the failing check. Run Teardown's exit without a merge. List the branch under Kept resources, with `not pushed` when the push failed |
+| Repository hook that blocks the plan (Repository hooks, items 2 and 3) | Record the failure. Set the plan `blocked` with the hook and the failing check. Run Teardown's exit without a merge. List the branch under Kept resources, with `not pushed` when the push failed |
 
 ### Delegation line
 
@@ -724,7 +722,14 @@ items 3 to 5. When it is dirty, do not ask. Use these commands instead:
 4. Run `git worktree add <worktree> <branch>`, where `<worktree>` is
    `${XDG_DATA_HOME:-$HOME/.local/share}/agent-worktrees/<repository-name>/issue-<n>`.
 
-Do all later work in that worktree. Keep its path out of durable records.
+Do all later work in that worktree. Keep its path out of durable records. A
+new worktree can lack the hook setup of the checkout, such as a generated
+`.husky/_` directory. So before the first commit there, run the hook setup
+that the repository instructions name, such as its install command. Then list
+the executable files in the directory that `git rev-parse --git-path hooks`
+prints, in the checkout and in the worktree. When the worktree lacks a hook
+that the checkout has, block the plan with the missing hook as the reason, as
+Repository hooks item 3 says.
 
 ### Round ceiling
 

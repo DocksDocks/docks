@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-05"
-  content_hash: "67ad2f79e3b71c61e19c0d4624ed652470d71c480f0d6e88e20bec3defd0729c"
+  content_hash: "8338805f3ecc56a8dd1d7ed0fb97bf11a78c5e71504505596c54a6ba7fa9c06c"
 ---
 
 # Yolo
@@ -243,8 +243,8 @@ When a required check fails on files that the plan does not change:
 3. When it passes there, this change causes the failure. Fix it in this plan.
 
 A repository hook that fails, such as a pre-push hook, is a required check too.
-Follow the contract's Repository hooks for it. A baseline failure of a hook
-stops the run, as the hook row of the contract's Yolo runs table says.
+Follow the contract's Repository hooks for it. A hook failure that blocks the
+plan stops the run, as the hook row of the contract's Yolo runs table says.
 
 ## Review loops
 
