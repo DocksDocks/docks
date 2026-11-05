@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-10-26"
-  content_hash: "991c569c2e35e517145ac66938a88ace87f28cb423b109e3fbbd2705ba2cbaac"
+  updated: "2026-11-05"
+  content_hash: "67ad2f79e3b71c61e19c0d4624ed652470d71c480f0d6e88e20bec3defd0729c"
 ---
 
 # Yolo
