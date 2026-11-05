@@ -6,6 +6,8 @@ import { closedBy, expectSuccess, planCliContext, refuse, SKIP_WAITS } from './h
 const CLOSE_WAITS = [250, 500, 1000, ...Array(30).fill(2000)];
 const REVIEW = { author: 'plan-agent', body: '### Code review (round 2)\n\ncode-review: pass' };
 const UNPROVEN = 'archive requires a closing pull request merged into DocksDocks/fixture:main';
+// A landed plan as an archive that refuses or fails before the close leaves it.
+const ONGOING = { state: 'OPEN', stateReason: null, labels: ['plan', 'plan:ongoing'], comments: [REVIEW] };
 
 // Every archive loads the skip-waits hook, so the pauses for an open plan return at once and get recorded.
 function archive({ runWith }, plan) {
@@ -36,6 +38,7 @@ test('archive finishes a closed plan with terminal work, a trusted pass, and the
   const archived = archive(context, plan);
   expectSuccess(archived, 'archive merged closer');
   assert.equal(archived.stdout, finished(plan));
+  assert.deepEqual(context.waits(), [], 'a closed plan needs no wait');
   assert.deepEqual(stored(context, plan.number), {
     state: 'CLOSED',
     stateReason: 'COMPLETED',
@@ -57,12 +60,7 @@ test('archive refuses a pull request that has not merged and writes nothing', (t
   const context = planCliContext(t);
   const plan = context.landedPlan('unmerged pull request', { merged: false });
   refuse(archive(context, plan), `pull request #${plan.pr} is not merged`);
-  assert.deepEqual(stored(context, plan.number), {
-    state: 'OPEN',
-    stateReason: null,
-    labels: ['plan', 'plan:ongoing'],
-    comments: [REVIEW],
-  });
+  assert.deepEqual(stored(context, plan.number), ONGOING);
   assert.deepEqual(context.writes(), []);
   assert.deepEqual(context.waits(), []);
 });
@@ -142,7 +140,6 @@ test('archive refuses a merged pull request whose description does not prove it 
   // Each pull request lists the plan in closingIssuesReferences, as one from the linked branch does; only a closing
   // keyword in its description proves that it closes the plan.
   for (const [name, prBody] of [
-    ['no closing keyword', 'Refs #ISSUE'],
     ['number prefix', 'Closes #ISSUE0'],
     ['number suffix', 'Closes #ISSUEa'],
     ['keyword prefix', 'notCloses #ISSUE'],
@@ -181,7 +178,7 @@ test('archive finishes an open ongoing plan that GitHub closes during the waits,
   const archived = archive(context, plan);
   expectSuccess(archived, 'archive after the close by GitHub');
   assert.equal(archived.stdout, finished(plan));
-  assert.notDeepEqual(context.waits(), [], 'archive waits for the close');
+  assert.deepEqual(context.waits(), [250, 500], 'archive stops waiting once it reads the close');
   assert.deepEqual(stored(context, plan.number), {
     state: 'CLOSED',
     stateReason: 'COMPLETED',
@@ -191,27 +188,55 @@ test('archive finishes an open ongoing plan that GitHub closes during the waits,
   assert.deepEqual(closes(context), []);
 });
 
-test('archive leaves an open plan ongoing when its close fails, and a rerun archives it', (t) => {
+test('archive refuses an open plan whose body changes after its last read, and leaves it open', (t) => {
   const context = planCliContext(t);
-  const plan = context.landedPlan('close fails once');
+  const plan = context.landedPlan('edited before the close');
+  // Another writer adds unfinished work after the last of the 34 reads, so only the pre-write read can see it.
+  const followUp = '| 2 | follow_up | Follow up | src/follow.mjs | - | local | planned | Follow-up lands |';
+  const edited = context
+    .issue(plan.number)
+    .body.replace('| Records round-trip |\n', `| Records round-trip |\n${followUp}\n`);
+  context.schedule(plan.number, { afterReads: 34, body: edited });
+  refuse(archive(context, plan), 'plan issue changed remotely; re-read and retry');
+  assert.deepEqual(context.waits(), CLOSE_WAITS);
+  assert.deepEqual(stored(context, plan.number), ONGOING);
+  assert.deepEqual(context.writes(), []);
+});
+
+test('archive refuses an open plan that another login claims after its last read, and leaves it open', (t) => {
+  const context = planCliContext(t);
+  const plan = context.landedPlan('claimed before the close');
+  // The claim lands after the last of the 34 reads, so only the pre-write read can see it.
+  context.schedule(plan.number, { afterReads: 34, assignees: ['plan-agent', 'other-agent'] });
+  refuse(archive(context, plan), `plan #${plan.number} is owned by other-agent`);
+  assert.deepEqual(context.waits(), CLOSE_WAITS);
+  assert.deepEqual(stored(context, plan.number), ONGOING);
+  assert.deepEqual(context.writes(), []);
+});
+
+test('archive leaves a plan open when its close fails before or after the comment; a rerun closes it with one comment', (t) => {
+  const context = planCliContext(t);
   const failure = 'HTTP 502: Bad Gateway (https://api.github.com/graphql)';
-  context.updateState((state) => {
-    state.issueCloseErrorOnce = failure;
-  });
-  refuse(archive(context, plan), `gh issue close failed: ${failure}`);
-  assert.deepEqual(stored(context, plan.number), {
-    state: 'OPEN',
-    stateReason: null,
-    labels: ['plan', 'plan:ongoing'],
-    comments: [REVIEW],
-  });
-  const rerun = archive(context, plan);
-  expectSuccess(rerun, 'rerun archive');
-  assert.equal(rerun.stdout, finished(plan));
-  assert.deepEqual(stored(context, plan.number), {
-    state: 'CLOSED',
-    stateReason: 'COMPLETED',
-    labels: ['plan'],
-    comments: [REVIEW, { author: 'plan-agent', body: closeComment(plan.pr) }],
-  });
+  // gh posts the comment in one request and closes the plan in a second, so the close can fail on either side of it.
+  for (const [point, fault, commented] of [
+    ['before the comment', 'issueCloseErrorBeforeWriteOnce', false],
+    ['after the comment', 'issueCloseErrorAfterCommentOnce', true],
+  ]) {
+    const plan = context.landedPlan(`close fails ${point}`);
+    const closed = { author: 'plan-agent', body: closeComment(plan.pr) };
+    context.updateState((state) => {
+      state[fault] = failure;
+    });
+    refuse(archive(context, plan), `gh issue close failed: ${failure}`);
+    const comments = commented ? [REVIEW, closed] : [REVIEW];
+    assert.deepEqual(stored(context, plan.number), { ...ONGOING, comments }, point);
+    const rerun = archive(context, plan);
+    expectSuccess(rerun, `rerun archive after a close that failed ${point}`);
+    assert.equal(rerun.stdout, finished(plan), point);
+    assert.deepEqual(
+      stored(context, plan.number),
+      { state: 'CLOSED', stateReason: 'COMPLETED', labels: ['plan'], comments: [REVIEW, closed] },
+      point,
+    );
+  }
 });

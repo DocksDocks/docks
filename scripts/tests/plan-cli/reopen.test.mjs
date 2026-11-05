@@ -71,6 +71,26 @@ test('reopen accepts the close by a commit of the merged pull request and leaves
   assert.equal(context.writes().length, 1);
 });
 
+test('reopen finds the merged pull request of a commit closer beyond the first page of its pull requests', (t) => {
+  const context = planCliContext(t);
+  const plan = context.partialMerge('commit close beyond the first page');
+  const oid = 'c0ffee0000000000000000000000000000000002';
+  // GitHub returns the pull requests of a commit 100 per page; the merged pull request comes after 100 others.
+  const others = Array.from({ length: 100 }, (_, index) => ({
+    number: 10_000 + index,
+    state: 'MERGED',
+    mergedAt: '2026-08-21T00:00:00Z',
+    baseRefName: 'release',
+  }));
+  context.updateState((state) => {
+    state.commits = [{ oid, associatedPullRequests: [...others, { number: plan.pr }] }];
+  });
+  context.schedule(plan.number, { afterReads: 0, ...closedBy({ __typename: 'Commit', oid }) });
+  const result = reopen(context, plan);
+  expectSuccess(result, 'reopen after a commit close whose pull request is on the second page');
+  assert.equal(result.stdout, `plan #${plan.number} reopened: ongoing\n`);
+});
+
 test('reopen writes nothing when the merged pull request does not close the plan', (t) => {
   const context = planCliContext(t);
   const plan = context.partialMerge('not closed by the pull request', { closes: false });

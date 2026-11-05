@@ -968,20 +968,30 @@ if (group === 'issue' && command === 'view') {
   process.exit(0);
 }
 
-// gh posts the --comment as the viewer and then closes the issue. The close names no closer, as a close by hand does.
-// `issueCloseErrorOnce` fails one close before gh writes anything.
+// gh follows closeRun (cli/cli pkg/cmd/issue/close/close.go): it reads the issue, leaves a closed issue as it is, posts
+// the --comment as the viewer, and then closes the issue in a second request. The close names no closer, as a close by
+// hand does. Like `issue view`, the read lands due changes without counting toward `afterReads`.
+// `issueCloseErrorBeforeWriteOnce` fails one close before gh writes anything, and `issueCloseErrorAfterCommentOnce`
+// posts the comment and then fails the close request.
 if (group === 'issue' && command === 'close') {
   const issue = issueByNumber(issueNumber());
   const reason = value('--reason');
   if (!new Set(['completed', 'not planned']).has(reason)) die('issue close requires a supported --reason');
-  if (state.issueCloseErrorOnce) {
-    const message = state.issueCloseErrorOnce;
-    delete state.issueCloseErrorOnce;
+  if (state.issueCloseErrorBeforeWriteOnce) {
+    const message = state.issueCloseErrorBeforeWriteOnce;
+    delete state.issueCloseErrorBeforeWriteOnce;
     die(message);
   }
-  touch(issue);
+  applyDueChanges(issue);
+  if (String(issue.state).toUpperCase() === 'CLOSED') {
+    const repo = value('--repo') ?? state.repo.nameWithOwner;
+    save();
+    console.error(`! Issue ${repo}#${issue.number} (${issue.title}) is already closed`);
+    process.exit(0);
+  }
   const comment = value('--comment');
   if (comment !== undefined) {
+    touch(issue);
     state.nextComment ??= 1;
     issue.comments ??= [];
     issue.comments.push({
@@ -991,6 +1001,12 @@ if (group === 'issue' && command === 'close') {
       createdAt: issue.updatedAt,
     });
   }
+  if (state.issueCloseErrorAfterCommentOnce) {
+    const message = state.issueCloseErrorAfterCommentOnce;
+    delete state.issueCloseErrorAfterCommentOnce;
+    die(message);
+  }
+  touch(issue);
   issue.state = 'CLOSED';
   issue.stateReason = reason === 'completed' ? 'COMPLETED' : 'NOT_PLANNED';
   issue.timelineItems ??= [];

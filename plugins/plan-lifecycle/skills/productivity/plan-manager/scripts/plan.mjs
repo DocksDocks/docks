@@ -28,9 +28,10 @@ const PLAN_LIST_ARGS = ',labels:["plan"],states:[OPEN,CLOSED],orderBy:{field:CRE
 const PLAN_LIST_FIELDS = 'number title state stateReason labels(first:100){nodes{name}}';
 const GH_MAX_BUFFER_MIB = 256;
 const PLAN_LIST_LIMIT = 500;
-// `reopen` and `archive` read the plan up to CLOSE_WAIT_READS times until GitHub records the close by the merged pull
-// request. Between reads they pause for the next entry of CLOSE_WAIT_PAUSES_MS, and the last entry repeats: about 60 s
-// in all. Once the close shows, `reopen` waits REOPEN_SETTLE_MS before it reads the plan again and writes (see sleep).
+// GitHub closes a plan for a merged pull request a while after the merge. `archive` reads an open plan up to
+// CLOSE_WAIT_READS times until it reads closed, and `reopen` until GitHub records the close by that pull request.
+// Between reads they pause for the next entry of CLOSE_WAIT_PAUSES_MS, and the last entry repeats: about 60 s in all.
+// Once the close shows, `reopen` waits REOPEN_SETTLE_MS before it reads the plan again and writes (see sleep).
 const CLOSE_WAIT_PAUSES_MS = [250, 500, 1000, 2000];
 const CLOSE_WAIT_READS = 34;
 const REOPEN_SETTLE_MS = 10_000;
@@ -339,6 +340,16 @@ function preWriteIssue(number) {
     !current.assignees.every(hasId)
   )
     fail('gh issue view returned malformed plan issue');
+  return current;
+}
+// The pre-write read before a state change that a rerun cannot take back: an owner that appeared after the snapshot
+// is refused.
+function ownedPreWriteIssue(number, login) {
+  const current = preWriteIssue(number);
+  if (current.assignees.some((owner) => typeof owner.login !== 'string' || !owner.login))
+    fail('gh issue view returned malformed plan issue');
+  const foreign = current.assignees.find((owner) => owner.login !== login);
+  if (foreign) fail(`plan #${number} is owned by ${foreign.login}`);
   return current;
 }
 // A status write can target a phase label that the repository lacks: create it as `new` does, then read its id.
@@ -1080,6 +1091,7 @@ function refuseUnarchivable(plan) {
   refuseStuck(issue);
   if (status !== (isClosed(plan) ? 'finished' : 'ongoing'))
     fail(`archive requires ongoing or finished status, found ${status}`);
+  refuseMalformedSteps(parsed);
   if (parsed.steps.length === 0) fail('archive refused: no Steps rows parsed');
   const unfinished = parsed.steps.find((row) => !terminal(row.status));
   if (unfinished) fail(`archive refused: non-terminal step ${unfinished.id}`);
@@ -1104,7 +1116,6 @@ function archivePlan(args) {
   const { nameWithOwner } = repository,
     defaultBranch = repository.defaultBranchRef.name;
   if (
-    pullRequest.repository.nameWithOwner !== nameWithOwner ||
     pullRequest.baseRefName !== defaultBranch ||
     typeof pullRequest.body !== 'string' ||
     !hasClosingKeyword(pullRequest.body, number, nameWithOwner)
@@ -1118,18 +1129,26 @@ function archivePlan(args) {
   }
   // The close comes before the label removal: a failed close leaves the plan ongoing and a failed removal leaves it
   // finished, so a rerun archives it either way. Without its phase label, an open plan would no longer be archivable.
-  if (!isClosed(observed))
+  if (!isClosed(observed)) {
+    // A rerun cannot take the close back, so it runs only while the plan keeps the snapshot body and no other owner.
+    if (ownedPreWriteIssue(number, observed.login).body !== observed.issue.body)
+      fail('plan issue changed remotely; re-read and retry');
+    const comment = `Closed by archive: pull request #${pullRequest.number} merged into ${defaultBranch} and closes this plan, but GitHub left the plan open.`;
+    // gh posts the comment before it closes, so the comment of a close that failed after it is not posted again.
+    const commented = observed.issue.comments.some(
+      (entry) => entry.author?.login === observed.login && entry.body === comment,
+    );
     runGh([
       'issue',
       'close',
       String(number),
       '--reason',
       'completed',
-      '--comment',
-      `Closed by archive: pull request #${pullRequest.number} merged into ${defaultBranch} and closes this plan, but GitHub left the plan open.`,
+      ...(commented ? [] : ['--comment', comment]),
       '--repo',
       nameWithOwner,
     ]);
+  }
   writeIssueIfUnchanged(observed.issue, { remove: labelsToRemove(observed.issue) });
   console.log(`plan #${number} finished (closed by ${pullRequest.url})`);
 }
@@ -1168,7 +1187,7 @@ function isClosed({ issue }) {
 function readPullRequest(number, planNumber) {
   const references = (after) =>
     issueConnectionSelection('closingIssuesReferences', 'number repository{nameWithOwner}', '', after);
-  const query = `query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){url merged mergedAt baseRefName body repository{nameWithOwner} ${references(false)}}}}`;
+  const query = `query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){nameWithOwner pullRequest(number:$pr){url merged mergedAt baseRefName body ${references(false)}}}}`;
   const repo = graphql(query, { pr: number }).repository;
   const pullRequest = repo?.pullRequest;
   if (
@@ -1177,8 +1196,7 @@ function readPullRequest(number, planNumber) {
     typeof pullRequest.merged !== 'boolean' ||
     (pullRequest.merged && !Number.isFinite(Date.parse(pullRequest.mergedAt))) ||
     typeof pullRequest.baseRefName !== 'string' ||
-    (pullRequest.body !== null && typeof pullRequest.body !== 'string') ||
-    typeof pullRequest.repository?.nameWithOwner !== 'string'
+    (pullRequest.body !== null && typeof pullRequest.body !== 'string')
   )
     fail('gh api graphql returned malformed pull request');
   const pageQuery = `query($owner:String!,$name:String!,$pr:Int!,$after:String!){repository(owner:$owner,name:$name){pullRequest(number:$pr){${references(true)}}}}`;
@@ -1196,7 +1214,6 @@ function readPullRequest(number, planNumber) {
     mergedAt: pullRequest.mergedAt,
     baseRefName: pullRequest.baseRefName,
     body: pullRequest.body,
-    repository: pullRequest.repository,
     closesPlan: closed.some(
       (issue) => issue.number === planNumber && issue.repository.nameWithOwner === repo.nameWithOwner,
     ),
@@ -1226,11 +1243,7 @@ function closedByPullRequest(issue, pullRequest) {
 // body, so the pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and
 // the claim follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
 function writeReopen({ issue, login, viewerId }, pr) {
-  const { id, assignees } = preWriteIssue(issue.number);
-  if (assignees.some((owner) => typeof owner.login !== 'string' || !owner.login))
-    fail('gh issue view returned malformed plan issue');
-  const foreign = assignees.find((owner) => owner.login !== login);
-  if (foreign) fail(`plan #${issue.number} is owned by ${foreign.login}`);
+  const { id, assignees } = ownedPreWriteIssue(issue.number, login);
   const claims = assignees.length === 0;
   const stored = '{... on Issue{state stateReason}}';
   const fields = [

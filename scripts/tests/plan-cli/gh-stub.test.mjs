@@ -8,6 +8,7 @@ import { planCliContext } from './harness.mjs';
 // These cases call the fake gh directly. A fixture field that the query does not select must not reach the
 // helper, or a plan CLI test passes for a query that GitHub would answer without that field.
 const GH_STUB = fileURLToPath(new URL('../fixtures/gh-stub/gh', import.meta.url));
+const REPO = 'DocksDocks/fixture';
 const PR = 7;
 const PR_URL = `https://github.com/DocksDocks/fixture/pull/${PR}`;
 const MERGED_AT = '2026-08-21T00:00:00Z';
@@ -180,21 +181,17 @@ test('the fake gh refuses a response key that names two different fields', (t) =
   assert.equal(result.stderr, "Field 'number' has a field conflict: url or number?\n");
 });
 
-test('the fake gh records `issue close --comment` as a comment by the viewer and a close without a closer', (t) => {
+test('the fake gh posts the `issue close` comment as the viewer, closes without a closer, and skips a closed issue', (t) => {
   const context = planCliContext(t);
   const number = context.createPlan('closed through gh issue close');
-  const closed = gh(context, [
-    'issue',
-    'close',
-    String(number),
-    '--reason',
-    'completed',
-    '--comment',
-    'Closed by hand.',
-    '--repo',
-    'DocksDocks/fixture',
-  ]);
+  const close = (comment) =>
+    gh(context, ['issue', 'close', String(number), '--reason', 'completed', '--comment', comment, '--repo', REPO]);
+  const closed = close('Closed by hand.');
   assert.equal(closed.status, 0, closed.stderr);
+  // gh reports an issue that is already closed and posts no comment on it.
+  const again = close('Closed twice.');
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.stderr, `! Issue ${REPO}#${number} (closed through gh issue close) is already closed\n`);
   const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){comments(first:100){nodes{author{login} body}} timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{... on ClosedEvent{closer{__typename}}}}}}}`;
   const { issue } = responseData(graphql(context, query, { number })).repository;
   assert.deepEqual(
