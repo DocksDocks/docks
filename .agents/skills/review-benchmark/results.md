@@ -1231,3 +1231,56 @@ All four conditions hold, so Cblk stays. The signal of plan #115 on `code-111-r1
 - The cases are published, and one case (`code-44-r1`, 14 known) carries a third of the known defects.
 - `diffCoverage` counts the lines that read results showed whole: the reviewer's own diff, and for a panel lens also the hunks of its focus diff that it read in `full.diff`. A line longer than 768 characters counts only from a `:raw` read, because omp cuts it otherwise. A grep search and a read of several files in one call count no line, so such a reviewer shows a lower share than it saw.
 - This run also corrected the contract sentence on delta-round effort: a delta round one effort level lower did not stay within the escaped-defect bound of plan #115 (upper interval ends 6.06 and 7.14 against 2), which is not a proof that it is worse.
+
+## Run 2026-11-05: reviewer model and tier at effort `high` (DocksDocks/public#130)
+
+### Setup
+
+- DocksDocks/public#130 asked for the omp review agents at effort `high`, with the model and the OpenAI service tier chosen by a small benchmark. The user set the effort and asked for no `xhigh` arm.
+- Configurations: `openai-codex/gpt-6.1-sol` and `openai-codex/gpt-6.1-terra`, effort `high`, tiers `priority` and `default`: `gpt-6.1-sol-high-fast`, `gpt-6.1-sol-high`, `gpt-6.1-terra-high-fast`, `gpt-6.1-terra-high`. The probe confirmed the served model, effort, and tier of each one.
+- Cases: the 24 held-out cases that plan #100 published (commit 2507b42e): 10 code cases, 13 plan cases, and 1 plan-delta case. 2 runs per case and configuration, one review round per run (code `C3` panel, plan `P1`, plan-delta `Pd`): 192 runs, 352 reviewer dispatches in the first draw.
+- Reviewers: the released `code-reviewer` and `plan-reviewer` at `plan-lifecycle--v0.20.1`, on omp 18.16.0.
+- Judges: Claude task agents (8 for the first draw, 3 for the re-runs). A GPT second judge (the bundled omp `reviewer` agent, GPT-6.1 Sol `xhigh`) agreed with 199 of 208 sampled answers (0.96).
+
+### Decision rule (DocksDocks/public#130 decision 1, fixed before any run)
+
+The reference is the configuration with the fewest escaped known defects per 50 known. A configuration is not worse than the reference when, with a 90% case-resample interval, its escaped-per-50 difference has an upper bound below 2, its round-1 recall difference has a lower bound above -0.05, and its wrong findings per run are at most 0.10 more. Among the configurations that are not worse, the reference included, the one with the lowest median seconds wins. A configuration with fewer than 40 of its 48 runs valid gets its invalid runs again before the decision.
+
+### Validity and re-runs
+
+- First draw: 15 invalid Sol runs (mostly `!` exclusion globs, which the scorer counts as reads outside the inputs; 2 runs saw a web search result of issue #63) and 35 invalid Terra runs plus 1 blocked Terra run (reads of misspelled paths such as `heldheldout`, which do not exist). Both Terra configurations fell below 40 valid runs, so their 36 invalid runs ran again once.
+- The two Sol dispatch agents hit the 1-hour subagent limit and left 35 Sol plan runs without a block. 5 were saved from their stored outputs; the other 30 ran again through the task tool. All 352 saved blocks match the stored reviewer outputs.
+- The re-runs ran in separate waves, not alternated with the other configurations. On the alternated first draw alone, the median seconds keep the same order: Sol 163.7, Sol fast 114.4, Terra 68.2, Terra fast 39.6.
+- Final valid runs: Sol fast 40, Sol 41, Terra fast 41, Terra 43.
+
+### Results
+
+| Measure | `gpt-6.1-sol-high-fast` | `gpt-6.1-sol-high` | `gpt-6.1-terra-high-fast` | `gpt-6.1-terra-high` |
+|---|---:|---:|---:|---:|
+| Runs | 40 | 41 | 41 | 43 |
+| Known found per run | 0.57 | 0.73 | 0.73 | 0.67 |
+| Escaped per 50 known | 35.44 | 36.24 | 35.15 | 34.90 |
+| Escaped per 50 known difference from `gpt-6.1-terra-high`, 90% interval | [-1.39, 6.62] | [-2.83, 6.41] | [-4.10, 3.26] | - |
+| Round 1 recall difference from `gpt-6.1-terra-high`, 90% interval | [-0.13, 0.03] | [-0.13, 0.06] | [-0.07, 0.08] | - |
+| Valid extras per run | 1.63 | 1.98 | 2.76 | 2.40 |
+| Wrong per run | 0.17 | 0.20 | 0.51 | 0.49 |
+| Unknown ratings per run | 0.00 | 0.00 | 0.02 | 0.05 |
+| Seconds median | 120.2 | 172.8 | 35.7 | 69.3 |
+| Tokens median | 858,189 | 897,554 | 311,298 | 312,838 |
+
+### Decision
+
+The reference is `gpt-6.1-terra-high`, with the fewest escaped known defects (34.90 per 50). No other configuration is not worse: each escaped-difference interval reaches above 2 (6.62, 6.41, 3.26), and the recall interval of `gpt-6.1-terra-high-fast` reaches -0.07, below -0.05. So `gpt-6.1-terra-high` won under the rule, and docks-kit 0.22.10 set the omp `reviewer` role to `openai-codex/gpt-6.1-terra:high` with the `default` tier.
+
+Every escaped and recall interval contains 0, so with 2 runs per case the benchmark does not separate the four configurations on quality. Terra won as the reference. It returns about 2.5 times the wrong findings of Sol (0.49 against 0.20 per run), and it is about 2.5 times faster at the same tier, with about a third of the tokens.
+
+### What shipped
+
+- docks-kit 0.22.10 (DocksDocks/public#133): `openai-codex/gpt-6.1-terra:high` for the four review agents, pinned to the `default` tier, with the fallback `anthropic/claude-opus-5-5:high`.
+- docks-kit 0.22.11 (DocksDocks/public#134, #135): the user judged the difference between the Terra tiers as noise and chose `inherit`, so the reviewers follow the session's OpenAI fast toggle. Released as `cli-v0.22.11`.
+
+### Limits
+
+- 2 runs per case, so the intervals are wide.
+- Three judges listed the arm folder names with `ls`. The finding ids stay opaque, so they could not map a finding to a configuration.
+- Artificial Analysis Intelligence Index v5.0.1 scores Terra `high` at 42 and Sol `high` at 50. This run measured only review recall on the published cases.
