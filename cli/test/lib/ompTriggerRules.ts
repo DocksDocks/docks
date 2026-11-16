@@ -14,7 +14,10 @@
  * - The buffer is the tool-call argument JSON text, such as
  *   `{"command":"ls"}` for bash and `{"language":"py","code":"sh('ls')"}`
  *   for eval. A newline in a command is the two characters `\n`, and a quote
- *   is `\"`.
+ *   is `\"`. omp's tool schemas put the intent field `i` first, so a live
+ *   buffer can start with `{"i":"<intent>",`. The model is expected to write
+ *   the keys in schema order. A condition must not read past the end of the
+ *   command string into the intent or another field.
  * - A match is case-sensitive. omp compiles a condition with no flags, so
  *   there is no `u` flag and `\q` is an identity escape. `^` and `$` are the
  *   start and end of the buffer.
@@ -65,9 +68,16 @@ export interface TriggerRule {
   readonly repeatMode: RepeatMode | undefined;
 }
 
+/** One tool call. `intent` is the optional `i` field, which comes first in the argument JSON. */
 export type TriggerToolCall =
-  | { readonly tool: "bash"; readonly command: string }
-  | { readonly tool: "eval"; readonly code: string };
+  | { readonly tool: "bash"; readonly command: string; readonly intent?: string }
+  | {
+      readonly tool: "eval";
+      readonly code: string;
+      /** The eval language. The default is `py`. */
+      readonly language?: "py" | "js";
+      readonly intent?: string;
+    };
 
 const INLINE_FLAG_GROUP = /^\(\?([ims])\)/u;
 const PER_TOOL_PATH_GLOB = /^tool:[\w-]+\(/u;
@@ -160,9 +170,10 @@ export function kitTriggerRule(name: TriggerRuleName): TriggerRule {
 
 /** The argument JSON text that omp matches, with the key order of the measured snippets. */
 export function toolArgumentText(call: TriggerToolCall): string {
+  const intent = call.intent === undefined ? {} : { i: call.intent };
   return call.tool === "bash"
-    ? JSON.stringify({ command: call.command })
-    : JSON.stringify({ language: "py", code: call.code });
+    ? JSON.stringify({ ...intent, command: call.command })
+    : JSON.stringify({ ...intent, language: call.language ?? "py", code: call.code });
 }
 
 function matchesAny(rule: TriggerRule, text: string): boolean {
@@ -186,9 +197,4 @@ export function ruleTriggersWhileStreaming(rule: TriggerRule, call: TriggerToolC
     if (matchesAny(rule, text.slice(0, end))) return true;
   }
   return false;
-}
-
-/** True when assistant prose fires the rule, as `omp ttsr test --source text` reports. */
-export function ruleTriggersOnProse(rule: TriggerRule, prose: string): boolean {
-  return rule.scope.prose && matchesAny(rule, prose);
 }

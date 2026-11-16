@@ -5,19 +5,21 @@
 ### Changed
 
 - The deployed omp global instructions (`SoT/.omp/AGENTS.md`) shrink from
-  120 lines to about 30 lines. omp loads `~/.omp/agent/AGENTS.md` only into
+  120 lines to 36 lines. omp loads `~/.omp/agent/AGENTS.md` only into
   main sessions and advisors, never into task subagents
   (`omp://context-files.md`). So the subagent clauses in that file had no
   effect. The file now holds only main-session rules: the documentation
   check, assessment-only, the Docks plan review authorization, mannered
   prose, a short `ask` list, the `yolo` scope, the fallback when `ask` is not
   available, one cleanup line, and the Simplified Technical English output
-  standard. The output standard has 8 lines and the same rules.
+  standard. The output standard keeps the rules in 8 lines and bans humor
+  outright.
 - The `ask` list has a new trigger. Before the agent writes a feature that
   the current structure cannot hold without a refactor, it proposes the
   refactor through `ask`. The list also holds the former hook rule: when a
   repository hook fails on a problem that the change did not cause, the agent
-  asks and does not skip the hook.
+  asks and does not skip the hook. It also holds the production cleanup
+  rule: an `ask` immediately before the cleanup, which must be rare.
 
 ### Added
 
@@ -30,29 +32,42 @@
   cleanup, worktree location, literal paths without `~` or `$HOME`, and
   remote or production cleanup. `git-safety.md` and `remote-cleanup.md` also
   cover forms that the former prompt did not name, such as `git branch -D`,
-  `git stash drop`, `git checkout .`, `rsync --delete` to a host, and
-  `gh repo delete`.
-- Each rule has a regex `condition` that matches only the wrong form. All six
-  rules have the scope `tool:bash, tool:eval`, because eval code can run a
-  shell command through `sh()`. When the model streams a matching tool call,
-  omp aborts the call before it runs, injects the rule, and retries. The
-  rules reach subagents, and they cost no prompt tokens until they fire. Sync
-  materializes the plugin to `~/.docks-kit/omp-plugin`, and omp's
+  `git stash drop`, `git checkout .`, `git clean` without `-n`,
+  `git push origin +<ref>`, `rsync --delete` to a host, `rclone sync` to a
+  remote, `gh <noun> delete`, `aws s3 rb`, and `DROP TABLE` in a database
+  client. `temp-and-background.md` also names `go install`, `gem install`,
+  and `uv tool install` as global installs.
+- Each rule has a regex `condition` that aims at the wrong form. A condition
+  reads text, not a parsed command, so it has known false positives: a
+  quoted command word, such as `echo "rm x"` or a commit message that starts
+  with `rm`, and eval code after the closing quote of a `sh()` string. All
+  six rules have the scope `tool:bash, tool:eval`, because eval code can run
+  a shell command through `sh()`. When the model streams a matching tool
+  call, omp aborts the call before it runs, injects the rule, and retries.
+  The rules reach subagents, and they cost no prompt tokens until they fire.
+  Sync materializes the plugin to `~/.docks-kit/omp-plugin`, and omp's
   `omp-plugins` provider loads `rules/*.md` from that linked root.
 - omp tests each condition on the partial argument buffer after each
   streamed delta. So no condition matches a prefix of a correct command.
   Each condition requires a delimiter after the token that it checks, and no
-  condition uses the end anchor `$` as that delimiter.
+  condition uses the end anchor `$` as that delimiter. The buffer is the
+  argument JSON text, and the intent field `i` comes before `command`. So
+  each scan stops at an unescaped `"` and at a newline (`\n`), and the intent
+  text or the next line does not fire a rule.
 - The `bash.patterns` denies do not change. The trigger rules teach the
   correct form, and the denies still enforce. `docks-kit docs command-guards`
-  lists each rule, its scope, and the correct form that it teaches.
+  lists each rule, its scope, the correct form that it teaches, and the known
+  false positives.
 - A new unit test, `cli/test/unit/ompTriggerRules.test.ts`, checks the
   conditions of the six trigger rules with a port of the omp 18.21.0 matcher
   (`cli/test/lib/ompTriggerRules.ts`). Each rule has a table of wrong forms
   that must fire and correct forms that must stay quiet. Each shell row runs
-  through the bash tool and through eval `sh()` code. A correct form must
-  also stay quiet on each partial buffer, because omp tests the buffer after
-  each streamed delta.
+  through the bash tool, Python eval `sh("…")`, JavaScript eval `` sh`…` ``,
+  and JavaScript eval `sh("…");`. Other rows add an intent field, a
+  multi-line command, or eval code without a shell command. A correct form
+  must also stay quiet on each partial buffer, because omp tests the buffer
+  after each streamed delta. The test also checks that each condition has a
+  wrong row that fires it, and that the rule list equals the rule files.
 
 ## 2026-11-16 - docks-kit 0.22.23: omp stash reminders name the entry
 

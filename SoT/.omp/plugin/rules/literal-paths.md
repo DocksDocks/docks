@@ -1,7 +1,7 @@
 ---
 description: Write literal absolute paths and leave HOME unchanged
 condition:
-  - '(?:^|[\s=:"''(]|\\[nt])~/'
+  - '(?:^|[\s=:"''(`]|\\[nt])~/'
   - '\$HOME(?=\W)'
   - '\$\{HOME[}:]'
   - '(?:^|[\s;&|("''`]|\\[nt])HOME='

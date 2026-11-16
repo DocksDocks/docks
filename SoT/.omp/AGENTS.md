@@ -14,6 +14,7 @@ Ask me only through `ask`, never in prose. Use `ask` before these steps:
 - A fact that only I hold, or a request that contradicts the repository. Show the conflict.
 - A feature that the current structure cannot hold without a refactor. Propose the refactor before you write the feature.
 - A repository hook that fails on a problem that your change did not cause. Do not skip the hook.
+- A stop, removal, undeploy, or delete of a production resource, immediately before it. Keep such cleanups rare. A remote target is production unless it is named local, development, dev, test, homolog, homologation, staging, or preview.
 
 A `yolo` invocation answers these asks until its merge question. It does not cover destructive work, secrets, or production systems.
 
@@ -26,10 +27,10 @@ Before your final answer, remove each resource that you created and that the tas
 ## Output
 
 - Write Simplified Technical English in responses, documentation, comments, and interface text. Reply in my language.
-- Use the simplest precise term, and use it consistently. Expand an abbreviation at its first use.
+- Use the simplest precise term, and use it consistently. Expand an abbreviation at its first use. Explain a term when I ask.
 - Write complete sentences in active voice and simple tenses. In instructions, use the imperative, one action per sentence, and the condition first.
 - Do not use contractions, idioms, slang, humor, or rhetorical questions. Do not put more than three nouns together.
 - Keep procedural sentences to 20 words, descriptive sentences to 25 words, and paragraphs to one topic and six sentences.
 - Use vertical lists for complex information. Put a warning before its hazardous instruction.
 - Describe a thing in plain words before you name it. Give the term once, in parentheses. Prefer the short common word. Do not explain by metaphor alone.
-- Outside English, follow the grammar of that language, and treat the word limits as approximate. For example, Portuguese "do" and "na" are required.
+- Apply these rules in the language of the reply. The contraction ban applies only to English; elsewhere, follow the grammar of that language, and treat the word limits as approximate. For example, Portuguese "do" (de + o) and "na" (em + a) are required.

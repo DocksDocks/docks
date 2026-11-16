@@ -128,8 +128,8 @@ Replace the other three deployed files as whole files.
 omp loads `<agentDir>/AGENTS.md` only into main sessions and advisors, never
 into task subagents (`omp://context-files.md`).
 Keep `SoT/.omp/AGENTS.md` to main-session rules.
-Put a command rule that subagents need into a trigger rule (TTSR) in
-`SoT/.omp/plugin/rules/`.
+Put a command rule that subagents need into a trigger rule (Time Traveling
+Stream Rule, TTSR) in `SoT/.omp/plugin/rules/`.
 omp's `omp-plugins` provider loads `rules/*.md` from the linked kit plugin
 root.
 Each rule has a regex `condition` and the scope `tool:bash, tool:eval`.
@@ -139,6 +139,13 @@ omp tests each condition on the partial argument buffer after each streamed
 delta.
 So a condition must not match a prefix of a correct command.
 End each checked token with a delimiter, never with the end anchor `$`.
+The buffer is the argument JSON text, and the intent field `i` comes before
+`command`.
+Make each scan read an escape pair (`\"`, `\\`) as one unit and stop at an
+unescaped `"` and at a newline (`\n`).
+Add a wrong row for each new condition or branch, and a correct row for each
+lookahead.
+The test fails when a condition has no wrong row that fires it.
 The `bash.patterns` denies in `config.yml` still enforce.
 
 Verify the conditions: `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`.
