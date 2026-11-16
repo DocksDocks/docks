@@ -7,9 +7,9 @@ Pointers here name concepts, not coordinates — if a path or symbol moved, trus
 ## Module rules
 
 - Import only `node:` modules; omp loads the file without a package install.
-- Start every subprocess without a shell: `run` (`execFile`, `shell: false`) for the tools and the Docker checks, and `spawn` with `shell: false` for the sweep. A tool argument never reaches a shell.
+- Start every subprocess without a shell: `run` (`execFile`, `shell: false`) for the tools, the Docker checks, and the git stash reads, and `spawn` with `shell: false` for the sweep. A tool argument never reaches a shell.
 - `resolveDocksKit` takes only an absolute PATH entry; on Windows only `docks-kit.exe`.
-- Each event handler (`tool_result`, `session_stop`, `session_start`) catches its errors, so a hygiene failure never stops a session. `session_start` keeps the message of a caught error, except a missing launcher, for the next main-session tool result (see `session_start` handler). A tool rethrows its error through `toError`, which maps ENOENT to the "not on PATH" message.
+- Each event handler (`tool_call`, `tool_result`, `tool_execution_end`, `session_stop`, `session_start`) catches its errors or cannot throw, so a hygiene failure never stops a session. omp blocks a call when a `tool_call` handler throws, so that catch is required. `session_start` keeps the message of a caught error, except a missing launcher, for the next main-session tool result (see `session_start` handler). A tool rethrows its error through `toError`, which maps ENOENT to the "not on PATH" message.
 - Probe: `bunx vitest run cli/test/unit/ompKitPluginExtension.test.ts -t "passes shell syntax to the child as one literal argument"`.
 
 ## Tools
@@ -20,21 +20,34 @@ Pointers here name concepts, not coordinates — if a path or symbol moved, trus
 | `scratch_remove` | `docks-kit scratch remove <paths>` | non-empty, every path absolute |
 | `tidy_report` | `docks-kit tidy --report` | none; read-only |
 
-Probe: `bunx vitest run cli/test/unit/ompKitPluginExtension.test.ts -t "registers the three tools and the three handlers"`.
+Probe: `bunx vitest run cli/test/unit/ompKitPluginExtension.test.ts -t "registers the three tools and the five handlers"`.
 
 ## tool_result handler
 
-1. `resourceLines` skips a non-bash or failed call.
+1. `resourceLines` takes the stash snapshot of the call out of `stashSnapshots`, then skips a non-bash call. A failed call with a snapshot still gets the stash comparison (`git stash push -q && false` adds an entry); a failed call records nothing else.
 2. It skips a command that `TRIGGER` does not match. Each detection rule needs a word in `TRIGGER`.
-3. `detectResources(command, cwd, output, home)` splits the command with `scopedSegments` (the scoped form behind the exported `splitShellSegments`), applies `cd` and `DOCKER_*` state per subshell scope, and records `worktree`, `compose`, `container`, `scratch`, `tempDir`, `tempFile`, or `other` resources (`other` comes from `otherRules`).
+3. `detectResources(command, cwd, output, home)` splits the command with `scopedSegments` (the scoped form behind the exported `splitShellSegments`), applies `cd` and `DOCKER_*` state per subshell scope, and records `worktree`, `compose`, `container`, `scratch`, `tempDir`, `tempFile`, or `other` resources (`other` comes from `otherRules`). It stays pure. It also returns `stashes`: the directories where a `git stash` command that can add an entry ran (`stashDirectory`).
 4. A path or ID that is not literal in the command or in output that one command owns gives a generic note, not a ledger entry.
-5. `resourceLines` returns the `creationReminder` lines. An error there gives no lines.
-6. In the main session, the handler adds `docks-kit sweep did not start: <message>` once when `session_start` kept a sweep error. This step runs for every tool, also for a failed call. A subagent result neither shows nor clears the message.
-7. Return the lines as `additionalContext`.
+5. `createdStashes` records a `stash` resource for each entry in the `git stash list` of a `stashes` directory that the snapshot does not hold (see Git stash entries).
+6. `resourceLines` returns the `creationReminder` lines. An error there gives no lines.
+7. In the main session, the handler adds `docks-kit sweep did not start: <message>` once when `session_start` kept a sweep error. This step runs for every tool, also for a failed call. A subagent result neither shows nor clears the message.
+8. Return the lines as `additionalContext`.
 
 Add a rule in this order: the `TRIGGER` word, the detection, a `detectResources` case, and a handler case through `bash()` in the "extension handlers" block. A `detectResources` case alone passes even when `TRIGGER` blocks the rule.
 
 Probes: `bunx vitest run cli/test/unit/ompKitPluginExtension.test.ts -t "reminds after"`; `bunx vitest run cli/test/unit/ompKitPluginExtension.test.ts -t "shows a sweep error once, on the next tool result of the main session"`.
+
+## Git stash entries
+
+- The command text and the output cannot prove that a `git stash` command added an entry. `git stash push -q` prints nothing, and with nothing to save it adds no entry while `refs/stash` still names an older entry, which can belong to the user.
+- The `tool_call` handler (`stashesBefore`) runs before the command. For each `stashes` directory, it keeps the IDs of `git -C <dir> stash list` in `stashSnapshots`, keyed by tool call ID. The read delays the command, so its timeout is 1 second (`STASH_SNAPSHOT_TIMEOUT_MS`). A directory whose list git cannot read in that time gets no snapshot.
+- omp sends no `tool_result` for a call that it blocks or that the user denies after `tool_call`. It sends `tool_execution_end` for each call, after the `tool_result` of a call that ran, so the `tool_execution_end` handler removes the snapshot of that call.
+- `createdStashes` reads the list again after the command. Only an entry that is not in the snapshot becomes a `stash` resource. It keeps the full ID, the short ID, the reflog message, and the common git directory from `git rev-parse --git-common-dir`. With no snapshot or a failed read, it records nothing.
+- An unknown directory (for example `cd "$X"`) gives no stash directory, so nothing is recorded and no note shows.
+- The user or another session can add an entry between the two reads, and that entry also counts. A default message (`WIP on <branch>: <commit>`) does not prove the owner either, because two sessions on one branch make the same message. So the reminder names the short ID, the message, and the directory, and tells the agent to pop the entry only when its message is a unique message that the agent gave with `-m`. Otherwise the agent must not pop or drop it and names it in the final answer. The reminder never says to apply "the stash", and the extension takes no automatic action.
+- When the worktree of the entry is gone, `cleanupCommand` gives the read-only `git --git-dir=<common dir> stash list --format='%h %gd %gs'`, which needs no worktree, and `cleanupAction` says that the worktree was removed and asks only to name the entry. It suggests no pop: a pop in another worktree would put the changes into a checkout of the user or of another task. The extension never picks another worktree.
+- At stop, `stillExists` reads `git --git-dir=<common dir> stash list`, so the read also works after the worktree of the command is gone. A failed read gives no reminder, the same as `dockerListsAny`.
+- Probe: `bunx vitest run cli/test/unit/ompKitPluginExtension.test.ts -t "git stash entries"`.
 
 ## Docker targets
 
@@ -45,7 +58,7 @@ Probes: `bunx vitest run cli/test/unit/ompKitPluginExtension.test.ts -t "reminds
 ## session_stop handler
 
 - Skip when `stop_hook_active` is true.
-- For each ledger entry not yet in `reminded`, `stillExists` checks the path or asks Docker (`dockerListsAny`, with a timeout).
+- For each ledger entry not yet in `reminded`, `stillExists` checks the path, asks Docker (`dockerListsAny`, with a timeout), or reads the stash list (`stashList`, with a timeout).
 - A gone resource leaves the ledger. A live one joins `reminded` and the `stopReminder` text, which ends with the keep sentence.
 - `dockerListsAny` returns false on an error or a timeout, so an unreachable daemon drops the resource without a reminder.
 - `reminded` lives for the omp process; each resource gets at most one stop reminder.

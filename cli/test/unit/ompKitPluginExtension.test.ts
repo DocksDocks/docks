@@ -75,6 +75,7 @@ import docksKitOmp, {
   type HygieneResource,
 } from "../../../SoT/.omp/plugin/extensions/hygiene.ts";
 import { BUN_RUNTIME } from "../lib/cliEntry";
+import { createGitSandbox, type GitSandbox } from "../lib/gitSandbox";
 
 const EXTENSION = resolve(import.meta.dirname, "../../../SoT/.omp/plugin/extensions/hygiene.ts");
 const HOME = resolve("/h");
@@ -180,7 +181,7 @@ describe("detectResources", () => {
   });
 
   it("ignores git worktree list", () => {
-    expect(detect("git worktree list")).toEqual({ resources: [], notes: [] });
+    expect(detect("git worktree list")).toEqual({ resources: [], notes: [], stashes: [] });
   });
 
   it("finds a compose project from its first file", () => {
@@ -290,13 +291,18 @@ describe("detectResources", () => {
     expect(detect("mktemp -u", "/w", `${join(tmpdir(), "tmp.Z")}\n`)).toEqual({
       resources: [],
       notes: [],
+      stashes: [],
     });
   });
 
   it.each(["mktemp -du", "mktemp -d --dry-run", "mktemp --directory -u"])(
     "records nothing for %s, a dry run that creates nothing",
     (command) => {
-      expect(detect(command, "/w", "/tmp/tmp.Z\n")).toEqual({ resources: [], notes: [] });
+      expect(detect(command, "/w", "/tmp/tmp.Z\n")).toEqual({
+        resources: [],
+        notes: [],
+        stashes: [],
+      });
     },
   );
 
@@ -377,15 +383,28 @@ describe("detectResources", () => {
     ["ssh -fN -L 5432:db:5432 host", "tunnel"],
     ["bun add -g x", "global install"],
     ["supabase branches create t", "remote resource"],
-    ["git stash", "git stash"],
     ["disown -h %1", "background process"],
   ])("puts %s in the category %s", (command, category) => {
     expect(categories(command)).toEqual([category]);
   });
 
-  it("ignores git stash list", () => {
-    expect(detect("git stash list")).toEqual({ resources: [], notes: [] });
+  it.each([
+    ["git stash", "/w"],
+    ["git stash push -q -m x", "/w"],
+    ["git -C /r stash push -q", "/r"],
+    ["cd /a && git stash save x", "/a"],
+  ])("gives the directory of %s as a stash directory and records no resource", (command, dir) => {
+    const result = detect(command);
+    expect(result.stashes).toEqual([resolve(dir)]);
+    expect(result.resources).toEqual([]);
   });
+
+  it.each(["git stash list", "git stash pop", "git stash drop", 'cd "$X" && git stash'])(
+    "gives no stash directory for %s",
+    (command) => {
+      expect(detect(command)).toEqual({ resources: [], notes: [], stashes: [] });
+    },
+  );
 });
 
 describe("Docker daemon targets", () => {
@@ -618,6 +637,14 @@ describe("reminders", () => {
     { kind: "scratch", path: "/h/.cache/docks-kit/scratch/a b" },
     { kind: "tempDir", path: "/tmp/tmp.X" },
     { kind: "tempFile", path: "/tmp/tmp.Y" },
+    {
+      kind: "stash",
+      directory: "/w/feat",
+      gitDir: "/w/.git",
+      id: "0123456789abcdef0123456789abcdef01234567",
+      shortId: "0123456",
+      message: "On main: wip",
+    },
   ];
   const other: HygieneResource = {
     kind: "other",
@@ -1162,27 +1189,188 @@ describe("extension handlers", () => {
     return { handlers, tools };
   }
 
+  let callCount = 0;
+
+  /**
+   * Sends tool_call and tool_result for one bash call, the same as omp does.
+   * `execute` runs between the two events in place of the command.
+   */
   async function bash(
     handlers: Map<string, Handler>,
     command: string,
     output = "",
+    call: { cwd?: string; execute?: () => void } = {},
   ): Promise<string | undefined> {
+    callCount++;
+    const event = {
+      toolName: "bash",
+      toolCallId: `call-${callCount}`,
+      input: call.cwd === undefined ? { command } : { command, cwd: call.cwd },
+    };
+    expect(await handlers.get("tool_call")?.(event, { cwd: "/w" })).toBeUndefined();
+    call.execute?.();
     const result = (await handlers.get("tool_result")?.(
-      {
-        toolName: "bash",
-        input: { command },
-        content: [{ type: "text", text: output }],
-        isError: false,
-      },
+      { ...event, content: [{ type: "text", text: output }], isError: false },
       { cwd: "/w" },
     )) as { additionalContext: string } | undefined;
     return result?.additionalContext;
   }
 
-  it("registers the three tools and the three handlers", () => {
+  it("registers the three tools and the five handlers", () => {
     const { handlers, tools } = load();
     expect(tools).toEqual(["scratch_new", "scratch_remove", "tidy_report"]);
-    expect([...handlers.keys()]).toEqual(["tool_result", "session_stop", "session_start"]);
+    expect([...handlers.keys()]).toEqual([
+      "tool_call",
+      "tool_result",
+      "tool_execution_end",
+      "session_stop",
+      "session_start",
+    ]);
+  });
+
+  describe("git stash entries", () => {
+    let open: GitSandbox | undefined;
+    afterEach(() => {
+      open?.dispose();
+      open = undefined;
+    });
+
+    /** The sandbox repository `main`, with one older stash entry of the user. */
+    function repository(): GitSandbox {
+      open = createGitSandbox();
+      writeFileSync(join(open.main, "README"), "user draft\n");
+      open.git(open.main, "stash", "push", "-q", "-m", "user draft");
+      return open;
+    }
+
+    function shortStash(repo: GitSandbox): string {
+      return repo.git(repo.main, "rev-parse", "--short", "refs/stash").trim();
+    }
+
+    /** Runs `git stash push -q -m agent` in `main` as a bash call of the agent. */
+    function pushAgentStash(handlers: Map<string, Handler>, repo: GitSandbox) {
+      return bash(handlers, "git stash push -q -m agent", "", {
+        cwd: repo.main,
+        execute: () => repo.git(repo.main, "stash", "push", "-q", "-m", "agent"),
+      });
+    }
+
+    async function stopText(handlers: Map<string, Handler>): Promise<string> {
+      const result = (await handlers.get("session_stop")?.(
+        { stop_hook_active: false },
+        { cwd: "/w" },
+      )) as { additionalContext: string } | undefined;
+      return result?.additionalContext ?? "";
+    }
+
+    it("names the kept entry once at stop and never the older entry", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      const user = shortStash(repo);
+      writeFileSync(join(repo.main, "README"), "agent change\n");
+
+      const created = await pushAgentStash(handlers, repo);
+      const agent = shortStash(repo);
+      const description = `the git stash entry ${agent} (On main: agent) in ${repo.main}`;
+      expect(created).toContain(`The stash list got ${description} while this command ran.`);
+      expect(created).not.toContain(user);
+
+      const text = await stopText(handlers);
+      const stashLines = text.split("\n").filter((line) => line.includes("git stash entry"));
+      expect(stashLines).toHaveLength(1);
+      expect(stashLines[0]).toContain(`- ${description}: run \`git -C `);
+      expect(stashLines[0]).toContain(`and find ${agent}. Pop that entry`);
+      expect(text).not.toContain(user);
+      expect(text).not.toContain("Apply the stash");
+    });
+
+    it("gives no stop reminder after the agent pops its entry", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      writeFileSync(join(repo.main, "README"), "agent change\n");
+
+      expect(await pushAgentStash(handlers, repo)).toContain("the git stash entry");
+      repo.git(repo.main, "stash", "pop", "-q");
+
+      expect(await stopText(handlers)).not.toContain("git stash");
+    });
+
+    it("records nothing for a stash push with nothing to save", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      const before = shortStash(repo);
+
+      // refs/stash still names the older entry of the user after the push.
+      expect(await pushAgentStash(handlers, repo)).toBeUndefined();
+      expect(shortStash(repo)).toBe(before);
+      expect(await stopText(handlers)).not.toContain("git stash");
+    });
+
+    it("records the entry of a failed call that still pushed a stash", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      writeFileSync(join(repo.main, "README"), "agent change\n");
+      const event = {
+        toolName: "bash",
+        toolCallId: "failed-call",
+        input: { command: "git stash push -q -m agent && false", cwd: repo.main },
+      };
+
+      await handlers.get("tool_call")?.(event, { cwd: "/w" });
+      repo.git(repo.main, "stash", "push", "-q", "-m", "agent");
+      const result = (await handlers.get("tool_result")?.(
+        { ...event, content: [], isError: true },
+        { cwd: "/w" },
+      )) as { additionalContext: string } | undefined;
+      expect(result?.additionalContext).toContain(
+        `the git stash entry ${shortStash(repo)} (On main: agent)`,
+      );
+      await stopText(handlers);
+    });
+
+    it("asks only to name the entry after its worktree is removed", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      const linked = join(repo.base, "linked");
+      repo.git(repo.main, "worktree", "add", "-q", "--detach", linked);
+      writeFileSync(join(linked, "README"), "agent change\n");
+
+      await bash(handlers, "git stash push -q -m agent", "", {
+        cwd: linked,
+        execute: () => repo.git(linked, "stash", "push", "-q", "-m", "agent"),
+      });
+      repo.git(repo.main, "worktree", "remove", linked);
+
+      const text = await stopText(handlers);
+      const line = text.split("\n").find((entry) => entry.includes("git stash entry")) ?? "";
+      expect(line).toContain(`(On (no branch): agent) in ${linked}: its worktree was removed.`);
+      expect(line).toContain("Run `git --git-dir=");
+      expect(line).toContain("Do not pop or drop it, and name it in your final answer");
+      expect(line).not.toContain("Pop that entry");
+      expect(line).not.toContain("git -C");
+    });
+
+    it("drops the stash list of a call at tool_execution_end", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      writeFileSync(join(repo.main, "README"), "agent change\n");
+      const event = {
+        toolName: "bash",
+        toolCallId: "blocked-call",
+        input: { command: "git stash push -q -m agent", cwd: repo.main },
+      };
+
+      // omp sends tool_execution_end and no tool_result for a blocked call.
+      // A later tool_result with the same ID then has no list to compare.
+      await handlers.get("tool_call")?.(event, { cwd: "/w" });
+      await handlers.get("tool_execution_end")?.({ toolCallId: "blocked-call" }, { cwd: "/w" });
+      repo.git(repo.main, "stash", "push", "-q", "-m", "agent");
+      const result = await handlers.get("tool_result")?.(
+        { ...event, content: [], isError: false },
+        { cwd: "/w" },
+      );
+      expect(result).toBeUndefined();
+    });
   });
 
   it.each([

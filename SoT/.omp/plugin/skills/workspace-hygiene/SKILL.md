@@ -29,7 +29,7 @@ For each resource, write its path, id, port, or remote name.
 | Detached terminal session | do not create | `tmux kill-session -t <name>`, `screen -S <name> -X quit` | never |
 | Scheduled job or service | only on request | remove the entry or unit | the user asked for it |
 | Global install | only on request | the matching uninstall command | the user asked for it |
-| Git stash or local branch | avoid stash; one branch per plan | apply the stash; `git branch -d <branch>` after the merge | the branch has an open pull request |
+| Git stash or local branch | avoid stash; if you must stash, give a unique message with `-m`; one branch per plan | find the short ID that the reminder names with `git stash list --format='%h %gd %gs'`; pop that entry by its `stash@{n}` name, in the worktree where you made it, only when its message is a unique message that you gave with `-m`; otherwise do not pop or drop it, and name it in your final answer; when that worktree is removed, do not pop the entry in another worktree, and name it in your final answer; never apply, pop, or drop a stash entry that you did not create; `git branch -d <branch>` after the merge | the branch has an open pull request |
 | Remote test resource (database branch, preview deployment, fork, cloud instance) | only for the task | the provider's delete command, only for a development or preview target; ask first for production | the user asked for it |
 | Package or tool cache | never in `/tmp` | do not prune; report the size | always |
 

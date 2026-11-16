@@ -4,6 +4,9 @@
  * - The tools scratch_new, scratch_remove, and tidy_report run docks-kit.
  * - The tool_result handler records each resource that a bash command
  *   creates, and it adds a reminder that names the cleanup command.
+ * - The tool_call handler reads the stash list before a `git stash` command,
+ *   so the tool_result handler can name the stash entry that the command
+ *   added. The tool_execution_end handler drops the list of a blocked call.
  * - The session_stop handler lists the recorded resources that still exist.
  * - The session_start handler of a main session starts `docks-kit tidy --apply`
  *   in the background, at most one time in each sweep interval. When the
@@ -41,6 +44,11 @@ const STAMP_FILE = "tidy.stamp";
 const CLAIM_FILE = "tidy.stamp.claim";
 const TAKEOVER_FILE = "tidy.stamp.takeover";
 const DOCKER_CHECK_TIMEOUT_MS = 5000;
+const GIT_CHECK_TIMEOUT_MS = 5000;
+/** The pre-call stash read delays the command, so it gets a short timeout. */
+const STASH_SNAPSHOT_TIMEOUT_MS = 1000;
+/** One line for each stash entry: full ID, short ID, and reflog message, split by NUL. */
+const STASH_LIST_FORMAT = "--format=%H%x00%h%x00%gs";
 const SCRATCH_TIMEOUT_MS = 60_000;
 const REPORT_TIMEOUT_MS = 120_000;
 const OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
@@ -219,10 +227,6 @@ const REMOTE: OtherRule = {
   category: "remote resource",
   hint: "Delete it with the provider's command only when its target is local, development, dev, test, homolog, homologation, staging, or preview, and the task no longer needs it. For a production target, ask the user first. If you do not delete it, name it in your final answer.",
 };
-const STASH: OtherRule = {
-  category: "git stash",
-  hint: "Apply the stash, or name it in your final answer.",
-};
 
 const CLUSTER_COMMANDS: ReadonlyArray<ReadonlyArray<string>> = [
   ["kind", "create", "cluster"],
@@ -264,9 +268,26 @@ export type HygieneResource =
   | { kind: "scratch"; path: string }
   | { kind: "tempDir"; path: string }
   | { kind: "tempFile"; path: string }
+  | {
+      kind: "stash";
+      /** The directory where the command ran; the reminder names it. */
+      directory: string;
+      /** The common git directory. A linked worktree shares its stash list with it. */
+      gitDir: string;
+      id: string;
+      shortId: string;
+      message: string;
+    }
   | { kind: "other"; category: string; command: string; hint: string };
 
 type PathResource = Exclude<HygieneResource, { kind: "other" }>;
+
+/** One line of `git stash list`. */
+interface StashEntry {
+  readonly id: string;
+  readonly shortId: string;
+  readonly message: string;
+}
 
 export interface ShellSegment {
   words: Array<string>;
@@ -313,9 +334,13 @@ interface ExtensionContext {
   readonly agent?: { readonly kind: "main" | "sub" };
 }
 
-interface ToolResultEvent {
+interface ToolCallEvent {
   readonly toolName: string;
+  readonly toolCallId?: string;
   readonly input?: Readonly<Record<string, unknown>>;
+}
+
+interface ToolResultEvent extends ToolCallEvent {
   readonly content?: ReadonlyArray<TextContent>;
   readonly isError?: boolean;
 }
@@ -355,6 +380,14 @@ interface ToolDefinition<Params> {
 
 export interface ExtensionApi {
   readonly zod: SchemaBuilder;
+  on(
+    event: "tool_call",
+    handler: (event: ToolCallEvent, ctx: ExtensionContext) => Promise<undefined>,
+  ): void;
+  on(
+    event: "tool_execution_end",
+    handler: (event: { readonly toolCallId?: string }, ctx: ExtensionContext) => Promise<undefined>,
+  ): void;
   on(
     event: "tool_result",
     handler: (
@@ -1080,6 +1113,11 @@ interface CommandContext {
  * Finds the resources that a successful bash command created. A resource
  * whose path or id is not literal in the command or the output gives a
  * generic note in place of a ledger entry.
+ *
+ * `stashes` lists the directories where a `git stash` command that can add a
+ * stash entry ran. The command text cannot tell which entry it added, or if
+ * it added one, so the handlers compare the stash list before and after the
+ * command (see stashesBefore and createdStashes).
  */
 export function detectResources(
   command: string,
@@ -1087,9 +1125,10 @@ export function detectResources(
   output: string,
   home: string,
   platform: NodeJS.Platform = process.platform,
-): { resources: Array<HygieneResource>; notes: Array<string> } {
+): { resources: Array<HygieneResource>; notes: Array<string>; stashes: Array<string> } {
   const found = new Map<string, HygieneResource>();
   const notes: Array<string> = [];
+  const stashes = new Set<string>();
   const findings: Findings = {
     resource: (resource) => {
       found.set(resourceKey(resource), resource);
@@ -1180,11 +1219,13 @@ export function detectResources(
     };
     detectCreation(context, home, owned, platform, findings);
     const text = segment.words.map(quote).join(" ").slice(0, COMMAND_TEXT_LIMIT);
-    for (const rule of otherRules(context, segment.background, home)) {
+    for (const rule of otherRules(context, segment.background)) {
       findings.resource({ kind: "other", category: rule.category, command: text, hint: rule.hint });
     }
+    const stash = stashDirectory(context, home);
+    if (stash !== undefined) stashes.add(stash);
   }
-  return { resources: [...found.values()], notes };
+  return { resources: [...found.values()], notes, stashes: [...stashes] };
 }
 
 /**
@@ -1474,7 +1515,7 @@ function lastContainerIdLine(output: string): string | undefined {
     .pop();
 }
 
-function otherRules(context: CommandContext, background: boolean, home: string): Array<OtherRule> {
+function otherRules(context: CommandContext, background: boolean): Array<OtherRule> {
   const { name, words } = context;
   const rules: Array<OtherRule> = [];
   const args = words.slice(1);
@@ -1543,14 +1584,19 @@ function otherRules(context: CommandContext, background: boolean, home: string):
   ) {
     rules.push(REMOTE);
   }
-
-  if (name === "git") {
-    const git = gitArguments(words, context.directory, home);
-    if (git.args[0] === "stash" && STASH_WITHOUT_ENTRY[git.args[1] ?? ""] !== true) {
-      rules.push(STASH);
-    }
-  }
   return rules;
+}
+
+/**
+ * The directory of a `git stash` command that can add a stash entry, else
+ * undefined. An unknown directory also gives undefined: the handlers can then
+ * read no stash list, so they record nothing and give no note.
+ */
+function stashDirectory(context: CommandContext, home: string): string | undefined {
+  if (context.name !== "git") return undefined;
+  const git = gitArguments(context.words, context.directory, home);
+  if (git.args[0] !== "stash" || STASH_WITHOUT_ENTRY[git.args[1] ?? ""] === true) return undefined;
+  return git.directory;
 }
 
 // ----------------------------------------------------------- reminders ----
@@ -1566,6 +1612,8 @@ function resourceKey(resource: HygieneResource): string {
       return `compose:${dockerPrefix(resource.docker)}:${resource.workingDir}`;
     case "container":
       return `container:${dockerPrefix(resource.docker)}:${resource.id}`;
+    case "stash":
+      return `stash:${resource.gitDir}:${resource.id}`;
     case "other":
       return `other:${resource.category}:${resource.command}`;
   }
@@ -1585,9 +1633,18 @@ function describeResource(resource: PathResource): string {
       return `the temporary directory ${resource.path}`;
     case "tempFile":
       return `the temporary file ${resource.path}`;
+    case "stash":
+      return `the git stash entry ${resource.shortId} (${resource.message}) in ${resource.directory}`;
   }
 }
 
+/**
+ * The command that removes the resource. For a stash entry, the command that
+ * shows its current `stash@{n}` name: the name of an entry changes when
+ * another entry is added or removed, so no fixed pop or drop command is safe.
+ * When the worktree of the entry is gone, a read-only list of the common git
+ * directory; it needs no worktree.
+ */
 export function cleanupCommand(resource: HygieneResource): string {
   switch (resource.kind) {
     case "worktree":
@@ -1599,6 +1656,10 @@ export function cleanupCommand(resource: HygieneResource): string {
     case "tempDir":
     case "tempFile":
       return `docks-kit scratch remove ${quote(resource.path)}`;
+    case "stash":
+      return existsSync(resource.directory)
+        ? `git -C ${quote(resource.directory)} stash list --format='%h %gd %gs'`
+        : `git --git-dir=${quote(resource.gitDir)} stash list --format='%h %gd %gs'`;
     case "other":
       return resource.hint;
   }
@@ -1608,14 +1669,38 @@ export function creationReminder(resource: HygieneResource): string {
   if (resource.kind === "other") {
     return `This command created a ${resource.category} (\`${resource.command}\`). ${resource.hint}`;
   }
-  return `You created ${describeResource(resource)}. When the task no longer needs it, run \`${cleanupCommand(resource)}\`.`;
+  if (resource.kind === "stash") {
+    return `The stash list got ${describeResource(resource)} while this command ran. When the task no longer needs it, ${cleanupAction(resource)}.`;
+  }
+  return `You created ${describeResource(resource)}. When the task no longer needs it, ${cleanupAction(resource)}.`;
+}
+
+/**
+ * Names the entry, so the agent does not pop a stash entry of another owner.
+ * The user or another session can add an entry while the command runs (see
+ * createdStashes). A default message such as `WIP on main: abc1234 subject`
+ * does not prove the owner, because two sessions on one branch make the same
+ * message. So the agent pops the entry only when it holds a unique message
+ * that the agent gave with `-m`, and it never drops the entry. When the
+ * worktree of the entry is gone, a pop in another worktree would put the
+ * changes into a checkout of the user or of another task, so the reminder
+ * then asks only to name the entry.
+ */
+function cleanupAction(resource: PathResource): string {
+  if (resource.kind === "stash" && !existsSync(resource.directory)) {
+    return `its worktree was removed. Run \`${cleanupCommand(resource)}\` to see ${resource.shortId}. Do not pop or drop it, and name it in your final answer`;
+  }
+  if (resource.kind === "stash") {
+    return `run \`${cleanupCommand(resource)}\` and find ${resource.shortId}. Pop that entry by its \`stash@{n}\` name only when its message is a unique message that you gave with \`-m\`. Otherwise do not pop or drop it, and name it in your final answer`;
+  }
+  return `run \`${cleanupCommand(resource)}\``;
 }
 
 function stopLine(resource: HygieneResource): string {
   if (resource.kind === "other") {
     return `- ${resource.category}: \`${resource.command}\` (${resource.hint})`;
   }
-  return `- ${describeResource(resource)}: run \`${cleanupCommand(resource)}\``;
+  return `- ${describeResource(resource)}: ${cleanupAction(resource)}`;
 }
 
 export function stopReminder(
@@ -1839,6 +1924,14 @@ export function claimSweep(cacheDir: string, nowMs: number): boolean {
  */
 const ledger = new Map<string, HygieneResource>();
 const reminded = new Set<string>();
+/**
+ * The stash IDs of each directory of a bash call before the call ran, keyed
+ * by tool call ID. The tool_result handler takes the snapshot out. omp sends
+ * no tool_result for a call that it blocks or that the user denies after the
+ * tool_call handler, but it sends tool_execution_end for each call after its
+ * tool_result, so that handler removes the snapshot of such a call.
+ */
+const stashSnapshots = new Map<string, ReadonlyMap<string, ReadonlySet<string>>>();
 
 async function dockerListsAny(target: DockerTarget, args: ReadonlyArray<string>): Promise<boolean> {
   try {
@@ -1849,6 +1942,44 @@ async function dockerListsAny(target: DockerTarget, args: ReadonlyArray<string>)
     return result.code === 0 && result.stdout.trim() !== "";
   } catch {
     return false;
+  }
+}
+
+/**
+ * The entries of `git <location> stash list`, or undefined when git fails or
+ * the timeout stops it.
+ */
+async function stashList(
+  location: ReadonlyArray<string>,
+  timeoutMs: number,
+): Promise<Array<StashEntry> | undefined> {
+  try {
+    const result = await run("git", [...location, "stash", "list", STASH_LIST_FORMAT], {
+      timeoutMs,
+    });
+    if (result.code !== 0) return undefined;
+    return result.stdout
+      .split(/\r?\n/)
+      .filter((line) => line !== "")
+      .map((line) => {
+        const [id = "", shortId = "", message = ""] = line.split("\0");
+        return { id, shortId, message };
+      });
+  } catch {
+    return undefined;
+  }
+}
+
+/** The absolute common git directory of `directory`, or undefined when git fails. */
+async function commonGitDir(directory: string): Promise<string | undefined> {
+  try {
+    const result = await run("git", ["-C", directory, "rev-parse", "--git-common-dir"], {
+      timeoutMs: GIT_CHECK_TIMEOUT_MS,
+    });
+    const path = result.stdout.trim();
+    return result.code === 0 && path !== "" ? resolve(directory, path) : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -1868,6 +1999,15 @@ async function stillExists(resource: HygieneResource): Promise<boolean> {
       ]);
     case "container":
       return dockerListsAny(resource.docker, ["ps", "-aq", "--filter", `id=${resource.id}`]);
+    case "stash": {
+      // The read uses the common git directory, so it also works after the
+      // agent removes the worktree where the command ran. A failed read gives
+      // no reminder, the same as dockerListsAny. The read fails mainly when
+      // the repository is gone, and its stash list is then gone too. A
+      // reminder that the extension cannot check is a possible false reminder.
+      const entries = await stashList([`--git-dir=${resource.gitDir}`], GIT_CHECK_TIMEOUT_MS);
+      return entries?.some((entry) => entry.id === resource.id) === true;
+    }
     case "other":
       return true;
   }
@@ -1877,21 +2017,105 @@ function textResult(text: string, details: Record<string, unknown>): ToolResult 
   return { content: [{ type: "text", text }], details };
 }
 
+/** The command and the directory of a bash call that TRIGGER matches, else undefined. */
+function bashCall(
+  event: ToolCallEvent,
+  ctx: ExtensionContext,
+): { command: string; cwd: string } | undefined {
+  if (event.toolName !== "bash") return undefined;
+  const command = event.input?.["command"];
+  if (typeof command !== "string" || !TRIGGER.test(command)) return undefined;
+  return { command, cwd: resolve(ctx.cwd, String(event.input?.["cwd"] ?? ".")) };
+}
+
+/**
+ * Before a bash call runs, reads the stash list of each directory where the
+ * call can add a stash entry. createdStashes compares it with the list after
+ * the call. Only this comparison proves which entries the call can have
+ * added:
+ *
+ * - `git stash push -q` prints nothing, also when it adds an entry.
+ * - With nothing to save, it adds no entry, and `refs/stash` still names an
+ *   older entry, which can belong to the user.
+ * - A tool_result handler cannot read the list as it was before the call.
+ *
+ * The read delays the command, so it has a short timeout. A directory whose
+ * list git cannot read in that time gets no snapshot, so the call then
+ * records no stash there.
+ */
+async function stashesBefore(event: ToolCallEvent, ctx: ExtensionContext): Promise<void> {
+  const call = bashCall(event, ctx);
+  if (call === undefined || event.toolCallId === undefined) return;
+  const { stashes } = detectResources(call.command, call.cwd, "", homedir());
+  if (stashes.length === 0) return;
+  const snapshot = new Map<string, ReadonlySet<string>>();
+  await Promise.all(
+    stashes.map(async (directory) => {
+      const entries = await stashList(["-C", directory], STASH_SNAPSHOT_TIMEOUT_MS);
+      if (entries !== undefined) snapshot.set(directory, new Set(entries.map((entry) => entry.id)));
+    }),
+  );
+  stashSnapshots.set(event.toolCallId, snapshot);
+}
+
+/**
+ * The stash entries that are in the list after the call and not in its
+ * snapshot. The user or another session can add an entry between the two
+ * reads, for example while omp waits for the approval of the call, and that
+ * entry also counts. So the reminder names the entry and its message, and it
+ * tells the agent to check the message and never to drop the entry.
+ */
+async function createdStashes(
+  directories: ReadonlyArray<string>,
+  snapshot: ReadonlyMap<string, ReadonlySet<string>> | undefined,
+): Promise<Array<HygieneResource>> {
+  if (snapshot === undefined) return [];
+  const created = await Promise.all(
+    directories.map(async (directory): Promise<Array<HygieneResource>> => {
+      const before = snapshot.get(directory);
+      if (before === undefined) return [];
+      const [entries, gitDir] = await Promise.all([
+        stashList(["-C", directory], GIT_CHECK_TIMEOUT_MS),
+        commonGitDir(directory),
+      ]);
+      if (entries === undefined || gitDir === undefined) return [];
+      return entries
+        .filter((entry) => !before.has(entry.id))
+        .map((entry) => ({
+          kind: "stash",
+          directory,
+          gitDir,
+          id: entry.id,
+          shortId: entry.shortId,
+          message: entry.message.slice(0, COMMAND_TEXT_LIMIT),
+        }));
+    }),
+  );
+  return created.flat();
+}
+
 /**
  * Records each resource that a bash command created and returns its reminder
  * lines and the notes on resources that the command can create.
  */
-function resourceLines(event: ToolResultEvent, ctx: ExtensionContext): Array<string> {
-  if (event.toolName !== "bash" || event.isError === true) return [];
-  const command = event.input?.["command"];
-  if (typeof command !== "string" || !TRIGGER.test(command)) return [];
-  const cwd = resolve(ctx.cwd, String(event.input?.["cwd"] ?? "."));
+async function resourceLines(event: ToolResultEvent, ctx: ExtensionContext): Promise<Array<string>> {
+  const id = event.toolCallId;
+  const snapshot = id === undefined ? undefined : stashSnapshots.get(id);
+  if (id !== undefined) stashSnapshots.delete(id);
+  const failed = event.isError === true;
+  // A failed call can still have added a stash entry, as in
+  // `git stash push -q && false`, so the stash lists are compared also then.
+  if (failed && snapshot === undefined) return [];
+  const call = bashCall(event, ctx);
+  if (call === undefined) return [];
   const output = (event.content ?? [])
     .map((block) => (block.type === "text" && typeof block.text === "string" ? block.text : ""))
     .join("\n");
-  const { resources, notes } = detectResources(command, cwd, output, homedir());
+  const detected = detectResources(call.command, call.cwd, output, homedir());
+  const resources: Array<HygieneResource> = failed ? [] : detected.resources;
+  resources.push(...(await createdStashes(detected.stashes, snapshot)));
   for (const resource of resources) ledger.set(resourceKey(resource), resource);
-  return [...resources.map(creationReminder), ...notes];
+  return [...resources.map(creationReminder), ...(failed ? [] : detected.notes)];
 }
 
 // ------------------------------------------------------------- extension ----
@@ -1972,10 +2196,21 @@ export default function docksKitOmp(pi: ExtensionApi): void {
     },
   });
 
+  pi.on("tool_call", async (event, ctx) => {
+    // omp blocks the call when a tool_call handler throws, so a failed stash
+    // read must end here. The call then records no stash.
+    try {
+      await stashesBefore(event, ctx);
+    } catch {
+      // Nothing to do: createdStashes finds no snapshot.
+    }
+    return undefined;
+  });
+
   pi.on("tool_result", async (event, ctx) => {
     let lines: Array<string>;
     try {
-      lines = resourceLines(event, ctx);
+      lines = await resourceLines(event, ctx);
     } catch {
       lines = [];
     }
@@ -1984,6 +2219,11 @@ export default function docksKitOmp(pi: ExtensionApi): void {
       sweepError = undefined;
     }
     return lines.length === 0 ? undefined : { additionalContext: lines.join("\n") };
+  });
+
+  pi.on("tool_execution_end", async (event) => {
+    if (event.toolCallId !== undefined) stashSnapshots.delete(event.toolCallId);
+    return undefined;
   });
 
   pi.on("session_stop", async (event) => {
