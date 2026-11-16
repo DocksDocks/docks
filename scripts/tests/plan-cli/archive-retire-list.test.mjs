@@ -25,10 +25,19 @@ function assertUntouched({ issue, writes, waits }, plan, state, label) {
 
 test('archive refuses an open or closed plan without landing proof, finished work, a review pass, or ownership', (t) => {
   const context = planCliContext(t);
-  const unproven = 'archive requires a closing pull request merged into DocksDocks/fixture:main';
   for (const { name, options, prepare, refusal } of [
-    { name: 'no closing keyword', options: { prBody: 'Refs #ISSUE' }, refusal: () => unproven },
-    { name: 'a merge into another branch', options: { base: 'release' }, refusal: () => unproven },
+    {
+      name: 'no closing keyword',
+      options: { prBody: 'Refs #ISSUE' },
+      refusal: (plan) =>
+        `pull request #${plan.pr} has no closing keyword for plan #${plan.number} in its description; ask the owner before you add \`Closes #${plan.number}\` to the merged pull request, then run archive again`,
+    },
+    {
+      name: 'a merge into another branch',
+      options: { base: 'release' },
+      refusal: (plan) =>
+        `pull request #${plan.pr} merged into release; archive requires a merge into DocksDocks/fixture:main`,
+    },
     {
       name: 'a non-terminal step',
       options: { status: 'in-flight' },
