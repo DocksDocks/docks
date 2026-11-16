@@ -39,6 +39,13 @@
 - The `bash.patterns` denies do not change. The trigger rules teach the
   correct form, and the denies still enforce. `docks-kit docs command-guards`
   lists each rule, its scope, and the correct form that it teaches.
+- A new unit test, `cli/test/unit/ompTriggerRules.test.ts`, checks the
+  conditions of the six trigger rules with a port of the omp 18.21.0 matcher
+  (`cli/test/lib/ompTriggerRules.ts`). Each rule has a table of wrong forms
+  that must fire and correct forms that must stay quiet. Each shell row runs
+  through the bash tool and through eval `sh()` code. A correct form must
+  also stay quiet on each partial buffer, because omp tests the buffer after
+  each streamed delta.
 
 ## 2026-11-16 - docks-kit 0.22.23: omp stash reminders name the entry
 
