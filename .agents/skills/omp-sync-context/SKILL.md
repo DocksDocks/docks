@@ -43,7 +43,7 @@ metadata:
       lines: "1-26"
     - path: cli/src/commands/harnesses.ts
       lines: "1-80"
-  updated: "2026-11-07"
+  updated: "2026-11-16"
 ---
 
 # omp Sync Context
@@ -124,6 +124,18 @@ Replace the other three deployed files as whole files.
 | `SoT/.omp/models.yml` | `<agentDir>/models.yml` | Take `agentDir` from `ompPaths`. |
 | `SoT/.omp/intercom.json` | `<intercomRoot>/intercom/config.json` | Use the profile `agentDir` under a named profile; otherwise use `$PI_CODING_AGENT_DIR`, defaulting to `~/.pi/agent`. |
 | `SoT/.omp/plugin/**` (payload prefix) | `~/.docks-kit/omp-plugin/` | Kit-owned: `ompKitPlugin.ts syncKitPlugin` writes each file only when it differs, sets `package.json` `version` to the kit version, removes files that the payload no longer lists, and keeps no backups. |
+
+omp loads `<agentDir>/AGENTS.md` only into main sessions and advisors, never
+into task subagents (`omp://context-files.md`).
+Keep `SoT/.omp/AGENTS.md` to main-session rules.
+Put a command rule that subagents need into a trigger rule (TTSR) in
+`SoT/.omp/plugin/rules/`.
+omp's `omp-plugins` provider loads `rules/*.md` from the linked kit plugin
+root.
+Each rule has a regex `condition` and a `scope` (`tool:bash`, and
+`tool:eval` for the removal and git rules).
+omp aborts a matching tool call before it runs, injects the rule, and retries.
+The `bash.patterns` denies in `config.yml` still enforce.
 
 Under a named profile (`OMP_PROFILE` or `PI_PROFILE`), use the profile `agentDir` from `ompPaths`.
 omp exports `PI_CODING_AGENT_DIR` as that profile `agentDir`, and `pi-intercom` reads that variable.

@@ -26,6 +26,12 @@ export const TEXT_PAYLOAD_PATHS = [
   "SoT/.omp/plugin/extensions/pluginUpgrades.ts",
   "SoT/.omp/plugin/skills/workspace-hygiene/SKILL.md",
   "SoT/.omp/plugin/commands/cleanup.md",
+  "SoT/.omp/plugin/rules/file-removal.md",
+  "SoT/.omp/plugin/rules/git-safety.md",
+  "SoT/.omp/plugin/rules/literal-paths.md",
+  "SoT/.omp/plugin/rules/remote-cleanup.md",
+  "SoT/.omp/plugin/rules/temp-and-background.md",
+  "SoT/.omp/plugin/rules/worktree-location.md",
 ] as const;
 
 export const BINARY_PAYLOAD_PATHS = ["notification.mp3"] as const;

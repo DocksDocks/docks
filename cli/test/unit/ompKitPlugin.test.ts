@@ -112,6 +112,17 @@ describe("omp kit plugin files", () => {
       readFileSync(join(pluginDir, "skills", "workspace-hygiene", "SKILL.md"), "utf8"),
     ).toContain("# Workspace hygiene");
     expect(existsSync(join(pluginDir, "commands", "cleanup.md"))).toBe(true);
+    for (const path of [
+      "SoT/.omp/plugin/rules/file-removal.md",
+      "SoT/.omp/plugin/rules/git-safety.md",
+      "SoT/.omp/plugin/rules/literal-paths.md",
+      "SoT/.omp/plugin/rules/remote-cleanup.md",
+      "SoT/.omp/plugin/rules/temp-and-background.md",
+      "SoT/.omp/plugin/rules/worktree-location.md",
+    ] as const) {
+      const deployed = join(pluginDir, path.slice("SoT/.omp/plugin/".length));
+      expect(readFileSync(deployed, "utf8")).toBe(payloadText(path));
+    }
     expect(ctx.nextStepTriggers.ompRestart).toBe(true);
   });
 
@@ -179,7 +190,7 @@ describe("omp kit plugin files", () => {
     expect(lines).toContain(
       `[dry-run] cp embedded:SoT/.omp/plugin/extensions/hygiene.ts -> ${pluginDir}/extensions/hygiene.ts`,
     );
-    expect(lines.filter((line) => line.startsWith("[dry-run] cp "))).toHaveLength(5);
+    expect(lines.filter((line) => line.startsWith("[dry-run] cp "))).toHaveLength(11);
     expect(existsSync(pluginDir)).toBe(false);
   });
 });

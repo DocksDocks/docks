@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-11-16 - docks-kit 0.22.24: omp command rules move to trigger rules
+
+### Changed
+
+- The deployed omp global instructions (`SoT/.omp/AGENTS.md`) shrink from
+  120 lines to about 30 lines. omp loads `~/.omp/agent/AGENTS.md` only into
+  main sessions and advisors, never into task subagents
+  (`omp://context-files.md`). So the subagent clauses in that file had no
+  effect. The file now holds only main-session rules: the documentation
+  check, assessment-only, the Docks plan review authorization, mannered
+  prose, a short `ask` list, the `yolo` scope, the fallback when `ask` is not
+  available, one cleanup line, and the Simplified Technical English output
+  standard. The output standard has 8 lines and the same rules.
+- The `ask` list has a new trigger. Before the agent writes a feature that
+  the current structure cannot hold without a refactor, it proposes the
+  refactor through `ask`. The list also holds the former hook rule: when a
+  repository hook fails on a problem that the change did not cause, the agent
+  asks and does not skip the hook.
+
+### Added
+
+- The kit omp plugin `docks-kit-omp` ships six omp Time Traveling Stream
+  Rules (TTSR, trigger rules) in `rules/`: `file-removal.md`,
+  `git-safety.md`, `temp-and-background.md`, `worktree-location.md`,
+  `literal-paths.md`, and `remote-cleanup.md`. They hold the command rules
+  that `SoT/.omp/AGENTS.md` carried before: file removal, git hooks and push
+  refs, temporary files, background processes, global installs, Docker
+  cleanup, worktree location, literal paths without `~` or `$HOME`, and
+  remote or production cleanup.
+- Each rule has a regex `condition` that matches only the wrong form. Its
+  scope is `tool:bash`; `file-removal.md` and `git-safety.md` also cover
+  `tool:eval`. When the model streams a matching tool call, omp aborts the
+  call before it runs, injects the rule, and retries. The rules reach
+  subagents, and they cost no prompt tokens until they fire. Sync
+  materializes the plugin to `~/.docks-kit/omp-plugin`, and omp's
+  `omp-plugins` provider loads `rules/*.md` from that linked root.
+- The `bash.patterns` denies do not change. The trigger rules teach the
+  correct form, and the denies still enforce. `docks-kit docs command-guards`
+  lists each rule, its scope, and the correct form that it teaches.
+
 ## 2026-11-16 - docks-kit 0.22.23: omp stash reminders name the entry
 
 ### Fixed
