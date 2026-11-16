@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-16 - docks-kit 0.22.25: omp file-removal rule teaches the git folder form
+
+### Changed
+
+- The omp `file-removal.md` trigger rule now fires on `git rm -r` (also with
+  `--cached`, a flag cluster such as `-rq`, or a global option such as
+  `git -C <repo>`). omp denies `git rm -r`, so before this change an agent got
+  only the deny. The rule now teaches `git rm -- '<dir>/*'` to remove a
+  folder and `git rm --cached -- '<dir>/*'` to stop tracking it. Git matches
+  the quoted `*` across `/`, so the glob reaches every file in every
+  subfolder, and `git rm` still refuses a file with local changes. The
+  `bash.patterns` denies are unchanged.
+
 ## 2026-11-16 - docks-kit 0.22.24: omp command rules move to trigger rules
 
 ### Changed

@@ -12,6 +12,7 @@ condition:
   - '(?:(?<![\w$.])|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)(?:rm|rmdir|unlink)(?:\s|\\t)*\('
   - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)Bun\.file\([^)]*\)\.delete(?:\s|\\t)*\('
   - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)git(?:(?:\s|\\t)+-[Cc](?:\s|\\t)+(?:\\[^nrt]|[^\s;&|"\\])+|(?:\s|\\t)+-[pP]|(?:\s|\\t)+--[\w-]+(?:=(?:\\[^nrt]|[^\s;&|"\\])+)?)*(?:\s|\\t)+worktree(?:\s|\\t)+remove\b(?:(?!(?:\s|\\t)--(?:\s|\\t))(?:\\[^n\\]|\\\\(?!n)|[^;&|"\\]))*?(?:\s|\\t)(?:--f[\w-]*|-[a-zA-Z]*f[a-zA-Z]*)(?=[\s=;&|)`"''\\])'
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)git(?:(?:\s|\\t)+-[Cc](?:\s|\\t)+(?:\\[^nrt]|[^\s;&|"\\])+|(?:\s|\\t)+-[pP]|(?:\s|\\t)+--[\w-]+(?:=(?:\\[^nrt]|[^\s;&|"\\])+)?)*(?:\s|\\t)+rm\b(?:(?!(?:\s|\\t)--(?:\s|\\t))(?:\\[^n\\]|\\\\(?!n)|[^;&|"\\]))*?(?:\s|\\t)-[a-zA-Z]*[rR][a-zA-Z]*(?=[\s=;&|)`"''\\])'
 scope: "tool:bash, tool:eval"
 repeatMode: always
 ---
@@ -21,6 +22,7 @@ Do not use `rm`, `unlink`, or `shred`. Do not delete files through `eval`, Pytho
 - `gio trash` fails on a `tmpfs` `/tmp`.
 - To remove any other file or directory, run `gio trash -- <path>` on Linux or `trash <path>` on macOS.
 - To remove a path from the git index, run `git rm -- <path>`.
+- omp denies `git rm -r`. To remove a folder from git, run `git rm -- '<dir>/*'`. To stop tracking a folder and keep its files, run `git rm --cached -- '<dir>/*'`. Keep the quotes: git then matches every file in every subfolder.
 - To remove a worktree, run `git worktree remove -- <path>`.
 - If git refuses because the worktree has changes, do these steps:
   1. Make sure that each commit of the worktree is on the remote.
