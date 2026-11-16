@@ -43,7 +43,7 @@ metadata:
       lines: "1-26"
     - path: cli/src/commands/harnesses.ts
       lines: "1-80"
-  updated: "2026-11-07"
+  updated: "2026-11-16"
 ---
 
 # omp Sync Context
@@ -124,6 +124,40 @@ Replace the other three deployed files as whole files.
 | `SoT/.omp/models.yml` | `<agentDir>/models.yml` | Take `agentDir` from `ompPaths`. |
 | `SoT/.omp/intercom.json` | `<intercomRoot>/intercom/config.json` | Use the profile `agentDir` under a named profile; otherwise use `$PI_CODING_AGENT_DIR`, defaulting to `~/.pi/agent`. |
 | `SoT/.omp/plugin/**` (payload prefix) | `~/.docks-kit/omp-plugin/` | Kit-owned: `ompKitPlugin.ts syncKitPlugin` writes each file only when it differs, sets `package.json` `version` to the kit version, removes files that the payload no longer lists, and keeps no backups. |
+
+omp loads `<agentDir>/AGENTS.md` only into main sessions and advisors, never
+into task subagents (`omp://context-files.md`).
+Keep `SoT/.omp/AGENTS.md` to main-session rules.
+Put a command rule that subagents need into a trigger rule (Time Traveling
+Stream Rule, TTSR) in `SoT/.omp/plugin/rules/`.
+omp's `omp-plugins` provider loads `rules/*.md` from the linked kit plugin
+root.
+Each rule has a regex `condition`, the scope `tool:bash, tool:eval`, and
+`repeatMode: always`.
+Eval is in scope because eval code can run a shell command through `sh()`.
+omp aborts a matching tool call before it runs, injects the rule, and retries.
+omp tests each condition on the partial argument buffer after each streamed
+delta.
+So a condition must not match a prefix of a correct command.
+End each checked token with a delimiter, never with the end anchor `$`.
+The buffer is the argument JSON text, and the intent field `i` can come
+before or after `command`.
+A provider can put JSON white space around the colon, as in
+`{"command": "ls"}`.
+Start each condition with the lookbehind
+`(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)` before its first command
+token, so that the match starts inside the `command` or `code` string.
+Make each scan read an escape pair (`\"`, `\\`) as one unit and stop at an
+unescaped `"` and at a newline (`\n`).
+Write shell white space as `(?:\s|\\t)`, because a tab is `\t` in the buffer.
+Make each scan that looks for an option stop at a ` -- ` word.
+Add a wrong row for each new condition or branch, and a correct row for each
+lookahead.
+The test fails when a condition has no wrong row that fires it, or when a
+rule has another repeat mode.
+The `bash.patterns` denies in `config.yml` still enforce.
+
+Verify the conditions: `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`.
 
 Under a named profile (`OMP_PROFILE` or `PI_PROFILE`), use the profile `agentDir` from `ompPaths`.
 omp exports `PI_CODING_AGENT_DIR` as that profile `agentDir`, and `pi-intercom` reads that variable.

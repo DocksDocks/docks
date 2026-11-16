@@ -22,10 +22,16 @@ subagents. This includes any `rm` that omp does not deny, `git clean`,
 `git reset --hard`, a force push that no deny matches, and a git command
 that skips the repository's hooks. A prompt rule that the user adds to
 `~/.omp/agent/config.yml` survives sync and still asks; a subagent rejects
-it. The deployed omp agent prompt forbids `--force`, `-f`, and their
-abbreviations with `git push`, and it forbids each hook skip. It tells the
-agent to use `ask` before a force push, and to ask the user before
-`git clean` or `git reset --hard`.
+it. The kit omp plugin trigger rule `git-safety.md` forbids these options with
+`git push` and `git rm`: `-f`, a flag cluster that holds `f`, and a long
+option that starts with `--f`. `git push --follow-tags` is correct. The rule
+also forbids `git push origin +<ref>`, `git push --mirror`,
+`git push --prune`, and each hook skip. It tells the agent to ask before a
+bulk discard in the main session, for example `git clean` without `-n`,
+`git reset --hard`, `git checkout .`, or `git stash clear`.
+A subagent does not run a bulk discard and names it in its report. The omp
+agent prompt lists a force push as a step that needs `ask`. The section
+"omp trigger rules" below describes these rules.
 
 The policy sorts shell commands into three tiers. omp uses two of them: deny
 and allow.
@@ -61,7 +67,7 @@ that `eval` starts.
 | A `$` or a backtick anywhere after `git push` in the same command | deny, also after a shell keyword, a wrapper, or a path before `git`: see below | ask for a word that starts with `$` or a backtick | ask (every `git push` asks) |
 | A git command that skips the repository's hooks: see below | run | no rule; the classifier decides | ask for each `git push`, `git merge`, and `git rebase` that starts the command; no rule for `git commit`, `git am`, or `git pull` |
 | `git rm -- <path>`, `git worktree remove -- <path>` | run | ask | ask |
-| `git worktree remove --force -- <path>` | run; the omp agent prompt permits it once, after the commits are on the remote | ask | ask |
+| `git worktree remove --force -- <path>` | run; the omp `file-removal.md` trigger rule fires on each `--force`, `-f`, or `--f` form and permits it once, after the commits are on the remote | ask | ask |
 | `docks-kit scratch remove <path>` | run; the command removes only a path inside the scratch root, the system temporary directory, or `/var/tmp` | no rule | no rule |
 | Any other non-recursive `git rm` or `git worktree remove` | run | ask | ask |
 | `gio trash -- <path>` | run | allow | ask |
@@ -97,19 +103,20 @@ branch name.
 omp therefore denies a `$` or a backtick anywhere after `git push` in the same
 command. The agent reads a refusal such as
 `Blocked by bash pattern: *git push *$*`, writes the ref literally, and runs
-the push without a question. The omp agent prompt names the literal forms:
-`git push -u origin HEAD` for the current branch, and
+the push without a question. The omp `git-safety.md` trigger rule names the
+literal forms: `git push -u origin HEAD` for the current branch, and
 `git push origin --delete <branch-a> <branch-b>` for several branches. The two
-omp rules start with `*`. So a shell keyword such as `do` in a loop, a wrapper
-such as `env`, or a path such as `/usr/bin/git` does not hide the push.
+omp deny rules start with `*`. So a shell keyword such as `do` in a loop, a
+wrapper such as `env`, or a path such as `/usr/bin/git` does not hide the
+push.
 
 ## Commands that skip the repository's hooks
 
 A git command can skip the repository's hooks, for example with
 `--no-verify`, `git commit -n`, `git am -n`, or a `core.hooksPath` change.
-The kit ships no omp rule for these commands, so omp runs them without a
-question. The deployed omp agent prompt forbids each hook skip. Claude Code
-has no rule either, so its classifier decides. Codex asks for each
+The kit ships no omp `bash.patterns` rule for these commands, so omp does not
+block them. The omp `git-safety.md` trigger rule forbids each hook skip.
+Claude Code has no rule either, so its classifier decides. Codex asks for each
 `git push`, `git merge`, and `git rebase` that starts the command. Codex has
 no rule for `git commit`, `git am`, or `git pull`.
 
@@ -152,8 +159,9 @@ no rule for `git commit`, `git am`, or `git pull`.
 7. Write literal absolute paths. Never use `~` or `$HOME`, and never set or
    export `HOME`.
 
-The deployed agent prompts (`~/.omp/agent/AGENTS.md`, `~/.claude/CLAUDE.md`,
-and the Codex `AGENTS.md`) carry the same rules.
+In omp, the kit plugin trigger rules `file-removal.md` and `literal-paths.md`
+carry these rules. `~/.claude/CLAUDE.md` and the Codex `AGENTS.md` carry the
+same rules.
 
 ### What the git removals keep
 
@@ -166,6 +174,87 @@ and the Codex `AGENTS.md`) carry the same rules.
 - Git accepts an abbreviated long option, such as `--for` for `--force`, and a
   short-option cluster, such as `-rff`. After `--`, git reads every argument as
   a path. So the `--` form is the only one that cannot force.
+
+## omp trigger rules
+
+omp loads `~/.omp/agent/AGENTS.md` only into main sessions and advisors,
+never into task subagents (`omp://context-files.md`). So the kit puts the omp
+command rules into six Time Traveling Stream Rules (TTSR, trigger rules). The
+kit plugin `docks-kit-omp` ships them in `SoT/.omp/plugin/rules/`. Sync
+materializes the plugin to `~/.docks-kit/omp-plugin` and links it. omp's
+`omp-plugins` provider loads `rules/*.md` from the linked plugin root. Each
+rule has the scope `tool:bash, tool:eval`, because eval code can run a shell
+command through `sh()`.
+
+| Rule | Scope | Correct form that the rule teaches |
+| --- | --- | --- |
+| `file-removal.md` | `tool:bash`, `tool:eval` | `scratch_remove` or `docks-kit scratch remove <path>` for a temporary path; `gio trash -- <path>` or `trash <path>` for another path; no `rm`, `unlink`, or `shred`, also after a `VAR=value` prefix; `git rm -- <path>`; `git worktree remove -- <path>`, and `--force` only after the commit and status checks; no deletion through `eval` |
+| `git-safety.md` | `tool:bash`, `tool:eval` | no hook skip, also through an abbreviation such as `--no-veri`; no `-f`, `f` cluster, or `--f` long option with `git push` or `git rm` (`--follow-tags` is correct); no `+<ref>` with `git push` (`git push origin +<ref>` is a force push); no `git push --mirror` or `--prune`; a literal push ref; `git push` as its own command, not chained with `&&`, `\|\|`, or `;`; `git push -u origin HEAD`; `git push origin --delete <branch-a> <branch-b>`; `git branch -d <branch>`, not `-D` or `-d --force`; `git restore -- <path>`; an ask before `git clean` without `-n` or `--dry-run` before ` -- `, `git reset --hard`, `git checkout .`, `git restore .` (`git restore --staged .` only unstages and is correct), `git stash drop`, or `git stash clear`. The git global options `-C`, `-c`, `-p`, `-P`, and `--<option>` do not hide the subcommand. A word after ` -- ` is a path, not an option |
+| `temp-and-background.md` | `tool:bash`, `tool:eval` | `scratch_new` or `docks-kit scratch new <label>` instead of `/tmp`; a server or watcher only as a named bash service or an async job; no `nohup`, `setsid`, `disown`, `tmux`, or `screen`, also after a `VAR=value` prefix; no global install (`npm`, `bun`, `pnpm`, `yarn`, `pipx`, `cargo`, `go install`, `gem install`, `uv tool install`), scheduled job, or enabled service; no Docker cleanup of a resource that the agent did not create |
+| `worktree-location.md` | `tool:bash`, `tool:eval` | a worktree only at the literal absolute path `<data>/agent-worktrees/<repository>/<name>`, with `agent-worktrees` as a whole directory name. The rule fires on each `git worktree add`, also at the correct path, because a condition cannot read `$XDG_DATA_HOME` or the home directory of the user. The retry after the reminder runs |
+| `literal-paths.md` | `tool:bash`, `tool:eval` | a literal absolute path; no `~` or `$HOME`; no `HOME` assignment |
+| `remote-cleanup.md` | `tool:bash`, `tool:eval` | a remote cleanup only on a non-production target; an `ask` immediately before a production cleanup, which must be rare. Remote means SSH, `rsync --delete` to a `host:` target, `rclone` (`delete` verbs, and `sync` to a `remote:` target), `gh` (`gh <noun> delete`, `gh <noun> <x>-delete`, and `gh api -X DELETE`), a remote `docker` or `podman` (also `docker -c <context>`), a database client (`DROP TABLE`, `DATABASE`, or `SCHEMA` in `psql`, `mysql`, `sqlite3`, or `mongosh`; `dropdb`; `redis-cli FLUSHALL` or `FLUSHDB`), or a provider CLI with a cleanup verb, such as `aws s3 rb` or `neonctl branches delete` |
+
+Each rule has a regex `condition` that aims at the wrong form. When the
+model streams a matching tool call, omp aborts the call before it runs,
+injects the rule body, and retries (`omp://ttsr-injection-lifecycle.md`). A
+rule costs no prompt tokens until it fires, and it reaches subagents too. The
+trigger rules teach the correct form. The `bash.patterns` denies do not
+change, and they still enforce. Each rule has `repeatMode: always`, so it
+fires at each later wrong form in the session too. The retry that its own
+reminder starts does not fire it again, so a correct command still runs.
+
+After a session resume, omp restores each injected rule at message count
+zero. So a rule that fired before the resume does not fire in the first turn
+after the resume (section 7 of
+[ttsr-injection-lifecycle.md](https://github.com/can1357/oh-my-pi/blob/main/docs/ttsr-injection-lifecycle.md)).
+No repeat mode changes this. The `bash.patterns` denies and the main-session
+`ask` rules still apply in that turn.
+
+A condition reads text, not a parsed shell command. So these correct calls
+also fire a rule:
+
+- A quoted command word, such as `echo "rm x"` or a commit message that
+  starts with `rm`, fires `file-removal.md`.
+- In eval code, a scan can continue past the closing quote of the `sh()`
+  string to the end of the statement. For example,
+  `print(sh("kubectl get pods"), "pods to delete")` fires `remote-cleanup.md`.
+
+omp tests each condition on the partial tool-call buffer after each streamed
+delta, and again on the full arguments at the end of the call
+(`omp://ttsr-injection-lifecycle.md`). So a condition must not match a prefix
+of a correct command. Each condition must require a delimiter after the token
+that it checks, and no condition uses the end anchor `$` as that delimiter.
+A negative lookahead, such as `(?!ol)` in `--f(?!ol)`, passes at the end of
+a partial buffer. So after a negative lookahead, the condition must read the
+token to its delimiter. `git clean` and `git restore .` read the full
+command before they decide, because `-n` or `--staged` can come last.
+
+The buffer is the argument JSON text, and omp's schema puts the intent field
+`i` before `command`. A call can also put `i` after `command`, and a provider
+can stream JSON with white space, such as `{"command": "ls"}`. Each condition
+has the lookbehind `(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)` before
+its first command token, so a match starts only inside the `command` or
+`code` string, with or without JSON white space around the colon. omp 18.21.0
+accepts this variable-length lookbehind. A scan reads an escape pair, such as
+`\"` or `\\`, as one unit. It stops at an unescaped `"`, which ends the
+command string, and at a newline (`\n`), which ends the command line. So the
+intent text and the next line do not fire a rule. A tab in a command is `\t`
+in the buffer, so each condition reads `\t` as shell white space, as it reads
+a space. A scan that looks for an option also stops at a ` -- ` word, also
+with a tab, because each later word is a path. So `git clean -fd -- -n`
+fires, and `git rm -- -f` stays quiet. In the `git push` conditions for `$`,
+a backtick, and a chain, a scan also stops at `)` and at a backtick, which end
+a JavaScript `` sh`…` `` or `sh("…")` call. A backtick counts as a command
+substitution only when a word follows it.
+`cli/test/unit/ompTriggerRules.test.ts` runs each shell row through bash,
+Python `sh("…")`, JavaScript `` sh`…` ``, and JavaScript `sh("…");`. It runs
+every row in the compact JSON layout (`{"command":"ls"}`) and in the spaced
+layout (`{"command": "ls"}`), and some rows in the pretty layout, with a
+newline and an indent. Other rows put trigger words in the intent field,
+before or after the command, or put a tab in the command. The test checks
+that each correct form stays quiet on each prefix, that each condition has a
+wrong row that fires it, and that each rule has `repeatMode: always`.
 
 ## Why omp denies instead of asking
 

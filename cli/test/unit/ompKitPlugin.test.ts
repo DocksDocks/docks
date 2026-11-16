@@ -20,6 +20,7 @@ import { makePlatform, type EngineServices } from "../../src/engine-native/servi
 import { GENERATED_PACKAGE_VERSION } from "../../src/generated/sotPayload";
 import { kitHome } from "../../src/kitHome";
 import { payloadText } from "../../src/payload";
+import { TRIGGER_RULE_NAMES } from "../lib/ompTriggerRules";
 
 const roots: Array<string> = [];
 
@@ -112,6 +113,10 @@ describe("omp kit plugin files", () => {
       readFileSync(join(pluginDir, "skills", "workspace-hygiene", "SKILL.md"), "utf8"),
     ).toContain("# Workspace hygiene");
     expect(existsSync(join(pluginDir, "commands", "cleanup.md"))).toBe(true);
+    for (const name of TRIGGER_RULE_NAMES) {
+      const path = `SoT/.omp/plugin/rules/${name}.md` as const;
+      expect(readFileSync(join(pluginDir, "rules", `${name}.md`), "utf8")).toBe(payloadText(path));
+    }
     expect(ctx.nextStepTriggers.ompRestart).toBe(true);
   });
 
@@ -179,7 +184,7 @@ describe("omp kit plugin files", () => {
     expect(lines).toContain(
       `[dry-run] cp embedded:SoT/.omp/plugin/extensions/hygiene.ts -> ${pluginDir}/extensions/hygiene.ts`,
     );
-    expect(lines.filter((line) => line.startsWith("[dry-run] cp "))).toHaveLength(5);
+    expect(lines.filter((line) => line.startsWith("[dry-run] cp "))).toHaveLength(11);
     expect(existsSync(pluginDir)).toBe(false);
   });
 });

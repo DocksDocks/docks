@@ -261,9 +261,9 @@ const ALLOWED = [
   "git push -u origin feat/cache-vf",
   "git push -v origin main",
   "git push origin feat/x",
-  // The literal-ref form that the omp agent prompt recommends for a branch delete.
+  // The literal-ref form that the omp `git-safety.md` trigger rule recommends for a branch delete.
   "git push -q origin --delete feat/a feat/b",
-  // The literal form that the omp agent prompt recommends for the current branch.
+  // The literal form that the omp `git-safety.md` trigger rule recommends for the current branch.
   "git push -u origin HEAD",
   // Commit and config forms that keep the repository's hooks.
   "git commit -m x",
