@@ -189,9 +189,9 @@ command through `sh()`.
 | Rule | Scope | Correct form that the rule teaches |
 | --- | --- | --- |
 | `file-removal.md` | `tool:bash`, `tool:eval` | `scratch_remove` or `docks-kit scratch remove <path>` for a temporary path; `gio trash -- <path>` or `trash <path>` for another path; no `rm`, `unlink`, or `shred`, also after a `VAR=value` prefix; `git rm -- <path>`; `git worktree remove -- <path>`, and `--force` only after the commit and status checks; no deletion through `eval` |
-| `git-safety.md` | `tool:bash`, `tool:eval` | no hook skip, also through an abbreviation such as `--no-veri`; no `-f`, `f` cluster, or `--f` long option with `git push` or `git rm` (`--follow-tags` is correct); no `+<ref>` with `git push` (`git push origin +<ref>` is a force push); no `git push --mirror` or `--prune`; a literal push ref; `git push` as its own command, not chained with `&&`, `\|\|`, or `;`; `git push -u origin HEAD`; `git push origin --delete <branch-a> <branch-b>`; `git branch -d <branch>`, not `-D` or `-d --force`; `git restore -- <path>`; an ask before `git clean` without `-n` or `--dry-run`, `git reset --hard`, `git checkout .`, `git restore .` (`git restore --staged .` only unstages and is correct), `git stash drop`, or `git stash clear`. The git global options `-C`, `-c`, `-p`, `-P`, and `--<option>` do not hide the subcommand |
+| `git-safety.md` | `tool:bash`, `tool:eval` | no hook skip, also through an abbreviation such as `--no-veri`; no `-f`, `f` cluster, or `--f` long option with `git push` or `git rm` (`--follow-tags` is correct); no `+<ref>` with `git push` (`git push origin +<ref>` is a force push); no `git push --mirror` or `--prune`; a literal push ref; `git push` as its own command, not chained with `&&`, `\|\|`, or `;`; `git push -u origin HEAD`; `git push origin --delete <branch-a> <branch-b>`; `git branch -d <branch>`, not `-D` or `-d --force`; `git restore -- <path>`; an ask before `git clean` without `-n` or `--dry-run` before ` -- `, `git reset --hard`, `git checkout .`, `git restore .` (`git restore --staged .` only unstages and is correct), `git stash drop`, or `git stash clear`. The git global options `-C`, `-c`, `-p`, `-P`, and `--<option>` do not hide the subcommand. A word after ` -- ` is a path, not an option |
 | `temp-and-background.md` | `tool:bash`, `tool:eval` | `scratch_new` or `docks-kit scratch new <label>` instead of `/tmp`; a server or watcher only as a named bash service or an async job; no `nohup`, `setsid`, `disown`, `tmux`, or `screen`, also after a `VAR=value` prefix; no global install (`npm`, `bun`, `pnpm`, `yarn`, `pipx`, `cargo`, `go install`, `gem install`, `uv tool install`), scheduled job, or enabled service; no Docker cleanup of a resource that the agent did not create |
-| `worktree-location.md` | `tool:bash`, `tool:eval` | a worktree only at the literal absolute path `<data>/agent-worktrees/<repository>/<name>`, with `agent-worktrees` as a whole directory name |
+| `worktree-location.md` | `tool:bash`, `tool:eval` | a worktree only at the literal absolute path `<data>/agent-worktrees/<repository>/<name>`, with `agent-worktrees` as a whole directory name. The rule fires on each `git worktree add`, also at the correct path, because a condition cannot read `$XDG_DATA_HOME` or the home directory of the user. The retry after the reminder runs |
 | `literal-paths.md` | `tool:bash`, `tool:eval` | a literal absolute path; no `~` or `$HOME`; no `HOME` assignment |
 | `remote-cleanup.md` | `tool:bash`, `tool:eval` | a remote cleanup only on a non-production target; an `ask` immediately before a production cleanup, which must be rare. Remote means SSH, `rsync --delete` to a `host:` target, `rclone` (`delete` verbs, and `sync` to a `remote:` target), `gh` (`gh <noun> delete`, `gh <noun> <x>-delete`, and `gh api -X DELETE`), a remote `docker` or `podman` (also `docker -c <context>`), a database client (`DROP TABLE`, `DATABASE`, or `SCHEMA` in `psql`, `mysql`, `sqlite3`, or `mongosh`; `dropdb`; `redis-cli FLUSHALL` or `FLUSHDB`), or a provider CLI with a cleanup verb, such as `aws s3 rb` or `neonctl branches delete` |
 
@@ -200,7 +200,16 @@ model streams a matching tool call, omp aborts the call before it runs,
 injects the rule body, and retries (`omp://ttsr-injection-lifecycle.md`). A
 rule costs no prompt tokens until it fires, and it reaches subagents too. The
 trigger rules teach the correct form. The `bash.patterns` denies do not
-change, and they still enforce.
+change, and they still enforce. Each rule has `repeatMode: always`, so it
+fires at each later wrong form in the session too. The retry that its own
+reminder starts does not fire it again, so a correct command still runs.
+
+After a session resume, omp restores each injected rule at message count
+zero. So a rule that fired before the resume does not fire in the first turn
+after the resume (section 7 of
+[ttsr-injection-lifecycle.md](https://github.com/can1357/oh-my-pi/blob/main/docs/ttsr-injection-lifecycle.md)).
+No repeat mode changes this. The `bash.patterns` denies and the main-session
+`ask` rules still apply in that turn.
 
 A condition reads text, not a parsed shell command. So these correct calls
 also fire a rule:
@@ -222,17 +231,25 @@ token to its delimiter. `git clean` and `git restore .` read the full
 command before they decide, because `-n` or `--staged` can come last.
 
 The buffer is the argument JSON text, and omp's schema puts the intent field
-`i` before `command`. A scan reads an escape pair, such as `\"` or `\\`, as
-one unit. It stops at an unescaped `"`, which ends the command string, and
-at a newline (`\n`), which ends the command line. So the intent text and the
-next line do not fire a rule. In the `git push` conditions for `$`, a
-backtick, and a chain, a scan also stops at `)` and at a backtick, which end
-a JavaScript `` sh`…` `` or `sh("…")` call. A backtick counts as a command
-substitution only when a word follows it.
+`i` before `command`. A call can also put `i` after `command`. Each condition
+has the lookbehind `(?<="(?:command|code)":"(?:\\.|[^"\\])*)` before its
+first command token, so a match starts only inside the `command` or `code`
+string. omp 18.21.0 accepts this variable-length lookbehind. A scan reads an
+escape pair, such as `\"` or `\\`, as one unit. It stops at an unescaped
+`"`, which ends the command string, and at a newline (`\n`), which ends the
+command line. So the intent text and the next line do not fire a rule. A
+scan that looks for an option also stops at a ` -- ` word, because each
+later word is a path. So `git clean -fd -- -n` fires, and `git rm -- -f`
+stays quiet. In the `git push` conditions for `$`, a backtick, and a chain,
+a scan also stops at `)` and at a backtick, which end a JavaScript
+`` sh`…` `` or `sh("…")` call. A backtick counts as a command substitution
+only when a word follows it.
 `cli/test/unit/ompTriggerRules.test.ts` runs each shell row through bash,
-Python `sh("…")`, JavaScript `` sh`…` ``, and JavaScript `sh("…");`. It
-checks that each correct form stays quiet on each prefix, and that each
-condition has a wrong row that fires it.
+Python `sh("…")`, JavaScript `` sh`…` ``, and JavaScript `sh("…");`. Other
+rows put trigger words in the intent field, before or after the command. The
+test checks that each correct form stays quiet on each prefix, that each
+condition has a wrong row that fires it, and that each rule has
+`repeatMode: always`.
 
 ## Why omp denies instead of asking
 

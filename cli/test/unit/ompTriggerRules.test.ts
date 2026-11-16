@@ -65,6 +65,7 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "docker run --rm img",
       "ls -la",
       "ls\ngio trash -- build",
+      "git worktree remove -- -f",
     ],
     wrongCalls: [
       { tool: "eval", code: "os.remove(p)" },
@@ -78,6 +79,9 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
     ],
     correctCalls: [
       { tool: "bash", intent: "Checking the rm usage", command: "git rm -- old.yaml" },
+      { tool: "bash", intent: "rm the temp files", command: "gio trash -- build" },
+      { tool: "eval", intent: "rm the temp files", code: 'sh("gio trash -- build")' },
+      { tool: "bash", command: "ls", intent: "rm old files next", intentLast: true },
       { tool: "eval", code: "Path(p).exists()" },
     ],
   },
@@ -86,6 +90,7 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "git clean -fdx",
       "git clean -d",
       "git clean",
+      "git clean -fd -- -n",
       "git -C repo clean -x",
       "git reset --hard",
       "git commit --no-verify -m x",
@@ -105,6 +110,7 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "git push --forc origin main",
       "git push --fo origin main",
       "git push origin +main",
+      "git push origin -- +main",
       'git push origin "+main"',
       "git push --mirror origin",
       "git push --mir origin",
@@ -134,6 +140,7 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "git restore --staged --worktree .",
       "git restore -SW .",
       "git restore . --staged -W",
+      "git restore -- --staged .",
       "git stash clear",
       "git stash drop",
     ],
@@ -146,22 +153,35 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "git rm -- a.txt",
       'git commit -m "fix tests"',
       "git commit --no-verbose -m x",
+      "git commit -m x -- --no-verify",
+      "git commit -m x -- -n",
+      "git rm -- -f",
+      "git reset -q -- --hard",
+      "git push origin -- -f",
       "git clean -n",
       "git clean -nd",
       "git clean -d -n",
       "git clean --dry-run -d",
+      "git clean -n -- x",
       "git restore -- a.txt",
       "git restore --staged .",
       "git restore -S .",
       "git restore . --staged",
+      "git restore --staged -- .",
+      "git restore --staged -- -W .",
       "git checkout -- a.txt",
       "git branch -d feat",
       "git branch -d x --format=y",
+      "git branch -d -- -D",
+      "git branch -d x -- -f",
       "git stash list",
     ],
     wrongCalls: [{ tool: "eval", language: "js", code: "await sh`git push origin ${branch}`" }],
     correctCalls: [
       { tool: "bash", intent: "Checking git push result", command: "git status; git log -1" },
+      { tool: "bash", intent: "Run git clean", command: "git clean -n" },
+      { tool: "bash", intent: "git push --force check", command: "git push -u origin HEAD" },
+      { tool: "bash", command: "git status", intent: "Then git push --force", intentLast: true },
       {
         tool: "eval",
         language: "js",
@@ -227,29 +247,32 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "tmux -L sock ls",
       "screen -ls",
       "docker ps",
+      "npm install x -- -g",
+      "bun add x -- -g",
+    ],
+    correctCalls: [
+      { tool: "bash", intent: "mkdir /tmp/x plan", command: "mkdir -p build" },
+      { tool: "bash", command: "ls", intent: "Then mktemp -d", intentLast: true },
     ],
   },
   "worktree-location": {
     wrong: [
+      "git worktree add /home/user/.local/share/agent-worktrees/repo/wt",
       "git worktree add ../x",
       'git worktree add "../x"',
+      "git -C r worktree add -b f /tmp/wt main",
       "git -p worktree add ../x",
-      "git worktree add /tmp/wt",
-      "git worktree add /tmp/notagent-worktrees/repo/wt",
-      "git worktree add /home/user/.local/share/agent-worktrees/repo",
-      "git worktree add $HOME/.local/share/agent-worktrees/repo/x",
     ],
-    correct: [
-      "git worktree add /home/user/.local/share/agent-worktrees/repo/x",
-      'git worktree add "/home/user/.local/share/agent-worktrees/repo/x"',
-      "git worktree add -b feat /home/user/.local/share/agent-worktrees/repo/feat",
-      "git worktree add /data/agent-worktrees/repo/x",
-      "git worktree list",
-    ],
+    correct: ["git worktree list", "git worktree remove -- /x", "git worktree prune"],
+    correctCalls: [{ tool: "bash", intent: "git worktree add ../x", command: "git worktree list" }],
   },
   "literal-paths": {
     wrong: ["cd ~/projects", "ls $HOME", "ls ${HOME}/x", "export HOME=/x"],
     correct: ["ls /home/user/projects", "echo $XDG_DATA_HOME"],
+    correctCalls: [
+      { tool: "bash", intent: "cd ~/x note", command: "ls /home/user/x" },
+      { tool: "bash", command: "ls /home/user", intent: "Then cd ~/x", intentLast: true },
+    ],
   },
   "remote-cleanup": {
     wrong: [
@@ -371,11 +394,28 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "gh repo view",
       "gh issue list",
       "gh api repos/o/r",
+      "rsync -a src/ host:/srv/ -- --delete",
+      "gh api repos/o/r -- -X DELETE",
+      "docker run --rm img -- -H x rm c",
+      "podman run img -- --remote rm c",
       "docker ps",
     ],
     correctCalls: [
       { tool: "bash", intent: "Comparing kubectl manifests", command: "git rm -- old.yaml" },
       { tool: "bash", intent: "Checking ssh access", command: "pkill -f vite" },
+      { tool: "bash", intent: "Check aws s3 rb", command: "aws s3 ls" },
+      {
+        tool: "bash",
+        command: "kubectl get pods",
+        intent: "Listing pods to delete",
+        intentLast: true,
+      },
+      {
+        tool: "bash",
+        command: "ssh prod uptime",
+        intent: "Checking load before kill",
+        intentLast: true,
+      },
     ],
   },
 };
@@ -432,6 +472,18 @@ describe.each(TRIGGER_RULE_NAMES)("omp trigger rule %s", (name) => {
     expect([...rule.scope.tools].sort()).toEqual(["bash", "eval"]);
     expect(rule.scope.prose).toBe(false);
     expect(rule.scope.thinking).toBe(false);
+  });
+
+  it("fires again on each later wrong form, with repeatMode always", () => {
+    expect(rule.repeatMode).toBe("always");
+  });
+
+  it("starts each match inside the command or code string", () => {
+    const fieldAnchor = String.raw`(?<="(?:command|code)":"(?:\\.|[^"\\])*)`;
+    const unanchored = rule.conditions.flatMap((condition, index) =>
+      condition.source.includes(fieldAnchor) ? [] : [index],
+    );
+    expect(unanchored).toEqual([]);
   });
 
   it("has a wrong row that fires each condition", () => {

@@ -36,7 +36,10 @@
   `git push origin +<ref>`, `rsync --delete` to a host, `rclone sync` to a
   remote, `gh <noun> delete`, `aws s3 rb`, and `DROP TABLE` in a database
   client. `temp-and-background.md` also names `go install`, `gem install`,
-  and `uv tool install` as global installs.
+  and `uv tool install` as global installs. `worktree-location.md` fires on
+  each `git worktree add`, also at the correct path, because a condition
+  cannot read `$XDG_DATA_HOME` or the home directory. The retry after the
+  reminder runs.
 - Each rule has a regex `condition` that aims at the wrong form. A condition
   reads text, not a parsed command, so it has known false positives: a
   quoted command word, such as `echo "rm x"` or a commit message that starts
@@ -44,6 +47,10 @@
   six rules have the scope `tool:bash, tool:eval`, because eval code can run
   a shell command through `sh()`. When the model streams a matching tool
   call, omp aborts the call before it runs, injects the rule, and retries.
+  All six rules have `repeatMode: always`, so each later wrong form in the
+  session fires the rule again. The retry that a reminder starts does not
+  fire it. After a session resume, a rule that fired before the resume does
+  not fire in the first turn.
   The rules reach subagents, and they cost no prompt tokens until they fire.
   Sync materializes the plugin to `~/.docks-kit/omp-plugin`, and omp's
   `omp-plugins` provider loads `rules/*.md` from that linked root.
@@ -51,9 +58,12 @@
   streamed delta. So no condition matches a prefix of a correct command.
   Each condition requires a delimiter after the token that it checks, and no
   condition uses the end anchor `$` as that delimiter. The buffer is the
-  argument JSON text, and the intent field `i` comes before `command`. So
-  each scan stops at an unescaped `"` and at a newline (`\n`), and the intent
-  text or the next line does not fire a rule.
+  argument JSON text, and the intent field `i` can come before or after
+  `command`. So each condition starts its match inside the `command` or
+  `code` string with a lookbehind, and each scan stops at an unescaped `"`
+  and at a newline (`\n`). The intent text or the next line does not fire a
+  rule. A scan that looks for an option stops at a ` -- ` word, so
+  `git clean -fd -- -n` fires and `git rm -- -f` stays quiet.
 - The `bash.patterns` denies do not change. The trigger rules teach the
   correct form, and the denies still enforce. `docks-kit docs command-guards`
   lists each rule, its scope, the correct form that it teaches, and the known
@@ -63,11 +73,13 @@
   (`cli/test/lib/ompTriggerRules.ts`). Each rule has a table of wrong forms
   that must fire and correct forms that must stay quiet. Each shell row runs
   through the bash tool, Python eval `sh("…")`, JavaScript eval `` sh`…` ``,
-  and JavaScript eval `sh("…");`. Other rows add an intent field, a
-  multi-line command, or eval code without a shell command. A correct form
-  must also stay quiet on each partial buffer, because omp tests the buffer
-  after each streamed delta. The test also checks that each condition has a
-  wrong row that fires it, and that the rule list equals the rule files.
+  and JavaScript eval `sh("…");`. Other rows put trigger words in the intent
+  field before or after the command, or add a multi-line command or eval
+  code without a shell command. A correct form must also stay quiet on each
+  partial buffer, because omp tests the buffer after each streamed delta.
+  The test also checks that each condition has a wrong row that fires it,
+  that each rule has `repeatMode: always`, and that the rule list equals the
+  rule files.
 
 ## 2026-11-16 - docks-kit 0.22.23: omp stash reminders name the entry
 

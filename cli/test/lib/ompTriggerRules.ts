@@ -16,8 +16,10 @@
  *   for eval. A newline in a command is the two characters `\n`, and a quote
  *   is `\"`. omp's tool schemas put the intent field `i` first, so a live
  *   buffer can start with `{"i":"<intent>",`. The model is expected to write
- *   the keys in schema order. A condition must not read past the end of the
- *   command string into the intent or another field.
+ *   the keys in schema order, but a call can also put `i` last. So each
+ *   condition starts with a lookbehind that puts the match inside the
+ *   `command` or `code` string, and its scans stop at the end of that string.
+ *   omp 18.21.0 accepts this variable-length lookbehind.
  * - A match is case-sensitive. omp compiles a condition with no flags, so
  *   there is no `u` flag and `\q` is an identity escape. `^` and `$` are the
  *   start and end of the buffer.
@@ -68,16 +70,23 @@ export interface TriggerRule {
   readonly repeatMode: RepeatMode | undefined;
 }
 
-/** One tool call. `intent` is the optional `i` field, which comes first in the argument JSON. */
-export type TriggerToolCall =
-  | { readonly tool: "bash"; readonly command: string; readonly intent?: string }
-  | {
-      readonly tool: "eval";
-      readonly code: string;
-      /** The eval language. The default is `py`. */
-      readonly language?: "py" | "js";
-      readonly intent?: string;
-    };
+/** The optional intent field `i`. omp's schema puts it first; `intentLast` puts it after the other fields. */
+interface TriggerIntent {
+  readonly intent?: string;
+  readonly intentLast?: boolean;
+}
+
+/** One tool call, as its argument JSON fields. */
+export type TriggerToolCall = TriggerIntent &
+  (
+    | { readonly tool: "bash"; readonly command: string }
+    | {
+        readonly tool: "eval";
+        readonly code: string;
+        /** The eval language. The default is `py`. */
+        readonly language?: "py" | "js";
+      }
+  );
 
 const INLINE_FLAG_GROUP = /^\(\?([ims])\)/u;
 const PER_TOOL_PATH_GLOB = /^tool:[\w-]+\(/u;
@@ -170,10 +179,14 @@ export function kitTriggerRule(name: TriggerRuleName): TriggerRule {
 
 /** The argument JSON text that omp matches, with the key order of the measured snippets. */
 export function toolArgumentText(call: TriggerToolCall): string {
-  const intent = call.intent === undefined ? {} : { i: call.intent };
-  return call.tool === "bash"
-    ? JSON.stringify({ ...intent, command: call.command })
-    : JSON.stringify({ ...intent, language: call.language ?? "py", code: call.code });
+  const fields =
+    call.tool === "bash"
+      ? { command: call.command }
+      : { language: call.language ?? "py", code: call.code };
+  if (call.intent === undefined) return JSON.stringify(fields);
+  return JSON.stringify(
+    call.intentLast === true ? { ...fields, i: call.intent } : { i: call.intent, ...fields },
+  );
 }
 
 function matchesAny(rule: TriggerRule, text: string): boolean {

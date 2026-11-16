@@ -1,17 +1,17 @@
 ---
 description: Remove files through the trash or a command that checks the path, never through rm or code
 condition:
-  - '(?:(?:[;&|({`''"!]|\\[nrt])\s*|(?:\b|(?<=\\[nrt]))(?:sudo|doas|env|nice|nohup|time|timeout|exec|command|xargs|then|do|else)(?:\s+(?:-[ugCnI]\s+(?:\\[^nrt]|[^\s;&|"\\])+|-(?:\\[^nrt]|[^\s;&|"\\])*|\d(?:\\[^nrt]|[^\s;&|"\\])*|\w+=(?:\\[^nrt]|[^\s;&|"\\])*|\{\}))*\s+)(?:\w+=(?:\\[^nrt]|[^\s;&|"\\])*\s+)*\\*(?:[\w.~-]*/)*(?:rm|unlink|shred)(?=[\s;&|)`''"\\])'
-  - '\s-(?:exec|execdir|ok|okdir)\s+\\*(?:[\w.~-]*/)*(?:rm|unlink|shred)(?=[\s;&|)`''"\\])'
-  - '(?:\b|(?<=\\[nrt]))find\b(?:\\[^n\\]|\\\\(?!n)|[^;&|"\\])*\s-delete(?=[\s;&|)`''"\\])'
-  - '(?:\b|(?<=\\[nrt]))os\.(?:remove|unlink|rmdir|removedirs)\s*\('
-  - '(?:\b|(?<=\\[nrt]))shutil\.rmtree(?=[^\w$])'
-  - '\.(?:unlink|rmdir)\s*\('
-  - '(?:\b|(?<=\\[nrt]))fs(?:\.promises)?\.(?:rm|rmdir|unlink)(?:Sync)?(?=[^\w$])'
-  - '(?:\b|(?<=\\[nrt]))(?:rmSync|unlinkSync|rmdirSync)(?=[^\w$])'
-  - '(?:(?<![\w$.])|(?<=\\[nrt]))(?:rm|rmdir|unlink)\s*\('
-  - '(?:\b|(?<=\\[nrt]))Bun\.file\([^)]*\)\.delete\s*\('
-  - '(?:\b|(?<=\\[nrt]))git(?:\s+-[Cc]\s+(?:\\[^nrt]|[^\s;&|"\\])+|\s+-[pP]|\s+--[\w-]+(?:=(?:\\[^nrt]|[^\s;&|"\\])+)?)*\s+worktree\s+remove\b(?:\\[^n\\]|\\\\(?!n)|[^;&|"\\])*?\s(?:--f[\w-]*|-[a-zA-Z]*f[a-zA-Z]*)(?=[\s=;&|)`"''\\])'
+  - '(?:(?:[;&|({`''"!]|\\[nrt])\s*|(?:\b|(?<=\\[nrt]))(?:sudo|doas|env|nice|nohup|time|timeout|exec|command|xargs|then|do|else)(?:\s+(?:-[ugCnI]\s+(?:\\[^nrt]|[^\s;&|"\\])+|-(?:\\[^nrt]|[^\s;&|"\\])*|\d(?:\\[^nrt]|[^\s;&|"\\])*|\w+=(?:\\[^nrt]|[^\s;&|"\\])*|\{\}))*\s+)(?:\w+=(?:\\[^nrt]|[^\s;&|"\\])*\s+)*(?<="(?:command|code)":"(?:\\.|[^"\\])*)\\*(?:[\w.~-]*/)*(?:rm|unlink|shred)(?=[\s;&|)`''"\\])'
+  - '(?<="(?:command|code)":"(?:\\.|[^"\\])*)\s-(?:exec|execdir|ok|okdir)\s+\\*(?:[\w.~-]*/)*(?:rm|unlink|shred)(?=[\s;&|)`''"\\])'
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)find\b(?:\\[^n\\]|\\\\(?!n)|[^;&|"\\])*\s-delete(?=[\s;&|)`''"\\])'
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)os\.(?:remove|unlink|rmdir|removedirs)\s*\('
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)shutil\.rmtree(?=[^\w$])'
+  - '(?<="(?:command|code)":"(?:\\.|[^"\\])*)\.(?:unlink|rmdir)\s*\('
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)fs(?:\.promises)?\.(?:rm|rmdir|unlink)(?:Sync)?(?=[^\w$])'
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)(?:rmSync|unlinkSync|rmdirSync)(?=[^\w$])'
+  - '(?:(?<![\w$.])|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)(?:rm|rmdir|unlink)\s*\('
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)Bun\.file\([^)]*\)\.delete\s*\('
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)git(?:\s+-[Cc]\s+(?:\\[^nrt]|[^\s;&|"\\])+|\s+-[pP]|\s+--[\w-]+(?:=(?:\\[^nrt]|[^\s;&|"\\])+)?)*\s+worktree\s+remove\b(?:\\[^n\\]|\\\\(?!n)|(?!\s--\s)[^;&|"\\])*?\s(?:--f[\w-]*|-[a-zA-Z]*f[a-zA-Z]*)(?=[\s=;&|)`"''\\])'
 scope: "tool:bash, tool:eval"
 repeatMode: always
 ---

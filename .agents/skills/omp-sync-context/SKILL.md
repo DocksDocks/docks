@@ -132,20 +132,26 @@ Put a command rule that subagents need into a trigger rule (Time Traveling
 Stream Rule, TTSR) in `SoT/.omp/plugin/rules/`.
 omp's `omp-plugins` provider loads `rules/*.md` from the linked kit plugin
 root.
-Each rule has a regex `condition` and the scope `tool:bash, tool:eval`.
+Each rule has a regex `condition`, the scope `tool:bash, tool:eval`, and
+`repeatMode: always`.
 Eval is in scope because eval code can run a shell command through `sh()`.
 omp aborts a matching tool call before it runs, injects the rule, and retries.
 omp tests each condition on the partial argument buffer after each streamed
 delta.
 So a condition must not match a prefix of a correct command.
 End each checked token with a delimiter, never with the end anchor `$`.
-The buffer is the argument JSON text, and the intent field `i` comes before
-`command`.
+The buffer is the argument JSON text, and the intent field `i` can come
+before or after `command`.
+Start each condition with the lookbehind
+`(?<="(?:command|code)":"(?:\\.|[^"\\])*)` before its first command token, so
+that the match starts inside the `command` or `code` string.
 Make each scan read an escape pair (`\"`, `\\`) as one unit and stop at an
 unescaped `"` and at a newline (`\n`).
+Make each scan that looks for an option stop at a ` -- ` word.
 Add a wrong row for each new condition or branch, and a correct row for each
 lookahead.
-The test fails when a condition has no wrong row that fires it.
+The test fails when a condition has no wrong row that fires it, or when a
+rule has another repeat mode.
 The `bash.patterns` denies in `config.yml` still enforce.
 
 Verify the conditions: `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`.
