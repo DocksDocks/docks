@@ -197,3 +197,24 @@ test('edit advises on steps that share a path only when no Depends chain links t
     'only steps without a Depends chain get shared-path advice',
   );
 });
+
+test('effect advice asks only for a non-local step that is not done or skipped', () => {
+  // A done or skipped step does not run again; its ask reminder only adds noise to show and step output.
+  const rows = [
+    '| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | planned | Records round-trip |',
+    '| 2 | push_fix | Push fix | - | 1 | push | done | Branch pushed |',
+    '| 3 | release_fix | Release fix | - | 2 | release | skipped | Release cut |',
+    '| 4 | probe_api | Probe API | - | - | probe | blocked | API answers |',
+    '| 5 | deploy_fix | Deploy fix | - | 2 | deploy | planned | Deploy green |',
+  ].join('\n');
+  const { advice } = normalizePlan(
+    body().replace('| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | planned | Records round-trip |', rows),
+  );
+  assert.deepEqual(
+    advice.filter((message) => message.includes('in-session ask')),
+    [
+      'step probe_api Effect probe needs an in-session ask before it runs.',
+      'step deploy_fix Effect deploy needs an in-session ask before it runs.',
+    ],
+  );
+});

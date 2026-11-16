@@ -676,7 +676,9 @@ export function normalizePlan(text, { mode: explicitMode } = {}) {
     row[6] = token(row[6]);
     if (!STEP_EFFECTS.has(row[5])) advice.push(`unknown Effect: ${row[5]}`);
     if (!STEP_STATUSES.has(row[6])) advice.push(`unknown Status: ${row[6]}`);
-    if (row[5] !== 'local') advice.push(`step ${row[1]} Effect ${row[5]} needs an in-session ask before it runs.`);
+    // A done or skipped step does not run again, so it needs no ask.
+    if (row[5] !== 'local' && !terminal(row[6]))
+      advice.push(`step ${row[1]} Effect ${row[5]} needs an in-session ask before it runs.`);
   }
   const numbers = new Map(rows.filter((row) => row.length === 8).map((row) => [row[1], row[0]]));
   const displays = new Set(numbers.values());
@@ -1115,12 +1117,14 @@ function archivePlan(args) {
   let observed = read();
   const { nameWithOwner } = repository,
     defaultBranch = repository.defaultBranchRef.name;
-  if (
-    pullRequest.baseRefName !== defaultBranch ||
-    typeof pullRequest.body !== 'string' ||
-    !hasClosingKeyword(pullRequest.body, number, nameWithOwner)
-  )
-    fail(`archive requires a closing pull request merged into ${nameWithOwner}:${defaultBranch}`);
+  if (pullRequest.baseRefName !== defaultBranch)
+    fail(
+      `pull request #${pullRequest.number} merged into ${pullRequest.baseRefName}; archive requires a merge into ${nameWithOwner}:${defaultBranch}`,
+    );
+  if (typeof pullRequest.body !== 'string' || !hasClosingKeyword(pullRequest.body, number, nameWithOwner))
+    fail(
+      `pull request #${pullRequest.number} has no closing keyword for plan #${number} in its description; ask the owner before you add \`Closes #${number}\` to the merged pull request, then run archive again`,
+    );
   // A state change that races GitHub's own close for a merge can leave the plan stuck (#90), so an open plan gets the
   // waits of reopen before archive closes it.
   for (let reads = 1; !isClosed(observed) && reads < CLOSE_WAIT_READS; reads += 1) {

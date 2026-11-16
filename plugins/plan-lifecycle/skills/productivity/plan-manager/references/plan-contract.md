@@ -378,8 +378,8 @@ defaulted Mode, unknown Effect or Status, an unfinished dependency when a step
 moves to in-flight or done, two steps that share a Files path with no Depends
 chain, an `edit` that changes Goal, Research, Steps, Acceptance, or Do not touch
 after a trusted plan pass (in a Goal that holds the yolo delegation line, the
-Mode line and that line do not count), and every non-local Effect as an in-session
-permission reminder. A machine path
+Mode line and that line do not count), and every non-local Effect of a step
+that is not `done` or `skipped` as an in-session permission reminder. A machine path
 points into a user or root home, a mount, a named temporary or runtime
 directory, a Windows drive, or a network share. Its advice is
 `body contains an absolute machine path: <path>`, once per distinct path.
@@ -416,7 +416,8 @@ Steps row <n> has <count> cells; expected 8. Escape a literal pipe as \| so the 
 duplicate section heading: <name>
 unknown section heading: <title>; use only <the seven sections> or write it below an existing section as ### or plain text
 archive requires Code-review: pass
-archive requires a closing pull request merged into <nameWithOwner>:<branch>
+pull request #<pr> merged into <base>; archive requires a merge into <nameWithOwner>:<branch>
+pull request #<pr> has no closing keyword for plan #<n> in its description; ask the owner before you add `Closes #<n>` to the merged pull request, then run archive again
 retire requires a single-line --reason
 cannot retire a <status> plan
 blocked status requires --reason as single-line text
@@ -621,7 +622,11 @@ terminal. `<pr>` is the landing pull request. Archive requires terminal steps
 and a trusted latest Code-review pass. It also requires proof from that pull
 request. The pull request merged into the default branch of this repository,
 and its description carries a GitHub closing keyword for this issue. A title
-or sidebar link is not proof. A merge into another branch is not proof.
+or sidebar link is not proof. A merge into another branch is not proof. Archive
+checks the base branch first, then the description, and names the failed check.
+For a description without the keyword, ask the repository owner before you edit
+the merged pull request. If the owner approves, add `Closes #<n>` to its
+description, then run archive again. Otherwise, stop and report.
 
 The plan must be `ongoing` or `finished`. GitHub can leave the plan open after
 the landing merge, for example when the repository turns off its auto-close

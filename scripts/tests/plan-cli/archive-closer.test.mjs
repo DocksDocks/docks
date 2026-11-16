@@ -5,7 +5,10 @@ import { closedBy, expectSuccess, planCliContext, refuse, SKIP_WAITS } from './h
 // The pauses of an archive that reads an open plan 34 times: 250 ms, doubling up to 2 s, then 2 s each.
 const CLOSE_WAITS = [250, 500, 1000, ...Array(30).fill(2000)];
 const REVIEW = { author: 'plan-agent', body: '### Code review (round 2)\n\ncode-review: pass' };
-const UNPROVEN = 'archive requires a closing pull request merged into DocksDocks/fixture:main';
+// The refusal for a pull request on the default branch whose description does not close the plan.
+function noClosingKeyword(plan) {
+  return `pull request #${plan.pr} has no closing keyword for plan #${plan.number} in its description; ask the owner before you add \`Closes #${plan.number}\` to the merged pull request, then run archive again`;
+}
 // A landed plan as an archive that refuses or fails before the close leaves it.
 const ONGOING = { state: 'OPEN', stateReason: null, labels: ['plan', 'plan:ongoing'], comments: [REVIEW] };
 
@@ -150,9 +153,21 @@ test('archive refuses a merged pull request whose description does not prove it 
     ['null PR description', null],
   ]) {
     const plan = context.closedPlan(name, { prBody });
-    refuse(archive(context, plan), UNPROVEN);
+    refuse(archive(context, plan), noClosingKeyword(plan));
     assert.deepEqual(context.issue(plan.number).labels, ['plan', 'plan:ongoing'], name);
   }
+});
+
+test('archive refuses a pull request merged into another branch even when its description closes the plan', (t) => {
+  const context = planCliContext(t);
+  // The base check comes first, so a valid closing keyword does not hide the wrong branch.
+  const plan = context.closedPlan('closing keyword on another branch', { base: 'release', prBody: 'Closes #ISSUE' });
+  refuse(
+    archive(context, plan),
+    `pull request #${plan.pr} merged into release; archive requires a merge into DocksDocks/fixture:main`,
+  );
+  assert.deepEqual(context.issue(plan.number).labels, ['plan', 'plan:ongoing']);
+  assert.deepEqual(context.writes(), []);
 });
 
 test('archive closes an open ongoing plan that GitHub leaves open after 34 reads, then removes the phase label', (t) => {
