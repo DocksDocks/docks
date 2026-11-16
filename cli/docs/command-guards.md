@@ -22,11 +22,15 @@ subagents. This includes any `rm` that omp does not deny, `git clean`,
 `git reset --hard`, a force push that no deny matches, and a git command
 that skips the repository's hooks. A prompt rule that the user adds to
 `~/.omp/agent/config.yml` survives sync and still asks; a subagent rejects
-it. The kit omp plugin trigger rule `git-safety.md` forbids `--force` and
-`-f` with `git push` and `git rm`, and it forbids each hook skip. It tells the
-agent to ask before `git clean` or `git reset --hard` in the main session. A
-subagent does not run them and names them in its report. The omp agent
-prompt lists a force push as a step that needs `ask`. The section
+it. The kit omp plugin trigger rule `git-safety.md` forbids these options with
+`git push` and `git rm`: `-f`, a flag cluster that holds `f`, and a long
+option that starts with `--f`. `git push --follow-tags` is correct. The rule
+also forbids `git push --mirror`, `git push --prune`, and each hook skip. It
+tells the agent to ask before a bulk discard in the main session, for
+example `git clean -f`, `git reset --hard`, `git checkout .`, or
+`git stash clear`.
+A subagent does not run a bulk discard and names it in its report. The omp
+agent prompt lists a force push as a step that needs `ask`. The section
 "omp trigger rules" below describes these rules.
 
 The policy sorts shell commands into three tiers. omp uses two of them: deny
@@ -63,7 +67,7 @@ that `eval` starts.
 | A `$` or a backtick anywhere after `git push` in the same command | deny, also after a shell keyword, a wrapper, or a path before `git`: see below | ask for a word that starts with `$` or a backtick | ask (every `git push` asks) |
 | A git command that skips the repository's hooks: see below | run | no rule; the classifier decides | ask for each `git push`, `git merge`, and `git rebase` that starts the command; no rule for `git commit`, `git am`, or `git pull` |
 | `git rm -- <path>`, `git worktree remove -- <path>` | run | ask | ask |
-| `git worktree remove --force -- <path>` | run; the omp `file-removal.md` trigger rule permits it once, after the commits are on the remote | ask | ask |
+| `git worktree remove --force -- <path>` | run; the omp `file-removal.md` trigger rule fires on each `--force`, `-f`, or `--f` form and permits it once, after the commits are on the remote | ask | ask |
 | `docks-kit scratch remove <path>` | run; the command removes only a path inside the scratch root, the system temporary directory, or `/var/tmp` | no rule | no rule |
 | Any other non-recursive `git rm` or `git worktree remove` | run | ask | ask |
 | `gio trash -- <path>` | run | allow | ask |
@@ -178,12 +182,14 @@ never into task subagents (`omp://context-files.md`). So the kit puts the omp
 command rules into six Time Traveling Stream Rules (TTSR, trigger rules). The
 kit plugin `docks-kit-omp` ships them in `SoT/.omp/plugin/rules/`. Sync
 materializes the plugin to `~/.docks-kit/omp-plugin` and links it. omp's
-`omp-plugins` provider loads `rules/*.md` from the linked plugin root.
+`omp-plugins` provider loads `rules/*.md` from the linked plugin root. Each
+rule has the scope `tool:bash, tool:eval`, because eval code can run a shell
+command through `sh()`.
 
 | Rule | Scope | Correct form that the rule teaches |
 | --- | --- | --- |
 | `file-removal.md` | `tool:bash`, `tool:eval` | `scratch_remove` or `docks-kit scratch remove <path>` for a temporary path; `gio trash -- <path>` or `trash <path>` for another path; no `rm`, `unlink`, or `shred`; `git rm -- <path>`; `git worktree remove -- <path>`, and `--force` only after the commit and status checks; no deletion through `eval` |
-| `git-safety.md` | `tool:bash`, `tool:eval` | no hook skip; no `-f`, `f` cluster, or `--f` long option with `git push` or `git rm` (`--follow-tags` is correct); no `git push --mirror` or `--prune`; a literal push ref; `git push -u origin HEAD`; `git push origin --delete <branch-a> <branch-b>`; `git branch -d <branch>`, not `-D`; `git restore -- <path>`; an ask before `git clean -f`, `git reset --hard`, `git checkout .`, `git restore .`, `git stash drop`, or `git stash clear` |
+| `git-safety.md` | `tool:bash`, `tool:eval` | no hook skip; no `-f`, `f` cluster, or `--f` long option with `git push` or `git rm` (`--follow-tags` is correct); no `git push --mirror` or `--prune`; a literal push ref; `git push` as its own command, not chained with `&&`, `\|\|`, or `;`; `git push -u origin HEAD`; `git push origin --delete <branch-a> <branch-b>`; `git branch -d <branch>`, not `-D` or `-d --force`; `git restore -- <path>`; an ask before `git clean -f`, `git reset --hard`, `git checkout .`, `git restore .`, `git stash drop`, or `git stash clear` |
 | `temp-and-background.md` | `tool:bash`, `tool:eval` | `scratch_new` or `docks-kit scratch new <label>` instead of `/tmp`; a server or watcher only as a named bash service or an async job; no global install, scheduled job, or enabled service; no Docker cleanup of a resource that the agent did not create |
 | `worktree-location.md` | `tool:bash`, `tool:eval` | a worktree only at `<data>/agent-worktrees/<repository>/<name>` |
 | `literal-paths.md` | `tool:bash`, `tool:eval` | a literal absolute path; no `~` or `$HOME`; no `HOME` assignment |
@@ -196,11 +202,15 @@ rule costs no prompt tokens until it fires, and it reaches subagents too. The
 trigger rules teach the correct form. The `bash.patterns` denies do not
 change, and they still enforce.
 
-omp also tests each condition on the partial tool-call text at each streaming
-delta (`omp://ttsr-injection-lifecycle.md`). So no condition may match a
-prefix of a correct command. Each condition needs a delimiter after the token
-that it checks, never `$`. A negative lookahead checks only a token that the
-match must then read to its delimiter.
+omp tests each condition on the partial tool-call buffer after each streamed
+delta, and again on the full arguments at the end of the call
+(`omp://ttsr-injection-lifecycle.md`). So a condition must not match a prefix
+of a correct command. Each condition must require a delimiter after the token
+that it checks, and no condition uses the end anchor `$` as that delimiter.
+A negative lookahead, such as `(?!ol)` in `--f(?!ol)`, passes at the end of
+a partial buffer. So after a negative lookahead, the condition must read the
+token to its delimiter. `cli/test/unit/ompTriggerRules.test.ts` checks that
+each correct form stays quiet on each prefix.
 
 ## Why omp denies instead of asking
 

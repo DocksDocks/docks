@@ -28,14 +28,21 @@
   that `SoT/.omp/AGENTS.md` carried before: file removal, git hooks and push
   refs, temporary files, background processes, global installs, Docker
   cleanup, worktree location, literal paths without `~` or `$HOME`, and
-  remote or production cleanup.
-- Each rule has a regex `condition` that matches only the wrong form. Its
-  scope is `tool:bash`; `file-removal.md` and `git-safety.md` also cover
-  `tool:eval`. When the model streams a matching tool call, omp aborts the
-  call before it runs, injects the rule, and retries. The rules reach
-  subagents, and they cost no prompt tokens until they fire. Sync
+  remote or production cleanup. `git-safety.md` and `remote-cleanup.md` also
+  cover forms that the former prompt did not name, such as `git branch -D`,
+  `git stash drop`, `git checkout .`, `rsync --delete` to a host, and
+  `gh repo delete`.
+- Each rule has a regex `condition` that matches only the wrong form. All six
+  rules have the scope `tool:bash, tool:eval`, because eval code can run a
+  shell command through `sh()`. When the model streams a matching tool call,
+  omp aborts the call before it runs, injects the rule, and retries. The
+  rules reach subagents, and they cost no prompt tokens until they fire. Sync
   materializes the plugin to `~/.docks-kit/omp-plugin`, and omp's
   `omp-plugins` provider loads `rules/*.md` from that linked root.
+- omp tests each condition on the partial argument buffer after each
+  streamed delta. So no condition matches a prefix of a correct command.
+  Each condition requires a delimiter after the token that it checks, and no
+  condition uses the end anchor `$` as that delimiter.
 - The `bash.patterns` denies do not change. The trigger rules teach the
   correct form, and the denies still enforce. `docks-kit docs command-guards`
   lists each rule, its scope, and the correct form that it teaches.

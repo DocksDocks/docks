@@ -132,10 +132,16 @@ Put a command rule that subagents need into a trigger rule (TTSR) in
 `SoT/.omp/plugin/rules/`.
 omp's `omp-plugins` provider loads `rules/*.md` from the linked kit plugin
 root.
-Each rule has a regex `condition` and a `scope` (`tool:bash`, and
-`tool:eval` for the removal and git rules).
+Each rule has a regex `condition` and the scope `tool:bash, tool:eval`.
+Eval is in scope because eval code can run a shell command through `sh()`.
 omp aborts a matching tool call before it runs, injects the rule, and retries.
+omp tests each condition on the partial argument buffer after each streamed
+delta.
+So a condition must not match a prefix of a correct command.
+End each checked token with a delimiter, never with the end anchor `$`.
 The `bash.patterns` denies in `config.yml` still enforce.
+
+Verify the conditions: `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`.
 
 Under a named profile (`OMP_PROFILE` or `PI_PROFILE`), use the profile `agentDir` from `ompPaths`.
 omp exports `PI_CODING_AGENT_DIR` as that profile `agentDir`, and `pi-intercom` reads that variable.
