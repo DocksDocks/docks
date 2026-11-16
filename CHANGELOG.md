@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-11-16 - docks-kit 0.22.23: omp stash reminders name the entry
+
+### Fixed
+
+- The omp hygiene extension no longer reminds about a stash entry that is
+  gone. Before, each `git stash` command gave an unchecked reminder at session
+  stop, also after the agent popped the entry.
+- Before a `git stash` command runs, a new `tool_call` handler reads
+  `git stash list` in the directory of the command. After the command, the
+  extension records only an entry that was not in that list. So a
+  `git stash push -q` with nothing to save records nothing, and an older entry
+  of the user is never named. The `tool_execution_end` handler removes the
+  saved list of a call that omp blocks. A failed call that still added an
+  entry, such as `git stash push -q && false`, is also compared. The read
+  before the command has a 1-second timeout, so it delays the command little.
+- The user or another session can add an entry while the command runs, and
+  the extension then names that entry too. A default `WIP on <branch>`
+  message does not prove the owner either. So the reminder names the entry by
+  short ID, message, and directory. It tells the agent to pop the entry only
+  when its message is a unique message that the agent gave with `-m`.
+  Otherwise the agent must not pop or drop it and names it in the final
+  answer. The reminder no longer says "Apply the stash", which could make an
+  agent apply a stash of the user. The `workspace-hygiene` skill says the
+  same, and it tells the agent to give a unique `-m` message to each stash.
+- When the worktree of the command is gone, the stop reminder suggests no
+  pop, because a pop in another worktree would put the changes into a
+  checkout of the user or of another task. It says that the worktree was
+  removed, gives the read-only `git --git-dir=<common dir> stash list`
+  command, and tells the agent to name the entry in its final answer.
+- At session stop, the extension reads the stash list of the common git
+  directory and reminds only while the entry is in it. A failed read gives no
+  reminder, the same as a failed Docker check.
+
 ## 2026-11-12 - docks-kit 0.22.22: omp advisor removed and config trimmed to non-defaults
 
 ### Removed
