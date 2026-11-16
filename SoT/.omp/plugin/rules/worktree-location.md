@@ -1,7 +1,7 @@
 ---
 description: Create each git worktree under the agent-worktrees data directory with a literal absolute path
 condition:
-  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)git(?:\s+-[Cc]\s+(?:\\[^nrt]|[^\s;&|"\\])+|\s+-[pP]|\s+--[\w-]+(?:=(?:\\[^nrt]|[^\s;&|"\\])+)?)*\s+worktree\s+add(?=[\s;&|)`"''\\])'
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)git(?:(?:\s|\\t)+-[Cc](?:\s|\\t)+(?:\\[^nrt]|[^\s;&|"\\])+|(?:\s|\\t)+-[pP]|(?:\s|\\t)+--[\w-]+(?:=(?:\\[^nrt]|[^\s;&|"\\])+)?)*(?:\s|\\t)+worktree(?:\s|\\t)+add(?=[\s;&|)`"''\\])'
 scope: "tool:bash, tool:eval"
 repeatMode: always
 ---

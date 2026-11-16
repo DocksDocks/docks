@@ -231,25 +231,30 @@ token to its delimiter. `git clean` and `git restore .` read the full
 command before they decide, because `-n` or `--staged` can come last.
 
 The buffer is the argument JSON text, and omp's schema puts the intent field
-`i` before `command`. A call can also put `i` after `command`. Each condition
-has the lookbehind `(?<="(?:command|code)":"(?:\\.|[^"\\])*)` before its
-first command token, so a match starts only inside the `command` or `code`
-string. omp 18.21.0 accepts this variable-length lookbehind. A scan reads an
-escape pair, such as `\"` or `\\`, as one unit. It stops at an unescaped
-`"`, which ends the command string, and at a newline (`\n`), which ends the
-command line. So the intent text and the next line do not fire a rule. A
-scan that looks for an option also stops at a ` -- ` word, because each
-later word is a path. So `git clean -fd -- -n` fires, and `git rm -- -f`
-stays quiet. In the `git push` conditions for `$`, a backtick, and a chain,
-a scan also stops at `)` and at a backtick, which end a JavaScript
-`` sh`…` `` or `sh("…")` call. A backtick counts as a command substitution
-only when a word follows it.
+`i` before `command`. A call can also put `i` after `command`, and a provider
+can stream JSON with white space, such as `{"command": "ls"}`. Each condition
+has the lookbehind `(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)` before
+its first command token, so a match starts only inside the `command` or
+`code` string, with or without JSON white space around the colon. omp 18.21.0
+accepts this variable-length lookbehind. A scan reads an escape pair, such as
+`\"` or `\\`, as one unit. It stops at an unescaped `"`, which ends the
+command string, and at a newline (`\n`), which ends the command line. So the
+intent text and the next line do not fire a rule. A tab in a command is `\t`
+in the buffer, so each condition reads `\t` as shell white space, as it reads
+a space. A scan that looks for an option also stops at a ` -- ` word, also
+with a tab, because each later word is a path. So `git clean -fd -- -n`
+fires, and `git rm -- -f` stays quiet. In the `git push` conditions for `$`,
+a backtick, and a chain, a scan also stops at `)` and at a backtick, which end
+a JavaScript `` sh`…` `` or `sh("…")` call. A backtick counts as a command
+substitution only when a word follows it.
 `cli/test/unit/ompTriggerRules.test.ts` runs each shell row through bash,
-Python `sh("…")`, JavaScript `` sh`…` ``, and JavaScript `sh("…");`. Other
-rows put trigger words in the intent field, before or after the command. The
-test checks that each correct form stays quiet on each prefix, that each
-condition has a wrong row that fires it, and that each rule has
-`repeatMode: always`.
+Python `sh("…")`, JavaScript `` sh`…` ``, and JavaScript `sh("…");`. It runs
+every row in the compact JSON layout (`{"command":"ls"}`) and in the spaced
+layout (`{"command": "ls"}`), and some rows in the pretty layout, with a
+newline and an indent. Other rows put trigger words in the intent field,
+before or after the command, or put a tab in the command. The test checks
+that each correct form stays quiet on each prefix, that each condition has a
+wrong row that fires it, and that each rule has `repeatMode: always`.
 
 ## Why omp denies instead of asking
 

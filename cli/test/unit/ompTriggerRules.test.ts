@@ -4,8 +4,10 @@
  * which must fire, and correct forms, which must stay quiet. Every shell row
  * runs through the bash tool and through eval `sh()` code in Python and in
  * JavaScript, because eval runs shell commands too
- * (`cli/docs/command-guards.md`). A correct form must also stay quiet on each
- * partial buffer, because omp tests the buffer after each streamed delta.
+ * (`cli/docs/command-guards.md`). Every row runs in the compact and the
+ * spaced JSON layout, and some rows use the pretty layout. A correct form
+ * must also stay quiet on each partial buffer, because omp tests the buffer
+ * after each streamed delta.
  */
 import { basename } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -36,6 +38,7 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
   "file-removal": {
     wrong: [
       "rm -rf build",
+      "rm\t-rf x",
       "sudo rm -rf x",
       "/bin/rm -f x",
       "ls; rm x",
@@ -64,10 +67,12 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "trash build",
       "docker run --rm img",
       "ls -la",
+      "echo\trm x",
       "ls\ngio trash -- build",
       "git worktree remove -- -f",
     ],
     wrongCalls: [
+      { tool: "bash", command: "rm -rf build", layout: "pretty" },
       { tool: "eval", code: "os.remove(p)" },
       { tool: "eval", code: "shutil.rmtree(p)" },
       { tool: "eval", code: "Path(p).unlink()" },
@@ -78,6 +83,12 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       { tool: "eval", language: "js", code: "await Bun.file(p).delete()" },
     ],
     correctCalls: [
+      {
+        tool: "bash",
+        intent: "rm the temp files",
+        command: "gio trash -- build",
+        layout: "pretty",
+      },
       { tool: "bash", intent: "Checking the rm usage", command: "git rm -- old.yaml" },
       { tool: "bash", intent: "rm the temp files", command: "gio trash -- build" },
       { tool: "eval", intent: "rm the temp files", code: 'sh("gio trash -- build")' },
@@ -91,6 +102,9 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "git clean -d",
       "git clean",
       "git clean -fd -- -n",
+      "git clean -fd --\t-n",
+      "git clean\t-fd",
+      "git\tpush --force",
       "git -C repo clean -x",
       "git reset --hard",
       "git commit --no-verify -m x",
@@ -163,6 +177,7 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "git clean -d -n",
       "git clean --dry-run -d",
       "git clean -n -- x",
+      "git clean -n\t-d",
       "git restore -- a.txt",
       "git restore --staged .",
       "git restore -S .",
@@ -178,6 +193,7 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
     ],
     wrongCalls: [{ tool: "eval", language: "js", code: "await sh`git push origin ${branch}`" }],
     correctCalls: [
+      { tool: "bash", intent: "Run git clean", command: "git clean -n", layout: "pretty" },
       { tool: "bash", intent: "Checking git push result", command: "git status; git log -1" },
       { tool: "bash", intent: "Run git clean", command: "git clean -n" },
       { tool: "bash", intent: "git push --force check", command: "git push -u origin HEAD" },
@@ -234,6 +250,7 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
     correct: [
       "cat /tmp/log",
       "cp /tmp/a ./b",
+      "cp /tmp/a\t./b",
       'cp "/tmp/a" ./b',
       'rsync -a "/tmp/x/" dst/',
       "mkdir -p build\ncat /tmp/log",
@@ -278,6 +295,8 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
     wrong: [
       "wrangler delete",
       "kubectl delete pod x",
+      "kubectl\tdelete pod x",
+      "ssh prod\trm -rf /srv",
       "terraform destroy",
       "helm list -A\nhelm uninstall x",
       "aws s3 rb s3://bucket --force",
@@ -387,6 +406,7 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "rsync -a --delete src/ dst/",
       "rsync -a src/ host:/srv/",
       "rsync -a --delete host:/srv/ ./local",
+      "rsync -a --delete host:/srv/\t./local",
       "rclone ls remote:bucket",
       "rclone sync a b",
       "rclone sync remote:a ./b",
@@ -401,6 +421,13 @@ const CASES: Record<TriggerRuleName, RuleCases> = {
       "docker ps",
     ],
     correctCalls: [
+      {
+        tool: "bash",
+        command: "kubectl get pods",
+        intent: "Listing pods to delete",
+        intentLast: true,
+        layout: "pretty",
+      },
       { tool: "bash", intent: "Comparing kubectl manifests", command: "git rm -- old.yaml" },
       { tool: "bash", intent: "Checking ssh access", command: "pkill -f vite" },
       { tool: "bash", intent: "Check aws s3 rb", command: "aws s3 ls" },
@@ -431,23 +458,23 @@ function quotedString(command: string): string {
 }
 
 /** The bash call and the eval `sh()` calls, in Python and JavaScript, that run one shell command. */
-function shellRows(command: string): Array<Row> {
+function shellCalls(command: string): Array<TriggerToolCall> {
   const template = command.replaceAll("\\", "\\\\").replaceAll("`", "\\`").replaceAll("${", "\\${");
   return [
-    { title: `bash: ${command}`, call: { tool: "bash", command } },
-    {
-      title: `eval py sh(""): ${command}`,
-      call: { tool: "eval", code: `sh("${quotedString(command)}")` },
-    },
-    {
-      title: `eval js sh\`\`: ${command}`,
-      call: { tool: "eval", language: "js", code: `await sh\`${template}\`` },
-    },
-    {
-      title: `eval js sh("");: ${command}`,
-      call: { tool: "eval", language: "js", code: `await sh("${quotedString(command)}");` },
-    },
+    { tool: "bash", command },
+    { tool: "eval", code: `sh("${quotedString(command)}")` },
+    { tool: "eval", language: "js", code: `await sh\`${template}\`` },
+    { tool: "eval", language: "js", code: `await sh("${quotedString(command)}");` },
   ];
+}
+
+/** The rows of one call: its own layout, or else the compact and the spaced layouts. */
+function layoutRows(call: TriggerToolCall): Array<Row> {
+  const calls =
+    call.layout === undefined
+      ? (["compact", "spaced"] as const).map((layout): TriggerToolCall => ({ ...call, layout }))
+      : [call];
+  return calls.map((each) => ({ title: toolArgumentText(each), call: each }));
 }
 
 it("lists every rule file of the kit plugin", () => {
@@ -458,14 +485,12 @@ it("lists every rule file of the kit plugin", () => {
 describe.each(TRIGGER_RULE_NAMES)("omp trigger rule %s", (name) => {
   const rule = kitTriggerRule(name);
   const cases = CASES[name];
-  const wrongRows = [
-    ...cases.wrong.flatMap(shellRows),
-    ...(cases.wrongCalls ?? []).map((call): Row => ({ title: toolArgumentText(call), call })),
-  ];
-  const correctRows = [
-    ...cases.correct.flatMap(shellRows),
-    ...(cases.correctCalls ?? []).map((call): Row => ({ title: toolArgumentText(call), call })),
-  ];
+  const wrongRows = [...cases.wrong.flatMap(shellCalls), ...(cases.wrongCalls ?? [])].flatMap(
+    layoutRows,
+  );
+  const correctRows = [...cases.correct.flatMap(shellCalls), ...(cases.correctCalls ?? [])].flatMap(
+    layoutRows,
+  );
 
   it("watches only the bash and eval tools, never prose or thinking", () => {
     expect(rule.scope.everyTool).toBe(false);
@@ -479,7 +504,7 @@ describe.each(TRIGGER_RULE_NAMES)("omp trigger rule %s", (name) => {
   });
 
   it("starts each match inside the command or code string", () => {
-    const fieldAnchor = String.raw`(?<="(?:command|code)":"(?:\\.|[^"\\])*)`;
+    const fieldAnchor = String.raw`(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)`;
     const unanchored = rule.conditions.flatMap((condition, index) =>
       condition.source.includes(fieldAnchor) ? [] : [index],
     );

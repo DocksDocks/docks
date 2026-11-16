@@ -142,11 +142,14 @@ So a condition must not match a prefix of a correct command.
 End each checked token with a delimiter, never with the end anchor `$`.
 The buffer is the argument JSON text, and the intent field `i` can come
 before or after `command`.
+A provider can put JSON white space around the colon, as in
+`{"command": "ls"}`.
 Start each condition with the lookbehind
-`(?<="(?:command|code)":"(?:\\.|[^"\\])*)` before its first command token, so
-that the match starts inside the `command` or `code` string.
+`(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)` before its first command
+token, so that the match starts inside the `command` or `code` string.
 Make each scan read an escape pair (`\"`, `\\`) as one unit and stop at an
 unescaped `"` and at a newline (`\n`).
+Write shell white space as `(?:\s|\\t)`, because a tab is `\t` in the buffer.
 Make each scan that looks for an option stop at a ` -- ` word.
 Add a wrong row for each new condition or branch, and a correct row for each
 lookahead.

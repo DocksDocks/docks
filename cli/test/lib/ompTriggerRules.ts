@@ -13,12 +13,14 @@
  *
  * - The buffer is the tool-call argument JSON text, such as
  *   `{"command":"ls"}` for bash and `{"language":"py","code":"sh('ls')"}`
- *   for eval. A newline in a command is the two characters `\n`, and a quote
- *   is `\"`. omp's tool schemas put the intent field `i` first, so a live
- *   buffer can start with `{"i":"<intent>",`. The model is expected to write
- *   the keys in schema order, but a call can also put `i` last. So each
- *   condition starts with a lookbehind that puts the match inside the
- *   `command` or `code` string, and its scans stop at the end of that string.
+ *   for eval. A newline in a command is the two characters `\n`, a tab is
+ *   `\t`, and a quote is `\"`. omp's tool schemas put the intent field `i`
+ *   first, so a live buffer can start with `{"i":"<intent>",`. The model is
+ *   expected to write the keys in schema order, but a call can also put `i`
+ *   last. A provider can also stream JSON with white space, such as
+ *   `{"command": "ls"}`. So each condition starts with a lookbehind that puts
+ *   the match inside the `command` or `code` string, with optional JSON white
+ *   space around the colon, and its scans stop at the end of that string.
  *   omp 18.21.0 accepts this variable-length lookbehind.
  * - A match is case-sensitive. omp compiles a condition with no flags, so
  *   there is no `u` flag and `\q` is an identity escape. `^` and `$` are the
@@ -70,14 +72,24 @@ export interface TriggerRule {
   readonly repeatMode: RepeatMode | undefined;
 }
 
-/** The optional intent field `i`. omp's schema puts it first; `intentLast` puts it after the other fields. */
-interface TriggerIntent {
+/**
+ * How the argument JSON text is written: `compact` as `JSON.stringify`,
+ * `spaced` with a space after each colon and comma, and `pretty` with a
+ * newline and a two-space indent before each field.
+ */
+export type JsonLayout = "compact" | "spaced" | "pretty";
+
+/** The form of the argument JSON text. */
+interface TriggerArgumentForm {
+  /** The intent field `i`. omp's schema puts it first; `intentLast` puts it after the other fields. */
   readonly intent?: string;
   readonly intentLast?: boolean;
+  /** The default is `compact`. */
+  readonly layout?: JsonLayout;
 }
 
 /** One tool call, as its argument JSON fields. */
-export type TriggerToolCall = TriggerIntent &
+export type TriggerToolCall = TriggerArgumentForm &
   (
     | { readonly tool: "bash"; readonly command: string }
     | {
@@ -183,10 +195,20 @@ export function toolArgumentText(call: TriggerToolCall): string {
     call.tool === "bash"
       ? { command: call.command }
       : { language: call.language ?? "py", code: call.code };
-  if (call.intent === undefined) return JSON.stringify(fields);
-  return JSON.stringify(
-    call.intentLast === true ? { ...fields, i: call.intent } : { i: call.intent, ...fields },
-  );
+  const intent = call.intent === undefined ? {} : { i: call.intent };
+  const value = call.intentLast === true ? { ...fields, ...intent } : { ...intent, ...fields };
+  switch (call.layout ?? "compact") {
+    case "compact":
+      return JSON.stringify(value);
+    case "pretty":
+      return JSON.stringify(value, null, 2);
+    case "spaced": {
+      const entries = Object.entries(value).map(
+        ([key, text]) => `${JSON.stringify(key)}: ${JSON.stringify(text)}`,
+      );
+      return `{${entries.join(", ")}}`;
+    }
+  }
 }
 
 function matchesAny(rule: TriggerRule, text: string): boolean {

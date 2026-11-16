@@ -1,17 +1,17 @@
 ---
 description: Remove files through the trash or a command that checks the path, never through rm or code
 condition:
-  - '(?:(?:[;&|({`''"!]|\\[nrt])\s*|(?:\b|(?<=\\[nrt]))(?:sudo|doas|env|nice|nohup|time|timeout|exec|command|xargs|then|do|else)(?:\s+(?:-[ugCnI]\s+(?:\\[^nrt]|[^\s;&|"\\])+|-(?:\\[^nrt]|[^\s;&|"\\])*|\d(?:\\[^nrt]|[^\s;&|"\\])*|\w+=(?:\\[^nrt]|[^\s;&|"\\])*|\{\}))*\s+)(?:\w+=(?:\\[^nrt]|[^\s;&|"\\])*\s+)*(?<="(?:command|code)":"(?:\\.|[^"\\])*)\\*(?:[\w.~-]*/)*(?:rm|unlink|shred)(?=[\s;&|)`''"\\])'
-  - '(?<="(?:command|code)":"(?:\\.|[^"\\])*)\s-(?:exec|execdir|ok|okdir)\s+\\*(?:[\w.~-]*/)*(?:rm|unlink|shred)(?=[\s;&|)`''"\\])'
-  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)find\b(?:\\[^n\\]|\\\\(?!n)|[^;&|"\\])*\s-delete(?=[\s;&|)`''"\\])'
-  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)os\.(?:remove|unlink|rmdir|removedirs)\s*\('
-  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)shutil\.rmtree(?=[^\w$])'
-  - '(?<="(?:command|code)":"(?:\\.|[^"\\])*)\.(?:unlink|rmdir)\s*\('
-  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)fs(?:\.promises)?\.(?:rm|rmdir|unlink)(?:Sync)?(?=[^\w$])'
-  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)(?:rmSync|unlinkSync|rmdirSync)(?=[^\w$])'
-  - '(?:(?<![\w$.])|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)(?:rm|rmdir|unlink)\s*\('
-  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)Bun\.file\([^)]*\)\.delete\s*\('
-  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)":"(?:\\.|[^"\\])*)git(?:\s+-[Cc]\s+(?:\\[^nrt]|[^\s;&|"\\])+|\s+-[pP]|\s+--[\w-]+(?:=(?:\\[^nrt]|[^\s;&|"\\])+)?)*\s+worktree\s+remove\b(?:\\[^n\\]|\\\\(?!n)|(?!\s--\s)[^;&|"\\])*?\s(?:--f[\w-]*|-[a-zA-Z]*f[a-zA-Z]*)(?=[\s=;&|)`"''\\])'
+  - '(?:(?:[;&|({`''"!]|\\[nr])(?:\s|\\t)*|(?:\b|(?<=\\[nrt]))(?:sudo|doas|env|nice|nohup|time|timeout|exec|command|xargs|then|do|else)(?:(?:\s|\\t)+(?:-[ugCnI](?:\s|\\t)+(?:\\[^nrt]|[^\s;&|"\\])+|-(?:\\[^nrt]|[^\s;&|"\\])*|\d(?:\\[^nrt]|[^\s;&|"\\])*|\w+=(?:\\[^nrt]|[^\s;&|"\\])*|\{\}))*(?:\s|\\t)+)(?:\w+=(?:\\[^nrt]|[^\s;&|"\\])*(?:\s|\\t)+)*(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)\\*(?:[\w.~-]*/)*(?:rm|unlink|shred)(?=[\s;&|)`''"\\])'
+  - '(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)(?:\s|\\t)-(?:exec|execdir|ok|okdir)(?:\s|\\t)+\\*(?:[\w.~-]*/)*(?:rm|unlink|shred)(?=[\s;&|)`''"\\])'
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)find\b(?:\\[^n\\]|\\\\(?!n)|[^;&|"\\])*(?:\s|\\t)-delete(?=[\s;&|)`''"\\])'
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)os\.(?:remove|unlink|rmdir|removedirs)(?:\s|\\t)*\('
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)shutil\.rmtree(?=[^\w$])'
+  - '(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)\.(?:unlink|rmdir)(?:\s|\\t)*\('
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)fs(?:\.promises)?\.(?:rm|rmdir|unlink)(?:Sync)?(?=[^\w$])'
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)(?:rmSync|unlinkSync|rmdirSync)(?=[^\w$])'
+  - '(?:(?<![\w$.])|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)(?:rm|rmdir|unlink)(?:\s|\\t)*\('
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)Bun\.file\([^)]*\)\.delete(?:\s|\\t)*\('
+  - '(?:\b|(?<=\\[nrt]))(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)git(?:(?:\s|\\t)+-[Cc](?:\s|\\t)+(?:\\[^nrt]|[^\s;&|"\\])+|(?:\s|\\t)+-[pP]|(?:\s|\\t)+--[\w-]+(?:=(?:\\[^nrt]|[^\s;&|"\\])+)?)*(?:\s|\\t)+worktree(?:\s|\\t)+remove\b(?:(?!(?:\s|\\t)--(?:\s|\\t))(?:\\[^n\\]|\\\\(?!n)|[^;&|"\\]))*?(?:\s|\\t)(?:--f[\w-]*|-[a-zA-Z]*f[a-zA-Z]*)(?=[\s=;&|)`"''\\])'
 scope: "tool:bash, tool:eval"
 repeatMode: always
 ---

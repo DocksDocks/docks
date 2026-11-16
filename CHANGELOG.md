@@ -58,12 +58,15 @@
   streamed delta. So no condition matches a prefix of a correct command.
   Each condition requires a delimiter after the token that it checks, and no
   condition uses the end anchor `$` as that delimiter. The buffer is the
-  argument JSON text, and the intent field `i` can come before or after
-  `command`. So each condition starts its match inside the `command` or
-  `code` string with a lookbehind, and each scan stops at an unescaped `"`
-  and at a newline (`\n`). The intent text or the next line does not fire a
-  rule. A scan that looks for an option stops at a ` -- ` word, so
-  `git clean -fd -- -n` fires and `git rm -- -f` stays quiet.
+  argument JSON text. The intent field `i` can come before or after
+  `command`, and a provider can put JSON white space around the colon, as
+  in `{"command": "ls"}`. So each condition starts its match inside the
+  `command` or `code` string with a lookbehind that allows that white space,
+  and each scan stops at an unescaped `"` and at a newline (`\n`). The intent
+  text or the next line does not fire a rule. A tab in a command is `\t` in
+  the buffer, and each condition reads it as shell white space. A scan that
+  looks for an option stops at a ` -- ` word, so `git clean -fd -- -n` fires
+  and `git rm -- -f` stays quiet.
 - The `bash.patterns` denies do not change. The trigger rules teach the
   correct form, and the denies still enforce. `docks-kit docs command-guards`
   lists each rule, its scope, the correct form that it teaches, and the known
@@ -73,13 +76,14 @@
   (`cli/test/lib/ompTriggerRules.ts`). Each rule has a table of wrong forms
   that must fire and correct forms that must stay quiet. Each shell row runs
   through the bash tool, Python eval `sh("…")`, JavaScript eval `` sh`…` ``,
-  and JavaScript eval `sh("…");`. Other rows put trigger words in the intent
-  field before or after the command, or add a multi-line command or eval
-  code without a shell command. A correct form must also stay quiet on each
-  partial buffer, because omp tests the buffer after each streamed delta.
-  The test also checks that each condition has a wrong row that fires it,
-  that each rule has `repeatMode: always`, and that the rule list equals the
-  rule files.
+  and JavaScript eval `sh("…");`. Every row runs in the compact and the
+  spaced JSON layout, and some rows use the pretty layout. Other rows put
+  trigger words in the intent field before or after the command, or add a
+  tab, a multi-line command, or eval code without a shell command. A correct
+  form must also stay quiet on each partial buffer, because omp tests the
+  buffer after each streamed delta. The test also checks that each condition
+  has a wrong row that fires it, that each rule has `repeatMode: always`, and
+  that the rule list equals the rule files.
 
 ## 2026-11-16 - docks-kit 0.22.23: omp stash reminders name the entry
 

@@ -1,10 +1,10 @@
 ---
 description: Write literal absolute paths and leave HOME unchanged
 condition:
-  - '(?:[\s=:"''(`]|\\[nt])(?<="(?:command|code)":"(?:\\.|[^"\\])*)~/'
-  - '(?<="(?:command|code)":"(?:\\.|[^"\\])*)\$HOME(?=\W)'
-  - '(?<="(?:command|code)":"(?:\\.|[^"\\])*)\$\{HOME[}:]'
-  - '(?:[\s;&|("''`]|\\[nt])(?<="(?:command|code)":"(?:\\.|[^"\\])*)HOME='
+  - '(?:[\s=:"''(`]|\\[nt])(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)~/'
+  - '(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)\$HOME(?=\W)'
+  - '(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)\$\{HOME[}:]'
+  - '(?:[\s;&|("''`]|\\[nt])(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)HOME='
 scope: "tool:bash, tool:eval"
 repeatMode: always
 ---
