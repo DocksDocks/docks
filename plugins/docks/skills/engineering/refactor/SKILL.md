@@ -4,8 +4,8 @@ description: "Use when auditing a codebase for structural issues — dead code, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-10-23"
-  content_hash: "adecb5d2163cfbdc270efe3b9cd2cf1feaeafa7e92b894fea3e0792f7eb8969e"
+  updated: "2026-11-17"
+  content_hash: "55d9a59d00cbcef0cd64c1340f2f4b3e89e202d794be23d7ca31c2933c9fd9a6"
 ---
 
 # Refactor (cross-tool pipeline)
@@ -139,6 +139,8 @@ done
 ```
 
 No content loss outside the planned diff: every deletion must be a planned dead-code removal (Phase 2a SAFE tier) or a consolidation whose target you can point to. An `OUT OF SCOPE` line ⇒ `git restore` that change and do not report success. Full post-impl checks (tests, SOLID delta): `references/post-verifier.md`.
+
+Old-against-new check: when characterization tests cover little of a changed unit, run a differential test. Run the base version and the changed version on the same generated or sampled inputs, and compare the outputs. Report each difference as a behavior change. The method is in `references/post-verifier.md`, step Old-against-new check.
 
 ## Gotchas
 

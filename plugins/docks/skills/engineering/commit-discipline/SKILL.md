@@ -4,8 +4,8 @@ description: "Use when splitting work into small reviewable/atomic commits, deci
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-23"
-  content_hash: "157a2715927032a78b2af3dba171e5255a49b11d7c4edd69d7159502871f359b"
+  updated: "2026-11-17"
+  content_hash: "62e3b5b48bd3c806a11ed5548bb4692c03bcc7be16945bd027a7e7d31d76204a"
 ---
 
 # Commit & PR Discipline
@@ -126,6 +126,33 @@ with `BREAKING CHANGE`.
 use); if not, don't introduce them in a one-off commit. Release tooling
 (semantic-release, changesets, release-please) parses these prefixes — a mistyped
 type or missed `!` mis-versions the next release.
+
+### `Verified:` trailer — record how the commit was verified
+
+Each commit records the checks that verified it, as a git trailer in the last
+paragraph of the message:
+
+```text
+fix: expire sessions server-side on logout
+
+Client-side token deletion left sessions valid until TTL expiry.
+
+Closes #482
+
+Verified: bun test src/session; bun run lint
+```
+
+- Write `Verified: <command>[; <command>]`. Name each check command that you ran on the tree of this commit. Separate two commands with `; `.
+- When no check applies, write `Verified: none - <reason>`, for example `Verified: none - comment-only change`. A bare `none` does not count.
+- Write the trailer after the checks pass. Do not name a check that you did not run.
+- Put the trailer in the last paragraph, alone or with other `Token: value` trailers. Git reads no trailers from a paragraph that also holds a `Closes #482` line, so put that line in a paragraph above. A `Verified:` subject line is not a trailer either. `git interpret-trailers --parse` shows the trailers that git reads.
+- A squash merge writes one new message from the pull request, as the repository settings choose. That message can drop the trailers of the branch commits. Put the `Verified:` line in the pull-request description too, and check that the squash message keeps it.
+
+The docks plugin ships the `verify-gate` hook for Claude Code and Codex. It runs before each `git commit` that the agent runs.
+The `DOCKS_VERIFY_GATE` environment variable selects its mode. `observe` is the default: the hook allows the commit and
+appends one JSON line for each commit without the trailer to `${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl`.
+`enforce` denies a commit without the trailer. After two denials in one session, it allows the next commit and logs it.
+`off` turns the hook off.
 
 ## Fixup / autosquash — clean up before review, not after
 
@@ -252,6 +279,10 @@ git diff @{upstream}.. --stat       # size sanity: is this one reviewable unit?
 - `git-rebase(1)` — `--autosquash`, `rebase.autoSquash`, `--exec`, `--update-refs`;
   `git-commit(1)` — `--fixup=amend:`/`reword:` (re-verify against your installed
   Git's man pages).
+- `git-interpret-trailers(1)` — the trailer block is the last paragraph. A
+  paragraph with non-trailer lines counts only when at least 25% of its lines are
+  trailers and one is git-generated or user-configured
+  (<https://git-scm.com/docs/git-interpret-trailers>).
 
 ## Report a problem with this skill
 

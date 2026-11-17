@@ -198,6 +198,21 @@ test('edit advises on steps that share a path only when no Depends chain links t
   );
 });
 
+test('shared-path advice matches a path inside a padded code span', () => {
+  // A code span with inner spaces names the same path as the bare text.
+  const rows = [
+    '| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | planned | Records round-trip |',
+    '| 2 | parse_dates | Parse dates | ` src/parser.mjs ` | - | local | planned | Dates parse |',
+  ].join('\n');
+  const { advice } = normalizePlan(
+    body().replace('| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | planned | Records round-trip |', rows),
+  );
+  assert.deepEqual(
+    advice.filter((message) => message.includes(' share ')),
+    ['steps fix_parser and parse_dates share src/parser.mjs with no Depends link'],
+  );
+});
+
 test('effect advice asks only for a non-local step that is not done or skipped', () => {
   // A done or skipped step does not run again; its ask reminder only adds noise to show and step output.
   const rows = [

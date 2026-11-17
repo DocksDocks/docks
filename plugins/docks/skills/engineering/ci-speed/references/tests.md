@@ -132,6 +132,7 @@ Warning: the default pytest-split algorithm breaks with order-randomizing plugin
 - Retries hide real races and add wall time on each failure. Use one or two retries in CI only. Playwright `--fail-on-flaky-tests` and cargo-nextest `--flaky-result fail` fail a run when a test passes only on retry.
 - Move a known-flaky test to a separate non-blocking job. Give it an owner and an end date.
 - Reproduce order problems with `bun test --rerun-each <n>`, `bun test --randomize --seed <n>`, or `vitest run --sequence.shuffle --sequence.seed=<n>`.
+- People own these retries and quarantines as CI policy. The agent rule for flaky tests is in the `test-coverage` skill, `references/test-types.md`, section Flaky tests. An agent finds the root cause and never adds a retry, a sleep, or a skip to get a pass.
 
 ## Proof checklist
 

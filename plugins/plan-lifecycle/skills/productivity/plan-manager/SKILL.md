@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-16"
-  content_hash: "41803171f32b82c2e802b2a073c04823708507077cd1cbaee65e41be10e6f401"
+  updated: "2026-11-17"
+  content_hash: "27f428cdad2a2c19342ee5d32a500dfcbf0d8b0c5d55d82ddc997b41a9ac41f2"
 ---
 
 # Plan Manager
@@ -104,9 +104,17 @@ Move the plan to ongoing. Set up the linked branch with the contract's Linked
 branch steps before you change code. Set each step in-flight, implement or
 delegate it, run its proof, then mark it done. Honor the Effect confirmation
 gate. When `docks:code-clarity` is available, use it for self-explaining code.
-Run all acceptance commands and record real results in Verification Results
-through the export/edit flow. Review plan edits after the pass as the
-contract's Phases and review comments says.
+When the project has a `verify` skill, for example
+`.agents/skills/verify/SKILL.md`, use it to run the changed surface before you
+mark acceptance. Run all acceptance commands and record real results in
+Verification Results through the export/edit flow. Review plan edits after the
+pass as the contract's Phases and review comments says.
+
+Every commit that you make, also each candidate and repair commit, carries a
+`Verified:` trailer. The `commit-discipline` skill owns the trailer format.
+List the commands that ran on the committed bytes, as
+`Verified: <command>[; <command>]`. When no command ran on them, write
+`Verified: none - <reason>`.
 
 Done when: every step that can run before the merge is done or skipped, and
 Verification Results hold real acceptance results.
@@ -132,7 +140,38 @@ git ls-files --others --exclude-standard -z |
 ```
 
 `git diff --no-index` exits 1 when the files differ, so that exit status is
-expected here. A `panel` round also needs one focus diff per lens. A `delta`
+expected here. Build the base-instructions folder for every round too. It holds
+the merge-base copy of each `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` at the
+root and in each parent folder of a changed path of the full diff. Its
+`MANIFEST` lists each checked path as `copied <path>` or `absent <path>`:
+
+```bash
+inst="$scratch/code-review-<n>-round-<k>-base-instructions"
+rm -rf "$inst" && mkdir -p "$inst"
+{ git diff --name-only --no-renames -z "$base"; git ls-files --others --exclude-standard -z; } |
+  while IFS= read -r -d '' path; do
+    dir=$(dirname "$path")
+    while :; do
+      for name in AGENTS.md CLAUDE.md REVIEW.md; do
+        if [ "$dir" = . ]; then printf '%s\0' "$name"; else printf '%s\0' "$dir/$name"; fi
+      done
+      [ "$dir" = . ] && break
+      dir=$(dirname "$dir")
+    done
+  done | sort -zu |
+  while IFS= read -r -d '' file; do
+    if git cat-file -e "$base:$file" 2>/dev/null; then
+      mkdir -p "$inst/$(dirname "$file")"
+      git show "$base:$file" > "$inst/$file"
+      printf 'copied %s\n' "$file"
+    else
+      printf 'absent %s\n' "$file"
+    fi
+  done > "$inst/MANIFEST"
+```
+
+Name the folder in every dispatch, because the reviewer reads instruction files
+only from it. A `panel` round also needs one focus diff per lens. A `delta`
 round gives its reviewer the delta diff instead of the full diff:
 
 ```bash
@@ -153,7 +192,9 @@ Make each repair complete, as the contract's Repairs says, before you commit
 it. When a repair adds a branch, a list split, a parser rule, or a refusal, add
 a test that fails when that branch is removed. When a repair changes a parser
 or a matcher, list its input forms, such as delimiters, white space, quotes,
-`--`, aliases, and nested fields, and test each form before the commit. In
+`--`, aliases, and nested fields, and test each form before the commit. Prefer
+a property test with generated inputs for those forms, for example with
+fast-check, Hypothesis, or proptest. Test round-trip and idempotency first. In
 recorded plans, more than half of the later code findings were faults in the
 repair of an earlier finding.
 

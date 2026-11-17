@@ -268,6 +268,25 @@
       "skips": []
     },
     {
+      "id": "unit-plan-properties",
+      "version": 1,
+      "title": "Plan helper parser property contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/plan-properties.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/plan-properties.test.mjs",
+        "expected_min": 3
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["bun-1"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
       "id": "unit-review-benchmark",
       "version": 1,
       "title": "Review benchmark scoring unit contracts",
@@ -317,6 +336,25 @@
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/tag-ci-run-identity.test.mjs",
         "expected_min": 9
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["bun-1"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
+      "id": "unit-verify-gate",
+      "version": 1,
+      "title": "Verify Gate hook unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/verify-gate.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/verify-gate.test.mjs",
+        "expected_min": 8
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["bun-1"],

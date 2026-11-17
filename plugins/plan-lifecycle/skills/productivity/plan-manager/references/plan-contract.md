@@ -84,6 +84,11 @@ expected result. They cover the goal, not just individual steps. Acceptance also
 holds one row for each check that the repository instructions require for the
 paths in Files. Use repository-relative paths and portable commands.
 
+When the change has a surface that a user or another program drives, such as
+a CLI command, a hook, a service, or a UI, at least one Acceptance row runs
+that surface end to end. The row drives the surface the way its user does and
+names the observable result. A unit-test command alone does not meet this rule.
+
 | Token | Meaning |
 |---|---|
 | `planned` | Work has not started |
@@ -270,9 +275,9 @@ commit is the round's reviewed head. Name one mode in each dispatch:
 
 | Mode | Reviewers | Input |
 |---|---|---|
-| `full` | One `code-reviewer` that covers every lens | The full diff, the plan export, the issue number, and the round number |
-| `panel` | Three `code-reviewer` dispatches in one message, one per lens: `correctness`, `spec-and-tests`, `text-and-safety` | The full diff, a focus diff for the lens, the plan export, the issue number, and the round number |
-| `delta` | One `code-reviewer` | The delta diff, the previous round's comment file, the rejection comment file and the repair record file of that round if they exist, the plan export, the issue number, and the round number |
+| `full` | One `code-reviewer` that covers every lens | The full diff, the base-instructions folder, the plan export, the issue number, and the round number |
+| `panel` | Three `code-reviewer` dispatches in one message, one per lens: `correctness`, `spec-and-tests`, `text-and-safety` | The full diff, a focus diff for the lens, the base-instructions folder, the plan export, the issue number, and the round number |
+| `delta` | One `code-reviewer` | The delta diff, the previous round's comment file, the rejection comment file and the repair record file of that round if they exist, the base-instructions folder, the plan export, the issue number, and the round number |
 
 The full diff holds the candidate since the merge base with the default branch.
 A focus diff holds the changed paths in the scope of its lens:
@@ -287,8 +292,11 @@ A focus diff holds the changed paths in the scope of its lens:
 A path that matches more than one row goes into each of their focus diffs. When
 no changed path falls in the scope of a lens, that lens gets the full diff as
 its focus diff. The delta diff runs from the previous round's reviewed head to
-the current reviewed head. The `code-reviewer` skill defines what each lens and
-the delta round check.
+the current reviewed head. The base-instructions folder holds the merge-base
+copy of each `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` at the root and in each
+parent folder of a changed path of the full diff, and a `MANIFEST` of the
+checked paths. The `plan-manager` skill (phase 6) builds it. The
+`code-reviewer` skill defines what each lens and the delta round check.
 
 Round 1 is a `panel` round when the full diff changes 50 or more lines. Below
 that, round 1 is a `full` round. A runtime that cannot run subagents at the
@@ -594,6 +602,14 @@ failed or cancelled check blocks the merge question until its fix passes code
 review. If the repository has no configured checks, use the green local gate as
 the check result and say so in the merge question.
 
+When the same check still fails after the third fix attempt on one plan, stop
+fixing it. Outside a yolo run, ask with the options `Continue fixing` and
+`Leave plan blocked`. `Continue fixing` gives the check three more fix
+attempts. On `Leave plan blocked`, or without an answer, commit and push
+current work to the linked branch, set the status to `blocked` with the check
+name as the reason, run Teardown's exit without a merge, and report. In a yolo
+run, the third failure is a stall under Round ceiling.
+
 Ask afresh with two options: `Merge now` and `Leave pull request open`. The
 `Merge now` option states the teardown that follows the merge: the processes
 and stacks to stop, the worktree to remove, the local branch to delete with
@@ -805,15 +821,18 @@ escaped.
 
 A phase stalls when round 10 ends without a pass, when the same finding returns
 after two different repairs, or when dispatch fails twice without a relevant
-change. When round 10 ends on a code-review pass that still lists MEDIUM or LOW
-findings, land, and list those findings in the run summary.
+change. Landing stalls when the same pull-request check still fails after the
+third fix attempt, as Checks and merge says. When round 10 ends on a
+code-review pass that still lists MEDIUM or LOW findings, land, and list those
+findings in the run summary.
 
 On a stall, commit and push current work to the linked branch first, when code
 exists. A hook that refuses them follows Repository hooks. Then ask once, with
 the options `Continue yolo` and `Leave plan
 blocked`. Keep the status unchanged while you ask, because the helper does not
 move a blocked plan back to `drafting` or `planned`. `Continue yolo` gives the
-phase 10 more rounds. On `Leave plan blocked`, or without an answer, set the
+phase 10 more rounds, or gives a failing check three more fix attempts. On
+`Leave plan blocked`, or without an answer, set the
 status to `blocked` with the stall reason, run Teardown's exit without a merge,
 and report.
 

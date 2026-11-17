@@ -555,7 +555,7 @@ function changedLines(before, after) {
 const SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch', 'Open questions', 'Verification Results'];
 const MARKER = '<!-- plan-contract: v4 -->';
 let repository;
-const token = (value) => unquoteCode(value.trim()).toLowerCase();
+const token = (value) => unquoteCode(value.trim()).trim().toLowerCase();
 const stepId = (value) => token(value).replaceAll('-', '_');
 const terminal = (status) => ['done', 'skipped'].includes(status);
 const trimBlankLines = (text) => text.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
@@ -628,7 +628,7 @@ function replaceTable(sections, name, header, separator, rows) {
 // Steps that edit the same path need a Depends order, or parallel work collides (#78).
 function sharedFilesAdvice(rows) {
   const paths = rows.map(
-    (row) => new Set(row[3].split(',').map((part) => unquoteCode(part.trim())).filter((part) => part && part !== '-')),
+    (row) => new Set(row[3].split(',').map((part) => unquoteCode(part.trim()).trim()).filter((part) => part && part !== '-')),
   );
   const dependencies = new Map(
     rows.map((row) => [row[0], row[4] === '-' ? [] : row[4].split(',').map((part) => part.trim())]),
@@ -685,7 +685,10 @@ export function normalizePlan(text, { mode: explicitMode } = {}) {
   const dependency = (part) => {
     const trimmed = part.trim();
     if (displays.has(trimmed)) return trimmed;
-    return numbers.get(stepId(trimmed)) ?? trimmed;
+    // Depends is a comma-separated list, so a display that holds a comma cannot replace an id: the next pass would
+    // split it into new parts, and the cell would change again.
+    const display = numbers.get(stepId(trimmed));
+    return display === undefined || display.includes(',') ? trimmed : display;
   };
   for (const row of rows)
     if (row.length === 8) row[4] = row[4] === '-' ? '-' : row[4].split(',').map(dependency).join(', ');

@@ -178,7 +178,7 @@ Per-machine guidance:
 - **Laptop, local iteration:** `pytest -x --lf -n auto` — exit on first fail, replay last failures, parallel.
 - **CI runner with N vCPU:** `pytest -n auto --dist=worksteal --durations=20` — let xdist balance + surface slow tests.
 - **DB-sharing tests:** isolate to a separate suite or use a per-worker DB fixture (`worker_id` namespaced DB names).
-- **Flaky tests:** `pytest-rerunfailures` + `--reruns 2 --only-rerun TimeoutError` (allowlist, never blanket retry).
+- **Flaky tests:** find the root cause (see `test-types.md`, Flaky tests). `pytest-rerunfailures` (`--reruns 2 --only-rerun TimeoutError`) is a CI policy that people decide. An agent never adds it to get a pass.
 
 ## Coverage Scope — What NOT to Test
 

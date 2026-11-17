@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import * as outcomes from '../../../.agents/skills/review-benchmark/scripts/outcomes.mjs';
 import * as prepare from '../../../.agents/skills/review-benchmark/scripts/prepare.mjs';
 import { focusesForPath } from '../../../.agents/skills/review-benchmark/scripts/prepare.mjs';
 import * as score from '../../../.agents/skills/review-benchmark/scripts/score.mjs';
@@ -990,6 +991,8 @@ const CONFIGS = {
 };
 // The fixer setting that `prepare.mjs agents` writes by default.
 const FIXER_SETTING = { model: MODEL, effort: 'high', tier: 'priority' };
+// The manager setting that `prepare.mjs agents` writes by default: the fixer setting. `case` records it in each run.
+const MANAGER_SETTING = FIXER_SETTING;
 // One reviewer entry of meta.json, as `score.mjs transcripts` writes it for a reviewer that used its configuration.
 const provenCost = (config, seconds, tokens, facts = {}) => ({
   seconds,
@@ -6258,7 +6261,10 @@ test('case gives each run of an overlay variant a contract copy, its record, and
   for (const arm of ['P1', 'V16']) {
     for (const run of [1, 2]) {
       assert.equal(fs.existsSync(path.join(runDir('plan-3', arm, run), 'plan-contract.md')), false);
-      assert.deepEqual(readJson(path.join(runDir('plan-3', arm, run), 'meta.json')), { config: CONFIGS.low });
+      assert.deepEqual(readJson(path.join(runDir('plan-3', arm, run), 'meta.json')), {
+        config: CONFIGS.low,
+        managerConfig: MANAGER_SETTING,
+      });
     }
   }
   assert.equal(prompt('plan-3', 'V16').body, p1);
@@ -6268,7 +6274,7 @@ test('case gives each run of an overlay variant a contract copy, its record, and
     const copy = path.join(runDir('plan-3', 'Va', run), 'plan-contract.md');
     assert.equal(readText(copy), '# Plan contract A\n');
     const meta = readJson(path.join(runDir('plan-3', 'Va', run), 'meta.json'));
-    assert.deepEqual(meta, { config: CONFIGS.low, contractOverlay: 'applied' });
+    assert.deepEqual(meta, { config: CONFIGS.low, managerConfig: MANAGER_SETTING, contractOverlay: 'applied' });
     assert.deepEqual(prompt('plan-3', 'Va', run), {
       agent: 'agent: review-bench-variant-a-plan-low',
       body: p1.replace(SNAPSHOT_CONTRACT_RULE, copyContractRule(copy)),
@@ -6282,7 +6288,11 @@ test('case gives each run of an overlay variant a contract copy, its record, and
   assert.equal(readText(deltaCopy), '# Plan contract live\n');
   assert.equal(readText(path.join(ws, 'plan-4', 'snapshot', CONTRACT)), '# Plan contract live\n');
   const deltaMeta = readJson(path.join(runDir('plan-4', 'Va'), 'meta.json'));
-  assert.deepEqual(deltaMeta, { config: CONFIGS.low, contractOverlay: 'not applicable' });
+  assert.deepEqual(deltaMeta, {
+    config: CONFIGS.low,
+    managerConfig: MANAGER_SETTING,
+    contractOverlay: 'not applicable',
+  });
   const pd = prompt('plan-4', 'Pd').body;
   assert.ok(pd.split('\n').includes('Round mode: delta.'));
   assert.equal(prompt('plan-4', 'Va').body, pd.replace(SNAPSHOT_CONTRACT_RULE, copyContractRule(deltaCopy)));
@@ -6315,7 +6325,11 @@ test('agents --candidate-contract-overlay gives the runs of candidate code arms 
   const runDir = (arm) => path.join(ws, 'code-7', `${arm}-low`, 'run-1');
   const copy = path.join(runDir('C3'), 'plan-contract.md');
   assert.equal(readText(copy), '# Plan contract working tree\n');
-  assert.deepEqual(readJson(path.join(runDir('C3'), 'meta.json')), { config: CONFIGS.low, contractOverlay: 'applied' });
+  assert.deepEqual(readJson(path.join(runDir('C3'), 'meta.json')), {
+    config: CONFIGS.low,
+    managerConfig: MANAGER_SETTING,
+    contractOverlay: 'applied',
+  });
   assert.equal(fs.existsSync(path.join(runDir('B3'), 'plan-contract.md')), false);
   for (const lens of prepare.LENSES) {
     const [baseline, candidate] = ['B3', 'C3'].map(
@@ -6398,7 +6412,7 @@ test('case records not applicable only without the removed text and else stops w
   prepare.prepareCase(options('plan-6', 'P1,Vb'), repo);
   assert.equal(readText(path.join(runDir('plan-6'), 'plan-contract.md')), rewritten);
   const meta = readJson(path.join(runDir('plan-6'), 'meta.json'));
-  assert.deepEqual(meta, { config: CONFIGS.low, contractOverlay: 'not applicable' });
+  assert.deepEqual(meta, { config: CONFIGS.low, managerConfig: MANAGER_SETTING, contractOverlay: 'not applicable' });
 
   // The contract holds `Rule 2.`, so the failure of git apply is not an absent text: case stops with the message of
   // git, which names the copy, and the run folder, and writes nothing for the case.
@@ -6462,7 +6476,7 @@ test('case --extend adds arm folders to a case folder and keeps its snapshot and
   const copy = path.join(caseDir, 'Va-low', 'run-1', 'plan-contract.md');
   assert.equal(readText(copy), '# Plan contract A\n');
   const meta = readJson(path.join(caseDir, 'Va-low', 'run-1', 'meta.json'));
-  assert.deepEqual(meta, { config: CONFIGS.low, contractOverlay: 'applied' });
+  assert.deepEqual(meta, { config: CONFIGS.low, managerConfig: MANAGER_SETTING, contractOverlay: 'applied' });
   assert.equal(prompt('Va').body, p1.replace(SNAPSHOT_CONTRACT_RULE, copyContractRule(copy)));
 
   // Each refusal leaves the workspace as it was.
@@ -6500,7 +6514,13 @@ test('case --extend adds arm folders to a case folder and keeps its snapshot and
   const roundMeta = (arm) => readJson(path.join(ws, 'code-7', `${arm}-low`, 'run-1', 'round-1', 'meta.json'));
   const { fullLines } = roundMeta('C3');
   assert.ok(fullLines > 0);
-  assert.deepEqual(roundMeta('C1'), { config: CONFIGS.low, fixerConfig: FIXER_SETTING, mode: 'full', fullLines });
+  assert.deepEqual(roundMeta('C1'), {
+    config: CONFIGS.low,
+    fixerConfig: FIXER_SETTING,
+    managerConfig: MANAGER_SETTING,
+    mode: 'full',
+    fullLines,
+  });
   assert.deepEqual(readJson(path.join(ws, 'code-7', 'C1-low', 'run-1', 'meta.json')), { policy: 'full-delta' });
 
   // The command line takes --extend.
@@ -7682,4 +7702,523 @@ test('report.md gives the mean diff coverage of the valid runs and the lowest di
   // valid runs, as the summary gives it for each case.
   const decision = tableAfter(renderReport(scores, { arms: ['B0', 'C3', 'L1'] }), '### Decision: -');
   assert.ok(decision.includes('| Diff read mean | - | 0.71 | 0.75 |'), decision.join('\n'));
+});
+
+// Plan #133, step 10: the manager stage, the control cases, the base-instructions folder, the self-review roots, and
+// the post-merge outcomes.
+// - `case` records the manager setting of the list of configurations as `managerConfig`; `prepare.mjs manager` writes
+//   `manager/manager-1.txt` per round with findings; the manager writes `manager/verdicts.md`, which `report` reads
+//   into `managerVerdicts`; `transcripts` writes `manager.agents` facts. `report` adds `## Stages` and, for control
+//   cases, `## Controls`.
+// - A code case folder and each later loop round folder get `base-instructions/` with MANIFEST.
+// - `agents --self-review-roots <name>=<ref>|<name>=worktree` writes one self-review agent per root and configuration,
+//   which reads the two skills under its root; `case` takes the arms S1<name> and S3<name>.
+
+// A dev case code-7 with three known defects and the control case code-9. C1-low is a loop whose manager gave a
+// verdict for each finding, C3-low a loop whose manager gave no verdict in round 2, and B0-low a single review from a
+// workspace without a manager setting. The control run has a wrong, an unknown, and a valid finding.
+function stageFixture() {
+  const fixture = gridFixture(
+    { 'code-7': { split: 'dev', known: ['D1', 'D2', 'D3'] }, 'code-9': { split: 'dev', known: [] } },
+    [
+      {
+        case: 'code-7',
+        config: 'low',
+        arm: 'C1',
+        rounds: [
+          [100, 1000, 'full', 20, ['D1', 'D2', 'valid']],
+          [50, 500, 'delta', 0, ['D3']],
+        ],
+      },
+      {
+        case: 'code-7',
+        config: 'low',
+        arm: 'C3',
+        rounds: [
+          [100, 1000, 'full', 0, ['D2']],
+          [50, 500, 'delta', 0, ['D3']],
+        ],
+      },
+      { case: 'code-7', config: 'low', arm: 'B0', single: true, rounds: [[100, 1000, 'full', 0, ['D1']]] },
+      { case: 'code-9', config: 'low', single: true, rounds: [[100, 1000, 'full', 0, ['wrong', 'unknown', 'valid']]] },
+    ],
+  );
+  fixture.pairs.cases.find((entry) => entry.case === 'code-9').control = true;
+  const round = (arm, r) => fixture.metas[`code-7/${arm}-low/run-1/round-${r}`];
+  const id = (arm, r, n) => `code-7/${arm}-low/run-1/round-${r}/full#${n}`;
+  const managed = (arm, r, verdicts) =>
+    Object.assign(round(arm, r), {
+      managerVerdicts: verdicts,
+      manager: { agents: { 'manager-1': provenCost(MANAGER_SETTING, 10, 100) } },
+    });
+  for (const arm of ['C1', 'C3']) round(arm, 1).managerConfig = MANAGER_SETTING;
+  managed('C1', 1, { [id('C1', 1, 1)]: 'reproduced', [id('C1', 1, 2)]: 'rejected', [id('C1', 1, 3)]: 'rejected' });
+  managed('C1', 2, { [id('C1', 2, 1)]: 'reproduced' });
+  managed('C3', 1, { [id('C3', 1, 1)]: 'reproduced' });
+  return { fixture, round };
+}
+
+test('report gives raw, kept, and final loop recall per arm and the true findings that the manager rejected', () => {
+  const { fixture, round } = stageFixture();
+  const scores = scoreRuns(fixture);
+  const report = renderReport(scores);
+  // C1-low: the findings matched D1, D2, and D3, the manager kept D1 and D3, and the fix step of round 1 repaired D1
+  // and D2; the manager rejected the D2 finding and the valid extra. C3-low has no round-2 verdict.
+  assert.deepEqual(tableAfter(report, '### Stages: dev'), [
+    '| Measure | B0-low | C1-low | C3-low |',
+    '|---|---:|---:|---:|',
+    '| Runs | 1 | 1 | 1 |',
+    '| Runs with a complete manager stage | 0 | 1 | 0 |',
+    '| Raw recall | 0.33 | 1.00 | 0.67 |',
+    '| Kept recall | n/a | 0.67 | n/a |',
+    '| Final loop recall | n/a | 0.67 | 0.33 |',
+    '| True findings rejected per run | n/a | 2.00 | n/a |',
+  ]);
+  const lines = report.split('\n');
+  assert.ok(lines.includes('### Incomplete manager stages'));
+  assert.ok(lines.includes('- code-7/C3-low/run-1: no manager verdict for code-7/C3-low/run-1/round-2/full#1'));
+  // The stages change no run validity and no other table.
+  assert.deepEqual(
+    scores.runs.map((run) => [run.case, run.arm, run.invalid]),
+    [
+      ['code-7', 'B0-low', []],
+      ['code-7', 'C1-low', []],
+      ['code-7', 'C3-low', []],
+      ['code-9', 'C1-low', []],
+    ],
+  );
+  // A manager without transcript facts of the manager setting leaves the stage of its run incomplete.
+  delete round('C1', 2).manager;
+  const [, c1] = scoreRuns(fixture).runs;
+  assert.deepEqual([c1.manager.status, c1.manager.reasons], ['incomplete', ['round-2/manager-1: no transcript facts']]);
+  assert.deepEqual(c1.invalid, []);
+});
+
+test('report gives the wrong and unknown findings of control cases in rows of their own', () => {
+  const report = renderReport(scoreRuns(stageFixture().fixture));
+  assert.deepEqual(tableAfter(report, '### Controls: dev'), [
+    '| Measure | C1-low |',
+    '|---|---:|',
+    '| Runs | 1 |',
+    '| Cases | 1 |',
+    '| Findings per run | 3.00 |',
+    '| Wrong per run | 1.00 |',
+    '| Unknown ratings per run | 1.00 |',
+    '| Valid extras per run | 1.00 |',
+    '| Unjudged per run | 0.00 |',
+  ]);
+  // The control run stays out of the stage table: its C1-low column counts one run.
+  assert.ok(tableAfter(report, '### Stages: dev').includes('| Runs | 1 | 1 | 1 |'));
+  assert.ok(report.indexOf('## Stages') < report.indexOf('## Controls'));
+});
+
+test('the stage columns show n/a for a workspace without manager verdicts, and no control section', () => {
+  const report = renderReport(scoreRuns(scoringFixture()));
+  assert.deepEqual(tableAfter(report, '### Stages: -'), [
+    '| Measure | B0 | C3 |',
+    '|---|---:|---:|',
+    '| Runs | 1 | 3 |',
+    '| Runs with a complete manager stage | 0 | 0 |',
+    '| Raw recall | 0.00 | 0.56 |',
+    '| Kept recall | n/a | n/a |',
+    '| Final loop recall | n/a | n/a |',
+    '| True findings rejected per run | n/a | n/a |',
+  ]);
+  assert.equal(report.includes('## Controls'), false);
+  assert.equal(report.includes('### Incomplete manager stages'), false);
+});
+
+test('manager writes one manager prompt per round with findings, and names lists it until its verdicts exist', (t) => {
+  const { ws, round } = devLoop(t);
+  // A run without a manager setting gets no manager prompt.
+  const none = logged(() => prepare.prepareManager({ ws }));
+  assert.deepEqual(none.result, { written: 0, unchanged: 0 });
+  assert.ok(none.lines.includes('runs without a manager setting, so no manager stage: code-7/C1-low/run-1'));
+  const metaFile = path.join(round(1), 'meta.json');
+  put(round(1), 'meta.json', { ...readJson(metaFile), managerConfig: MANAGER_SETTING });
+  assert.deepEqual(logged(() => prepare.prepareManager({ ws })).result, { written: 1, unchanged: 0 });
+  const managerDir = path.join(round(1), 'manager');
+  const prompt = readText(path.join(managerDir, 'manager-1.txt')).split('\n');
+  assert.equal(prompt[0], 'agent: review-bench-manager');
+  for (const line of [
+    'Reproduce or reject each finding of review round 1.',
+    `Repository snapshot root: ${path.join(ws, 'code-7', 'snapshot')}`,
+    `Plan export: ${path.join(ws, 'code-7', 'plan.md')}`,
+    `Verdict file: ${path.join(managerDir, 'verdicts.md')}`,
+    `Finding ${LOOP_R1}#1: - [MEDIUM] Bug - src/extra.mjs:2 - b is 0, and the callers divide by it - set it to 2.`,
+    `Finding ${LOOP_R1}#3: - [HIGH] Bug - src/sync.mjs:5 - v5 is 0 instead of 5 - set it to 5.`,
+  ]) {
+    assert.ok(prompt.includes(line), `the manager prompt lacks ${line}`);
+  }
+  assert.deepEqual(logged(() => prepare.prepareManager({ ws })).result, { written: 0, unchanged: 1 });
+  const managerName = dispatchName('code-7', 'C1-low', 'run-1', 'manager-1', 1);
+  assert.ok(namesCommand(ws).some((entry) => entry.name === managerName));
+  put(managerDir, 'verdicts.md', `- \`${LOOP_R1}#1\`: reproduced - src/extra.mjs:2 sets b to 0.\n`);
+  assert.equal(
+    namesCommand(ws).some((entry) => entry.name === managerName),
+    false,
+  );
+  // The verdict lines give each finding id with reproduced or rejected; a later line of an id wins.
+  const text = [
+    `- \`${LOOP_R1}#1\`: reproduced - src/extra.mjs:2 sets b to 0.`,
+    `${LOOP_R1}#2: Rejected - README.md:1 names the module.`,
+    `${LOOP_R1}#1: rejected - a second look.`,
+    'A line without a verdict.',
+  ].join('\n');
+  assert.deepEqual(score.managerVerdicts(text), { [`${LOOP_R1}#1`]: 'rejected', [`${LOOP_R1}#2`]: 'rejected' });
+});
+
+// A repository whose base commit holds a root AGENTS.md, a CLAUDE.md link to it, and src/REVIEW.md, and whose head
+// changes AGENTS.md and src/a.mjs and adds src/lib/b.mjs and src/lib/AGENTS.md.
+function instructionRepo(t) {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(repo);
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  put(repo, 'AGENTS.md', '# Root rules at the base\n');
+  fs.symlinkSync('AGENTS.md', path.join(repo, 'CLAUDE.md'));
+  put(repo, 'src/REVIEW.md', '# Review rules at the base\n');
+  put(repo, 'src/a.mjs', 'export const a = 1;\n');
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'base');
+  const base = gitIn(repo, 'rev-parse', 'HEAD').trim();
+  put(repo, 'AGENTS.md', '# Root rules of the head\n');
+  put(repo, 'src/a.mjs', 'export const a = 2;\n');
+  put(repo, 'src/lib/b.mjs', 'export const b = 1;\n');
+  put(repo, 'src/lib/AGENTS.md', '# Rules that the head adds\n');
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'head');
+  const head = gitIn(repo, 'rev-parse', 'HEAD').trim();
+  return { root, repo, base, head };
+}
+
+test('case writes the base-instructions folder of a code case, and its prompt and read scope name it', (t) => {
+  const { root, repo, base, head } = instructionRepo(t);
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const project = path.join(root, 'project');
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low], fixer: FIXER_SETTING });
+  const caseData = { id: 'code-7', kind: 'code', split: 'dev', issue: 7, round: 1, plan: 'code-7-plan.md', base, head };
+  put(cases, 'dev/code-7.json', { ...caseData, known: [] });
+  put(cases, 'dev/code-7-plan.md', '# Plan 7\n');
+  const options = { case: path.join(cases, 'dev/code-7.json'), arms: 'C1', runs: '1', out: ws, project };
+  logged(() => prepare.prepareCase(options, repo));
+  const caseDir = path.join(ws, 'code-7');
+  const folder = path.join(caseDir, 'base-instructions');
+  assert.equal(
+    readText(path.join(folder, 'MANIFEST')),
+    [
+      'copied AGENTS.md',
+      'copied CLAUDE.md',
+      'absent REVIEW.md',
+      'absent src/AGENTS.md',
+      'absent src/CLAUDE.md',
+      'copied src/REVIEW.md',
+      'absent src/lib/AGENTS.md',
+      'absent src/lib/CLAUDE.md',
+      'absent src/lib/REVIEW.md',
+      '',
+    ].join('\n'),
+  );
+  // Each copy holds the text of the base commit; the link gives the text of its target.
+  assert.equal(readText(path.join(folder, 'AGENTS.md')), '# Root rules at the base\n');
+  assert.equal(readText(path.join(folder, 'CLAUDE.md')), '# Root rules at the base\n');
+  assert.equal(readText(path.join(folder, 'src', 'REVIEW.md')), '# Review rules at the base\n');
+  assert.equal(fs.existsSync(path.join(folder, 'src', 'lib', 'AGENTS.md')), false);
+  const runDir = path.join(caseDir, 'C1-low', 'run-1');
+  const prompt = readText(path.join(runDir, 'prompts', 'full.txt')).split('\n');
+  assert.ok(prompt.includes(`Base instructions: ${folder}`));
+  assert.ok(
+    prompt.some((line) => line.startsWith('- The base instructions folder holds') && line.includes('MANIFEST')),
+  );
+  const scope = score.readScope(reads(path.join(folder, 'AGENTS.md'), path.join(folder, 'src')), { runDir });
+  assert.deepEqual(scope, { outside: [] });
+  // --extend writes the folder for a case folder of an earlier version, which has none.
+  fs.rmSync(folder, { recursive: true });
+  logged(() => prepare.prepareCase({ ...options, arms: 'C3', extend: true }, repo));
+  assert.equal(readText(path.join(folder, 'MANIFEST')).split('\n')[0], 'copied AGENTS.md');
+});
+
+test('loop gives each later round a base-instructions folder for the changed paths of its full diff', (t) => {
+  const { repo, cases, run, round, fixerPatch } = devLoop(t);
+  assert.equal(prepare.prepareLoop({ run, cases, 'fixer-patch': fixerPatch }, repo), round(2));
+  const folder = path.join(round(2), 'base-instructions');
+  // The base commit of the loop repository holds only README.md, and the full diff changes two files in src/.
+  const absent = ['', 'src/'].flatMap((dir) =>
+    ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'].map((name) => `absent ${dir}${name}`),
+  );
+  assert.equal(readText(path.join(folder, 'MANIFEST')), `${absent.join('\n')}\n`);
+  const prompt = readText(path.join(round(2), 'prompts', 'delta.txt')).split('\n');
+  assert.ok(prompt.includes(`Base instructions: ${folder}`));
+});
+
+// A repository with the reviewer agents and the two docks skills at the tag `rel` (the base), a head commit, and a
+// working tree whose code-review skill differs from the tag.
+function skillRootRepo(t) {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  const project = path.join(root, 'project');
+  fs.mkdirSync(repo);
+  fs.mkdirSync(project);
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  for (const role of ['code', 'plan']) {
+    const agent = `---\nname: ${role}-reviewer\ndescription: Reviews.\ntools: Read, Glob, Grep\n---\n\n# Reviewer\n`;
+    put(repo, `plugins/plan-lifecycle/agents/${role}-reviewer.md`, agent);
+  }
+  for (const skill of ['code-review', 'code-clarity']) {
+    put(repo, `plugins/docks/skills/engineering/${skill}/SKILL.md`, `# ${skill} at the release\n`);
+  }
+  put(repo, 'src/a.mjs', 'export const a = 1;\n');
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'release');
+  gitIn(repo, 'tag', 'rel');
+  const base = gitIn(repo, 'rev-parse', 'HEAD').trim();
+  put(repo, 'src/a.mjs', 'export const a = 2;\n');
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'head');
+  const head = gitIn(repo, 'rev-parse', 'HEAD').trim();
+  put(repo, 'plugins/docks/skills/engineering/code-review/SKILL.md', '# code-review of the working tree\n');
+  const options = {
+    'baseline-ref': 'HEAD',
+    model: MODEL,
+    efforts: 'low',
+    tiers: 'default',
+    'baseline-dir': path.join(root, 'baseline-plugin'),
+    project,
+    'self-review-roots': 'rel=rel,wt=worktree',
+  };
+  return { root, repo, project, base, head, options };
+}
+
+test('agents --self-review-roots writes a self-review agent per root that reads the skills of the root', (t) => {
+  const { root, repo, project, base, head, options } = skillRootRepo(t);
+  logged(() => prepare.prepareAgents(options, repo));
+  const agentDir = path.join(project, '.omp', 'agents');
+  const list = readJson(path.join(agentDir, 'review-bench-configs.json'));
+  const relDir = path.join(root, 'selfreview-rel-plugin');
+  const wtDir = path.join(repo, 'plugins', 'docks');
+  const skillFiles = (dir) => ({
+    'code-review': path.join(dir, 'skills', 'engineering', 'code-review', 'SKILL.md'),
+    'code-clarity': path.join(dir, 'skills', 'engineering', 'code-clarity', 'SKILL.md'),
+  });
+  assert.deepEqual(list.selfReviewRoots, [
+    { name: 'rel', source: 'rel', dir: relDir, sha: base, skills: skillFiles(relDir) },
+    { name: 'wt', source: 'worktree', dir: wtDir, sha: null, skills: skillFiles(wtDir) },
+  ]);
+  // The copy of a ref root holds the skills at the ref, not the working tree.
+  assert.equal(readText(skillFiles(relDir)['code-review']), '# code-review at the release\n');
+  const overrides = readJson(path.join(project, '.omp', 'settings.json')).task.agentServiceTierOverrides;
+  for (const [name, dir] of [
+    ['rel', relDir],
+    ['wt', wtDir],
+  ]) {
+    const agent = prepare.selfReviewAgent('low', name);
+    assert.equal(agent, `review-bench-selfreview-${name}-low`);
+    const text = readText(path.join(agentDir, `${agent}.md`));
+    assert.deepEqual(score.selfReviewSkillRoots(text), [dir]);
+    assert.ok(text.includes(`\`${skillFiles(dir)['code-review']}\``));
+    assert.equal(overrides[agent], 'default');
+  }
+  // The default self-review agent keeps the skill:// URIs and names no root.
+  assert.deepEqual(score.selfReviewSkillRoots(readText(path.join(agentDir, 'review-bench-selfreview-low.md'))), []);
+  // The manager agent gets the fixer setting by default.
+  assert.deepEqual(list.manager, MANAGER_SETTING);
+  const manager = frontmatter(path.join(agentDir, 'review-bench-manager.md'));
+  assert.deepEqual([manager.model, manager['thinking-level']], [MANAGER_SETTING.model, MANAGER_SETTING.effort]);
+  assert.equal(overrides['review-bench-manager'], MANAGER_SETTING.tier);
+
+  // case builds the root arms with the root agents and refuses them with --loop.
+  const cases = path.join(root, 'cases');
+  const caseData = { id: 'code-7', kind: 'code', split: 'dev', issue: 7, round: 1, plan: 'code-7-plan.md', base, head };
+  put(cases, 'dev/code-7.json', { ...caseData, known: [] });
+  put(cases, 'dev/code-7-plan.md', '# Plan 7\n');
+  const ws = path.join(root, 'ws');
+  const caseOptions = { case: path.join(cases, 'dev/code-7.json'), runs: '1', out: ws, project };
+  logged(() => prepare.prepareCase({ ...caseOptions, arms: 'S1rel,S3wt' }, repo));
+  const firstLine = (arm, reviewer) =>
+    readText(path.join(ws, 'code-7', `${arm}-low`, 'run-1', 'prompts', `${reviewer}.txt`)).split('\n')[0];
+  assert.equal(firstLine('S1rel', 'self-review'), 'agent: review-bench-selfreview-rel-low');
+  assert.equal(firstLine('S3wt', 'self-review-correctness'), 'agent: review-bench-selfreview-wt-low');
+  assert.deepEqual(readJson(path.join(ws, 'code-7', 'S1rel-low', 'run-1', 'meta.json')), {
+    config: list.configs[0],
+    managerConfig: MANAGER_SETTING,
+  });
+  const other = path.join(root, 'other');
+  assert.throws(() => prepare.prepareCase({ ...caseOptions, out: other, arms: 'S3rel', loop: true }, repo), {
+    message: 'S3rel run one self-review before round 1; leave them out of --loop',
+  });
+  assert.throws(() => prepare.prepareCase({ ...caseOptions, out: other, arms: 'S1zz' }, repo), {
+    message: 'arm S1zz does not apply to code cases; use B0, B1, B3, C1, C3, S1, S3, S1rel, S3rel, S1wt, S3wt',
+  });
+});
+
+test('agents refuses bad self-review roots before it writes a file', (t) => {
+  const { root, repo, options } = skillRootRepo(t);
+  const state = treeState(root);
+  for (const [roots, message] of [
+    ['Rel=rel', '--self-review-roots: the root name Rel has a character other than a-z and 0-9'],
+    ['rel', '--self-review-roots: rel is not <name>=<git ref> or <name>=worktree'],
+    ['a=rel,a=worktree', '--self-review-roots: the root name a occurs two times'],
+  ]) {
+    assert.throws(() => prepare.prepareAgents({ ...options, 'self-review-roots': roots }, repo), { message });
+    assert.deepEqual(treeState(root), state);
+  }
+  fs.rmSync(path.join(repo, 'plugins', 'docks', 'skills', 'engineering', 'code-clarity'), { recursive: true });
+  assert.throws(() => prepare.prepareAgents({ ...options, 'self-review-roots': 'wt=worktree' }, repo), {
+    message: 'self-review root wt (worktree) has no plugins/docks/skills/[<folder>/]code-clarity/SKILL.md',
+  });
+});
+
+test('readScope lets a self-review agent of a root read only the two skills under its root', () => {
+  const rootDir = '/work/selfreview-rel-plugin';
+  const runDir = '/work/ws/code-7/S1rel-low/run-1';
+  const agentFiles = ['/work/project/.omp/agents/review-bench-selfreview-rel-low.md'];
+  const skill = (name, rest = 'SKILL.md') => `${rootDir}/skills/engineering/${name}/${rest}`;
+  const cache = '/home/u/.omp/plugins/cache/plugins/docks___docks___0.21.0/skills/engineering/code-review/SKILL.md';
+  const calls = reads(
+    skill('code-review'),
+    skill('code-clarity', 'references/naming.md'),
+    skill('refactor'),
+    'skill://code-review',
+    cache,
+    '/work/ws/code-7/base-instructions/AGENTS.md',
+  );
+  assert.deepEqual(score.readScope(calls, { runDir, agentFiles, skillRoots: [rootDir] }), {
+    outside: [skill('refactor'), 'skill://code-review', cache],
+  });
+  // The default self-review agent reads the installed skills and no root.
+  assert.deepEqual(score.readScope(calls, { runDir, agentFiles }), {
+    outside: [skill('code-review'), skill('code-clarity', 'references/naming.md'), skill('refactor')],
+  });
+});
+
+test('a control case takes no known defect, and pairs refuses a control case with one', (t) => {
+  const caseData = {
+    id: 'code-9',
+    kind: 'code',
+    split: 'dev',
+    issue: 9,
+    round: 1,
+    plan: 'code-9-plan.md',
+    base: 'a',
+    head: 'b',
+    known: [],
+  };
+  assert.equal(prepare.validateCase({ ...caseData, control: true }).control, true);
+  assert.throws(() => prepare.validateCase({ ...caseData, control: 'yes' }), {
+    message: 'case code-9: control must be true or false',
+  });
+  assert.throws(() => prepare.validateCase({ ...caseData, control: true, known: [{ id: 'D1' }] }), {
+    message: 'control case code-9 must have an empty known array',
+  });
+  const { ws, cases } = workspace(t);
+  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev', control: true });
+  findingsCommand(ws);
+  assert.throws(() => pairsCommand(ws, cases), { message: 'control case code-7 must have no known defects' });
+});
+
+test('outcomes counts the reverts and follow-up defects of each landed plan', () => {
+  const repo = 'Owner/repo';
+  const merge = `${'a'.repeat(9)}${'b'.repeat(31)}`;
+  const ref = (number) => ({ number, repository: { name: 'repo', owner: { login: 'Owner' } } });
+  const plans = [
+    { number: 10, title: 'Plan ten', closedAt: '2026-01-02T00:00:00Z', closedByPullRequestsReferences: [ref(11)] },
+    { number: 20, title: 'Plan | twenty', closedAt: '2026-01-05T00:00:00Z', closedByPullRequestsReferences: [] },
+  ];
+  const pull = (number, title, body, createdAt, extra = {}) => ({
+    number,
+    title,
+    body,
+    createdAt,
+    mergedAt: null,
+    mergeCommit: null,
+    labels: [],
+    ...extra,
+  });
+  const pulls = [
+    pull(11, 'Land plan ten', 'Closes #10', '2026-01-01T00:00:00Z', {
+      mergedAt: '2026-01-02T00:00:00Z',
+      mergeCommit: { oid: merge },
+    }),
+    pull(12, 'Revert "Land plan ten"', 'Reverts Owner/repo#11', '2026-01-03T00:00:00Z', {
+      mergedAt: '2026-01-03T01:00:00Z',
+      mergeCommit: { oid: 'c'.repeat(40) },
+    }),
+    pull(13, 'fix: retry after the plan', 'Follows #10.', '2026-01-04T00:00:00Z'),
+    pull(14, 'Docs', 'Mentions #10 in passing.', '2026-01-04T00:00:00Z'),
+    pull(15, 'fix: an older bug', 'See #10.', '2025-12-31T00:00:00Z'),
+  ];
+  const issue = (number, title, body, labels = []) => ({
+    number,
+    title,
+    body,
+    createdAt: '2026-01-04T00:00:00Z',
+    labels,
+  });
+  const issues = [
+    issue(10, 'Plan ten', 'fix things'),
+    issue(16, 'Open LOW findings of plan #10', 'Unreached: src/a.mjs:3'),
+    issue(17, 'Crash', 'After https://github.com/Owner/repo/pull/11 the command crashes.', [{ name: 'bug' }]),
+    issue(18, 'Bug in #100', ''),
+  ];
+  const commits = [
+    { sha: 'd'.repeat(40), message: `Revert "Land plan ten"\n\nThis reverts commit ${merge.slice(0, 9)}.` },
+    { sha: 'c'.repeat(40), message: 'Merge pull request #12\n\nRevert "Land plan ten" (Reverts Owner/repo#11)' },
+    { sha: merge, message: 'Merge pull request #11' },
+  ];
+  const rows = outcomes.planOutcomes({ repo, plans, issues, pulls, commits });
+  assert.deepEqual(rows, [
+    {
+      plan: 10,
+      title: 'Plan ten',
+      landing: 11,
+      merged: '2026-01-02T00:00:00Z',
+      mergeCommit: merge,
+      reverts: ['#12', 'dddddddddddd'],
+      followUps: ['#16', '#17', '#13'],
+      unreached: ['#16'],
+    },
+    {
+      plan: 20,
+      title: 'Plan | twenty',
+      landing: null,
+      merged: null,
+      mergeCommit: null,
+      reverts: [],
+      followUps: [],
+      unreached: [],
+    },
+  ]);
+  assert.deepEqual(outcomes.renderOutcomes(rows).split('\n'), [
+    '| Plan | Landing PR | Merged | Reverts | Follow-up defects | Unreached issues | Title |',
+    '|---:|---:|---|---|---|---|---|',
+    '| #10 | #11 | 2026-01-02 | 2 (#12, dddddddddddd) | 3 (#16, #17, #13) | 1 (#16) | Plan ten |',
+    '| #20 | - | - | - | 0 | 0 | Plan \\| twenty |',
+  ]);
+  for (const [text, cited] of [
+    ['see #10.', true],
+    ['see #100', false],
+    ['abc#10', false],
+    ['Owner/repo#10', true],
+    ['https://github.com/Owner/repo/issues/10', true],
+    ['https://github.com/Owner/repo/pull/105', false],
+  ]) {
+    assert.equal(outcomes.cites(text, repo, 10), cited, text);
+  }
+  // fetchRepository reads the plans, the issues, the pull requests, and the commit lines through gh.
+  const calls = [];
+  const run = (args) => {
+    calls.push(args.slice(0, 2).join(' '));
+    if (args[0] === 'api') return `${JSON.stringify(commits[0])}\n${JSON.stringify(commits[2])}\n`;
+    if (args.includes('--label')) return JSON.stringify(plans);
+    return JSON.stringify(args[0] === 'pr' ? pulls : issues);
+  };
+  const fetched = outcomes.fetchRepository(repo, run);
+  assert.deepEqual(calls, ['issue list', 'issue list', 'pr list', 'api --paginate']);
+  assert.deepEqual(
+    [fetched.plans, fetched.issues, fetched.pulls, fetched.commits],
+    [plans, issues, pulls, [commits[0], commits[2]]],
+  );
 });
