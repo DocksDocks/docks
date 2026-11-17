@@ -204,20 +204,29 @@ Run this review loop for plan review and for code review:
 4. Otherwise reproduce each finding. Fix confirmed defects as Repairs says, and
    reject the others with evidence. Write the manager response to round k.
    Then start the next round.
-5. Ask the user to continue or block when a round makes no progress, the same
-   finding returns after a repair, round 5 does not pass, or dispatch fails again
-   without a relevant change. If no answer is available, record the reason and
-   block. A yolo run uses the round ceiling in Yolo runs instead.
+5. When a finding returns after a repair, do not repeat its approach. Research
+   the defect class again, pick a different approach, and record it under
+   `Redesigned`. Outside a yolo run, ask the user to continue or block only for
+   a fix that needs a tradeoff the user owns (accepting a known limit, changing
+   the Goal or the scope, or a non-local effect), or on a stall: the same
+   finding returns after two different approaches, round 10 ends without a
+   pass, or dispatch fails twice without a relevant change. If no answer is
+   available, record the reason and block. A yolo run uses only the redesign
+   rule. It settles a tradeoff by its delegation line and the effect table of
+   Yolo runs, and asks only the Round ceiling question.
 
 Each round adds one issue comment. The manager response to round k starts with
-the heading line `#### Manager response to round <k>`, exactly so, and holds two
-lists:
+the heading line `#### Manager response to round <k>`, exactly so, and holds
+these lists:
 
 - `Repaired`: one line per fixed finding. Name the finding by its round and
   locator, then the commit or plan line that fixes it. Under the line, list each
   class instance that the repair fixed (Repairs).
 - `Rejected`: one line per rejected finding. Name the finding by its round and
   locator, then the evidence that rejects it.
+- `Redesigned`: one entry per finding that returned after a repair (item 5):
+  the new approach, the approaches that you rejected with their reasons, and
+  the evidence. The finding also gets its `Repaired` line.
 
 Write no bracketed severity in the response. When a run stops between rounds,
 at a block or before the question of item 5 or of the Round ceiling, first post
@@ -229,7 +238,7 @@ without the manager response, as `<phase>-<n>-round-<k>.md` in the review
 scratch directory, where `<phase>` is `plan-review` or `code-review`. From the
 manager response to round k, write its `Rejected` list as the rejection file
 `<phase>-<n>-round-<k>-rejected.md`, with the first line
-`Rejected review findings, round <k>`, and its `Repaired` list as the repair
+`Rejected review findings, round <k>`, and its `Repaired` and `Redesigned` lists as the repair
 record file `<phase>-<n>-round-<k>-repairs.md`, with the first line
 `Repaired review findings, round <k>`. Skip a file whose list is empty. A delta
 reviewer reads these files.
@@ -450,10 +459,18 @@ directory, a Windows drive, or a network share. Its advice is
 `body contains an absolute machine path: <path>`, once per distinct path.
 URL routes and portable system paths, such as `/usr/bin/env` or a bare `/tmp`,
 get no advice. `show` also advises when a plan is closed as completed while a
-step is not terminal, and names the closer. For a plan that is closed as
-completed while a child is not terminal, or when no child is finished, `show`
-advises `plan is closed as completed while child #<c> is <status>; reopen the issue if work remains`
-or `plan is closed as completed but no child finished; reopen the issue if work remains`.
+step is not terminal, and names the closer. On a plan that is closed as
+completed, it also advises, without the parent test of Record and mode:
+
+- once per linked child that is not terminal:
+  `plan is closed as completed while child #<c> is <status>; run archive <n> again to reopen it safely`;
+- once per Steps row whose Done when is `child #<c> finished` while `<c>` is
+  not a linked sub-issue:
+  `plan names child #<c>, which is not linked; relink it or edit the row; run archive <n> again to reopen it safely`;
+- when every Steps row names a child and no named child is linked and
+  finished:
+  `plan is closed as completed but no child finished; run archive <n> again to reopen it safely`.
+
 For an issue that GitHub left
 closed with reason `REOPENED`, `show` advises
 `GitHub left this issue closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it, and record step results in an issue comment until then`.
@@ -504,8 +521,8 @@ pull request #<pr> is not merged
 GitHub has not closed plan #<n> for pull request #<pr> yet; run reopen again once it has
 plan #<n> was closed by <closer> after pull request #<pr> merged; reopen it by hand only if that close was a mistake
 plan #<n> was closed by <closer> before pull request #<pr> merged; reopen it by hand only if that close was a mistake
-plan #<n> closed, but child #<c> changed during the close (now <status>); reopen the issue by hand only if work remains
 plan #<n> changed during the settle wait; run reopen again
+plan #<n> changed during the settle wait; run archive again
 GitHub left plan #<n> closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it
 plan issue state differs after reopen
 ```
@@ -724,9 +741,8 @@ setting (Pull requests). For an open plan, archive first waits up to about
 as completed, with a comment that names the pull request. Then archive removes
 the phase labels. Do not close the plan by hand. A plan that someone already
 closed as completed archives with the same proof. When archive fails after it
-closed the plan, run the same command again, except on the child-changed exit,
-where you run `show <n>` and decide. This rule replaces step 3 of the retry
-steps in Normalization, advice, and refusals.
+closed the plan, run the same command again. This rule replaces step 3 of the
+retry steps in Normalization, advice, and refusals.
 
 A child is terminal when it is closed as completed (`finished`), as not planned
 (`retired`), or as a duplicate. Archive, with or without `--pr`, refuses a plan
@@ -741,10 +757,21 @@ It closes an open parent as completed, removes the phase labels, and prints
 child. On a plan without children, `archive` without `--pr` refuses. On a plan
 with children that is not a parent (Record and mode), it refuses with
 `archive refused: plan #<n> has its own landing work; archive it with --pr`.
-After the close, archive reads the children again. When a child changed, or no
-child is finished any more, archive does not reopen the plan. It exits 1 with
-`plan #<n> closed, but child #<c> changed during the close (now <status>); reopen the issue by hand only if work remains`.
-Run `show <n>`, and reopen the issue by hand only when work remains.
+After its own close, archive reads the children again. When a child is not
+terminal, a named child is not linked, a child was added or unlinked since the
+read before the close, or no named child is finished, archive waits for the
+close to settle, reads the plan again, and reopens it through the same path as
+`reopen`, with the comment
+`Reopened: child #<c> changed while plan #<n> closed; work continues.` Then it
+refuses with `archive refused: child #<c> is <status>`, where `<status>` is
+`unlinked` for a child that is not linked. A close with reason `REOPENED`
+stops it as it stops `reopen` (Pull requests). When the plan changed during
+the wait, archive refuses with
+`plan #<n> changed during the settle wait; run archive again`. When the read
+of the children after the close fails, archive exits 1 with the GitHub call
+failure. `archive <n>` on a plan that is closed as completed with unfinished
+child work does the same safe reopen. Run it when `show` advises it
+(Normalization, advice, and refusals).
 
 ### Teardown
 
@@ -915,10 +942,11 @@ this rule to every LOW finding, not only to unreached ones, removed at most 3
 of 73 rounds in one arm and 0 to 2 rounds in the others, and no known defect
 escaped.
 
-A phase stalls when round 10 ends without a pass, when the same finding returns
-after two different repairs, or when dispatch fails twice without a relevant
-change. Landing stalls when the same pull-request check still fails after the
-third fix attempt, as Checks and merge says. When round 10 ends on a
+A phase stalls as review loop item 5 says: round 10 ends without a pass, the
+same finding returns after two different approaches, or dispatch fails twice
+without a relevant change. Landing stalls when the same pull-request check
+still fails after the third fix attempt, as Checks and merge says. When round
+10 ends on a
 code-review pass that still lists MEDIUM or LOW findings, land, and list those
 findings in the run summary.
 

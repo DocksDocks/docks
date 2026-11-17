@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "57d8af806d1bcbc0e757d7db1074b8055fefa5fd3bb2867ac4ac2d1c8f3bfe5c"
+  content_hash: "83bf60ac6b34c16badf080e2fd4175e674f0c458eeee5966c52bf82bf7c78638"
 ---
 
 # Yolo
@@ -318,13 +318,14 @@ comments says. The helper advises when an edit needs that round.
 Make and record each repair as the contract's Repairs says, in both phases. A
 code repair also gets the tests that plan-manager phase 6 asks for. Reject a
 finding only with evidence, in the `Rejected` list of the manager response.
-Before you repair the same finding again, research it again and try a different
-approach.
+When a finding returns after a repair, redesign the fix and record it under
+`Redesigned`, as item 5 of the contract's review loop says. Do not ask the user
+about it; a tradeoff follows the delegation line and the effect table.
 
-When a review phase stalls at the ceiling, post the pending manager response
-first. When the answer is `Leave plan blocked`, or no answer is possible, run
-the contract's Teardown for an exit without a merge. The contract's Round
-ceiling also says this.
+When a review phase stalls, as the contract's Round ceiling says, post the
+pending manager response first. When the answer is `Leave plan blocked`, or no
+answer is possible, run the contract's Teardown for an exit without a merge.
+The contract's Round ceiling also says this.
 
 ## Landing
 
@@ -397,8 +398,8 @@ GOOD: Read the official docs, test both in scratch, and record the decision with
 BAD: Write the requested test that checks source text.
 GOOD: Record a correction and test the behavior that a consumer sees.
 
-BAD: Stop after code review round 5 and ask whether to continue.
-GOOD: Continue to the Yolo runs ceiling, then ask the one stalled-review question.
+BAD: Ask the user how to fix a finding that returned after a repair.
+GOOD: Research the class again, pick a different approach, and record it under `Redesigned`.
 
 BAD: Paste an error log that contains a token into the issue.
 GOOD: Remove the token and name its variable.

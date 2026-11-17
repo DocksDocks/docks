@@ -1034,24 +1034,27 @@ function showPlan(args) {
         ]
       : [];
     if (stuckClosed(issue)) extra.push(STUCK_ADVICE);
-    // An archive that saw a child change during its close leaves the plan closed; this advice makes that visible.
-    if (status === 'finished') {
-      for (const child of issue.children) {
-        const childStatus = statusFromIssue(child);
-        if (!CHILD_TERMINAL_STATUSES.has(childStatus))
-          extra.push(
-            `plan is closed as completed while child #${child.number} is ${childStatus}; reopen the issue if work remains`,
-          );
-      }
-      if (
-        isParentPlan({ issue, parsed }) &&
-        !issue.children.some((child) => statusFromIssue(child) === 'finished')
-      )
-        extra.push('plan is closed as completed but no child finished; reopen the issue if work remains');
-    }
+    if (status === 'finished') extra.push(...closedChildAdvice(issue, parsed));
     extra.push(...budgetAdvice(issue.body, parsed, issue.comments.length));
     printAdvice(issue.body, status, extra);
   }
+}
+// The open work that `archive` reopens safely on a plan closed as completed (see openWork): a linked child that is not
+// terminal, a child row that names a child that is not linked, and child rows that name no finished child.
+function closedChildAdvice(issue, parsed) {
+  const recovery = `run archive ${issue.number} again to reopen it safely`,
+    statuses = new Map(issue.children.map((child) => [child.number, statusFromIssue(child)])),
+    named = childRows(parsed),
+    advice = [];
+  for (const [child, status] of statuses)
+    if (!CHILD_TERMINAL_STATUSES.has(status))
+      advice.push(`plan is closed as completed while child #${child} is ${status}; ${recovery}`);
+  for (const child of named)
+    if (!statuses.has(child))
+      advice.push(`plan names child #${child}, which is not linked; relink it or edit the row; ${recovery}`);
+  if (noChildRowFinished(parsed, named, statuses))
+    advice.push(`plan is closed as completed but no child finished; ${recovery}`);
+  return advice;
 }
 // Each budget that a plan passes gets one advice line (E4).
 function budgetAdvice(body, plan, comments) {
@@ -1263,36 +1266,87 @@ function refuseChangedBeforeClose({ issue, login }) {
   if (ownedPreWriteIssue(issue.number, login).body !== issue.body || changedChild(issue))
     fail('plan issue changed remotely; re-read and retry');
 }
-// A child can change between the pre-close read and the close. A reopen right after a close can leave the plan stuck
-// (#90), so archive reads the children again after its close and reports a change without a write. `show` then
-// advises on each child that is not terminal.
-function refuseChildChangeDuringClose({ issue }) {
-  const changed = changedChild(issue);
-  if (changed)
-    fail(
-      `plan #${issue.number} closed, but child #${changed.number} changed during the close (now ${changed.status}); reopen the issue by hand only if work remains`,
-    );
+// The Done when cell of a parent row (E1).
+const CHILD_ROW = /^child #([1-9]\d*) finished$/;
+// The child numbers that the Done when cells of the Steps rows name.
+const childRows = (parsed) =>
+  parsed.steps.flatMap((step) => {
+    const match = CHILD_ROW.exec(step.doneWhen);
+    return match ? [Number(match[1])] : [];
+  });
+// Whether every Steps row names a child and no named child is linked and finished. `statuses` maps each linked child
+// to its status.
+const noChildRowFinished = (parsed, named, statuses) =>
+  named.length > 0 &&
+  named.length === parsed.steps.length &&
+  !named.some((child) => statuses.get(child) === 'finished');
+// The open work of a plan that reads closed as completed, as one child and its status, or undefined when it shows none.
+// After archive's own close, `snapshot` holds the children of its pre-close read, and only a change since then counts:
+// a child that is not terminal or is new, a child that is no longer linked (status `unlinked`), or child rows that
+// named a finished child and name none now. On a retry without a snapshot, the plan counts as it reads: a child that is
+// not terminal, a child row that names a child that is not linked, or child rows that name no finished child.
+function openWork({ issue, parsed }, snapshot) {
+  const statuses = (children) => new Map(children.map((child) => [child.number, statusFromIssue(child)]));
+  const now = statuses(issue.children),
+    before = snapshot && statuses(snapshot),
+    named = childRows(parsed);
+  const work = (number) => ({ number, status: now.get(number) ?? 'unlinked' });
+  const open = [...now.keys()].find(
+    (child) => !CHILD_TERMINAL_STATUSES.has(now.get(child)) || before?.has(child) === false,
+  );
+  if (open !== undefined) return work(open);
+  const unlinked = (before ? [...before.keys()] : named).find((child) => !now.has(child));
+  if (unlinked !== undefined) return work(unlinked);
+  if (noChildRowFinished(parsed, named, now) && !(before && noChildRowFinished(parsed, named, before)))
+    return work(named.find((child) => before?.get(child) === 'finished') ?? named[0]);
+  return undefined;
+}
+// Archive found open `work` on `observed`, a plan that it closed or that reads closed as completed. It reopens the plan
+// as `reopen` does, after the settle wait, while the settled read still shows the same close and open work, and then
+// refuses with that work. A plan that someone reopened gets no write.
+function reopenForOpenWork(observed, work, snapshot) {
+  const { number } = observed.issue;
+  if (isClosed(observed))
+    settleAndReopen({
+      observed,
+      read: () => readPlanIssue(number, true, { children: true, closure: true }),
+      command: 'archive',
+      stillReopenable: (plan) => {
+        refuseStuck(plan.issue);
+        return openWork(plan, snapshot) !== undefined;
+      },
+      comment: `Reopened: child #${work.number} changed while plan #${number} closed; work continues.`,
+    });
+  fail(`archive refused: child #${work.number} is ${work.status}`);
+}
+// A close cannot see a child change that races it, so archive reads the plan again after its own close and compares
+// the children with `snapshot`, the children of its pre-close read.
+function checkAfterOwnClose(number, snapshot) {
+  const after = readPlanIssue(number, true, { children: true, closure: true });
+  const work = openWork(after, snapshot);
+  if (work) reopenForOpenWork(after, work, snapshot);
+  if (!isClosed(after)) fail('plan issue changed remotely; re-read and retry');
 }
 // A parent holds one row per child plan, with Files `-` and Done when `child #<c> finished`, and every child has its
 // row (E1). Any other plan with children landed work of its own, so it needs the proof of `--pr`.
 function isParentPlan({ issue, parsed }) {
   const children = new Set(issue.children.map((child) => child.number));
   const named = parsed.steps.map((step) =>
-    unquoteCode(step.files.trim()).trim() === '-'
-      ? Number(/^child #([1-9]\d*) finished$/.exec(step.doneWhen)?.[1])
-      : Number.NaN,
+    unquoteCode(step.files.trim()).trim() === '-' ? Number(CHILD_ROW.exec(step.doneWhen)?.[1]) : Number.NaN,
   );
   return (
-    children.size > 0 &&
     named.every((child) => children.has(child)) &&
     new Set(named).size === named.length &&
     named.length === children.size
   );
 }
 // The archive of a parent plan: its work landed through its child plans, so a child that closed as completed is the
-// landing proof, and the parent needs no pull request and no code review (E1).
+// landing proof, and the parent needs no pull request and no code review (E1). A plan that reads closed as completed
+// while its children show open work, such as after a failed read that followed the close, is reopened safely.
 function archiveParent(number) {
-  const plan = readPlanIssue(number, true, { children: true });
+  const plan = readPlanIssue(number, true, { children: true, closure: true });
+  const work = plan.status === 'finished' ? openWork(plan) : undefined;
+  if (work) reopenForOpenWork(plan, work);
   const { children } = plan.issue;
   if (children.length === 0) fail('archive requires an issue and --pr');
   refuseUnarchivable(plan, { codeReview: false });
@@ -1302,7 +1356,7 @@ function archiveParent(number) {
   if (!isClosed(plan)) {
     refuseChangedBeforeClose(plan);
     runGh(['issue', 'close', String(number), '--reason', 'completed', '--repo', repository.nameWithOwner]);
-    refuseChildChangeDuringClose(plan);
+    checkAfterOwnClose(number, children);
   }
   writeIssueIfUnchanged(plan.issue, { remove: labelsToRemove(plan.issue) });
   console.log(`plan #${number} finished (all ${children.length} children finished)`);
@@ -1359,7 +1413,7 @@ function archivePlan(args) {
       '--repo',
       nameWithOwner,
     ]);
-    refuseChildChangeDuringClose(observed);
+    checkAfterOwnClose(number, observed.issue.children);
   }
   writeIssueIfUnchanged(observed.issue, { remove: labelsToRemove(observed.issue) });
   console.log(`plan #${number} finished (closed by ${pullRequest.url})`);
@@ -1451,10 +1505,10 @@ function closedByPullRequest(issue, pullRequest) {
     );
   return true;
 }
-// One write request reopens the plan, posts the contract comment, and claims an unassigned plan. A reopen compares no
-// body, so the pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and
-// the claim follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
-function writeReopen({ issue, login, viewerId }, pr) {
+// One write request reopens the plan, posts `comment`, and claims an unassigned plan. A reopen compares no body, so the
+// pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and the claim
+// follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
+function writeReopen({ issue, login, viewerId }, comment) {
   const { id, assignees } = ownedPreWriteIssue(issue.number, login);
   const claims = assignees.length === 0;
   const stored = '{... on Issue{state stateReason}}';
@@ -1472,7 +1526,7 @@ function writeReopen({ issue, login, viewerId }, pr) {
       '-f',
       `issue=${id}`,
       '-f',
-      `body=Reopened: partial pull request #${pr} closed this plan through its linked branch. Work continues.`,
+      `body=${comment}`,
       ...(claims ? ['-f', `assignees[]=${viewerId}`] : []),
     ]);
   } catch (error) {
@@ -1532,24 +1586,36 @@ function reopenPlan(args) {
     sleep(CLOSE_WAIT_PAUSES_MS[Math.min(reads, CLOSE_WAIT_PAUSES_MS.length) - 1]);
     observed = read();
   }
-  // A plan that reads open was reopened after that close. A closed plan gets the settle wait and one more read,
-  // and the write runs only when that read still shows the same close as completed.
-  let current = observed;
-  if (isClosed(observed)) {
-    sleep(REOPEN_SETTLE_MS);
-    current = read();
-    const sameClose =
-      closedByPullRequest(current.issue, pullRequest) &&
-      current.issue.closedEventAt === observed.issue.closedEventAt &&
-      describeCloser(current.issue.closer) === describeCloser(observed.issue.closer);
-    if (isClosed(current) && (current.status !== 'finished' || !sameClose))
-      fail(`plan #${number} changed during the settle wait; run reopen again`);
-  }
-  if (!isClosed(current)) {
-    console.log(`plan #${number} is open: ${current.status}`);
+  // A plan that reads open was reopened after that close.
+  if (!isClosed(observed)) {
+    console.log(`plan #${number} is open: ${observed.status}`);
     return;
   }
-  writeReopen(current, pullRequest.number);
+  const current = settleAndReopen({
+    observed,
+    read,
+    command: 'reopen',
+    stillReopenable: (plan) => closedByPullRequest(plan.issue, pullRequest),
+    comment: `Reopened: partial pull request #${pullRequest.number} closed this plan through its linked branch. Work continues.`,
+  });
+  if (current) console.log(`plan #${number} is open: ${current.status}`);
+}
+// A reopen right after a close can leave the plan stuck closed with reason REOPENED (#90). So a reopen of `observed`, a
+// plan that reads closed, waits REOPEN_SETTLE_MS and reads the plan again. It writes only while that read shows the
+// same close as completed and `stillReopenable` accepts it. When someone reopened the plan during the wait, it writes
+// nothing and returns that read.
+function settleAndReopen({ observed, read, command, stillReopenable, comment }) {
+  sleep(REOPEN_SETTLE_MS);
+  const current = read();
+  const sameClose =
+    stillReopenable(current) &&
+    current.issue.closedEventAt === observed.issue.closedEventAt &&
+    describeCloser(current.issue.closer) === describeCloser(observed.issue.closer);
+  if (isClosed(current) && (current.status !== 'finished' || !sameClose))
+    fail(`plan #${current.issue.number} changed during the settle wait; run ${command} again`);
+  if (!isClosed(current)) return current;
+  writeReopen(current, comment);
+  return undefined;
 }
 function main([command, ...args]) {
   const commands = {

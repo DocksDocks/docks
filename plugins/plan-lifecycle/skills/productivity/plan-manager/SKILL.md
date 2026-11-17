@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "4e0488fa238368726dd4a319651afef9149400f6002855e7779c29b943b5d8ab"
+  content_hash: "9f68490e982b5c69959048244fd2a60cd057bf0c7d59466591496dd622220309"
 ---
 
 # Plan Manager
@@ -233,7 +233,9 @@ that response.
 
 Before the next round, fix or reject every finding of the round, as the
 contract's Repairs says. A pass can carry MEDIUM and LOW findings. The posted
-comment is their record; do not change reviewed bytes for them.
+comment is their record; do not change reviewed bytes for them. When a finding
+returns after a repair, redesign the fix yourself and ask the user only in the
+cases that item 5 of the contract's review loop names.
 
 Make each repair complete, as the contract's Repairs says, before you commit
 it. When a repair adds a branch, a list split, a parser rule, or a refusal, add
