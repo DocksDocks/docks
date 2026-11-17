@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "c6db43cb0f8622f7ef3b241f2bd6a70009624af81245b8f863fa400fff4533c4"
+  content_hash: "2552b839b12c047f239381e5f0a28f77f7f575cb16878acc16db8c2f0ef5909d"
 ---
 
 # Plan Manager
@@ -252,10 +252,11 @@ it again as the contract's Code-review rounds says.
 
 Resolve unreadable input before you request a verdict. If you block after
 implementation, commit and push current work to the linked branch before you
-record the blocker, so repairs are not stranded. Post the pending manager
-response first, as the contract's review loop says. A hook that refuses that
-commit or push follows the contract's Repository hooks. Then run the contract's
-Teardown for an exit without a merge.
+record the blocker, so repairs are not stranded. When a pull request is open,
+update its body right after the push, as the contract's Checklist says. Post
+the pending manager response first, as the contract's review loop says. A hook
+that refuses that commit or push follows the contract's Repository hooks. Then
+run the contract's Teardown for an exit without a merge.
 
 Done when: `show <n>` reports `code=pass`.
 
@@ -264,19 +265,14 @@ Done when: `show <n>` reports `code=pass`.
 After code review passes, follow the contract's Landing and archive proof:
 commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
-on `Merge now`. The landing description holds the summary, the `## Checklist`
-section, and `Closes #<n>`, as the contract's Pull requests says. Tick an item
-only with its evidence for the reviewed head that you push: a Verification
-Results pass, or `show <n>` `code=pass` from a round that reviewed that head.
-End each unticked item with its reason. After each push, build the ticks again;
-evidence for an older head ticks nothing. Before the merge question, run the
-landing self-check in Checks and
-merge. The merge question states `<k> of <n> checklist items ticked` and lists
-each unticked item with its reason. The `Merge now` option states the
-teardown, as the contract's Checks and merge says. A v5 plan has no partial
-merge; each part lands as a child plan. Only a v4 plan whose work started runs
-`reopen <n> --pr <pr>` after a partial merge, as the contract states. After
-the landing merge, run each step
+on `Merge now`. Build the `## Checklist` section and run the landing self-check
+as the contract's Checklist and Checks and merge say. After each push, rebuild
+the ticks and update the body before any wait for checks. The merge question
+states `<k> of <n> checklist items ticked` and lists each unticked item with
+its reason. The `Merge now` option states the teardown, as the contract's
+Checks and merge says. A v5 plan has no partial merge; each part lands as a
+child plan. Only a v4 plan whose work started runs `reopen <n> --pr <pr>` after
+a partial merge, as the contract states. After the landing merge, run each step
 that runs after the merge. Once every step is terminal, run
 `archive <n> --pr <pr>` with the landing pull request. For a child, then set
 its parent row done; when `show <parent>` lists no open child, run

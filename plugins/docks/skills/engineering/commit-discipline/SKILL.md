@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "a0f4beee6417f6c61040b156e1aa1d737b3c7ede63f862566ddb56beb2b69c31"
+  content_hash: "38f9463fb6b16d88047eb43c2a1c8132966b0656316066008109f59de86d268f"
 ---
 
 # Commit & PR Discipline
@@ -209,29 +209,10 @@ sitting, or your description needs "also", split.
    for UI); a reviewer shouldn't have to re-derive your evidence.
 5. **Out of scope** — adjacent work deliberately not done, so review comments
    don't relitigate it.
-6. **Checklist** — a `## Checklist` section of top-level task items
-   (`- [ ] <text>`), so that GitHub shows its progress as `k of n tasks`.
-   `gh pr create --body-file` copies no template, so build the items in this
-   order:
-   1. the task items of the repository's pull-request template, as written
-      (a `pull_request_template` file, `.md` or `.txt`, in any letter case, in
-      the root, `docs/`, or `.github/`, or a `PULL_REQUEST_TEMPLATE/` folder);
-      with no template, the defaults "`<check command>` passes" (from the root
-      instruction file, or "Checks pass" when it names none), "Tested locally
-      with the `verify` skill", and "Code review passed";
-   2. one item for each check that the repository instructions require, as
-      "`<command>` passes";
-   3. "Tested locally with the `verify` skill" when the change touches a
-      surface that a user or another program drives;
-   4. "Code review passed".
-
-   Skip an item of 2 to 4 when a template item or a default item already
-   covers it, so that no check and no review shows twice. Tick an item
-   (`- [x]`) only when its check passed on the head that you push now, or,
-   for the code-review item, when a review passed on that head. Otherwise
-   leave it unticked and end its line with ` - <reason>`. After each push,
-   untick each item whose evidence is for an older head, with the reason
-   `not checked on <short-sha>`, until it passes again on the new head.
+6. **Checklist** — a `## Checklist` section of top-level task items: template
+   items first, then the required checks and code review. Tick an item only on
+   evidence for the pushed head; the order, defaults, and rules are in
+   [references/pull-request-checklist.md](references/pull-request-checklist.md).
 
 **Self-review before requesting review** — open your own diff in the PR view and
 read it as the reviewer: leave inline comments on anything non-obvious you'd
@@ -301,11 +282,6 @@ git diff @{upstream}.. --stat       # size sanity: is this one reviewable unit?
 - GitHub Docs, "Configuring commit squashing for pull requests" — squash
   default-message behavior
   (<https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/configuring-commit-squashing-for-pull-requests>).
-- GitHub Docs, "Creating a pull request template for your repository" — template
-  names and places
-  (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository>);
-  "About tasklists" — `- [ ]` and `- [x]` task items; `gh pr create` manual —
-  `--body-file` takes the body as given (<https://cli.github.com/manual/gh_pr_create>).
 - `git-rebase(1)` — `--autosquash`, `rebase.autoSquash`, `--exec`, `--update-refs`;
   `git-commit(1)` — `--fixup=amend:`/`reword:` (re-verify against your installed
   Git's man pages).

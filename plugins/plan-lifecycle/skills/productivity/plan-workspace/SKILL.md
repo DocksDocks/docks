@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "73b19e476d4eaff91fac07595c9c10595237a10561e03ad22c7971a5c3da0420"
+  content_hash: "61a7702478b545c004e84b686119e6cd007d6daef0f3894b087b4e171085bf54"
 ---
 
 # Plans Workspace
@@ -89,11 +89,15 @@ For audit, that report is final.
    Never overwrite an existing wrapper or create a manager wrapper.
 6. Offer to create the pull-request template from
    [`references/pull-request-template.md`](references/pull-request-template.md).
-   Run its detection first. When it prints a path, make no change and never
-   overwrite the template. When it prints an `ERROR` line, report the error and
-   write nothing. Only on `pull-request template: none`, fill in the check
-   command that the root instruction file names, print the draft, and ask.
-   Write `.github/pull_request_template.md` only when the user accepts.
+   Run its detection first. When it prints a path (a file, a folder, or a
+   symlink, also a broken one), make no change and never overwrite the
+   template. When it prints an `ERROR` line, report the error and write
+   nothing. Only on `pull-request template: none`, fill in the check command
+   that the root instruction file names, print the draft, and ask. When the
+   user accepts, run the detection again, and write
+   `.github/pull_request_template.md` only when it still reports `none` and
+   `.github` is not a symlink, as the reference says. Never write through a
+   symlink.
 
 ## Migrate or refresh
 

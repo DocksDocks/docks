@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "6def1234f604723a8f4ab13bcec3b2527cb49fde6daefa37093fea61f92f94b4"
+  content_hash: "426314172f4e1cd1356a973057a94dd3de0cc7cd9d7bef3dafcbc16605fd6266"
 ---
 
 # Yolo
@@ -350,8 +350,10 @@ The contract's Round ceiling also says this.
    --repo <owner/repo> --base <default> --head <branch> --title <title>
    --body-file <file>`.
 6. Wait for checks as the contract says. If a check fails, fix it, rerun
-   acceptance, review again, push, build the Checklist again from the evidence
-   for the new head, and wait again. When the same check still
+   acceptance, review again, and push. Right after the push, build the
+   Checklist again from the evidence for the new head, and update the body
+   with `gh pr edit <pr> --repo <owner/repo> --body-file <file>`. Then wait
+   again. When the same check still
    fails after the third fix attempt, stop fixing it. That is a stall under the
    contract's Round ceiling, as its Checks and merge says.
 7. Confirm that `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows

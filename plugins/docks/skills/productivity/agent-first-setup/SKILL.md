@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "37b5da1359ec1bf6f7a1f3dcebd00f11e99d83120d3a52e768183fc49549b511"
+  content_hash: "7522ef2cc0459a7ed569393244f36825eaf384feff43a99472b84c0f04748088"
 ---
 
 # Agent-First Setup
@@ -88,7 +88,11 @@ pr_templates() (
   root=$(git rev-parse --show-toplevel) && cd "$root" || exit 2
   for d in . docs .github; do
     test -d "$d" || continue
-    find "$d" -mindepth 1 -maxdepth 1 \( -type f \( -iname pull_request_template -o -iname pull_request_template.md -o -iname pull_request_template.txt \) -o -type d -iname pull_request_template \) -print || exit 2
+    hits=$(find "$d" -mindepth 1 -maxdepth 1 \( -iname pull_request_template -o -iname pull_request_template.md -o -iname pull_request_template.txt \) -print) || exit 2
+    for p in $hits; do
+      if test -L "$p"; then k=symlink; elif test -d "$p"; then k=folder; else k=file; fi
+      echo "$p ($k)"
+    done
   done
 )
 if t=$(pr_templates); then printf '%s\n' "${t:-none}" | sed 's/^/pull-request template: /'
@@ -142,12 +146,12 @@ In `audit` mode, run step 1 to step 3 only and record whether the skill exists, 
 
 ### Step 2c — Offer the pull-request template
 
-A pull-request template gives each pull request on GitHub the same task list, and GitHub shows its progress as `k of n tasks`. GitHub reads a template from the root, from `docs/`, or from `.github/`: a file named `pull_request_template`, with an extension such as `.md` or `.txt`, in any letter case, or a `PULL_REQUEST_TEMPLATE/` folder that holds several templates (source: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates). The `pr_templates` detection in Step 0 matches only the files `pull_request_template`, `pull_request_template.md`, and `pull_request_template.txt`, and the folder `PULL_REQUEST_TEMPLATE`, in any letter case; a name such as `pull_request_template.md.bak` is not a template. Step 0 and C10 use the same detection. This skill owns this write.
+A pull-request template gives each pull request on GitHub the same task list, and GitHub shows its progress as `k of n tasks`. GitHub reads a template from the root, from `docs/`, or from `.github/`: a file named `pull_request_template`, with an extension such as `.md` or `.txt`, in any letter case, or a `PULL_REQUEST_TEMPLATE/` folder that holds several templates (source: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates). The `pr_templates` detection in Step 0 matches only the names `pull_request_template`, `pull_request_template.md`, `pull_request_template.txt`, and `PULL_REQUEST_TEMPLATE`, in any letter case; a name such as `pull_request_template.md.bak` is not a template. Each entry with one of these names counts as present: a file, a folder, or a symlink, also a broken one. The line names its kind, for example `pull-request template: .github/pull_request_template.md (symlink)`. Step 0 and C10 use the same detection. This skill owns this write.
 
 1. If Step 0 printed a `pull-request template:` line with a path, make no change and go to Step 3. Never overwrite or edit an existing template. If Step 0 printed an `ERROR pull-request template check failed` line, report the error, write nothing, and go to Step 3. An error is not a missing template. Continue only on `pull-request template: none`.
 2. Read the check command from the root `AGENTS.md`, for example `bun run check`. When it names none, write the first item as `- [ ] Checks pass`.
 3. Print the draft below with the real check command, and the path `.github/pull_request_template.md`. Ask for approval through the harness question tool. Without approval, write nothing.
-4. After approval, write the file. Tell the user that GitHub uses the template only after it is on the default branch, and that the repository can add its own items later. Keep each item a top-level task item.
+4. After approval, run the Step 0 detection again. Write the file only when it reports `pull-request template: none` and `test ! -L .github` passes, so that the write creates a new file and never writes through a symlink. Otherwise write nothing and report the line. Tell the user that GitHub uses the template only after it is on the default branch, and that the repository can add its own items later. Keep each item a top-level task item.
 
 ```markdown
 ## Checklist
@@ -264,7 +268,11 @@ pr_templates() (
   root=$(git rev-parse --show-toplevel) && cd "$root" || exit 2
   for d in . docs .github; do
     test -d "$d" || continue
-    find "$d" -mindepth 1 -maxdepth 1 \( -type f \( -iname pull_request_template -o -iname pull_request_template.md -o -iname pull_request_template.txt \) -o -type d -iname pull_request_template \) -print || exit 2
+    hits=$(find "$d" -mindepth 1 -maxdepth 1 \( -iname pull_request_template -o -iname pull_request_template.md -o -iname pull_request_template.txt \) -print) || exit 2
+    for p in $hits; do
+      if test -L "$p"; then k=symlink; elif test -d "$p"; then k=folder; else k=file; fi
+      echo "$p ($k)"
+    done
   done
 )
 if t=$(pr_templates); then [ -n "$t" ] || echo "FINDING C10 no pull-request template (add it in Step 2c, or accept: the repository wants none)"
@@ -275,7 +283,7 @@ Read each `FINDING` line before you report it. A line anchor on a fictional exam
 
 ### Step 4 — Report
 
-Print one table. `Result` is `pass`, `fail (<count>)`, or `findings (<count>)`; copy the counts from the Step 3 output.
+Print one table. `Result` is `pass`, `fail (<count>)`, `findings (<count>)`, or `error (<count>)`; copy the counts from the Step 3 output. A check with an `ERROR` line is `error`, never `pass`, also when it printed no other line. When a check printed lines of more than one kind, show each kind, for example `fail (1), error (1)`.
 
 | Check | Result | Fix owner |
 |---|---|---|
@@ -290,9 +298,9 @@ Print one table. `Result` is `pass`, `fail (<count>)`, or `findings (<count>)`; 
 | C9 project `verify` skill and its symlink | | this skill, Step 2b |
 | C10 pull-request template | | this skill, Step 2c |
 
-Below the table, list: files written by Step 1, Step 2, Step 2b, and Step 2c (from their reports), the `verify` skill commands that failed in Step 2b, every open `FAIL` line, every `FINDING` with its accepted/defect decision, and blockers that stopped a step. In Claude Code, tell the user to run `/memory` and confirm `AGENTS.md` is listed (Claude Code v2.1.280 and later list it; on an older version, ask Claude what its project instructions say).
+Below the table, list: files written by Step 1, Step 2, Step 2b, and Step 2c (from their reports), the `verify` skill commands that failed in Step 2b, every open `FAIL` line, every `FINDING` with its accepted/defect decision, every `ERROR` line from Step 0 and Step 3 with the message above it, and blockers that stopped a step. In Claude Code, tell the user to run `/memory` and confirm `AGENTS.md` is listed (Claude Code v2.1.280 and later list it; on an older version, ask Claude what its project instructions say).
 
-**Idempotency:** on a repository that is already agent-first, Step 1, Step 2, Step 2b, and Step 2c are no-ops by their own contracts, Step 3 prints no `FAIL` line and no unaccepted `FINDING`, and no file is written. Any write on such a repository is a defect: report it.
+**Idempotency:** on a repository that is already agent-first, Step 1, Step 2, Step 2b, and Step 2c are no-ops by their own contracts, Step 3 prints no `FAIL` line, no `ERROR` line, and no unaccepted `FINDING`, and no file is written. Any write on such a repository is a defect: report it.
 
 ## Common Traps
 
@@ -329,7 +337,7 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 
 ## Anti-Hallucination Checks
 
-- Do not report a check as `pass` unless you ran the Step 3 block in this session and it printed no line for that check.
+- Do not report a check as `pass` unless you ran the Step 3 block in this session and it printed no line for that check. A check that printed an `ERROR` line did not run: report it as `error`.
 - Do not claim Step 1 or Step 2 finished unless that skill's own verification ran and printed no failure line.
 - Do not claim "no writes" in idempotent runs without `git status --short` showing no path changed by this run.
 - Do not claim Claude Code loads `AGENTS.md` from file checks alone; the user's `/memory` output (v2.1.280 and later) or Claude's own answer on an older version is the confirmation.

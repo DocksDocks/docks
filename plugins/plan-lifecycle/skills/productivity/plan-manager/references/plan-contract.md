@@ -743,25 +743,29 @@ push now:
 Otherwise keep the item unticked, and end its line with ` - <reason>`, for
 example ``- [ ] Tested locally with the `verify` skill - the change touches no driven surface``.
 A template item without proof gets the reason `not checked by the plan`.
-After each push, build every tick again from the evidence for the new
-reviewed head. Evidence for an older head ticks nothing: the item stays
-unticked, with the reason `not checked on <short-sha>`, until it passes on the
-new head.
+After each push to the linked branch while the pull request is open, also a
+push of current work before a block or a stall, build every tick again from
+the evidence for the new head. Evidence for an older head ticks nothing: the
+item stays unticked, with the reason `not checked on <short-sha>`, until it
+passes on the new head. Update the body right after the push, before any wait
+for checks, with `gh pr edit <pr> --repo <owner/repo> --body-file <file>`.
 
 ### Checks and merge
 
 Wait up to five minutes for checks to appear. Then wait for every check to
 finish, for example with `gh pr checks <pr> --repo <owner/repo> --watch`. A
 failed or cancelled check blocks the merge question until its fix passes code
-review. If the repository has no configured checks, use the green local gate as
-the check result and say so in the merge question.
+review. After you push the fix, update the body as Checklist says before you
+wait for checks again. If the repository has no configured checks, use the
+green local gate as the check result and say so in the merge question.
 
 When the same check still fails after the third fix attempt on one plan, stop
 fixing it. Outside a yolo run, ask with the options `Continue fixing` and
 `Leave plan blocked`. `Continue fixing` gives the check three more fix
 attempts. On `Leave plan blocked`, or without an answer, commit and push
-current work to the linked branch, set the status to `blocked` with the check
-name as the reason, run Teardown's exit without a merge, and report. In a yolo
+current work to the linked branch, update the body as Checklist says, set the
+status to `blocked` with the check name as the reason, run Teardown's exit
+without a merge, and report. In a yolo
 run, the third failure is a stall under Round ceiling.
 
 Before the merge question, run the landing self-check. Read the pushed body
@@ -1061,7 +1065,8 @@ code-review pass that still lists MEDIUM or LOW findings, land, and list those
 findings in the run summary.
 
 On a stall, commit and push current work to the linked branch first, when code
-exists. A hook that refuses them follows Repository hooks. Then ask once, with
+exists. When the pull request is open, update its body as Checklist says. A
+hook that refuses them follows Repository hooks. Then ask once, with
 the options `Continue yolo` and `Leave plan
 blocked`. Keep the status unchanged while you ask, because the helper does not
 move a blocked plan back to `drafting` or `planned`. `Continue yolo` gives the
