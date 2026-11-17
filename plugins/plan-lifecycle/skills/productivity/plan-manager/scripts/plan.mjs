@@ -27,10 +27,6 @@ const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}}`;
 const PLAN_LIST_ARGS = ',labels:["plan"],states:[OPEN,CLOSED],orderBy:{field:CREATED_AT,direction:DESC}';
 // A plan list row and a sub-issue row: enough to derive the status of each issue.
 const ISSUE_SUMMARY_FIELDS = `number title state stateReason labels(first:100){nodes{name} ${PAGE_INFO}}`;
-// The pull requests that close a plan, merged ones included. A merged one is the evidence that the plan landed work of
-// its own through a pull request, so the parent recovery rules do not apply to it (E1).
-const LANDING_FIELD = 'closedByPullRequestsReferences';
-const LANDING_ARGS = ',includeClosedPrs:true';
 const GH_MAX_BUFFER_MIB = 256;
 const PLAN_LIST_LIMIT = 500;
 // GitHub closes a plan for a merged pull request a while after the merge. `archive` reads an open plan up to
@@ -232,7 +228,6 @@ function readSnapshot(
             : '',
           closure ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}` : '',
           children ? issueConnectionSelection('subIssues', ISSUE_SUMMARY_FIELDS) : '',
-          children ? issueConnectionSelection(LANDING_FIELD, PULL_REQUEST_FIELDS, LANDING_ARGS) : '',
         ].join(' ');
   const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${defaultBranch ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
   const data = graphql(query, number === undefined ? {} : { number });
@@ -328,15 +323,11 @@ function readSnapshot(
     issue.closer = closer;
     issue.closedEventAt = latest?.createdAt;
   }
-  if (children) {
+  if (children)
     issue.children = issueSummaries(
       issueNodes(number, issue.subIssues, 'subIssues', ISSUE_SUMMARY_FIELDS),
       'sub-issues',
     );
-    issue.landedByPullRequest = pullRequestNodes(
-      issueNodes(number, issue[LANDING_FIELD], LANDING_FIELD, PULL_REQUEST_FIELDS, LANDING_ARGS),
-    ).some((pr) => pr.mergedAt !== null);
-  }
   return { issue, login, viewerId, labelIds };
 }
 function parseIssueNumber(value, kind = 'plan issue') {
@@ -903,18 +894,38 @@ export function parseReviewComment(body) {
   if (kind === 'code' && verdict === 'pass' && lines.some(severeFinding)) verdict = 'fixes-required';
   return { kind, verdict };
 }
-function reviewVerdicts(issue) {
-  const owners = issue.assignees,
-    verdicts = {};
-  const comments = issue.comments
+// The comments that the trust rule accepts, oldest first: the issue has one assignee, and that assignee wrote them.
+function trustedComments(issue) {
+  const owners = issue.assignees;
+  if (owners.length !== 1) return [];
+  return issue.comments
     .map((comment, index) => ({ comment, index }))
-    .sort((a, b) => Date.parse(a.comment.createdAt) - Date.parse(b.comment.createdAt) || a.index - b.index);
-  for (const { comment } of comments) {
+    .sort((a, b) => Date.parse(a.comment.createdAt) - Date.parse(b.comment.createdAt) || a.index - b.index)
+    .map(({ comment }) => comment)
+    .filter((comment) => comment.author?.login === owners[0].login);
+}
+function reviewVerdicts(issue) {
+  const verdicts = {};
+  for (const comment of trustedComments(issue)) {
     const review = parseReviewComment(comment.body);
-    if (owners.length === 1 && comment.author?.login === owners[0].login && review)
-      verdicts[review.kind] = review.verdict;
+    if (review) verdicts[review.kind] = review.verdict;
   }
   return verdicts;
+}
+// The archive record that `archive` posts with each successful archive, so that a later recovery knows which archive
+// rule finished the plan (E1). A reopen comment ends the record of the archive before it.
+const parentRecord = (children) =>
+  `Archived as parent: children ${children.map((child) => `#${child.number}`).join(', ')}`;
+const landingRecord = (pr) => `Archived with landing pull request #${pr}`;
+function archiveKind(issue) {
+  let kind;
+  for (const comment of trustedComments(issue)) {
+    const lines = comment.body.split(/\r?\n/).map((line) => line.trim());
+    if (lines[0].startsWith('Reopened: ')) kind = undefined;
+    if (lines.some((line) => /^Archived as parent: children #\d+(?:, #\d+)*$/.test(line))) kind = 'parent';
+    if (lines.some((line) => /^Archived with landing pull request #\d+$/.test(line))) kind = 'landing';
+  }
+  return kind;
 }
 function readPlanIssue(value, forWrite = false, connections = {}) {
   const { issue, login, viewerId, labelIds } = readSnapshot(parseIssueNumber(value), {
@@ -1288,16 +1299,16 @@ function parentRowChildren(parsed) {
 }
 // Whether no named child is linked and finished. `statuses` maps each linked child to its status.
 const noNamedChildFinished = (named, statuses) => !named.some((child) => statuses.get(child) === 'finished');
-// The children that the rows of a parent name, for the parent recovery rules. A merged pull request that closes the
-// plan is the evidence that it landed work of its own, so such a plan gets none of these rules, whatever its rows say.
+// The children that the rows of a parent name, for the parent recovery rules. They apply only while the latest trusted
+// archive record says that the plan was archived as a parent: a plan archived with its landing pull request, or one
+// that no archive record names, landed or closed without the child proof, so these rules would misread it.
 const parentRecoveryChildren = ({ issue, parsed }) =>
-  issue.landedByPullRequest ? undefined : parentRowChildren(parsed);
+  archiveKind(issue) === 'parent' ? parentRowChildren(parsed) : undefined;
 // The open work of a plan that reads closed as completed, as one child and its status, or undefined when it shows none.
-// A child that is not terminal is open work on every plan. A plan that a merged pull request closed landed its own
-// work, so nothing else counts there. On a parent, after archive's own close, `snapshot` holds the children of its
-// pre-close read, and a child that is new, a child that is no longer linked (status `unlinked`), or child rows that
-// named a finished child and name none now count too. On a parent retry without a snapshot, a row that names a child
-// that is not linked, and rows that name no finished child, count too.
+// A child that is not terminal is open work on every plan. On a plan archived as a parent, after archive's own close,
+// `snapshot` holds the children of its pre-close read, and a child that is new, a child that is no longer linked
+// (status `unlinked`), or child rows that name no finished child count too. On such a plan without a snapshot, a row
+// that names a child that is not linked, and rows that name no finished child, count too.
 function openWork({ issue, parsed }, snapshot) {
   const statuses = (children) => new Map(children.map((child) => [child.number, statusFromIssue(child)]));
   const now = statuses(issue.children),
@@ -1311,7 +1322,7 @@ function openWork({ issue, parsed }, snapshot) {
   if (!named) return undefined;
   const unlinked = (before ? [...before.keys()] : named).find((child) => !now.has(child));
   if (unlinked !== undefined) return work(unlinked);
-  if (noNamedChildFinished(named, now) && !(before && noNamedChildFinished(named, before)))
+  if (noNamedChildFinished(named, now))
     return work(named.find((child) => before?.get(child) === 'finished') ?? named[0]);
   return undefined;
 }
@@ -1323,7 +1334,7 @@ function reopenForOpenWork(observed, work, snapshot) {
   if (isClosed(observed))
     settleAndReopen({
       observed,
-      read: () => readPlanIssue(number, true, { children: true, closure: true, labelLookup: true }),
+      read: () => readPlanIssue(number, true, { comments: true, children: true, closure: true, labelLookup: true }),
       command: 'archive',
       stillReopenable: (plan) => {
         refuseStuck(plan.issue);
@@ -1336,7 +1347,7 @@ function reopenForOpenWork(observed, work, snapshot) {
 // A close cannot see a child change that races it, so archive reads the plan again after its own close and compares
 // the children with `snapshot`, the children of its pre-close read.
 function checkAfterOwnClose(number, snapshot) {
-  const after = readPlanIssue(number, true, { children: true, closure: true, labelLookup: true });
+  const after = readPlanIssue(number, true, { comments: true, children: true, closure: true, labelLookup: true });
   const work = openWork(after, snapshot);
   if (work) reopenForOpenWork(after, work, snapshot);
   if (!isClosed(after)) fail('plan issue changed remotely; re-read and retry');
@@ -1352,11 +1363,31 @@ function isParentPlan({ issue, parsed }) {
     named.length === children.size
   );
 }
+// Whether `login` already posted a comment with the line `record`, so that a rerun does not post the record again.
+const recorded = (issue, login, record) =>
+  issue.comments.some(
+    (comment) =>
+      comment.author?.login === login && comment.body.split(/\r?\n/).some((line) => line.trim() === record),
+  );
+// Post the archive `record` on a plan that archive did not close itself, unless a rerun posted it already.
+function postRecordOnce({ issue, login }, record) {
+  if (recorded(issue, login, record)) return;
+  const { id } = ownedPreWriteIssue(issue.number, login);
+  graphqlData([
+    '-f',
+    'query=mutation($issue:ID!,$body:String!){addComment(input:{subjectId:$issue,body:$body}){clientMutationId}}',
+    '-f',
+    `issue=${id}`,
+    '-f',
+    `body=${record}`,
+  ]);
+}
 // The archive of a parent plan: its work landed through its child plans, so a child that closed as completed is the
 // landing proof, and the parent needs no pull request and no code review (E1). A plan that reads closed as completed
-// while its children show open work, such as after a failed read that followed the close, is reopened safely.
+// while its children show open work, such as after a failed read that followed the close, is reopened safely. The
+// close posts the parent archive record.
 function archiveParent(number) {
-  const plan = readPlanIssue(number, true, { children: true, closure: true, labelLookup: true });
+  const plan = readPlanIssue(number, true, { comments: true, children: true, closure: true, labelLookup: true });
   const work = plan.status === 'finished' ? openWork(plan) : undefined;
   if (work) reopenForOpenWork(plan, work);
   const { children } = plan.issue;
@@ -1365,11 +1396,23 @@ function archiveParent(number) {
   if (!isParentPlan(plan)) fail(`archive refused: plan #${number} has its own landing work; archive it with --pr`);
   if (!children.some((child) => statusFromIssue(child) === 'finished'))
     fail(`archive refused: no child of plan #${number} finished; retire the parent`);
+  const record = parentRecord(children);
   if (!isClosed(plan)) {
     refuseChangedBeforeClose(plan);
-    runGh(['issue', 'close', String(number), '--reason', 'completed', '--repo', repository.nameWithOwner]);
+    // gh posts the comment before it closes, so the record of a close that failed after it is not posted again.
+    const comment = recorded(plan.issue, plan.login, record) ? [] : ['--comment', record];
+    runGh([
+      'issue',
+      'close',
+      String(number),
+      '--reason',
+      'completed',
+      ...comment,
+      '--repo',
+      repository.nameWithOwner,
+    ]);
     checkAfterOwnClose(number, children);
-  }
+  } else postRecordOnce(plan, record);
   writeIssueIfUnchanged(plan.issue, { remove: labelsToRemove(plan.issue) });
   console.log(`plan #${number} finished (all ${children.length} children finished)`);
 }
@@ -1418,9 +1461,11 @@ function archivePlan(args) {
   }
   // The close comes before the label removal: a failed close leaves the plan ongoing and a failed removal leaves it
   // finished, so a rerun archives it either way. Without its phase label, an open plan would no longer be archivable.
+  const record = landingRecord(pullRequest.number);
   if (!isClosed(observed)) {
     refuseChangedBeforeClose(observed);
-    const comment = `Closed by archive: pull request #${pullRequest.number} merged into ${defaultBranch} and closes this plan, but GitHub left the plan open.`;
+    // One comment explains the close and holds the archive record.
+    const comment = `Closed by archive: pull request #${pullRequest.number} merged into ${defaultBranch} and closes this plan, but GitHub left the plan open.\n\n${record}`;
     // gh posts the comment before it closes, so the comment of a close that failed after it is not posted again.
     const commented = observed.issue.comments.some(
       (entry) => entry.author?.login === observed.login && entry.body === comment,
@@ -1436,7 +1481,7 @@ function archivePlan(args) {
       nameWithOwner,
     ]);
     checkAfterOwnClose(number, observed.issue.children);
-  }
+  } else postRecordOnce(observed, record);
   writeIssueIfUnchanged(observed.issue, { remove: labelsToRemove(observed.issue) });
   console.log(`plan #${number} finished (closed by ${pullRequest.url})`);
 }
@@ -1528,13 +1573,15 @@ function closedByPullRequest(issue, pullRequest) {
   return true;
 }
 // One write request reopens the plan, posts `comment`, and claims an unassigned plan. A plan that archive finished has
-// no phase label, so the same request restores `plan:ongoing`. A reopen compares no body, so the pre-write read is its
-// last ownership check: an owner that appeared after the snapshot is refused, and the claim follows that read. The last
-// field returns the stored state, which shows whether GitHub left the plan stuck.
+// no phase label, so the same request restores `plan:ongoing`; the labels come from a read right before the write, so a
+// phase label that someone added meanwhile is kept and no second one is written. A reopen compares no body, so the
+// pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and the claim
+// follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
 function writeReopen({ issue, login, viewerId, labelIds }, comment) {
   const { id, assignees } = ownedPreWriteIssue(issue.number, login);
   const claims = assignees.length === 0;
-  const restoresPhase = statusFromLabels(issue.labels) === 'unlabelled';
+  const phaseBefore = statusFromLabels(readSnapshot(issue.number).issue.labels);
+  const restoresPhase = phaseBefore === 'unlabelled';
   const phaseLabelId = restoresPhase ? (labelIds.get('plan:ongoing') ?? createdLabelId('plan:ongoing')) : undefined;
   const stored = '{... on Issue{state stateReason}}';
   const fields = [
@@ -1571,12 +1618,11 @@ function writeReopen({ issue, login, viewerId, labelIds }, comment) {
   if (typeof payload?.state !== 'string' || (payload.stateReason !== null && typeof payload.stateReason !== 'string'))
     fail('gh api graphql returned malformed stored plan issue');
   refuseStuck({ ...issue, state: payload.state, stateReason: payload.stateReason });
-  // The stored labels can differ from the snapshot: someone can add a phase label just before the write. So the
-  // status comes from a fresh read, which must show one phase label: `plan:ongoing` after a restore, or the phase that
-  // the plan had before.
+  // A phase label can still change between the read before the write and the write. So the status comes from a fresh
+  // read, which must show one phase label: `plan:ongoing` after a restore, or the phase that the read before showed.
   const current = readSnapshot(issue.number).issue,
     status = statusFromIssue(current),
-    expected = restoresPhase ? 'ongoing' : statusFromLabels(issue.labels);
+    expected = restoresPhase ? 'ongoing' : phaseBefore;
   refuseStuck(current);
   if (!PLAN_STATUSES.has(status) || status !== expected) fail('plan issue state differs after reopen');
   console.log(`plan #${issue.number} reopened: ${status}`);

@@ -841,21 +841,6 @@ if (group === 'api' && command === 'graphql') {
         selection.fields,
       );
     }
-    // Issue.closedByPullRequestsReferences: the pull requests of state.prs that list the issue in closingIssuesReferences;
-    // GitHub returns closed and merged ones only with includeClosedPrs:true.
-    for (const selection of graphqlSelections(query, 'closedByPullRequestsReferences')) {
-      const includeClosed = graphqlValue(selection.args.get('includeClosedPrs') ?? 'false', variables) === true;
-      const closing = (state.prs ?? [])
-        .filter(
-          (pr) => pr.repository === state.repo.nameWithOwner && (pr.closingIssuesReferences ?? []).includes(issue.number),
-        )
-        .map((pr) => pullRequestObject({ number: pr.number }))
-        .filter((pr) => includeClosed || pr.state === 'OPEN');
-      payload[selection.alias] = selectFields(
-        graphqlPage(closing, selection, variables, ['first', 'after', 'includeClosedPrs']),
-        selection.fields,
-      );
-    }
     for (const selection of graphqlSelections(query, 'timelineItems')) {
       const types = selection.args.get('itemTypes');
       if (types === '[LABELED_EVENT]' || types === 'LABELED_EVENT') {

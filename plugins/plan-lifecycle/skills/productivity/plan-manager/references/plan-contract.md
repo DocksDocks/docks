@@ -273,7 +273,8 @@ agents define the exact block they return, and that block follows these rules.
 
 - The first non-blank line names the kind: `plan review` or `code review`, in
   any case, after optional `#` heading markers. Any suffix, such as `round 2`
-  or `round 2, lens correctness`, is allowed.
+  or `round 2, lens correctness`, is allowed. An archive record (Archive) is
+  not a review record.
 - A comment holds one or more review blocks. A block starts at the first line,
   or at a later Markdown heading line (one or more `#`, indented by at most
   three spaces) that names the comment's kind. A quoted or list-item heading
@@ -465,8 +466,8 @@ completed, it also advises:
 
 - on every plan, once per linked child that is not terminal:
   `plan is closed as completed while child #<c> is <status>; run archive <n> again to reopen it safely`;
-- on a plan with the parent row shape (Record and mode) that no merged pull
-  request closed (none in its `closedByPullRequestsReferences`), once per Steps
+- on a plan whose latest trusted archive record (Archive) says
+  `Archived as parent`, once per Steps
   row whose Done when is `child #<c> finished` while `<c>` is not a linked
   sub-issue:
   `plan names child #<c>, which is not linked; relink it or edit the row; run archive <n> again to reopen it safely`;
@@ -741,7 +742,9 @@ The plan must be `ongoing` or `finished`. GitHub can leave the plan open after
 the landing merge, for example when the repository turns off its auto-close
 setting (Pull requests). For an open plan, archive first waits up to about
 60 s for GitHub's close. When GitHub does not close the plan, archive closes it
-as completed, with a comment that names the pull request. Then archive removes
+as completed, with the comment
+`Closed by archive: pull request #<p> merged into <branch> and closes this plan, but GitHub left the plan open.`
+and its archive record (below). Then archive removes
 the phase labels. Do not close the plan by hand. A plan that someone already
 closed as completed archives with the same proof. When archive fails after it
 closed the plan, run the same command again. This rule replaces step 3 of the
@@ -760,12 +763,25 @@ It closes an open parent as completed, removes the phase labels, and prints
 child. On a plan without children, `archive` without `--pr` refuses. On a plan
 with children that is not a parent (Record and mode), it refuses with
 `archive refused: plan #<n> has its own landing work; archive it with --pr`.
+
+Archive posts an archive record as the acting owner. A parent archive posts
+`Archived as parent: children #<a>, #<b>`, in child order, as the comment of its
+close, or alone when the parent was already closed. An `archive --pr` posts
+`Archived with landing pull request #<p>`. When archive closed the plan itself,
+the record is the last line of its close comment, after a blank line; when
+GitHub already closed the plan, archive posts the record as a comment alone.
+A rerun posts no second record when a comment of the
+acting owner already holds the same line. The record is trusted as a review
+comment is (Phases and review comments), the latest trusted record wins, and
+a later trusted `Reopened: ...` comment ends it. Parent recovery below applies
+only when the latest trusted record says `Archived as parent`. A plan with a
+landing record or no record gets only the open-child rule.
+
 After its own close, archive compares the plan with its read before the close.
-Open work is a child that is not terminal. On a plan with the parent row shape
-that no merged pull request closed,
-open work is also a child added since that read, a child of that read that is
-no longer linked, and child rows that named a finished child before the close
-and name none after it. A state that existed before the close does not count. On open work,
+Open work is a child that is not terminal. On a parent archive record, open
+work is also a child added since that read, a child of that read that is no
+longer linked, and child rows that named a finished child before the close and
+name none after it. A state that existed before the close does not count. On open work,
 archive waits for the close to settle, reads the plan again, and reopens it
 through the same path as `reopen`, with the comment
 `Reopened: child #<c> changed while plan #<n> closed; work continues.` Then it
@@ -779,16 +795,16 @@ failure.
 
 A retry of `archive <n>` or `archive <n> --pr` on a plan that is closed as
 completed does the same safe reopen for the open work that `show` advises on:
-a child that is not terminal on every plan, and on a plan with the parent row
-shape that no merged pull request closed, also a named child that is not
-linked or no finished named child. The `--pr` retry checks this
+a child that is not terminal on every plan, and on a parent archive record also
+a named child that is not linked or no finished named child. The `--pr` retry checks this
 right after the not-merged refusal, before its other refusals. Run the retry
-when `show` advises it (Normalization, advice, and refusals). Each safe reopen
-also restores `plan:ongoing` when the plan has no phase label. After every safe
-reopen, by `reopen` or by `archive`, the helper reads the plan again. Unless it
-finds exactly one phase label, `plan:ongoing` after a restore or else the phase
-that the plan had before, it refuses with
-`plan issue state differs after reopen`. The printed status comes from that read.
+when `show` advises it (Normalization, advice, and refusals). Before each safe
+reopen, by `reopen` or by `archive`, the helper reads the labels again. It adds
+`plan:ongoing` only when no phase label is present; otherwise it keeps the
+labels. After the reopen, it reads the plan again. Unless it finds exactly one
+phase label, `plan:ongoing` after a restore or else the phase that the plan had
+before, it refuses with `plan issue state differs after reopen`. The printed
+status, such as `reopened: blocked`, comes from that read.
 
 ### Teardown
 

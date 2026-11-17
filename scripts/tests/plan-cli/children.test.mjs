@@ -390,13 +390,18 @@ function closableParent(context) {
   return { parent, child };
 }
 
-// The parent after a reopen for `child`.
-function reopenedParent(parent, child) {
+// The archive record that the close of a parent posts, naming its children in child order.
+function parentRecord(children) {
+  return `Archived as parent: children ${children.map((child) => `#${child}`).join(', ')}`;
+}
+
+// The parent after its archive record for `recorded` and a reopen for `child`.
+function reopenedParent(parent, child, recorded = [child]) {
   return {
     state: 'OPEN',
     stateReason: 'REOPENED',
     labels: ['plan', 'plan:ongoing'],
-    comments: [reopenedComment(parent, child)],
+    comments: [parentRecord(recorded), reopenedComment(parent, child)],
   };
 }
 
@@ -425,7 +430,7 @@ for (const [name, during] of DURING_CLOSE) {
     refuse(result, `archive refused: child #${reported} is ${status}`);
     assert.equal(result.stdout, `plan #${parent} reopened: ongoing\n`);
     assert.deepEqual(context.waits(), [SETTLE_WAIT], 'the reopen waits for the close to settle');
-    assert.deepEqual(parentState(context, parent), reopenedParent(parent, reported));
+    assert.deepEqual(parentState(context, parent), reopenedParent(parent, reported, [child]));
     assert.equal(closes(context).length, 1);
   });
 }
@@ -449,7 +454,7 @@ test('archive --pr reopens the plan after the settle wait when a child reopens d
   );
 });
 
-test('archive --pr counts only a change since its pre-close read as open work after its close', (t) => {
+test('archive --pr closes a plan with an own-work row and an unlinked child row without a reopen', (t) => {
   const context = planCliContext(t);
   // A row names an issue that is not linked, and another row carries the plan's own work.
   const named = context.landedPlan('landed plan whose row names an unlinked issue');
@@ -463,67 +468,89 @@ test('archive --pr counts only a change since its pre-close read as open work af
   const first = archive(context, String(named.number), '--pr', String(named.pr));
   expectSuccess(first, 'archive a plan whose row names an unlinked issue');
   assert.equal(parentState(context, named.number).state, 'CLOSED');
-  // Every row names a child and none finished, as before the close. The pull request closes the plan by its
-  // description only, so GitHub lists it in no closing reference, and the plan shows no landing evidence.
-  const retired = context.landedPlan('landed plan with only a retired child');
-  const child = context.createChild('retired child', retired.number).number;
-  closeChild(context, child, 'NOT_PLANNED');
-  setSteps(context, retired.number, parentRows([child]));
-  context.updateState((state) => {
-    state.prs.find((pr) => pr.number === retired.pr).closingIssuesReferences = [];
-  });
-  expectSuccess(archive(context, String(retired.number), '--pr', String(retired.pr)), 'archive with a retired child');
-  assert.equal(parentState(context, retired.number).state, 'CLOSED');
 });
 
-test('a plan that a merged pull request closed gets only the open-child recovery', (t) => {
+test('a plan archived with its landing pull request gets only the open-child recovery', (t) => {
   const context = planCliContext(t);
   const ownRow = '| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | done | Records round-trip |';
   const unlinked = context.createPlan('unlinked issue');
   const ownWork = (number) => `archive refused: plan #${number} has its own landing work; archive it with --pr`;
-  for (const [name, rows, childReason, refusal] of [
-    ['only a retired child', () => [ownRow], 'NOT_PLANNED', ownWork],
+  const noFinishedChild = (number) => `archive refused: no child of plan #${number} finished; retire the parent`;
+  for (const [name, rows, childReason, refusal, closedByGitHub] of [
+    ['only a retired child', () => [ownRow], 'NOT_PLANNED', ownWork, false],
     [
       'an unlinked child row',
       () => [ownRow, `| 2 | note | Note the issue | - | - | local | done | child #${unlinked} finished |`],
       'COMPLETED',
       ownWork,
+      false,
     ],
-    // Parent rows, but the merged pull request is the landing proof, so the plan is no parent to recover.
+    // Parent rows, but the landing pull request is the proof, so the plan is no parent to recover.
+    ['parent rows and only a retired child', (child) => parentRows([child]), 'NOT_PLANNED', noFinishedChild, false],
     [
-      'parent rows and only a retired child',
+      'parent rows and only a retired child, closed by GitHub',
       (child) => parentRows([child]),
       'NOT_PLANNED',
-      (number) => `archive refused: no child of plan #${number} finished; retire the parent`,
+      noFinishedChild,
+      true,
     ],
   ]) {
     const plan = context.landedPlan(`landed plan with ${name}`);
     const child = context.createChild('child', plan.number).number;
     closeChild(context, child, childReason);
     setSteps(context, plan.number, rows(child));
+    if (closedByGitHub)
+      context.updateIssue(plan.number, (entry) => {
+        entry.state = 'CLOSED';
+        entry.stateReason = 'COMPLETED';
+        entry.timelineItems = [{ __typename: 'ClosedEvent', closer: plan.closer }];
+      });
     expectSuccess(archive(context, String(plan.number), '--pr', String(plan.pr)), `archive --pr with ${name}`);
     const finished = parentState(context, plan.number);
+    assert.ok(
+      finished.comments.at(-1).endsWith(`Archived with landing pull request #${plan.pr}`),
+      `${name}: the archive records its landing pull request`,
+    );
     assert.deepEqual(closedAdvice(context, plan.number), [], `${name}: show gives no recovery advice`);
     context.updateState((state) => {
       state.calls = [];
     });
-    // Both retries finish or refuse without a write.
+    // Both retries finish or refuse without a write, and the rerun posts no second record.
     refuse(archive(context, String(plan.number)), refusal(plan.number));
     expectSuccess(archive(context, String(plan.number), '--pr', String(plan.pr)), `archive --pr again with ${name}`);
-    assert.deepEqual(mutations(context), [], `${name}: no reopen`);
+    assert.deepEqual(mutations(context), [], `${name}: no reopen and no second record`);
     assert.deepEqual(parentState(context, plan.number), finished);
   }
 });
 
-test('an open pull request that names a parent is no landing evidence for it', (t) => {
+test('a closed plan without an archive record gets only the open-child recovery', (t) => {
+  const context = planCliContext(t);
+  // Someone closed the parent by hand: no archive record says that it was archived as a parent.
+  const parent = ongoingParent(context);
+  const retired = context.createChild('retired child', parent).number;
+  closeChild(context, retired, 'NOT_PLANNED');
+  setSteps(context, parent, parentRows([retired]));
+  closePlan(context, parent);
+  // A parent record that another login wrote fails the trust rule, so it is no archive record.
+  context.addIssueComment(parent, parentRecord([retired]), 'foreign-agent');
+  assert.deepEqual(closedAdvice(context, parent), []);
+  context.updateState((state) => {
+    state.calls = [];
+  });
+  refuse(archive(context, String(parent)), `archive refused: no child of plan #${parent} finished; retire the parent`);
+  assert.deepEqual(mutations(context), []);
+});
+
+test('a parent archive posts its record once, and a linked merged pull request does not end parent recovery', (t) => {
   const context = planCliContext(t);
   const { parent, child } = closableParent(context);
+  // A merged pull request that someone linked to the parent by hand: it did not archive the plan.
   context.updateState((state) => {
     state.prs.push({
       number: 900,
       url: 'https://github.com/DocksDocks/fixture/pull/900',
-      state: 'OPEN',
-      mergedAt: null,
+      state: 'MERGED',
+      mergedAt: '2026-08-21T00:00:00Z',
       baseRefName: 'main',
       body: `Closes #${parent}`,
       repository: 'DocksDocks/fixture',
@@ -531,12 +558,29 @@ test('an open pull request that names a parent is no landing evidence for it', (
     });
   });
   expectSuccess(archive(context, String(parent)), 'archive the parent');
+  assert.deepEqual(parentState(context, parent).comments, [parentRecord([child])], 'the close posts the record');
+  expectSuccess(archive(context, String(parent)), 'rerun the archive of the finished parent');
+  assert.deepEqual(parentState(context, parent).comments, [parentRecord([child])], 'a rerun posts no second record');
   // The only finished child is unlinked after the archive: the parent rules still apply.
   context.updateIssue(parent, (entry) => {
     entry.subIssues = [];
   });
+  assert.deepEqual(closedAdvice(context, parent), [
+    `advice: plan names child #${child}, which is not linked; relink it or edit the row; run archive ${parent} again to reopen it safely`,
+    `advice: plan is closed as completed but no child finished; run archive ${parent} again to reopen it safely`,
+  ]);
   refuse(archive(context, String(parent)), `archive refused: child #${child} is unlinked`);
   assert.deepEqual(parentState(context, parent), reopenedParent(parent, child));
+});
+
+test('the archive of a parent that someone else closed posts its record once', (t) => {
+  const context = planCliContext(t);
+  const { parent, child } = closableParent(context);
+  closePlan(context, parent);
+  expectSuccess(archive(context, String(parent)), 'archive a closed parent');
+  assert.deepEqual(parentState(context, parent).comments, [parentRecord([child])]);
+  expectSuccess(archive(context, String(parent)), 'rerun');
+  assert.deepEqual(parentState(context, parent).comments, [parentRecord([child])]);
 });
 
 test('a reopen after a finished archive restores the ongoing phase label', (t) => {
@@ -549,19 +593,42 @@ test('a reopen after a finished archive restores the ongoing phase label', (t) =
   refuse(archive(context, String(parent)), `archive refused: child #${child} is ongoing`);
   assert.deepEqual(parentState(context, parent), reopenedParent(parent, child));
   assert.match(context.run('show', String(parent)).stdout, new RegExp(`^#${parent} · ongoing · `, 'm'));
+  // The reopen comment ends the parent record: after a close by hand, only the open-child rule applies.
+  closeChild(context, child, 'NOT_PLANNED');
+  closePlan(context, parent);
+  assert.deepEqual(closedAdvice(context, parent), []);
 });
 
-test('a reopen refuses and reports no status when another phase label appears just before its write', (t) => {
+test('a reopen keeps a phase label that someone added before its label read and writes no second one', (t) => {
   const context = planCliContext(t);
   const { parent, child } = closableParent(context);
   expectSuccess(archive(context, String(parent)), 'archive the parent');
   context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
-  // The retry reads the plan twice (the first read and the settle read); the label lands before the reopen write.
+  // The retry reads the plan twice (the first read and the settle read); the label lands before the read of the labels.
   context.schedule(parent, { afterReads: reads(context, parent) + 2, labels: ['plan', 'plan:blocked'] });
+  context.updateState((state) => {
+    state.calls = [];
+  });
+  const result = archive(context, String(parent));
+  refuse(result, `archive refused: child #${child} is ongoing`);
+  assert.equal(result.stdout, `plan #${parent} reopened: blocked\n`);
+  assert.deepEqual(parentState(context, parent).labels, ['plan', 'plan:blocked']);
+  assert.ok(
+    mutations(context).every((call) => !call.some((argument) => argument.includes('addLabelsToLabelable'))),
+    'the helper writes no phase label',
+  );
+});
+
+test('a reopen refuses and reports no status when another phase label lands with its write', (t) => {
+  const context = planCliContext(t);
+  const { parent, child } = closableParent(context);
+  expectSuccess(archive(context, String(parent)), 'archive the parent');
+  context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
+  // The label lands after the read of the labels, right before the reopen write.
+  context.schedule(parent, { afterReads: reads(context, parent) + 3, labels: ['plan', 'plan:blocked'] });
   const result = archive(context, String(parent));
   refuse(result, 'plan issue state differs after reopen');
   assert.equal(result.stdout, '', 'no reopened status is reported');
-  assert.deepEqual(parentState(context, parent).labels, ['plan', 'plan:blocked', 'plan:ongoing']);
 });
 
 test('archive --pr reopens a closed plan safely on the retry after a failed read that followed its close', (t) => {
@@ -652,7 +719,7 @@ test('archive writes nothing when the close or the child changes again during th
   const reopenedBySomeone = archive(context, String(second.parent));
   refuse(reopenedBySomeone, `archive refused: child #${second.child} is ongoing`);
   assert.equal(reopenedBySomeone.stdout, '');
-  assert.deepEqual(parentState(context, second.parent).comments, []);
+  assert.deepEqual(parentState(context, second.parent).comments, [parentRecord([second.child])]);
 });
 
 test('archive refuses when the plan reads open after its close and no child changed', (t) => {
@@ -672,7 +739,7 @@ test('archive refuses when the plan reads open after its close and no child chan
   const result = archive(context, String(second.parent));
   refuse(result, `archive refused: child #${second.child} is ongoing`);
   assert.deepEqual(context.waits().slice(waitsBefore), [], 'no settle wait for an open plan');
-  assert.deepEqual(parentState(context, second.parent).comments, []);
+  assert.deepEqual(parentState(context, second.parent).comments, [parentRecord([second.child])]);
 });
 
 test('archive reopens a closed plan safely on the retry after a failed read that followed its close', (t) => {
@@ -690,7 +757,7 @@ test('archive reopens a closed plan safely on the retry after a failed read that
     state: 'CLOSED',
     stateReason: 'COMPLETED',
     labels: ['plan', 'plan:ongoing'],
-    comments: [],
+    comments: [parentRecord([child])],
   });
   assert.deepEqual(mutations(context), []);
   assert.deepEqual(closedAdvice(context, parent), [
@@ -734,7 +801,7 @@ test('archive reopens a closed plan safely on the retry when one of two finished
   // A finished child is still linked, so only the row of the unlinked child is open work.
   const retry = archive(context, String(parent));
   refuse(retry, `archive refused: child #${lost} is unlinked`);
-  assert.deepEqual(parentState(context, parent), reopenedParent(parent, lost));
+  assert.deepEqual(parentState(context, parent), reopenedParent(parent, lost, [kept, lost]));
 });
 
 // The advice lines that `show` prints for a closed plan and its children.
@@ -786,6 +853,8 @@ test('show advises on child rows that name an unlinked child or no finished chil
   // The rows name only the retired child, so no named child finished.
   setSteps(context, parent, parentRows([retired]));
   closePlan(context, parent);
+  // The parent rules apply to a plan whose latest trusted archive record says that it was archived as a parent.
+  context.addIssueComment(parent, parentRecord([retired, finished]));
   const recovery = `run archive ${parent} again to reopen it safely`;
   assert.deepEqual(closedAdvice(context, parent), [
     `advice: plan is closed as completed but no child finished; ${recovery}`,
