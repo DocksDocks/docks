@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "9f68490e982b5c69959048244fd2a60cd057bf0c7d59466591496dd622220309"
+  content_hash: "616888e53bb6084ef96813b3c3b243ce5ea2e061f7061e6d6aac1335e560357d"
 ---
 
 # Plan Manager

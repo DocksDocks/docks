@@ -253,7 +253,7 @@ test('archive without --pr keeps the --pr rule for a plan without children', (t)
   assert.deepEqual(context.writes(), []);
 });
 
-test('archive --pr refuses a landed plan while one of its children is open', (t) => {
+test('archive --pr reopens a landed plan safely while one of its children is open, then archives it', (t) => {
   const context = planCliContext(t);
   const plan = context.landedPlan('landed plan with a child');
   const child = context.createChild('child', plan.number).number;
@@ -263,12 +263,11 @@ test('archive --pr refuses a landed plan while one of its children is open', (t)
     entry.stateReason = 'COMPLETED';
     entry.timelineItems = [{ __typename: 'ClosedEvent', closer: plan.closer }];
   });
-  refuse(
-    context.run('archive', String(plan.number), '--pr', String(plan.pr)),
-    `archive refused: child #${child} is drafting`,
-  );
+  const refused = archive(context, String(plan.number), '--pr', String(plan.pr));
+  refuse(refused, `archive refused: child #${child} is drafting`);
+  assert.equal(refused.stdout, `plan #${plan.number} reopened: ongoing\n`);
   closeChild(context, child, 'COMPLETED');
-  expectSuccess(context.run('archive', String(plan.number), '--pr', String(plan.pr)), 'archive after the child');
+  expectSuccess(archive(context, String(plan.number), '--pr', String(plan.pr)), 'archive after the child');
 });
 
 test('archive without --pr refuses a plan with a child and its own landing work', (t) => {
@@ -471,6 +470,76 @@ test('archive --pr counts only a change since its pre-close read as open work af
   setSteps(context, retired.number, parentRows([child]));
   expectSuccess(archive(context, String(retired.number), '--pr', String(retired.pr)), 'archive with a retired child');
   assert.equal(parentState(context, retired.number).state, 'CLOSED');
+});
+
+test('a plan with its own landing work and only a retired child or an unlinked child row gets no recovery', (t) => {
+  const context = planCliContext(t);
+  const ownRow = '| 1 | fix_parser | Fix parser | src/parser.mjs | - | local | done | Records round-trip |';
+  const unlinked = context.createPlan('unlinked issue');
+  for (const [name, rows, childReason] of [
+    ['only a retired child', [ownRow], 'NOT_PLANNED'],
+    [
+      'an unlinked child row',
+      [ownRow, `| 2 | note | Note the issue | - | - | local | done | child #${unlinked} finished |`],
+      'COMPLETED',
+    ],
+  ]) {
+    const plan = context.landedPlan(`landed plan with ${name}`);
+    closeChild(context, context.createChild('child', plan.number).number, childReason);
+    setSteps(context, plan.number, rows);
+    expectSuccess(archive(context, String(plan.number), '--pr', String(plan.pr)), `archive --pr with ${name}`);
+    const finished = parentState(context, plan.number);
+    assert.deepEqual(closedAdvice(context, plan.number), [], `${name}: show gives no recovery advice`);
+    context.updateState((state) => {
+      state.calls = [];
+    });
+    // `archive` without --pr keeps the own-work refusal, and `archive --pr` finishes the plan again.
+    refuse(
+      archive(context, String(plan.number)),
+      `archive refused: plan #${plan.number} has its own landing work; archive it with --pr`,
+    );
+    expectSuccess(archive(context, String(plan.number), '--pr', String(plan.pr)), `archive --pr again with ${name}`);
+    assert.deepEqual(mutations(context), [], `${name}: no reopen`);
+    assert.deepEqual(parentState(context, plan.number), finished);
+  }
+});
+
+test('a reopen after a finished archive restores the ongoing phase label', (t) => {
+  const context = planCliContext(t);
+  const { parent, child } = closableParent(context);
+  expectSuccess(archive(context, String(parent)), 'archive the parent');
+  assert.deepEqual(parentState(context, parent).labels, ['plan']);
+  // The child reopens after the archive finished, and the owner follows the advice of `show`.
+  context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
+  refuse(archive(context, String(parent)), `archive refused: child #${child} is ongoing`);
+  assert.deepEqual(parentState(context, parent), reopenedParent(parent, child));
+  assert.match(context.run('show', String(parent)).stdout, new RegExp(`^#${parent} · ongoing · `, 'm'));
+});
+
+test('archive --pr reopens a closed plan safely on the retry after a failed read that followed its close', (t) => {
+  const context = planCliContext(t);
+  const plan = context.landedPlan('landed plan with a finished child');
+  const child = context.createChild('child', plan.number).number;
+  closeChild(context, child, 'COMPLETED');
+  context.updateState((state) => {
+    state.afterCloseOnce = {
+      graphqlError: { errors: [{ message: 'child read unavailable' }] },
+      otherIssues: { [child]: REOPENED_CHILD },
+    };
+  });
+  refuse(
+    archive(context, String(plan.number), '--pr', String(plan.pr)),
+    'gh api graphql returned errors: child read unavailable',
+  );
+  assert.equal(parentState(context, plan.number).state, 'CLOSED');
+  const retry = archive(context, String(plan.number), '--pr', String(plan.pr));
+  refuse(retry, `archive refused: child #${child} is ongoing`);
+  assert.equal(retry.stdout, `plan #${plan.number} reopened: ongoing\n`);
+  const stored = parentState(context, plan.number);
+  assert.deepEqual(
+    { state: stored.state, labels: stored.labels, comment: stored.comments.at(-1) },
+    { state: 'OPEN', labels: ['plan', 'plan:ongoing'], comment: reopenedComment(plan.number, child) },
+  );
 });
 
 test('archive refuses with the stuck state when GitHub leaves the plan closed with reason REOPENED', (t) => {

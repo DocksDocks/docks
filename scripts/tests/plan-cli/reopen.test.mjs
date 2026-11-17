@@ -50,6 +50,20 @@ test('reopen waits for the close by the pull request, then reopens with the cont
   assert.equal(context.writes().length, 1, 'the reopen, the comment, and the claim land in one request');
 });
 
+test('reopen restores the ongoing phase label of a plan that lost it, in the same request', (t) => {
+  const context = planCliContext(t);
+  const plan = context.partialMerge('reopen without a phase label', { assignees: ['plan-agent'] });
+  context.updateIssue(plan.number, (entry) => {
+    entry.labels = ['plan'];
+  });
+  context.schedule(plan.number, { afterReads: 0, ...closedBy(plan.closer) });
+  const result = reopen(context, plan);
+  expectSuccess(result, 'reopen a plan without a phase label');
+  assert.equal(result.stdout, `plan #${plan.number} reopened: ongoing\n`);
+  assert.deepEqual(stored(context, plan.number).labels, ['plan', 'plan:ongoing']);
+  assert.equal(context.writes().length, 1, 'the reopen, the label, and the comment land in one request');
+});
+
 test('reopen accepts the close by a commit of the merged pull request and leaves an owned plan with its owner', (t) => {
   const context = planCliContext(t);
   const plan = context.partialMerge('commit close', { assignees: ['plan-agent'] });

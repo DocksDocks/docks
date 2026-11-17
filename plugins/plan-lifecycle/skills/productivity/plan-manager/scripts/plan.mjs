@@ -1040,20 +1040,20 @@ function showPlan(args) {
   }
 }
 // The open work that `archive` reopens safely on a plan closed as completed (see openWork): a linked child that is not
-// terminal, a child row that names a child that is not linked, and child rows that name no finished child.
+// terminal and, on a parent, a row that names a child that is not linked or rows that name no finished child.
 function closedChildAdvice(issue, parsed) {
   const recovery = `run archive ${issue.number} again to reopen it safely`,
     statuses = new Map(issue.children.map((child) => [child.number, statusFromIssue(child)])),
-    named = childRows(parsed),
+    named = parentRowChildren(parsed),
     advice = [];
   for (const [child, status] of statuses)
     if (!CHILD_TERMINAL_STATUSES.has(status))
       advice.push(`plan is closed as completed while child #${child} is ${status}; ${recovery}`);
+  if (!named) return advice;
   for (const child of named)
     if (!statuses.has(child))
       advice.push(`plan names child #${child}, which is not linked; relink it or edit the row; ${recovery}`);
-  if (noChildRowFinished(parsed, named, statuses))
-    advice.push(`plan is closed as completed but no child finished; ${recovery}`);
+  if (noNamedChildFinished(named, statuses)) advice.push(`plan is closed as completed but no child finished; ${recovery}`);
   return advice;
 }
 // Each budget that a plan passes gets one advice line (E4).
@@ -1268,36 +1268,36 @@ function refuseChangedBeforeClose({ issue, login }) {
 }
 // The Done when cell of a parent row (E1).
 const CHILD_ROW = /^child #([1-9]\d*) finished$/;
-// The child numbers that the Done when cells of the Steps rows name.
-const childRows = (parsed) =>
-  parsed.steps.flatMap((step) => {
-    const match = CHILD_ROW.exec(step.doneWhen);
-    return match ? [Number(match[1])] : [];
-  });
-// Whether every Steps row names a child and no named child is linked and finished. `statuses` maps each linked child
-// to its status.
-const noChildRowFinished = (parsed, named, statuses) =>
-  named.length > 0 &&
-  named.length === parsed.steps.length &&
-  !named.some((child) => statuses.get(child) === 'finished');
+// The children that the Steps rows of a parent name: every row has Files `-` and Done when `child #<c> finished` (E1).
+// Undefined for a plan without rows or with a row of its own landing work.
+function parentRowChildren(parsed) {
+  const named = parsed.steps.map((step) =>
+    unquoteCode(step.files.trim()).trim() === '-' ? Number(CHILD_ROW.exec(step.doneWhen)?.[1]) : Number.NaN,
+  );
+  return named.length > 0 && named.every((child) => !Number.isNaN(child)) ? named : undefined;
+}
+// Whether no named child is linked and finished. `statuses` maps each linked child to its status.
+const noNamedChildFinished = (named, statuses) => !named.some((child) => statuses.get(child) === 'finished');
 // The open work of a plan that reads closed as completed, as one child and its status, or undefined when it shows none.
-// After archive's own close, `snapshot` holds the children of its pre-close read, and only a change since then counts:
-// a child that is not terminal or is new, a child that is no longer linked (status `unlinked`), or child rows that
-// named a finished child and name none now. On a retry without a snapshot, the plan counts as it reads: a child that is
-// not terminal, a child row that names a child that is not linked, or child rows that name no finished child.
+// A child that is not terminal is open work on every plan. A plan with its own landing work finished through its pull
+// request, so nothing else counts there. On a parent, after archive's own close, `snapshot` holds the children of its
+// pre-close read, and a child that is new, a child that is no longer linked (status `unlinked`), or child rows that
+// named a finished child and name none now count too. On a parent retry without a snapshot, a row that names a child
+// that is not linked, and rows that name no finished child, count too.
 function openWork({ issue, parsed }, snapshot) {
   const statuses = (children) => new Map(children.map((child) => [child.number, statusFromIssue(child)]));
   const now = statuses(issue.children),
     before = snapshot && statuses(snapshot),
-    named = childRows(parsed);
+    named = parentRowChildren(parsed);
   const work = (number) => ({ number, status: now.get(number) ?? 'unlinked' });
   const open = [...now.keys()].find(
-    (child) => !CHILD_TERMINAL_STATUSES.has(now.get(child)) || before?.has(child) === false,
+    (child) => !CHILD_TERMINAL_STATUSES.has(now.get(child)) || (named && before?.has(child) === false),
   );
   if (open !== undefined) return work(open);
+  if (!named) return undefined;
   const unlinked = (before ? [...before.keys()] : named).find((child) => !now.has(child));
   if (unlinked !== undefined) return work(unlinked);
-  if (noChildRowFinished(parsed, named, now) && !(before && noChildRowFinished(parsed, named, before)))
+  if (noNamedChildFinished(named, now) && !(before && noNamedChildFinished(named, before)))
     return work(named.find((child) => before?.get(child) === 'finished') ?? named[0]);
   return undefined;
 }
@@ -1309,7 +1309,7 @@ function reopenForOpenWork(observed, work, snapshot) {
   if (isClosed(observed))
     settleAndReopen({
       observed,
-      read: () => readPlanIssue(number, true, { children: true, closure: true }),
+      read: () => readPlanIssue(number, true, { children: true, closure: true, labelLookup: true }),
       command: 'archive',
       stillReopenable: (plan) => {
         refuseStuck(plan.issue);
@@ -1322,7 +1322,7 @@ function reopenForOpenWork(observed, work, snapshot) {
 // A close cannot see a child change that races it, so archive reads the plan again after its own close and compares
 // the children with `snapshot`, the children of its pre-close read.
 function checkAfterOwnClose(number, snapshot) {
-  const after = readPlanIssue(number, true, { children: true, closure: true });
+  const after = readPlanIssue(number, true, { children: true, closure: true, labelLookup: true });
   const work = openWork(after, snapshot);
   if (work) reopenForOpenWork(after, work, snapshot);
   if (!isClosed(after)) fail('plan issue changed remotely; re-read and retry');
@@ -1331,11 +1331,9 @@ function checkAfterOwnClose(number, snapshot) {
 // row (E1). Any other plan with children landed work of its own, so it needs the proof of `--pr`.
 function isParentPlan({ issue, parsed }) {
   const children = new Set(issue.children.map((child) => child.number));
-  const named = parsed.steps.map((step) =>
-    unquoteCode(step.files.trim()).trim() === '-' ? Number(CHILD_ROW.exec(step.doneWhen)?.[1]) : Number.NaN,
-  );
+  const named = parentRowChildren(parsed);
   return (
-    named.every((child) => children.has(child)) &&
+    named?.every((child) => children.has(child)) &&
     new Set(named).size === named.length &&
     named.length === children.size
   );
@@ -1344,7 +1342,7 @@ function isParentPlan({ issue, parsed }) {
 // landing proof, and the parent needs no pull request and no code review (E1). A plan that reads closed as completed
 // while its children show open work, such as after a failed read that followed the close, is reopened safely.
 function archiveParent(number) {
-  const plan = readPlanIssue(number, true, { children: true, closure: true });
+  const plan = readPlanIssue(number, true, { children: true, closure: true, labelLookup: true });
   const work = plan.status === 'finished' ? openWork(plan) : undefined;
   if (work) reopenForOpenWork(plan, work);
   const { children } = plan.issue;
@@ -1371,9 +1369,19 @@ function archivePlan(args) {
   const number = parseIssueNumber(value),
     pullRequest = readPullRequest(parseIssueNumber(pr, 'pull request'), number);
   if (!pullRequest.merged) fail(`pull request #${pullRequest.number} is not merged`);
-  // Each read is a snapshot for the write: it checks ownership, decides the claim, and must still be archivable.
+  // Each read is a snapshot for the write: it checks ownership, decides the claim, and must still be archivable. A plan
+  // that reads closed as completed while a child shows open work, such as after a failed read that followed archive's
+  // close, is reopened safely before the archive refusals.
   const read = () => {
-    const plan = readPlanIssue(number, true, { comments: true, defaultBranch: true, children: true });
+    const plan = readPlanIssue(number, true, {
+      comments: true,
+      defaultBranch: true,
+      children: true,
+      closure: true,
+      labelLookup: true,
+    });
+    const work = plan.status === 'finished' ? openWork(plan) : undefined;
+    if (work) reopenForOpenWork(plan, work);
     refuseUnarchivable(plan);
     return plan;
   };
@@ -1505,28 +1513,39 @@ function closedByPullRequest(issue, pullRequest) {
     );
   return true;
 }
-// One write request reopens the plan, posts `comment`, and claims an unassigned plan. A reopen compares no body, so the
-// pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and the claim
-// follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
-function writeReopen({ issue, login, viewerId }, comment) {
+// One write request reopens the plan, posts `comment`, and claims an unassigned plan. A plan that archive finished has
+// no phase label, so the same request restores `plan:ongoing`. A reopen compares no body, so the pre-write read is its
+// last ownership check: an owner that appeared after the snapshot is refused, and the claim follows that read. The last
+// field returns the stored state, which shows whether GitHub left the plan stuck.
+function writeReopen({ issue, login, viewerId, labelIds }, comment) {
   const { id, assignees } = ownedPreWriteIssue(issue.number, login);
   const claims = assignees.length === 0;
+  const restoresPhase = statusFromLabels(issue.labels) === 'unlabelled';
+  const phaseLabelId = restoresPhase ? (labelIds.get('plan:ongoing') ?? createdLabelId('plan:ongoing')) : undefined;
   const stored = '{... on Issue{state stateReason}}';
   const fields = [
     'reopenIssue(input:{issueId:$issue}){clientMutationId}',
+    ...(restoresPhase ? ['addLabelsToLabelable(input:{labelableId:$issue,labelIds:$labels}){clientMutationId}'] : []),
     `addComment(input:{subjectId:$issue,body:$body}){${claims ? 'clientMutationId' : `subject${stored}`}}`,
   ];
   if (claims)
     fields.push(`addAssigneesToAssignable(input:{assignableId:$issue,assigneeIds:$assignees}){assignable${stored}}`);
+  const declarations = [
+    '$issue:ID!',
+    '$body:String!',
+    ...(restoresPhase ? ['$labels:[ID!]!'] : []),
+    ...(claims ? ['$assignees:[ID!]!'] : []),
+  ];
   let data;
   try {
     data = graphqlData([
       '-f',
-      `query=mutation($issue:ID!,$body:String!${claims ? ',$assignees:[ID!]!' : ''}){${fields.join(' ')}}`,
+      `query=mutation(${declarations.join(',')}){${fields.join(' ')}}`,
       '-f',
       `issue=${id}`,
       '-f',
       `body=${comment}`,
+      ...(restoresPhase ? ['-f', `labels[]=${phaseLabelId}`] : []),
       ...(claims ? ['-f', `assignees[]=${viewerId}`] : []),
     ]);
   } catch (error) {
@@ -1537,7 +1556,12 @@ function writeReopen({ issue, login, viewerId }, comment) {
   const payload = claims ? data.addAssigneesToAssignable?.assignable : data.addComment?.subject;
   if (typeof payload?.state !== 'string' || (payload.stateReason !== null && typeof payload.stateReason !== 'string'))
     fail('gh api graphql returned malformed stored plan issue');
-  const reopened = { ...issue, state: payload.state, stateReason: payload.stateReason };
+  const reopened = {
+    ...issue,
+    state: payload.state,
+    stateReason: payload.stateReason,
+    labels: restoresPhase ? [...issue.labels, { name: 'plan:ongoing' }] : issue.labels,
+  };
   refuseStuck(reopened);
   if (String(reopened.state).toUpperCase() === 'CLOSED') fail('plan issue state differs after reopen');
   console.log(`plan #${issue.number} reopened: ${statusFromIssue(reopened)}`);
@@ -1569,7 +1593,7 @@ function reopenPlan(args) {
     return;
   }
   // Each read is a snapshot for the write: it checks ownership and decides the claim.
-  const read = () => readPlanIssue(number, true, { closure: true });
+  const read = () => readPlanIssue(number, true, { closure: true, labelLookup: true });
   let observed = read();
   for (let reads = 1; !closedByPullRequest(observed.issue, pullRequest); reads += 1) {
     if (reads === CLOSE_WAIT_READS) {

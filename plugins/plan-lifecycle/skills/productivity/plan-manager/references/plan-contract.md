@@ -35,10 +35,11 @@ sub-issue of parent `<n>`; a parent holds at most 100 children
 (<https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues>).
 The parent holds the Goal, the shared Research and decisions, the Acceptance for
 the whole goal, and one Steps row per child, with Files `-`, Effect `local`, and
-Done when `child #<c> finished`. A plan is a parent only when it has children,
-every Steps row has Files `-`, and each Done when cell is exactly
-`child #<c> finished` for one of its sub-issues, with each child named once.
-Any other plan with children archives with `--pr`. The parent gets plan
+Done when `child #<c> finished`. A plan has the parent row shape when every
+Steps row has Files `-` and a Done when cell of exactly `child #<c> finished`.
+It is a parent only when it also has children, every `<c>` is one of its
+sub-issues, and each child is named once. Any other plan with children archives
+with `--pr`. The parent gets plan
 review, but no linked branch and no code review. Each child is a full plan with
 its own review, linked branch, and `Closes #<c>` landing pull request. Start the first child only after
 the parent's plan pass, and move the parent to ongoing then. Set each parent row
@@ -460,15 +461,15 @@ directory, a Windows drive, or a network share. Its advice is
 URL routes and portable system paths, such as `/usr/bin/env` or a bare `/tmp`,
 get no advice. `show` also advises when a plan is closed as completed while a
 step is not terminal, and names the closer. On a plan that is closed as
-completed, it also advises, without the parent test of Record and mode:
+completed, it also advises:
 
-- once per linked child that is not terminal:
+- on every plan, once per linked child that is not terminal:
   `plan is closed as completed while child #<c> is <status>; run archive <n> again to reopen it safely`;
-- once per Steps row whose Done when is `child #<c> finished` while `<c>` is
-  not a linked sub-issue:
+- on a plan with the parent row shape (Record and mode), once per Steps row
+  whose Done when is `child #<c> finished` while `<c>` is not a linked
+  sub-issue:
   `plan names child #<c>, which is not linked; relink it or edit the row; run archive <n> again to reopen it safely`;
-- when every Steps row names a child and no named child is linked and
-  finished:
+- on a plan with the parent row shape, when no named child is linked and finished:
   `plan is closed as completed but no child finished; run archive <n> again to reopen it safely`.
 
 For an issue that GitHub left
@@ -667,7 +668,8 @@ merge into the default branch closes the issue. For a partial pull request:
    records the close by that pull request, then waits 10 s more. It reopens the
    plan with the comment
    `Reopened: partial pull request #<pr> closed this plan through its linked branch. Work continues.`,
-   claims an unassigned plan in the same write, and prints the status. Never
+   claims an unassigned plan and restores `plan:ongoing` when the plan has no
+   phase label, in the same write, and prints the status. Never
    reopen the issue by hand right after the merge.
 3. Run `show <n>` again. Continue only when the status is `ongoing`.
 
@@ -757,11 +759,13 @@ It closes an open parent as completed, removes the phase labels, and prints
 child. On a plan without children, `archive` without `--pr` refuses. On a plan
 with children that is not a parent (Record and mode), it refuses with
 `archive refused: plan #<n> has its own landing work; archive it with --pr`.
-After its own close, archive reads the children again. When a child is not
-terminal, a named child is not linked, a child was added or unlinked since the
-read before the close, or no named child is finished, archive waits for the
-close to settle, reads the plan again, and reopens it through the same path as
-`reopen`, with the comment
+After its own close, archive compares the plan with its read before the close.
+Open work is a child that is not terminal. On a plan with the parent row shape,
+open work is also a child added since that read, a child of that read that is
+no longer linked, and child rows that named a finished child before the close
+and name none after it. A state that existed before the close does not count. On open work,
+archive waits for the close to settle, reads the plan again, and reopens it
+through the same path as `reopen`, with the comment
 `Reopened: child #<c> changed while plan #<n> closed; work continues.` Then it
 refuses with `archive refused: child #<c> is <status>`, where `<status>` is
 `unlinked` for a child that is not linked. A close with reason `REOPENED`
@@ -769,9 +773,15 @@ stops it as it stops `reopen` (Pull requests). When the plan changed during
 the wait, archive refuses with
 `plan #<n> changed during the settle wait; run archive again`. When the read
 of the children after the close fails, archive exits 1 with the GitHub call
-failure. `archive <n>` on a plan that is closed as completed with unfinished
-child work does the same safe reopen. Run it when `show` advises it
-(Normalization, advice, and refusals).
+failure.
+
+A retry of `archive <n>` or `archive <n> --pr` on a plan that is closed as
+completed does the same safe reopen for the open work that `show` advises on:
+a child that is not terminal on every plan, and on a plan with the parent row
+shape also a named child that is not linked or no finished named child. The `--pr` retry checks this
+right after the not-merged refusal, before its other refusals. Run the retry
+when `show` advises it (Normalization, advice, and refusals). Each safe reopen
+also restores `plan:ongoing` when the plan has no phase label.
 
 ### Teardown
 
