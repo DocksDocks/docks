@@ -26,9 +26,10 @@ export function refuse(result, message) {
   assert.equal(result.stderr, `${message}\n`);
 }
 
-export function body(status = 'planned') {
+// A plan body as the helper writes it. A new plan is v5; a case that covers the v4 partial-pull-request flow passes 4.
+export function body(status = 'planned', version = 5) {
   return [
-    '<!-- plan-contract: v4 -->',
+    `<!-- plan-contract: v${version} -->`,
     '',
     '## Goal',
     '',
@@ -270,9 +271,10 @@ export function planCliContext(t) {
   }
 
   // An ongoing plan after the merge of a partial pull request that lists it in closingIssuesReferences.
-  // The plan still reads OPEN: a case schedules the close that GitHub records a while after the merge.
-  function partialMerge(name, { assignees = [], merged = true, closes = true } = {}) {
-    const number = createPlan(name, body('in-flight'));
+  // The plan still reads OPEN: a case schedules the close that GitHub records a while after the merge. Only a v4 plan
+  // has this flow, so the plan is v4 unless `version` says otherwise.
+  function partialMerge(name, { assignees = [], merged = true, closes = true, version = 4 } = {}) {
+    const number = createPlan(name, body('in-flight', version));
     const pr = 100 + number;
     updateState((state) => {
       const entry = state.issues.find((candidate) => candidate.number === number);
@@ -283,6 +285,15 @@ export function planCliContext(t) {
       state.calls = [];
     });
     return { number, pr, closer: { __typename: 'PullRequest', number: pr } };
+  }
+
+  // A child plan that `new --parent` creates under `parent`, with the result of that command.
+  function createChild(name, parent) {
+    const result = run('new', '--title', name, '--goal', 'Land one pull request', '--parent', String(parent));
+    expectSuccess(result, `new --parent ${parent}`);
+    const match = /^plan created: #(\d+) https:\/\/\S+$/m.exec(result.stdout);
+    assert.ok(match, 'new --parent prints the issue identity');
+    return { number: Number(match[1]), result };
   }
 
   return {
@@ -298,6 +309,7 @@ export function planCliContext(t) {
     updateIssue,
     addIssueComment,
     createPlan,
+    createChild,
     exported,
     edit,
     landedPlan,

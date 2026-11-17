@@ -278,7 +278,7 @@
       "selection": {
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/plan-properties.test.mjs",
-        "expected_min": 3
+        "expected_min": 4
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["bun-1"],

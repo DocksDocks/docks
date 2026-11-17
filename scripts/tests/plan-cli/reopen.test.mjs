@@ -50,6 +50,20 @@ test('reopen waits for the close by the pull request, then reopens with the cont
   assert.equal(context.writes().length, 1, 'the reopen, the comment, and the claim land in one request');
 });
 
+test('reopen restores the ongoing phase label of a plan that lost it, in the same request', (t) => {
+  const context = planCliContext(t);
+  const plan = context.partialMerge('reopen without a phase label', { assignees: ['plan-agent'] });
+  context.updateIssue(plan.number, (entry) => {
+    entry.labels = ['plan'];
+  });
+  context.schedule(plan.number, { afterReads: 0, ...closedBy(plan.closer) });
+  const result = reopen(context, plan);
+  expectSuccess(result, 'reopen a plan without a phase label');
+  assert.equal(result.stdout, `plan #${plan.number} reopened: ongoing\n`);
+  assert.deepEqual(stored(context, plan.number).labels, ['plan', 'plan:ongoing']);
+  assert.equal(context.writes().length, 1, 'the reopen, the label, and the comment land in one request');
+});
+
 test('reopen accepts the close by a commit of the merged pull request and leaves an owned plan with its owner', (t) => {
   const context = planCliContext(t);
   const plan = context.partialMerge('commit close', { assignees: ['plan-agent'] });
@@ -132,6 +146,39 @@ test('reopen refuses a pull request that has not merged', (t) => {
   assert.deepEqual(stored(context, plan.number), ONGOING);
   assert.deepEqual(context.writes(), []);
 });
+
+function childPlanRefusal(number) {
+  return `plan #${number} uses child plans; a partial pull request is not allowed (open a child plan with new --parent ${number})`;
+}
+
+test('reopen refuses a v5 plan before any wait or write, and names child plans', (t) => {
+  const context = planCliContext(t);
+  // A v5 plan lands each pull request through a child plan, so a partial pull request that closed it is refused.
+  const plan = context.partialMerge('v5 partial pull request', { version: 5 });
+  context.schedule(plan.number, { afterReads: 0, ...closedBy(plan.closer) });
+  refuse(reopen(context, plan), childPlanRefusal(plan.number));
+  assert.deepEqual(context.writes(), []);
+  assert.deepEqual(context.waits(), []);
+  assert.equal(context.issue(plan.number).state, 'CLOSED', 'the plan stays closed');
+});
+
+for (const [name, options] of [
+  ['an unmerged pull request', { merged: false }],
+  ['a pull request that does not close the plan', { closes: false }],
+]) {
+  test(`reopen refuses a v5 plan with ${name} before it reads the pull request`, (t) => {
+    const context = planCliContext(t);
+    const plan = context.partialMerge(`v5 plan with ${name}`, { version: 5, ...options });
+    refuse(reopen(context, plan), childPlanRefusal(plan.number));
+    assert.deepEqual(
+      context.loadState().calls.filter(([group, command]) => group === 'api' && command === 'graphql'),
+      [],
+      'the pull request is not read',
+    );
+    assert.deepEqual(context.writes(), []);
+    assert.deepEqual(stored(context, plan.number), ONGOING);
+  });
+}
 
 test('reopen refuses a plan that another closer closed after the pull request merged', (t) => {
   const context = planCliContext(t);

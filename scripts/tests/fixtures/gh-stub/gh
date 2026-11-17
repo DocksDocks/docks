@@ -72,6 +72,20 @@ function userNodeId(login) {
   return `U_${login}`;
 }
 
+// REST names an issue by its database id; the fake gh derives it from the issue number.
+function issueDatabaseId(issue) {
+  return 100_000 + issue.number;
+}
+
+// Add `child` to the sub-issues of `parent`, as GitHub does for `issue create --parent` and the REST sub-issues API.
+function addSubIssue(parent, child) {
+  if (parent.number === child.number) die('an issue cannot be its own sub-issue');
+  if (state.issues.some((entry) => (entry.subIssues ?? []).includes(child.number)))
+    die(`issue ${child.number} already has a parent`);
+  parent.subIssues = [...(parent.subIssues ?? []), child.number];
+  touch(parent);
+}
+
 function issueByNodeId(id) {
   const issue = state.issues.find((entry) => issueNodeId(entry) === id);
   if (!issue) die(`Could not resolve to a node with the global id of '${id}'`);
@@ -371,21 +385,30 @@ function observeIssue(issue) {
 
 // A scheduled change lands once the issue has served `afterReads` GraphQL reads, so the next request that
 // reads or writes the issue sees it: a close that GitHub records a while after a merge, or a change that
-// someone makes while the helper waits. A `closedEvent` becomes the latest ClosedEvent of the timeline.
+// someone makes while the helper waits. A `closedEvent` becomes the latest ClosedEvent of the timeline, and
+// `otherIssues` maps an issue number to the fields that change on that issue at the same time, such as a child plan
+// that reopens.
 function applyDueChanges(issue) {
   const reads = issue.graphqlReads ?? 0;
   const due = (issue.pendingChanges ?? []).filter((change) => (change.afterReads ?? 0) <= reads);
   if (due.length === 0) return;
   issue.pendingChanges = issue.pendingChanges.filter((change) => !due.includes(change));
-  for (const change of due) {
-    const { closedEvent, ...fields } = change;
-    delete fields.afterReads;
-    Object.assign(issue, fields);
-    if (closedEvent) {
-      issue.timelineItems ??= [];
-      issue.timelineItems.push({ __typename: 'ClosedEvent', ...closedEvent });
-    }
-    touch(issue);
+  for (const change of due) applyChange(issue, change);
+}
+
+function applyChange(issue, change) {
+  const { closedEvent, otherIssues, ...fields } = change;
+  delete fields.afterReads;
+  Object.assign(issue, fields);
+  if (closedEvent) {
+    issue.timelineItems ??= [];
+    issue.timelineItems.push({ __typename: 'ClosedEvent', ...closedEvent });
+  }
+  touch(issue);
+  for (const [number, otherFields] of Object.entries(otherIssues ?? {})) {
+    const other = issueByNumber(Number(number));
+    Object.assign(other, otherFields);
+    touch(other);
   }
 }
 
@@ -573,6 +596,13 @@ function respondMutation(query, variables) {
     touch(issue);
     data[field.alias] = mutationPayload(field, 'labelable', issue, variables);
   }
+  // `afterMutationOnce` holds an issue number and a change, in the form of a scheduled change, that lands right after
+  // one write request, such as a label that someone adds before the helper reads the plan again.
+  if (state.afterMutationOnce) {
+    const { issue: number, ...change } = state.afterMutationOnce;
+    delete state.afterMutationOnce;
+    applyChange(issueByNumber(number), change);
+  }
   if (errors.length) failGraphql(data, errors);
   respondGraphql(data, 'mutation');
 }
@@ -674,6 +704,36 @@ if (group === 'api' && eventsEndpoint) {
   process.exit(0);
 }
 
+// The REST issue read and the REST sub-issue add, the path that the helper takes when gh lacks `issue create --parent`.
+// `subIssueErrorOnce` fails one sub-issue add before it writes anything.
+const issueEndpoint = /^repos\/([^/]+)\/([^/]+)\/issues\/([1-9]\d*)(\/sub_issues)?$/.exec(`${command ?? ''}`);
+if (group === 'api' && issueEndpoint) {
+  const repo = `${issueEndpoint[1]}/${issueEndpoint[2]}`;
+  if (repo !== state.repo.nameWithOwner) die(`repository not found: ${repo}`);
+  const issue = issueByNumber(Number(issueEndpoint[3]));
+  const method = (value('--method') ?? value('-X') ?? (values('-F').length || values('-f').length ? 'POST' : 'GET'))
+    .toUpperCase();
+  if (!issueEndpoint[4]) {
+    if (method !== 'GET') die(`unsupported issue api method: ${method}`);
+    emit(JSON.stringify({ id: issueDatabaseId(issue), node_id: issueNodeId(issue), number: issue.number }));
+    save();
+    process.exit(0);
+  }
+  if (method !== 'POST') die(`unsupported sub-issues api method: ${method}`);
+  if (state.subIssueErrorOnce) {
+    const message = state.subIssueErrorOnce;
+    delete state.subIssueErrorOnce;
+    die(message);
+  }
+  const { sub_issue_id: id } = graphqlFields();
+  const child = state.issues.find((entry) => issueDatabaseId(entry) === id);
+  if (!Number.isInteger(id) || !child) die('HTTP 422: Validation Failed (sub_issue_id)');
+  addSubIssue(issue, child);
+  emit(JSON.stringify({ id, number: child.number }));
+  save();
+  process.exit(0);
+}
+
 if (group === 'api' && command === 'graphql') {
   const { query, ...variables } = graphqlFields();
   if (typeof query !== 'string' || !query) die('graphql requires -f query=<query>');
@@ -771,6 +831,21 @@ if (group === 'api' && command === 'graphql') {
         selection,
         variables,
         ['first', 'after'],
+      );
+    }
+    // Issue.subIssues: each sub-issue with the fields that the query selects, and its labels as a connection.
+    for (const selection of graphqlSelections(query, 'subIssues')) {
+      const children = (issue.subIssues ?? []).map(issueByNumber).map((child) => ({
+        __typename: 'Issue',
+        number: child.number,
+        title: child.title,
+        state: child.state,
+        stateReason: child.stateReason,
+        labels: (field) => graphqlPage(labels(child.labels), field, variables, ['first', 'after']),
+      }));
+      payload[selection.alias] = selectFields(
+        graphqlPage(children, selection, variables, ['first', 'after']),
+        selection.fields,
       );
     }
     for (const selection of graphqlSelections(query, 'timelineItems')) {
@@ -929,6 +1004,10 @@ if (group === 'issue' && command === 'create') {
   const title = value('--title');
   const bodyFile = value('--body-file');
   if (!title || !bodyFile) die('issue create requires --title and --body-file');
+  // `ghLacksParentFlag` models a gh release before `issue create --parent`: flag parsing fails before any request.
+  if (args.includes('--parent') && state.ghLacksParentFlag)
+    die('unknown flag: --parent\n\nUsage:  gh issue create [flags]');
+  const parent = value('--parent') === undefined ? undefined : issueByNumber(Number(value('--parent')));
   const number = state.nextIssue++;
   const now = new Date(Date.parse('2026-08-20T20:00:00Z') + (state.clock ?? 0) * 1000).toISOString();
   const issue = {
@@ -948,6 +1027,7 @@ if (group === 'issue' && command === 'create') {
     events: [],
   };
   state.issues.push(issue);
+  if (parent) addSubIssue(parent, issue);
   emit(issue.url);
   save();
   process.exit(0);
@@ -972,7 +1052,9 @@ if (group === 'issue' && command === 'view') {
 // the --comment as the viewer, and then closes the issue in a second request. The close names no closer, as a close by
 // hand does. Like `issue view`, the read lands due changes without counting toward `afterReads`.
 // `issueCloseErrorBeforeWriteOnce` fails one close before gh writes anything, and `issueCloseErrorAfterCommentOnce`
-// posts the comment and then fails the close request.
+// posts the comment and then fails the close request. `afterCloseOnce` is a change, in the form of a scheduled change,
+// that lands on the issue right after one close, such as a child plan that reopens before the helper reads again. Its
+// `graphqlError` field becomes `state.graphqlError`, so the next GraphQL request after the close fails.
 if (group === 'issue' && command === 'close') {
   const issue = issueByNumber(issueNumber());
   const reason = value('--reason');
@@ -1011,6 +1093,12 @@ if (group === 'issue' && command === 'close') {
   issue.stateReason = reason === 'completed' ? 'COMPLETED' : 'NOT_PLANNED';
   issue.timelineItems ??= [];
   issue.timelineItems.push({ __typename: 'ClosedEvent', closer: null, createdAt: issue.updatedAt });
+  if (state.afterCloseOnce) {
+    const { graphqlError, ...change } = state.afterCloseOnce;
+    if (graphqlError) state.graphqlError = graphqlError;
+    applyChange(issue, change);
+    delete state.afterCloseOnce;
+  }
   save();
   process.exit(0);
 }

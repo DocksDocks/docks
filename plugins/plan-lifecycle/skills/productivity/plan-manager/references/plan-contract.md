@@ -1,4 +1,4 @@
-# Plan contract v4
+# Plan contract v5
 This is the canonical contract inside the installed `plan-lifecycle` plugin.
 Agents use its lifecycle skills and this reference. The helper normalizes
 records and protects ownership, concurrent edits, step state, and archive proof.
@@ -29,6 +29,24 @@ Choose the path before any other work:
 | Direct implementation | One clear, reversible, low-risk local change has one bounded acceptance path. It creates no plan issue, reviewer, or automatic commit, and it needs no Mode. |
 | Plan | The work needs explicit planning, multiple commits, cross-repository work, scheduling, cold handoff, unresolved decisions, public-contract or cross-subsystem changes, security-sensitive or destructive work, or a non-local effect. |
 
+Work that needs more than one landing pull request uses one parent plan and one
+child plan per pull request. `new --parent <n>` creates each child as a GitHub
+sub-issue of parent `<n>`; a parent holds at most 100 children
+(<https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues>).
+The parent holds the Goal, the shared Research and decisions, the Acceptance for
+the whole goal, and one Steps row per child, with Files `-`, Effect `local`, and
+Done when `child #<c> finished`. A plan has the parent row shape when every
+Steps row has Files `-` and a Done when cell of exactly `child #<c> finished`.
+It is a parent only when it also has children, every `<c>` is one of its
+sub-issues, and each child is named once. Any other plan with children archives
+with `--pr`. The parent gets plan
+review, but no linked branch and no code review. Each child is a full plan with
+its own review, linked branch, and `Closes #<c>` landing pull request. Start the first child only after
+the parent's plan pass, and move the parent to ongoing then. Set each parent row
+in-flight when its child starts, done when the child is finished, and
+`skipped`, with the reason in the record, when the child is retired or a
+duplicate. Then archive the parent (Archive).
+
 Settle Mode with the user before implementation. A yolo invocation settles the
 path and the Mode; see Yolo runs. `plan-and-implement` authorizes the full
 lifecycle. `plan-only` stops after plan review. A defaulted Mode never
@@ -37,7 +55,7 @@ publication and landing work, which stay outside the Steps table.
 
 Durable solution: solve the root cause, move every caller to the new path, and
 remove obsolete paths. Use a temporary workaround only with user approval.
-The body starts with `<!-- plan-contract: v4 -->`, then a blank line. It has no
+The body starts with `<!-- plan-contract: v5 -->`, then a blank line. It has no
 frontmatter. Write these seven second-level sections in this order:
 
 | Section | Agent content |
@@ -57,7 +75,7 @@ its `--version` output with the date, or a repository pin, such as a lockfile,
 run commands, so this record lets them check a flag or a behavior against the
 documentation of that version.
 
-The helper reads v3 and v4 records. It ignores the old Review section and drops
+The helper reads v3, v4, and v5 records. It ignores the old Review section and drops
 it on write. It inserts missing sections empty. Section headings and table
 headers match without case sensitivity after trimming. The helper writes the
 canonical spelling. Do not spend review effort on spelling that it normalizes.
@@ -150,8 +168,23 @@ Depends, Effect, Status, and presence. Task, Files, and Done when remain editabl
 New rows must be planned and follow all existing rows. A closed plan cannot gain
 rows. Use `step`, not `edit`, to change step state.
 
+Scope also freezes when work starts. Put new work into a new child plan
+(`new --parent <n>`), not into the started plan. On a started v5 plan, each
+`edit` that adds a Steps row, adds a path to the Files cell of a row, or changes
+the Task or Done when cell of a row prints
+`advice: check for new scope; move new work into a child plan (new --parent <n>)`.
+The helper cannot tell new scope from a repair, so it does not block. A fix
+under Repairs, or a step for a new decision (Repairs item 4), is a repair: make
+it, and say in its Repaired line why it is a repair. On the advice
+`split into child plans: <reason>` (Normalization, advice, and refusals), move
+the work that has not started into child plans, and set each moved step
+`skipped`, with its child number in the record. A started plan that adds
+children keeps its own landing pull request, and archives with `--pr`.
+
 Mutations refuse foreign assignees. An unassigned plan is claimed by the acting
-login inside the same write. Read the issue again before each write. The helper
+login inside the same write. Each write that claims a plan refuses with
+`plan #<n> is owned by <login>`, and adds no assignee, when its read before the
+write shows another assignee. Read the issue again before each write. The helper
 compares remote state before writing and checks the body after an edit.
 
 ## Phases and review comments
@@ -168,21 +201,50 @@ Run this review loop for plan review and for code review:
    number. Code review also gets the fresh diffs that Code-review rounds names.
 2. Post the blocks that the round returned unchanged in one issue comment. Put
    the lens blocks of a panel round in the lens order of Code-review rounds.
-   Never store a review in the body.
+   From round 2, put the manager response to the previous round after the
+   blocks. Never store a review in the body.
 3. Run `show <n>` and read the verdict. Stop on pass.
-4. Otherwise reproduce each finding. Fix confirmed defects as Repairs says.
-   Post the evidence for rejected findings as one issue comment whose first
-   line is `Rejected review findings, round <k>`. Then start the next round.
-5. Ask the user to continue or block when a round makes no progress, the same
-   finding returns after a repair, round 5 does not pass, or dispatch fails again
-   without a relevant change. If no answer is available, record the reason and
-   block. A yolo run uses the round ceiling in Yolo runs instead.
+4. Otherwise reproduce each finding. Fix confirmed defects as Repairs says, and
+   reject the others with evidence. Write the manager response to round k.
+   Then start the next round.
+5. When a finding returns after a repair, do not repeat its approach. Research
+   the defect class again, pick a different approach, and record it under
+   `Redesigned`. Outside a yolo run, ask the user to continue or block only for
+   a fix that needs a tradeoff the user owns (accepting a known limit, changing
+   the Goal or the scope, or a non-local effect), or on a stall: the same
+   finding returns after two different approaches, round 10 ends without a
+   pass, or dispatch fails twice without a relevant change. If no answer is
+   available, record the reason and block. A yolo run uses only the redesign
+   rule. It settles a tradeoff by its delegation line and the effect table of
+   Yolo runs, and asks only the Round ceiling question.
 
-Reviewers never fetch the issue. Save each posted round comment as
-`<phase>-<n>-round-<k>.md`, each rejection comment as
-`<phase>-<n>-round-<k>-rejected.md`, and each repair record (Repairs) as
-`<phase>-<n>-round-<k>-repairs.md` in the review scratch directory, where
-`<phase>` is `plan-review` or `code-review`. A delta reviewer reads these files.
+Each round adds one issue comment. The manager response to round k starts with
+the heading line `#### Manager response to round <k>`, exactly so, and holds
+these lists:
+
+- `Repaired`: one line per fixed finding. Name the finding by its round and
+  locator, then the commit or plan line that fixes it. Under the line, list each
+  class instance that the repair fixed (Repairs).
+- `Rejected`: one line per rejected finding. Name the finding by its round and
+  locator, then the evidence that rejects it.
+- `Redesigned`: one entry per finding that returned after a repair (item 5):
+  the new approach, the approaches that you rejected with their reasons, and
+  the evidence. The finding also gets its `Repaired` line.
+
+Write no bracketed severity in the response. When a run stops between rounds,
+at a block or before the question of item 5 or of the Round ceiling, first post
+the pending response as its own comment. A v4 plan can keep the separate
+repair and rejection comments of contract v4.
+
+Reviewers never fetch the issue. Save the review blocks of each round comment,
+without the manager response, as `<phase>-<n>-round-<k>.md` in the review
+scratch directory, where `<phase>` is `plan-review` or `code-review`. From the
+manager response to round k, write its `Rejected` list as the rejection file
+`<phase>-<n>-round-<k>-rejected.md`, with the first line
+`Rejected review findings, round <k>`, and its `Repaired` and `Redesigned` lists as the repair
+record file `<phase>-<n>-round-<k>-repairs.md`, with the first line
+`Repaired review findings, round <k>`. Skip a file whose list is empty. A delta
+reviewer reads these files.
 
 A plan re-review after a repair may use the plan `delta` mode when the
 `plan-reviewer` skill offers it in its `references/delta.md`. Give that round
@@ -213,7 +275,8 @@ agents define the exact block they return, and that block follows these rules.
 
 - The first non-blank line names the kind: `plan review` or `code review`, in
   any case, after optional `#` heading markers. Any suffix, such as `round 2`
-  or `round 2, lens correctness`, is allowed.
+  or `round 2, lens correctness`, is allowed. An archive record (Archive) is
+  not a review record.
 - A comment holds one or more review blocks. A block starts at the first line,
   or at a later Markdown heading line (one or more `#`, indented by at most
   three spaces) that names the comment's kind. A quoted or list-item heading
@@ -222,6 +285,9 @@ agents define the exact block they return, and that block follows these rules.
   A space can replace the hyphen.
 - On each line, the helper ignores Markdown emphasis (`*`, `_`), code marks,
   blockquote markers, and list markers when it reads a kind or a verdict.
+- The helper reads blocks, verdicts, and severities only above the line
+  `#### Manager response to round <k>`, in every contract version. So a finding
+  that the response quotes cannot change the verdict.
 
 | Verdict input | Plan result | Code result |
 |---|---|---|
@@ -256,15 +322,14 @@ repair nor a rejection, and a decision without a step each caused extra rounds.
    instance of that class: in the candidate for a code finding, and in the plan
    export and each source that the finding cites for a plan finding. Repair all
    instances together, in one commit for code.
-2. Record the repairs of round k. List each finding that you fixed, with the
-   plan line or the commit that fixes it, and under it each class instance
-   that you repaired. For code, write the list in the repair commit message.
-   For a plan, post the list as one issue comment whose first line is
-   `Repaired review findings, round <k>`. Save the list as the repair record
-   file, and give it to the delta reviewer of the next round, which checks it.
-3. Before round k+1, account for every finding of round k: fixed in the repair
-   record, or rejected in the rejection comment. Repair or reject each finding
-   that has neither.
+2. Record the repairs of round k in the `Repaired` list of the manager response
+   to round k (Phases and review comments): each finding that you fixed, with
+   the plan line or the commit that fixes it, and under it each class instance
+   that you repaired. The delta reviewer of the next round checks the repair
+   record file that you write from that list.
+3. Before round k+1, account for every finding of round k: fixed in the
+   `Repaired` list, or rejected in the `Rejected` list. Repair or reject each
+   finding that has neither.
 4. When an edit adds a decision, add the step that carries it out, or extend
    the Task and Done when of a step that is not done yet. The helper keeps a
    done step done, so a decision that changes done work gets a new step.
@@ -347,16 +412,17 @@ prefixed with `#`. The header strip is `#<n> · <status> · <title> · <url>`.
 
 | Command | Result on stdout |
 |---|---|
-| `new --title <t> --goal <g> [--mode <m>] [--label <name>]...` | `plan created: #<n> <url>`; assigns @me and labels plan plus drafting |
-| `show <n> [--body]` | Header strip, then `reviews: plan=<verdict> code=<verdict>`, then advice |
+| `new --title <t> --goal <g> [--mode <m>] [--label <name>]... [--parent <n>]` | `plan created: #<n> <url>`; assigns @me and labels plan plus drafting; with `--parent`, adds the plan as a sub-issue of `<n>`, an open plan that you own |
+| `show <n> [--body]` | Header strip, then `reviews: plan=<verdict> code=<verdict>`, then one `child #<c> · <status> · <title>` line per child, then advice |
 | `export <n>` | Absolute path to `plan-<n>.md` in the scratch directory |
 | `edit <n> --file <path>` | Header strip, `changed: <k> line(s)`, `-old` and `+new` lines, then advice |
 | `status <n> <status> [--reason <text>]` | `plan #<n> status: <old> -> <new>` |
 | `step <n> <id> <status>` | `plan #<n> step <id>: <old> -> <new>` |
 | `list [--status <s>]` | `<status>\t#<n>\t<title>`; open first, then closed, each in ascending number order; prints advice when it reaches 500 plans |
-| `archive <n> --pr <pr>` | `plan #<n> finished (closed by <pr-url>)`; waits up to about 60 s for GitHub to close an open plan, closes it as completed when GitHub does not, and removes stale phase labels |
+| `archive <n> --pr <pr>` | `plan #<n> finished (closed by <pr-url>)`; waits up to about 60 s for GitHub to close an open plan, closes it as completed when GitHub does not, removes stale phase labels, and posts the archive record |
+| `archive <n>` | For a parent: `plan #<n> finished (all <k> children finished)`; claims an unassigned parent before its close, and posts the archive record |
 | `retire <n> --reason <t>` | `plan #<n> retired`; closes as not planned and removes phase labels |
-| `reopen <n> --pr <pr>` | `plan #<n> reopened: <status>`; `plan #<n> is open: <status>` when the plan is already open again; `pull request #<pr> does not close plan #<n>; nothing to reopen` when that pull request does not close the plan |
+| `reopen <n> --pr <pr>` | Contract v3 and v4 only: `plan #<n> reopened: <status>`; `plan #<n> is open: <status>` when the plan is already open again; `pull request #<pr> does not close plan #<n>; nothing to reopen` when that pull request does not close the plan |
 
 With `show --body`, only the body goes to stdout; both metadata lines go to stderr.
 Render a body for the user only when they name the plan and ask to see it.
@@ -373,7 +439,8 @@ Keep scratch and machine paths out of durable records. No queue file is tool inp
 
 ## Normalization, advice, and refusals
 
-Writes set the v4 marker, canonical heading and token case, lowercase ids with
+Writes set the v5 marker until work starts. After that, a v5 plan keeps v5, and
+a v3 or v4 plan gets v4. Writes also set canonical heading and token case, lowercase ids with
 hyphens changed to underscores, and trimmed trailing whitespace. U+2014 becomes
 ` - ` with doubled spaces collapsed. Missing or unknown Mode becomes plan-only.
 Unknown Effect and Status tokens remain in the record and produce advice. A
@@ -396,11 +463,28 @@ directory, a Windows drive, or a network share. Its advice is
 `body contains an absolute machine path: <path>`, once per distinct path.
 URL routes and portable system paths, such as `/usr/bin/env` or a bare `/tmp`,
 get no advice. `show` also advises when a plan is closed as completed while a
-step is not terminal, and names the closer. For an issue that GitHub left
+step is not terminal, and names the closer. On a plan that is closed as
+completed, it also advises:
+
+- on every plan, once per linked child that is not terminal:
+  `plan is closed as completed while child #<c> is <status>; run archive <n> again to reopen it safely`;
+- on a plan whose latest trusted archive record (Archive) says
+  `Archived as parent`, once per Steps
+  row whose Done when is `child #<c> finished` while `<c>` is not a linked
+  sub-issue:
+  `plan names child #<c>, which is not linked; relink it or edit the row; run archive <n> again to reopen it safely`;
+- on such a plan, when no named child is linked and finished:
+  `plan is closed as completed but no child finished; run archive <n> again to reopen it safely`.
+
+For an issue that GitHub left
 closed with reason `REOPENED`, `show` advises
 `GitHub left this issue closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it, and record step results in an issue comment until then`.
 The status of that issue stays `unreadable`. `list` advises when it reaches 500
-plans. Advice is not approval.
+plans. The scope advice of a started v5 plan is in Status, ownership, and
+frozen state. `show` and `edit` advise `split into child plans: <reason>` when
+the body passes 50,000 bytes, the Steps table passes 20 rows, or the issue holds
+more than 60 comments. GitHub refuses an issue body or a comment above 262,144
+characters. Advice is not approval.
 
 Refusals exit 1. These stderr strings are exact, with angle brackets replaced:
 
@@ -422,6 +506,9 @@ archive requires an issue and --pr
 archive requires ongoing or finished status, found <status>
 archive refused: non-terminal step <id>
 archive refused: no Steps rows parsed
+archive refused: no child of plan #<n> finished; retire the parent
+archive refused: child #<c> is <status>
+archive refused: plan #<n> has its own landing work; archive it with --pr
 duplicate step id after normalization: <id>
 Steps row <n> has <count> cells; expected 8. Escape a literal pipe as \| so the row is preserved.
 duplicate section heading: <name>
@@ -433,13 +520,16 @@ retire requires a single-line --reason
 cannot retire a <status> plan
 blocked status requires --reason as single-line text
 reserved label namespace: <label>
+parent #<n> is not an open plan
+plan #<n> uses child plans; a partial pull request is not allowed (open a child plan with new --parent <n>)
 pull request #<pr> is not merged
 GitHub has not closed plan #<n> for pull request #<pr> yet; run reopen again once it has
 plan #<n> was closed by <closer> after pull request #<pr> merged; reopen it by hand only if that close was a mistake
 plan #<n> was closed by <closer> before pull request #<pr> merged; reopen it by hand only if that close was a mistake
 plan #<n> changed during the settle wait; run reopen again
+plan #<n> changed during the settle wait; run archive again
 GitHub left plan #<n> closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it
-plan issue state differs after reopen
+plan issue state differs after reopen; run status <n> ongoing to repair the phase labels
 ```
 
 GitHub call failures exit 1 and print one of these messages on stderr. `edit`,
@@ -562,15 +652,17 @@ and prints nothing.
 ### Pull requests
 
 Open every plan pull request from the linked branch, after code review passes.
-Commit and push only reviewed bytes.
+Commit and push only reviewed bytes. The landing pull request completes the
+plan. Put `Closes #<issue>` on its own line in the description. `archive` needs
+this keyword as proof.
 
-- The landing pull request completes the plan. Put `Closes #<issue>` on its own
-  line in the description. `archive` needs this keyword as proof.
-- A partial pull request lands part of the work. Put `Refs #<issue>` in the
-  description. GitHub still links it to the issue through the branch, so its
-  merge into the default branch closes the issue.
+A v5 plan has no partial pull request. Put each part of the work that lands on
+its own into a child plan (Record and mode). `reopen` refuses a v5 plan.
 
-For a partial pull request:
+Only a v4 plan whose work started keeps the partial-pull-request flow. A
+partial pull request lands part of the work. Put `Refs #<issue>` in the
+description. GitHub still links it to the issue through the branch, so its
+merge into the default branch closes the issue. For a partial pull request:
 
 1. Before the merge question, run
    `gh pr view <pr> --repo <owner/repo> --json closingIssuesReferences`. If the
@@ -580,7 +672,8 @@ For a partial pull request:
    records the close by that pull request, then waits 10 s more. It reopens the
    plan with the comment
    `Reopened: partial pull request #<pr> closed this plan through its linked branch. Work continues.`,
-   claims an unassigned plan in the same write, and prints the status. Never
+   claims an unassigned plan and restores `plan:ongoing` when the plan has no
+   phase label, in the same write, and prints the status. Never
    reopen the issue by hand right after the merge.
 3. Run `show <n>` again. Continue only when the status is `ongoing`.
 
@@ -651,11 +744,77 @@ The plan must be `ongoing` or `finished`. GitHub can leave the plan open after
 the landing merge, for example when the repository turns off its auto-close
 setting (Pull requests). For an open plan, archive first waits up to about
 60 s for GitHub's close. When GitHub does not close the plan, archive closes it
-as completed, with a comment that names the pull request. Then archive removes
+as completed, with the comment
+`Closed by archive: pull request #<p> merged into <branch> and closes this plan, but GitHub left the plan open.`
+and its archive record (below). Then archive removes
 the phase labels. Do not close the plan by hand. A plan that someone already
 closed as completed archives with the same proof. When archive fails after it
 closed the plan, run the same command again. This rule replaces step 3 of the
 retry steps in Normalization, advice, and refusals.
+
+A child is terminal when it is closed as completed (`finished`), as not planned
+(`retired`), or as a duplicate. Archive, with or without `--pr`, refuses a plan
+that has a child that is not terminal, such as an open child, with
+`archive refused: child #<c> is <status>`. Archive a parent with `archive <n>`,
+without `--pr`, when every child is terminal, at least one child is finished,
+and every parent step is terminal. When no child finished, archive refuses with
+`archive refused: no child of plan #<n> finished; retire the parent`. The parent
+must be `ongoing` or `finished`. It needs no pull request and no code review.
+It closes an open parent as completed, removes the phase labels, and prints
+`plan #<n> finished (all <k> children finished)`, where `<k>` counts every
+child. On a plan without children, `archive` without `--pr` refuses. On a plan
+with children that is not a parent (Record and mode), it refuses with
+`archive refused: plan #<n> has its own landing work; archive it with --pr`.
+
+Archive posts an archive record as the acting owner. A parent archive posts
+`Archived as parent: children #<a>, #<b>`, in child order, as the comment of its
+close, or alone when the parent was already closed. An `archive --pr` posts
+`Archived with landing pull request #<p>`. When archive closed the plan itself,
+the record is the last line of its close comment, after a blank line; when
+GitHub already closed the plan, archive posts the record as a comment alone.
+`archive <n>` claims an unassigned parent before its close, so its record is
+trusted for the check after the close. That claim refuses a foreign assignee
+with `plan #<n> is owned by <login>` before it writes. An `archive --pr` plan always has one
+assignee, because it needs a trusted code-review pass. Archive skips a record,
+or the `--pr` close comment, only when an identical trusted one comes after the
+latest trusted `Reopened: ...` comment. The record is trusted as
+a review comment is (Phases and review comments), the latest trusted record
+wins, and a later trusted `Reopened: ...` comment ends it. Parent recovery below applies
+only when the latest trusted record says `Archived as parent`. A plan with a
+landing record or no record gets only the open-child rule.
+
+After its own close, archive compares the plan with its read before the close.
+Open work is a child that is not terminal. On a parent archive record, open
+work is also a child added since that read, a child of that read that is no
+longer linked, and child rows that named a finished child before the close and
+name none after it. A state that existed before the close does not count. On open work,
+archive waits for the close to settle, reads the plan again, and reopens it
+through the same path as `reopen`, with the comment
+`Reopened: child #<c> changed while plan #<n> closed; work continues.` Then it
+refuses with `archive refused: child #<c> is <status>`, where `<status>` is
+`unlinked` for a child that is not linked. A close with reason `REOPENED`
+stops it as it stops `reopen` (Pull requests). When the plan changed during
+the wait, archive refuses with
+`plan #<n> changed during the settle wait; run archive again`. When the read
+of the children after the close fails, archive exits 1 with the GitHub call
+failure.
+
+A retry of `archive <n>` or `archive <n> --pr` on a plan that is closed as
+completed does the same safe reopen for the open work that `show` advises on:
+a child that is not terminal on every plan, and on a parent archive record also
+a named child that is not linked or no finished named child. The `--pr` retry checks this
+right after the not-merged refusal, before its other refusals. Run the retry
+when `show` advises it (Normalization, advice, and refusals). Each safe reopen,
+by `reopen` or by `archive`, reads the labels right before its write. It adds
+`plan:ongoing` only when that read shows no phase label, and it never replaces
+the label set. After the reopen, it reads the plan again. Unless that read
+shows an open plan with exactly one phase label, it refuses with
+`plan issue state differs after reopen; run status <n> ongoing to repair the phase labels`
+and prints no status; `status <n> ongoing` or `status <n> blocked` repairs it.
+Otherwise it prints the status of that read, such as `reopened: blocked`.
+Known limit: a phase label that someone else adds around the write can leave
+two phase labels. The refusal reports it, and `status` repairs it. The write
+removes no label, so no label is lost.
 
 ### Teardown
 
@@ -679,7 +838,8 @@ This record includes anonymous volumes, which carry no project label. Then run
 `docker compose down`. Never add `--volumes`. List the recorded volumes under
 Kept resources.
 
-A partial pull request merge does not end the plan. Do not run teardown then.
+A partial pull request merge (v4) does not end the plan. Do not run teardown
+then.
 
 #### After archive
 
@@ -746,8 +906,10 @@ question. All other contract rules stay in force.
 |---|---|
 | Path and Mode | Plan with `Mode: plan-and-implement` |
 | Request that names an existing plan, or an incomplete request | The yolo skill's Existing plans and incomplete requests rule |
+| Work that needs more than one landing pull request | A parent and its children (Record and mode). The run creates no linked branch for the parent and reviews it first, also an adopted parent without a trusted `plan=pass`. After that pass, it runs one child: the first open child in Steps order whose Depends are finished. A later yolo run that names the parent runs the next child |
+| New scope or split advice after work starts | Move the work into a new child plan, as Status, ownership, and frozen state says, and list the child in the run summary |
 | Non-local Effect step before the landing merge | The effect table below |
-| Linked-branch timing | Right after `new`, while the plan is drafting |
+| Linked-branch timing | Right after `new`, while the plan is drafting; a parent gets no linked branch, and a child gets its branch when the run starts it |
 | Dirty checkout at linked-branch setup | A separate clean worktree, without a question, when the checks of Worktree hooks pass; otherwise block (Linked branch timing) |
 | Review-loop continuation | The round ceiling below |
 | Plan-review `blocked` verdict | The manager decides with evidence |
@@ -784,7 +946,8 @@ effect that the table permits.
 
 ### Linked branch timing
 
-Set up the linked branch right after `new`, before research. The status stays
+Set up the linked branch right after `new`, before research; for a child, when
+the run starts it, before its research. The status stays
 `drafting`. Run Linked branch item 1. When the checkout is clean, continue with
 items 3 to 5. When it is dirty, do not ask. Run the checkout check of Worktree
 hooks. When it passes, use these commands instead:
@@ -822,10 +985,11 @@ this rule to every LOW finding, not only to unreached ones, removed at most 3
 of 73 rounds in one arm and 0 to 2 rounds in the others, and no known defect
 escaped.
 
-A phase stalls when round 10 ends without a pass, when the same finding returns
-after two different repairs, or when dispatch fails twice without a relevant
-change. Landing stalls when the same pull-request check still fails after the
-third fix attempt, as Checks and merge says. When round 10 ends on a
+A phase stalls as review loop item 5 says: round 10 ends without a pass, the
+same finding returns after two different approaches, or dispatch fails twice
+without a relevant change. Landing stalls when the same pull-request check
+still fails after the third fix attempt, as Checks and merge says. When round
+10 ends on a
 code-review pass that still lists MEDIUM or LOW findings, land, and list those
 findings in the run summary.
 

@@ -45,7 +45,8 @@ present". `scripts/skills/no-author-scripts.mjs` enforces this.
 `plan-workspace` maintains workspace routing and reviewer setup; `new` creates
 the repository plan labels. Main-context `plan-manager` runs decide, draft,
 research, plan review, implement, and code review, with fresh review after
-repairs and user decisions when review cannot progress;
+repairs, a parent plan with one child plan per landing pull request, and user
+decisions when review cannot progress;
 `plan-reviewer` returns one read-only pre-implementation verdict block per
 round; internal `code-reviewer` returns one read-only code-review block per
 reviewer, for one lens or for the changes of a delta round. The
@@ -77,9 +78,12 @@ they return. Keep that block inside the comment rules in `plan-contract.md`
 (Phases and review comments). Keep the plan-review block identical in
 `../agents/plan-reviewer.md` and the `plan-reviewer` skill. The Codex templates,
 `.codex/agents/plan-reviewer.toml`, and `.codex/agents/code-reviewer.toml` point
-to the agent's Output Format and do not copy it. A code-review round posts one
-comment that holds every lens block of that round (`plan-contract.md`, Phases
-and review comments).
+to the agent's Output Format and do not copy it. A review round posts one
+comment that holds every block of that round, then the manager response to the
+previous round under `#### Manager response to round <k>`. The helper reads no
+verdict or severity below that heading, and the manager writes the reviewer's
+repair record and rejection files from it, so reviewer inputs keep their shape
+(`plan-contract.md`, Phases and review comments).
 
 ## Adding a review rule
 

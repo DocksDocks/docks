@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "e17d98182b85d696aee5b8a58abf20e2c4168712d732443bd8be4ecc75f5b11a"
+  content_hash: "83bf60ac6b34c16badf080e2fd4175e674f0c458eeee5966c52bf82bf7c78638"
 ---
 
 # Yolo
@@ -64,7 +64,7 @@ practice.
 | Phase | Yolo action | Done when |
 |---|---|---|
 | Decide | Apply Existing plans and incomplete requests below. Otherwise the path is a new plan with Mode `plan-and-implement`. Ask nothing. | The run adopted a plan, or the goal fits in one sentence |
-| Draft | Skip when the run adopted a plan. Run the preflight, create the issue, and set up the linked branch | The run adopted a plan, or `show <n>` reads drafting and the branch is listed |
+| Draft | Skip when the run adopted a plan. Run the preflight, create the issue, and set up the linked branch, or for a parent create its children, as Draft below says | The run adopted a plan, or `show <n>` reads drafting and the branch is listed, or for a parent each child is listed |
 | Research | Follow Research and Engineering standards below | `status <n> planned` succeeds, or `show <n>` of an adopted plan already reads planned or ongoing. No advice needs a decision |
 | Plan review | Run Review loops below | `show <n>` reads `plan=pass` |
 | Implement | Follow plan-manager phase 5, Engineering standards (always with `code-clarity`), Red baseline, and Commits below | Verification Results hold real results, and the candidate is committed |
@@ -86,7 +86,14 @@ Before Draft, run `list` and `gh pr list --repo <owner/repo> --state open`.
 To adopt a plan:
 
 1. Run `show <n>`. Adopt only an open plan. When the helper reports that
-   another login owns the plan, stop and report.
+   another login owns the plan, stop and report. When the plan is a parent
+   (the contract's Record and mode), adopt it with steps 2 to 4 and skip
+   step 5. Then get a plan pass that covers the current parent body: when
+   `show <n>` does not read `plan=pass`, run Research and Plan review on the
+   parent; when step 3 changed the parent after `plan=pass`, run the re-review
+   round that step 4 names, and wait for its pass. The earlier pass does not
+   cover the edited body. After that pass, adopt the child that the contract's
+   Yolo runs table names with these steps.
 2. Export the plan. Add the delegation line to Goal when it is missing, and set
    `Mode: plan-and-implement`.
 3. Replace each Goal or Do not touch line that conflicts with this run, such as
@@ -113,7 +120,15 @@ Yolo: the user delegated every decision except the merge to the agent.
 ```
 
 4. Create the issue with `new --title <t> --goal <g> --mode plan-and-implement`.
-5. Set up the linked branch now, as the contract's Yolo runs section says.
+5. When the request needs more than one landing pull request, that issue is the
+   parent, and it gets no linked branch. Create one child per pull request with
+   `new --title <t> --goal <g> --mode plan-and-implement --parent <n>`, with the
+   delegation line in each goal, and give the parent one Steps row per child,
+   as the contract's Record and mode says. Run Research and Plan review on the
+   parent. After that pass, start the child that the contract's Yolo runs table
+   names: set up its linked branch, and run Research to Land on it.
+6. Otherwise set up the linked branch now, as the contract's Yolo runs section
+   says.
 
 ## Research
 
@@ -258,7 +273,8 @@ plan stops the run, as the hook row of the contract's Yolo runs table says.
 Use the contract's review loop with its Yolo runs ceiling. Dispatch the
 `plan-reviewer` and `code-reviewer` wrappers with fresh input in each round. If
 a wrapper is missing, dispatch a fresh read-only agent with the matching
-instructions. Post one comment per round, as the contract's review loop says.
+instructions. Post one comment per round: the blocks of the round, then the
+manager response to the previous round, as the contract's review loop says.
 That comment counts as one round of the ceiling.
 
 Dispatch code review round 1 first. While it runs, run the `code-review`
@@ -276,7 +292,9 @@ wrong findings. Reproduce each one before you fix it, and reject a wrong one
 with evidence.
 
 After round 1 returns, fix the self-review findings together with the findings
-of round 1. Use `fix-workflow`, and commit the fixes.
+of round 1. Use `fix-workflow`, and commit the fixes. List the self-review
+findings, named by lens, in the manager response to round 1 with the findings
+of round 1.
 When the self-review found anything, review again, also when round 1 passed.
 That round is a `delta` round when the contract's Code-review rounds allows it.
 
@@ -299,13 +317,15 @@ comments says. The helper advises when an edit needs that round.
 
 Make and record each repair as the contract's Repairs says, in both phases. A
 code repair also gets the tests that plan-manager phase 6 asks for. Reject a
-finding only with evidence, posted as the contract's review loop says.
-Before you repair the same finding again, research it again and try a different
-approach.
+finding only with evidence, in the `Rejected` list of the manager response.
+When a finding returns after a repair, redesign the fix and record it under
+`Redesigned`, as item 5 of the contract's review loop says. Do not ask the user
+about it; a tradeoff follows the delegation line and the effect table.
 
-When a review phase stalls at the ceiling and the answer is `Leave plan
-blocked`, or no answer is possible, run the contract's Teardown for an exit
-without a merge. The contract's Round ceiling also says this.
+When a review phase stalls, as the contract's Round ceiling says, post the
+pending manager response first. When the answer is `Leave plan blocked`, or no
+answer is possible, run the contract's Teardown for an exit without a merge.
+The contract's Round ceiling also says this.
 
 ## Landing
 
@@ -340,8 +360,10 @@ without a merge. The contract's Round ceiling also says this.
    contract's Checks and merge says, including `git branch -d <branch>`.
 9. On `Merge now`, merge as the contract says. Ask separately before each plan
    step that runs after the merge, and run it. Then archive with
-   `archive <n> --pr <pr>`, run the contract's Teardown, and report Kept
-   resources. Ask separately before each production cleanup.
+   `archive <n> --pr <pr>`. For a child, set its parent row done; when
+   `show <parent>` lists no open child, run `archive <parent>`. Run the
+   contract's Teardown, and report Kept resources. Ask separately before each
+   production cleanup.
 10. On any other answer, or when no answer is possible, leave the pull request
     and the issue open. Run Teardown's exit without a merge. Report both links
     and Kept resources.
@@ -360,9 +382,12 @@ The issue is the run record. Run `show <n>` for the status and verdicts. Run
 request exists, GitHub lists no branch there. Then read the pull request number
 from `gh issue view <n> --repo <owner/repo> --json closedByPullRequestsReferences`,
 and read the branch from `gh pr view <pr> --repo <owner/repo> --json headRefName`.
-Run `git worktree list` for a worktree. Count review rounds from issue comments,
-as Review loops says. One round comment can hold several lens blocks. A
-`Self-review` comment is not a review round.
+Run `git worktree list` for a worktree. Count review rounds from round
+comments: a comment whose first line names the review kind. One round comment
+can hold several lens blocks and the manager response to the previous round.
+A `Self-review` comment, or a comment that holds only a pending manager
+response, is not a round. For a parent, `show <n>` lists each child; run
+`show <c>` for each child to find the one that this run works on.
 
 ## BAD / GOOD
 
@@ -373,8 +398,8 @@ GOOD: Read the official docs, test both in scratch, and record the decision with
 BAD: Write the requested test that checks source text.
 GOOD: Record a correction and test the behavior that a consumer sees.
 
-BAD: Stop after code review round 5 and ask whether to continue.
-GOOD: Continue to the Yolo runs ceiling, then ask the one stalled-review question.
+BAD: Ask the user how to fix a finding that returned after a repair.
+GOOD: Research the class again, pick a different approach, and record it under `Redesigned`.
 
 BAD: Paste an error log that contains a token into the issue.
 GOOD: Remove the token and name its variable.
