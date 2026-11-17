@@ -25,7 +25,8 @@ const PRE_WRITE_FIELDS = 'id,body,updatedAt,assignees';
 const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}}`;
 // `list` reads the newest plans first, as `gh issue list` did, so the 500-plan cap keeps the same plans.
 const PLAN_LIST_ARGS = ',labels:["plan"],states:[OPEN,CLOSED],orderBy:{field:CREATED_AT,direction:DESC}';
-const PLAN_LIST_FIELDS = 'number title state stateReason labels(first:100){nodes{name}}';
+// A plan list row and a sub-issue row: enough to derive the status of each issue.
+const ISSUE_SUMMARY_FIELDS = 'number title state stateReason labels(first:100){nodes{name}}';
 const GH_MAX_BUFFER_MIB = 256;
 const PLAN_LIST_LIMIT = 500;
 // GitHub closes a plan for a merged pull request a while after the merge. `archive` reads an open plan up to
@@ -62,17 +63,24 @@ function unquoteCode(value) {
 function labelNames(labels) {
   return (labels ?? []).map((label) => token(typeof label === 'string' ? label : label.name));
 }
-function runGh(argv) {
+// Start gh and refuse only when it cannot run, so that a caller can read a failed exit.
+function ghResult(argv) {
   const result = spawnSync('gh', argv, { encoding: 'utf8', maxBuffer: GH_MAX_BUFFER_MIB * 1024 * 1024 });
   if (result.error?.code === 'ENOENT') fail('gh is not installed or not on PATH');
   if (result.error?.code === 'ENOBUFS')
     fail(`gh ${argv.slice(0, 2).join(' ')} output exceeded ${GH_MAX_BUFFER_MIB} MiB`);
   if (result.error) fail(`gh ${argv.slice(0, 2).join(' ')} failed: ${result.error.message}`);
+  return result;
+}
+function ghOutput(argv, result) {
   if (result.status !== 0) {
     const detail = result.stderr.trim() || `exit ${result.status}`;
     fail(`gh ${argv.slice(0, 2).join(' ')} failed: ${detail}`);
   }
   return result.stdout;
+}
+function runGh(argv) {
+  return ghOutput(argv, ghResult(argv));
 }
 // Run `gh api graphql` with the given fields and return the response data.
 function graphqlData(fields) {
@@ -176,6 +184,23 @@ function associatedNodes(commit) {
   );
 }
 
+// Issue rows read through ISSUE_SUMMARY_FIELDS, with their labels as a plain list.
+function issueSummaries(nodes, name) {
+  if (
+    nodes.some(
+      (issue) =>
+        !Number.isInteger(issue.number) ||
+        typeof issue.title !== 'string' ||
+        typeof issue.state !== 'string' ||
+        (issue.stateReason !== null && typeof issue.stateReason !== 'string') ||
+        !Array.isArray(issue.labels?.nodes) ||
+        issue.labels.nodes.some((label) => typeof label?.name !== 'string'),
+    )
+  )
+    fail(`gh api graphql returned malformed ${name}`);
+  return nodes.map((issue) => ({ ...issue, labels: issue.labels.nodes }));
+}
+
 function readSnapshot(
   number,
   {
@@ -185,6 +210,7 @@ function readSnapshot(
     history = false,
     defaultBranch = false,
     closure = false,
+    children = false,
   } = {},
 ) {
   const issueFields =
@@ -199,6 +225,7 @@ function readSnapshot(
             ? issueConnectionSelection('history:timelineItems', LABELED_EVENT_FIELDS, ',itemTypes:[LABELED_EVENT]')
             : '',
           closure ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}` : '',
+          children ? issueConnectionSelection('subIssues', ISSUE_SUMMARY_FIELDS) : '',
         ].join(' ');
   const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${defaultBranch ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
   const data = graphql(query, number === undefined ? {} : { number });
@@ -294,6 +321,11 @@ function readSnapshot(
     issue.closer = closer;
     issue.closedEventAt = latest?.createdAt;
   }
+  if (children)
+    issue.children = issueSummaries(
+      issueNodes(number, issue.subIssues, 'subIssues', ISSUE_SUMMARY_FIELDS),
+      'sub-issues',
+    );
   return { issue, login, viewerId, labelIds };
 }
 function parseIssueNumber(value, kind = 'plan issue') {
@@ -305,6 +337,12 @@ function workStarted(issue, recordStatus) {
   if (recordStatus !== 'drafting' && recordStatus !== 'planned') return true;
   return issue.history.some((event) => token(event.label.name) === 'plan:ongoing');
 }
+const CONTRACT_MARKER = /^\s*<!-- plan-contract: v([345]) -->/i;
+const contractVersion = (body) => Number(CONTRACT_MARKER.exec(body)?.[1] ?? 0);
+// A started v3 or v4 plan keeps the partial-pull-request flow, so each write keeps it at v4. Every other write
+// writes v5 (E2).
+const writeMarker = (issue, status) =>
+  contractVersion(issue.body) === 5 || !workStarted(issue, status) ? MARKER : LEGACY_MARKER;
 function stateDirectory() {
   const base = process.env.XDG_STATE_HOME || path.join(process.env.HOME || os.homedir(), '.local', 'state');
   const directory = path.join(base, 'docks', 'plan');
@@ -553,7 +591,13 @@ function changedLines(before, after) {
   return changes;
 }
 const SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch', 'Open questions', 'Verification Results'];
-const MARKER = '<!-- plan-contract: v4 -->';
+const MARKER = '<!-- plan-contract: v5 -->';
+const LEGACY_MARKER = '<!-- plan-contract: v4 -->';
+// Budgets above the largest plan of this repository (41,607 characters, 17 steps, 22 comments). A plan that passes
+// one gets the advice to split into child plans (E4).
+const BODY_BYTE_BUDGET = 50_000;
+const STEP_BUDGET = 20;
+const COMMENT_BUDGET = 60;
 let repository;
 const token = (value) => unquoteCode(value.trim()).trim().toLowerCase();
 const stepId = (value) => token(value).replaceAll('-', '_');
@@ -611,8 +655,8 @@ function table(text, header) {
   while (end < scan.length && scan[end].trim().startsWith('|')) end++;
   return { lines, start, end, rows: lines.slice(first, end).map(cells) };
 }
-const render = (sections) =>
-  `${MARKER}\n\n${SECTIONS.map((name) => `## ${name}\n\n${sections.get(name) ?? ''}`.trimEnd()).join('\n\n')}\n`;
+const render = (sections, marker = MARKER) =>
+  `${marker}\n\n${SECTIONS.map((name) => `## ${name}\n\n${sections.get(name) ?? ''}`.trimEnd()).join('\n\n')}\n`;
 function replaceTable(sections, name, header, separator, rows) {
   const parsed = table(sections.get(name) ?? '', header);
   if (parsed.start < 0) return;
@@ -629,11 +673,12 @@ function replaceTable(sections, name, header, separator, rows) {
 // the display holds a comma. A display match wins, as in normalizePlan. `steps` holds objects with display and id.
 const dependencyStep = (steps, entry) =>
   steps.find((step) => step.display === entry) ?? steps.find((step) => step.id === stepId(entry));
+// The paths of a Files cell.
+const filePaths = (cell) =>
+  new Set(cell.split(',').map((part) => unquoteCode(part.trim()).trim()).filter((part) => part && part !== '-'));
 // Steps that edit the same path need a Depends order, or parallel work collides (#78).
 function sharedFilesAdvice(rows) {
-  const paths = rows.map(
-    (row) => new Set(row[3].split(',').map((part) => unquoteCode(part.trim()).trim()).filter((part) => part && part !== '-')),
-  );
+  const paths = rows.map((row) => filePaths(row[3]));
   const steps = rows.map(([display, id]) => ({ display, id }));
   const dependencies = new Map(
     rows.map((row) => [
@@ -658,7 +703,7 @@ function sharedFilesAdvice(rows) {
   });
   return advice;
 }
-export function normalizePlan(text, { mode: explicitMode } = {}) {
+export function normalizePlan(text, { mode: explicitMode, marker = MARKER } = {}) {
   const advice = [];
   const cleaned = text
     .replace(/\r\n/g, '\n')
@@ -713,13 +758,12 @@ export function normalizePlan(text, { mode: explicitMode } = {}) {
   );
   const machinePaths = new Set(Array.from(cleaned.matchAll(MACHINE_PATH), ([match]) => match.replace(/[.:]+$/, '')));
   for (const machinePath of machinePaths) advice.push(`body contains an absolute machine path: ${machinePath}`);
-  return { body: render(sections), advice };
+  return { body: render(sections, marker), advice };
 }
 export function parsePlan(text) {
   const { body } = normalizePlan(text),
     sections = sectionMap(body);
   return {
-    marker: MARKER,
     sections,
     malformedSteps: table(sections.get('Steps'), STEPS_HEADER)
       .rows.map((row, index) => ({ line: index + 1, cells: row.length }))
@@ -819,9 +863,14 @@ function verdictFor(kind, alias) {
   if (['repair', 'changes', 'fixes-required'].includes(alias)) return kind === 'plan' ? 'repair' : 'fixes-required';
   return alias === 'blocked' ? 'blocked' : undefined;
 }
+// The manager's response to round k follows the review blocks of round k+1 in the same comment (E5). The response
+// quotes findings, so the parser reads no block heading, verdict, or severity from its heading line to the end.
+const MANAGER_RESPONSE_HEADING = /^ {0,3}#### Manager response to round \d+[ \t]*$/;
 export function parseReviewComment(body) {
   if (typeof body !== 'string') return undefined;
-  const rawLines = body.trim().split(/\r?\n/);
+  const commentLines = body.trim().split(/\r?\n/);
+  const response = commentLines.findIndex((line, index) => index > 0 && MANAGER_RESPONSE_HEADING.test(line));
+  const rawLines = response < 0 ? commentLines : commentLines.slice(0, response);
   const lines = rawLines.map(reviewText);
   const heading = REVIEW_HEADING.exec(lines[0]);
   if (!heading) return undefined;
@@ -861,7 +910,7 @@ function readPlanIssue(value, forWrite = false, connections = {}) {
     acting: forWrite,
     ...connections,
   });
-  if (!/^\s*<!-- plan-contract: v[34] -->/i.test(issue.body)) fail(`unreadable plan contract: #${issue.number}`);
+  if (!contractVersion(issue.body)) fail(`unreadable plan contract: #${issue.number}`);
   if (forWrite) {
     const owners = issue.assignees.map((owner) => owner.login);
     const foreign = owners.find((owner) => owner !== login);
@@ -871,12 +920,47 @@ function readPlanIssue(value, forWrite = false, connections = {}) {
   }
   return { issue, parsed: parsePlan(issue.body), status: statusFromIssue(issue), labelIds, login, viewerId };
 }
+// A child plan needs a parent that the acting login owns alone and that is still open as a plan (E1).
+function openPlanOf(issue, login) {
+  return (
+    contractVersion(issue.body) > 0 &&
+    String(issue.state).toUpperCase() === 'OPEN' &&
+    PLAN_STATUSES.has(statusFromIssue(issue)) &&
+    issue.assignees.length === 1 &&
+    issue.assignees[0].login === login
+  );
+}
+// A gh release without `issue create --parent` gets the REST sub-issues API, which takes the issue's database id.
+function linkSubIssue(parent, number) {
+  const { nameWithOwner } = repository;
+  try {
+    const child = parseJson(runGh(['api', `repos/${nameWithOwner}/issues/${number}`]), 'gh api');
+    if (!Number.isInteger(child?.id)) fail('gh api returned a malformed issue');
+    runGh([
+      'api',
+      `repos/${nameWithOwner}/issues/${parent}/sub_issues`,
+      '--method',
+      'POST',
+      '-F',
+      `sub_issue_id=${child.id}`,
+    ]);
+  } catch (error) {
+    fail(`plan #${number} was created, but its link to parent #${parent} failed: ${error.message}`);
+  }
+}
 function createPlan(args) {
-  const options = parseOptions(args, new Set(['--title', '--goal', '--mode', '--label']), new Set(['--label']));
+  const options = parseOptions(
+    args,
+    new Set(['--title', '--goal', '--mode', '--label', '--parent']),
+    new Set(['--label']),
+  );
   if (!options['--title']?.trim() || !options['--goal']?.trim()) fail('new requires --title and --goal');
   const extras = options['--label'] ?? [];
   for (const label of extras) if (/^plan(?::|$)/i.test(label)) fail(`reserved label namespace: ${label}`);
-  const { labelIds } = readSnapshot(undefined, { acting: true, labelLookup: true });
+  const parent =
+    options['--parent'] === undefined ? undefined : parseIssueNumber(options['--parent'], 'parent issue');
+  const { issue: parentIssue, login, labelIds } = readSnapshot(parent, { acting: true, labelLookup: true });
+  if (parent !== undefined && !openPlanOf(parentIssue, login)) fail(`parent #${parent} is not an open plan`);
   for (const [label, id] of labelIds)
     if (id === null) runGh(['label', 'create', label, '--repo', repository.nameWithOwner]);
   const goalText = blankFencedRegions(options['--goal'])
@@ -888,8 +972,9 @@ function createPlan(args) {
     .join('\n');
   const source = `## Goal\n${goalText}\n## Research\n${RESEARCH_PLACEHOLDER}\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
   const { body } = normalizePlan(source, { mode: options['--mode'] });
-  const url = withBodyFile(body, (file) =>
-    runGh([
+  let linkByRest = false;
+  const url = withBodyFile(body, (file) => {
+    const argv = [
       'issue',
       'create',
       '--title',
@@ -905,10 +990,17 @@ function createPlan(args) {
       ...extras.flatMap((label) => ['--label', label]),
       '--repo',
       repository.nameWithOwner,
-    ]).trim(),
-  );
+    ];
+    if (parent === undefined) return runGh(argv).trim();
+    const withParent = [...argv, '--parent', String(parent)];
+    const result = ghResult(withParent);
+    // gh refuses an unknown flag before it creates anything, so the plain create runs once.
+    linkByRest = result.status !== 0 && /unknown flag: --parent\b/.test(result.stderr);
+    return (linkByRest ? runGh(argv) : ghOutput(withParent, result)).trim();
+  });
   const number = /\/issues\/([1-9]\d*)\/?$/.exec(url)?.[1];
   if (!number) fail('gh issue create returned an invalid issue URL');
+  if (linkByRest) linkSubIssue(parent, Number(number));
   console.log(`plan created: #${number} ${url}`);
   printAdvice(source, 'drafting', [], { mode: options['--mode'] });
 }
@@ -921,9 +1013,13 @@ function showPlan(args) {
   const [value, ...flags] = args;
   if (!value || flags.length > 1 || flags.some((flag) => flag !== '--body'))
     fail('show requires an issue and optional --body');
-  const { issue, parsed, status } = readPlanIssue(value, false, { comments: true, closure: true }),
+  const { issue, parsed, status } = readPlanIssue(value, false, { comments: true, closure: true, children: true }),
     reviews = reviewVerdicts(issue);
-  const metadata = `${headerStrip(issue, status)}\nreviews: plan=${reviews.plan ?? 'none'} code=${reviews.code ?? 'none'}`;
+  const metadata = [
+    headerStrip(issue, status),
+    `reviews: plan=${reviews.plan ?? 'none'} code=${reviews.code ?? 'none'}`,
+    ...issue.children.map((child) => `child #${child.number} · ${statusFromIssue(child)} · ${child.title}`),
+  ].join('\n');
   if (flags.length) {
     console.error(metadata);
     process.stdout.write(issue.body);
@@ -936,8 +1032,35 @@ function showPlan(args) {
         ]
       : [];
     if (stuckClosed(issue)) extra.push(STUCK_ADVICE);
+    extra.push(...budgetAdvice(issue.body, parsed, issue.comments.length));
     printAdvice(issue.body, status, extra);
   }
+}
+// Each budget that a plan passes gets one advice line (E4).
+function budgetAdvice(body, plan, comments) {
+  const bytes = Buffer.byteLength(body, 'utf8'),
+    steps = plan.steps.length + plan.malformedSteps.length;
+  return [
+    bytes > BODY_BYTE_BUDGET && `body is ${bytes} bytes (budget ${BODY_BYTE_BUDGET})`,
+    steps > STEP_BUDGET && `${steps} steps (budget ${STEP_BUDGET})`,
+    comments > COMMENT_BUDGET && `${comments} comments (budget ${COMMENT_BUDGET})`,
+  ]
+    .filter(Boolean)
+    .map((reason) => `split into child plans: ${reason}`);
+}
+// The helper cannot tell new scope from a repair, so each change of this shape on a started v5 plan gets the advice to
+// move new work into a child plan: a new step, a new path in the Files cell of a step, or a changed Task or Done when.
+function scopeChanged(before, after) {
+  return after.steps.some((row) => {
+    const was = before.steps.find((step) => step.id === row.id);
+    if (!was) return true;
+    const paths = filePaths(was.files);
+    return (
+      row.task !== was.task ||
+      row.doneWhen !== was.doneWhen ||
+      [...filePaths(row.files)].some((entry) => !paths.has(entry))
+    );
+  });
 }
 function refuseMalformedSteps(plan) {
   const [first] = plan.malformedSteps;
@@ -960,8 +1083,9 @@ function editPlan(args) {
     fail(
       `stale export: ${file} was exported from a superseded body; run \`plan.mjs export ${issue.number}\` and re-apply the edit`,
     );
-  const source = fs.readFileSync(file, 'utf8'),
-    { body } = normalizePlan(source),
+  const started = workStarted(issue, status),
+    source = fs.readFileSync(file, 'utf8'),
+    { body } = normalizePlan(source, { marker: writeMarker(issue, status) }),
     incomingPlan = parsePlan(body),
     incoming = incomingPlan.steps;
   refuseMalformedSteps(incomingPlan);
@@ -970,7 +1094,7 @@ function editPlan(args) {
     if (seenIds.has(row.id)) fail(`duplicate step id after normalization: ${row.id}`);
     seenIds.add(row.id);
   }
-  if (workStarted(issue, status)) {
+  if (started) {
     refuseMalformedSteps(parsed);
     const frozen = (detail) => fail(`step state is frozen once work starts: ${detail}`),
       ids = new Set(parsed.steps.map((row) => row.id));
@@ -999,12 +1123,15 @@ function editPlan(args) {
   console.log(`changed: ${changes.length} line(s)`);
   for (const line of changes) console.log(line);
   const changedWork = reviewVerdicts(issue).plan === 'pass' ? plannedWorkChanges(parsed, incomingPlan) : [];
-  const rereview = changedWork.length
+  const extra = changedWork.length
     ? [
         `plan review passed before this edit; changed sections: ${changedWork.join(', ')}; review all such edits in one plan-review round before code that depends on them or the next code-review round`,
       ]
     : [];
-  printAdvice(source, status, rereview);
+  if (started && contractVersion(issue.body) === 5 && scopeChanged(parsed, incomingPlan))
+    extra.push(`check for new scope; move new work into a child plan (new --parent ${issue.number})`);
+  extra.push(...budgetAdvice(body, incomingPlan, issue.comments.length));
+  printAdvice(source, status, extra);
 }
 function setPlanStatus(args) {
   const [value, raw, ...flags] = args,
@@ -1027,7 +1154,7 @@ function setPlanStatus(args) {
   );
   const source = render(parsed.sections);
   writeIssueIfUnchanged(issue, {
-    body: normalizePlan(source).body,
+    body: normalizePlan(source, { marker: writeMarker(issue, status) }).body,
     add: `plan:${target}`,
     remove: labelsToRemove(issue, target),
     labelIds,
@@ -1066,29 +1193,17 @@ function setStepStatus(args) {
     parsed.steps.map((step) => Object.values(step)),
   );
   const source = render(parsed.sections);
-  writeIssueIfUnchanged(issue, { body: normalizePlan(source).body });
+  writeIssueIfUnchanged(issue, { body: normalizePlan(source, { marker: writeMarker(issue, status) }).body });
   console.log(`plan #${issue.number} step ${row.id}: ${current} -> ${target}`);
   printAdvice(source, status, advice);
 }
 function listPlans(args) {
   const selected = parseOptions(args, new Set(['--status']))['--status'];
   // One GraphQL query per 100 plans; like every snapshot, it names the repository through gh's {owner}/{repo}.
-  const query = `query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){${issueConnectionSelection('issues', PLAN_LIST_FIELDS, PLAN_LIST_ARGS, true)}}}`;
+  const query = `query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){${issueConnectionSelection('issues', ISSUE_SUMMARY_FIELDS, PLAN_LIST_ARGS, true)}}}`;
   const page = (variables) => graphql(query, variables).repository?.issues;
   const nodes = connectionNodes(page(), 'plan issues', (after) => page({ after }), PLAN_LIST_LIMIT);
-  if (
-    nodes.some(
-      (issue) =>
-        !Number.isInteger(issue.number) ||
-        typeof issue.title !== 'string' ||
-        typeof issue.state !== 'string' ||
-        (issue.stateReason !== null && typeof issue.stateReason !== 'string') ||
-        !Array.isArray(issue.labels?.nodes) ||
-        issue.labels.nodes.some((label) => typeof label?.name !== 'string'),
-    )
-  )
-    fail('gh api graphql returned malformed plan issues');
-  const issues = nodes.slice(0, PLAN_LIST_LIMIT).map((issue) => ({ ...issue, labels: issue.labels.nodes }));
+  const issues = issueSummaries(nodes, 'plan issues').slice(0, PLAN_LIST_LIMIT);
   issues.sort(
     (a, b) =>
       Number(a.state.toUpperCase() === 'CLOSED') - Number(b.state.toUpperCase() === 'CLOSED') || a.number - b.number,
@@ -1099,9 +1214,11 @@ function listPlans(args) {
   }
   if (issues.length >= PLAN_LIST_LIMIT) console.log('advice: list stopped at 500 plans; more plans may exist');
 }
+// A child plan that closed as completed, not planned, or duplicate runs no more work.
+const CHILD_TERMINAL_STATUSES = new Set(['finished', 'retired', 'duplicate']);
 // GitHub closes a plan for its merged pull request a while after the merge, so an archive takes the plan open and
-// ongoing as well as closed and finished.
-function refuseUnarchivable(plan) {
+// ongoing as well as closed and finished. A plan finishes only after each of its child plans closed (E1).
+function refuseUnarchivable(plan, { codeReview = true } = {}) {
   const { issue, parsed, status } = plan;
   refuseStuck(issue);
   if (status !== (isClosed(plan) ? 'finished' : 'ongoing'))
@@ -1110,20 +1227,41 @@ function refuseUnarchivable(plan) {
   if (parsed.steps.length === 0) fail('archive refused: no Steps rows parsed');
   const unfinished = parsed.steps.find((row) => !terminal(row.status));
   if (unfinished) fail(`archive refused: non-terminal step ${unfinished.id}`);
-  if (reviewVerdicts(issue).code !== 'pass') fail('archive requires Code-review: pass');
+  if (codeReview && reviewVerdicts(issue).code !== 'pass') fail('archive requires Code-review: pass');
+  const openChild = issue.children.find((child) => !CHILD_TERMINAL_STATUSES.has(statusFromIssue(child)));
+  if (openChild) fail(`archive refused: child #${openChild.number} is ${statusFromIssue(openChild)}`);
+}
+// The archive of a parent plan: its work landed through its child plans, so a child that closed as completed is the
+// landing proof, and the parent needs no pull request and no code review (E1).
+function archiveParent(number) {
+  const plan = readPlanIssue(number, true, { children: true });
+  const { children } = plan.issue;
+  if (children.length === 0) fail('archive requires an issue and --pr');
+  refuseUnarchivable(plan, { codeReview: false });
+  if (!children.some((child) => statusFromIssue(child) === 'finished'))
+    fail(`archive refused: no child of plan #${number} finished; retire the parent`);
+  // A rerun cannot take the close back, so it runs only while the plan keeps the snapshot body and no other owner.
+  if (!isClosed(plan)) {
+    if (ownedPreWriteIssue(number, plan.login).body !== plan.issue.body)
+      fail('plan issue changed remotely; re-read and retry');
+    runGh(['issue', 'close', String(number), '--reason', 'completed', '--repo', repository.nameWithOwner]);
+  }
+  writeIssueIfUnchanged(plan.issue, { remove: labelsToRemove(plan.issue) });
+  console.log(`plan #${number} finished (all ${children.length} children finished)`);
 }
 // The archive of a plan whose work landed through the pull request that `--pr` names. That pull request is the landing
 // proof: the latest close of the plan can come from a commit, another pull request, or a person.
 function archivePlan(args) {
   const [value, ...flags] = args,
     pr = parseOptions(flags, new Set(['--pr']))['--pr'];
-  if (!value || !pr) fail('archive requires an issue and --pr');
+  if (!value) fail('archive requires an issue and --pr');
+  if (pr === undefined) return archiveParent(parseIssueNumber(value));
   const number = parseIssueNumber(value),
     pullRequest = readPullRequest(parseIssueNumber(pr, 'pull request'), number);
   if (!pullRequest.merged) fail(`pull request #${pullRequest.number} is not merged`);
   // Each read is a snapshot for the write: it checks ownership, decides the claim, and must still be archivable.
   const read = () => {
-    const plan = readPlanIssue(number, true, { comments: true, defaultBranch: true });
+    const plan = readPlanIssue(number, true, { comments: true, defaultBranch: true, children: true });
     refuseUnarchivable(plan);
     return plan;
   };
@@ -1293,13 +1431,27 @@ function writeReopen({ issue, login, viewerId }, pr) {
   if (String(reopened.state).toUpperCase() === 'CLOSED') fail('plan issue state differs after reopen');
   console.log(`plan #${issue.number} reopened: ${statusFromIssue(reopened)}`);
 }
+// A v5 plan lands each pull request through a child plan with `Closes #<child>`, so a partial pull request never
+// closes it (E2). The refusal comes before the pull request read, whatever the state of that pull request. `gh issue
+// view` resolves the repository as the GraphQL reads do, and it is no GraphQL read of the plan, so the reads that the
+// close waits count stay the same.
+function refuseChildPlanReopen(number) {
+  const viewed = parseJson(runGh(['issue', 'view', String(number), '--json', 'body']), 'gh issue view');
+  if (typeof viewed?.body !== 'string') fail('gh issue view returned malformed plan issue');
+  if (contractVersion(viewed.body) === 5)
+    fail(
+      `plan #${number} uses child plans; a partial pull request is not allowed (open a child plan with new --parent ${number})`,
+    );
+}
 // The reopen after a partial pull request closed the plan through its linked branch (#90).
 function reopenPlan(args) {
   const [value, ...flags] = args,
     pr = parseOptions(flags, new Set(['--pr']))['--pr'];
   if (!value || !pr) fail('reopen requires an issue and --pr');
   const number = parseIssueNumber(value),
-    pullRequest = readPullRequest(parseIssueNumber(pr, 'pull request'), number);
+    prNumber = parseIssueNumber(pr, 'pull request');
+  refuseChildPlanReopen(number);
+  const pullRequest = readPullRequest(prNumber, number);
   if (!pullRequest.merged) fail(`pull request #${pullRequest.number} is not merged`);
   if (!pullRequest.closesPlan) {
     console.log(`pull request #${pullRequest.number} does not close plan #${number}; nothing to reopen`);

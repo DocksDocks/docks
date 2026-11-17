@@ -27,7 +27,7 @@ Open findings: <unreached LOW findings that landed, with the follow-up issue; ME
 - <resource that stays, with its reason; or none>
 
 ### After merge
-- <steps that need their own question, or none>
+- <steps that need their own question, child plans that a later run lands, or none>
 ```
 
 Copy each failure and limitation from Verification Results into Limits and
