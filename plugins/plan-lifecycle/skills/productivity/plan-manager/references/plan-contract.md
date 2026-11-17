@@ -182,7 +182,9 @@ the work that has not started into child plans, and set each moved step
 children keeps its own landing pull request, and archives with `--pr`.
 
 Mutations refuse foreign assignees. An unassigned plan is claimed by the acting
-login inside the same write. Read the issue again before each write. The helper
+login inside the same write. Each write that claims a plan refuses with
+`plan #<n> is owned by <login>`, and adds no assignee, when its read before the
+write shows another assignee. Read the issue again before each write. The helper
 compares remote state before writing and checks the body after an edit.
 
 ## Phases and review comments
@@ -527,7 +529,7 @@ plan #<n> was closed by <closer> before pull request #<pr> merged; reopen it by 
 plan #<n> changed during the settle wait; run reopen again
 plan #<n> changed during the settle wait; run archive again
 GitHub left plan #<n> closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it
-plan issue state differs after reopen
+plan issue state differs after reopen; run status <n> ongoing to repair the phase labels
 ```
 
 GitHub call failures exit 1 and print one of these messages on stderr. `edit`,
@@ -771,7 +773,8 @@ close, or alone when the parent was already closed. An `archive --pr` posts
 the record is the last line of its close comment, after a blank line; when
 GitHub already closed the plan, archive posts the record as a comment alone.
 `archive <n>` claims an unassigned parent before its close, so its record is
-trusted for the check after the close. An `archive --pr` plan always has one
+trusted for the check after the close. That claim refuses a foreign assignee
+with `plan #<n> is owned by <login>` before it writes. An `archive --pr` plan always has one
 assignee, because it needs a trusted code-review pass. Archive skips a record,
 or the `--pr` close comment, only when an identical trusted one comes after the
 latest trusted `Reopened: ...` comment. The record is trusted as
@@ -802,13 +805,16 @@ a child that is not terminal on every plan, and on a parent archive record also
 a named child that is not linked or no finished named child. The `--pr` retry checks this
 right after the not-merged refusal, before its other refusals. Run the retry
 when `show` advises it (Normalization, advice, and refusals). Each safe reopen,
-by `reopen` or by `archive`, reads the labels again and sets the whole label
-set in one write: the labels that are not phase labels, plus exactly one phase
-label, `plan:ongoing` when none was present, otherwise the one phase of that
-read. When that read shows more than one phase label, it refuses before the
-write with `plan issue state differs after reopen`. After the reopen, it reads
-the plan again, refuses with the same message unless it finds that one phase
-label, and prints the status of that read, such as `reopened: blocked`.
+by `reopen` or by `archive`, reads the labels right before its write. It adds
+`plan:ongoing` only when that read shows no phase label, and it never replaces
+the label set. After the reopen, it reads the plan again. Unless that read
+shows an open plan with exactly one phase label, it refuses with
+`plan issue state differs after reopen; run status <n> ongoing to repair the phase labels`
+and prints no status; `status <n> ongoing` or `status <n> blocked` repairs it.
+Otherwise it prints the status of that read, such as `reopened: blocked`.
+Known limit: a phase label that someone else adds around the write can leave
+two phase labels. The refusal reports it, and `status` repairs it. The write
+removes no label, so no label is lost.
 
 ### Teardown
 

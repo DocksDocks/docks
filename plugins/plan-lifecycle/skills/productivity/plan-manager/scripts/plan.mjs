@@ -410,6 +410,9 @@ function writeIssueIfUnchanged(issue, { body, add, remove = [], labelIds } = {})
   if (body === undefined && !add && remove.length === 0 && !claims) return;
   const current = preWriteIssue(issue.number);
   if (current.body !== issue.body) fail('plan issue changed remotely; re-read and retry');
+  // A claim follows the pre-write read: an owner that appeared after the snapshot is refused before any write.
+  const foreign = claims ? current.assignees.find((owner) => owner.id !== issue.claimantId) : undefined;
+  if (foreign) fail(`plan #${issue.number} is owned by ${foreign.login}`);
   const idLists = [];
   const fields = [];
   if (body !== undefined || claims) {
@@ -1585,31 +1588,32 @@ function closedByPullRequest(issue, pullRequest) {
 }
 // Whether a label is a phase label: `plan:` and a plan status.
 const isPhaseLabel = (name) => token(name).startsWith('plan:') && PLAN_STATUSES.has(token(name).slice(5));
-// One write request reopens the plan, sets its labels, posts `comment`, and claims an unassigned plan. GitHub labels
-// have no compare-and-set, so the write sets the whole label set (UpdateIssueInput.labelIds): every label of the latest
-// read that is not a phase label, and exactly one phase label. That phase is the one phase label of that read, or
-// `plan:ongoing` when the read shows none, as after a finished archive; a read with more phase labels is refused. So a
-// phase label that someone adds between the read and the write cannot leave the plan with two. A reopen compares no
-// body, so the pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and
-// the claim follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
+// One write request reopens the plan, posts `comment`, and claims an unassigned plan. It changes no label that the plan
+// holds, so a label that someone adds meanwhile survives. Only when the read right before the write shows no phase
+// label, as after a finished archive, does the same request add `plan:ongoing`. GitHub labels have no compare-and-set,
+// so a phase label can still change around the write: the read after it must show exactly one phase label, and any
+// other result is refused with the repair through `status`. A reopen compares no body, so the pre-write read is its
+// last ownership check: an owner that appeared after the snapshot is refused, and the claim follows that read. The
+// last field returns the stored state, which shows whether GitHub left the plan stuck.
 function writeReopen({ issue, login, viewerId, labelIds }, comment) {
   const { id, assignees } = ownedPreWriteIssue(issue.number, login);
   const claims = assignees.length === 0;
-  const labels = readSnapshot(issue.number).issue.labels;
-  const phases = labels.filter((label) => isPhaseLabel(label.name));
-  if (phases.length > 1) fail('plan issue state differs after reopen');
-  const phaseId = phases[0]?.id ?? labelIds.get('plan:ongoing') ?? createdLabelId('plan:ongoing');
-  const expected = phases.length ? token(phases[0].name).slice(5) : 'ongoing';
-  const labelSet = [...labels.filter((label) => !isPhaseLabel(label.name)).map((label) => label.id), phaseId];
+  const restoresPhase = !readSnapshot(issue.number).issue.labels.some((label) => isPhaseLabel(label.name));
+  const phaseLabelId = restoresPhase ? (labelIds.get('plan:ongoing') ?? createdLabelId('plan:ongoing')) : undefined;
   const stored = '{... on Issue{state stateReason}}';
   const fields = [
     'reopenIssue(input:{issueId:$issue}){clientMutationId}',
-    'updateIssue(input:{id:$issue,labelIds:$labels}){clientMutationId}',
+    ...(restoresPhase ? ['addLabelsToLabelable(input:{labelableId:$issue,labelIds:$labels}){clientMutationId}'] : []),
     `addComment(input:{subjectId:$issue,body:$body}){${claims ? 'clientMutationId' : `subject${stored}`}}`,
   ];
   if (claims)
     fields.push(`addAssigneesToAssignable(input:{assignableId:$issue,assigneeIds:$assignees}){assignable${stored}}`);
-  const declarations = ['$issue:ID!', '$body:String!', '$labels:[ID!]!', ...(claims ? ['$assignees:[ID!]!'] : [])];
+  const declarations = [
+    '$issue:ID!',
+    '$body:String!',
+    ...(restoresPhase ? ['$labels:[ID!]!'] : []),
+    ...(claims ? ['$assignees:[ID!]!'] : []),
+  ];
   let data;
   try {
     data = graphqlData([
@@ -1619,7 +1623,7 @@ function writeReopen({ issue, login, viewerId, labelIds }, comment) {
       `issue=${id}`,
       '-f',
       `body=${comment}`,
-      ...labelSet.flatMap((labelId) => ['-f', `labels[]=${labelId}`]),
+      ...(restoresPhase ? ['-f', `labels[]=${phaseLabelId}`] : []),
       ...(claims ? ['-f', `assignees[]=${viewerId}`] : []),
     ]);
   } catch (error) {
@@ -1631,11 +1635,14 @@ function writeReopen({ issue, login, viewerId, labelIds }, comment) {
   if (typeof payload?.state !== 'string' || (payload.stateReason !== null && typeof payload.stateReason !== 'string'))
     fail('gh api graphql returned malformed stored plan issue');
   refuseStuck({ ...issue, state: payload.state, stateReason: payload.stateReason });
-  // The status comes from a fresh read, which must show the one phase that the write set.
+  // The status comes from a fresh read, which must show an open plan with exactly one phase label.
   const current = readSnapshot(issue.number).issue,
     status = statusFromIssue(current);
   refuseStuck(current);
-  if (status !== expected) fail('plan issue state differs after reopen');
+  if (!PLAN_STATUSES.has(status))
+    fail(
+      `plan issue state differs after reopen; run status ${issue.number} ongoing to repair the phase labels`,
+    );
   console.log(`plan #${issue.number} reopened: ${status}`);
 }
 // A v5 plan lands each pull request through a child plan with `Closes #<child>`, so a partial pull request never
