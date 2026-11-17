@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "b177e2f935f97bc534a9ca616cc38985a80fa1a83b4f6e5da5a2a12cc1f61f2c"
+  content_hash: "73b19e476d4eaff91fac07595c9c10595237a10561e03ad22c7971a5c3da0420"
 ---
 
 # Plans Workspace
@@ -40,7 +40,10 @@ Report its resolved path or that the plugin is unavailable.
 ## Classify
 
 Inspect the standard, routing nodes, root Plans section, reviewer wrappers, and
-pull-request template. A missing template is a report item, not drift.
+pull-request template. Detect the template with the detection in
+[`references/pull-request-template.md`](references/pull-request-template.md).
+A missing template is a report item, not drift. A detection error is not a
+missing template: report the error.
 Use generated scaffolding outside frozen history to recognize legacy workspaces.
 
 | Class | Evidence | Action |
@@ -86,10 +89,11 @@ For audit, that report is final.
    Never overwrite an existing wrapper or create a manager wrapper.
 6. Offer to create the pull-request template from
    [`references/pull-request-template.md`](references/pull-request-template.md).
-   Run its detection command first. When a template exists, make no change and
-   never overwrite it. Otherwise fill in the check command that the root
-   instruction file names, print the draft, and ask. Write
-   `.github/pull_request_template.md` only when the user accepts.
+   Run its detection first. When it prints a path, make no change and never
+   overwrite the template. When it prints an `ERROR` line, report the error and
+   write nothing. Only on `pull-request template: none`, fill in the check
+   command that the root instruction file names, print the draft, and ask.
+   Write `.github/pull_request_template.md` only when the user accepts.
 
 ## Migrate or refresh
 
@@ -142,8 +146,12 @@ grep -n '^## Plans' AGENTS.md                  # root Plans section
 grep -c 'Pointers here name concepts' docs/AGENTS.md   # 1 or more
 ls .codex/agents/plan-reviewer.toml .codex/agents/code-reviewer.toml
 find . \( -name .git -o -name node_modules -o -path ./docs/plans/finished \) -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print   # no output
-find . .github docs -maxdepth 1 -iname 'pull_request_template*' 2>/dev/null   # a path; no output only when the user declined
 ```
+
+Run the template detection in
+[`references/pull-request-template.md`](references/pull-request-template.md).
+It prints a template path, or `pull-request template: none` only when the
+user declined the offer. Report an `ERROR` line as a failed check.
 
 For migration, confirm each issue uses a user-restated title and goal, and
 read back its drafting state. Confirm no operation touched or inventoried

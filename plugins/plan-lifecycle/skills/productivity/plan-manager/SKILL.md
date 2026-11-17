@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "e6aa81857f312922249461b3f0cd395d8c9e20bfdd4c7b3bfab7dd669bccbfdc"
+  content_hash: "c6db43cb0f8622f7ef3b241f2bd6a70009624af81245b8f863fa400fff4533c4"
 ---
 
 # Plan Manager
@@ -266,9 +266,11 @@ commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
 on `Merge now`. The landing description holds the summary, the `## Checklist`
 section, and `Closes #<n>`, as the contract's Pull requests says. Tick an item
-only with its evidence on the reviewed head: a Verification Results pass, or
-`show <n>` `code=pass` for the code-review item. End each unticked item with
-its reason. Before the merge question, run the landing self-check in Checks and
+only with its evidence for the reviewed head that you push: a Verification
+Results pass, or `show <n>` `code=pass` from a round that reviewed that head.
+End each unticked item with its reason. After each push, build the ticks again;
+evidence for an older head ticks nothing. Before the merge question, run the
+landing self-check in Checks and
 merge. The merge question states `<k> of <n> checklist items ticked` and lists
 each unticked item with its reason. The `Merge now` option states the
 teardown, as the contract's Checks and merge says. A v5 plan has no partial

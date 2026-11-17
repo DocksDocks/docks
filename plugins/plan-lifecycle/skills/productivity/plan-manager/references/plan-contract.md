@@ -701,10 +701,14 @@ Do not nest items. GitHub does not document how it counts nested items.
 Add the items in this order:
 
 1. The task items of the repository's pull-request template, with their text as
-   written. GitHub reads a file named `pull_request_template.md` (any letter
-   case, `.md` or `.txt`) in the root, in `docs/`, or in `.github/`, or several
-   templates in a `PULL_REQUEST_TEMPLATE/` folder in one of these places
-   (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository>).
+   written. GitHub reads a template from the root, from `docs/`, or from
+   `.github/`: a file named `pull_request_template`, with an extension such as
+   `.md` or `.txt`, in any letter case, or a `PULL_REQUEST_TEMPLATE/` folder
+   that holds several templates
+   (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates>).
+   Find it with the detection in the `plan-workspace` skill's
+   `references/pull-request-template.md`. A detection error is not a missing
+   template: report it in the merge question.
    `gh pr create --body-file` uses the file as given and copies no template,
    so copy the items yourself. When there are several templates, use the one
    that applies to the change, and name it in the merge question.
@@ -714,29 +718,35 @@ Add the items in this order:
    driven surface end to end.
 4. "Code review passed".
 
-Do not add an item that a template item already covers. When the repository
-has no pull-request template, use these default items in place of the template
-items: "`<check command>` passes", with the check command from the root
-instruction file (for example `bun run check`); "Tested locally with the
-`verify` skill"; and "Code review passed". When the root instruction file names
-no check command, the first item reads "Checks pass" and stays unticked, with
-the reason `no check command in the repository instructions`.
+When the repository has no pull-request template, use these default items in
+place of the template items: "`<check command>` passes", with the check
+command from the root instruction file (for example `bun run check`); "Tested
+locally with the `verify` skill"; and "Code review passed". When the root
+instruction file names no check command, the first item reads "Checks pass"
+and stays unticked, with the reason
+`no check command in the repository instructions`. Skip an item of 2 to 4 when
+a template item or a default item already covers it, so that no check and no
+review shows twice.
 
-Tick an item (`- [x]`) only when its evidence exists for the reviewed head:
+Tick an item (`- [x]`) only when its evidence is for the reviewed head that you
+push now:
 
-- a command item: Verification Results record a pass of that command on the
-  reviewed head;
+- a command item: Verification Results record a pass of that command on that
+  head;
 - the tested-locally item: Verification Results record a pass of the `verify`
-  skill flow on the reviewed head;
-- the code-review item: `show <n>` reports `code=pass`;
-- a template item: a Verification Results entry or the code-review verdict
-  proves it.
+  skill flow on that head;
+- the code-review item: `show <n>` reports `code=pass`, and the passing round
+  reviewed that head;
+- a template item: a Verification Results entry or the code-review verdict for
+  that head proves it.
 
 Otherwise keep the item unticked, and end its line with ` - <reason>`, for
 example ``- [ ] Tested locally with the `verify` skill - the change touches no driven surface``.
 A template item without proof gets the reason `not checked by the plan`.
-Build the body again after each push, so that the ticks follow the reviewed
-head.
+After each push, build every tick again from the evidence for the new
+reviewed head. Evidence for an older head ticks nothing: the item stays
+unticked, with the reason `not checked on <short-sha>`, until it passes on the
+new head.
 
 ### Checks and merge
 
@@ -756,8 +766,8 @@ run, the third failure is a stall under Round ceiling.
 
 Before the merge question, run the landing self-check. Read the pushed body
 with `gh pr view <pr> --repo <owner/repo> --json body --jq .body`. For each
-ticked item, find its evidence as Checklist says. Untick each item without
-evidence, add its reason, and update the body with
+ticked item, find its evidence for the pushed head, as Checklist says. Untick
+each item without that evidence, add its reason, and update the body with
 `gh pr edit <pr> --repo <owner/repo> --body-file <file>`. The merge question
 states `<k> of <n> checklist items ticked` and lists each unticked item with
 its reason. An unticked item does not block the merge question; the user
