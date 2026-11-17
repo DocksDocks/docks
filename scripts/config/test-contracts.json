@@ -297,7 +297,7 @@
       "selection": {
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/review-benchmark.test.mjs",
-        "expected_min": 135
+        "expected_min": 151
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["bun-1"],
@@ -354,7 +354,7 @@
       "selection": {
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/verify-gate.test.mjs",
-        "expected_min": 8
+        "expected_min": 10
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["bun-1"],

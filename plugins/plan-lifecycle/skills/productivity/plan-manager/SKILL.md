@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "0676b1fbe0cb8691fc84574bf11219051b05e4a4c92d5257647217a92b6cd9c8"
+  content_hash: "4a62403e52b6bb4f6c92714615ccd28e0d3472ee98e5554df48df233bf39da1f"
 ---
 
 # Plan Manager
@@ -146,7 +146,9 @@ root and in each parent folder of a changed path. The changed paths are the
 paths of the full diff and, in a later round, also the paths of the delta diff.
 A file that the branch added and a repair then deleted is in the delta diff
 only. Set `prev` to the previous round's reviewed head, or leave it empty in
-round 1. Its `MANIFEST` lists each checked path as `copied <path>` or
+round 1. A symlink gives the text of its target in the merge-base tree, under
+the path of the link. A link whose target is missing or outside the tree is
+absent. The folder's `MANIFEST` lists each checked path as `copied <path>` or
 `absent <path>`:
 
 ```bash
@@ -167,9 +169,12 @@ rm -rf "$inst" && mkdir -p "$inst"
     done
   done | sort -zu |
   while IFS= read -r -d '' file; do
-    if git cat-file -e "$base:$file" 2>/dev/null; then
+    # A link gives its target's object; a missing or outside target gives no blob.
+    read -r type oid < <(printf '%s:%s\n' "$base" "$file" |
+      git cat-file --batch-check='%(objecttype) %(objectname)' --follow-symlinks)
+    if [ "$type" = blob ]; then
       mkdir -p "$inst/$(dirname "$file")"
-      git show "$base:$file" > "$inst/$file"
+      git cat-file blob "$oid" > "$inst/$file"
       printf 'copied %s\n' "$file"
     else
       printf 'absent %s\n' "$file"

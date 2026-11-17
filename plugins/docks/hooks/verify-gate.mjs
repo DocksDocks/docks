@@ -7,6 +7,9 @@
 //   off      allow every commit and write nothing.
 //   observe  (default) allow every commit; append one JSON line for each commit
 //            without the trailer to ${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl.
+//            The line holds metadata only: time, session_id, cwd, mode, the kinds of
+//            message source, and the subject line cut to 72 characters. It never
+//            holds the raw command, because a command can hold a secret.
 //   enforce  deny a commit without the trailer. After two denials in one session,
 //            allow the next commit, log it, and start the count again.
 //
@@ -25,6 +28,7 @@ const MODES = new Set(['off', 'observe', 'enforce']);
 const DENIALS_BEFORE_ALLOW = 2;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TRAILER_FORMAT = '`Verified: <command>[; <command>]` or `Verified: none - <reason>`';
+const SUBJECT_MAX_CHARS = 72;
 
 // ---------- shell tokenizer ----------
 
@@ -381,6 +385,24 @@ function hasVerifiedTrailer(message, cwd) {
   });
 }
 
+// Name the kinds of message source of one commit, for the log. `-C` stands for
+// each reuse option (`-c`, `-C`, `--reuse-message`, `--reedit-message`).
+function messageSources(options) {
+  const sources = [];
+  if (options.messages.length > 0) sources.push('-m');
+  if (options.files.length > 0) sources.push('-F');
+  if (options.reuse) sources.push('-C');
+  if (options.amend) sources.push('--amend');
+  if (options.trailers.length > 0) sources.push('--trailer');
+  return sources.length > 0 ? sources : ['none'];
+}
+
+// Return the first line of the message that is not blank, cut to SUBJECT_MAX_CHARS.
+function subjectLine(message) {
+  const line = (message ?? '').split('\n').find((text) => text.trim() !== '') ?? '';
+  return Array.from(line.trim()).slice(0, SUBJECT_MAX_CHARS).join('');
+}
+
 // ---------- state ----------
 
 function stateDir() {
@@ -442,23 +464,27 @@ function run() {
   if (typeof command !== 'string') return;
   const baseCwd = typeof payload.cwd === 'string' && payload.cwd ? payload.cwd : process.cwd();
 
-  const unverified = findCommits(command, baseCwd).some((commit) => {
+  let unverified = null;
+  for (const commit of findCommits(command, baseCwd)) {
     const options = parseCommitArgs(commit.args);
-    if (options.dryRun) return false;
+    if (options.dryRun) continue;
     const message = commitMessage(commit, options);
-    return message === null || !hasVerifiedTrailer(message, commit.cwd);
-  });
+    if (message !== null && hasVerifiedTrailer(message, commit.cwd)) continue;
+    unverified = { message_sources: messageSources(options), subject: subjectLine(message) };
+    break;
+  }
   if (!unverified) return;
 
   const sessionId = typeof payload.session_id === 'string' && payload.session_id ? payload.session_id : 'unknown';
-  const entry = { time: new Date().toISOString(), session_id: sessionId, cwd: baseCwd, command };
+  // Log metadata only. The raw command can hold a secret, so it never goes to the log.
+  const entry = { time: new Date().toISOString(), session_id: sessionId, cwd: baseCwd, mode, ...unverified };
   if (mode === 'observe') {
     appendLog(entry);
     return;
   }
   const previous = countDenial(sessionId);
   if (previous >= DENIALS_BEFORE_ALLOW) {
-    appendLog({ ...entry, mode: 'enforce', allowed_after_denials: previous });
+    appendLog({ ...entry, allowed_after_denials: previous });
     return;
   }
   deny(

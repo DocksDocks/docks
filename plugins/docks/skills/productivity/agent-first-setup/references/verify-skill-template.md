@@ -28,6 +28,7 @@ The skill lives at `.agents/skills/verify/SKILL.md`. The symlink `.claude/skills
 - Use test data, test accounts, and local ports only. Never point a command at production.
 - Name each secret by its environment variable. Do not write a secret value into the skill, and do not print it.
 - Stop every process that a command starts. Remove temporary files and free the ports.
+- Put the log, the PID file, and other temporary files in a private folder that `mktemp -d` makes. Do not use a fixed path such as `/tmp/<project>.log`: on a shared host, another user can create that path first as a symlink to a file that you can write.
 - Use only commands that the project root `AGENTS.md` or its build files already define, or the tools in [Surface recipes](#surface-recipes).
 
 ## Template
@@ -56,10 +57,14 @@ metadata:
 ## Start
 
 ```bash
-<start command> > /tmp/<project>-verify.log 2>&1 &
-echo $! > /tmp/<project>-verify.pid
+run=$(mktemp -d)
+echo "verify folder: $run"
+<start command> > "$run/verify.log" 2>&1 &
+echo $! > "$run/verify.pid"
 <readiness command>
 ```
+
+The Stop block reads `$run`. If the shell does not keep variables between blocks, set `run` to the printed folder before you stop.
 
 Ready when: <the readiness command exits 0 | the log shows "<line>">.
 
@@ -73,8 +78,8 @@ Ready when: <the readiness command exits 0 | the log shows "<line>">.
 ## Stop and clean up
 
 ```bash
-kill "$(cat /tmp/<project>-verify.pid)"
-rm -f /tmp/<project>-verify.pid /tmp/<project>-verify.log
+kill "$(cat "$run/verify.pid")"
+rm -r "$run"
 ```
 
 Clean when: `<command>` shows no process and no open port.
@@ -126,8 +131,10 @@ notes-api is an HTTP service. Client programs create and read notes through its 
 ## Start
 
 ```bash
-PORT=4010 DATABASE_URL=sqlite::memory: npm start > /tmp/notes-api-verify.log 2>&1 &
-echo $! > /tmp/notes-api-verify.pid
+run=$(mktemp -d)
+echo "verify folder: $run"
+PORT=4010 DATABASE_URL=sqlite::memory: npm start > "$run/verify.log" 2>&1 &
+echo $! > "$run/verify.pid"
 curl --silent --fail --retry 30 --retry-delay 1 --retry-connrefused http://127.0.0.1:4010/health
 ```
 
@@ -144,8 +151,8 @@ Ready when: the `curl` command prints `{"status":"ok"}` and exits 0.
 ## Stop and clean up
 
 ```bash
-kill "$(cat /tmp/notes-api-verify.pid)"
-rm -f /tmp/notes-api-verify.pid /tmp/notes-api-verify.log
+kill "$(cat "$run/verify.pid")"
+rm -r "$run"
 ```
 
 Clean when: `curl --silent http://127.0.0.1:4010/health` exits with code 7 (connection refused).
@@ -154,7 +161,7 @@ Clean when: `curl --silent http://127.0.0.1:4010/health` exits with code 7 (conn
 
 | Sign | Meaning | Next step |
 |---|---|---|
-| `curl: (7)` after all retries | The service did not start | Read `/tmp/notes-api-verify.log` |
+| `curl: (7)` after all retries | The service did not start | Read `$run/verify.log` |
 | V3 prints `201` | The input check is missing | Fix the validation, then run V1 to V3 again |
 ````
 

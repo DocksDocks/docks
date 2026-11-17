@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "3dc2c2d2f63ac683365da287135c66efe2c08aff2d3fda80eb235c879c251e59"
+  content_hash: "95c279e1deb49442d1eaec55081807fdf634df15977eae3e2f7a71c7d0967aa2"
 ---
 
 # Agent-First Setup
@@ -120,7 +120,7 @@ A project `verify` skill tells an agent how to run the real product the way a us
    test -f .claude/skills/verify/SKILL.md && echo "verify skill: linked" || echo "BROKEN: .claude/skills/verify"
    ```
 
-7. Run each command of the new skill once, in order: start, drive and inspect, stop. Replace each expected result with the result that you observed. If a command fails, remove it from the skill and name it in the report.
+7. Run each command of the new skill once, in order: start, drive and inspect, stop. Replace each expected result with the result that you observed. If a command fails, keep the command in the skill. Do not remove it. In place of its expected result, write `not observed: <first line of the failure>`. Do not report the skill as verified. Name the failed command and its output in the report. Then ask the user through the harness question tool for the fix, for example a missing service, dependency, or test account. If the harness has no such tool, end the turn and report Step 2b as blocked. Step 2b is complete only when each command ran and showed its expected result.
 
 In `audit` mode, run step 1 to step 3 only and record whether the skill exists or the surface that needs it.
 
@@ -277,6 +277,7 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 | `audit` mode finds a fixable problem | Fix it in the same run | Report it; the user runs the default mode or the owning skill |
 | The `verify` skill lists only the unit-test command | Accept it as verification | A unit test does not drive the product. Add a row that starts the surface, drives a main flow, and names the observable result |
 | The `verify` skill waits with `sleep 5` | Raise the sleep until the run passes | Wait on a readiness signal: an open port, a health URL, or a log line |
+| A `verify` command fails because a service or a dependency is not available | Remove the command from the skill | Keep the command. Report the failure and ask the user for the fix. Step 2b stays open until the command shows its expected result |
 
 ## Anti-Hallucination Checks
 

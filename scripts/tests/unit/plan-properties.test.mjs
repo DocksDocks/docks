@@ -193,13 +193,13 @@ test('table cells with escaped pipes round-trip through normalization', () => {
           ACCEPTANCE_SEPARATOR,
           ...acceptance.map((cells) => row(cells, compact)),
         ].join('\n');
-        const parsed = parsePlan(text);
-        assert.deepEqual(
-          parsed.steps.map(({ task, files, doneWhen }) => [task, files, doneWhen]),
-          stepCells,
-        );
+        const parsed = parsePlan(text),
+          normalized = parsePlan(normalizePlan(text).body);
+        const stepTexts = (plan) => plan.steps.map(({ task, files, doneWhen }) => [task, files, doneWhen]);
+        assert.deepEqual(stepTexts(parsed), stepCells);
         assert.deepEqual(parsed.acceptance, acceptance);
-        assert.deepEqual(parsePlan(normalizePlan(text).body).acceptance, acceptance);
+        assert.deepEqual(stepTexts(normalized), stepCells);
+        assert.deepEqual(normalized.acceptance, acceptance);
       },
     ),
     { numRuns: NUM_RUNS },

@@ -66,8 +66,10 @@ test('observe mode is the default, allows the commit, and appends one log line',
   assert.equal(runHook({ state, mode: 'observe', command: VERIFIED, cwd }).decision, null);
   const lines = logLines(state);
   assert.equal(lines.length, 1);
-  assert.deepEqual(Object.keys(lines[0]).sort(), ['command', 'cwd', 'session_id', 'time']);
-  assert.equal(lines[0].command, UNVERIFIED);
+  assert.deepEqual(Object.keys(lines[0]).sort(), ['cwd', 'message_sources', 'mode', 'session_id', 'subject', 'time']);
+  assert.equal(lines[0].mode, 'observe');
+  assert.deepEqual(lines[0].message_sources, ['-m']);
+  assert.equal(lines[0].subject, 'fix: handle empty input');
   assert.equal(lines[0].session_id, 's1');
   assert.equal(lines[0].cwd, cwd);
   assert.equal(fs.statSync(path.join(state, 'docks')).mode & 0o777, 0o700);
@@ -85,8 +87,45 @@ test('enforce mode denies twice in a session, then allows and logs the third com
   assert.equal(lines.length, 1);
   assert.equal(lines[0].session_id, 's1');
   assert.equal(lines[0].mode, 'enforce');
+  assert.equal(lines[0].allowed_after_denials, 2);
+  assert.equal('command' in lines[0], false);
   // The count starts again after the allowed commit.
   assertDenied(runHook({ state, mode: 'enforce', command: UNVERIFIED }).decision);
+});
+
+test('the log holds no part of the raw command, so a secret in the command stays out', (t) => {
+  const state = tempDir('secret', t);
+  const token = 'ghp_TESTTOKEN123';
+  const command = `GH_TOKEN=${token} gh auth status && git commit -m "fix: rotate key" -m "Body names ${token}."`;
+  assert.equal(runHook({ state, mode: 'observe', command }).decision, null);
+  for (let call = 0; call < 3; call += 1) runHook({ state, mode: 'enforce', command, session: 'secret' });
+  const raw = fs.readFileSync(path.join(state, 'docks', 'verify-gate.jsonl'), 'utf8');
+  assert.equal(logLines(state).length, 2);
+  assert.equal(raw.includes(token), false, raw);
+  assert.equal(raw.includes('gh auth status'), false, raw);
+  assert.deepEqual(
+    logLines(state).map((line) => [line.mode, line.subject]),
+    [
+      ['observe', 'fix: rotate key'],
+      ['enforce', 'fix: rotate key'],
+    ],
+  );
+});
+
+test('the log names each message source kind and cuts the subject to 72 characters', (t) => {
+  const state = tempDir('sources', t);
+  const long = `fix: ${'x'.repeat(100)}`;
+  runHook({ state, command: `git commit -m "${long}"` });
+  runHook({ state, command: 'git commit' });
+  runHook({ state, command: 'git commit -F - --trailer "Reviewed-by=A" <<EOF\nfix: y\nEOF' });
+  const lines = logLines(state);
+  assert.equal(lines[0].subject, long.slice(0, 72));
+  assert.deepEqual(
+    lines.map((line) => line.message_sources),
+    [['-m'], ['none'], ['-F', '--trailer']],
+  );
+  assert.equal(lines[1].subject, '');
+  assert.equal(lines[2].subject, 'fix: y');
 });
 
 test('enforce mode allows a commit whose message carries the trailer', (t) => {

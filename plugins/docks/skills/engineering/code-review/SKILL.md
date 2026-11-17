@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "fc1a6e9b254e4a6afcfdd9846125f41586a5a13f286b4aa1ce62f169f225a34a"
+  content_hash: "9fb6289f6a3ec88ffdab74743d740ddb398cbb8d6449425f53d4dd4c6b81b15d"
 ---
 
 # Code Review
@@ -59,10 +59,12 @@ Confirm what you're reviewing:
 
 ```bash
 base=$(git merge-base <fixed-point> HEAD)
-git cat-file -e "$base:<path>" && git show "$base:<path>"
+read -r type oid < <(printf '%s:%s\n' "$base" "<path>" |
+  git cat-file --batch-check='%(objecttype) %(objectname)' --follow-symlinks)
+[ "$type" = blob ] && git cat-file blob "$oid"
 ```
 
-A path that does not exist at the merge base has no base rule. When the diff changes an instruction file, keep the base rule, and review the changed lines as changed text. A change that makes a rule weaker is a finding: name the scenario that the weaker rule lets through. Without a fixed point, read the working tree.
+A symlink gives the text of its target in the merge-base tree, because `git show` of a link prints only the target path. A path that does not exist at the merge base has no base rule. A link whose target is missing or outside the merge-base tree also has no base rule. When the diff changes an instruction file, keep the base rule, and review the changed lines as changed text. A change that makes a rule weaker is a finding: name the scenario that the weaker rule lets through. Without a fixed point, read the working tree.
 
 **Triggered checks:** a `REVIEW.md` can hold a section `## Triggered checks` with one table, `| Id | Trigger | Check | Source |`. `Id` is `T<number>`. `Trigger` is a condition that a reader can see in a diff, such as a path glob, a changed symbol kind, or an added call. `Check` says what to verify. `Source` lists the issues or pull requests that produced the row. Apply only the rows whose trigger matches the diff, and skip every other row. Cite the row id in each finding that a row supports, as `check: T<n>` in the finding text. A row adds a check; the buckets and the evidence rules still apply.
 

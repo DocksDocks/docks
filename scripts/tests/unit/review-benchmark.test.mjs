@@ -7868,8 +7868,10 @@ test('manager writes one manager prompt per round with findings, and names lists
   assert.deepEqual(score.managerVerdicts(text), { [`${LOOP_R1}#1`]: 'rejected', [`${LOOP_R1}#2`]: 'rejected' });
 });
 
-// A repository whose base commit holds a root AGENTS.md, a CLAUDE.md link to it, and src/REVIEW.md, and whose head
-// changes AGENTS.md and src/a.mjs and adds src/lib/b.mjs and src/lib/AGENTS.md.
+// A repository whose base commit holds a root AGENTS.md, a CLAUDE.md link to it, src/REVIEW.md, and links that git
+// resolves from the folder of each link: src/AGENTS.md to an absolute path, src/CLAUDE.md to itself (a loop),
+// src/lib/CLAUDE.md through the folder link docs -> src to src/REVIEW.md, and src/lib/REVIEW.md to a file outside the
+// tree. The head changes AGENTS.md and src/a.mjs and adds src/lib/b.mjs and src/lib/AGENTS.md.
 function instructionRepo(t) {
   isolateGit(t);
   const root = neutralScratch(t);
@@ -7879,6 +7881,14 @@ function instructionRepo(t) {
   put(repo, 'AGENTS.md', '# Root rules at the base\n');
   fs.symlinkSync('AGENTS.md', path.join(repo, 'CLAUDE.md'));
   put(repo, 'src/REVIEW.md', '# Review rules at the base\n');
+  // The absolute and the outside targets exist on disk, so only the git resolution makes them absent.
+  put(root, 'outside.md', '# Rules outside the tree\n');
+  fs.symlinkSync(path.join(root, 'outside.md'), path.join(repo, 'src', 'AGENTS.md'));
+  fs.symlinkSync('CLAUDE.md', path.join(repo, 'src', 'CLAUDE.md'));
+  fs.symlinkSync('src', path.join(repo, 'docs'));
+  fs.mkdirSync(path.join(repo, 'src', 'lib'));
+  fs.symlinkSync('../../docs/REVIEW.md', path.join(repo, 'src', 'lib', 'CLAUDE.md'));
+  fs.symlinkSync('../../../outside.md', path.join(repo, 'src', 'lib', 'REVIEW.md'));
   put(repo, 'src/a.mjs', 'export const a = 1;\n');
   gitIn(repo, 'add', '-A');
   gitIn(repo, 'commit', '-q', '-m', 'base');
@@ -7916,16 +7926,20 @@ test('case writes the base-instructions folder of a code case, and its prompt an
       'absent src/CLAUDE.md',
       'copied src/REVIEW.md',
       'absent src/lib/AGENTS.md',
-      'absent src/lib/CLAUDE.md',
+      'copied src/lib/CLAUDE.md',
       'absent src/lib/REVIEW.md',
       '',
     ].join('\n'),
   );
-  // Each copy holds the text of the base commit; the link gives the text of its target.
+  // Each copy holds the text of the base commit; a link gives the text of its target, also through a folder link.
+  // An absolute link, a loop, and a link that leaves the tree are absent.
   assert.equal(readText(path.join(folder, 'AGENTS.md')), '# Root rules at the base\n');
   assert.equal(readText(path.join(folder, 'CLAUDE.md')), '# Root rules at the base\n');
   assert.equal(readText(path.join(folder, 'src', 'REVIEW.md')), '# Review rules at the base\n');
-  assert.equal(fs.existsSync(path.join(folder, 'src', 'lib', 'AGENTS.md')), false);
+  assert.equal(readText(path.join(folder, 'src', 'lib', 'CLAUDE.md')), '# Review rules at the base\n');
+  for (const file of ['src/AGENTS.md', 'src/CLAUDE.md', 'src/lib/AGENTS.md', 'src/lib/REVIEW.md']) {
+    assert.equal(fs.existsSync(path.join(folder, ...file.split('/'))), false, file);
+  }
   const runDir = path.join(caseDir, 'C1-low', 'run-1');
   const prompt = readText(path.join(runDir, 'prompts', 'full.txt')).split('\n');
   assert.ok(prompt.includes(`Base instructions: ${folder}`));
@@ -7978,6 +7992,122 @@ test('loop adds the paths of the delta diff to the base-instructions folder of a
   const names = ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'];
   const absent = ['', 'src/', 'tools/', 'tools/gen/'].flatMap((dir) => names.map((name) => `absent ${dir}${name}`));
   assert.equal(readText(path.join(round(2), 'base-instructions', 'MANIFEST')), `${absent.join('\n')}\n`);
+});
+
+// A code-delta case, built with the arm Cd: the base holds AGENTS.md and tools/gen/REVIEW.md, the delta base changes
+// src/a.mjs and adds tools/gen/x.mjs, and the head deletes tools/gen/x.mjs again. So only the delta diff has a path in
+// tools/.
+function codeDeltaCase(t) {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(repo);
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  const commit = (message) => {
+    gitIn(repo, 'add', '-A');
+    gitIn(repo, 'commit', '-q', '-m', message);
+    return gitIn(repo, 'rev-parse', 'HEAD').trim();
+  };
+  put(repo, 'AGENTS.md', '# Root rules\n');
+  put(repo, 'src/a.mjs', 'export const a = 1;\n');
+  put(repo, 'tools/gen/REVIEW.md', '# Generator rules\n');
+  const base = commit('base');
+  put(repo, 'src/a.mjs', 'export const a = 2;\n');
+  put(repo, 'tools/gen/x.mjs', 'export const x = 1;\n');
+  const deltaBase = commit('round 1');
+  fs.rmSync(path.join(repo, 'tools', 'gen', 'x.mjs'));
+  const head = commit('repair');
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const project = path.join(root, 'project');
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low], fixer: FIXER_SETTING });
+  const caseData = {
+    id: 'code-8',
+    kind: 'code-delta',
+    split: 'dev',
+    issue: 8,
+    round: 2,
+    plan: 'code-8-plan.md',
+    base,
+    head,
+    delta_base: deltaBase,
+    previous_review: 'code-8-review.md',
+  };
+  put(cases, 'dev/code-8.json', { ...caseData, known: [] });
+  put(cases, 'dev/code-8-plan.md', '# Plan 8\n');
+  put(cases, 'dev/code-8-review.md', FULL_BLOCK);
+  const options = { case: path.join(cases, 'dev/code-8.json'), arms: 'Cd', runs: '1', out: ws, project };
+  logged(() => prepare.prepareCase(options, repo));
+  return { repo, ws, options, caseDir: path.join(ws, 'code-8') };
+}
+
+test('case and case --extend add the paths of the delta diff of a code-delta case to its base instructions', (t) => {
+  const { repo, options, caseDir } = codeDeltaCase(t);
+  assert.equal(readText(path.join(caseDir, 'full.diff')).includes('tools/gen/x.mjs'), false);
+  assert.ok(readText(path.join(caseDir, 'delta.diff')).includes('tools/gen/x.mjs'));
+  const folder = path.join(caseDir, 'base-instructions');
+  const names = ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'];
+  const absent = (dir, list) => list.map((name) => `absent ${dir}${name}`);
+  const manifest = [
+    'copied AGENTS.md',
+    ...absent('', names.slice(1)),
+    ...absent('src/', names),
+    ...absent('tools/', names),
+    ...absent('tools/gen/', names.slice(0, 2)),
+    'copied tools/gen/REVIEW.md',
+    '',
+  ].join('\n');
+  assert.equal(readText(path.join(folder, 'MANIFEST')), manifest);
+  assert.equal(readText(path.join(folder, 'tools', 'gen', 'REVIEW.md')), '# Generator rules\n');
+  // --extend writes the same folder for a case folder of an earlier version, which has none.
+  fs.rmSync(folder, { recursive: true });
+  logged(() => prepare.prepareCase({ ...options, arms: 'Bd', extend: true }, repo));
+  assert.equal(readText(path.join(folder, 'MANIFEST')), manifest);
+  assert.equal(readText(path.join(folder, 'tools', 'gen', 'REVIEW.md')), '# Generator rules\n');
+});
+
+// The lines of a manager prompt that name the delta inputs in `dir`, and a check that the manager prompt `promptFile`
+// holds `lines` and names no other delta input.
+const deltaInputLines = (dir, rejection) => [
+  `Delta diff: ${path.join(dir, 'delta.diff')}`,
+  `Previous round comment: ${path.join(dir, 'previous-review.md')}`,
+  ...(rejection ? [`Rejection comment: ${path.join(dir, 'rejection.md')}`] : []),
+];
+const DELTA_INPUT = /^(?:Delta diff|Previous round comment|Rejection comment): /;
+function assertManagerInputs(promptFile, lines) {
+  const prompt = readText(promptFile).split('\n');
+  for (const line of lines) assert.ok(prompt.includes(line), `the manager prompt lacks ${line}`);
+  const count = (list) => list.filter((line) => DELTA_INPUT.test(line)).length;
+  assert.equal(count(prompt), count(lines));
+}
+const managerPromptFile = (dir) => path.join(dir, 'manager', 'manager-1.txt');
+
+test('manager names the delta diff, the previous round comment, and the rejection comment of a delta round', (t) => {
+  // Round 2 of a loop is a delta round with a rejection comment, in its round folder. Round 1 is a full round, so its
+  // manager gets no delta inputs.
+  const { repo, ws, cases, run, round, fixerPatch } = devLoop(t);
+  prepare.prepareLoop({ run, cases, 'fixer-patch': fixerPatch }, repo);
+  put(run, 'round-2/blocks/delta.md', V7_BLOCK(2));
+  findingsCommand(ws);
+  put(round(1), 'meta.json', { ...readJson(path.join(round(1), 'meta.json')), managerConfig: MANAGER_SETTING });
+  assert.deepEqual(logged(() => prepare.prepareManager({ ws })).result, { written: 2, unchanged: 0 });
+  const round2Inputs = [`Full diff: ${path.join(round(2), 'full.diff')}`, ...deltaInputLines(round(2), true)];
+  assertManagerInputs(managerPromptFile(round(2)), round2Inputs);
+  assertManagerInputs(managerPromptFile(round(1)), []);
+  // A delta round without a rejection comment names none.
+  fs.rmSync(path.join(round(2), 'rejection.md'));
+  logged(() => prepare.prepareManager({ ws }));
+  assertManagerInputs(managerPromptFile(round(2)), deltaInputLines(round(2), false));
+});
+
+test('manager names the delta inputs of a code-delta run without round folders in the case folder', (t) => {
+  const delta = codeDeltaCase(t);
+  const runDir = path.join(delta.caseDir, 'Cd-low', 'run-1');
+  put(runDir, 'blocks/delta.md', V7_BLOCK(2));
+  findingsCommand(delta.ws);
+  put(runDir, 'meta.json', { ...readJson(path.join(runDir, 'meta.json')), managerConfig: MANAGER_SETTING });
+  assert.deepEqual(logged(() => prepare.prepareManager({ ws: delta.ws })).result, { written: 1, unchanged: 0 });
+  assertManagerInputs(managerPromptFile(runDir), deltaInputLines(delta.caseDir, false));
 });
 
 // A repository with the reviewer agents and the two docks skills at the tag `rel` (the base), a head commit, and a
@@ -8248,4 +8378,45 @@ test('outcomes counts the reverts and follow-up defects of each landed plan', ()
     [fetched.plans, fetched.issues, fetched.pulls, fetched.commits],
     [plans, issues, pulls, [commits[0], commits[2]]],
   );
+});
+
+test('outcomes counts only merged revert pull requests and keeps the revert commits of the default branch', () => {
+  const repo = 'Owner/repo';
+  const merge = 'a'.repeat(40);
+  const plans = [
+    {
+      number: 10,
+      title: 'Plan ten',
+      closedAt: '2026-01-02T00:00:00Z',
+      closedByPullRequestsReferences: [{ number: 11 }],
+    },
+  ];
+  const pull = (number, title, body, extra = {}) => ({
+    number,
+    title,
+    body,
+    createdAt: '2026-01-03T00:00:00Z',
+    mergedAt: null,
+    mergeCommit: null,
+    labels: [],
+    ...extra,
+  });
+  const pulls = [
+    pull(11, 'Land plan ten', 'Closes #10', {
+      createdAt: '2026-01-01T00:00:00Z',
+      mergedAt: '2026-01-02T00:00:00Z',
+      mergeCommit: { oid: merge },
+    }),
+    // An open revert pull request and one that closed without a merge revert nothing.
+    pull(12, 'Revert "Land plan ten"', 'Reverts #11.'),
+    pull(13, 'Revert "Land plan ten"', `Reverts ${merge.slice(0, 9)}, but it closed without a merge.`),
+  ];
+  const commits = [
+    { sha: 'd'.repeat(40), message: `Revert "Land plan ten"\n\nThis reverts commit ${merge}.` },
+    { sha: merge, message: 'Merge pull request #11' },
+  ];
+  const [row] = outcomes.planOutcomes({ repo, plans, issues: [], pulls, commits });
+  assert.deepEqual(row.reverts, ['dddddddddddd']);
+  // Without a defect label or a defect title, an unmerged revert pull request is no follow-up defect either.
+  assert.deepEqual(row.followUps, []);
 });

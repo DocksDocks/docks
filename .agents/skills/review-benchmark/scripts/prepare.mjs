@@ -56,8 +56,6 @@ const WORKTREE_ROOT = 'worktree';
 // The instruction files of the merge base that a code reviewer reads (plan-contract.md, Code-review rounds), in the
 // order of the MANIFEST lines of the base-instructions folder.
 const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'];
-// The script follows at most this many symbolic links from an instruction file of the merge base to its text.
-const MAX_LINK_DEPTH = 8;
 // The plan contract of plan-lifecycle. A variant of `agents --contract-overlay` changes it (see writeContractCopy).
 const CONTRACT_PATH = `${PLUGIN_PATH}/skills/productivity/plan-manager/references/plan-contract.md`;
 const PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
@@ -496,11 +494,14 @@ export function buildOpening(caseData, paths, round = caseData.round) {
   ].join('\n');
 }
 
+// The first line of the tail of a reviewer prompt: the round mode. managerInputs reads it back.
+const modeLine = (mode) => `Round mode: ${mode}.`;
+
 // The mode's part of the prompt. Candidate skills define the modes and lenses, so a candidate tail only names them. A
 // panel tail of another prompt shape describes the lens. `side` is the prompt shape of the arm: its `prompt` field, or
 // else its agent side.
 export function buildTail({ caseData, side, mode, round, reviewer, paths }) {
-  const lines = [`Round mode: ${mode}.`];
+  const lines = [modeLine(mode)];
   if (mode === 'full') {
     if (!isPlanKind(caseData.kind)) lines.push(`Full diff: ${paths.fullDiff}`);
   } else if (mode === 'panel') {
@@ -722,34 +723,17 @@ function writeFocusDiffs(repo, hidden, base, tree, paths, full) {
   }
 }
 
-// The blob of the path `file` in the commit `commit`, `{ mode, sha }`, or null when the commit has no blob there.
-function blobEntry(repo, commit, file) {
-  const listing = git(repo, ['ls-tree', '-z', '--full-tree', commit, '--', file], {
-    env: { GIT_LITERAL_PATHSPECS: '1' },
-  }).toString();
-  for (const line of listing.split('\0')) {
-    const tab = line.indexOf('\t');
-    if (tab < 0 || line.slice(tab + 1) !== file) continue;
-    const [mode, type, sha] = line.slice(0, tab).split(' ');
-    return type === 'blob' ? { mode, sha } : null;
-  }
-  return null;
-}
+// The format of `git cat-file --batch-check` that commitFileText reads: the object type and the object name.
+const OBJECT_CHECK = '--batch-check=%(objecttype) %(objectname)';
 
-// The text of the file `file` in the commit `commit`, or null when the commit has no such file. A symbolic link (for
-// example `CLAUDE.md` -> `AGENTS.md`) gives the text of its target in the same commit; a link that leaves the
-// repository, a missing target, or a chain of more than MAX_LINK_DEPTH links gives null.
+// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. Git resolves a
+// symbolic link (for example `CLAUDE.md` -> `AGENTS.md`) from the folder of the link, with `--follow-symlinks`, as
+// the base-instructions builders of plan-manager and code-review do. A missing target, a target outside the tree, an
+// absolute target, or a loop gives no blob, so null.
 function commitFileText(repo, commit, file) {
-  let current = file;
-  for (let depth = 0; depth <= MAX_LINK_DEPTH; depth += 1) {
-    const entry = blobEntry(repo, commit, current);
-    if (!entry) return null;
-    const content = git(repo, ['cat-file', 'blob', entry.sha]);
-    if (entry.mode !== '120000') return content;
-    current = path.posix.normalize(path.posix.join(path.posix.dirname(current), content.toString()));
-    if (current === '..' || current.startsWith('../') || path.posix.isAbsolute(current)) return null;
-  }
-  return null;
+  const check = git(repo, ['cat-file', OBJECT_CHECK, '--follow-symlinks'], { input: `${commit}:${file}\n` });
+  const [type, oid] = check.toString().split('\n')[0].split(' ');
+  return type === 'blob' ? git(repo, ['cat-file', 'blob', oid]) : null;
 }
 
 // Writes the base-instructions folder of a review into `dir` (see the base-instructions contract in ../SKILL.md,
@@ -942,7 +926,9 @@ function buildCaseWorkspace({ repo, caseData, commits, hidden, casePath, sources
       const full = treeDiff(repo, hidden, commits.base, tree);
       fs.writeFileSync(paths.fullDiff, full);
       writeFocusDiffs(repo, hidden, commits.base, tree, paths, full);
-      writeBaseInstructions(repo, hidden, commits.base, tree, caseDir);
+      // A code-delta case also takes the parent folders of the paths of its delta diff (commits.delta_base is set only
+      // for that kind).
+      writeBaseInstructions(repo, hidden, commits.base, tree, caseDir, commits.delta_base);
       if (caseData.kind === 'code-delta') {
         fs.writeFileSync(paths.deltaDiff, treeDiff(repo, hidden, commits.delta_base, tree));
       }
@@ -1082,7 +1068,7 @@ export function prepareCase(options, repo) {
         return writeTree(repo, env);
       });
     }
-    if (addBase) writeBaseInstructions(repo, hidden, commits.base, tree, caseDir);
+    if (addBase) writeBaseInstructions(repo, hidden, commits.base, tree, caseDir, commits.delta_base);
     const fullLines = options.loop ? diffSize(repo, hidden, commits.base, tree) : null;
     for (const config of configs) {
       for (const arm of arms) {
@@ -1542,19 +1528,36 @@ function managerPrompt({ round, inputs, findings, verdictFile }) {
 }
 
 // The lines of a manager prompt that name the reviewed inputs of a round: the snapshot, the plan export, and the diff
-// and the base-instructions folder that the reviewers of the round had. Round 1, and a run without round folders, has
-// them in the case folder; a later round of a loop has them in its round folder.
+// and the base-instructions folder that the reviewers of the round had. A delta round also names the delta diff (for
+// a code kind; a plan kind has its plan diff), the previous round comment, and the rejection comment when the round
+// has one, as the delta reviewer had them (see buildTail). Round 1, and a run without round folders, has the inputs
+// in the case folder; a later round of a loop has them in its round folder.
 function managerInputs(caseDir, kind, dir, round) {
   const inputDir = round > 1 ? dir : caseDir;
-  const lines = [
-    `Repository snapshot root: ${path.join(inputDir, 'snapshot')}`,
-    `Plan export: ${path.join(caseDir, 'plan.md')}`,
-  ];
-  const diff = isPlanKind(kind) ? path.join(caseDir, 'plan.diff') : path.join(inputDir, 'full.diff');
+  const hasRejection = fs.existsSync(path.join(inputDir, 'rejection.md'));
+  const paths = reviewPaths(inputDir, path.join(caseDir, 'plan.md'), hasRejection);
+  const lines = [`Repository snapshot root: ${paths.snapshot}`, `Plan export: ${paths.plan}`];
+  const diff = isPlanKind(kind) ? path.join(caseDir, 'plan.diff') : paths.fullDiff;
   if (fs.existsSync(diff)) lines.push(`${isPlanKind(kind) ? 'Plan diff' : 'Full diff'}: ${diff}`);
-  const base = path.join(inputDir, BASE_INSTRUCTIONS);
-  if (fs.existsSync(base)) lines.push(`Base instructions: ${base}`);
+  if (fs.existsSync(paths.baseInstructions)) lines.push(`Base instructions: ${paths.baseInstructions}`);
+  if (deltaRound(dir)) {
+    if (!isPlanKind(kind)) lines.push(`Delta diff: ${paths.deltaDiff}`);
+    lines.push(`Previous round comment: ${paths.previousReview}`);
+    if (paths.rejection) lines.push(`Rejection comment: ${paths.rejection}`);
+  }
   return lines;
+}
+
+// Tells whether the round in `dir` is a delta round: a reviewer prompt of the round gives the delta mode (see
+// buildTail). A run without round folders records no mode in its meta.json, so the prompts are the one source for
+// every round.
+function deltaRound(dir) {
+  const promptsDir = path.join(dir, 'prompts');
+  if (!fs.existsSync(promptsDir)) return false;
+  return fs
+    .readdirSync(promptsDir)
+    .filter((name) => name.endsWith('.txt'))
+    .some((name) => fs.readFileSync(path.join(promptsDir, name), 'utf8').split('\n').includes(modeLine('delta')));
 }
 
 // The `manager` command. It writes the manager prompt `manager/manager-1.txt` of each review round of the workspace

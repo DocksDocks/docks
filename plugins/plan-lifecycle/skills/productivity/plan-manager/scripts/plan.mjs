@@ -625,13 +625,23 @@ function replaceTable(sections, name, header, separator, rows) {
   );
   sections.set(name, parsed.lines.join('\n'));
 }
+// Returns the step that a Depends entry names. An entry is a display, or a step id: normalizePlan keeps the id when
+// the display holds a comma. A display match wins, as in normalizePlan. `steps` holds objects with display and id.
+const dependencyStep = (steps, entry) =>
+  steps.find((step) => step.display === entry) ?? steps.find((step) => step.id === stepId(entry));
 // Steps that edit the same path need a Depends order, or parallel work collides (#78).
 function sharedFilesAdvice(rows) {
   const paths = rows.map(
     (row) => new Set(row[3].split(',').map((part) => unquoteCode(part.trim()).trim()).filter((part) => part && part !== '-')),
   );
+  const steps = rows.map(([display, id]) => ({ display, id }));
   const dependencies = new Map(
-    rows.map((row) => [row[0], row[4] === '-' ? [] : row[4].split(',').map((part) => part.trim())]),
+    rows.map((row) => [
+      row[0],
+      row[4] === '-'
+        ? []
+        : row[4].split(',').map((part) => dependencyStep(steps, part.trim())?.display ?? part.trim()),
+    ]),
   );
   const reaches = (from, to, seen = new Set()) => {
     if (seen.has(from)) return false;
@@ -1044,7 +1054,7 @@ function setStepStatus(args) {
     unfinished = row.depends
       .split(',')
       .map((part) => part.trim())
-      .filter((part) => part !== '-' && !terminal(parsed.steps.find((step) => step.display === part)?.status));
+      .filter((part) => part !== '-' && !terminal(dependencyStep(parsed.steps, part)?.status));
   if (['in-flight', 'done'].includes(target) && unfinished.length)
     advice.push(`step ${row.id} has unfinished dependency ${unfinished.join(', ')}`);
   row.status = target;

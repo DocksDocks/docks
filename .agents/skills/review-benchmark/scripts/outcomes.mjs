@@ -108,14 +108,15 @@ const labelNames = (item) => (item.labels ?? []).map((label) => label.name ?? la
 const textOf = (item) => `${item.title ?? ''}\n${item.body ?? ''}`;
 const after = (item, time) => !time || !item.createdAt || item.createdAt > time;
 
-// A revert of the pull request `pull`: a pull request or a commit with a revert marker whose text names the merge
-// commit of `pull` or cites `pull`. A commit that is the merge commit of a counted revert pull request does not count
+// A revert of the pull request `pull`: a merged pull request or a commit of the default branch with a revert marker
+// whose text names the merge commit of `pull` or cites `pull`. An open or closed-unmerged pull request reverts
+// nothing, so it does not count. A commit that is the merge commit of a counted revert pull request does not count
 // again.
 function revertsOf(pull, { repo, pulls, commits }) {
   const sha = pull.mergeCommit?.oid;
   const reverts = (text) =>
     REVERT_MARKER.test(text) && ((sha && namesCommit(text, sha)) || cites(text, repo, pull.number));
-  const revertPulls = pulls.filter((other) => other.number !== pull.number && reverts(textOf(other)));
+  const revertPulls = pulls.filter((other) => other.number !== pull.number && other.mergedAt && reverts(textOf(other)));
   const counted = new Set(revertPulls.map((other) => other.mergeCommit?.oid).filter(Boolean));
   const revertCommits = commits.filter(
     (commit) => commit.sha !== sha && !counted.has(commit.sha) && reverts(commit.message),

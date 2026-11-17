@@ -104,7 +104,7 @@ Expected, in order:
 | `enforce` with the trailer | No output, `exit=0`. |
 | `enforce`, first and second call without the trailer | Each prints a JSON line with `"permissionDecision":"deny"` and a reason that names the `Verified:` trailer, then `exit=0`. |
 | `enforce`, third call without the trailer | No output, `exit=0`. The hook allows the commit after two denials in one session. |
-| `cat` of the log | The `observe` line, and a second line with `"mode":"enforce"` and `"allowed_after_denials":2`. |
+| `cat` of the log | Two lines of metadata only: `time`, `session_id`, `cwd`, `mode`, `"message_sources":["-m"]`, and `"subject":"docs: fix typo"`. The first line has `"mode":"observe"`. The second line has `"mode":"enforce"` and `"allowed_after_denials":2`. No line has a `command` field. |
 
 ## V5 — Run the plan-lifecycle self-test
 
