@@ -917,11 +917,13 @@ function reviewVerdicts(issue) {
 const parentRecord = (children) =>
   `Archived as parent: children ${children.map((child) => `#${child.number}`).join(', ')}`;
 const landingRecord = (pr) => `Archived with landing pull request #${pr}`;
+// A reopen comment of `reopen` or `archive` ends the archive cycle before it.
+const isReopenComment = (comment) => comment.body.trim().startsWith('Reopened: ');
 function archiveKind(issue) {
   let kind;
   for (const comment of trustedComments(issue)) {
     const lines = comment.body.split(/\r?\n/).map((line) => line.trim());
-    if (lines[0].startsWith('Reopened: ')) kind = undefined;
+    if (isReopenComment(comment)) kind = undefined;
     if (lines.some((line) => /^Archived as parent: children #\d+(?:, #\d+)*$/.test(line))) kind = 'parent';
     if (lines.some((line) => /^Archived with landing pull request #\d+$/.test(line))) kind = 'landing';
   }
@@ -1363,15 +1365,25 @@ function isParentPlan({ issue, parsed }) {
     named.length === children.size
   );
 }
-// Whether `login` already posted a comment with the line `record`, so that a rerun does not post the record again.
-const recorded = (issue, login, record) =>
-  issue.comments.some(
-    (comment) =>
-      comment.author?.login === login && comment.body.split(/\r?\n/).some((line) => line.trim() === record),
-  );
+// The trusted comments of the current archive cycle: the ones after the latest trusted reopen comment.
+function cycleComments(issue) {
+  const trusted = trustedComments(issue);
+  return trusted.slice(trusted.findLastIndex(isReopenComment) + 1);
+}
+// Whether the current archive cycle already holds a trusted comment with the line `record`, so that a rerun does not
+// post the record again, while the archive after a reopen gets its own record.
+const recorded = (issue, record) =>
+  cycleComments(issue).some((comment) => comment.body.split(/\r?\n/).some((line) => line.trim() === record));
+// An unassigned plan is claimed before archive closes it, so that the record of the close is a trusted comment when the
+// read after the close needs it.
+function claimBeforeClose(plan) {
+  if (plan.issue.claimantId === undefined) return;
+  writeIssueIfUnchanged(plan.issue);
+  delete plan.issue.claimantId;
+}
 // Post the archive `record` on a plan that archive did not close itself, unless a rerun posted it already.
 function postRecordOnce({ issue, login }, record) {
-  if (recorded(issue, login, record)) return;
+  if (recorded(issue, record)) return;
   const { id } = ownedPreWriteIssue(issue.number, login);
   graphqlData([
     '-f',
@@ -1398,9 +1410,10 @@ function archiveParent(number) {
     fail(`archive refused: no child of plan #${number} finished; retire the parent`);
   const record = parentRecord(children);
   if (!isClosed(plan)) {
+    claimBeforeClose(plan);
     refuseChangedBeforeClose(plan);
     // gh posts the comment before it closes, so the record of a close that failed after it is not posted again.
-    const comment = recorded(plan.issue, plan.login, record) ? [] : ['--comment', record];
+    const comment = recorded(plan.issue, record) ? [] : ['--comment', record];
     runGh([
       'issue',
       'close',
@@ -1467,9 +1480,7 @@ function archivePlan(args) {
     // One comment explains the close and holds the archive record.
     const comment = `Closed by archive: pull request #${pullRequest.number} merged into ${defaultBranch} and closes this plan, but GitHub left the plan open.\n\n${record}`;
     // gh posts the comment before it closes, so the comment of a close that failed after it is not posted again.
-    const commented = observed.issue.comments.some(
-      (entry) => entry.author?.login === observed.login && entry.body === comment,
-    );
+    const commented = cycleComments(observed.issue).some((entry) => entry.body === comment);
     runGh([
       'issue',
       'close',
@@ -1572,31 +1583,33 @@ function closedByPullRequest(issue, pullRequest) {
     );
   return true;
 }
-// One write request reopens the plan, posts `comment`, and claims an unassigned plan. A plan that archive finished has
-// no phase label, so the same request restores `plan:ongoing`; the labels come from a read right before the write, so a
-// phase label that someone added meanwhile is kept and no second one is written. A reopen compares no body, so the
-// pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and the claim
-// follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
+// Whether a label is a phase label: `plan:` and a plan status.
+const isPhaseLabel = (name) => token(name).startsWith('plan:') && PLAN_STATUSES.has(token(name).slice(5));
+// One write request reopens the plan, sets its labels, posts `comment`, and claims an unassigned plan. GitHub labels
+// have no compare-and-set, so the write sets the whole label set (UpdateIssueInput.labelIds): every label of the latest
+// read that is not a phase label, and exactly one phase label. That phase is the one phase label of that read, or
+// `plan:ongoing` when the read shows none, as after a finished archive; a read with more phase labels is refused. So a
+// phase label that someone adds between the read and the write cannot leave the plan with two. A reopen compares no
+// body, so the pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and
+// the claim follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
 function writeReopen({ issue, login, viewerId, labelIds }, comment) {
   const { id, assignees } = ownedPreWriteIssue(issue.number, login);
   const claims = assignees.length === 0;
-  const phaseBefore = statusFromLabels(readSnapshot(issue.number).issue.labels);
-  const restoresPhase = phaseBefore === 'unlabelled';
-  const phaseLabelId = restoresPhase ? (labelIds.get('plan:ongoing') ?? createdLabelId('plan:ongoing')) : undefined;
+  const labels = readSnapshot(issue.number).issue.labels;
+  const phases = labels.filter((label) => isPhaseLabel(label.name));
+  if (phases.length > 1) fail('plan issue state differs after reopen');
+  const phaseId = phases[0]?.id ?? labelIds.get('plan:ongoing') ?? createdLabelId('plan:ongoing');
+  const expected = phases.length ? token(phases[0].name).slice(5) : 'ongoing';
+  const labelSet = [...labels.filter((label) => !isPhaseLabel(label.name)).map((label) => label.id), phaseId];
   const stored = '{... on Issue{state stateReason}}';
   const fields = [
     'reopenIssue(input:{issueId:$issue}){clientMutationId}',
-    ...(restoresPhase ? ['addLabelsToLabelable(input:{labelableId:$issue,labelIds:$labels}){clientMutationId}'] : []),
+    'updateIssue(input:{id:$issue,labelIds:$labels}){clientMutationId}',
     `addComment(input:{subjectId:$issue,body:$body}){${claims ? 'clientMutationId' : `subject${stored}`}}`,
   ];
   if (claims)
     fields.push(`addAssigneesToAssignable(input:{assignableId:$issue,assigneeIds:$assignees}){assignable${stored}}`);
-  const declarations = [
-    '$issue:ID!',
-    '$body:String!',
-    ...(restoresPhase ? ['$labels:[ID!]!'] : []),
-    ...(claims ? ['$assignees:[ID!]!'] : []),
-  ];
+  const declarations = ['$issue:ID!', '$body:String!', '$labels:[ID!]!', ...(claims ? ['$assignees:[ID!]!'] : [])];
   let data;
   try {
     data = graphqlData([
@@ -1606,7 +1619,7 @@ function writeReopen({ issue, login, viewerId, labelIds }, comment) {
       `issue=${id}`,
       '-f',
       `body=${comment}`,
-      ...(restoresPhase ? ['-f', `labels[]=${phaseLabelId}`] : []),
+      ...labelSet.flatMap((labelId) => ['-f', `labels[]=${labelId}`]),
       ...(claims ? ['-f', `assignees[]=${viewerId}`] : []),
     ]);
   } catch (error) {
@@ -1618,13 +1631,11 @@ function writeReopen({ issue, login, viewerId, labelIds }, comment) {
   if (typeof payload?.state !== 'string' || (payload.stateReason !== null && typeof payload.stateReason !== 'string'))
     fail('gh api graphql returned malformed stored plan issue');
   refuseStuck({ ...issue, state: payload.state, stateReason: payload.stateReason });
-  // A phase label can still change between the read before the write and the write. So the status comes from a fresh
-  // read, which must show one phase label: `plan:ongoing` after a restore, or the phase that the read before showed.
+  // The status comes from a fresh read, which must show the one phase that the write set.
   const current = readSnapshot(issue.number).issue,
-    status = statusFromIssue(current),
-    expected = restoresPhase ? 'ongoing' : phaseBefore;
+    status = statusFromIssue(current);
   refuseStuck(current);
-  if (!PLAN_STATUSES.has(status) || status !== expected) fail('plan issue state differs after reopen');
+  if (status !== expected) fail('plan issue state differs after reopen');
   console.log(`plan #${issue.number} reopened: ${status}`);
 }
 // A v5 plan lands each pull request through a child plan with `Closes #<child>`, so a partial pull request never

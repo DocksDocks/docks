@@ -599,36 +599,103 @@ test('a reopen after a finished archive restores the ongoing phase label', (t) =
   assert.deepEqual(closedAdvice(context, parent), []);
 });
 
-test('a reopen keeps a phase label that someone added before its label read and writes no second one', (t) => {
+// The phase labels of a plan as the fake gh stores them.
+function phaseLabels(context, number) {
+  return context.issue(number).labels.filter((label) => /^plan:(?:drafting|planned|ongoing|blocked)$/i.test(label));
+}
+
+test('a reopen keeps the one phase label of its label read and every other label', (t) => {
+  const context = planCliContext(t);
+  const { parent, child } = closableParent(context);
+  context.updateState((state) => {
+    state.labels['area:docs'] = { color: 'ededed' };
+  });
+  expectSuccess(archive(context, String(parent)), 'archive the parent');
+  context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
+  // The retry reads the plan twice (the first read and the settle read); the labels change before the read of the labels.
+  context.schedule(parent, { afterReads: reads(context, parent) + 2, labels: ['plan', 'area:docs', 'plan:blocked'] });
+  const result = archive(context, String(parent));
+  refuse(result, `archive refused: child #${child} is ongoing`);
+  assert.equal(result.stdout, `plan #${parent} reopened: blocked\n`);
+  assert.deepEqual(context.issue(parent).labels, ['plan', 'area:docs', 'plan:blocked']);
+});
+
+test('a phase label that lands with the reopen write leaves the plan with one phase label', (t) => {
   const context = planCliContext(t);
   const { parent, child } = closableParent(context);
   expectSuccess(archive(context, String(parent)), 'archive the parent');
   context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
-  // The retry reads the plan twice (the first read and the settle read); the label lands before the read of the labels.
-  context.schedule(parent, { afterReads: reads(context, parent) + 2, labels: ['plan', 'plan:blocked'] });
+  // The label lands after the read of the labels, right before the reopen write, which sets the whole label set.
+  context.schedule(parent, { afterReads: reads(context, parent) + 3, labels: ['plan', 'plan:blocked'] });
+  const result = archive(context, String(parent));
+  refuse(result, `archive refused: child #${child} is ongoing`);
+  assert.equal(result.stdout, `plan #${parent} reopened: ongoing\n`);
+  assert.deepEqual(phaseLabels(context, parent), ['plan:ongoing'], 'exactly one phase label is stored');
+});
+
+test('a reopen refuses before its write when its label read shows two phase labels', (t) => {
+  const context = planCliContext(t);
+  const { parent, child } = closableParent(context);
+  expectSuccess(archive(context, String(parent)), 'archive the parent');
+  context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
+  context.schedule(parent, {
+    afterReads: reads(context, parent) + 2,
+    labels: ['plan', 'plan:blocked', 'plan:ongoing'],
+  });
   context.updateState((state) => {
     state.calls = [];
   });
   const result = archive(context, String(parent));
-  refuse(result, `archive refused: child #${child} is ongoing`);
-  assert.equal(result.stdout, `plan #${parent} reopened: blocked\n`);
-  assert.deepEqual(parentState(context, parent).labels, ['plan', 'plan:blocked']);
-  assert.ok(
-    mutations(context).every((call) => !call.some((argument) => argument.includes('addLabelsToLabelable'))),
-    'the helper writes no phase label',
-  );
+  refuse(result, 'plan issue state differs after reopen');
+  assert.equal(result.stdout, '');
+  assert.deepEqual(mutations(context), [], 'no write');
+  assert.equal(context.issue(parent).state, 'CLOSED');
 });
 
-test('a reopen refuses and reports no status when another phase label lands with its write', (t) => {
+test('a reopen refuses and reports no status when a phase label lands right after its write', (t) => {
   const context = planCliContext(t);
   const { parent, child } = closableParent(context);
   expectSuccess(archive(context, String(parent)), 'archive the parent');
   context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
-  // The label lands after the read of the labels, right before the reopen write.
-  context.schedule(parent, { afterReads: reads(context, parent) + 3, labels: ['plan', 'plan:blocked'] });
+  context.updateState((state) => {
+    state.afterMutationOnce = { issue: parent, labels: ['plan', 'plan:ongoing', 'plan:blocked'] };
+  });
   const result = archive(context, String(parent));
   refuse(result, 'plan issue state differs after reopen');
   assert.equal(result.stdout, '', 'no reopened status is reported');
+});
+
+test('the archive after a recovery reopen posts its own record', (t) => {
+  const context = planCliContext(t);
+  const { parent, child } = closableParent(context);
+  expectSuccess(archive(context, String(parent)), 'archive the parent');
+  context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
+  refuse(archive(context, String(parent)), `archive refused: child #${child} is ongoing`);
+  closeChild(context, child, 'COMPLETED');
+  expectSuccess(archive(context, String(parent)), 'archive the parent again');
+  assert.deepEqual(parentState(context, parent).comments, [
+    parentRecord([child]),
+    reopenedComment(parent, child),
+    parentRecord([child]),
+  ]);
+});
+
+test('an unassigned parent is claimed before its close, so a child change during the close gets parent recovery', (t) => {
+  const context = planCliContext(t);
+  const { parent, child } = closableParent(context);
+  context.updateIssue(parent, (entry) => {
+    entry.assignees = [];
+  });
+  const other = context.createPlan('later child');
+  closeChild(context, other, 'COMPLETED');
+  // A closed child is added during the close: only the parent rules count it.
+  context.updateState((state) => {
+    state.afterCloseOnce = { subIssues: [child, other] };
+  });
+  const result = archive(context, String(parent));
+  refuse(result, `archive refused: child #${other} is finished`);
+  assert.deepEqual(parentState(context, parent), reopenedParent(parent, other, [child]));
+  assert.deepEqual(context.issue(parent).assignees, ['plan-agent']);
 });
 
 test('archive --pr reopens a closed plan safely on the retry after a failed read that followed its close', (t) => {

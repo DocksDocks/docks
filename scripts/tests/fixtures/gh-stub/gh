@@ -522,7 +522,7 @@ function respondMutation(query, variables) {
     if (field.name === 'updateIssue') {
       const issue = issueByNodeId(input.id);
       for (const key of Object.keys(input)) {
-        if (!['id', 'body', 'assigneeIds'].includes(key)) die(`unsupported UpdateIssueInput field: ${key}`);
+        if (!['id', 'body', 'assigneeIds', 'labelIds'].includes(key)) die(`unsupported UpdateIssueInput field: ${key}`);
       }
       if (Object.hasOwn(input, 'body')) {
         if (typeof input.body !== 'string') die('UpdateIssueInput.body must be a string');
@@ -530,6 +530,15 @@ function respondMutation(query, variables) {
       }
       if (Object.hasOwn(input, 'assigneeIds')) {
         issue.assignees = [...new Set(nodeIds(input.assigneeIds, 'assigneeIds').map(loginByNodeId))];
+      }
+      // labelIds replaces the whole label set of the issue.
+      if (Object.hasOwn(input, 'labelIds')) {
+        issue.labels = nodeIds(input.labelIds, 'labelIds').map((labelId) => {
+          const name = labelNameByNodeId(labelId);
+          const stored = Object.keys(state.labels).find((label) => label.toLowerCase() === name.toLowerCase());
+          if (!stored) die(`Could not resolve to a Label node with the name '${name}'`);
+          return stored;
+        });
       }
       touch(issue);
       data[field.alias] = mutationPayload(field, 'issue', issue, variables);
@@ -595,6 +604,13 @@ function respondMutation(query, variables) {
     }
     touch(issue);
     data[field.alias] = mutationPayload(field, 'labelable', issue, variables);
+  }
+  // `afterMutationOnce` holds an issue number and a change, in the form of a scheduled change, that lands right after
+  // one write request, such as a label that someone adds before the helper reads the plan again.
+  if (state.afterMutationOnce) {
+    const { issue: number, ...change } = state.afterMutationOnce;
+    delete state.afterMutationOnce;
+    applyChange(issueByNumber(number), change);
   }
   if (errors.length) failGraphql(data, errors);
   respondGraphql(data, 'mutation');

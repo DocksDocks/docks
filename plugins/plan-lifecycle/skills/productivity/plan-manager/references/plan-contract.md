@@ -417,8 +417,8 @@ prefixed with `#`. The header strip is `#<n> · <status> · <title> · <url>`.
 | `status <n> <status> [--reason <text>]` | `plan #<n> status: <old> -> <new>` |
 | `step <n> <id> <status>` | `plan #<n> step <id>: <old> -> <new>` |
 | `list [--status <s>]` | `<status>\t#<n>\t<title>`; open first, then closed, each in ascending number order; prints advice when it reaches 500 plans |
-| `archive <n> --pr <pr>` | `plan #<n> finished (closed by <pr-url>)`; waits up to about 60 s for GitHub to close an open plan, closes it as completed when GitHub does not, and removes stale phase labels |
-| `archive <n>` | For a parent: `plan #<n> finished (all <k> children finished)` |
+| `archive <n> --pr <pr>` | `plan #<n> finished (closed by <pr-url>)`; waits up to about 60 s for GitHub to close an open plan, closes it as completed when GitHub does not, removes stale phase labels, and posts the archive record |
+| `archive <n>` | For a parent: `plan #<n> finished (all <k> children finished)`; claims an unassigned parent before its close, and posts the archive record |
 | `retire <n> --reason <t>` | `plan #<n> retired`; closes as not planned and removes phase labels |
 | `reopen <n> --pr <pr>` | Contract v3 and v4 only: `plan #<n> reopened: <status>`; `plan #<n> is open: <status>` when the plan is already open again; `pull request #<pr> does not close plan #<n>; nothing to reopen` when that pull request does not close the plan |
 
@@ -770,10 +770,13 @@ close, or alone when the parent was already closed. An `archive --pr` posts
 `Archived with landing pull request #<p>`. When archive closed the plan itself,
 the record is the last line of its close comment, after a blank line; when
 GitHub already closed the plan, archive posts the record as a comment alone.
-A rerun posts no second record when a comment of the
-acting owner already holds the same line. The record is trusted as a review
-comment is (Phases and review comments), the latest trusted record wins, and
-a later trusted `Reopened: ...` comment ends it. Parent recovery below applies
+`archive <n>` claims an unassigned parent before its close, so its record is
+trusted for the check after the close. An `archive --pr` plan always has one
+assignee, because it needs a trusted code-review pass. Archive skips a record,
+or the `--pr` close comment, only when an identical trusted one comes after the
+latest trusted `Reopened: ...` comment. The record is trusted as
+a review comment is (Phases and review comments), the latest trusted record
+wins, and a later trusted `Reopened: ...` comment ends it. Parent recovery below applies
 only when the latest trusted record says `Archived as parent`. A plan with a
 landing record or no record gets only the open-child rule.
 
@@ -798,13 +801,14 @@ completed does the same safe reopen for the open work that `show` advises on:
 a child that is not terminal on every plan, and on a parent archive record also
 a named child that is not linked or no finished named child. The `--pr` retry checks this
 right after the not-merged refusal, before its other refusals. Run the retry
-when `show` advises it (Normalization, advice, and refusals). Before each safe
-reopen, by `reopen` or by `archive`, the helper reads the labels again. It adds
-`plan:ongoing` only when no phase label is present; otherwise it keeps the
-labels. After the reopen, it reads the plan again. Unless it finds exactly one
-phase label, `plan:ongoing` after a restore or else the phase that the plan had
-before, it refuses with `plan issue state differs after reopen`. The printed
-status, such as `reopened: blocked`, comes from that read.
+when `show` advises it (Normalization, advice, and refusals). Each safe reopen,
+by `reopen` or by `archive`, reads the labels again and sets the whole label
+set in one write: the labels that are not phase labels, plus exactly one phase
+label, `plan:ongoing` when none was present, otherwise the one phase of that
+read. When that read shows more than one phase label, it refuses before the
+write with `plan issue state differs after reopen`. After the reopen, it reads
+the plan again, refuses with the same message unless it finds that one phase
+label, and prints the status of that read, such as `reopened: blocked`.
 
 ### Teardown
 
