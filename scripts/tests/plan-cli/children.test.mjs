@@ -4,19 +4,32 @@ import { body, expectSuccess, planCliContext, refuse, SKIP_WAITS } from './harne
 
 // Child plans (E1) and the contract marker (E2): `new --parent`, the child lines of `show`, and the parent archive.
 
-// A parent plan body: its row carries no landing work, so its Files cell is `-`.
-function parentBody(status) {
-  return body(status).replace('| src/parser.mjs |', '| - |');
+// The Steps rows of a parent: one row per child plan, with Files `-` and Done when `child #<c> finished`.
+function parentRows(children, status = 'done') {
+  return children.map(
+    (child, index) =>
+      `| ${index + 1} | land_${child} | Land child plan #${child} | - | - | local | ${status} | child #${child} finished |`,
+  );
 }
 
-// A parent plan whose own steps are done: open, ongoing, and owned by the acting login.
+// Replace the Steps rows of plan `number`.
+function setSteps(context, number, rows) {
+  context.updateIssue(number, (entry) => {
+    entry.body = body().replace(/^\| 1 \| fix_parser .*$/m, rows.join('\n'));
+  });
+}
+
+// An open, ongoing plan owned by the acting login; a case that archives it as a parent sets its child rows.
 function ongoingParent(context, name = 'parent plan') {
-  const number = context.createPlan(name, parentBody('done'));
+  const number = context.createPlan(name, body('done'));
   context.updateIssue(number, (entry) => {
     entry.labels = ['plan', 'plan:ongoing'];
   });
   return number;
 }
+
+// A child plan reopens: open, with its phase label back.
+const REOPENED_CHILD = { state: 'OPEN', stateReason: 'REOPENED', labels: ['plan', 'plan:ongoing'] };
 
 // The GraphQL reads that the fake gh has served for issue `number`.
 function reads(context, number) {
@@ -166,6 +179,7 @@ test('archive of a parent refuses while a child is open, then finishes after eve
   const first = context.createChild('first child', parent).number;
   const second = context.createChild('second child', parent).number;
   closeChild(context, first, 'COMPLETED');
+  setSteps(context, parent, parentRows([first, second]));
   context.updateState((state) => {
     state.calls = [];
   });
@@ -192,6 +206,7 @@ test('archive of a parent counts a retired or duplicate child as closed but need
   const duplicate = context.createChild('duplicate child', parent).number;
   closeChild(context, retired, 'NOT_PLANNED');
   closeChild(context, duplicate, 'DUPLICATE');
+  setSteps(context, parent, parentRows([retired, duplicate]));
   refuse(
     context.run('archive', String(parent)),
     `archive refused: no child of plan #${parent} finished; retire the parent`,
@@ -199,6 +214,7 @@ test('archive of a parent counts a retired or duplicate child as closed but need
   assert.equal(context.issue(parent).state, 'OPEN');
   const finished = context.createChild('finished child', parent).number;
   closeChild(context, finished, 'COMPLETED');
+  setSteps(context, parent, parentRows([retired, duplicate, finished]));
   const archived = context.run('archive', String(parent));
   expectSuccess(archived, 'archive a parent with retired, duplicate, and finished children');
   assert.equal(archived.stdout, `plan #${parent} finished (all 3 children finished)\n`);
@@ -209,19 +225,21 @@ test('archive of a parent refuses a child that GitHub left closed with reason RE
   const parent = ongoingParent(context);
   const child = context.createChild('stuck child', parent).number;
   closeChild(context, child, 'REOPENED');
+  setSteps(context, parent, parentRows([child]));
   refuse(context.run('archive', String(parent)), `archive refused: child #${child} is unreadable`);
 });
 
 test('archive of a parent needs terminal parent steps and an ongoing parent, but no code review', (t) => {
   const context = planCliContext(t);
-  const parent = context.createPlan('parent with open step', parentBody('in-flight'));
+  const parent = context.createPlan('parent with open step');
   const child = context.createChild('child', parent).number;
   closeChild(context, child, 'COMPLETED');
+  setSteps(context, parent, parentRows([child], 'in-flight'));
   refuse(context.run('archive', String(parent)), 'archive requires ongoing or finished status, found drafting');
   context.updateIssue(parent, (entry) => {
     entry.labels = ['plan', 'plan:ongoing'];
   });
-  refuse(context.run('archive', String(parent)), 'archive refused: non-terminal step fix_parser');
+  refuse(context.run('archive', String(parent)), `archive refused: non-terminal step land_${child}`);
   assert.equal(context.issue(parent).state, 'OPEN');
 });
 
@@ -270,18 +288,34 @@ test('archive without --pr refuses a plan with a child and its own landing work'
     `archive refused: plan #${plan} has its own landing work; archive it with --pr`,
   );
   assert.deepEqual(context.writes(), []);
-  // One parent row with Files `-` and one row with files is still own landing work.
-  context.updateIssue(plan, (entry) => {
-    entry.body = entry.body.replace(
-      /^(\| 1 \| fix_parser .*)$/m,
-      '$1\n| 2 | land_child | Land the child plan | - | 1 | local | done | Child finished |',
-    );
-  });
-  refuse(
-    context.run('archive', String(plan)),
-    `archive refused: plan #${plan} has its own landing work; archive it with --pr`,
-  );
-  assert.equal(context.issue(plan).state, 'OPEN');
+  const ownWork = `archive refused: plan #${plan} has its own landing work; archive it with --pr`;
+  const other = context.createChild('second child', plan).number;
+  closeChild(context, other, 'COMPLETED');
+  const notChild = context.createPlan('not a child');
+  const probe = '| 9 | probe_limit | Measure the limit | - | - | probe | done | Results recorded |';
+  for (const [name, rows] of [
+    // A fileless row that is no child row is work of the plan itself.
+    ['a probe row beside the child rows', [...parentRows([child, other]), probe]],
+    ['a row that names an issue that is no child', parentRows([child, notChild])],
+    ['a child that no row names', parentRows([child])],
+    ['a child that two rows name', parentRows([child, child])],
+    [
+      'a child row with files',
+      parentRows([child, other]).map((row, index) =>
+        index === 1 ? row.replace('| - | - |', '| src/a.mjs | - |') : row,
+      ),
+    ],
+    [
+      'a Done when that only names the child',
+      parentRows([child, other]).map((row) => row.replace(' finished |', ' landed |')),
+    ],
+  ]) {
+    setSteps(context, plan, rows);
+    refuse(context.run('archive', String(plan)), ownWork);
+    assert.equal(context.issue(plan).state, 'OPEN', name);
+  }
+  setSteps(context, plan, parentRows([child, other]));
+  expectSuccess(context.run('archive', String(plan)), 'one row for each child is a parent');
 });
 
 test('archive of a parent re-reads its children before the close and refuses a new or reopened child', (t) => {
@@ -289,6 +323,7 @@ test('archive of a parent re-reads its children before the close and refuses a n
   const parent = ongoingParent(context);
   const child = context.createChild('finished child', parent).number;
   closeChild(context, child, 'COMPLETED');
+  setSteps(context, parent, parentRows([child]));
   const other = context.createPlan('later child');
   // A new child plan appears after the archive snapshot and before the close.
   context.schedule(parent, { afterReads: reads(context, parent) + 1, subIssues: [child, other] });
@@ -322,6 +357,60 @@ test('archive --pr re-reads the children before it closes a plan that GitHub lef
   );
   assert.deepEqual(closes(context), []);
   assert.equal(context.issue(plan.number).state, 'OPEN');
+});
+
+test('archive of a parent reopens it and refuses when a child reopens or appears between the close and the re-read', (t) => {
+  const context = planCliContext(t);
+  const parent = ongoingParent(context);
+  const child = context.createChild('finished child', parent).number;
+  closeChild(context, child, 'COMPLETED');
+  setSteps(context, parent, parentRows([child]));
+  const reopened = (number) => `Reopened: child #${number} changed while plan #${parent} closed; work continues.`;
+  context.updateState((state) => {
+    state.afterCloseOnce = { otherIssues: { [child]: REOPENED_CHILD } };
+  });
+  refuse(context.run('archive', String(parent)), `archive refused: child #${child} is ongoing`);
+  let stored = context.issue(parent);
+  assert.deepEqual(
+    { state: stored.state, labels: stored.labels, comments: stored.comments.map((comment) => comment.body) },
+    { state: 'OPEN', labels: ['plan', 'plan:ongoing'], comments: [reopened(child)] },
+  );
+  // A new child appears between the close and the re-read. It is closed already, so only its newness is open work.
+  closeChild(context, child, 'COMPLETED');
+  const other = context.createPlan('later child');
+  closeChild(context, other, 'COMPLETED');
+  context.updateState((state) => {
+    state.afterCloseOnce = { subIssues: [child, other] };
+  });
+  refuse(context.run('archive', String(parent)), `archive refused: child #${other} is finished`);
+  stored = context.issue(parent);
+  assert.equal(stored.state, 'OPEN');
+  assert.equal(stored.comments.at(-1).body, reopened(other));
+  assert.equal(closes(context).length, 2);
+});
+
+test('archive --pr reopens the plan and refuses when a child reopens between its close and the re-read', (t) => {
+  const context = planCliContext(t);
+  const plan = context.landedPlan('landed plan with a finished child');
+  const child = context.createChild('child', plan.number).number;
+  closeChild(context, child, 'COMPLETED');
+  context.updateState((state) => {
+    state.afterCloseOnce = { otherIssues: { [child]: REOPENED_CHILD } };
+  });
+  refuse(
+    context.runWith(['--import', SKIP_WAITS], 'archive', String(plan.number), '--pr', String(plan.pr)),
+    `archive refused: child #${child} is ongoing`,
+  );
+  const stored = context.issue(plan.number);
+  assert.deepEqual(
+    { state: stored.state, labels: stored.labels, comment: stored.comments.at(-1).body },
+    {
+      state: 'OPEN',
+      labels: ['plan', 'plan:ongoing'],
+      comment: `Reopened: child #${child} changed while plan #${plan.number} closed; work continues.`,
+    },
+  );
+  assert.equal(closes(context).length, 1);
 });
 
 test('show and list read a phase label beyond the first label page of a child or a listed plan', (t) => {

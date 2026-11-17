@@ -393,20 +393,22 @@ function applyDueChanges(issue) {
   const due = (issue.pendingChanges ?? []).filter((change) => (change.afterReads ?? 0) <= reads);
   if (due.length === 0) return;
   issue.pendingChanges = issue.pendingChanges.filter((change) => !due.includes(change));
-  for (const change of due) {
-    const { closedEvent, otherIssues, ...fields } = change;
-    delete fields.afterReads;
-    Object.assign(issue, fields);
-    if (closedEvent) {
-      issue.timelineItems ??= [];
-      issue.timelineItems.push({ __typename: 'ClosedEvent', ...closedEvent });
-    }
-    touch(issue);
-    for (const [number, otherFields] of Object.entries(otherIssues ?? {})) {
-      const other = issueByNumber(Number(number));
-      Object.assign(other, otherFields);
-      touch(other);
-    }
+  for (const change of due) applyChange(issue, change);
+}
+
+function applyChange(issue, change) {
+  const { closedEvent, otherIssues, ...fields } = change;
+  delete fields.afterReads;
+  Object.assign(issue, fields);
+  if (closedEvent) {
+    issue.timelineItems ??= [];
+    issue.timelineItems.push({ __typename: 'ClosedEvent', ...closedEvent });
+  }
+  touch(issue);
+  for (const [number, otherFields] of Object.entries(otherIssues ?? {})) {
+    const other = issueByNumber(Number(number));
+    Object.assign(other, otherFields);
+    touch(other);
   }
 }
 
@@ -1043,7 +1045,8 @@ if (group === 'issue' && command === 'view') {
 // the --comment as the viewer, and then closes the issue in a second request. The close names no closer, as a close by
 // hand does. Like `issue view`, the read lands due changes without counting toward `afterReads`.
 // `issueCloseErrorBeforeWriteOnce` fails one close before gh writes anything, and `issueCloseErrorAfterCommentOnce`
-// posts the comment and then fails the close request.
+// posts the comment and then fails the close request. `afterCloseOnce` is a change, in the form of a scheduled change,
+// that lands on the issue right after one close, such as a child plan that reopens before the helper reads again.
 if (group === 'issue' && command === 'close') {
   const issue = issueByNumber(issueNumber());
   const reason = value('--reason');
@@ -1082,6 +1085,10 @@ if (group === 'issue' && command === 'close') {
   issue.stateReason = reason === 'completed' ? 'COMPLETED' : 'NOT_PLANNED';
   issue.timelineItems ??= [];
   issue.timelineItems.push({ __typename: 'ClosedEvent', closer: null, createdAt: issue.updatedAt });
+  if (state.afterCloseOnce) {
+    applyChange(issue, state.afterCloseOnce);
+    delete state.afterCloseOnce;
+  }
   save();
   process.exit(0);
 }

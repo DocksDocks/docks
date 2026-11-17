@@ -35,10 +35,12 @@ sub-issue of parent `<n>`; a parent holds at most 100 children
 (<https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues>).
 The parent holds the Goal, the shared Research and decisions, the Acceptance for
 the whole goal, and one Steps row per child, with Files `-`, Effect `local`, and
-Done when `child #<c> finished`. A plan is a parent only when it has children
-and every Steps row has Files `-`. The parent gets plan review, but no linked
-branch and no code review. Each child is a full plan with its own review, linked
-branch, and `Closes #<c>` landing pull request. Start the first child only after
+Done when `child #<c> finished`. A plan is a parent only when it has children,
+every Steps row has Files `-`, and each Done when cell is exactly
+`child #<c> finished` for one of its sub-issues, with each child named once.
+Any other plan with children archives with `--pr`. The parent gets plan
+review, but no linked branch and no code review. Each child is a full plan with
+its own review, linked branch, and `Closes #<c>` landing pull request. Start the first child only after
 the parent's plan pass, and move the parent to ongoing then. Set each parent row
 in-flight when its child starts, done when the child is finished, and
 `skipped`, with the reason in the record, when the child is retired or a
@@ -731,8 +733,12 @@ must be `ongoing` or `finished`. It needs no pull request and no code review.
 It closes an open parent as completed, removes the phase labels, and prints
 `plan #<n> finished (all <k> children finished)`, where `<k>` counts every
 child. On a plan without children, `archive` without `--pr` refuses. On a plan
-with children and a Steps row whose Files is not `-`, it refuses with
+with children that is not a parent (Record and mode), it refuses with
 `archive refused: plan #<n> has its own landing work; archive it with --pr`.
+After the close, archive reads the children again. When a child changed, it
+reopens the plan with the comment
+`Reopened: child #<c> changed while plan #<n> closed; work continues.` and
+refuses with `archive refused: child #<c> is <status>`.
 
 ### Teardown
 

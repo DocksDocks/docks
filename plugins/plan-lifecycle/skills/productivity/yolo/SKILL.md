@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "67173398331011d8bc65ddab258ac266251a184c07a749750250708c66c21db8"
+  content_hash: "57d8af806d1bcbc0e757d7db1074b8055fefa5fd3bb2867ac4ac2d1c8f3bfe5c"
 ---
 
 # Yolo
@@ -86,12 +86,14 @@ Before Draft, run `list` and `gh pr list --repo <owner/repo> --state open`.
 To adopt a plan:
 
 1. Run `show <n>`. Adopt only an open plan. When the helper reports that
-   another login owns the plan, stop and report. When `show <n>` lists
-   children and every Steps row has Files `-`, the plan is a parent. Adopt it
-   with steps 2 to 4 and skip step 5. When `show <n>` does not read
-   `plan=pass`, run Research and Plan review on the parent first. After that
-   pass, adopt the child that the contract's Yolo runs table names with these
-   steps.
+   another login owns the plan, stop and report. When the plan is a parent
+   (the contract's Record and mode), adopt it with steps 2 to 4 and skip
+   step 5. Then get a plan pass that covers the current parent body: when
+   `show <n>` does not read `plan=pass`, run Research and Plan review on the
+   parent; when step 3 changed the parent after `plan=pass`, run the re-review
+   round that step 4 names, and wait for its pass. The earlier pass does not
+   cover the edited body. After that pass, adopt the child that the contract's
+   Yolo runs table names with these steps.
 2. Export the plan. Add the delegation line to Goal when it is missing, and set
    `Mode: plan-and-implement`.
 3. Replace each Goal or Do not touch line that conflicts with this run, such as

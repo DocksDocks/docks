@@ -1243,21 +1243,49 @@ function refuseChangedBeforeClose({ issue, login }) {
   )
     fail('plan issue changed remotely; re-read and retry');
 }
+// A close cannot see a child change that races it, so archive reads the children again after its own close. A child
+// that is open now, or a new child, is open work: the plan reopens, and archive refuses, so its phase label stays.
+function reconcileChildrenAfterClose(plan) {
+  const known = new Set(plan.issue.children.map((child) => child.number));
+  const changed = readSnapshot(plan.issue.number, { children: true }).issue.children.find(
+    (child) => !known.has(child.number) || !CHILD_TERMINAL_STATUSES.has(statusFromIssue(child)),
+  );
+  if (!changed) return;
+  writeReopen(
+    plan,
+    `Reopened: child #${changed.number} changed while plan #${plan.issue.number} closed; work continues.`,
+  );
+  fail(`archive refused: child #${changed.number} is ${statusFromIssue(changed)}`);
+}
+// A parent holds one row per child plan, with Files `-` and Done when `child #<c> finished`, and every child has its
+// row (E1). Any other plan with children landed work of its own, so it needs the proof of `--pr`.
+function isParentPlan({ issue, parsed }) {
+  const children = new Set(issue.children.map((child) => child.number));
+  const named = parsed.steps.map((step) =>
+    unquoteCode(step.files.trim()).trim() === '-'
+      ? Number(/^child #([1-9]\d*) finished$/.exec(step.doneWhen)?.[1])
+      : Number.NaN,
+  );
+  return (
+    named.every((child) => children.has(child)) &&
+    new Set(named).size === named.length &&
+    named.length === children.size
+  );
+}
 // The archive of a parent plan: its work landed through its child plans, so a child that closed as completed is the
-// landing proof, and the parent needs no pull request and no code review (E1). A parent row carries no landing work,
-// so its Files cell is `-`; a plan with a row that names files landed its own work and needs the proof of `--pr`.
+// landing proof, and the parent needs no pull request and no code review (E1).
 function archiveParent(number) {
   const plan = readPlanIssue(number, true, { children: true });
   const { children } = plan.issue;
   if (children.length === 0) fail('archive requires an issue and --pr');
-  if (plan.parsed.steps.some((step) => unquoteCode(step.files.trim()).trim() !== '-'))
-    fail(`archive refused: plan #${number} has its own landing work; archive it with --pr`);
   refuseUnarchivable(plan, { codeReview: false });
+  if (!isParentPlan(plan)) fail(`archive refused: plan #${number} has its own landing work; archive it with --pr`);
   if (!children.some((child) => statusFromIssue(child) === 'finished'))
     fail(`archive refused: no child of plan #${number} finished; retire the parent`);
   if (!isClosed(plan)) {
     refuseChangedBeforeClose(plan);
     runGh(['issue', 'close', String(number), '--reason', 'completed', '--repo', repository.nameWithOwner]);
+    reconcileChildrenAfterClose(plan);
   }
   writeIssueIfUnchanged(plan.issue, { remove: labelsToRemove(plan.issue) });
   console.log(`plan #${number} finished (all ${children.length} children finished)`);
@@ -1314,6 +1342,7 @@ function archivePlan(args) {
       '--repo',
       nameWithOwner,
     ]);
+    reconcileChildrenAfterClose(observed);
   }
   writeIssueIfUnchanged(observed.issue, { remove: labelsToRemove(observed.issue) });
   console.log(`plan #${number} finished (closed by ${pullRequest.url})`);
@@ -1405,10 +1434,11 @@ function closedByPullRequest(issue, pullRequest) {
     );
   return true;
 }
-// One write request reopens the plan, posts the contract comment, and claims an unassigned plan. A reopen compares no
-// body, so the pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and
-// the claim follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck.
-function writeReopen({ issue, login, viewerId }, pr) {
+// One write request reopens the plan, posts `comment`, and claims an unassigned plan. A reopen compares no body, so the
+// pre-write read is its last ownership check: an owner that appeared after the snapshot is refused, and the claim
+// follows that read. The last field returns the stored state, which shows whether GitHub left the plan stuck. Returns
+// the reopened status.
+function writeReopen({ issue, login, viewerId }, comment) {
   const { id, assignees } = ownedPreWriteIssue(issue.number, login);
   const claims = assignees.length === 0;
   const stored = '{... on Issue{state stateReason}}';
@@ -1426,7 +1456,7 @@ function writeReopen({ issue, login, viewerId }, pr) {
       '-f',
       `issue=${id}`,
       '-f',
-      `body=Reopened: partial pull request #${pr} closed this plan through its linked branch. Work continues.`,
+      `body=${comment}`,
       ...(claims ? ['-f', `assignees[]=${viewerId}`] : []),
     ]);
   } catch (error) {
@@ -1440,7 +1470,7 @@ function writeReopen({ issue, login, viewerId }, pr) {
   const reopened = { ...issue, state: payload.state, stateReason: payload.stateReason };
   refuseStuck(reopened);
   if (String(reopened.state).toUpperCase() === 'CLOSED') fail('plan issue state differs after reopen');
-  console.log(`plan #${issue.number} reopened: ${statusFromIssue(reopened)}`);
+  return statusFromIssue(reopened);
 }
 // A v5 plan lands each pull request through a child plan with `Closes #<child>`, so a partial pull request never
 // closes it (E2). The refusal comes before the pull request read, whatever the state of that pull request. `gh issue
@@ -1503,7 +1533,11 @@ function reopenPlan(args) {
     console.log(`plan #${number} is open: ${current.status}`);
     return;
   }
-  writeReopen(current, pullRequest.number);
+  const status = writeReopen(
+    current,
+    `Reopened: partial pull request #${pullRequest.number} closed this plan through its linked branch. Work continues.`,
+  );
+  console.log(`plan #${number} reopened: ${status}`);
 }
 function main([command, ...args]) {
   const commands = {
