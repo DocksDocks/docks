@@ -10,13 +10,18 @@ nested items.
 `gh pr create --body-file` uses the file as given and copies no template, so
 build the items in this order:
 
-1. The task items of the repository's pull-request template, as written. GitHub
-   reads a `pull_request_template` file (`.md` or `.txt`, in any letter case)
-   in the root, in `docs/`, or in `.github/`, or a `PULL_REQUEST_TEMPLATE/`
-   folder. When there is no template, use the defaults:
-   "`<check command>` passes" (from the root instruction file, or "Checks
-   pass" when it names none), "Tested locally with the `verify` skill", and
-   "Code review passed".
+1. The task items of a usable pull-request template of the repository, as
+   written. GitHub reads a `pull_request_template` file (`.md` or `.txt`, in
+   any letter case) in the root, in `docs/`, or in `.github/`, or a
+   `PULL_REQUEST_TEMPLATE/` folder. A usable template is a regular file with
+   one of these names, a symlink with one of these names that resolves to a
+   regular file, or a `PULL_REQUEST_TEMPLATE/` folder (or a symlink to one)
+   that holds at least one regular `.md` or `.txt` file. Any other entry with
+   one of these names is unusable, for example a broken symlink, a folder with
+   a file name, or an empty template folder. When no template is usable, use
+   the defaults: "`<check command>` passes" (from the root instruction file,
+   or "Checks pass" when it names none), "Tested locally with the `verify`
+   skill", and "Code review passed". Name each unusable entry to the user.
 2. One item for each check that the repository instructions require, as
    "`<command>` passes".
 3. "Tested locally with the `verify` skill" when the change touches a surface

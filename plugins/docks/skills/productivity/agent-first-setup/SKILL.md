@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "7522ef2cc0459a7ed569393244f36825eaf384feff43a99472b84c0f04748088"
+  content_hash: "0fa8a5a4eaa8e29d3d50eee5691c0c7c83863d0e68cf6ae92e4f80e767eab8a7"
 ---
 
 # Agent-First Setup
@@ -84,24 +84,11 @@ git ls-files -co --exclude-standard -- ':(glob)**/AGENTS.md' | grep -v '^AGENTS\
 find .claude/skills -mindepth 1 -maxdepth 1 ! -type l 2>/dev/null | sed 's/^/not-a-symlink: /'
 test -f .agents/skills/verify/SKILL.md && echo "verify skill: present" || echo "verify skill: missing"
 grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's/^/verify unverified: /'
-pr_templates() (
-  root=$(git rev-parse --show-toplevel) && cd "$root" || exit 2
-  for d in . docs .github; do
-    test -d "$d" || continue
-    hits=$(find "$d" -mindepth 1 -maxdepth 1 \( -iname pull_request_template -o -iname pull_request_template.md -o -iname pull_request_template.txt \) -print) || exit 2
-    for p in $hits; do
-      if test -L "$p"; then k=symlink; elif test -d "$p"; then k=folder; else k=file; fi
-      echo "$p ($k)"
-    done
-  done
-)
-if t=$(pr_templates); then printf '%s\n' "${t:-none}" | sed 's/^/pull-request template: /'
-else echo "ERROR pull-request template check failed (see the message above)"; fi
 ```
 
-Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored. The `pr_templates` detection needs git; outside git it prints an `ERROR` line. Report that error. An error is not a missing template.
+Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored. In the same shell, also run the detection block of [references/pull-request-template.md](references/pull-request-template.md) word for word: it defines the `pr_templates` function and prints its `pull-request template:` lines. It tells a usable template from an unusable entry, such as a broken symlink or an empty template folder, and prints `pull-request template: none` when no usable template exists. It needs git; outside git, its last line prints `ERROR`. Report that error. An error is not a missing template.
 
-If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that failed in an earlier run; Step 2b reruns it. Step 2c is a no-op when Step 0 printed a `pull-request template:` line with a path. A pass in Step 3 means the repo is already agent-first.
+If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that failed in an earlier run; Step 2b reruns it. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
 
 ### Step 1 — Run `multi-tool-bridge`
 
@@ -146,26 +133,11 @@ In `audit` mode, run step 1 to step 3 only and record whether the skill exists, 
 
 ### Step 2c — Offer the pull-request template
 
-A pull-request template gives each pull request on GitHub the same task list, and GitHub shows its progress as `k of n tasks`. GitHub reads a template from the root, from `docs/`, or from `.github/`: a file named `pull_request_template`, with an extension such as `.md` or `.txt`, in any letter case, or a `PULL_REQUEST_TEMPLATE/` folder that holds several templates (source: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates). The `pr_templates` detection in Step 0 matches only the names `pull_request_template`, `pull_request_template.md`, `pull_request_template.txt`, and `PULL_REQUEST_TEMPLATE`, in any letter case; a name such as `pull_request_template.md.bak` is not a template. Each entry with one of these names counts as present: a file, a folder, or a symlink, also a broken one. The line names its kind, for example `pull-request template: .github/pull_request_template.md (symlink)`. Step 0 and C10 use the same detection. This skill owns this write.
-
-1. If Step 0 printed a `pull-request template:` line with a path, make no change and go to Step 3. Never overwrite or edit an existing template. If Step 0 printed an `ERROR pull-request template check failed` line, report the error, write nothing, and go to Step 3. An error is not a missing template. Continue only on `pull-request template: none`.
-2. Read the check command from the root `AGENTS.md`, for example `bun run check`. When it names none, write the first item as `- [ ] Checks pass`.
-3. Print the draft below with the real check command, and the path `.github/pull_request_template.md`. Ask for approval through the harness question tool. Without approval, write nothing.
-4. After approval, run the Step 0 detection again. Write the file only when it reports `pull-request template: none` and `test ! -L .github` passes, so that the write creates a new file and never writes through a symlink. Otherwise write nothing and report the line. Tell the user that GitHub uses the template only after it is on the default branch, and that the repository can add its own items later. Keep each item a top-level task item.
-
-```markdown
-## Checklist
-
-- [ ] `<check command>` passes
-- [ ] Tested locally with the `verify` skill
-- [ ] Code review passed
-```
-
-In `audit` mode, run step 1 only and record whether a template exists.
+This skill owns this write, behind its own approval gate. Follow [references/pull-request-template.md](references/pull-request-template.md). Offer the template only when Step 0 printed `pull-request template: none`, and list each `unusable` line with it. On a usable template, make no change; on an `ERROR` line, report the error and write nothing. Fill in the check command from the root `AGENTS.md` (or `Checks pass` when it names none), print the draft and the path `.github/pull_request_template.md`, and ask through the harness question tool. After approval, run the reference's write gate, and write only on `target free`. On `target occupied`, report the entry that occupies the path and write nothing; the user resolves it. Never write through a symlink. Tell the user that GitHub uses the template only after it is on the default branch. In `audit` mode, record the Step 0 lines only.
 
 ### Step 3 — Agent-first check (read-only)
 
-Run the block below from the repository root. Every line it prints is `FAIL` (a contract break), `FINDING` (a risk or cleanup item a human must judge), or `ERROR` (a check that could not run; report its message, never as a pass). No output means every check passed. Outside git, replace `ls_repo` with a `find` that skips `.git`, `node_modules`, and `vendor`. The block only reads; it writes no file.
+Run the block below from the repository root, after you define `pr_templates` as Step 0 says. Every line it prints is `FAIL` (a contract break), `FINDING` (a risk or cleanup item a human must judge), or `ERROR` (a check that could not run; report its message, never as a pass). No output means every check passed. Outside git, replace `ls_repo` with a `find` that skips `.git`, `node_modules`, and `vendor`. The block only reads; it writes no file.
 
 ```bash
 ls_repo() { git ls-files -co --exclude-standard -- "$@"; }
@@ -263,20 +235,8 @@ if test -f .agents/skills/verify/SKILL.md; then
 else echo "FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)"; fi
 # C9 every command of the verify skill showed its expected result (no `not observed:` entry from a failed run)
 grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's|^|FAIL C9 unverified command (rerun it in Step 2b): .agents/skills/verify/SKILL.md:|'
-# C10 a pull-request template exists in the root, docs/, or .github/ (the same detection as Step 0; an error is not a missing template)
-pr_templates() (
-  root=$(git rev-parse --show-toplevel) && cd "$root" || exit 2
-  for d in . docs .github; do
-    test -d "$d" || continue
-    hits=$(find "$d" -mindepth 1 -maxdepth 1 \( -iname pull_request_template -o -iname pull_request_template.md -o -iname pull_request_template.txt \) -print) || exit 2
-    for p in $hits; do
-      if test -L "$p"; then k=symlink; elif test -d "$p"; then k=folder; else k=file; fi
-      echo "$p ($k)"
-    done
-  done
-)
-if t=$(pr_templates); then [ -n "$t" ] || echo "FINDING C10 no pull-request template (add it in Step 2c, or accept: the repository wants none)"
-else echo "ERROR C10 pull-request template check failed (see the message above)"; fi
+# C10 a usable pull-request template exists (pr_templates from Step 0; each unusable entry is named; an error is not a missing template)
+if t=$(pr_templates); then case "$t" in *"pull-request template: none"*) echo "FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)"; printf '%s\n' "$t" | sed -n 's/^pull-request template: unusable /FINDING C10 unusable pull-request template: /p';; esac; else echo "ERROR C10 pull-request template check failed (see the message above)"; fi
 ```
 
 Read each `FINDING` line before you report it. A line anchor on a fictional example path, a count that is a stated policy threshold, a time phrase inside a quoted BAD example, and a value inside a dated record (a file or sentence that carries its own date, such as an incident note or "Measured <date>") are not defects: mark each `accepted` with the reason. If the root `AGENTS.md` names a repository doc guard (a lint script for doc pointers), run it too and add its output to the report.

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "61a7702478b545c004e84b686119e6cd007d6daef0f3894b087b4e171085bf54"
+  content_hash: "bd2a17cb087a28e1c2fa00c8b90973f1ac2c597cf25c4e846dd2a0f7210e1fca"
 ---
 
 # Plans Workspace
@@ -42,8 +42,8 @@ Report its resolved path or that the plugin is unavailable.
 Inspect the standard, routing nodes, root Plans section, reviewer wrappers, and
 pull-request template. Detect the template with the detection in
 [`references/pull-request-template.md`](references/pull-request-template.md).
-A missing template is a report item, not drift. A detection error is not a
-missing template: report the error.
+A missing or unusable template is a report item, not drift: name each
+`unusable` line. A detection error is not a missing template: report the error.
 Use generated scaffolding outside frozen history to recognize legacy workspaces.
 
 | Class | Evidence | Action |
@@ -89,15 +89,14 @@ For audit, that report is final.
    Never overwrite an existing wrapper or create a manager wrapper.
 6. Offer to create the pull-request template from
    [`references/pull-request-template.md`](references/pull-request-template.md).
-   Run its detection first. When it prints a path (a file, a folder, or a
-   symlink, also a broken one), make no change and never overwrite the
-   template. When it prints an `ERROR` line, report the error and write
-   nothing. Only on `pull-request template: none`, fill in the check command
-   that the root instruction file names, print the draft, and ask. When the
-   user accepts, run the detection again, and write
-   `.github/pull_request_template.md` only when it still reports `none` and
-   `.github` is not a symlink, as the reference says. Never write through a
-   symlink.
+   Run its detection first. When it prints a usable template, make no change.
+   When it prints an `ERROR` line, report the error and write nothing. Only on
+   `pull-request template: none`, fill in the check command that the root
+   instruction file names, print the draft with each `unusable` line, and ask.
+   When the user accepts, run the reference's write gate, and write
+   `.github/pull_request_template.md` only on `target free`. On
+   `target occupied`, report the entry that occupies the path and write
+   nothing; the user resolves it. Never write through a symlink.
 
 ## Migrate or refresh
 
@@ -154,8 +153,9 @@ find . \( -name .git -o -name node_modules -o -path ./docs/plans/finished \) -pr
 
 Run the template detection in
 [`references/pull-request-template.md`](references/pull-request-template.md).
-It prints a template path, or `pull-request template: none` only when the
-user declined the offer. Report an `ERROR` line as a failed check.
+It prints a usable template, or `pull-request template: none` only when the
+user declined the offer or an unusable entry occupies the target. Report an
+`ERROR` line as a failed check.
 
 For migration, confirm each issue uses a user-restated title and goal, and
 read back its drafting state. Confirm no operation touched or inventoried

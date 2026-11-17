@@ -403,11 +403,54 @@ function testSkillsGuardReportSection() {
   }
 }
 
+// A shared reference ships in two plugins with the same bytes. The guard reads the files from its own repository, so
+// the cases run the guard of a copy of the scripts and plugins, and change the copy of the reference there. The target
+// is the plan-lifecycle skills, and the copy is in the docks plugin: the check runs whatever the target folder is.
+function testSkillsGuardSharedReferences() {
+  const canonical = 'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/pull-request-template.md';
+  const copy = 'plugins/docks/skills/productivity/agent-first-setup/references/pull-request-template.md';
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-shared-'));
+  try {
+    for (const dir of ['scripts', 'plugins'])
+      fs.cpSync(path.join(ROOT, dir), path.join(fixtureRoot, dir), { recursive: true, verbatimSymlinks: true });
+    fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(fixtureRoot, 'node_modules'), 'dir');
+    const guard = path.join(fixtureRoot, 'scripts/skills/guard.mjs');
+    const target = path.join(fixtureRoot, 'plugins/plan-lifecycle/skills');
+    const copyFile = path.join(fixtureRoot, copy);
+    const original = fs.readFileSync(copyFile, 'latin1');
+    const canonicalText = fs.readFileSync(path.join(fixtureRoot, canonical), 'latin1');
+    assert.equal(original, canonicalText, `${copy} must equal ${canonical}`);
+    const failLine = (reason) => new RegExp(`^FAIL: ${escapeRegExp(copy)}: ${reason}$`, 'm');
+
+    const identical = runNode(guard, [target]);
+    assertStarted(identical);
+    assert.equal(identical.status, 0, identical.stderr);
+    assert.match(identical.stdout, /Guard PASSED: /);
+
+    // One byte changes, before the last byte of the file.
+    fs.writeFileSync(copyFile, `${original.slice(0, -1)}x${original.slice(-1)}`, 'latin1');
+    const changed = runNode(guard, [target]);
+    assertStarted(changed);
+    assert.equal(changed.status, 1);
+    assert.match(changed.stderr, failLine(`differs from ${escapeRegExp(canonical)}; copy that file over it`));
+    assert.match(changed.stderr, /Guard FAILED: 1 shared reference file\(s\) do not match their canonical file\n$/);
+
+    fs.rmSync(copyFile);
+    const missing = runNode(guard, [target]);
+    assertStarted(missing);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, failLine('cannot read the shared reference \\(ENOENT\\)'));
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 testBiomeRejectsSyntaxDefect();
 testCombinedSkillValidation();
 testTreeGuardOperationalFailures();
 testSkillsGuardSpawnFailure();
 testSkillsGuardReportSection();
+testSkillsGuardSharedReferences();
 testTestContractToolchains();
 testShebangInterpreter();
 testValidatorTable();

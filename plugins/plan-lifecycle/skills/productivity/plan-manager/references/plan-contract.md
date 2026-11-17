@@ -700,15 +700,17 @@ Do not nest items. GitHub does not document how it counts nested items.
 
 Add the items in this order:
 
-1. The task items of the repository's pull-request template, with their text as
-   written. GitHub reads a template from the root, from `docs/`, or from
-   `.github/`: a file named `pull_request_template`, with an extension such as
-   `.md` or `.txt`, in any letter case, or a `PULL_REQUEST_TEMPLATE/` folder
-   that holds several templates
+1. The task items of a usable pull-request template of the repository, with
+   their text as written. GitHub reads a template from the root, from `docs/`,
+   or from `.github/`: a file named `pull_request_template`, with an extension
+   such as `.md` or `.txt`, in any letter case, or a `PULL_REQUEST_TEMPLATE/`
+   folder that holds several templates
    (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates>).
    Find it with the detection in the `plan-workspace` skill's
-   `references/pull-request-template.md`. A detection error is not a missing
-   template: report it in the merge question.
+   `references/pull-request-template.md`, and take items only from an entry
+   that it reports as usable. Name each `unusable` entry, such as a broken
+   symlink or an empty template folder, in the merge question. A detection
+   error is not a missing template: report it in the merge question.
    `gh pr create --body-file` uses the file as given and copies no template,
    so copy the items yourself. When there are several templates, use the one
    that applies to the change, and name it in the merge question.
@@ -718,8 +720,8 @@ Add the items in this order:
    driven surface end to end.
 4. "Code review passed".
 
-When the repository has no pull-request template, use these default items in
-place of the template items: "`<check command>` passes", with the check
+When the repository has no usable pull-request template, use these default
+items in place of the template items: "`<check command>` passes", with the check
 command from the root instruction file (for example `bun run check`); "Tested
 locally with the `verify` skill"; and "Code review passed". When the root
 instruction file names no check command, the first item reads "Checks pass"
