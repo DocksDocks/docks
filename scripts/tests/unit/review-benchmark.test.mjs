@@ -7953,6 +7953,33 @@ test('loop gives each later round a base-instructions folder for the changed pat
   assert.ok(prompt.includes(`Base instructions: ${folder}`));
 });
 
+test('loop adds the paths of the delta diff to the base-instructions folder of a later round', (t) => {
+  const { repo, ws, cases, run, round, root } = devLoop(t);
+  // The case head also adds tools/gen/x.mjs, and the repair of round 1 deletes it again. The full diff of round 2 then
+  // has no path in tools/, but its delta diff does.
+  put(repo, 'tools/gen/x.mjs', 'export const x = 1;\n');
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'head with a generated file');
+  const head = gitIn(repo, 'rev-parse', 'HEAD').trim();
+  for (const [dir, file] of [
+    [cases, 'dev/code-7.json'],
+    [ws, 'code-7/case.json'],
+  ]) {
+    put(dir, file, { ...readJson(path.join(dir, file)), head });
+  }
+  gitIn(repo, 'rm', '-q', '--', 'tools/gen/x.mjs');
+  const deletion = gitIn(repo, 'diff', '--cached', '--no-color', '--src-prefix=a/', '--dst-prefix=b/');
+  gitIn(repo, 'reset', '-q', '--hard', 'HEAD');
+  const fixerPatch = path.join(root, 'delete.patch');
+  fs.writeFileSync(fixerPatch, deletion);
+  assert.equal(prepare.prepareLoop({ run, cases, 'fixer-patch': fixerPatch }, repo), round(2));
+  assert.equal(readText(path.join(round(2), 'full.diff')).includes('tools/gen/x.mjs'), false);
+  assert.ok(readText(path.join(round(2), 'delta.diff')).includes('tools/gen/x.mjs'));
+  const names = ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'];
+  const absent = ['', 'src/', 'tools/', 'tools/gen/'].flatMap((dir) => names.map((name) => `absent ${dir}${name}`));
+  assert.equal(readText(path.join(round(2), 'base-instructions', 'MANIFEST')), `${absent.join('\n')}\n`);
+});
+
 // A repository with the reviewer agents and the two docks skills at the tag `rel` (the base), a head commit, and a
 // working tree whose code-review skill differs from the tag.
 function skillRootRepo(t) {

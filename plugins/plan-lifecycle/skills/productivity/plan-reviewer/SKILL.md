@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "12770198976eb786e0ac7c2f3d044bd784d0905b1043accf2994d5cff45c6988"
+  content_hash: "b5d7e298f768694a9d7f6c0dd409cae7a965ab5a77914d3263d1d7b61dd3408d"
 ---
 
 # Plan Reviewer
@@ -28,9 +28,11 @@ the finding bar. Do not ask for cosmetic changes, naming, formatting, line
 counts, extra citations, probes, tests, or acceptance rows without a
 load-bearing defect, because such a request adds a repair round and does not
 change whether the plan works. An Acceptance row that checks a Goal outcome and
-cannot fail without the change is a load-bearing defect. A plan whose change has
-a surface that a user or another program drives, but no Acceptance row that
-runs that surface end to end, has a load-bearing defect. A row that is a
+cannot fail without the change is a load-bearing defect. A plan whose Files
+change the code or configuration of a surface that a user or another program
+drives, but whose Acceptance has no row that runs that surface end to end, has
+a load-bearing defect. A change to prose or skill text alone has no such
+surface. A row that is a
 regression guard, or a gate that must pass before and after the change, is not
 a finding.
 </constraint>

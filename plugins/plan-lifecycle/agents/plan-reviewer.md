@@ -54,11 +54,14 @@ after the change, is not a finding.
    verify the plan. Trace each load-bearing claim against actual callers and
    behavior. Trace each format, location, or rule that a step changes to its
    readers.
-   When the change has a surface that a user or another program drives, such
-   as a CLI command, a hook, a service, or a UI, check that at least one
-   Acceptance row runs that surface end to end and names the observable
-   result. A unit-test command alone does not meet this rule. A plan without
-   such a row has a `goal_fit` finding.
+   When a step's Files change the code or configuration of a surface that a
+   user or another program drives, such as a CLI command, a hook, a service,
+   or a UI, check that at least one Acceptance row runs that surface end to
+   end and names the observable result. A test file that starts the real
+   surface and checks its output counts; a unit-test command that only calls
+   internal functions does not. A change to prose, a skill text, or a reviewer
+   prompt alone has no such surface. A plan without a needed row has a
+   `goal_fit` finding.
 6. Verify library, framework, runtime, and external API claims against current
    official documentation. Use web search only to locate an official source.
 7. Keep each observation that meets the finding bar, in one of the three kinds:

@@ -753,13 +753,16 @@ function commitFileText(repo, commit, file) {
 }
 
 // Writes the base-instructions folder of a review into `dir` (see the base-instructions contract in ../SKILL.md,
-// Workspace): for the repository root and each parent folder of a path that changes from `base` to `tree`, a copy of
-// each instruction file (INSTRUCTION_FILES) that the commit `base` holds, under its own path, and the file MANIFEST
-// with one line per checked path, `copied <path>` or `absent <path>`. The changed paths leave out the paths of
-// `hidden`, as the diffs do.
-function writeBaseInstructions(repo, hidden, base, tree, dir) {
+// Workspace): for the repository root and each parent folder of a path that changes from `base` to `tree`, or from
+// `deltaFrom` to `tree` when the round has a delta, a copy of each instruction file (INSTRUCTION_FILES) that the
+// commit `base` holds, under its own path, and the file MANIFEST with one line per checked path, `copied <path>` or
+// `absent <path>`. The delta paths matter: a file that the branch added and a later repair deleted is in the delta
+// diff but not in the full diff. The changed paths leave out the paths of `hidden`, as the diffs do.
+function writeBaseInstructions(repo, hidden, base, tree, dir, deltaFrom = null) {
   const folders = new Set(['']);
-  for (const file of changedPaths(repo, hidden, base, tree)) {
+  const changed = new Set(changedPaths(repo, hidden, base, tree));
+  if (deltaFrom) for (const file of changedPaths(repo, hidden, deltaFrom, tree)) changed.add(file);
+  for (const file of changed) {
     const parents = file.split('/').slice(0, -1);
     for (let depth = 1; depth <= parents.length; depth += 1) folders.add(parents.slice(0, depth).join('/'));
   }
@@ -1467,7 +1470,7 @@ export function prepareLoop(options, repo) {
       const full = treeDiff(repo, hidden, base, tree);
       fs.writeFileSync(paths.fullDiff, full);
       if (nextMode === 'panel') writeFocusDiffs(repo, hidden, base, tree, paths, full);
-      writeBaseInstructions(repo, hidden, base, tree, nextDir);
+      writeBaseInstructions(repo, hidden, base, tree, nextDir, reviewedTree);
       fs.writeFileSync(paths.deltaDiff, treeDiff(repo, hidden, reviewedTree, tree));
       fs.writeFileSync(paths.previousReview, roundComment(roundDir, blocks));
       if (paths.rejection) {

@@ -150,7 +150,7 @@ Every reviewer reads the plan contract of the case snapshot, so that a later con
 <ws>/findings.json  <ws>/pairs.json  <ws>/judgments.json  <ws>/judgments-second.json  <ws>/report.md
 ```
 
-The base-instructions folder is the input that `plan-manager` writes for a production code-review round. For the repository root and each parent folder of a changed path of the full diff, it holds a copy of each `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` of the case base commit, under the same relative path. A symbolic link gives the text of its target. `MANIFEST` lists one line per checked path, `copied <path>` or `absent <path>`. Each loop round after round 1 gets its own folder for the changed paths of its full diff, still from the case base. The prompt of a code reviewer names the folder of its round and tells the reviewer to take these instruction files only from it.
+The base-instructions folder is the input that `plan-manager` writes for a production code-review round. For the repository root and each parent folder of a changed path of the full diff, it holds a copy of each `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` of the case base commit, under the same relative path. A symbolic link gives the text of its target. `MANIFEST` lists one line per checked path, `copied <path>` or `absent <path>`. Each loop round after round 1 gets its own folder, still from the case base, for the changed paths of its full diff and of its delta diff. The delta paths matter: a file that the case added and a repair deleted is in the delta diff but not in the full diff. The prompt of a code reviewer names the folder of its round and tells the reviewer to take these instruction files only from it.
 
 `case` writes `config` to the `meta.json` of each run, or of `round-1/` of a loop run: the `name`, `model`, `effort`, and `tier` of the run's configuration. `case --loop` also writes `fixerConfig` to each `round-1/meta.json`: the `model`, `effort`, and `tier` of the fixer agent, from the list of configurations that `agents` wrote. When that list has a manager setting, `case` also writes it as `managerConfig`. For each run of a `--contract-overlay` variant, `case` also writes `contractOverlay`, `applied` or `not applicable` (see Arms). `score.mjs transcripts` adds one entry per reviewer under `reviewers` and keeps every other field:
 
@@ -293,7 +293,7 @@ A loop run replays a code-review loop of plan-lifecycle (`plan-contract.md`, Cod
    | File | Content |
    |---|---|
    | `snapshot/` | the new tree, without this skill folder |
-   | `base-instructions/` | the instruction files of the case base for the changed paths of the new full diff (see Workspace) |
+   | `base-instructions/` | the instruction files of the case base for the changed paths of the new full diff and of the new delta diff (see Workspace) |
    | `full.diff`, `delta.diff` | the diff from the case base, and the diff from the head of round r; a `panel` round also gets the focus diffs |
    | `previous-review.md` | the blocks of round r in reviewer order |
    | `rejection.md` | only when round r has rejected findings: `Rejected review findings, round <n>`, then each finding with its evidence |

@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "00e8ef79d308736db8300a42ba2a7ffa7b7d6fe335e0b3655d8f112be3231932"
+  content_hash: "e17d98182b85d696aee5b8a58abf20e2c4168712d732443bd8be4ecc75f5b11a"
 ---
 
 # Yolo
@@ -142,11 +142,13 @@ Asked: <what the request said>. Did: <what the run does>. Reason: <evidence>.
 Read the instruction files that apply to each path in the Files cells:
 `AGENTS.md`, `CLAUDE.md`, and `CONTRIBUTING.md` in that folder and its parent
 folders. Add one Acceptance row for each check that they require for the change.
-When the change has a surface that a user or another program drives, such as a
-CLI command, a hook, a service, or a UI, add at least one Acceptance row that
-runs that surface end to end and names the observable result. A unit-test
-command alone does not meet this rule, as the contract's Steps, acceptance,
-and effects says.
+When a step's Files change the code or configuration of a surface that a user
+or another program drives, such as a CLI command, a hook, a service, or a UI,
+add at least one Acceptance row that runs that surface end to end and names
+the observable result. A test file that starts the real surface counts; a
+unit-test command that only calls internal functions does not. A change to
+prose or skill text alone needs no such row. The contract's Steps, acceptance,
+and effects states the rule.
 
 ## Engineering standards
 

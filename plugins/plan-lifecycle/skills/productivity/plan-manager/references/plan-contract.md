@@ -84,10 +84,13 @@ expected result. They cover the goal, not just individual steps. Acceptance also
 holds one row for each check that the repository instructions require for the
 paths in Files. Use repository-relative paths and portable commands.
 
-When the change has a surface that a user or another program drives, such as
-a CLI command, a hook, a service, or a UI, at least one Acceptance row runs
-that surface end to end. The row drives the surface the way its user does and
-names the observable result. A unit-test command alone does not meet this rule.
+When a step's Files cell changes the code or configuration of a surface that a
+user or another program drives, such as a CLI command, a hook, a service, or a
+UI, at least one Acceptance row runs that surface end to end. The row drives
+the surface the way its user does and names the observable result. A test file
+that starts the real surface and checks its output counts. A unit-test command
+that only calls internal functions does not. A change to prose, a skill text, or
+a reviewer prompt alone has no driven surface.
 
 | Token | Meaning |
 |---|---|

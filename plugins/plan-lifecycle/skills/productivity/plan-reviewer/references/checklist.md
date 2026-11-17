@@ -26,11 +26,14 @@ the kind that fits the defect.
   (`AGENTS.md` and similar files) require for the paths in the Files cells.
   Read the instruction files of each directory that a step touches, not only
   the root file. (`goal_fit`)
-- When the change has a surface that a user or another program drives, such as
-  a CLI command, a hook, a service, or a UI, at least one row runs that surface
-  end to end the way its user does, and it names the observable result. A
-  unit-test command alone does not meet this rule. The plan contract (Steps,
-  acceptance, and effects) states it. (`goal_fit`)
+- When a step's Files cell changes the code or configuration of a surface that
+  a user or another program drives, such as a CLI command, a hook, a service,
+  or a UI, at least one row runs that surface end to end the way its user does,
+  and it names the observable result. A test file that starts the real surface
+  and checks its output counts. A unit-test command that only calls internal
+  functions does not. A change to prose, a skill text, or a reviewer prompt
+  alone has no driven surface, so it needs no such row. The plan contract
+  (Steps, acceptance, and effects) states it. (`goal_fit`)
 - Each command runs as written in the stated environment. The binary, the
   flags, the paths, the working directory, and the runtime exist where the plan
   runs the command, and the expected result is what the command prints or

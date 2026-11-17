@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "27f428cdad2a2c19342ee5d32a500dfcbf0d8b0c5d55d82ddc997b41a9ac41f2"
+  content_hash: "0676b1fbe0cb8691fc84574bf11219051b05e4a4c92d5257647217a92b6cd9c8"
 ---
 
 # Plan Manager
@@ -142,13 +142,20 @@ git ls-files --others --exclude-standard -z |
 `git diff --no-index` exits 1 when the files differ, so that exit status is
 expected here. Build the base-instructions folder for every round too. It holds
 the merge-base copy of each `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` at the
-root and in each parent folder of a changed path of the full diff. Its
-`MANIFEST` lists each checked path as `copied <path>` or `absent <path>`:
+root and in each parent folder of a changed path. The changed paths are the
+paths of the full diff and, in a later round, also the paths of the delta diff.
+A file that the branch added and a repair then deleted is in the delta diff
+only. Set `prev` to the previous round's reviewed head, or leave it empty in
+round 1. Its `MANIFEST` lists each checked path as `copied <path>` or
+`absent <path>`:
 
 ```bash
 inst="$scratch/code-review-<n>-round-<k>-base-instructions"
+prev="<previous-reviewed-head or empty>"
 rm -rf "$inst" && mkdir -p "$inst"
-{ git diff --name-only --no-renames -z "$base"; git ls-files --others --exclude-standard -z; } |
+{ git diff --name-only --no-renames -z "$base"
+  if [ -n "$prev" ]; then git diff --name-only --no-renames -z "$prev"; fi
+  git ls-files --others --exclude-standard -z; } |
   while IFS= read -r -d '' path; do
     dir=$(dirname "$path")
     while :; do
