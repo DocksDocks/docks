@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "0fa8a5a4eaa8e29d3d50eee5691c0c7c83863d0e68cf6ae92e4f80e767eab8a7"
+  content_hash: "35e495eb279a441ba4d7e641332711c686a1caac5e6cb4b5836c7f5863847024"
 ---
 
 # Agent-First Setup
@@ -236,7 +236,7 @@ else echo "FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or a
 # C9 every command of the verify skill showed its expected result (no `not observed:` entry from a failed run)
 grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's|^|FAIL C9 unverified command (rerun it in Step 2b): .agents/skills/verify/SKILL.md:|'
 # C10 a usable pull-request template exists (pr_templates from Step 0; each unusable entry is named; an error is not a missing template)
-if t=$(pr_templates); then case "$t" in *"pull-request template: none"*) echo "FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)"; printf '%s\n' "$t" | sed -n 's/^pull-request template: unusable /FINDING C10 unusable pull-request template: /p';; esac; else echo "ERROR C10 pull-request template check failed (see the message above)"; fi
+if t=$(pr_templates); then printf '%s\n' "$t" | sed -n 's/^pull-request template: unusable /FINDING C10 unusable pull-request template: /p'; case "$t" in *"pull-request template: none"*) echo "FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)";; esac; else echo "ERROR C10 pull-request template check failed (see the message above)"; fi
 ```
 
 Read each `FINDING` line before you report it. A line anchor on a fictional example path, a count that is a stated policy threshold, a time phrase inside a quoted BAD example, and a value inside a dated record (a file or sentence that carries its own date, such as an incident note or "Measured <date>") are not defects: mark each `accepted` with the reason. If the root `AGENTS.md` names a repository doc guard (a lint script for doc pointers), run it too and add its output to the report.

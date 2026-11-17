@@ -14,13 +14,9 @@ const DIR = process.argv[2] || '';
 // One canonical copy, so that the copies in all plugins cannot drift apart unseen.
 const REPORT_SECTION = 'scripts/config/report-section.md';
 // Reference files that more than one plugin ships with the same bytes, because a plugin cannot
-// link into another plugin. Edit the canonical file, then copy it over each copy.
-const SHARED_REFERENCES = [
-  {
-    canonical: 'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/pull-request-template.md',
-    copies: ['plugins/docks/skills/productivity/agent-first-setup/references/pull-request-template.md'],
-  },
-];
+// link into another plugin. The repository lists them in this file; a repository without it has
+// none. Edit each canonical file, then copy it over each of its copies.
+const SHARED_REFERENCES = 'scripts/config/shared-references.json';
 
 function run(args) {
   const result = spawnSync('bun', args, { stdio: 'inherit' });
@@ -74,6 +70,46 @@ function reportSectionFailures(skillsRoot) {
   return failures;
 }
 
+// Read the shared-reference list: `[{ "canonical": "<path>", "copies": ["<path>", ...] }]`, with
+// paths relative to the repository root. An absent file is an empty list.
+function loadSharedReferences() {
+  const file = path.join(REPO_DIR, SHARED_REFERENCES);
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    console.error(`FAIL: ${SHARED_REFERENCES}: cannot read the shared-reference list: ${error.message}`);
+    process.exit(2);
+  }
+  let list;
+  try {
+    list = JSON.parse(text);
+  } catch (error) {
+    console.error(`FAIL: ${SHARED_REFERENCES}: not valid JSON: ${error.message}`);
+    process.exit(2);
+  }
+  const isPath = (value) => typeof value === 'string' && value !== '' && !path.isAbsolute(value);
+  const valid =
+    Array.isArray(list) &&
+    list.every(
+      (entry) =>
+        entry !== null &&
+        typeof entry === 'object' &&
+        isPath(entry.canonical) &&
+        Array.isArray(entry.copies) &&
+        entry.copies.length > 0 &&
+        entry.copies.every(isPath),
+    );
+  if (!valid) {
+    console.error(
+      `FAIL: ${SHARED_REFERENCES}: must be a list of { "canonical": "<path>", "copies": ["<path>", ...] }, with relative paths`,
+    );
+    process.exit(2);
+  }
+  return list;
+}
+
 // Each copy of a shared reference must equal its canonical file, byte for byte (latin1, as above).
 // The check reads repository paths, so it runs whatever the target folder is.
 function sharedReferenceFailures() {
@@ -86,7 +122,7 @@ function sharedReferenceFailures() {
       return undefined;
     }
   };
-  for (const { canonical, copies } of SHARED_REFERENCES) {
+  for (const { canonical, copies } of loadSharedReferences()) {
     const canonicalText = read(canonical);
     for (const copy of copies) {
       const copyText = read(copy);

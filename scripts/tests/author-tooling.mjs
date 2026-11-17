@@ -440,6 +440,29 @@ function testSkillsGuardSharedReferences() {
     assertStarted(missing);
     assert.equal(missing.status, 1);
     assert.match(missing.stderr, failLine('cannot read the shared reference \\(ENOENT\\)'));
+
+    // The repository lists its shared references in a config file. Without that file the guard checks none, so the
+    // missing copy no longer fails, and the guard prints nothing about shared references.
+    const config = path.join(fixtureRoot, 'scripts/config/shared-references.json');
+    const configFail = (reason) => new RegExp(`^FAIL: scripts/config/shared-references\\.json: ${reason}`, 'm');
+    fs.rmSync(config);
+    const noConfig = runNode(guard, [target]);
+    assertStarted(noConfig);
+    assert.equal(noConfig.status, 0, noConfig.stderr);
+    assert.doesNotMatch(`${noConfig.stdout}\n${noConfig.stderr}`, /shared reference/);
+
+    // An entry without its copies has the wrong shape.
+    fs.writeFileSync(config, `${JSON.stringify([{ canonical }])}\n`);
+    const badShape = runNode(guard, [target]);
+    assertStarted(badShape);
+    assert.equal(badShape.status, 2);
+    assert.match(badShape.stderr, configFail('must be a list of '));
+
+    fs.writeFileSync(config, '[\n');
+    const badJson = runNode(guard, [target]);
+    assertStarted(badJson);
+    assert.equal(badJson.status, 2);
+    assert.match(badJson.stderr, configFail('not valid JSON: '));
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
