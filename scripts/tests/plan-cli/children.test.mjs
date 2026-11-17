@@ -359,58 +359,167 @@ test('archive --pr re-reads the children before it closes a plan that GitHub lef
   assert.equal(context.issue(plan.number).state, 'OPEN');
 });
 
-test('archive of a parent reopens it and refuses when a child reopens or appears between the close and the re-read', (t) => {
+// The fake gh change that lands right after the close, and the status that the archive then reports.
+const DURING_CLOSE = [
+  ['a child reopens', (child) => ({ otherIssues: { [child]: REOPENED_CHILD } }), 'ongoing'],
+  [
+    'the finished child is retired',
+    (child) => ({ otherIssues: { [child]: { stateReason: 'NOT_PLANNED' } } }),
+    'retired',
+  ],
+  ['the child is unlinked', () => ({ subIssues: [] }), 'unlinked'],
+];
+
+function changedDuringClose(number, child, status) {
+  return `plan #${number} closed, but child #${child} changed during the close (now ${status}); reopen the issue by hand only if work remains`;
+}
+
+// The GraphQL mutations of the call log: the archive reports a change during the close without one.
+function mutations({ writes }) {
+  return writes().filter(([group]) => group === 'api');
+}
+
+for (const [name, change, status] of DURING_CLOSE) {
+  test(`archive of a parent reports, and does not write, when ${name} during the close`, (t) => {
+    const context = planCliContext(t);
+    const parent = ongoingParent(context);
+    const child = context.createChild('finished child', parent).number;
+    closeChild(context, child, 'COMPLETED');
+    setSteps(context, parent, parentRows([child]));
+    context.updateState((state) => {
+      state.afterCloseOnce = change(child);
+      state.calls = [];
+    });
+    refuse(context.run('archive', String(parent)), changedDuringClose(parent, child, status));
+    const stored = context.issue(parent);
+    assert.deepEqual(
+      { state: stored.state, stateReason: stored.stateReason, labels: stored.labels, comments: stored.comments },
+      { state: 'CLOSED', stateReason: 'COMPLETED', labels: ['plan', 'plan:ongoing'], comments: [] },
+    );
+    assert.equal(closes(context).length, 1);
+    assert.deepEqual(mutations(context), [], 'no reopen and no label removal');
+  });
+}
+
+test('archive of a parent reports a new child that appears during the close', (t) => {
   const context = planCliContext(t);
   const parent = ongoingParent(context);
   const child = context.createChild('finished child', parent).number;
   closeChild(context, child, 'COMPLETED');
   setSteps(context, parent, parentRows([child]));
-  const reopened = (number) => `Reopened: child #${number} changed while plan #${parent} closed; work continues.`;
-  context.updateState((state) => {
-    state.afterCloseOnce = { otherIssues: { [child]: REOPENED_CHILD } };
-  });
-  refuse(context.run('archive', String(parent)), `archive refused: child #${child} is ongoing`);
-  let stored = context.issue(parent);
-  assert.deepEqual(
-    { state: stored.state, labels: stored.labels, comments: stored.comments.map((comment) => comment.body) },
-    { state: 'OPEN', labels: ['plan', 'plan:ongoing'], comments: [reopened(child)] },
-  );
-  // A new child appears between the close and the re-read. It is closed already, so only its newness is open work.
-  closeChild(context, child, 'COMPLETED');
+  // The new child is closed already, so only its newness is a change.
   const other = context.createPlan('later child');
   closeChild(context, other, 'COMPLETED');
   context.updateState((state) => {
     state.afterCloseOnce = { subIssues: [child, other] };
   });
-  refuse(context.run('archive', String(parent)), `archive refused: child #${other} is finished`);
-  stored = context.issue(parent);
-  assert.equal(stored.state, 'OPEN');
-  assert.equal(stored.comments.at(-1).body, reopened(other));
-  assert.equal(closes(context).length, 2);
+  refuse(context.run('archive', String(parent)), changedDuringClose(parent, other, 'finished'));
+  assert.equal(context.issue(parent).state, 'CLOSED');
 });
 
-test('archive --pr reopens the plan and refuses when a child reopens between its close and the re-read', (t) => {
+test('archive of a parent exits with the gh error when the read after the close fails, and leaves the plan', (t) => {
+  const context = planCliContext(t);
+  const parent = ongoingParent(context);
+  const child = context.createChild('finished child', parent).number;
+  closeChild(context, child, 'COMPLETED');
+  setSteps(context, parent, parentRows([child]));
+  context.updateState((state) => {
+    state.afterCloseOnce = {
+      graphqlError: { errors: [{ message: 'child read unavailable' }] },
+      otherIssues: { [child]: REOPENED_CHILD },
+    };
+    state.calls = [];
+  });
+  refuse(context.run('archive', String(parent)), 'gh api graphql returned errors: child read unavailable');
+  const { state, labels, comments } = context.issue(parent);
+  assert.deepEqual({ state, labels, comments }, { state: 'CLOSED', labels: ['plan', 'plan:ongoing'], comments: [] });
+  assert.deepEqual(mutations(context), []);
+  // `show` makes the open child visible, so the owner can reopen the plan by hand.
+  assert.match(
+    context.run('show', String(parent)).stdout,
+    new RegExp(
+      `^advice: plan is closed as completed while child #${child} is ongoing; reopen the issue if work remains$`,
+      'm',
+    ),
+  );
+});
+
+test('archive --pr reports, and does not write, when a child reopens during its close', (t) => {
   const context = planCliContext(t);
   const plan = context.landedPlan('landed plan with a finished child');
   const child = context.createChild('child', plan.number).number;
   closeChild(context, child, 'COMPLETED');
   context.updateState((state) => {
     state.afterCloseOnce = { otherIssues: { [child]: REOPENED_CHILD } };
+    state.calls = [];
   });
   refuse(
     context.runWith(['--import', SKIP_WAITS], 'archive', String(plan.number), '--pr', String(plan.pr)),
-    `archive refused: child #${child} is ongoing`,
+    changedDuringClose(plan.number, child, 'ongoing'),
   );
   const stored = context.issue(plan.number);
   assert.deepEqual(
     { state: stored.state, labels: stored.labels, comment: stored.comments.at(-1).body },
     {
-      state: 'OPEN',
+      state: 'CLOSED',
       labels: ['plan', 'plan:ongoing'],
-      comment: `Reopened: child #${child} changed while plan #${plan.number} closed; work continues.`,
+      comment: `Closed by archive: pull request #${plan.pr} merged into main and closes this plan, but GitHub left the plan open.`,
     },
   );
-  assert.equal(closes(context).length, 1);
+  assert.deepEqual(mutations(context), []);
+});
+
+// The advice lines that `show` prints for a closed plan and its children.
+function closedAdvice(context, number) {
+  const shown = context.run('show', String(number));
+  expectSuccess(shown, `show #${number}`);
+  return shown.stdout.split('\n').filter((line) => line.startsWith('advice: plan is closed as completed'));
+}
+
+function closePlan(context, number) {
+  context.updateIssue(number, (entry) => {
+    entry.state = 'CLOSED';
+    entry.stateReason = 'COMPLETED';
+  });
+}
+
+test('show advises on each child that is not terminal while the plan is closed as completed', (t) => {
+  const context = planCliContext(t);
+  const parent = ongoingParent(context);
+  const open = context.createChild('open child', parent).number;
+  const finished = context.createChild('finished child', parent).number;
+  const stuck = context.createChild('stuck child', parent).number;
+  closeChild(context, finished, 'COMPLETED');
+  closeChild(context, stuck, 'REOPENED');
+  setSteps(context, parent, parentRows([open, finished, stuck]));
+  assert.deepEqual(closedAdvice(context, parent), [], 'an open plan gets no closed-plan advice');
+  closePlan(context, parent);
+  assert.deepEqual(closedAdvice(context, parent), [
+    `advice: plan is closed as completed while child #${open} is drafting; reopen the issue if work remains`,
+    `advice: plan is closed as completed while child #${stuck} is unreadable; reopen the issue if work remains`,
+  ]);
+});
+
+test('show advises on a closed parent with no finished child, and not on a plan with work of its own', (t) => {
+  const context = planCliContext(t);
+  const parent = ongoingParent(context);
+  const retired = context.createChild('retired child', parent).number;
+  closeChild(context, retired, 'NOT_PLANNED');
+  setSteps(context, parent, parentRows([retired]));
+  closePlan(context, parent);
+  assert.deepEqual(closedAdvice(context, parent), [
+    'advice: plan is closed as completed but no child finished; reopen the issue if work remains',
+  ]);
+  // A plan with its own landing work finished through its pull request; a retired child leaves nothing open.
+  const ownWork = ongoingParent(context, 'plan with own work');
+  closeChild(context, context.createChild('retired child', ownWork).number, 'NOT_PLANNED');
+  closePlan(context, ownWork);
+  assert.deepEqual(closedAdvice(context, ownWork), []);
+  // A closed plan without children and without steps is no parent.
+  const empty = context.createPlan('closed plan without steps');
+  setSteps(context, empty, []);
+  closePlan(context, empty);
+  assert.deepEqual(closedAdvice(context, empty), []);
 });
 
 test('show and list read a phase label beyond the first label page of a child or a listed plan', (t) => {

@@ -450,7 +450,11 @@ directory, a Windows drive, or a network share. Its advice is
 `body contains an absolute machine path: <path>`, once per distinct path.
 URL routes and portable system paths, such as `/usr/bin/env` or a bare `/tmp`,
 get no advice. `show` also advises when a plan is closed as completed while a
-step is not terminal, and names the closer. For an issue that GitHub left
+step is not terminal, and names the closer. For a plan that is closed as
+completed while a child is not terminal, or when no child is finished, `show`
+advises `plan is closed as completed while child #<c> is <status>; reopen the issue if work remains`
+or `plan is closed as completed but no child finished; reopen the issue if work remains`.
+For an issue that GitHub left
 closed with reason `REOPENED`, `show` advises
 `GitHub left this issue closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it, and record step results in an issue comment until then`.
 The status of that issue stays `unreadable`. `list` advises when it reaches 500
@@ -500,6 +504,7 @@ pull request #<pr> is not merged
 GitHub has not closed plan #<n> for pull request #<pr> yet; run reopen again once it has
 plan #<n> was closed by <closer> after pull request #<pr> merged; reopen it by hand only if that close was a mistake
 plan #<n> was closed by <closer> before pull request #<pr> merged; reopen it by hand only if that close was a mistake
+plan #<n> closed, but child #<c> changed during the close (now <status>); reopen the issue by hand only if work remains
 plan #<n> changed during the settle wait; run reopen again
 GitHub left plan #<n> closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it
 plan issue state differs after reopen
@@ -719,8 +724,9 @@ setting (Pull requests). For an open plan, archive first waits up to about
 as completed, with a comment that names the pull request. Then archive removes
 the phase labels. Do not close the plan by hand. A plan that someone already
 closed as completed archives with the same proof. When archive fails after it
-closed the plan, run the same command again. This rule replaces step 3 of the
-retry steps in Normalization, advice, and refusals.
+closed the plan, run the same command again, except on the child-changed exit,
+where you run `show <n>` and decide. This rule replaces step 3 of the retry
+steps in Normalization, advice, and refusals.
 
 A child is terminal when it is closed as completed (`finished`), as not planned
 (`retired`), or as a duplicate. Archive, with or without `--pr`, refuses a plan
@@ -735,10 +741,10 @@ It closes an open parent as completed, removes the phase labels, and prints
 child. On a plan without children, `archive` without `--pr` refuses. On a plan
 with children that is not a parent (Record and mode), it refuses with
 `archive refused: plan #<n> has its own landing work; archive it with --pr`.
-After the close, archive reads the children again. When a child changed, it
-reopens the plan with the comment
-`Reopened: child #<c> changed while plan #<n> closed; work continues.` and
-refuses with `archive refused: child #<c> is <status>`.
+After the close, archive reads the children again. When a child changed, or no
+child is finished any more, archive does not reopen the plan. It exits 1 with
+`plan #<n> closed, but child #<c> changed during the close (now <status>); reopen the issue by hand only if work remains`.
+Run `show <n>`, and reopen the issue by hand only when work remains.
 
 ### Teardown
 

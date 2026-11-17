@@ -1046,7 +1046,8 @@ if (group === 'issue' && command === 'view') {
 // hand does. Like `issue view`, the read lands due changes without counting toward `afterReads`.
 // `issueCloseErrorBeforeWriteOnce` fails one close before gh writes anything, and `issueCloseErrorAfterCommentOnce`
 // posts the comment and then fails the close request. `afterCloseOnce` is a change, in the form of a scheduled change,
-// that lands on the issue right after one close, such as a child plan that reopens before the helper reads again.
+// that lands on the issue right after one close, such as a child plan that reopens before the helper reads again. Its
+// `graphqlError` field becomes `state.graphqlError`, so the next GraphQL request after the close fails.
 if (group === 'issue' && command === 'close') {
   const issue = issueByNumber(issueNumber());
   const reason = value('--reason');
@@ -1086,7 +1087,9 @@ if (group === 'issue' && command === 'close') {
   issue.timelineItems ??= [];
   issue.timelineItems.push({ __typename: 'ClosedEvent', closer: null, createdAt: issue.updatedAt });
   if (state.afterCloseOnce) {
-    applyChange(issue, state.afterCloseOnce);
+    const { graphqlError, ...change } = state.afterCloseOnce;
+    if (graphqlError) state.graphqlError = graphqlError;
+    applyChange(issue, change);
     delete state.afterCloseOnce;
   }
   save();
