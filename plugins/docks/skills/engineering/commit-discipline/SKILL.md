@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "7a1036c6b158e062b9bc3dfceeec6a404a1a3bc339810938cd50f8fff1cc3b2b"
+  content_hash: "9b96d94fa50ef9ddc0220b56d0ddf095b17ac86644c950be0269dd02d253cac8"
 ---
 
 # Commit & PR Discipline
@@ -209,6 +209,15 @@ sitting, or your description needs "also", split.
    for UI); a reviewer shouldn't have to re-derive your evidence.
 5. **Out of scope** — adjacent work deliberately not done, so review comments
    don't relitigate it.
+6. **Checklist** — a `## Checklist` section of top-level task items
+   (`- [ ] <text>`), so that GitHub shows its progress as `k of n tasks`.
+   First copy the task items of the repository's pull-request template as
+   written; `gh pr create --body-file` copies no template. Then add one item
+   for each check that the repository instructions require, as
+   "`<command>` passes", and "Code review passed". Tick an item (`- [x]`) only
+   when its check passed on the pushed head, or, for the code-review item, when
+   the review passed. Otherwise leave it unticked and end its line with
+   ` - <reason>`. Update the ticks after each push.
 
 **Self-review before requesting review** — open your own diff in the PR view and
 read it as the reviewer: leave inline comments on anything non-obvious you'd
@@ -278,6 +287,11 @@ git diff @{upstream}.. --stat       # size sanity: is this one reviewable unit?
 - GitHub Docs, "Configuring commit squashing for pull requests" — squash
   default-message behavior
   (<https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/configuring-commit-squashing-for-pull-requests>).
+- GitHub Docs, "Creating a pull request template for your repository" — template
+  names and places
+  (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository>);
+  "About tasklists" — `- [ ]` and `- [x]` task items; `gh pr create` manual —
+  `--body-file` takes the body as given (<https://cli.github.com/manual/gh_pr_create>).
 - `git-rebase(1)` — `--autosquash`, `rebase.autoSquash`, `--exec`, `--update-refs`;
   `git-commit(1)` — `--fixup=amend:`/`reword:` (re-verify against your installed
   Git's man pages).

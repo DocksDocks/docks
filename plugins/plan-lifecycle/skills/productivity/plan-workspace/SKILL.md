@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "5f7d916121f30273f163b5bdac9660dd9709ab058de183171e5d731a69e11cd1"
+  content_hash: "b177e2f935f97bc534a9ca616cc38985a80fa1a83b4f6e5da5a2a12cc1f61f2c"
 ---
 
 # Plans Workspace
@@ -39,7 +39,8 @@ Report its resolved path or that the plugin is unavailable.
 
 ## Classify
 
-Inspect the standard, routing nodes, root Plans section, and reviewer wrappers.
+Inspect the standard, routing nodes, root Plans section, reviewer wrappers, and
+pull-request template. A missing template is a report item, not drift.
 Use generated scaffolding outside frozen history to recognize legacy workspaces.
 
 | Class | Evidence | Action |
@@ -83,6 +84,12 @@ For audit, that report is final.
 5. Seed only missing Codex reviewer files from
    [`references/codex-agent-templates.md`](references/codex-agent-templates.md).
    Never overwrite an existing wrapper or create a manager wrapper.
+6. Offer to create the pull-request template from
+   [`references/pull-request-template.md`](references/pull-request-template.md).
+   Run its detection command first. When a template exists, make no change and
+   never overwrite it. Otherwise fill in the check command that the root
+   instruction file names, print the draft, and ask. Write
+   `.github/pull_request_template.md` only when the user accepts.
 
 ## Migrate or refresh
 
@@ -119,7 +126,8 @@ Plan issues are the live records. Leave `docs/plans/finished/` frozen.
 ## Verification
 
 Check each changed section: standard pointer, docs routing, absence of a
-legacy `docs/CLAUDE.md`, root routing, and both reviewer wrappers. If generated
+legacy `docs/CLAUDE.md`, root routing, both reviewer wrappers, and the
+pull-request template. If generated
 content shrinks, account for each removed section in the canonical reference or
 record why it was obsolete.
 Do not discard project-owned rules. Verify links resolve in the installed plugin.
@@ -134,6 +142,7 @@ grep -n '^## Plans' AGENTS.md                  # root Plans section
 grep -c 'Pointers here name concepts' docs/AGENTS.md   # 1 or more
 ls .codex/agents/plan-reviewer.toml .codex/agents/code-reviewer.toml
 find . \( -name .git -o -name node_modules -o -path ./docs/plans/finished \) -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print   # no output
+find . .github docs -maxdepth 1 -iname 'pull_request_template*' 2>/dev/null   # a path; no output only when the user declined
 ```
 
 For migration, confirm each issue uses a user-restated title and goal, and

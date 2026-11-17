@@ -653,7 +653,8 @@ and prints nothing.
 
 Open every plan pull request from the linked branch, after code review passes.
 Commit and push only reviewed bytes. The landing pull request completes the
-plan. Put `Closes #<issue>` on its own line in the description. `archive` needs
+plan. Its description holds the summary, then the `## Checklist` section
+(Checklist below), then `Closes #<issue>` on its own line. `archive` needs
 this keyword as proof.
 
 A v5 plan has no partial pull request. Put each part of the work that lands on
@@ -690,6 +691,53 @@ retry the reopen. Record the remaining step results in one issue comment,
 report the plan as stuck, and ask the repository owner to contact GitHub
 Support. After GitHub repairs the issue, continue normally.
 
+#### Checklist
+
+The `## Checklist` section shows which required checks passed on the reviewed
+head. GitHub shows the progress of its task items, for example `2 of 3 tasks`.
+Write each item as a top-level task item: `- [ ] <text>` or `- [x] <text>`.
+Do not nest items. GitHub does not document how it counts nested items.
+
+Add the items in this order:
+
+1. The task items of the repository's pull-request template, with their text as
+   written. GitHub reads a file named `pull_request_template.md` (any letter
+   case, `.md` or `.txt`) in the root, in `docs/`, or in `.github/`, or several
+   templates in a `PULL_REQUEST_TEMPLATE/` folder in one of these places
+   (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository>).
+   `gh pr create --body-file` uses the file as given and copies no template,
+   so copy the items yourself. When there are several templates, use the one
+   that applies to the change, and name it in the merge question.
+2. One item for each Acceptance row that a repository instruction requires,
+   as "`<command>` passes".
+3. "Tested locally with the `verify` skill" when an Acceptance row runs a
+   driven surface end to end.
+4. "Code review passed".
+
+Do not add an item that a template item already covers. When the repository
+has no pull-request template, use these default items in place of the template
+items: "`<check command>` passes", with the check command from the root
+instruction file (for example `bun run check`); "Tested locally with the
+`verify` skill"; and "Code review passed". When the root instruction file names
+no check command, the first item reads "Checks pass" and stays unticked, with
+the reason `no check command in the repository instructions`.
+
+Tick an item (`- [x]`) only when its evidence exists for the reviewed head:
+
+- a command item: Verification Results record a pass of that command on the
+  reviewed head;
+- the tested-locally item: Verification Results record a pass of the `verify`
+  skill flow on the reviewed head;
+- the code-review item: `show <n>` reports `code=pass`;
+- a template item: a Verification Results entry or the code-review verdict
+  proves it.
+
+Otherwise keep the item unticked, and end its line with ` - <reason>`, for
+example ``- [ ] Tested locally with the `verify` skill - the change touches no driven surface``.
+A template item without proof gets the reason `not checked by the plan`.
+Build the body again after each push, so that the ticks follow the reviewed
+head.
+
 ### Checks and merge
 
 Wait up to five minutes for checks to appear. Then wait for every check to
@@ -705,6 +753,15 @@ attempts. On `Leave plan blocked`, or without an answer, commit and push
 current work to the linked branch, set the status to `blocked` with the check
 name as the reason, run Teardown's exit without a merge, and report. In a yolo
 run, the third failure is a stall under Round ceiling.
+
+Before the merge question, run the landing self-check. Read the pushed body
+with `gh pr view <pr> --repo <owner/repo> --json body --jq .body`. For each
+ticked item, find its evidence as Checklist says. Untick each item without
+evidence, add its reason, and update the body with
+`gh pr edit <pr> --repo <owner/repo> --body-file <file>`. The merge question
+states `<k> of <n> checklist items ticked` and lists each unticked item with
+its reason. An unticked item does not block the merge question; the user
+decides.
 
 Ask afresh with two options: `Merge now` and `Leave pull request open`. The
 `Merge now` option states the teardown that follows the merge: the processes
@@ -1005,8 +1062,9 @@ and report.
 
 ### Merge question
 
-After checks pass, print the run summary that the `yolo` skill defines. Then ask
-the question in Checks and merge. Each step after the landing merge needs its
+After checks pass, run the landing self-check in Checks and merge, and print the
+run summary that the `yolo` skill defines. Then ask the question in Checks and
+merge, with the checklist line. Each step after the landing merge needs its
 own question.
 
 ### Published text

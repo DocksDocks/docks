@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "204944ee5d2aa1a1ecd3926a93cf4d1a826e6a548d8127c2dec5222e53992a18"
+  content_hash: "cd8109e9a56cb8967c04f8452ae020bc57b4dc1e667c43c0fd52b266fe2c5c7a"
 ---
 
 # Agent-First Setup
@@ -18,22 +18,22 @@ Make a repository easy for any coding agent to use, in one pass. An agent-first 
 - **Verifiable** — the check in Step 3 is a set of commands, not prose. A project `verify` skill names the commands that start, drive, inspect, and stop the real product.
 - **Free of CLAUDE.md** — a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` without an `@AGENTS.md` import makes Claude read it instead of `AGENTS.md`. A stub that only imports `AGENTS.md` still delivers it; it is redundant, and the kit removes it as cleanup (source: https://code.claude.com/docs/en/memory, section "AGENTS.md").
 
-This skill is an orchestrator. `multi-tool-bridge` and `context-tree` do the work; this skill puts them in order, adds the project `verify` skill in Step 2b, and ends with the check.
+This skill is an orchestrator. `multi-tool-bridge` and `context-tree` do the work; this skill puts them in order, adds the project `verify` skill in Step 2b, offers a pull-request template in Step 2c, and ends with the check.
 
 <constraint>
 Delegate, do not re-implement. For Step 1 and Step 2, load the named skill and follow its workflow as written, including its detection, classification, and verification steps. Do not copy, shorten, or reorder its steps here. If a named skill (`multi-tool-bridge`, `context-tree`) or a prerequisite it names is not available, STOP before any write and name the missing skill or plugin in your final message.
 </constraint>
 
 <constraint>
-Every write stays behind the approval gate of the skill that owns it. At that gate, print the owning skill's proposal and ask for approval with the harness question tool (see "Asking the user"); if the harness has no such tool, end the turn. Resume this workflow only after the user answers. This skill owns one write: the project `verify` skill and its symlink in Step 2b, behind its own approval gate. `audit` mode never writes: it runs Step 0, the owning skills' read-only modes, the Step 2b detection, and Step 3, then reports. Step 3 reports findings; it never auto-fixes them.
+Every write stays behind the approval gate of the skill that owns it. At that gate, print the owning skill's proposal and ask for approval with the harness question tool (see "Asking the user"); if the harness has no such tool, end the turn. Resume this workflow only after the user answers. This skill owns two writes, each behind its own approval gate: the project `verify` skill and its symlink in Step 2b, and the pull-request template in Step 2c. It never overwrites an existing pull-request template. `audit` mode never writes: it runs Step 0, the owning skills' read-only modes, the Step 2b and Step 2c detection, and Step 3, then reports. Step 3 reports findings; it never auto-fixes them.
 </constraint>
 
 ## Modes
 
 | Invocation | Runs | Writes? |
 |---|---|---|
-| `agent-first-setup` (default) | Step 0 → Step 1 → Step 2 → Step 2b → Step 3 → Step 4 | only through the owning skills' approval gates and the Step 2b gate |
-| `agent-first-setup audit` | Step 0 → read-only detection of Step 1 → `context-tree audit` → Step 2b detection → Step 3 → Step 4 | never |
+| `agent-first-setup` (default) | Step 0 → Step 1 → Step 2 → Step 2b → Step 2c → Step 3 → Step 4 | only through the owning skills' approval gates and the Step 2b and Step 2c gates |
+| `agent-first-setup audit` | Step 0 → read-only detection of Step 1 → `context-tree audit` → Step 2b detection → Step 2c detection → Step 3 → Step 4 | never |
 
 ## Asking the user
 
@@ -84,11 +84,12 @@ git ls-files -co --exclude-standard -- ':(glob)**/AGENTS.md' | grep -v '^AGENTS\
 find .claude/skills -mindepth 1 -maxdepth 1 ! -type l 2>/dev/null | sed 's/^/not-a-symlink: /'
 test -f .agents/skills/verify/SKILL.md && echo "verify skill: present" || echo "verify skill: missing"
 grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's/^/verify unverified: /'
+find . .github docs -maxdepth 1 -iname 'pull_request_template*' 2>/dev/null | sed 's/^/pull-request template: /'
 ```
 
 Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored.
 
-If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that failed in an earlier run; Step 2b reruns it. A pass in Step 3 means the repo is already agent-first.
+If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that failed in an earlier run; Step 2b reruns it. Step 2c is a no-op when Step 0 printed a `pull-request template:` line. A pass in Step 3 means the repo is already agent-first.
 
 ### Step 1 — Run `multi-tool-bridge`
 
@@ -108,9 +109,9 @@ In `audit` mode, run `context-tree audit` only.
 
 A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. The template, the surface recipes, and a worked example are in [references/verify-skill-template.md](references/verify-skill-template.md).
 
-1. If `.agents/skills/verify/SKILL.md` exists and Step 0 printed no `verify unverified:` line, make no change and go to Step 3. If Step 0 printed a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, ask for approval through the harness question tool to run them and update them, and then go to step 7. In step 7, run Start, the flows that each `not observed:` row names, and Stop.
+1. If `.agents/skills/verify/SKILL.md` exists and Step 0 printed no `verify unverified:` line, make no change and go to Step 2c. If Step 0 printed a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, ask for approval through the harness question tool to run them and update them, and then go to step 7. In step 7, run Start, the flows that each `not observed:` row names, and Stop.
 2. Find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of the template's "Surface recipes" table.
-3. If the repository has no runnable surface, write nothing. Record "no runnable surface" for the report and go to Step 3.
+3. If the repository has no runnable surface, write nothing. Record "no runnable surface" for the report and go to Step 2c.
 4. Fill the template for each surface. Use only commands that the repository defines or that the recipes name. Ask the user through the harness question tool for a missing start command, port, or test account.
 5. Print the draft `SKILL.md` and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval through the harness question tool. The approval covers the write and one run of each command.
 6. After approval, write `.agents/skills/verify/SKILL.md`. Then create the symlink and check it:
@@ -130,6 +131,25 @@ A project `verify` skill tells an agent how to run the real product the way a us
    Step 2b is complete only when each command ran and showed its expected result, and the skill holds no `not observed:` entry.
 
 In `audit` mode, run step 1 to step 3 only and record whether the skill exists, each `verify unverified:` row, or the surface that needs it.
+
+### Step 2c — Offer the pull-request template
+
+A pull-request template gives each pull request on GitHub the same task list, and GitHub shows its progress as `k of n tasks`. GitHub reads a file named `pull_request_template.md` (any letter case, `.md` or `.txt`) in the root, in `docs/`, or in `.github/`, or a `PULL_REQUEST_TEMPLATE/` folder in one of these places (source: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository). This skill owns this write.
+
+1. If Step 0 printed a `pull-request template:` line, make no change and go to Step 3. Never overwrite or edit an existing template.
+2. Read the check command from the root `AGENTS.md`, for example `bun run check`. When it names none, write the first item as `- [ ] Checks pass`.
+3. Print the draft below with the real check command, and the path `.github/pull_request_template.md`. Ask for approval through the harness question tool. Without approval, write nothing.
+4. After approval, write the file. Tell the user that GitHub uses the template only after it is on the default branch, and that the repository can add its own items later. Keep each item a top-level task item.
+
+```markdown
+## Checklist
+
+- [ ] `<check command>` passes
+- [ ] Tested locally with the `verify` skill
+- [ ] Code review passed
+```
+
+In `audit` mode, run step 1 only and record whether a template exists.
 
 ### Step 3 — Agent-first check (read-only)
 
@@ -231,6 +251,9 @@ if test -f .agents/skills/verify/SKILL.md; then
 else echo "FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)"; fi
 # C9 every command of the verify skill showed its expected result (no `not observed:` entry from a failed run)
 grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's|^|FAIL C9 unverified command (rerun it in Step 2b): .agents/skills/verify/SKILL.md:|'
+# C10 a pull-request template exists in the root, docs/, or .github/ (GitHub reads it from these places)
+find . .github docs -maxdepth 1 -iname 'pull_request_template*' 2>/dev/null | grep -q . \
+  || echo "FINDING C10 no pull-request template (add it in Step 2c, or accept: the repository wants none)"
 ```
 
 Read each `FINDING` line before you report it. A line anchor on a fictional example path, a count that is a stated policy threshold, a time phrase inside a quoted BAD example, and a value inside a dated record (a file or sentence that carries its own date, such as an incident note or "Measured <date>") are not defects: mark each `accepted` with the reason. If the root `AGENTS.md` names a repository doc guard (a lint script for doc pointers), run it too and add its output to the report.
@@ -250,10 +273,11 @@ Print one table. `Result` is `pass`, `fail (<count>)`, or `findings (<count>)`; 
 | C7 no eager `@path` imports | | `context-tree` (`audit` / `refresh`) |
 | C8 node size (500-line kit policy) | | `context-tree` (`audit` / `refresh`; split the folder) |
 | C9 project `verify` skill and its symlink | | this skill, Step 2b |
+| C10 pull-request template | | this skill, Step 2c |
 
-Below the table, list: files written by Step 1, Step 2, and Step 2b (from their reports), the `verify` skill commands that failed in Step 2b, every open `FAIL` line, every `FINDING` with its accepted/defect decision, and blockers that stopped a step. In Claude Code, tell the user to run `/memory` and confirm `AGENTS.md` is listed (Claude Code v2.1.280 and later list it; on an older version, ask Claude what its project instructions say).
+Below the table, list: files written by Step 1, Step 2, Step 2b, and Step 2c (from their reports), the `verify` skill commands that failed in Step 2b, every open `FAIL` line, every `FINDING` with its accepted/defect decision, and blockers that stopped a step. In Claude Code, tell the user to run `/memory` and confirm `AGENTS.md` is listed (Claude Code v2.1.280 and later list it; on an older version, ask Claude what its project instructions say).
 
-**Idempotency:** on a repository that is already agent-first, Step 1, Step 2, and Step 2b are no-ops by their own contracts, Step 3 prints no `FAIL` line and no unaccepted `FINDING`, and no file is written. Any write on such a repository is a defect: report it.
+**Idempotency:** on a repository that is already agent-first, Step 1, Step 2, Step 2b, and Step 2c are no-ops by their own contracts, Step 3 prints no `FAIL` line and no unaccepted `FINDING`, and no file is written. Any write on such a repository is a defect: report it.
 
 ## Common Traps
 

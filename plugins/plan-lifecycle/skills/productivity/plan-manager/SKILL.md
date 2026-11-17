@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "98343009368afffa91a293111510f736dc4e29c496d05645697a23675bc3b0ae"
+  content_hash: "e6aa81857f312922249461b3f0cd395d8c9e20bfdd4c7b3bfab7dd669bccbfdc"
 ---
 
 # Plan Manager
@@ -264,10 +264,17 @@ Done when: `show <n>` reports `code=pass`.
 After code review passes, follow the contract's Landing and archive proof:
 commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
-on `Merge now`. The `Merge now` option states the teardown, as the contract's
-Checks and merge says. A v5 plan has no partial merge; each part lands as a
-child plan. Only a v4 plan whose work started runs `reopen <n> --pr <pr>` after
-a partial merge, as the contract states. After the landing merge, run each step
+on `Merge now`. The landing description holds the summary, the `## Checklist`
+section, and `Closes #<n>`, as the contract's Pull requests says. Tick an item
+only with its evidence on the reviewed head: a Verification Results pass, or
+`show <n>` `code=pass` for the code-review item. End each unticked item with
+its reason. Before the merge question, run the landing self-check in Checks and
+merge. The merge question states `<k> of <n> checklist items ticked` and lists
+each unticked item with its reason. The `Merge now` option states the
+teardown, as the contract's Checks and merge says. A v5 plan has no partial
+merge; each part lands as a child plan. Only a v4 plan whose work started runs
+`reopen <n> --pr <pr>` after a partial merge, as the contract states. After
+the landing merge, run each step
 that runs after the merge. Once every step is terminal, run
 `archive <n> --pr <pr>` with the landing pull request. For a child, then set
 its parent row done; when `show <parent>` lists no open child, run
