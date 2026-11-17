@@ -1,16 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { body, expectSuccess, planCliContext, refuse } from './harness.mjs';
+import { body, expectSuccess, planCliContext, refuse, SKIP_WAITS } from './harness.mjs';
 
 // Child plans (E1) and the contract marker (E2): `new --parent`, the child lines of `show`, and the parent archive.
 
+// A parent plan body: its row carries no landing work, so its Files cell is `-`.
+function parentBody(status) {
+  return body(status).replace('| src/parser.mjs |', '| - |');
+}
+
 // A parent plan whose own steps are done: open, ongoing, and owned by the acting login.
 function ongoingParent(context, name = 'parent plan') {
-  const number = context.createPlan(name, body('done'));
+  const number = context.createPlan(name, parentBody('done'));
   context.updateIssue(number, (entry) => {
     entry.labels = ['plan', 'plan:ongoing'];
   });
   return number;
+}
+
+// The GraphQL reads that the fake gh has served for issue `number`.
+function reads(context, number) {
+  return context.issue(number).graphqlReads ?? 0;
+}
+
+function closes({ loadState }) {
+  return loadState().calls.filter(([group, command]) => group === 'issue' && command === 'close');
 }
 
 function closeChild(context, number, stateReason) {
@@ -200,7 +214,7 @@ test('archive of a parent refuses a child that GitHub left closed with reason RE
 
 test('archive of a parent needs terminal parent steps and an ongoing parent, but no code review', (t) => {
   const context = planCliContext(t);
-  const parent = context.createPlan('parent with open step', body('in-flight'));
+  const parent = context.createPlan('parent with open step', parentBody('in-flight'));
   const child = context.createChild('child', parent).number;
   closeChild(context, child, 'COMPLETED');
   refuse(context.run('archive', String(parent)), 'archive requires ongoing or finished status, found drafting');
@@ -237,6 +251,92 @@ test('archive --pr refuses a landed plan while one of its children is open', (t)
   );
   closeChild(context, child, 'COMPLETED');
   expectSuccess(context.run('archive', String(plan.number), '--pr', String(plan.pr)), 'archive after the child');
+});
+
+test('archive without --pr refuses a plan with a child and its own landing work', (t) => {
+  const context = planCliContext(t);
+  // A started plan that moved new scope into a child plan still landed its own row through a pull request.
+  const plan = context.createPlan('plan with own work', body('done'));
+  context.updateIssue(plan, (entry) => {
+    entry.labels = ['plan', 'plan:ongoing'];
+  });
+  const child = context.createChild('child', plan).number;
+  closeChild(context, child, 'COMPLETED');
+  context.updateState((state) => {
+    state.calls = [];
+  });
+  refuse(
+    context.run('archive', String(plan)),
+    `archive refused: plan #${plan} has its own landing work; archive it with --pr`,
+  );
+  assert.deepEqual(context.writes(), []);
+  // One parent row with Files `-` and one row with files is still own landing work.
+  context.updateIssue(plan, (entry) => {
+    entry.body = entry.body.replace(
+      /^(\| 1 \| fix_parser .*)$/m,
+      '$1\n| 2 | land_child | Land the child plan | - | 1 | local | done | Child finished |',
+    );
+  });
+  refuse(
+    context.run('archive', String(plan)),
+    `archive refused: plan #${plan} has its own landing work; archive it with --pr`,
+  );
+  assert.equal(context.issue(plan).state, 'OPEN');
+});
+
+test('archive of a parent re-reads its children before the close and refuses a new or reopened child', (t) => {
+  const context = planCliContext(t);
+  const parent = ongoingParent(context);
+  const child = context.createChild('finished child', parent).number;
+  closeChild(context, child, 'COMPLETED');
+  const other = context.createPlan('later child');
+  // A new child plan appears after the archive snapshot and before the close.
+  context.schedule(parent, { afterReads: reads(context, parent) + 1, subIssues: [child, other] });
+  refuse(context.run('archive', String(parent)), 'plan issue changed remotely; re-read and retry');
+  // The finished child reopens after the archive snapshot and before the close.
+  context.updateIssue(parent, (entry) => {
+    entry.subIssues = [child];
+  });
+  context.schedule(parent, {
+    afterReads: reads(context, parent) + 1,
+    otherIssues: { [child]: { state: 'OPEN', stateReason: 'REOPENED', labels: ['plan', 'plan:ongoing'] } },
+  });
+  refuse(context.run('archive', String(parent)), 'plan issue changed remotely; re-read and retry');
+  assert.deepEqual(closes(context), [], 'a changed child stops the close');
+  assert.equal(context.issue(parent).state, 'OPEN');
+});
+
+test('archive --pr re-reads the children before it closes a plan that GitHub left open', (t) => {
+  const context = planCliContext(t);
+  const plan = context.landedPlan('landed plan with a finished child');
+  const child = context.createChild('child', plan.number).number;
+  closeChild(context, child, 'COMPLETED');
+  // The archive reads the open plan 34 times; the child reopens before the pre-close reads.
+  context.schedule(plan.number, {
+    afterReads: reads(context, plan.number) + 34,
+    otherIssues: { [child]: { state: 'OPEN', stateReason: 'REOPENED', labels: ['plan', 'plan:ongoing'] } },
+  });
+  refuse(
+    context.runWith(['--import', SKIP_WAITS], 'archive', String(plan.number), '--pr', String(plan.pr)),
+    'plan issue changed remotely; re-read and retry',
+  );
+  assert.deepEqual(closes(context), []);
+  assert.equal(context.issue(plan.number).state, 'OPEN');
+});
+
+test('show and list read a phase label beyond the first label page of a child or a listed plan', (t) => {
+  const context = planCliContext(t);
+  const parent = ongoingParent(context);
+  const child = context.createChild('paged child', parent).number;
+  context.updateIssue(child, (entry) => {
+    entry.labels = ['plan', ...Array.from({ length: 100 }, (_, index) => `topic:${index}`), 'plan:ongoing'];
+  });
+  const shown = context.run('show', String(parent));
+  expectSuccess(shown, 'show a parent with a paged child');
+  assert.match(shown.stdout, new RegExp(`^child #${child} · ongoing · paged child$`, 'm'));
+  const listed = context.run('list');
+  expectSuccess(listed, 'list a plan with paged labels');
+  assert.match(listed.stdout, new RegExp(`^ongoing\\t#${child}\\tpaged child$`, 'm'));
 });
 
 test('a write moves a v4 plan to v5 only before work starts, and a started v4 plan stays v4', (t) => {

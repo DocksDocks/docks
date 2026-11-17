@@ -35,12 +35,14 @@ sub-issue of parent `<n>`; a parent holds at most 100 children
 (<https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues>).
 The parent holds the Goal, the shared Research and decisions, the Acceptance for
 the whole goal, and one Steps row per child, with Files `-`, Effect `local`, and
-Done when `child #<c> finished`. The parent gets plan review, but no linked
+Done when `child #<c> finished`. A plan is a parent only when it has children
+and every Steps row has Files `-`. The parent gets plan review, but no linked
 branch and no code review. Each child is a full plan with its own review, linked
-branch, and `Closes #<c>` landing pull request. Move the parent to ongoing when
-its first child starts. Set each parent row in-flight when its child starts,
-done when the child is finished, and `skipped`, with the reason in the record,
-when the child is retired or a duplicate. Then archive the parent (Archive).
+branch, and `Closes #<c>` landing pull request. Start the first child only after
+the parent's plan pass, and move the parent to ongoing then. Set each parent row
+in-flight when its child starts, done when the child is finished, and
+`skipped`, with the reason in the record, when the child is retired or a
+duplicate. Then archive the parent (Archive).
 
 Settle Mode with the user before implementation. A yolo invocation settles the
 path and the Mode; see Yolo runs. `plan-and-implement` authorizes the full
@@ -173,7 +175,8 @@ under Repairs, or a step for a new decision (Repairs item 4), is a repair: make
 it, and say in its Repaired line why it is a repair. On the advice
 `split into child plans: <reason>` (Normalization, advice, and refusals), move
 the work that has not started into child plans, and set each moved step
-`skipped`, with its child number in the record.
+`skipped`, with its child number in the record. A started plan that adds
+children keeps its own landing pull request, and archives with `--pr`.
 
 Mutations refuse foreign assignees. An unassigned plan is claimed by the acting
 login inside the same write. Read the issue again before each write. The helper
@@ -477,6 +480,7 @@ archive refused: non-terminal step <id>
 archive refused: no Steps rows parsed
 archive refused: no child of plan #<n> finished; retire the parent
 archive refused: child #<c> is <status>
+archive refused: plan #<n> has its own landing work; archive it with --pr
 duplicate step id after normalization: <id>
 Steps row <n> has <count> cells; expected 8. Escape a literal pipe as \| so the row is preserved.
 duplicate section heading: <name>
@@ -726,8 +730,9 @@ and every parent step is terminal. When no child finished, archive refuses with
 must be `ongoing` or `finished`. It needs no pull request and no code review.
 It closes an open parent as completed, removes the phase labels, and prints
 `plan #<n> finished (all <k> children finished)`, where `<k>` counts every
-child. On a plan without children,
-`archive` without `--pr` refuses.
+child. On a plan without children, `archive` without `--pr` refuses. On a plan
+with children and a Steps row whose Files is not `-`, it refuses with
+`archive refused: plan #<n> has its own landing work; archive it with --pr`.
 
 ### Teardown
 
@@ -819,10 +824,10 @@ question. All other contract rules stay in force.
 |---|---|
 | Path and Mode | Plan with `Mode: plan-and-implement` |
 | Request that names an existing plan, or an incomplete request | The yolo skill's Existing plans and incomplete requests rule |
-| Work that needs more than one landing pull request | A parent and its children (Record and mode). The run reviews the parent, then runs one child: the first open child in Steps order whose Depends are finished. A later yolo run that names the parent runs the next child |
+| Work that needs more than one landing pull request | A parent and its children (Record and mode). The run creates no linked branch for the parent and reviews it first, also an adopted parent without a trusted `plan=pass`. After that pass, it runs one child: the first open child in Steps order whose Depends are finished. A later yolo run that names the parent runs the next child |
 | New scope or split advice after work starts | Move the work into a new child plan, as Status, ownership, and frozen state says, and list the child in the run summary |
 | Non-local Effect step before the landing merge | The effect table below |
-| Linked-branch timing | Right after `new`, while the plan is drafting; a parent gets no linked branch |
+| Linked-branch timing | Right after `new`, while the plan is drafting; a parent gets no linked branch, and a child gets its branch when the run starts it |
 | Dirty checkout at linked-branch setup | A separate clean worktree, without a question, when the checks of Worktree hooks pass; otherwise block (Linked branch timing) |
 | Review-loop continuation | The round ceiling below |
 | Plan-review `blocked` verdict | The manager decides with evidence |
@@ -859,7 +864,8 @@ effect that the table permits.
 
 ### Linked branch timing
 
-Set up the linked branch right after `new`, before research. The status stays
+Set up the linked branch right after `new`, before research; for a child, when
+the run starts it, before its research. The status stays
 `drafting`. Run Linked branch item 1. When the checkout is clean, continue with
 items 3 to 5. When it is dirty, do not ask. Run the checkout check of Worktree
 hooks. When it passes, use these commands instead:

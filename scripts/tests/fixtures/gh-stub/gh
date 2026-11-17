@@ -385,14 +385,16 @@ function observeIssue(issue) {
 
 // A scheduled change lands once the issue has served `afterReads` GraphQL reads, so the next request that
 // reads or writes the issue sees it: a close that GitHub records a while after a merge, or a change that
-// someone makes while the helper waits. A `closedEvent` becomes the latest ClosedEvent of the timeline.
+// someone makes while the helper waits. A `closedEvent` becomes the latest ClosedEvent of the timeline, and
+// `otherIssues` maps an issue number to the fields that change on that issue at the same time, such as a child plan
+// that reopens.
 function applyDueChanges(issue) {
   const reads = issue.graphqlReads ?? 0;
   const due = (issue.pendingChanges ?? []).filter((change) => (change.afterReads ?? 0) <= reads);
   if (due.length === 0) return;
   issue.pendingChanges = issue.pendingChanges.filter((change) => !due.includes(change));
   for (const change of due) {
-    const { closedEvent, ...fields } = change;
+    const { closedEvent, otherIssues, ...fields } = change;
     delete fields.afterReads;
     Object.assign(issue, fields);
     if (closedEvent) {
@@ -400,6 +402,11 @@ function applyDueChanges(issue) {
       issue.timelineItems.push({ __typename: 'ClosedEvent', ...closedEvent });
     }
     touch(issue);
+    for (const [number, otherFields] of Object.entries(otherIssues ?? {})) {
+      const other = issueByNumber(Number(number));
+      Object.assign(other, otherFields);
+      touch(other);
+    }
   }
 }
 

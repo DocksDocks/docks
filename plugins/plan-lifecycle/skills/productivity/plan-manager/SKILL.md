@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "e443207c865dddca6a7c246e01aa72cef5bc93992bb978580f171a38e5ca76d3"
+  content_hash: "4f11079853058cae15163e4f9c198de4db83e01238b5caab1d02dbef94cfe4a9"
 ---
 
 # Plan Manager
@@ -64,10 +64,11 @@ Complete the preflight in
 Create the issue with `new` and the settled mode. Report its number. Draft the
 outcome, research hypothesis, provisional steps, scope, and acceptance proof.
 Keep the plan drafting while those claims remain provisional. When the work
-needs more than one landing pull request, draft a parent plan and create one
-child per pull request with `new --parent <n>`, as the contract's Record and
-mode says. Each child runs these six phases as its own plan; the parent stops
-after plan review until its first child starts.
+needs more than one landing pull request, draft a parent plan with no linked
+branch, and create one child per pull request with `new --parent <n>`, as the
+contract's Record and mode says. The parent runs phases 3 and 4 only. Each
+child runs these six phases as its own plan, and starts only after the parent
+passes plan review.
 
 Done when: `show <n>` prints the header strip with status `drafting`, and for a
 parent, one `child #<c>` line per child.

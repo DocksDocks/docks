@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "93615f2b8a0987471bd3c37744d78199c7191a52d3d47072b9f9aa44e2c19892"
+  content_hash: "67173398331011d8bc65ddab258ac266251a184c07a749750250708c66c21db8"
 ---
 
 # Yolo
@@ -64,7 +64,7 @@ practice.
 | Phase | Yolo action | Done when |
 |---|---|---|
 | Decide | Apply Existing plans and incomplete requests below. Otherwise the path is a new plan with Mode `plan-and-implement`. Ask nothing. | The run adopted a plan, or the goal fits in one sentence |
-| Draft | Skip when the run adopted a plan. Run the preflight, create the issue, and set up the linked branch | The run adopted a plan, or `show <n>` reads drafting and the branch is listed |
+| Draft | Skip when the run adopted a plan. Run the preflight, create the issue, and set up the linked branch, or for a parent create its children, as Draft below says | The run adopted a plan, or `show <n>` reads drafting and the branch is listed, or for a parent each child is listed |
 | Research | Follow Research and Engineering standards below | `status <n> planned` succeeds, or `show <n>` of an adopted plan already reads planned or ongoing. No advice needs a decision |
 | Plan review | Run Review loops below | `show <n>` reads `plan=pass` |
 | Implement | Follow plan-manager phase 5, Engineering standards (always with `code-clarity`), Red baseline, and Commits below | Verification Results hold real results, and the candidate is committed |
@@ -87,8 +87,11 @@ To adopt a plan:
 
 1. Run `show <n>`. Adopt only an open plan. When the helper reports that
    another login owns the plan, stop and report. When `show <n>` lists
-   children, the plan is a parent: run the child that the contract's Yolo runs
-   table names, and adopt that child with these steps.
+   children and every Steps row has Files `-`, the plan is a parent. Adopt it
+   with steps 2 to 4 and skip step 5. When `show <n>` does not read
+   `plan=pass`, run Research and Plan review on the parent first. After that
+   pass, adopt the child that the contract's Yolo runs table names with these
+   steps.
 2. Export the plan. Add the delegation line to Goal when it is missing, and set
    `Mode: plan-and-implement`.
 3. Replace each Goal or Do not touch line that conflicts with this run, such as
@@ -115,7 +118,15 @@ Yolo: the user delegated every decision except the merge to the agent.
 ```
 
 4. Create the issue with `new --title <t> --goal <g> --mode plan-and-implement`.
-5. Set up the linked branch now, as the contract's Yolo runs section says.
+5. When the request needs more than one landing pull request, that issue is the
+   parent, and it gets no linked branch. Create one child per pull request with
+   `new --title <t> --goal <g> --mode plan-and-implement --parent <n>`, with the
+   delegation line in each goal, and give the parent one Steps row per child,
+   as the contract's Record and mode says. Run Research and Plan review on the
+   parent. After that pass, start the child that the contract's Yolo runs table
+   names: set up its linked branch, and run Research to Land on it.
+6. Otherwise set up the linked branch now, as the contract's Yolo runs section
+   says.
 
 ## Research
 

@@ -26,7 +26,7 @@ const STORED_ISSUE_FIELDS = `body labels(first:100){nodes{name} ${PAGE_INFO}}`;
 // `list` reads the newest plans first, as `gh issue list` did, so the 500-plan cap keeps the same plans.
 const PLAN_LIST_ARGS = ',labels:["plan"],states:[OPEN,CLOSED],orderBy:{field:CREATED_AT,direction:DESC}';
 // A plan list row and a sub-issue row: enough to derive the status of each issue.
-const ISSUE_SUMMARY_FIELDS = 'number title state stateReason labels(first:100){nodes{name}}';
+const ISSUE_SUMMARY_FIELDS = `number title state stateReason labels(first:100){nodes{name} ${PAGE_INFO}}`;
 const GH_MAX_BUFFER_MIB = 256;
 const PLAN_LIST_LIMIT = 500;
 // GitHub closes a plan for a merged pull request a while after the merge. `archive` reads an open plan up to
@@ -184,7 +184,7 @@ function associatedNodes(commit) {
   );
 }
 
-// Issue rows read through ISSUE_SUMMARY_FIELDS, with their labels as a plain list.
+// Issue rows read through ISSUE_SUMMARY_FIELDS, with every label page as a plain list, as a plan's own labels are read.
 function issueSummaries(nodes, name) {
   if (
     nodes.some(
@@ -192,13 +192,15 @@ function issueSummaries(nodes, name) {
         !Number.isInteger(issue.number) ||
         typeof issue.title !== 'string' ||
         typeof issue.state !== 'string' ||
-        (issue.stateReason !== null && typeof issue.stateReason !== 'string') ||
-        !Array.isArray(issue.labels?.nodes) ||
-        issue.labels.nodes.some((label) => typeof label?.name !== 'string'),
+        (issue.stateReason !== null && typeof issue.stateReason !== 'string'),
     )
   )
     fail(`gh api graphql returned malformed ${name}`);
-  return nodes.map((issue) => ({ ...issue, labels: issue.labels.nodes }));
+  return nodes.map((issue) => {
+    const labels = issueNodes(issue.number, issue.labels, 'labels', 'name');
+    if (labels.some((label) => typeof label.name !== 'string')) fail(`gh api graphql returned malformed ${name}`);
+    return { ...issue, labels };
+  });
 }
 
 function readSnapshot(
@@ -1203,7 +1205,7 @@ function listPlans(args) {
   const query = `query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){${issueConnectionSelection('issues', ISSUE_SUMMARY_FIELDS, PLAN_LIST_ARGS, true)}}}`;
   const page = (variables) => graphql(query, variables).repository?.issues;
   const nodes = connectionNodes(page(), 'plan issues', (after) => page({ after }), PLAN_LIST_LIMIT);
-  const issues = issueSummaries(nodes, 'plan issues').slice(0, PLAN_LIST_LIMIT);
+  const issues = issueSummaries(nodes.slice(0, PLAN_LIST_LIMIT), 'plan issues');
   issues.sort(
     (a, b) =>
       Number(a.state.toUpperCase() === 'CLOSED') - Number(b.state.toUpperCase() === 'CLOSED') || a.number - b.number,
@@ -1231,19 +1233,30 @@ function refuseUnarchivable(plan, { codeReview = true } = {}) {
   const openChild = issue.children.find((child) => !CHILD_TERMINAL_STATUSES.has(statusFromIssue(child)));
   if (openChild) fail(`archive refused: child #${openChild.number} is ${statusFromIssue(openChild)}`);
 }
+// A rerun cannot take a close back, so the close runs only while the plan keeps the snapshot body, no other owner, and
+// the snapshot children with their statuses: a child that reopened or a new child is open work.
+function refuseChangedBeforeClose({ issue, login }) {
+  const childStates = (children) => JSON.stringify(children.map((child) => [child.number, statusFromIssue(child)]));
+  if (
+    ownedPreWriteIssue(issue.number, login).body !== issue.body ||
+    childStates(readSnapshot(issue.number, { children: true }).issue.children) !== childStates(issue.children)
+  )
+    fail('plan issue changed remotely; re-read and retry');
+}
 // The archive of a parent plan: its work landed through its child plans, so a child that closed as completed is the
-// landing proof, and the parent needs no pull request and no code review (E1).
+// landing proof, and the parent needs no pull request and no code review (E1). A parent row carries no landing work,
+// so its Files cell is `-`; a plan with a row that names files landed its own work and needs the proof of `--pr`.
 function archiveParent(number) {
   const plan = readPlanIssue(number, true, { children: true });
   const { children } = plan.issue;
   if (children.length === 0) fail('archive requires an issue and --pr');
+  if (plan.parsed.steps.some((step) => unquoteCode(step.files.trim()).trim() !== '-'))
+    fail(`archive refused: plan #${number} has its own landing work; archive it with --pr`);
   refuseUnarchivable(plan, { codeReview: false });
   if (!children.some((child) => statusFromIssue(child) === 'finished'))
     fail(`archive refused: no child of plan #${number} finished; retire the parent`);
-  // A rerun cannot take the close back, so it runs only while the plan keeps the snapshot body and no other owner.
   if (!isClosed(plan)) {
-    if (ownedPreWriteIssue(number, plan.login).body !== plan.issue.body)
-      fail('plan issue changed remotely; re-read and retry');
+    refuseChangedBeforeClose(plan);
     runGh(['issue', 'close', String(number), '--reason', 'completed', '--repo', repository.nameWithOwner]);
   }
   writeIssueIfUnchanged(plan.issue, { remove: labelsToRemove(plan.issue) });
@@ -1285,9 +1298,7 @@ function archivePlan(args) {
   // The close comes before the label removal: a failed close leaves the plan ongoing and a failed removal leaves it
   // finished, so a rerun archives it either way. Without its phase label, an open plan would no longer be archivable.
   if (!isClosed(observed)) {
-    // A rerun cannot take the close back, so it runs only while the plan keeps the snapshot body and no other owner.
-    if (ownedPreWriteIssue(number, observed.login).body !== observed.issue.body)
-      fail('plan issue changed remotely; re-read and retry');
+    refuseChangedBeforeClose(observed);
     const comment = `Closed by archive: pull request #${pullRequest.number} merged into ${defaultBranch} and closes this plan, but GitHub left the plan open.`;
     // gh posts the comment before it closes, so the comment of a close that failed after it is not posted again.
     const commented = observed.issue.comments.some(
