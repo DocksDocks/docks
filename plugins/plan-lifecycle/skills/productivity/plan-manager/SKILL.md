@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "4a62403e52b6bb4f6c92714615ccd28e0d3472ee98e5554df48df233bf39da1f"
+  content_hash: "cf84b96f96ade51535509682f70f1f56aed0747f8fccf1df6055a01de1e52e54"
 ---
 
 # Plan Manager
@@ -147,17 +147,43 @@ paths of the full diff and, in a later round, also the paths of the delta diff.
 A file that the branch added and a repair then deleted is in the delta diff
 only. Set `prev` to the previous round's reviewed head, or leave it empty in
 round 1. A symlink gives the text of its target in the merge-base tree, under
-the path of the link. A link whose target is missing or outside the tree is
-absent. The folder's `MANIFEST` lists each checked path as `copied <path>` or
-`absent <path>`:
+the path of the link. A link whose target is missing, outside the tree, or more
+than 8 links away is absent. The folder's `MANIFEST` lists each checked path as
+`copied <path>` or `absent <path>`. When a git command fails, the block writes
+no `MANIFEST`, prints an error, and exits with a non-zero status. Then do not
+dispatch the round; a git failure is not an absent file:
 
 ```bash
 inst="$scratch/code-review-<n>-round-<k>-base-instructions"
 prev="<previous-reviewed-head or empty>"
-rm -rf "$inst" && mkdir -p "$inst"
-{ git diff --name-only --no-renames -z "$base"
-  if [ -n "$prev" ]; then git diff --name-only --no-renames -z "$prev"; fi
-  git ls-files --others --exclude-standard -z; } |
+# Prints the blob id of $1 at $base; a link resolves from its folder in the tree.
+# Status 1: absent. Status 2: a git command failed.
+base_blob() {
+  f=$1 n=0
+  while entry=$(git --literal-pathspecs ls-tree --full-tree "$base" -- "$f"); do
+    set -- $entry
+    [ "$2" = blob ] || return 1
+    [ "$1" = 120000 ] || { printf '%s\n' "$3"; return 0; }
+    n=$((n + 1)); [ "$n" -le 8 ] || return 1
+    to=$(git cat-file blob "$3") || return 2
+    case $to in /*) return 1 ;; esac
+    f=$(set -f; IFS=/; out= p=$(dirname "$f")/$to
+      for seg in $p; do
+        case $seg in
+          '' | .) ;;
+          ..) [ -n "$out" ] || exit 1; case $out in */*) out=${out%/*} ;; *) out= ;; esac ;;
+          *) out=${out:+$out/}$seg ;;
+        esac
+      done
+      [ -n "$out" ] && printf '%s\n' "$out") || return 1
+  done
+  return 2
+}
+rm -rf "$inst" && mkdir -p "$inst" && (
+  set -o pipefail
+  { git diff --name-only --no-renames -z "$base" &&
+      { [ -z "$prev" ] || git diff --name-only --no-renames -z "$prev"; } &&
+      git ls-files --others --exclude-standard -z; } |
   while IFS= read -r -d '' path; do
     dir=$(dirname "$path")
     while :; do
@@ -169,17 +195,16 @@ rm -rf "$inst" && mkdir -p "$inst"
     done
   done | sort -zu |
   while IFS= read -r -d '' file; do
-    # A link gives its target's object; a missing or outside target gives no blob.
-    read -r type oid < <(printf '%s:%s\n' "$base" "$file" |
-      git cat-file --batch-check='%(objecttype) %(objectname)' --follow-symlinks)
-    if [ "$type" = blob ]; then
-      mkdir -p "$inst/$(dirname "$file")"
-      git cat-file blob "$oid" > "$inst/$file"
-      printf 'copied %s\n' "$file"
-    else
-      printf 'absent %s\n' "$file"
-    fi
-  done > "$inst/MANIFEST"
+    oid=$(base_blob "$file")
+    case $? in
+      0) mkdir -p "$inst/$(dirname "$file")" && git cat-file blob "$oid" > "$inst/$file" || exit 1
+        printf 'copied %s\n' "$file" ;;
+      1) printf 'absent %s\n' "$file" ;;
+      *) exit 1 ;;
+    esac
+  done > "$inst/MANIFEST.part"
+) && mv "$inst/MANIFEST.part" "$inst/MANIFEST" ||
+  { echo "base instructions: a git command failed; $inst has no MANIFEST" >&2; false; }
 ```
 
 Name the folder in every dispatch, because the reviewer reads instruction files

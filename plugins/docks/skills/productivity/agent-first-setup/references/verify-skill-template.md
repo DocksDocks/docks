@@ -138,6 +138,8 @@ echo $! > "$run/verify.pid"
 curl --silent --fail --retry 30 --retry-delay 1 --retry-connrefused http://127.0.0.1:4010/health
 ```
 
+The Stop block reads `$run`. If the shell does not keep variables between blocks, set `run` to the printed folder before you stop.
+
 Ready when: the `curl` command prints `{"status":"ok"}` and exits 0.
 
 ## Drive and inspect

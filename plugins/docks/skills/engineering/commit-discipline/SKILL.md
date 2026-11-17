@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "13339616e20d922f8d5a63e6bad82c1e47b7ff1019a18a26edea3a09521f25df"
+  content_hash: "7a1036c6b158e062b9bc3dfceeec6a404a1a3bc339810938cd50f8fff1cc3b2b"
 ---
 
 # Commit & PR Discipline
@@ -151,8 +151,8 @@ Verified: bun test src/session; bun run lint
 The docks plugin ships the `verify-gate` hook for Claude Code and Codex. It runs before each `git commit` that the agent runs.
 The `DOCKS_VERIFY_GATE` environment variable selects its mode. `observe` is the default: the hook allows the commit and
 appends one JSON line for each commit without the trailer to `${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl`.
-The line holds metadata only: `time`, `session_id`, `cwd`, `mode`, `message_sources` (for example `-m`, `-F`, `--amend`,
-or `none`), and `subject`, the first message line cut to 72 characters. It does not hold the raw command.
+The line holds metadata only: `time`, `session_id`, `cwd`, `mode`, and `message_sources` (for example `-m`, `-F`,
+`--amend`, or `none`). An `enforce` line also holds `allowed_after_denials`. No line holds the command or the message text.
 `enforce` denies a commit without the trailer. After two denials in one session, it allows the next commit and logs it.
 `off` turns the hook off.
 

@@ -7868,10 +7868,35 @@ test('manager writes one manager prompt per round with findings, and names lists
   assert.deepEqual(score.managerVerdicts(text), { [`${LOOP_R1}#1`]: 'rejected', [`${LOOP_R1}#2`]: 'rejected' });
 });
 
-// A repository whose base commit holds a root AGENTS.md, a CLAUDE.md link to it, src/REVIEW.md, and links that git
-// resolves from the folder of each link: src/AGENTS.md to an absolute path, src/CLAUDE.md to itself (a loop),
-// src/lib/CLAUDE.md through the folder link docs -> src to src/REVIEW.md, and src/lib/REVIEW.md to a file outside the
-// tree. The head changes AGENTS.md and src/a.mjs and adds src/lib/b.mjs and src/lib/AGENTS.md.
+// The links of the base commit of instructionRepo: each path, its target, and its MANIFEST line. The benchmark
+// builder and `base_blob` of plan-manager phase 6 and docks code-review resolve a link from the folder of the link.
+// The four `base_blob` cases are also the inputs of the shell tests of the production builders, so that the two
+// implementations stay equal.
+const BASE_LINKS = [
+  ['CLAUDE.md', 'AGENTS.md', 'copied'],
+  // base_blob case 1: a root link out of the tree is absent, not a git failure.
+  ['REVIEW.md', '../outside.md', 'absent'],
+  // A loop.
+  ['src/CLAUDE.md', 'CLAUDE.md', 'absent'],
+  // A path through the folder link docs -> src: ls-tree does not enter a folder link.
+  ['src/lib/CLAUDE.md', '../../docs/REVIEW.md', 'absent'],
+  ['src/lib/REVIEW.md', '../../../outside.md', 'absent'],
+  // base_blob case 2: a link to the parent folder names a folder, not the first blob of that folder.
+  ['tools/CLAUDE.md', '..', 'absent'],
+  // base_blob case 4: `.` segments drop, and `..` drops the segment before it.
+  ['tools/REVIEW.md', './../src/./REVIEW.md', 'copied'],
+];
+// A chain of `count` links from `first` through the files `chain/<prefix><i>` to src/REVIEW.md.
+function linkChain(first, prefix, count) {
+  const hops = Array.from({ length: count - 1 }, (_, i) => `chain/${prefix}${i + 1}`);
+  const names = [first, ...hops];
+  return names.map((file, i) => [file, i + 1 < names.length ? path.posix.basename(names[i + 1]) : '../src/REVIEW.md']);
+}
+
+// A repository whose base commit holds a root AGENTS.md, src/REVIEW.md, the folder link docs -> src, the links of
+// BASE_LINKS, src/AGENTS.md as a link to an absolute path, tools/AGENTS.md as a link with an empty target (base_blob
+// case 3), chain/AGENTS.md as a chain of 8 links, and chain/CLAUDE.md as a chain of 9 links. The head changes
+// AGENTS.md and src/a.mjs, makes tools/AGENTS.md a file, and adds src/lib/b.mjs, src/lib/AGENTS.md, and chain/n.mjs.
 function instructionRepo(t) {
   isolateGit(t);
   const root = neutralScratch(t);
@@ -7879,32 +7904,46 @@ function instructionRepo(t) {
   fs.mkdirSync(repo);
   gitIn(repo, 'init', '-q', '-b', 'main');
   put(repo, 'AGENTS.md', '# Root rules at the base\n');
-  fs.symlinkSync('AGENTS.md', path.join(repo, 'CLAUDE.md'));
   put(repo, 'src/REVIEW.md', '# Review rules at the base\n');
-  // The absolute and the outside targets exist on disk, so only the git resolution makes them absent.
-  put(root, 'outside.md', '# Rules outside the tree\n');
-  fs.symlinkSync(path.join(root, 'outside.md'), path.join(repo, 'src', 'AGENTS.md'));
-  fs.symlinkSync('CLAUDE.md', path.join(repo, 'src', 'CLAUDE.md'));
-  fs.symlinkSync('src', path.join(repo, 'docs'));
-  fs.mkdirSync(path.join(repo, 'src', 'lib'));
-  fs.symlinkSync('../../docs/REVIEW.md', path.join(repo, 'src', 'lib', 'CLAUDE.md'));
-  fs.symlinkSync('../../../outside.md', path.join(repo, 'src', 'lib', 'REVIEW.md'));
   put(repo, 'src/a.mjs', 'export const a = 1;\n');
+  // The absolute and the outside targets exist on disk, so only the resolution in the tree makes them absent.
+  put(root, 'outside.md', '# Rules outside the tree\n');
+  fs.symlinkSync('src', path.join(repo, 'docs'));
+  const links = [
+    ...BASE_LINKS,
+    ['src/AGENTS.md', path.join(root, 'outside.md')],
+    ...linkChain('chain/AGENTS.md', 'r', 8),
+    ...linkChain('chain/CLAUDE.md', 'a', 9),
+  ];
+  for (const [file, target] of links) {
+    const at = path.join(repo, ...file.split('/'));
+    fs.mkdirSync(path.dirname(at), { recursive: true });
+    fs.symlinkSync(target, at);
+  }
   gitIn(repo, 'add', '-A');
+  // The file system makes no link with an empty target, so git stores it directly.
+  const empty = path.join(root, 'empty-target');
+  fs.writeFileSync(empty, '');
+  const emptyBlob = gitIn(repo, 'hash-object', '-w', empty).trim();
+  gitIn(repo, 'update-index', '--add', '--cacheinfo', `120000,${emptyBlob},tools/AGENTS.md`);
   gitIn(repo, 'commit', '-q', '-m', 'base');
   const base = gitIn(repo, 'rev-parse', 'HEAD').trim();
   put(repo, 'AGENTS.md', '# Root rules of the head\n');
   put(repo, 'src/a.mjs', 'export const a = 2;\n');
   put(repo, 'src/lib/b.mjs', 'export const b = 1;\n');
   put(repo, 'src/lib/AGENTS.md', '# Rules that the head adds\n');
+  put(repo, 'tools/AGENTS.md', '# Tools rules of the head\n');
+  put(repo, 'chain/n.mjs', 'export const n = 1;\n');
   gitIn(repo, 'add', '-A');
   gitIn(repo, 'commit', '-q', '-m', 'head');
   const head = gitIn(repo, 'rev-parse', 'HEAD').trim();
   return { root, repo, base, head };
 }
 
-test('case writes the base-instructions folder of a code case, and its prompt and read scope name it', (t) => {
-  const { root, repo, base, head } = instructionRepo(t);
+// Builds the case code-7 of instructionRepo with the arm C1 and gives its options and its case folder.
+function instructionCase(t) {
+  const fixture = instructionRepo(t);
+  const { root, base, head } = fixture;
   const ws = path.join(root, 'ws');
   const cases = path.join(root, 'cases');
   const project = path.join(root, 'project');
@@ -7913,8 +7952,12 @@ test('case writes the base-instructions folder of a code case, and its prompt an
   put(cases, 'dev/code-7.json', { ...caseData, known: [] });
   put(cases, 'dev/code-7-plan.md', '# Plan 7\n');
   const options = { case: path.join(cases, 'dev/code-7.json'), arms: 'C1', runs: '1', out: ws, project };
+  return { ...fixture, options, caseDir: path.join(ws, 'code-7') };
+}
+
+test('case writes the base-instructions folder of a code case, and its prompt and read scope name it', (t) => {
+  const { repo, options, caseDir } = instructionCase(t);
   logged(() => prepare.prepareCase(options, repo));
-  const caseDir = path.join(ws, 'code-7');
   const folder = path.join(caseDir, 'base-instructions');
   assert.equal(
     readText(path.join(folder, 'MANIFEST')),
@@ -7922,22 +7965,37 @@ test('case writes the base-instructions folder of a code case, and its prompt an
       'copied AGENTS.md',
       'copied CLAUDE.md',
       'absent REVIEW.md',
+      'copied chain/AGENTS.md',
+      'absent chain/CLAUDE.md',
+      'absent chain/REVIEW.md',
       'absent src/AGENTS.md',
       'absent src/CLAUDE.md',
       'copied src/REVIEW.md',
       'absent src/lib/AGENTS.md',
-      'copied src/lib/CLAUDE.md',
+      'absent src/lib/CLAUDE.md',
       'absent src/lib/REVIEW.md',
+      'absent tools/AGENTS.md',
+      'absent tools/CLAUDE.md',
+      'copied tools/REVIEW.md',
       '',
     ].join('\n'),
   );
-  // Each copy holds the text of the base commit; a link gives the text of its target, also through a folder link.
-  // An absolute link, a loop, and a link that leaves the tree are absent.
-  assert.equal(readText(path.join(folder, 'AGENTS.md')), '# Root rules at the base\n');
-  assert.equal(readText(path.join(folder, 'CLAUDE.md')), '# Root rules at the base\n');
-  assert.equal(readText(path.join(folder, 'src', 'REVIEW.md')), '# Review rules at the base\n');
-  assert.equal(readText(path.join(folder, 'src', 'lib', 'CLAUDE.md')), '# Review rules at the base\n');
-  for (const file of ['src/AGENTS.md', 'src/CLAUDE.md', 'src/lib/AGENTS.md', 'src/lib/REVIEW.md']) {
+  // Each copy holds the text of the base commit; a link gives the text of its target, after at most 8 links. An
+  // absolute link, an empty target, a loop, a path through a folder link, a link to a folder, a link that leaves the
+  // tree, and a chain of 9 links are absent.
+  for (const [file, text] of [
+    ['AGENTS.md', '# Root rules at the base\n'],
+    ['CLAUDE.md', '# Root rules at the base\n'],
+    ['src/REVIEW.md', '# Review rules at the base\n'],
+    ['chain/AGENTS.md', '# Review rules at the base\n'],
+    ['tools/REVIEW.md', '# Review rules at the base\n'],
+  ]) {
+    assert.equal(readText(path.join(folder, ...file.split('/'))), text, file);
+  }
+  for (const [file, , outcome] of BASE_LINKS) {
+    assert.equal(fs.existsSync(path.join(folder, ...file.split('/'))), outcome === 'copied', file);
+  }
+  for (const file of ['src/AGENTS.md', 'tools/AGENTS.md', 'chain/CLAUDE.md', 'src/lib/AGENTS.md']) {
     assert.equal(fs.existsSync(path.join(folder, ...file.split('/'))), false, file);
   }
   const runDir = path.join(caseDir, 'C1-low', 'run-1');
@@ -7952,6 +8010,16 @@ test('case writes the base-instructions folder of a code case, and its prompt an
   fs.rmSync(folder, { recursive: true });
   logged(() => prepare.prepareCase({ ...options, arms: 'C3', extend: true }, repo));
   assert.equal(readText(path.join(folder, 'MANIFEST')).split('\n')[0], 'copied AGENTS.md');
+});
+
+test('case stops on a git failure in the base instructions and writes no absent line for it', (t) => {
+  const { repo, base, options, caseDir } = instructionCase(t);
+  // The blob of the link CLAUDE.md is gone, so git cannot read the link target. The diffs do not need it, because the
+  // head keeps the link.
+  const blob = gitIn(repo, 'rev-parse', `${base}:CLAUDE.md`).trim();
+  fs.rmSync(path.join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
+  assert.throws(() => logged(() => prepare.prepareCase(options, repo)), new RegExp(`git cat-file blob ${blob} failed`));
+  assert.equal(fs.existsSync(caseDir), false);
 });
 
 test('loop gives each later round a base-instructions folder for the changed paths of its full diff', (t) => {

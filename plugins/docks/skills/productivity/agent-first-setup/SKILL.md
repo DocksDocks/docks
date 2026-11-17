@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "95c279e1deb49442d1eaec55081807fdf634df15977eae3e2f7a71c7d0967aa2"
+  content_hash: "204944ee5d2aa1a1ecd3926a93cf4d1a826e6a548d8127c2dec5222e53992a18"
 ---
 
 # Agent-First Setup
@@ -83,11 +83,12 @@ git ls-files -co -- ':(glob)**/CLAUDE.local.md' | sed 's/^/personal: /'
 git ls-files -co --exclude-standard -- ':(glob)**/AGENTS.md' | grep -v '^AGENTS\.md$' | sed 's/^/node: /'
 find .claude/skills -mindepth 1 -maxdepth 1 ! -type l 2>/dev/null | sed 's/^/not-a-symlink: /'
 test -f .agents/skills/verify/SKILL.md && echo "verify skill: present" || echo "verify skill: missing"
+grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's/^/verify unverified: /'
 ```
 
 Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored.
 
-If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present`. A pass in Step 3 means the repo is already agent-first.
+If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that failed in an earlier run; Step 2b reruns it. A pass in Step 3 means the repo is already agent-first.
 
 ### Step 1 — Run `multi-tool-bridge`
 
@@ -107,7 +108,7 @@ In `audit` mode, run `context-tree audit` only.
 
 A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. The template, the surface recipes, and a worked example are in [references/verify-skill-template.md](references/verify-skill-template.md).
 
-1. If `.agents/skills/verify/SKILL.md` exists, make no change and go to Step 3.
+1. If `.agents/skills/verify/SKILL.md` exists and Step 0 printed no `verify unverified:` line, make no change and go to Step 3. If Step 0 printed a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, ask for approval through the harness question tool to run them and update them, and then go to step 7. In step 7, run Start, the flows that each `not observed:` row names, and Stop.
 2. Find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of the template's "Surface recipes" table.
 3. If the repository has no runnable surface, write nothing. Record "no runnable surface" for the report and go to Step 3.
 4. Fill the template for each surface. Use only commands that the repository defines or that the recipes name. Ask the user through the harness question tool for a missing start command, port, or test account.
@@ -120,9 +121,15 @@ A project `verify` skill tells an agent how to run the real product the way a us
    test -f .claude/skills/verify/SKILL.md && echo "verify skill: linked" || echo "BROKEN: .claude/skills/verify"
    ```
 
-7. Run each command of the new skill once, in order: start, drive and inspect, stop. Replace each expected result with the result that you observed. If a command fails, keep the command in the skill. Do not remove it. In place of its expected result, write `not observed: <first line of the failure>`. Do not report the skill as verified. Name the failed command and its output in the report. Then ask the user through the harness question tool for the fix, for example a missing service, dependency, or test account. If the harness has no such tool, end the turn and report Step 2b as blocked. Step 2b is complete only when each command ran and showed its expected result.
+7. Run each command of the new skill once, in order: start, drive and inspect, stop. Replace each expected result, and each `not observed:` entry, with the result that you observed. If a command fails:
+   1. Run the Stop and cleanup commands of the skill at once, before you report or ask. No process, port, or temporary folder from this run stays.
+   2. Keep the failed command in the skill. Do not remove it. In place of its expected result, write `not observed: <first line of the failure>`.
+   3. Do not report the skill as verified. Name the failed command and its output in the report.
+   4. Ask the user through the harness question tool for the fix, for example a missing service, dependency, or test account. If the harness has no such tool, end the turn and report Step 2b as blocked.
 
-In `audit` mode, run step 1 to step 3 only and record whether the skill exists or the surface that needs it.
+   Step 2b is complete only when each command ran and showed its expected result, and the skill holds no `not observed:` entry.
+
+In `audit` mode, run step 1 to step 3 only and record whether the skill exists, each `verify unverified:` row, or the surface that needs it.
 
 ### Step 3 — Agent-first check (read-only)
 
@@ -222,6 +229,8 @@ done
 if test -f .agents/skills/verify/SKILL.md; then
   test -f .claude/skills/verify/SKILL.md || echo "FAIL C9 .claude/skills/verify does not resolve to .agents/skills/verify"
 else echo "FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)"; fi
+# C9 every command of the verify skill showed its expected result (no `not observed:` entry from a failed run)
+grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's|^|FAIL C9 unverified command (rerun it in Step 2b): .agents/skills/verify/SKILL.md:|'
 ```
 
 Read each `FINDING` line before you report it. A line anchor on a fictional example path, a count that is a stated policy threshold, a time phrase inside a quoted BAD example, and a value inside a dated record (a file or sentence that carries its own date, such as an incident note or "Measured <date>") are not defects: mark each `accepted` with the reason. If the root `AGENTS.md` names a repository doc guard (a lint script for doc pointers), run it too and add its output to the report.
@@ -277,7 +286,7 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 | `audit` mode finds a fixable problem | Fix it in the same run | Report it; the user runs the default mode or the owning skill |
 | The `verify` skill lists only the unit-test command | Accept it as verification | A unit test does not drive the product. Add a row that starts the surface, drives a main flow, and names the observable result |
 | The `verify` skill waits with `sleep 5` | Raise the sleep until the run passes | Wait on a readiness signal: an open port, a health URL, or a log line |
-| A `verify` command fails because a service or a dependency is not available | Remove the command from the skill | Keep the command. Report the failure and ask the user for the fix. Step 2b stays open until the command shows its expected result |
+| A `verify` command fails because a service or a dependency is not available | Remove the command from the skill, or ask the user while the server still runs | Run Stop and cleanup first. Keep the command and mark it `not observed:`. Report the failure and ask the user for the fix. Step 2b stays open until the command shows its expected result, also on a later run |
 
 ## Anti-Hallucination Checks
 

@@ -723,17 +723,42 @@ function writeFocusDiffs(repo, hidden, base, tree, paths, full) {
   }
 }
 
-// The format of `git cat-file --batch-check` that commitFileText reads: the object type and the object name.
-const OBJECT_CHECK = '--batch-check=%(objecttype) %(objectname)';
+// commitFileText follows at most this many symbolic links, as `base_blob` of plan-manager phase 6 does.
+const MAX_LINK_DEPTH = 8;
 
-// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. Git resolves a
-// symbolic link (for example `CLAUDE.md` -> `AGENTS.md`) from the folder of the link, with `--follow-symlinks`, as
-// the base-instructions builders of plan-manager and code-review do. A missing target, a target outside the tree, an
-// absolute target, or a loop gives no blob, so null.
+// The tree path that a link in the folder `folder` (`.` for the root) with the relative target `target` names: empty
+// and `.` segments drop, and `..` drops the segment before it. A path that leaves the tree or names the root is null.
+function linkPath(folder, target) {
+  const out = [];
+  for (const segment of `${folder}/${target}`.split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment !== '..') out.push(segment);
+    else if (out.length) out.pop();
+    else return null;
+  }
+  return out.length ? out.join('/') : null;
+}
+
+// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. It reads the tree as
+// `base_blob` of plan-manager phase 6 and of docks code-review does: `git ls-tree` lists one path at a time, and a
+// symbolic link (mode 120000, for example `CLAUDE.md` -> `AGENTS.md`) resolves from the folder of the link. A missing
+// path, a folder, an absolute, empty, or outside-tree target, a path through a folder link (ls-tree does not enter
+// it), and a chain of more than MAX_LINK_DEPTH links give null. A git command that fails throws, so a git failure is
+// never an absent file.
 function commitFileText(repo, commit, file) {
-  const check = git(repo, ['cat-file', OBJECT_CHECK, '--follow-symlinks'], { input: `${commit}:${file}\n` });
-  const [type, oid] = check.toString().split('\n')[0].split(' ');
-  return type === 'blob' ? git(repo, ['cat-file', 'blob', oid]) : null;
+  let current = file;
+  for (let links = 0; ; links += 1) {
+    const listing = git(repo, ['--literal-pathspecs', 'ls-tree', '--full-tree', commit, '--', current]);
+    const [mode, type, oid] = listing.toString().trim().split(/\s+/);
+    if (type !== 'blob') return null;
+    if (mode !== '120000') return git(repo, ['cat-file', 'blob', oid]);
+    if (links >= MAX_LINK_DEPTH) return null;
+    // A shell command substitution drops the trailing newlines of the target, so this drops them too.
+    const target = git(repo, ['cat-file', 'blob', oid]).toString().replace(/\n+$/, '');
+    if (target.startsWith('/')) return null;
+    current = linkPath(path.posix.dirname(current), target);
+    if (current === null) return null;
+  }
 }
 
 // Writes the base-instructions folder of a review into `dir` (see the base-instructions contract in ../SKILL.md,
