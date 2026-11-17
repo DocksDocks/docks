@@ -19,6 +19,7 @@
   "devDependencies": {
     "@anthropic-ai/claude-code": "2.1.234",
     "@biomejs/biome": "2.5.4",
+    "fast-check": "4.10.2",
     "yaml": "^2.9.0"
   }
 }

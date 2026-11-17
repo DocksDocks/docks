@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Scores review benchmark runs. `findings` parses the returned review blocks and removes the judge answers of each
-// finding whose text changed or that is gone, `pairs` builds the judge input, `report` turns the judgments and the run
-// metadata into recall, cost, configuration or arm tables, and the self-review lead, `transcripts` fills the run
-// metadata, the read scope, and the read coverage of each reviewer from omp subagent transcripts, and `names` prints
-// the dispatch name of every prompt that the operator still dispatches (a fixer prompt only until its patch exists).
+// finding whose text changed or that is gone, `pairs` builds the judge input, `report` turns the judgments, the run
+// metadata, and the manager verdicts into recall, cost, configuration or arm tables, the stage and control tables, and
+// the self-review lead, `transcripts` fills the run metadata, the read scope, and the read coverage of each reviewer
+// from omp subagent transcripts, and `names` prints the dispatch name of every prompt that the operator still
+// dispatches (a fixer prompt only until its patch exists, a manager prompt only until its verdict file exists).
 // `loadJudgments`, `fixPlan`, and `loopEnds` give the judge's answers and the fix step of a review loop to
 // `prepare.mjs loop`.
 import { createHash } from 'node:crypto';
@@ -36,9 +37,12 @@ const VERDICT_RANK = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
 // holds no review, so its run is invalid (see invalidReasons).
 const REVIEW_VERDICTS = new Set(['pass', 'repair', 'fixes-required']);
 const TOKEN_FIELDS = ['input', 'cacheRead', 'cacheWrite', 'output'];
+// The base-instructions folder of a code review (`prepare.mjs` writeBaseInstructions): the instruction files of the
+// merge base and their MANIFEST, in the case folder and in each later round folder of a loop.
+export const BASE_INSTRUCTIONS = 'base-instructions';
 // Read scope (see readScope). In each input folder of a run, a reviewer may read these folders and files and the
 // `*.diff` files.
-const INPUT_FOLDERS = ['snapshot', 'prompts'];
+const INPUT_FOLDERS = ['snapshot', 'prompts', BASE_INSTRUCTIONS];
 const INPUT_FILES = new Set(['plan.md', 'previous-review.md', 'rejection.md']);
 // The copy of the plan contract in the run folder of a variant with a contract overlay (`prepare.mjs case`). The prompt
 // of the run names it as the plan contract, so it is an input of that run and of no other run.
@@ -142,6 +146,14 @@ const SELF_REVIEW_AGENT_FILE = new RegExp(
     String.raw`(?<=^|[\s\x60'"(<])(\/[^\s\x60'"]*${SELF_REVIEW_AGENT_TAIL})(?=$|[\s\x60'")>])`,
   'g',
 );
+// The path `<self-review root>/skills/[<folder>/]code-review/SKILL.md` (or code-clarity) in the text of the
+// self-review agent of a self-review root (`prepare.mjs agents --self-review-roots`). The groups hold the root.
+const SELF_REVIEW_SKILL_TAIL = String.raw`\/skills\/(?:[^\s\x60'"/]+\/)?(?:code-review|code-clarity)\/SKILL\.md`;
+const SELF_REVIEW_SKILL = new RegExp(
+  String.raw`([\x60'"])(\/[^\x60'"\r\n]*?)${SELF_REVIEW_SKILL_TAIL}\1|` +
+    String.raw`(?<=^|[\s\x60'"(<])(\/[^\s\x60'"]*?)${SELF_REVIEW_SKILL_TAIL}`,
+  'g',
+);
 // The path of a match of one of the patterns above: in quotes, else bare.
 const instructionPath = (match) => match[2] ?? match[3];
 
@@ -150,6 +162,12 @@ const instructionPath = (match) => match[2] ?? match[3];
 // the instructions under these roots, and `prepare.mjs agents` refuses a variant agent that names another root.
 export function reviewerPluginRoots(text) {
   return [...new Set(Array.from(text.matchAll(REVIEWER_SKILL), instructionPath))];
+}
+
+// The self-review roots that the text of a self-review agent names: the folder P of each absolute path
+// `P/skills/[<folder>/]code-review/SKILL.md` or `P/skills/[<folder>/]code-clarity/SKILL.md`, each once.
+export function selfReviewSkillRoots(text) {
+  return [...new Set(Array.from(text.matchAll(SELF_REVIEW_SKILL), instructionPath))];
 }
 
 function fail(message) {
@@ -358,7 +376,8 @@ export function readWorkspace(ws) {
     const caseData = readJson(caseFile);
     if (caseData.id !== folder) fail(`${caseFile} has id ${caseData.id}, but its folder is ${folder}`);
     const family = caseFamily(caseData.kind);
-    for (const arm of directories(path.join(ws, folder)).filter((name) => name !== 'snapshot')) {
+    const inputs = new Set(['snapshot', BASE_INSTRUCTIONS]);
+    for (const arm of directories(path.join(ws, folder)).filter((name) => !inputs.has(name))) {
       const armDir = path.join(ws, folder, arm);
       const runNames = directories(armDir).filter((name) => RUN_DIR.test(name));
       for (const run of runNames.sort((a, b) => runNumber(a) - runNumber(b))) {
@@ -831,6 +850,7 @@ function scoreRound(round, knownIds, judged, meta) {
     !fix.pulled &&
     !present.has(fix.known) &&
     (!byFixer.has(fix.known) || fixerRepaired(matching(fix.known).map((finding) => finding.id)));
+  const repairedFixes = (meta?.fix?.fixes ?? []).filter(repaired);
   return {
     round: round.round,
     mode: meta?.mode ?? null,
@@ -839,7 +859,8 @@ function scoreRound(round, knownIds, judged, meta) {
       : null,
     tokens: total(costs.map((cost) => cost?.tokens)),
     found: knownIds.filter((id) => found.has(id)),
-    knownRepair: (meta?.fix?.fixes ?? []).some(repaired),
+    repaired: repairedFixes.map((fix) => fix.known),
+    knownRepair: repairedFixes.length > 0,
     extraRepair: fixerRepaired(meta?.fix?.extras ?? []),
     fixer: Boolean(meta?.fixer),
     fixerSeconds: typeof meta?.fixer?.seconds === 'number' ? meta.fixer.seconds : 0,
@@ -911,6 +932,39 @@ function runFacts(entries) {
   };
 }
 
+// The manager stage of a run (see ../SKILL.md, Stages). A run takes part when its meta.json, or the meta.json of its
+// round 1, records the manager setting `managerConfig`, which `prepare.mjs case` writes when `agents` wrote a manager.
+// Its stage is complete when each finding of the run has a verdict in the verdict file of its round (`managerVerdicts`
+// of the round meta) and, in a run with a configuration, the manager of each round with findings has transcript facts
+// that show the manager setting (see configReasons). `status` is `none` (the run does not take part), `incomplete`,
+// or `complete`; `reasons` names what keeps a run that takes part from a complete stage. A complete stage gives `kept`,
+// the known defects that a reproduced finding matched, and `rejectedTrue`, the count of rejected findings that matched
+// a known defect or that the judge rated valid. A run without findings needs no manager, so its stage is complete.
+function managerStage({ findings, metaOf, judged, knownIds, config, managerConfig, hasRounds }) {
+  if (!managerConfig) return { status: 'none', reasons: [], kept: null, rejectedTrue: null };
+  const verdictOf = (finding) => metaOf(finding.round ?? 1)?.managerVerdicts?.[finding.id];
+  const open = findings.filter((finding) => verdictOf(finding) === undefined).map((finding) => finding.id);
+  const reasons = open.length ? [`no manager verdict for ${listSome(open, LISTED_READS)}`] : [];
+  if (config && open.length === 0) {
+    for (const round of distinct(findings.map((finding) => finding.round ?? 1))) {
+      const label = hasRounds ? `round-${round}/${MANAGER_NAME}` : MANAGER_NAME;
+      reasons.push(...configReasons(managerConfig, label, metaOf(round)?.manager?.agents?.[MANAGER_NAME]));
+    }
+  }
+  if (reasons.length) return { status: 'incomplete', reasons, kept: null, rejectedTrue: null };
+  const kept = judgeFindings(
+    findings.filter((finding) => verdictOf(finding) === 'reproduced'),
+    judged,
+  ).found;
+  const isTrue = (finding) => judged.matched.has(finding.blind) || judged.ratings.get(finding.blind) === 'valid';
+  return {
+    status: 'complete',
+    reasons: [],
+    kept: knownIds.filter((id) => kept.has(id)),
+    rejectedTrue: findings.filter((finding) => verdictOf(finding) === 'rejected' && isTrue(finding)).length,
+  };
+}
+
 // A run is a loop when it has round folders (a `code` case built with `case --loop`); every other run is a single
 // review. A run's time and tokens are the sums over its rounds; its found defects and finding counts cover every
 // round; its verdicts are those of its last round. A known defect is unresolved in a run when the run did not find it
@@ -920,7 +974,9 @@ function runFacts(entries) {
 // reargued `match` answer), each once, in the order of the case's list. They are no known defects, so they count in
 // neither `known` nor recall. `diffCoverages` lists the read coverage (`diffCoverage`, see transcriptsCommand) of each
 // reviewer of each round that has one, and `lowestDiffCoverage` is the lowest of them, so the Runs table shows the
-// reviewer that read the least of its own diff. The read coverage is an observation: it makes no run invalid.
+// reviewer that read the least of its own diff. The read coverage is an observation: it makes no run invalid. `control`
+// tells whether the case is a control case. `manager` is the manager stage of the run (see managerStage), and
+// `finalFound`, only for a loop, lists the known defects that a fix step of the loop repaired (see scoreRound).
 function scoreRun(run, caseEntry, judged, metas) {
   const knownIds = caseEntry.known.map((item) => item.id);
   const protectedIds = (caseEntry.protected ?? []).map((item) => item.id);
@@ -950,10 +1006,19 @@ function scoreRun(run, caseEntry, judged, metas) {
     return agents.map(([name, entry]) => ({ label: `round-${round.round}/${name}`, entry }));
   });
   const roundScores = rounds.map((round) => scoreRound(round, knownIds, judged, metaOf(round.round)));
-  const all = judgeFindings(
-    rounds.flatMap((round) => round.findings),
+  const runFindings = rounds.flatMap((round) => round.findings);
+  const all = judgeFindings(runFindings, judged);
+  const managerConfig = metas[run.key]?.managerConfig ?? metaOf(1)?.managerConfig ?? null;
+  const manager = managerStage({
+    findings: runFindings,
+    metaOf,
     judged,
-  );
+    knownIds,
+    config,
+    managerConfig,
+    hasRounds: run.hasRounds,
+  });
+  const repaired = new Set(roundScores.flatMap((round) => round.repaired));
   // A round is caused only by extra findings when the fix step after the round before it repaired valid extra findings
   // and no known defect (see scoreRound). A finding that needed no repair, such as a repeat of a fixed defect whose fix
   // the tree holds or a finding that the fixer found `not present`, causes no round.
@@ -991,6 +1056,9 @@ function scoreRun(run, caseEntry, judged, metas) {
     roundVerdict: last.verdict,
     loop: run.hasRounds,
     rounds: roundScores,
+    control: caseEntry.control === true,
+    manager,
+    finalFound: run.hasRounds ? knownIds.filter((id) => repaired.has(id)) : null,
   };
 }
 
@@ -1532,6 +1600,92 @@ function leadSection(runs, { lead, leadRef }) {
   ];
 }
 
+// A value for the stage table: `n/a` when not every run of a column has the stage.
+const NOT_AVAILABLE = 'n/a';
+
+// The sum over the runs of the known defects that `found` gives for a run, divided by the sum of their known defects;
+// null without known defects.
+function pooledRecall(runs, found) {
+  const known = sum(runs.map((run) => run.known));
+  return known ? sum(runs.map((run) => found(run).length)) / known : null;
+}
+
+// The stage table of one case group: one column per arm folder, from the valid runs of cases that are no control case.
+// Raw recall pools the known defects that the reviewer findings of all rounds matched. Kept recall pools the known
+// defects that a finding matched that the manager reproduced, and the rejected row counts the true findings that the
+// manager rejected; both need a complete manager stage in every run of the column (see managerStage). Final loop recall
+// pools the known defects that a fix step of a loop repaired; it needs a loop in every run of the column.
+function stageTable(runs) {
+  const columns = distinct(runs.map(armColumn));
+  const runsOf = columnRuns(runs, armColumn);
+  const managed = (list) => list.length > 0 && list.every((run) => run.manager.status === 'complete');
+  const loops = (list) => list.length > 0 && list.every((run) => run.loop);
+  const rows = [
+    ['Runs', (list) => list.length],
+    ['Runs with a complete manager stage', (list) => list.filter((run) => run.manager.status === 'complete').length],
+    ['Raw recall', (list) => ratio(pooledRecall(list, (run) => run.found))],
+    ['Kept recall', (list) => (managed(list) ? ratio(pooledRecall(list, (run) => run.manager.kept)) : NOT_AVAILABLE)],
+    ['Final loop recall', (list) => (loops(list) ? ratio(pooledRecall(list, (run) => run.finalFound)) : NOT_AVAILABLE)],
+    [
+      'True findings rejected per run',
+      (list) => (managed(list) ? ratio(perRun(list, (run) => run.manager.rejectedTrue)) : NOT_AVAILABLE),
+    ],
+  ];
+  return measureTable(rows, columns, runsOf);
+}
+
+// The stages of the review: one table per case group from the valid runs of cases that are no control case, and the
+// reasons of each such run whose manager stage is not complete.
+function stageSection(runs) {
+  const shown = runs.filter((run) => run.invalid.length === 0 && !run.control);
+  if (shown.length === 0) return [];
+  const incomplete = shown.filter((run) => run.manager.status === 'incomplete');
+  return [
+    '## Stages',
+    '',
+    'A column holds the valid runs of one arm folder in one case group, without control cases. Raw recall is the known defects that the reviewer findings of all rounds of a run matched, pooled over the runs: their sum divided by the sum of the known defects. Kept recall counts only the findings that the manager reproduced. True findings rejected per run counts the findings that matched a known defect or that the judge rated valid and that the manager rejected. These two rows need a complete manager stage in every run of the column, else they show n/a. Final loop recall is the known defects that a fix step of a review loop repaired; it needs a loop in every run of the column, else it shows n/a.',
+    '',
+    ...bySplit(shown).flatMap(([group, groupRuns]) => [`### Stages: ${group}`, '', ...stageTable(groupRuns), '']),
+    ...(incomplete.length
+      ? [
+          '### Incomplete manager stages',
+          '',
+          ...incomplete.map((run) => `- ${run.case}/${run.arm}/${run.run}: ${run.manager.reasons.join('; ')}`),
+          '',
+        ]
+      : []),
+  ];
+}
+
+// The control cases: one table per case group, with one column per arm folder, from the valid runs of control cases.
+// A control case has no known defect, so each finding is a valid extra, wrong, unknown, or unjudged finding.
+function controlSection(runs) {
+  const shown = runs.filter((run) => run.invalid.length === 0 && run.control);
+  if (shown.length === 0) return [];
+  const findings = (run) => run.validExtras + run.wrong + run.unknown + run.unjudged;
+  const rows = [
+    ['Runs', (list) => list.length],
+    CASES_ROW,
+    ...[
+      ['Findings per run', findings],
+      ['Wrong per run', (run) => run.wrong],
+      ['Unknown ratings per run', (run) => run.unknown],
+      ['Valid extras per run', (run) => run.validExtras],
+      ['Unjudged per run', (run) => run.unjudged],
+    ].map(perRunRow),
+  ];
+  return [
+    '## Controls',
+    '',
+    'A control case is a change that landed without a later revert or defect fix, so it has no known defect. A column holds the valid runs of one arm folder on the control cases of one case group.',
+    '',
+    ...bySplit(shown).flatMap(([group, groupRuns]) => {
+      const columns = distinct(groupRuns.map(armColumn));
+      return [`### Controls: ${group}`, '', ...measureTable(rows, columns, columnRuns(groupRuns, armColumn)), ''];
+    }),
+  ];
+}
+
 // The report holds numbers, verdicts, configuration names, arm folder names, and known-defect ids only, so a held-out
 // reader learns no defect text. `configs` and `arms` set the columns of the comparison tables, one or the other;
 // `reference` sets the column that the intervals compare with (default: the column with the fewest escaped defects per
@@ -1574,6 +1728,8 @@ export function renderReport({ summaries, runs, agreement }, { configs, arms, re
           '',
         ]),
     ...(arms ? armSections(runs, { arms, reference }) : configurationSections(runs, { configs, reference })),
+    ...stageSection(runs),
+    ...controlSection(runs),
     ...(lead ? leadSection(runs, { lead, leadRef }) : []),
     ...(agreement
       ? [
@@ -1621,13 +1777,20 @@ export function dispatchNames(dispatches) {
 export const FIXER_DIR = 'fixer';
 export const FIXER_NAME = 'fixer-1';
 
+// `prepare.mjs manager` writes the prompt of the manager agent of a review round to `<round folder>/manager/
+// manager-1.txt`, or to `<run folder>/manager/manager-1.txt` for a run without round folders. The manager writes one
+// verdict line per finding to `verdicts.md` in the same folder (see managerVerdicts).
+export const MANAGER_DIR = 'manager';
+export const MANAGER_NAME = 'manager-1';
+export const MANAGER_VERDICTS = 'verdicts.md';
+
 // `prepare.mjs loop` writes the reviewed tree of each loop round after round 1 to `<ws>/trees/<run label>/` for the
 // judge. The run label is the blind label of pairs.json, so the judge opens no arm folder.
 export const JUDGE_TREES = 'trees';
 
-// Every reviewer that has a prompt and every fixer prompt, in workspace order, with its dispatch name, its prompt
-// file, and the family of its case. Each round folder is a dispatch of its own; a fixer entry has `fixer: true`, and a
-// round has at most one.
+// Every reviewer that has a prompt, every fixer prompt, and every manager prompt, in workspace order, with its
+// dispatch name, its prompt file, and the family of its case. Each round folder is a dispatch of its own; a fixer entry
+// has `fixer: true` and a manager entry `manager: true`, and a round has at most one of each.
 function promptedDispatches(ws) {
   return dispatchNames(
     readWorkspace(ws).flatMap(({ caseId, family, arm, run, round, dir, reviewers, prompts }) => {
@@ -1640,12 +1803,15 @@ function promptedDispatches(ws) {
         dir,
         reviewer,
         fixer: folder === FIXER_DIR,
+        manager: folder === MANAGER_DIR,
         prompt: path.join(dir, folder, `${reviewer}.txt`),
       });
       const fixer = fs.existsSync(path.join(dir, FIXER_DIR, `${FIXER_NAME}.txt`));
+      const manager = fs.existsSync(path.join(dir, MANAGER_DIR, `${MANAGER_NAME}.txt`));
       return [
         ...reviewers.filter((reviewer) => prompts.has(reviewer)).map((reviewer) => dispatch('prompts', reviewer)),
         ...(fixer ? [dispatch(FIXER_DIR, FIXER_NAME)] : []),
+        ...(manager ? [dispatch(MANAGER_DIR, MANAGER_NAME)] : []),
       ];
     }),
   );
@@ -1877,12 +2043,14 @@ function fixerReplies(text, source) {
 }
 
 // The working directory of the session of a transcript, the plugin roots that the agent text of the session names,
-// and the self-review agent files that it names. omp records the agent text in the system prompt (a string or a list
-// of strings) of the `session_init` entry.
+// the self-review agent files that it names, and, for a self-review agent, the self-review roots that it names (see
+// selfReviewSkillRoots). omp records the agent text in the system prompt (a string or a list of strings) of the
+// `session_init` entry.
 function transcriptSession(text, source) {
   let cwd = null;
   const pluginRoots = new Set();
   const agentFiles = new Set();
+  const skillRoots = new Set();
   for (const entry of transcriptEntries(text, source)) {
     if (entry.type === 'session' && cwd === null && typeof entry.cwd === 'string') cwd = entry.cwd;
     if (entry.type !== 'session_init') continue;
@@ -1891,9 +2059,11 @@ function transcriptSession(text, source) {
       .filter((part) => typeof part === 'string')
       .join('\n');
     for (const root of reviewerPluginRoots(prompt)) pluginRoots.add(root);
-    for (const match of prompt.matchAll(SELF_REVIEW_AGENT_FILE)) agentFiles.add(instructionPath(match));
+    const files = Array.from(prompt.matchAll(SELF_REVIEW_AGENT_FILE), instructionPath);
+    for (const file of files) agentFiles.add(file);
+    if (files.length) for (const root of selfReviewSkillRoots(prompt)) skillRoots.add(root);
   }
-  return { cwd, pluginRoots: [...pluginRoots], agentFiles: [...agentFiles] };
+  return { cwd, pluginRoots: [...pluginRoots], agentFiles: [...agentFiles], skillRoots: [...skillRoots] };
 }
 
 // The folder itself or a path below it.
@@ -1903,11 +2073,11 @@ function isUnder(folder, target) {
 }
 
 // The input folders of a run, the folders that a reviewer may read with every path below them, the copy of the plan
-// contract of the run, the plugin roots, the agent files of the reviewer, and the keys of the files that the case
-// changes (see changedPathKeys). An input folder is the case folder, and the run folder or each round folder up to
-// `round`. The tree copies are those of the rounds up to `round`. A reviewer with an agent file of its own is the
-// self-review agent.
-function scopeRules(runDir, round, pluginRoots, agentFiles, changedFiles) {
+// contract of the run, the plugin roots, the agent files of the reviewer, the self-review roots of the reviewer, and
+// the keys of the files that the case changes (see changedPathKeys). An input folder is the case folder, and the run
+// folder or each round folder up to `round`. The tree copies are those of the rounds up to `round`. A reviewer with an
+// agent file of its own is the self-review agent.
+function scopeRules(runDir, round, { pluginRoots, agentFiles, skillRoots, changedFiles }) {
   const armDir = path.dirname(runDir);
   const caseDir = path.dirname(armDir);
   const [caseId, arm, run] = [caseDir, armDir, runDir].map((dir) => path.basename(dir));
@@ -1924,20 +2094,25 @@ function scopeRules(runDir, round, pluginRoots, agentFiles, changedFiles) {
     pluginRoots,
     agentFiles: agentFiles.map((file) => path.resolve(file)),
     selfReview: agentFiles.length > 0,
+    skillRoots: agentFiles.length > 0 ? skillRoots : [],
     changed: distinct(changedFiles.flatMap(changedPathKeys)),
   };
 }
 
-// A path under an allowed folder, or under the code-reviewer or plan-reviewer skill folder of a plugin root, directly
-// in `skills/` or in a category folder of it.
-function folderAllowed(target, { folders, pluginRoots }) {
+// A path under the folder of one of the skills `names` in `<root>/skills/`, directly or in a category folder.
+function underSkill(target, root, names) {
+  const skills = path.join(root, 'skills');
+  if (!isUnder(skills, target)) return false;
+  const [first, second] = path.relative(skills, target).split(path.sep);
+  return names.has(first) || names.has(second);
+}
+
+// A path under an allowed folder, under the code-reviewer or plan-reviewer skill folder of a plugin root, or under the
+// code-review or code-clarity skill folder of a self-review root of the reviewer.
+function folderAllowed(target, { folders, pluginRoots, skillRoots }) {
   if (folders.some((folder) => isUnder(folder, target))) return true;
-  return pluginRoots.some((root) => {
-    const skills = path.join(root, 'skills');
-    if (!isUnder(skills, target)) return false;
-    const [first, second] = path.relative(skills, target).split(path.sep);
-    return REVIEWER_SKILLS.has(first) || REVIEWER_SKILLS.has(second);
-  });
+  if (pluginRoots.some((root) => underSkill(target, root, REVIEWER_SKILLS))) return true;
+  return skillRoots.some((root) => underSkill(target, root, ALLOWED_SKILLS));
 }
 
 // An input file of an input folder, the copy of the plan contract of the run, a reviewer agent file of a plugin root,
@@ -2018,8 +2193,10 @@ function instructionAllowed(key, { changed }) {
 
 // A read of an allowed skill through a `skill://` URI or an installed plugin cache copy, with the key `key` (undefined
 // for another read). The self-review agent loads these skills as its own instructions, so its reads of them stay
-// allowed also when the case changes them. For another reviewer, they are optional instruction reads.
+// allowed also when the case changes them. For another reviewer, they are optional instruction reads. A self-review
+// agent of a self-review root reads its skills under that root only: the installed copy can be another version.
 function skillReadAllowed(key, rules) {
+  if (rules.skillRoots.length) return false;
   return (rules.selfReview && key !== undefined) || instructionAllowed(key, rules);
 }
 
@@ -2436,9 +2613,18 @@ function diffCoverage(tools, file, cwd) {
 // file is outside.
 export function readScope(
   toolCalls,
-  { runDir, round, cwd = null, pluginRoots = [], agentFiles = [], changedFiles = [], lists = new Map() },
+  {
+    runDir,
+    round,
+    cwd = null,
+    pluginRoots = [],
+    agentFiles = [],
+    skillRoots = [],
+    changedFiles = [],
+    lists = new Map(),
+  },
 ) {
-  const rules = scopeRules(path.resolve(runDir), round, pluginRoots, agentFiles, changedFiles);
+  const rules = scopeRules(path.resolve(runDir), round, { pluginRoots, agentFiles, skillRoots, changedFiles });
   const outside = new Set();
   const queries = new Set();
   for (const { name, path: value, query, resultUrls: cited = [] } of toolCalls) {
@@ -2597,8 +2783,9 @@ export function pairsCommand(ws, casesDir, { keys } = {}) {
   const findingsDoc = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const cases = {};
   for (const caseId of new Set(findingsDoc.blocks.map((block) => block.case))) {
-    const { split } = readJson(path.join(ws, caseId, 'case.json'));
+    const { split, control } = readJson(path.join(ws, caseId, 'case.json'));
     const { kind, known, protected: decisions } = readKnown(casesDir, caseId, split, keys);
+    if (control === true && known.length) fail(`control case ${caseId} must have no known defects`);
     cases[caseId] = { kind, known, protected: decisions, split };
   }
   const doc = buildPairs(findingsDoc, cases);
@@ -2631,12 +2818,35 @@ function requireCurrentKeys(pairsDoc, keys) {
   }
 }
 
+// A line of the verdict file of a manager: `<finding id>: reproduced - <evidence>` or `<finding id>: rejected -
+// <evidence>` (see prepare.mjs managerPrompt), maybe after a list marker and with the id in backticks.
+const MANAGER_VERDICT = /^\s*(?:[-*+]\s+)?`?([^\s`:]+#\d+)`?\s*:\s*(reproduced|rejected)\b/i;
+
+// The verdicts of a manager verdict file: each finding id that a line names, with `reproduced` or `rejected`; a later
+// line of an id wins.
+export function managerVerdicts(text) {
+  const verdicts = {};
+  for (const line of text.split('\n')) {
+    const match = MANAGER_VERDICT.exec(line);
+    if (match) verdicts[match[1]] = match[2].toLowerCase();
+  }
+  return verdicts;
+}
+
 // The meta.json of each run, and of each round folder of a run with round folders, by the keys that scoreRuns reads.
+// A folder with a manager verdict file (MANAGER_DIR/MANAGER_VERDICTS) also gets `managerVerdicts` (see
+// managerVerdicts), in memory only.
 function readMetas(ws, blocks) {
   const metas = {};
   const read = (key) => {
-    const file = path.join(ws, ...key.split('/'), 'meta.json');
-    if (!(key in metas) && fs.existsSync(file)) metas[key] = readJson(file);
+    if (key in metas) return;
+    const dir = path.join(ws, ...key.split('/'));
+    const file = path.join(dir, 'meta.json');
+    const verdictFile = path.join(dir, MANAGER_DIR, MANAGER_VERDICTS);
+    if (fs.existsSync(file)) metas[key] = readJson(file);
+    if (fs.existsSync(verdictFile)) {
+      metas[key] = { ...metas[key], managerVerdicts: managerVerdicts(fs.readFileSync(verdictFile, 'utf8')) };
+    }
   };
   for (const block of blocks) {
     read(`${block.case}/${block.arm}/${block.run}`);
@@ -2660,6 +2870,11 @@ export function reportCommand(ws, { keys, configs, arms, reference, lead, leadRe
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');
   const judgments = loadJudgments(ws);
   if (keys) requireCurrentKeys(pairs, keys);
+  // The control flag stays out of pairs.json, which the judge reads; the case.json of the workspace gives it.
+  for (const entry of pairs.cases) {
+    const caseFile = path.join(ws, entry.case, 'case.json');
+    if (fs.existsSync(caseFile) && readJson(caseFile).control === true) entry.control = true;
+  }
   const scores = scoreRuns({ findings, pairs, judgments, metas: readMetas(ws, findings.blocks) });
   requireJudgedFindings(findings.findings, judgments);
   const secondFile = path.join(ws, 'judgments-second.json');
@@ -2669,12 +2884,16 @@ export function reportCommand(ws, { keys, configs, arms, reference, lead, leadRe
 }
 
 // The prompts that the operator still dispatches, each with its task name. A fixer prompt stays in the list only until
-// the fixer writes `fixer-1.patch` (an empty patch file counts), so that the operator does not dispatch it again; a
-// second dispatch writes a newer transcript of the same name, which `transcripts` then takes. `transcripts` uses every
-// dispatch, so it still finds the transcript of a fixer whose patch exists.
+// the fixer writes `fixer-1.patch` (an empty patch file counts), and a manager prompt only until the manager writes its
+// verdict file, so that the operator does not dispatch it again; a second dispatch writes a newer transcript of the
+// same name, which `transcripts` then takes. `transcripts` uses every dispatch, so it still finds the transcript of a
+// fixer whose patch exists and of a manager whose verdict file exists.
 export function namesCommand(ws) {
+  const done = ({ fixer, manager, dir }) =>
+    (fixer && fs.existsSync(path.join(dir, FIXER_DIR, `${FIXER_NAME}.patch`))) ||
+    (manager && fs.existsSync(path.join(dir, MANAGER_DIR, MANAGER_VERDICTS)));
   return promptedDispatches(ws)
-    .filter(({ fixer, dir }) => !fixer || !fs.existsSync(path.join(dir, FIXER_DIR, `${FIXER_NAME}.patch`)))
+    .filter((dispatch) => !done(dispatch))
     .map(({ prompt, name }) => ({ prompt: path.relative(ws, prompt), name }));
 }
 
@@ -2694,8 +2913,10 @@ export function namesCommand(ws) {
 // assistant message and the transcript facts, which `report` checks against the fixer setting of the loop (see
 // invalidReasons). A round has one fixer, so `fixer.seconds` and `fixer.tokens` are its time and tokens, and
 // `fixer.replies` maps each finding id that the fixer reply names to `repaired` or `not present` (see fixerReplies; no
-// field when the reply names no finding). meta.json keeps no tool calls. The command checks every dispatch name before
-// it writes, writes what it finds, then fails with the names of the dispatches that have no transcript.
+// field when the reply names no finding). The manager entry of a round, under `manager.agents`, gets the same facts,
+// and `manager.seconds` and `manager.tokens` are its time and tokens; `report` checks them against the manager setting
+// of the run (see managerStage). meta.json keeps no tool calls. The command checks every dispatch name before it
+// writes, writes what it finds, then fails with the names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
   const wsDir = path.resolve(ws);
@@ -2712,7 +2933,7 @@ export function transcriptsCommand(ws, sessionsDir) {
     let changed = false;
     // The case changes the same files for each reviewer of the folder, so the command reads them once, when needed.
     let changedFiles;
-    for (const { caseId, family, arm, run, round, reviewer, name, fixer } of dispatches) {
+    for (const { caseId, family, arm, run, round, reviewer, name, fixer, manager } of dispatches) {
       const caseFolder = path.join(wsDir, caseId);
       const file = pickTranscript(files, name, (candidate) => namesPathUnder(transcriptTask(candidate), caseFolder));
       if (!file) {
@@ -2732,6 +2953,9 @@ export function transcriptsCommand(ws, sessionsDir) {
           replies,
         };
         if (Object.keys(replies).length === 0) delete meta.fixer.replies;
+      } else if (manager) {
+        const agent = { ...parseTranscript(text, file), ...facts };
+        meta.manager = { ...meta.manager, seconds: agent.seconds, tokens: agent.tokens, agents: { [reviewer]: agent } };
       } else {
         meta.reviewers ??= {};
         const entry = { ...meta.reviewers[reviewer], ...parseTranscript(text, file, meta.config?.model), ...facts };

@@ -197,7 +197,7 @@ Stable knobs (recent majors):
 | `cargo test --release` | Compile in release mode — required for perf-sensitive integration tests |
 | `cargo-nextest` (replacement runner) | 3–5× faster than `cargo test`; better failure summaries; per-test process isolation |
 | `cargo nextest run --partition count:1/4` | Sharded execution for CI matrix |
-| `cargo nextest run --retries N` | Auto-retry flaky tests N times before failing |
+| `cargo nextest run --retries N` | Retry a failed test N times. People who own CI set this policy. An agent never adds it to get a pass (see `test-types.md`, Flaky tests) |
 | `cargo test --no-run` | Compile tests without running; separate compile-time from run-time in CI |
 | `cargo test -- --skip <pat>` | Skip tests matching a substring pattern |
 

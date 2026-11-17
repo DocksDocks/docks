@@ -1,0 +1,12 @@
+{
+  "id": "code-126-control",
+  "kind": "code",
+  "split": "dev",
+  "issue": 126,
+  "round": 1,
+  "base": "9995e4a9d0ecefbb9a86d1eeacf906a09b14ee8b",
+  "head": "3970e8b52d8d3fd4ef1a7c2fc55e69fe66da27a9",
+  "plan": "code-126-control-plan.md",
+  "control": true,
+  "known": []
+}

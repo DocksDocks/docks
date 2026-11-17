@@ -22,7 +22,7 @@ Bun runs this repository's tooling and is the package manager; its version is th
 │   ├── .claude-plugin/plugin.json    Claude plugin manifest
 │   ├── .codex-plugin/plugin.json     Codex plugin manifest (skills + hooks - near-parity with Claude)
 │   ├── skills/   (cross-tool)        surfaced in every runtime - incl. security/refactor/skill-agent-pipeline pipelines
-│   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook (Claude + Codex)
+│   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook and verify-gate PreToolUse hook (Claude + Codex)
 ├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin (cross-tool): lifecycle skills, shipped plan.mjs, plan contract reference, and read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
 ├── .claude-plugin/marketplace.json   Claude marketplace catalog
 ├── .agents/plugins/marketplace.json  Codex marketplace catalog

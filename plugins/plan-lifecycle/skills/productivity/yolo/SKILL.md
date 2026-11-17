@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-11-05"
-  content_hash: "8338805f3ecc56a8dd1d7ed0fb97bf11a78c5e71504505596c54a6ba7fa9c06c"
+  updated: "2026-11-17"
+  content_hash: "e17d98182b85d696aee5b8a58abf20e2c4168712d732443bd8be4ecc75f5b11a"
 ---
 
 # Yolo
@@ -142,6 +142,13 @@ Asked: <what the request said>. Did: <what the run does>. Reason: <evidence>.
 Read the instruction files that apply to each path in the Files cells:
 `AGENTS.md`, `CLAUDE.md`, and `CONTRIBUTING.md` in that folder and its parent
 folders. Add one Acceptance row for each check that they require for the change.
+When a step's Files change the code or configuration of a surface that a user
+or another program drives, such as a CLI command, a hook, a service, or a UI,
+add at least one Acceptance row that runs that surface end to end and names
+the observable result. A test file that starts the real surface counts; a
+unit-test command that only calls internal functions does not. A change to
+prose or skill text alone needs no such row. The contract's Steps, acceptance,
+and effects states the rule.
 
 ## Engineering standards
 
@@ -320,7 +327,9 @@ without a merge. The contract's Round ceiling also says this.
    --repo <owner/repo> --base <default> --head <branch> --title <title>
    --body-file <file>`.
 6. Wait for checks as the contract says. If a check fails, fix it, rerun
-   acceptance, review again, push, and wait again.
+   acceptance, review again, push, and wait again. When the same check still
+   fails after the third fix attempt, stop fixing it. That is a stall under the
+   contract's Round ceiling, as its Checks and merge says.
 7. Confirm that `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows
    the reviewed head. Write the pull request URL and the check result into the
    summary file. Then update the body with `gh pr edit <pr> --repo <owner/repo>

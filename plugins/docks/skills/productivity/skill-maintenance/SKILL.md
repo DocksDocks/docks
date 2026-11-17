@@ -1,11 +1,11 @@
 ---
 name: skill-maintenance
-description: "Use when project-local SKILL.md files need validation or refresh after source changes, Codex skipped a skill due to invalid YAML or description over 1024 chars, .agents/skills and .claude/skills drift, stale source_files/metadata.updated/content_hash require no-op maintenance, or a skill rewrite needs a blind old-vs-new comparison. Not for authoring new Docks plugin skills (use write-skill), whole-set bootstrap/audit with agent emission (use skill-agent-pipeline), or prose docs."
+description: "Use when project-local SKILL.md files need validation or refresh after source changes, Codex skipped a skill (invalid YAML, description over 1024 chars), .agents/skills and .claude/skills drift, stale source_files/metadata.updated/content_hash need no-op maintenance, review rules need pruning, or a skill rewrite needs a blind old-vs-new comparison. Not for authoring new Docks plugin skills (use write-skill), whole-set bootstrap/audit with agent emission (use skill-agent-pipeline), or prose docs."
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-10-23"
-  content_hash: "323204626f1f6a8a496618b0124f2dda83ea9ba322d2e325697bd094e1c719bd"
+  updated: "2026-11-17"
+  content_hash: "cb63699e84bba649589cdd9d18725847fd2ead870276966bedbb3d99b8370007"
 ---
 
 # Skill Maintenance
@@ -130,9 +130,9 @@ description: "Use when editing routes: checkout, account, webhook, or fixing esl
 | Two body rules contradict each other | Read the full body (and its references) once end-to-end; list rule pairs giving incompatible instructions for the same case | Reconcile: keep the stricter or newer rule, scope or delete the other — never leave both |
 | Claim superseded by a newer source | Re-open each cited source/URL/doc; compare the claim against current behavior, not the version remembered at writing time | Update the claim and bump `metadata.updated`; drop citations that no longer support it |
 | Pressure language without a reason (caps MUST/NEVER, "CRITICAL") | Search the body for caps-lock imperatives; check each has a stated reason | State the rule once, plainly, with its reason |
-| History narrative (incident, PR, or session story) | Search for incident IDs, PR numbers, dates, "this caught" stories | Keep the rule, drop the story |
+| History narrative (incident, PR, or session story) | Search for incident IDs, PR numbers, dates, "this caught" stories | Keep the rule, drop the story. Keep the source references of a review rule, because Review-Rule Pruning reads them |
 | Enumerated trigger list in the description | Check whether the description grew one missed query at a time | Name categories of intent; confirm with the write-skill trigger check |
-| One-incident rule (a single stumble made permanent) | Ask whether the rule still prevents a repeat failure in current use | Generalize it or delete it; removal is a hypothesis, so re-run a baseline check |
+| One-incident rule (a single stumble made permanent) | Ask whether the rule still prevents a repeat failure in current use | Generalize it or delete it; removal is a hypothesis, so re-run a baseline check. For a review rule, use Review-Rule Pruning |
 | Local maintenance skill exists | Compare to Docks plugin skill | Keep only if it adds project-specific rules |
 
 The four prompt-style rows above are spot checks for a skill already being
@@ -152,6 +152,33 @@ https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/prompt-a
   write.
 - If a skill's `references/` changed, treat that as a skill meaning change even
   when `SKILL.md` itself is unchanged.
+
+## Review-Rule Pruning
+
+A review rule is a check that a reviewer applies to a diff. It is a row of
+the `## Triggered checks` table in a `REVIEW.md`, or a rule in the text of a
+reviewer skill or agent. Each rule costs reviewer attention on every diff, so
+remove a rule that no longer finds defects.
+
+1. **List the rules.** Record each rule or triggered check with its id, its
+   trigger, and its source (the issues or pull requests that it cites).
+2. **Flag candidates.** Flag a rule when one of these conditions is true:
+   - Its trigger matched no diff in the recent reviews that the project keeps,
+     such as plan-issue review comments or pull-request reviews.
+   - Its source is a single change. This is the one-incident row of Drift
+     Detection, applied to review rules.
+   - A validator, linter, type check, or test now enforces the same check.
+3. **Measure the removal.** A removal is a hypothesis. When the project has a
+   reviewer benchmark, run an ablation: remove the rule or rule group, run the
+   benchmark, and compare the result with the baseline run. Propose the
+   removal only when the result is not worse.
+4. **Keep unmeasured rules.** When no benchmark exists, keep the flagged rule.
+   Add a dated note to it that gives the flag reason, for example
+   `prune candidate 2026-11-17: a lint rule enforces this check`.
+5. **Ask for approval.** Print the flagged rules as your final message, and
+   stop. For each rule, give the evidence and the proposed action: remove, or
+   keep with a dated note. Remove only the rules that the user approves, one
+   decision for each rule.
 
 ## Local Skill-Maintenance Cleanup
 

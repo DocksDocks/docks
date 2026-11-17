@@ -1,5 +1,18 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git *)",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/verify-gate.mjs\"",
+            "statusMessage": "verify-gate: checking commit trailer"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "apply_patch|Write|Edit",

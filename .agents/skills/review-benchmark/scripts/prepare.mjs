@@ -1,27 +1,31 @@
 #!/usr/bin/env node
-// prepare.mjs builds review benchmark workspaces, the reviewer, self-review, and fixer agent files of the
-// configurations, and the rounds of review loops.
+// prepare.mjs builds review benchmark workspaces, the reviewer, self-review, fixer, and manager agent files of the
+// configurations, the rounds of review loops, and the manager prompts of review rounds.
 //
 //   node prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
 //                           [--variants <name>=<git-ref>[,...] [--full-only <name,...>]
 //                            [--contract-overlay <name,...>]] [--candidate-contract-overlay]
+//                           [--self-review-roots <name>=<git-ref>|<name>=worktree[,...]]
 //                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
+//                           [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
 //                           [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
 //   node prepare.mjs case --case <case.json> --arms <B0,C3,...> --runs <k> --out <ws> [--configs <list>]
 //                         [--keys <dir>] [--loop] [--extend] [--project <dir>]
 //   node prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>]
 //                         [--fixer-patch <file>]
+//   node prepare.mjs manager --ws <ws>
 //   node prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
 //   node prepare.mjs clean [--project <dir>]
 //
-// ../SKILL.md describes the case schema, the configurations, the arms, the workspace layout, and the review loop.
-// The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun.
+// ../SKILL.md describes the case schema, the configurations, the arms, the workspace layout, the review loop, and the
+// manager stage. The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
+  BASE_INSTRUCTIONS,
   CONTRACT_COPY,
   caseFilePath,
   FIXER_DIR,
@@ -30,6 +34,9 @@ import {
   JUDGE_TREES,
   loadJudgments,
   loopEnds,
+  MANAGER_DIR,
+  MANAGER_NAME,
+  MANAGER_VERDICTS,
   readKnown,
   reviewerPluginRoots,
   runLabel,
@@ -40,6 +47,15 @@ import {
 const SCRIPT_PATH = fs.realpathSync(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.dirname(path.dirname(SCRIPT_PATH));
 const PLUGIN_PATH = 'plugins/plan-lifecycle';
+// The plugin of the code-review and code-clarity skills that the self-review agent loads.
+const SKILLS_PLUGIN_PATH = 'plugins/docks';
+// The skills of the self-review agent. A self-review root (`agents --self-review-roots`) holds both.
+const SELF_REVIEW_SKILLS = ['code-review', 'code-clarity'];
+// The value of `--self-review-roots` that takes the skills of the working tree instead of a git ref.
+const WORKTREE_ROOT = 'worktree';
+// The instruction files of the merge base that a code reviewer reads (plan-contract.md, Code-review rounds), in the
+// order of the MANIFEST lines of the base-instructions folder.
+const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'];
 // The plan contract of plan-lifecycle. A variant of `agents --contract-overlay` changes it (see writeContractCopy).
 const CONTRACT_PATH = `${PLUGIN_PATH}/skills/productivity/plan-manager/references/plan-contract.md`;
 const PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
@@ -48,8 +64,9 @@ const PLUGIN_COPY_MARKER = '.review-bench-ref';
 const RUNTIME_AGENT_DIRS = { omp: '.omp/agents', claude: '.claude/agents' };
 // Every file and setting that `agents` writes starts with this prefix, so `clean` finds them without a record.
 const GENERATED_PREFIX = 'review-bench-';
-// The list of configurations and the fixer setting that `agents` wrote, `{ configs, fixer }`, in the agent folder of
-// the runtime. `case` and `probe` read it; `case --loop` records the fixer setting in each round-1 meta.json.
+// The list of configurations and the fixer and manager settings that `agents` wrote, `{ configs, fixer, manager }`, in
+// the agent folder of the runtime. `case` and `probe` read it; `case --loop` records the fixer setting in each round-1
+// meta.json, and `case` records the manager setting in the meta.json of each run (round 1 of a loop).
 const CONFIGS_FILE = `${GENERATED_PREFIX}configs.json`;
 // omp reads this JSON file and merges `.omp/config.yml` over it, so the script edits its own entries without a
 // YAML parser and leaves the user's config files unchanged.
@@ -89,6 +106,22 @@ The task names a repository snapshot root, a plan export, the review findings of
 
 Do not change files under the snapshot root, dispatch another agent, or ask a question.
 `;
+// The manager agent reproduces or rejects each finding of a review round with evidence, as the plan manager of a
+// production round does before it repairs. It only measures that stage: its verdicts do not change the fix step of a
+// loop. By default it gets the model, effort, and tier of the fixer, and it has one setting for every configuration.
+const MANAGER_AGENT = `${GENERATED_PREFIX}manager`;
+const MANAGER_SOURCE = `---
+name: ${MANAGER_AGENT}
+description: Reproduces or rejects each finding of one review round in a repository snapshot and writes one verdict line per finding. Only for the review replays that prepare.mjs sets up.
+tools: Read, Glob, Grep, Write, Bash
+---
+
+# Review manager
+
+The task names a repository snapshot root, a plan export, the review findings of one round, and a verdict file. Follow the rules of the task: try to reproduce each finding in the snapshot, write one verdict line with evidence per finding to the verdict file, and reply with the same lines.
+
+Do not change files under the snapshot root, repair a finding, dispatch another agent, or ask a question.
+`;
 // plan-contract.md, Code-review rounds: a round is a panel round when its full diff changes this many lines or more.
 const PANEL_LINES = 50;
 // A review round completed when every block has one of these verdicts. `loop` refuses a round that did not complete
@@ -107,6 +140,9 @@ const ROUND_FOLDER = /^round-([1-9]\d*)$/;
 // A variant is a plan-reviewer prompt at a git ref (`agents --variants`). Its name gives its arm `V<name>` and its
 // agents, so it holds only lower-case letters and digits; an arm folder name then splits at its first hyphen.
 const VARIANT_NAME = /^[a-z0-9]+$/;
+// A self-review root (`agents --self-review-roots`) gives its arms `S1<name>` and `S3<name>`, so its name follows the
+// rule of a variant name.
+const SELF_REVIEW_ROOT_ARM = /^S([13])([a-z0-9]+)$/;
 
 export const LENSES = ['correctness', 'spec-and-tests', 'text-and-safety'];
 
@@ -239,32 +275,41 @@ export function agentName(side, role, config) {
   return `${GENERATED_PREFIX}${side}-${role}-${config}`;
 }
 
-export function selfReviewAgent(config) {
-  return `${SELF_REVIEW_AGENT_PREFIX}${config}`;
+// The self-review agent of a configuration. With `root`, the name of a self-review root, it is the agent that reads
+// the code-review and code-clarity skills of that root (see selfReviewSource).
+export function selfReviewAgent(config, root) {
+  return root ? `${SELF_REVIEW_AGENT_PREFIX}${root}-${config}` : `${SELF_REVIEW_AGENT_PREFIX}${config}`;
 }
 
 // The agent of `side` at a configuration: the reviewer agent of the side for the role of the case kind, or the
-// self-review agent.
-export function armAgent(kind, side, config) {
-  if (side === SELF_REVIEW) return selfReviewAgent(config);
+// self-review agent (of the self-review root `root`, when the arm has one).
+export function armAgent(kind, side, config, root) {
+  if (side === SELF_REVIEW) return selfReviewAgent(config, root);
   return agentName(side, isPlanKind(kind) ? 'plan' : 'code', config);
 }
 
 // The side of the agents of a variant, `variant-<name>`.
 const variantSide = (name) => `variant-${name}`;
 
-// The arm `arm` of a case kind, or undefined when the kind has no such arm: an arm of ARMS, or on a plan kind the arm
-// `V<name>` of a variant of `variants` (the list that `agents --variants` wrote). A variant arm runs the variant agent
-// in full mode. On a plan-delta case, it runs in delta mode, unless the variant has no delta mode (`--full-only`). The
-// arm of a variant of `--contract-overlay` also has `contractDiff`, the contract change of the variant, and so has a
-// candidate arm of a code kind when `agents --candidate-contract-overlay` recorded `candidateContractDiff`.
-function armSpec(kind, arm, variants, candidateContractDiff) {
+// The arm `arm` of a case kind, or undefined when the kind has no such arm: an arm of ARMS, on a plan kind the arm
+// `V<name>` of a variant of `variants` (the list that `agents --variants` wrote), or on a code case the arm `S1<name>`
+// or `S3<name>` of a self-review root of `selfReviewRoots` (the list that `agents --self-review-roots` wrote). A
+// variant arm runs the variant agent in full mode. On a plan-delta case, it runs in delta mode, unless the variant has
+// no delta mode (`--full-only`). The arm of a variant of `--contract-overlay` also has `contractDiff`, the contract
+// change of the variant, and so has a candidate arm of a code kind when `agents --candidate-contract-overlay` recorded
+// `candidateContractDiff`. A self-review root arm is the arm S1 or S3 with `root`, the name of the root.
+function armSpec(kind, arm, { variants = [], candidateContractDiff, selfReviewRoots = [] } = {}) {
   if (Object.hasOwn(ARMS[kind], arm)) {
     const spec = ARMS[kind][arm];
     const codeKind = kind === 'code' || kind === 'code-delta';
     return candidateContractDiff && codeKind && spec.side === 'candidate'
       ? { ...spec, contractDiff: candidateContractDiff }
       : spec;
+  }
+  const rootArm = kind === 'code' ? SELF_REVIEW_ROOT_ARM.exec(arm) : null;
+  if (rootArm) {
+    const root = selfReviewRoots.find((item) => item.name === rootArm[2]);
+    return root ? { ...ARMS.code[`S${rootArm[1]}`], root: root.name } : undefined;
   }
   const variant = isPlanKind(kind) ? variants.find((item) => `V${item.name}` === arm) : undefined;
   if (!variant) return undefined;
@@ -354,6 +399,11 @@ export function validateCase(caseData) {
   if (Object.hasOwn(caseData, 'show_benchmark') && typeof caseData.show_benchmark !== 'boolean') {
     fail(`case ${id}: show_benchmark must be true or false`);
   }
+  // A control case is a change that landed without a later revert or defect fix. It has no known defect, so the report
+  // gives its findings in rows of their own (see score.mjs controlSection).
+  if (Object.hasOwn(caseData, 'control') && typeof caseData.control !== 'boolean') {
+    fail(`case ${id}: control must be true or false`);
+  }
   if (split === 'heldout') {
     if (Object.hasOwn(caseData, 'known')) fail(`held-out case ${id} lists known defects; move them to ${id}.key.json`);
     // A reviewer can search the checkout, and the protected decisions show what the case tests, so they stay with the
@@ -362,6 +412,7 @@ export function validateCase(caseData) {
       fail(`held-out case ${id} lists protected decisions; move them to ${id}.key.json`);
   } else if (split === 'dev') {
     if (!Array.isArray(caseData.known)) fail(`dev case ${id} needs a known array (it may be empty)`);
+    if (caseData.control && caseData.known.length) fail(`control case ${id} must have an empty known array`);
     validateFixFields(id, caseData.known);
   } else {
     fail(`case ${id}: split must be dev or heldout`);
@@ -388,6 +439,7 @@ function reviewPaths(dir, plan, hasRejection) {
   return {
     snapshot: at('snapshot'),
     plan,
+    baseInstructions: at(BASE_INSTRUCTIONS),
     fullDiff: at('full.diff'),
     focus: Object.fromEntries(LENSES.map((lens) => [lens, at(`focus-${lens}.diff`)])),
     deltaDiff: at('delta.diff'),
@@ -408,13 +460,17 @@ export function workspacePaths(caseDir, caseData) {
 // round number that the prompt names: the case round, or a later round of a loop. `paths.contract` is set only for a
 // run of a variant with a contract overlay: it is the copy of the plan contract in the run folder (see
 // writeContractCopy), so the rules send the reviewer to that copy for the plan contract and to the snapshot root for
-// every other repository file.
+// every other repository file. A code review also names the base-instructions folder of its round (see
+// writeBaseInstructions), as the plan manager names it in a production dispatch.
 export function buildOpening(caseData, paths, round = caseData.round) {
-  const review = isPlanKind(caseData.kind) ? 'Plan review' : 'Code review';
+  const code = !isPlanKind(caseData.kind);
+  const review = code ? 'Code review' : 'Plan review';
   const ownFiles = 'Your own instruction files are your agent file and the files of your own skill folder.';
   const readRule = paths.contract
     ? `- ${ownFiles} Read the plan contract at ${paths.contract}. Read every other repository file, including other skills, under the snapshot root.`
     : `- ${ownFiles} Read every other file, including the plan contract and other skills, under the snapshot root.`;
+  const baseRule =
+    '- The base instructions folder holds the `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` files of the merge base: the files of the repository root and of each parent folder of a changed path. Its `MANIFEST` file lists each checked path as `copied <path>` or `absent <path>`. Take these instruction files only from that folder.';
   return [
     `${review} of plan issue #${caseData.issue}, round ${round}.`,
     '',
@@ -422,11 +478,13 @@ export function buildOpening(caseData, paths, round = caseData.round) {
     `Round: ${round}`,
     `Repository snapshot root: ${paths.snapshot}`,
     `Plan export: ${paths.plan}`,
+    ...(code ? [`Base instructions: ${paths.baseInstructions}`] : []),
     '',
     'Rules:',
     '- The snapshot root holds the repository files for this review, without Git history. Take repository evidence only from files under the snapshot root and the files that this message names. You may read official documentation on the web, but no page of the DocksDocks/docks repository. You may also read your own agent instructions and the skill and reference files that those instructions tell you to load.',
     '- The working directory is not the snapshot, so give every Read, Grep, and Glob call an absolute path under the snapshot root or the absolute path of a file that this message names.',
     readRule,
+    ...(code ? [baseRule] : []),
     '- Do not read `skill://code-reviewer` or `skill://plan-reviewer`. These URIs resolve to another version of the reviewer instructions than your own.',
     '- Do not fetch GitHub issues or pull requests. The plan export is the plan issue body.',
     '- Run no commands.',
@@ -436,11 +494,14 @@ export function buildOpening(caseData, paths, round = caseData.round) {
   ].join('\n');
 }
 
+// The first line of the tail of a reviewer prompt: the round mode. managerInputs reads it back.
+const modeLine = (mode) => `Round mode: ${mode}.`;
+
 // The mode's part of the prompt. Candidate skills define the modes and lenses, so a candidate tail only names them. A
 // panel tail of another prompt shape describes the lens. `side` is the prompt shape of the arm: its `prompt` field, or
 // else its agent side.
 export function buildTail({ caseData, side, mode, round, reviewer, paths }) {
-  const lines = [`Round mode: ${mode}.`];
+  const lines = [modeLine(mode)];
   if (mode === 'full') {
     if (!isPlanKind(caseData.kind)) lines.push(`Full diff: ${paths.fullDiff}`);
   } else if (mode === 'panel') {
@@ -481,7 +542,7 @@ export function buildPromptFile({
   if (word) {
     fail(`the ${arm} ${reviewer} prompt of case ${caseData.id} contains "${word[0]}"; choose an --out path without it`);
   }
-  return `agent: ${armAgent(caseData.kind, side, config)}\n\n${prompt}`;
+  return `agent: ${armAgent(caseData.kind, side, config, spec.root)}\n\n${prompt}`;
 }
 
 // The mode of a code-review round of a loop with the round policy `policy` (LOOP_POLICIES), by the rules of
@@ -526,10 +587,15 @@ export function renderAgent(source, { name, model, effortKey, effort, pluginRoot
   return `---\n${lines.join('\n')}\n---\n${body}`.replaceAll(PLUGIN_ROOT_TOKEN, pluginRoot);
 }
 
-// The self-review agent `name` of a configuration, in the agent file `file`. It loads the docks code-review and
-// code-clarity skills through `skill://` URIs and has no plugin root, so its text names its own agent file: score.mjs
-// finds that file in the system prompt of the transcript and lets the agent read it (see readScope).
-function selfReviewSource(name, file) {
+// The self-review agent `name` of a configuration, in the agent file `file`. By default it loads the docks
+// code-review and code-clarity skills through `skill://` URIs. With `skillFiles`, the SKILL.md file of each skill in a
+// self-review root (`agents --self-review-roots`), it reads these files and their folders instead. It has no plugin
+// root, so its text names its own agent file: score.mjs finds that file and the skill files in the system prompt of
+// the transcript and lets the agent read them (see readScope).
+function selfReviewSource(name, file, skillFiles) {
+  const load = skillFiles
+    ? `1. Read the code-review skill at \`${skillFiles['code-review']}\` and the code-clarity skill at \`${skillFiles['code-clarity']}\`. Read their references only in the folders of these two files. Do not load \`skill://code-review\` or \`skill://code-clarity\`: these URIs resolve to another version of the skills.`
+    : '1. Load `skill://code-review` and `skill://code-clarity`. Read these skills and their references only through `skill://` URIs.';
   return `---
 name: ${name}
 description: Reviews a candidate diff with the docks code-review and code-clarity skills, as the plan manager does before code-review round 1, and returns one code-review block. Only for the review replays that prepare.mjs sets up.
@@ -540,7 +606,7 @@ tools: Read, Glob, Grep
 
 You are the self-review of the plan manager before code-review round 1. Your agent file is \`${file}\`.
 
-1. Load \`skill://code-review\` and \`skill://code-clarity\`. Read these skills and their references only through \`skill://\` URIs.
+${load}
 2. Apply both skills to the candidate diff that the task names. The plan export is the spec of the Spec axis of code-review.
 3. Do only the review steps of the skills. Do not write or edit a file, apply a fix, run a command, dispatch another agent, or ask a question.
 4. Follow the rules of the task. When the task names a lens, report only the findings of that lens.
@@ -657,6 +723,75 @@ function writeFocusDiffs(repo, hidden, base, tree, paths, full) {
   }
 }
 
+// commitFileText follows at most this many symbolic links, as `base_blob` of plan-manager phase 6 does.
+const MAX_LINK_DEPTH = 8;
+
+// The tree path that a link in the folder `folder` (`.` for the root) with the relative target `target` names: empty
+// and `.` segments drop, and `..` drops the segment before it. A path that leaves the tree or names the root is null.
+function linkPath(folder, target) {
+  const out = [];
+  for (const segment of `${folder}/${target}`.split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment !== '..') out.push(segment);
+    else if (out.length) out.pop();
+    else return null;
+  }
+  return out.length ? out.join('/') : null;
+}
+
+// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. It reads the tree as
+// `base_blob` of plan-manager phase 6 and of docks code-review does: `git ls-tree` lists one path at a time, and a
+// symbolic link (mode 120000, for example `CLAUDE.md` -> `AGENTS.md`) resolves from the folder of the link. A missing
+// path, a folder, an absolute, empty, or outside-tree target, a path through a folder link (ls-tree does not enter
+// it), and a chain of more than MAX_LINK_DEPTH links give null. A git command that fails throws, so a git failure is
+// never an absent file.
+function commitFileText(repo, commit, file) {
+  let current = file;
+  for (let links = 0; ; links += 1) {
+    const listing = git(repo, ['--literal-pathspecs', 'ls-tree', '--full-tree', commit, '--', current]);
+    const [mode, type, oid] = listing.toString().trim().split(/\s+/);
+    if (type !== 'blob') return null;
+    if (mode !== '120000') return git(repo, ['cat-file', 'blob', oid]);
+    if (links >= MAX_LINK_DEPTH) return null;
+    // A shell command substitution drops the trailing newlines of the target, so this drops them too.
+    const target = git(repo, ['cat-file', 'blob', oid]).toString().replace(/\n+$/, '');
+    if (target.startsWith('/')) return null;
+    current = linkPath(path.posix.dirname(current), target);
+    if (current === null) return null;
+  }
+}
+
+// Writes the base-instructions folder of a review into `dir` (see the base-instructions contract in ../SKILL.md,
+// Workspace): for the repository root and each parent folder of a path that changes from `base` to `tree`, or from
+// `deltaFrom` to `tree` when the round has a delta, a copy of each instruction file (INSTRUCTION_FILES) that the
+// commit `base` holds, under its own path, and the file MANIFEST with one line per checked path, `copied <path>` or
+// `absent <path>`. The delta paths matter: a file that the branch added and a later repair deleted is in the delta
+// diff but not in the full diff. The changed paths leave out the paths of `hidden`, as the diffs do.
+function writeBaseInstructions(repo, hidden, base, tree, dir, deltaFrom = null) {
+  const folders = new Set(['']);
+  const changed = new Set(changedPaths(repo, hidden, base, tree));
+  if (deltaFrom) for (const file of changedPaths(repo, hidden, deltaFrom, tree)) changed.add(file);
+  for (const file of changed) {
+    const parents = file.split('/').slice(0, -1);
+    for (let depth = 1; depth <= parents.length; depth += 1) folders.add(parents.slice(0, depth).join('/'));
+  }
+  const out = path.join(dir, BASE_INSTRUCTIONS);
+  fs.rmSync(out, { recursive: true, force: true });
+  fs.mkdirSync(out, { recursive: true });
+  const manifest = [];
+  for (const folder of [...folders].sort()) {
+    for (const name of INSTRUCTION_FILES) {
+      const file = folder ? `${folder}/${name}` : name;
+      const text = commitFileText(repo, base, file);
+      manifest.push(`${text === null ? 'absent' : 'copied'} ${file}`);
+      if (text === null) continue;
+      fs.mkdirSync(path.join(out, ...folder.split('/')), { recursive: true });
+      fs.writeFileSync(path.join(out, ...file.split('/')), text);
+    }
+  }
+  fs.writeFileSync(path.join(out, 'MANIFEST'), `${manifest.join('\n')}\n`);
+}
+
 // Writes the files of the index, except the paths that `hidden` leaves out, to `snapshotDir`.
 function checkoutSnapshot(repo, hidden, env, snapshotDir) {
   const files = git(repo, ['ls-files', '-z', '--', ...hidden], { env })
@@ -727,14 +862,16 @@ function parseList(value, option, allowed) {
   return items;
 }
 
-// The arms of --arms. A plan kind also takes the arm `V<name>` of each variant of `variants` (see armSpec).
-function parseArms(value, kind, variants) {
+// The arms of --arms. A plan kind also takes the arm `V<name>` of each variant of `lists.variants`, and a code kind
+// the arms `S1<name>` and `S3<name>` of each self-review root of `lists.selfReviewRoots` (see armSpec).
+function parseArms(value, kind, lists) {
   if (!value) fail('case needs --arms, for example --arms B0,C3');
   const arms = parseList(value, '--arms');
   for (const arm of arms) {
-    if (!armSpec(kind, arm, variants)) {
-      const variantArms = isPlanKind(kind) ? variants.map((variant) => `V${variant.name}`) : [];
-      const known = [...Object.keys(ARMS[kind]), ...variantArms];
+    if (!armSpec(kind, arm, lists)) {
+      const variantArms = isPlanKind(kind) ? lists.variants.map((variant) => `V${variant.name}`) : [];
+      const rootArms = kind === 'code' ? lists.selfReviewRoots.flatMap(({ name }) => [`S1${name}`, `S3${name}`]) : [];
+      const known = [...Object.keys(ARMS[kind]), ...variantArms, ...rootArms];
       fail(`arm ${arm} does not apply to ${kind} cases; use ${known.join(', ')}`);
     }
   }
@@ -797,7 +934,8 @@ function readReviewed(repo, env, { caseData, commits, sources }) {
 }
 
 // Writes the case files, the snapshot, and the diffs. The workspace gets the inputs under fixed names, so no file of
-// the key folder lands there under its own name. For a code case, the result is the reviewed tree, else null.
+// the key folder lands there under its own name. A code case also gets its base-instructions folder from the case base
+// commit. For a code case, the result is the reviewed tree, else null.
 function buildCaseWorkspace({ repo, caseData, commits, hidden, casePath, sources, caseDir, paths }) {
   fs.mkdirSync(caseDir, { recursive: true });
   fs.copyFileSync(casePath, paths.caseFile);
@@ -813,6 +951,9 @@ function buildCaseWorkspace({ repo, caseData, commits, hidden, casePath, sources
       const full = treeDiff(repo, hidden, commits.base, tree);
       fs.writeFileSync(paths.fullDiff, full);
       writeFocusDiffs(repo, hidden, commits.base, tree, paths, full);
+      // A code-delta case also takes the parent folders of the paths of its delta diff (commits.delta_base is set only
+      // for that kind).
+      writeBaseInstructions(repo, hidden, commits.base, tree, caseDir, commits.delta_base);
       if (caseData.kind === 'code-delta') {
         fs.writeFileSync(paths.deltaDiff, treeDiff(repo, hidden, commits.delta_base, tree));
       }
@@ -877,18 +1018,20 @@ function checkExtend(casePath, caseDir, paths) {
 
 // With --loop, the arm gives the side of the reviewer agent and the round policy of the loop, so two arms of one side
 // run different loops. A self-review arm runs one review before code-review round 1, so it has no policy and takes no
-// --loop.
-function checkLoopArms(kind, arms) {
-  const selfReview = arms.filter((arm) => !ARMS[kind][arm].policy);
+// --loop. `specOf` gives the arm of a name (see armSpec).
+function checkLoopArms(arms, specOf) {
+  const selfReview = arms.filter((arm) => !specOf(arm).policy);
   if (selfReview.length) fail(`${selfReview.join(', ')} run one self-review before round 1; leave them out of --loop`);
 }
 
 // The `case` command. `repo` is the git repository of the case commits. With `loop`, each run starts a review loop
 // in `run-<k>/round-1/`, whose mode the round policy of the arm picks, and the meta.json of the run records that
 // policy. `prepareLoop` builds the later rounds with the policy that this meta.json records. With `extend`, the case
-// folder exists: `case` adds the folders of the arms and keeps the snapshot, the diffs, and every other arm folder.
-// Each run of a variant with a contract overlay gets its copy of the plan contract (see writeContractCopy), and its
-// meta.json records whether the contract change applied (`contractOverlay`).
+// folder exists: `case` adds the folders of the arms and keeps the snapshot, the diffs, and every other arm folder; it
+// writes the base-instructions folder of a code case only when the case folder has none. Each run of a variant with a
+// contract overlay gets its copy of the plan contract (see writeContractCopy), and its meta.json records whether the
+// contract change applied (`contractOverlay`). When the list of configurations has a manager setting, the meta.json
+// of each run (of round 1 of a loop) records it as `managerConfig`, which marks the run for the manager stage.
 export function prepareCase(options, repo) {
   if (!options.case) fail('case needs --case <path to case.json>');
   if (!options.out) fail('case needs --out <workspace dir>');
@@ -900,10 +1043,13 @@ export function prepareCase(options, repo) {
   if (options.loop && caseData.kind !== 'code') {
     fail(`--loop takes code cases; ${caseData.id} is a ${caseData.kind} case`);
   }
-  // The list of configurations names the variants, which give the variant arms of the plan kinds.
-  const { configs, fixer, variants, candidateContractDiff, file: configsFile } = selectConfigs(options, repo);
-  const arms = parseArms(options.arms, caseData.kind, variants);
-  if (options.loop) checkLoopArms(caseData.kind, arms);
+  // The list of configurations names the variants and the self-review roots, which give the variant arms of the plan
+  // kinds and the self-review root arms of the code kind.
+  const lists = selectConfigs(options, repo);
+  const { configs, fixer, manager, variants, selfReviewRoots, candidateContractDiff, file: configsFile } = lists;
+  const specOf = (arm) => armSpec(caseData.kind, arm, { variants, candidateContractDiff, selfReviewRoots });
+  const arms = parseArms(options.arms, caseData.kind, lists);
+  if (options.loop) checkLoopArms(arms, specOf);
   // A candidate contract overlay reaches only the prompts that case writes; the later rounds of a loop would review
   // without the contract copy, so a loop of a candidate arm cannot measure the change.
   const overlaid = candidateContractDiff ? arms.filter((arm) => ARMS[caseData.kind][arm]?.side === 'candidate') : [];
@@ -933,20 +1079,25 @@ export function prepareCase(options, repo) {
   const runMetas = [];
   const loopModes = new Map();
   const overlays = new Map();
+  const managerConfig = manager ? { managerConfig: manager } : {};
+  // With --extend, a code case folder of an earlier version has no base-instructions folder; this call then writes it
+  // and removes it again when it stops.
+  const addBase = options.extend && !isPlanKind(caseData.kind) && !fs.existsSync(paths.baseInstructions);
   try {
     let tree = null;
     if (!options.extend) {
       tree = buildCaseWorkspace({ repo, caseData, commits, hidden, casePath, sources, caseDir, paths });
-    } else if (options.loop) {
+    } else if (options.loop || addBase) {
       tree = withIndex(caseDir, (env) => {
         readReviewed(repo, env, { caseData, commits, sources });
         return writeTree(repo, env);
       });
     }
+    if (addBase) writeBaseInstructions(repo, hidden, commits.base, tree, caseDir, commits.delta_base);
     const fullLines = options.loop ? diffSize(repo, hidden, commits.base, tree) : null;
     for (const config of configs) {
       for (const arm of arms) {
-        const spec = armSpec(caseData.kind, arm, variants, candidateContractDiff);
+        const spec = specOf(arm);
         const { policy, mode: armMode, reviewers: armReviewers, contractDiff } = spec;
         const mode = options.loop ? roundMode({ policy, round: 1, fullLines }) : armMode;
         const reviewers = options.loop ? MODE_REVIEWERS[mode] : armReviewers;
@@ -962,16 +1113,16 @@ export function prepareCase(options, repo) {
           const runDir = path.join(caseDir, armFolder(arm, config.name), `run-${run}`);
           if (options.loop) {
             runMetas.push({ file: path.join(runDir, 'meta.json'), meta: { policy } });
-            const meta = { config, fixerConfig: fixer, mode, fullLines };
+            const meta = { config, fixerConfig: fixer, ...managerConfig, mode, fullLines };
             runFolders.push({ dir: path.join(runDir, 'round-1'), meta, prompts });
           } else if (contractDiff) {
             const contract = path.join(runDir, CONTRACT_COPY);
             const contractOverlay = writeContractCopy(paths.snapshot, contractDiff, contract);
             overlays.set(arm, contractOverlay);
             const runPrompts = promptsFor({ ...paths, contract });
-            runFolders.push({ dir: runDir, meta: { config, contractOverlay }, prompts: runPrompts });
+            runFolders.push({ dir: runDir, meta: { config, ...managerConfig, contractOverlay }, prompts: runPrompts });
           } else {
-            runFolders.push({ dir: runDir, meta: { config }, prompts });
+            runFolders.push({ dir: runDir, meta: { config, ...managerConfig }, prompts });
           }
         }
       }
@@ -979,8 +1130,10 @@ export function prepareCase(options, repo) {
     writeRuns(runFolders);
     for (const { file, meta } of runMetas) writeJson(file, meta);
   } catch (error) {
-    // A failed call removes what it wrote: the case folder, or with --extend only the new arm folders.
-    for (const dir of options.extend ? armDirs : [caseDir]) fs.rmSync(dir, { recursive: true, force: true });
+    // A failed call removes what it wrote: the case folder, or with --extend only the new arm folders and the
+    // base-instructions folder that it added.
+    const written = options.extend ? [...armDirs, ...(addBase ? [paths.baseInstructions] : [])] : [caseDir];
+    for (const dir of written) fs.rmSync(dir, { recursive: true, force: true });
     throw error;
   }
   const prompts = runFolders.reduce((sum, run) => sum + run.prompts.length, 0);
@@ -1022,9 +1175,11 @@ function commitTree(repo, tree, parent, message) {
   return git(repo, args, { env: LOOP_IDENTITY }).toString().trim();
 }
 
-// A code finding as the reviewer wrote it: `- [<severity>] <category> - <locator> - <text>`.
+// A finding as the reviewer wrote it: `- [<severity>] <category> - <locator> - <text>` for a code finding, and
+// `- <kind> - <locator> - <text>` for a plan finding, which has no severity.
 function findingLine({ severity, category, locator, text }) {
-  return `- [${severity}] ${[category, locator, text].filter(Boolean).join(' - ')}`;
+  const fields = [category, locator, text].filter(Boolean).join(' - ');
+  return severity ? `- [${severity}] ${fields}` : `- ${fields}`;
 }
 
 // The comment of a round, as the manager posts it: the blocks in reviewer order, each without trailing whitespace,
@@ -1326,6 +1481,7 @@ export function prepareLoop(options, repo) {
       const full = treeDiff(repo, hidden, base, tree);
       fs.writeFileSync(paths.fullDiff, full);
       if (nextMode === 'panel') writeFocusDiffs(repo, hidden, base, tree, paths, full);
+      writeBaseInstructions(repo, hidden, base, tree, nextDir, reviewedTree);
       fs.writeFileSync(paths.deltaDiff, treeDiff(repo, hidden, reviewedTree, tree));
       fs.writeFileSync(paths.previousReview, roundComment(roundDir, blocks));
       if (paths.rejection) {
@@ -1367,9 +1523,142 @@ export function prepareLoop(options, repo) {
   return nextDir;
 }
 
-// Extracts plugins/plan-lifecycle at `sha` into `dir`: the baseline copy or the copy of a variant. A marker file
-// records the commit, so a later call reuses the copy or replaces a copy of another commit.
-function extractPlugin(repo, sha, dir) {
+// A block holds a review with one of these verdicts (see score.mjs REVIEW_VERDICTS). The manager stage takes a round
+// only when each of its blocks holds a review.
+const REVIEWED = new Set(['pass', 'repair', 'fixes-required']);
+
+// The prompt of the manager of one review round, which lists each finding of the round with its id. Like a reviewer
+// prompt, line 1 names the agent. `inputs` are the lines that name the reviewed inputs of the round.
+function managerPrompt({ round, inputs, findings, verdictFile }) {
+  return [
+    `agent: ${MANAGER_AGENT}`,
+    '',
+    `Reproduce or reject each finding of review round ${round}.`,
+    '',
+    ...inputs,
+    `Verdict file: ${verdictFile}`,
+    ...findings.map((finding) => `Finding ${finding.id}: ${findingLine(finding)}`),
+    '',
+    'Rules:',
+    '- The snapshot root holds the reviewed repository files, without Git history. Take evidence only from files under the snapshot root, the files that this message names, and official documentation on the web. Do not open any page of the DocksDocks/docks repository.',
+    '- For each finding, try to reproduce the claim. Read the code or the plan at its locator and trace the claim. When a command shows the fault, run it in a scratch copy outside the snapshot root.',
+    '- Give `reproduced` when the snapshot shows the defect. Give `rejected` when the claim is false in the snapshot, when the plan records the behavior as intended, or when the finding names no defect.',
+    '- Give evidence for each verdict: a file and line, a plan section, a command and its output, or a documentation URL.',
+    '- Do not change, add, or delete files under the snapshot root. Do not repair a finding.',
+    '- Do not fetch GitHub issues or pull requests.',
+    '- Write one line per finding to the verdict file, in the order of the list: the finding id, a colon, `reproduced` or `rejected`, a dash, and the evidence. For example: `<finding id>: rejected - src/a.mjs:12 already checks the empty list.`',
+    '- Reply with the same lines.',
+    '',
+  ].join('\n');
+}
+
+// The lines of a manager prompt that name the reviewed inputs of a round: the snapshot, the plan export, and the diff
+// and the base-instructions folder that the reviewers of the round had. A delta round also names the delta diff (for
+// a code kind; a plan kind has its plan diff), the previous round comment, and the rejection comment when the round
+// has one, as the delta reviewer had them (see buildTail). Round 1, and a run without round folders, has the inputs
+// in the case folder; a later round of a loop has them in its round folder.
+function managerInputs(caseDir, kind, dir, round) {
+  const inputDir = round > 1 ? dir : caseDir;
+  const hasRejection = fs.existsSync(path.join(inputDir, 'rejection.md'));
+  const paths = reviewPaths(inputDir, path.join(caseDir, 'plan.md'), hasRejection);
+  const lines = [`Repository snapshot root: ${paths.snapshot}`, `Plan export: ${paths.plan}`];
+  const diff = isPlanKind(kind) ? path.join(caseDir, 'plan.diff') : paths.fullDiff;
+  if (fs.existsSync(diff)) lines.push(`${isPlanKind(kind) ? 'Plan diff' : 'Full diff'}: ${diff}`);
+  if (fs.existsSync(paths.baseInstructions)) lines.push(`Base instructions: ${paths.baseInstructions}`);
+  if (deltaRound(dir)) {
+    if (!isPlanKind(kind)) lines.push(`Delta diff: ${paths.deltaDiff}`);
+    lines.push(`Previous round comment: ${paths.previousReview}`);
+    if (paths.rejection) lines.push(`Rejection comment: ${paths.rejection}`);
+  }
+  return lines;
+}
+
+// Tells whether the round in `dir` is a delta round: a reviewer prompt of the round gives the delta mode (see
+// buildTail). A run without round folders records no mode in its meta.json, so the prompts are the one source for
+// every round.
+function deltaRound(dir) {
+  const promptsDir = path.join(dir, 'prompts');
+  if (!fs.existsSync(promptsDir)) return false;
+  return fs
+    .readdirSync(promptsDir)
+    .filter((name) => name.endsWith('.txt'))
+    .some((name) => fs.readFileSync(path.join(promptsDir, name), 'utf8').split('\n').includes(modeLine('delta')));
+}
+
+// The `manager` command. It writes the manager prompt `manager/manager-1.txt` of each review round of the workspace
+// `ws` that has findings in findings.json (a run folder without round folders, or a round folder of a loop): the
+// manager stage of ../SKILL.md. It skips a round whose blocks do not all hold a review (dispatch its reviewers again
+// first) and a run whose meta.json (or round-1/meta.json) records no manager setting (`managerConfig`, see
+// prepareCase), and it names both. A prompt that exists with the same text stays. A prompt whose text changed, for
+// example after a reviewer was dispatched again, is written again, and the verdict file of the earlier prompt goes.
+export function prepareManager(options) {
+  if (!options.ws) fail('manager needs --ws <workspace dir>');
+  const ws = path.resolve(options.ws);
+  const findingsFile = path.join(ws, 'findings.json');
+  if (!fs.existsSync(findingsFile)) fail(`${findingsFile} is missing; run score.mjs findings first`);
+  const doc = readJson(findingsFile);
+  const rounds = new Map();
+  const roundOf = (entry) => {
+    const key = `${entry.case}/${entry.arm}/${entry.run}/${entry.round ?? ''}`;
+    if (!rounds.has(key)) rounds.set(key, { ...entry, blocks: [], findings: [] });
+    return rounds.get(key);
+  };
+  for (const block of doc.blocks) roundOf(block).blocks.push(block);
+  for (const finding of doc.findings) roundOf(finding).findings.push(finding);
+  const counts = { written: 0, unchanged: 0 };
+  const incomplete = [];
+  const unset = new Set();
+  for (const entry of rounds.values()) {
+    if (entry.findings.length === 0) continue;
+    const caseDir = path.join(ws, entry.case);
+    const runDir = path.join(caseDir, entry.arm, entry.run);
+    const dir = entry.round === undefined ? runDir : path.join(runDir, `round-${entry.round}`);
+    const label = path.relative(ws, dir);
+    if (entry.blocks.some((block) => !REVIEWED.has(block.verdict))) {
+      incomplete.push(label);
+      continue;
+    }
+    const metaOf = (file) => (fs.existsSync(file) ? readJson(file) : {});
+    const managed =
+      metaOf(path.join(runDir, 'meta.json')).managerConfig ??
+      metaOf(path.join(runDir, 'round-1', 'meta.json')).managerConfig;
+    if (!managed) {
+      unset.add(path.relative(ws, runDir));
+      continue;
+    }
+    const { kind } = readJson(path.join(caseDir, 'case.json'));
+    const managerDir = path.join(dir, MANAGER_DIR);
+    const promptFile = path.join(managerDir, `${MANAGER_NAME}.txt`);
+    const verdictFile = path.join(managerDir, MANAGER_VERDICTS);
+    const text = managerPrompt({
+      round: entry.round ?? 1,
+      inputs: managerInputs(caseDir, kind, dir, entry.round ?? 1),
+      findings: entry.findings,
+      verdictFile,
+    });
+    if (fs.existsSync(promptFile) && fs.readFileSync(promptFile, 'utf8') === text) {
+      counts.unchanged += 1;
+      continue;
+    }
+    fs.mkdirSync(managerDir, { recursive: true });
+    fs.rmSync(verdictFile, { force: true });
+    fs.writeFileSync(promptFile, text);
+    counts.written += 1;
+  }
+  console.log(`manager prompts: ${counts.written} written, ${counts.unchanged} unchanged`);
+  if (incomplete.length) {
+    console.log(`rounds with a block without a review, so no manager prompt: ${incomplete.join(', ')}`);
+  }
+  if (unset.size) {
+    console.log(`runs without a manager setting, so no manager stage: ${[...unset].join(', ')}`);
+  }
+  return counts;
+}
+
+// Extracts the plugin folder `pluginPath` (default plugins/plan-lifecycle) at `sha` into `dir`: the baseline copy,
+// the copy of a variant, or the plugins/docks copy of a self-review root. A marker file records the commit, so a later
+// call reuses the copy or replaces a copy of another commit.
+function extractPlugin(repo, sha, dir, pluginPath = PLUGIN_PATH) {
   const marker = path.join(dir, PLUGIN_COPY_MARKER);
   if (fs.existsSync(marker)) {
     if (fs.readFileSync(marker, 'utf8').trim() === sha) return;
@@ -1381,7 +1670,7 @@ function extractPlugin(repo, sha, dir) {
   const indexFile = path.join(dir, '.git-index');
   const env = { GIT_INDEX_FILE: indexFile };
   try {
-    git(repo, ['read-tree', `${sha}:${PLUGIN_PATH}`], { env });
+    git(repo, ['read-tree', `${sha}:${pluginPath}`], { env });
     git(repo, ['checkout-index', '-a', '-f', `--prefix=${dir}${path.sep}`], { env });
   } finally {
     fs.rmSync(indexFile, { force: true });
@@ -1425,34 +1714,36 @@ function parseTiers(value, runtime) {
   return parseList(value, '--tiers', OMP_TIERS);
 }
 
-// The model, effort, and tier of the fixer agent. The defaults hold for omp; Claude Code needs a model of its own and
-// takes no tier. With omp, a fixer model that takes no service tier (see takesServiceTier) gets the tier null and
-// takes no --fixer-tier.
-function parseFixer(options, runtime, levels) {
-  const model = options['fixer-model'] ?? (runtime === 'omp' ? FIXER_DEFAULTS.model : null);
-  if (!model) fail('Claude Code cannot run the default fixer model; give --fixer-model with --runtime claude');
+// The model, effort, and tier of the helper agent of `role`, `fixer` or `manager`, from the options
+// `--<role>-model`, `--<role>-effort`, and `--<role>-tier` and the setting `defaults` ({ model, effort, tier }). The
+// fixer defaults hold for omp; Claude Code needs a fixer model of its own and takes no tier. The manager defaults are
+// the fixer setting. With omp, a model that takes no service tier (see takesServiceTier) gets the tier null and takes
+// no `--<role>-tier`; another model without a tier option takes the default tier, else the tier of FIXER_DEFAULTS.
+function parseHelper(options, runtime, levels, role, defaults) {
+  const model = options[`${role}-model`] ?? defaults.model;
+  if (!model) fail(`Claude Code cannot run the default ${role} model; give --${role}-model with --runtime claude`);
   if (EFFORT_SUFFIX.test(model)) {
-    fail(`--fixer-model ${model} has an effort suffix; give the effort with --fixer-effort`);
+    fail(`--${role}-model ${model} has an effort suffix; give the effort with --${role}-effort`);
   }
-  const effort = options['fixer-effort'] ?? FIXER_DEFAULTS.effort;
-  if (!levels.includes(effort)) fail(`--fixer-effort does not take ${effort}; use ${levels.join(', ')}`);
+  const effort = options[`${role}-effort`] ?? defaults.effort;
+  if (!levels.includes(effort)) fail(`--${role}-effort does not take ${effort}; use ${levels.join(', ')}`);
   if (runtime === 'claude') {
-    if (options['fixer-tier']) {
-      fail('Claude Code sets no service tier per agent; omit --fixer-tier with --runtime claude');
+    if (options[`${role}-tier`]) {
+      fail(`Claude Code sets no service tier per agent; omit --${role}-tier with --runtime claude`);
     }
     return { model, effort, tier: null };
   }
-  requireProvider('--fixer-model', model);
+  requireProvider(`--${role}-model`, model);
   if (!takesServiceTier(model)) {
-    if (options['fixer-tier']) {
+    if (options[`${role}-tier`]) {
       fail(
-        `--fixer-tier: omp sets no service tier for ${model}, whose provider does not start with openai; omit --fixer-tier`,
+        `--${role}-tier: omp sets no service tier for ${model}, whose provider does not start with openai; omit --${role}-tier`,
       );
     }
     return { model, effort, tier: null };
   }
-  const tier = options['fixer-tier'] ?? FIXER_DEFAULTS.tier;
-  if (!OMP_TIERS.includes(tier)) fail(`--fixer-tier does not take ${tier}; use ${OMP_TIERS.join(', ')}`);
+  const tier = options[`${role}-tier`] ?? defaults.tier ?? FIXER_DEFAULTS.tier;
+  if (!OMP_TIERS.includes(tier)) fail(`--${role}-tier does not take ${tier}; use ${OMP_TIERS.join(', ')}`);
   return { model, effort, tier };
 }
 
@@ -1518,8 +1809,8 @@ function removeGenerated(project) {
 }
 
 // The configurations that --configs names, in its order, or else every configuration that `agents` wrote; the
-// setting of the fixer agent that `agents` wrote (undefined in a file without one); the variants that `agents` wrote
-// (none in a file without them); and the file that holds them.
+// settings of the fixer agent and of the manager agent that `agents` wrote (undefined in a file without one); the
+// variants and the self-review roots that `agents` wrote (none in a file without them); and the file that holds them.
 function selectConfigs(options, repo) {
   const project = projectDir(options, repo);
   const files = Object.values(RUNTIME_AGENT_DIRS)
@@ -1527,12 +1818,12 @@ function selectConfigs(options, repo) {
     .filter((file) => fs.existsSync(file));
   if (files.length === 0) fail(`${project} has no configurations; run prepare.mjs agents with the same --project`);
   if (files.length > 1) fail(`${files.join(' and ')} both exist; run prepare.mjs clean and then agents`);
-  const { configs, fixer, variants = [], candidateContractDiff } = readJson(files[0]);
+  const { configs, fixer, manager, variants = [], selfReviewRoots = [], candidateContractDiff } = readJson(files[0]);
   const known = configs.map((config) => config.name);
   const selected = options.configs
     ? parseList(options.configs, '--configs', known).map((name) => configs[known.indexOf(name)])
     : configs;
-  return { configs: selected, fixer, variants, candidateContractDiff, file: files[0] };
+  return { configs: selected, fixer, manager, variants, selfReviewRoots, candidateContractDiff, file: files[0] };
 }
 
 // The diff of the plan contract from the baseline commit `sha` (at the ref `ref`) to the working tree: the contract
@@ -1617,6 +1908,100 @@ function parseVariants(options, repo, baselineDir) {
   });
 }
 
+// The SKILL.md file of each self-review skill under the plugin folder `files` lists (paths relative to the plugin
+// folder), as `{ <skill>: <path relative to the plugin folder> }`. A skill sits in `skills/<skill>/` or in a category
+// folder `skills/<folder>/<skill>/`. `label` starts the message when a skill is missing.
+function selfReviewSkillFiles(files, label) {
+  const found = {};
+  for (const skill of SELF_REVIEW_SKILLS) {
+    const pattern = new RegExp(`^skills/(?:[^/]+/)?${skill}/SKILL\\.md$`);
+    const file = files.find((name) => pattern.test(name));
+    if (!file) fail(`${label} has no ${SKILLS_PLUGIN_PATH}/skills/[<folder>/]${skill}/SKILL.md`);
+    found[skill] = file;
+  }
+  return found;
+}
+
+// The files under the folder `dir`, as paths relative to it with `/` separators.
+function filesBelow(dir, prefix = '') {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const relative = `${prefix}${entry.name}`;
+    return entry.isDirectory() ? filesBelow(path.join(dir, entry.name), `${relative}/`) : [relative];
+  });
+}
+
+// The self-review roots of --self-review-roots, in its order: one { name, source, sha, dir, skills } per entry
+// `<name>=<git ref>` or `<name>=worktree`. A ref root is the copy of plugins/docks at the ref in the folder
+// `selfreview-<name>-plugin/` next to the baseline copy (`sha` is its commit); the worktree root is plugins/docks of
+// the working tree (`sha` is null). `skills` maps each self-review skill to its SKILL.md file under `dir`. A root gives
+// the arms S1<name> and S3<name> one self-review agent per configuration, whose name must differ from the name of
+// each default self-review agent of `configNames`. Every check runs here, before `agents` changes a file.
+function parseSelfReviewRoots(options, repo, { baselineDir, variants, configNames }) {
+  const value = options['self-review-roots'];
+  if (value === undefined) return [];
+  const entries = value.split(',').map((entry) => entry.trim());
+  if (entries.includes('')) fail(`--self-review-roots has an empty entry: ${value}`);
+  const roots = entries.map((entry) => {
+    const at = entry.indexOf('=');
+    if (at < 1 || at === entry.length - 1) {
+      fail(`--self-review-roots: ${entry} is not <name>=<git ref> or <name>=${WORKTREE_ROOT}`);
+    }
+    const name = entry.slice(0, at);
+    if (!VARIANT_NAME.test(name)) {
+      fail(`--self-review-roots: the root name ${name} has a character other than a-z and 0-9`);
+    }
+    const source = entry.slice(at + 1);
+    const dir =
+      source === WORKTREE_ROOT
+        ? path.join(repo, SKILLS_PLUGIN_PATH)
+        : path.join(path.dirname(baselineDir), `selfreview-${name}-plugin`);
+    return { name, source, dir };
+  });
+  const names = roots.map((root) => root.name);
+  const twice = names.find((name, index) => names.indexOf(name) !== index);
+  if (twice) fail(`--self-review-roots: the root name ${twice} occurs two times`);
+  const clash = roots
+    .flatMap(({ name }) => configNames.map((config) => `${name}-${config}`))
+    .find((agent) => configNames.includes(agent));
+  if (clash)
+    fail(
+      `--self-review-roots: the self-review agent of configuration ${clash} would get the name of a root agent; rename the root`,
+    );
+  const copies = [
+    { label: 'the baseline copy', dir: baselineDir },
+    ...variants.map(({ name, dir }) => ({ label: `the copy of variant ${name}`, dir })),
+  ];
+  for (const root of roots.filter(({ source }) => source !== WORKTREE_ROOT)) {
+    const other = copies.find((copy) => copy.dir === root.dir);
+    if (other)
+      fail(
+        `${other.label} and the copy of self-review root ${root.name} both go to ${root.dir}; give another --baseline-dir`,
+      );
+  }
+  return roots.map((root) => {
+    const label = `self-review root ${root.name} (${root.source})`;
+    let sha = null;
+    let files;
+    if (root.source === WORKTREE_ROOT) {
+      files = filesBelow(path.join(root.dir, 'skills'), 'skills/');
+    } else {
+      sha = resolveCommit(repo, root.source, `self-review root ${root.name}: ref`);
+      const prefix = `${SKILLS_PLUGIN_PATH}/`;
+      files = git(repo, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', sha, '--', `${prefix}skills`])
+        .toString()
+        .split('\0')
+        .filter((file) => file.startsWith(prefix))
+        .map((file) => file.slice(prefix.length));
+    }
+    const relative = selfReviewSkillFiles(files, label);
+    const skills = Object.fromEntries(
+      Object.entries(relative).map(([skill, file]) => [skill, path.join(root.dir, ...file.split('/'))]),
+    );
+    return { ...root, sha, skills };
+  });
+}
+
 export function prepareAgents(options, repo) {
   if (!options['baseline-ref']) fail('agents needs --baseline-ref <git ref of the last release>');
   const runtime = options.runtime ?? 'omp';
@@ -1627,15 +2012,22 @@ export function prepareAgents(options, repo) {
   const efforts = parseList(options.efforts, '--efforts', levels);
   const tiers = parseTiers(options.tiers, runtime);
   const configs = buildConfigs({ models, efforts, tiers });
-  const fixer = parseFixer(options, runtime, levels);
+  const fixer = parseHelper(options, runtime, levels, 'fixer', {
+    model: runtime === 'omp' ? FIXER_DEFAULTS.model : null,
+    effort: FIXER_DEFAULTS.effort,
+    tier: FIXER_DEFAULTS.tier,
+  });
+  const manager = parseHelper(options, runtime, levels, 'manager', fixer);
   const project = projectDir(options, repo);
   let baselineDir;
   if (options['baseline-dir']) baselineDir = path.resolve(options['baseline-dir']);
   else if (options.out) baselineDir = path.resolve(options.out, '..', 'baseline-plugin');
   else fail('agents needs --out <workspace dir> or --baseline-dir <dir> for the baseline plugin copy');
 
-  // The checks of the variants come before the first file changes.
+  // The checks of the variants and the self-review roots come before the first file changes.
   const variants = parseVariants(options, repo, baselineDir);
+  const configNames = configs.map((config) => config.name);
+  const roots = parseSelfReviewRoots(options, repo, { baselineDir, variants, configNames });
   const sha = resolveCommit(repo, options['baseline-ref'], '--baseline-ref');
   const candidateDiff = options['candidate-contract-overlay']
     ? candidateContractDiff(repo, sha, options['baseline-ref'])
@@ -1647,6 +2039,11 @@ export function prepareAgents(options, repo) {
     const overlay = variant.contractDiff ? ', contract overlay' : '';
     const commit = variant.sha.slice(0, 12);
     console.log(`variant ${variant.name}: ${variant.ref} at ${commit}, ${modes}${overlay}, in ${variant.dir}`);
+  }
+  for (const root of roots) {
+    if (root.sha) extractPlugin(repo, root.sha, root.dir, SKILLS_PLUGIN_PATH);
+    const origin = root.sha ? `${root.source} at ${root.sha.slice(0, 12)}` : 'the working tree';
+    console.log(`self-review root ${root.name}: ${origin}, in ${root.dir}`);
   }
   const sources = [];
   for (const role of ['code', 'plan']) {
@@ -1678,26 +2075,29 @@ export function prepareAgents(options, repo) {
       fs.writeFileSync(path.join(agentDir, `${name}.md`), agent);
       if (config.tier !== null) overrides[name] = config.tier;
     }
-    // The self-review agent gets the model, effort, and tier of the reviewer agents of its configuration.
-    const selfReview = selfReviewAgent(config.name);
-    const selfReviewFile = path.join(agentDir, `${selfReview}.md`);
-    const selfReviewText = renderAgent(selfReviewSource(selfReview, selfReviewFile), {
-      name: selfReview,
-      model: config.model,
-      effortKey,
-      effort: config.effort,
-    });
-    fs.writeFileSync(selfReviewFile, selfReviewText);
-    if (config.tier !== null) overrides[selfReview] = config.tier;
+    // Each self-review agent gets the model, effort, and tier of the reviewer agents of its configuration: the default
+    // agent, which loads the skills through `skill://` URIs, and one agent per self-review root.
+    for (const root of [null, ...roots]) {
+      const selfReview = selfReviewAgent(config.name, root?.name);
+      const selfReviewFile = path.join(agentDir, `${selfReview}.md`);
+      const selfReviewText = renderAgent(selfReviewSource(selfReview, selfReviewFile, root?.skills), {
+        name: selfReview,
+        model: config.model,
+        effortKey,
+        effort: config.effort,
+      });
+      fs.writeFileSync(selfReviewFile, selfReviewText);
+      if (config.tier !== null) overrides[selfReview] = config.tier;
+    }
   }
-  const fixerAgent = renderAgent(FIXER_SOURCE, {
-    name: FIXER_AGENT,
-    model: fixer.model,
-    effortKey,
-    effort: fixer.effort,
-  });
-  fs.writeFileSync(path.join(agentDir, `${FIXER_AGENT}.md`), fixerAgent);
-  if (fixer.tier !== null) overrides[FIXER_AGENT] = fixer.tier;
+  for (const [agentFile, source, setting] of [
+    [FIXER_AGENT, FIXER_SOURCE, fixer],
+    [MANAGER_AGENT, MANAGER_SOURCE, manager],
+  ]) {
+    const text = renderAgent(source, { name: agentFile, model: setting.model, effortKey, effort: setting.effort });
+    fs.writeFileSync(path.join(agentDir, `${agentFile}.md`), text);
+    if (setting.tier !== null) overrides[agentFile] = setting.tier;
+  }
   const variantList = variants.map(({ name, ref, sha: commit, delta, contractDiff: diff }) => ({
     name,
     ref,
@@ -1708,11 +2108,14 @@ export function prepareAgents(options, repo) {
   writeJson(path.join(agentDir, CONFIGS_FILE), {
     configs,
     fixer,
+    manager,
     variants: variantList,
+    selfReviewRoots: roots,
     ...(candidateDiff && { candidateContractDiff: candidateDiff }),
   });
   const names = configs.map((config) => config.name).join(', ');
-  console.log(`wrote ${configs.length * (sources.length + 1)} agent files to ${agentDir} for ${names}`);
+  const perConfig = sources.length + 1 + roots.length;
+  console.log(`wrote ${configs.length * perConfig} agent files to ${agentDir} for ${names}`);
   if (runtime === 'omp') {
     // A model that takes no service tier drops the --tiers list. The line makes that visible.
     for (const model of models.filter((item) => !takesServiceTier(item))) {
@@ -1722,8 +2125,13 @@ export function prepareAgents(options, repo) {
       );
     }
   }
-  const fixerTier = fixer.tier === null ? '' : `, tier ${fixer.tier}`;
-  console.log(`wrote the fixer agent ${FIXER_AGENT}: ${fixer.model}, effort ${fixer.effort}${fixerTier}`);
+  for (const [label, agentFile, setting] of [
+    ['fixer', FIXER_AGENT, fixer],
+    ['manager', MANAGER_AGENT, manager],
+  ]) {
+    const tier = setting.tier === null ? '' : `, tier ${setting.tier}`;
+    console.log(`wrote the ${label} agent ${agentFile}: ${setting.model}, effort ${setting.effort}${tier}`);
+  }
   if (runtime === 'omp') writeTierOverrides(project, overrides);
 }
 
@@ -1789,12 +2197,17 @@ const COMMANDS = {
       'fixer-model': { type: 'string' },
       'fixer-effort': { type: 'string' },
       'fixer-tier': { type: 'string' },
+      'manager-model': { type: 'string' },
+      'manager-effort': { type: 'string' },
+      'manager-tier': { type: 'string' },
+      'self-review-roots': { type: 'string' },
       runtime: { type: 'string' },
       out: { type: 'string' },
       'baseline-dir': { type: 'string' },
       ...PROJECT_OPTION,
     },
   },
+  manager: { run: prepareManager, options: { ws: { type: 'string' } } },
   probe: {
     run: prepareProbe,
     options: { out: { type: 'string' }, configs: { type: 'string' }, ...PROJECT_OPTION },
@@ -1805,12 +2218,14 @@ const COMMANDS = {
 const USAGE = `usage:
   prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
                      [--variants <name>=<git-ref>[,...] [--full-only <name,...>] [--contract-overlay <name,...>]]
-                     [--candidate-contract-overlay]
+                     [--candidate-contract-overlay] [--self-review-roots <name>=<git-ref>|<name>=worktree[,...]]
                      [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
+                     [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
                      [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
   prepare.mjs case --case <case.json> --arms <list> --runs <k> --out <ws> [--configs <list>] [--keys <dir>]
                    [--loop] [--extend] [--project <dir>]
   prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>] [--fixer-patch <file>]
+  prepare.mjs manager --ws <ws>
   prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
   prepare.mjs clean [--project <dir>]`;
 

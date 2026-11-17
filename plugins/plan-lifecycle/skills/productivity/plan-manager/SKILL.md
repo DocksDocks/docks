@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-16"
-  content_hash: "41803171f32b82c2e802b2a073c04823708507077cd1cbaee65e41be10e6f401"
+  updated: "2026-11-17"
+  content_hash: "cf84b96f96ade51535509682f70f1f56aed0747f8fccf1df6055a01de1e52e54"
 ---
 
 # Plan Manager
@@ -104,9 +104,17 @@ Move the plan to ongoing. Set up the linked branch with the contract's Linked
 branch steps before you change code. Set each step in-flight, implement or
 delegate it, run its proof, then mark it done. Honor the Effect confirmation
 gate. When `docks:code-clarity` is available, use it for self-explaining code.
-Run all acceptance commands and record real results in Verification Results
-through the export/edit flow. Review plan edits after the pass as the
-contract's Phases and review comments says.
+When the project has a `verify` skill, for example
+`.agents/skills/verify/SKILL.md`, use it to run the changed surface before you
+mark acceptance. Run all acceptance commands and record real results in
+Verification Results through the export/edit flow. Review plan edits after the
+pass as the contract's Phases and review comments says.
+
+Every commit that you make, also each candidate and repair commit, carries a
+`Verified:` trailer. The `commit-discipline` skill owns the trailer format.
+List the commands that ran on the committed bytes, as
+`Verified: <command>[; <command>]`. When no command ran on them, write
+`Verified: none - <reason>`.
 
 Done when: every step that can run before the merge is done or skipped, and
 Verification Results hold real acceptance results.
@@ -132,7 +140,75 @@ git ls-files --others --exclude-standard -z |
 ```
 
 `git diff --no-index` exits 1 when the files differ, so that exit status is
-expected here. A `panel` round also needs one focus diff per lens. A `delta`
+expected here. Build the base-instructions folder for every round too. It holds
+the merge-base copy of each `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` at the
+root and in each parent folder of a changed path. The changed paths are the
+paths of the full diff and, in a later round, also the paths of the delta diff.
+A file that the branch added and a repair then deleted is in the delta diff
+only. Set `prev` to the previous round's reviewed head, or leave it empty in
+round 1. A symlink gives the text of its target in the merge-base tree, under
+the path of the link. A link whose target is missing, outside the tree, or more
+than 8 links away is absent. The folder's `MANIFEST` lists each checked path as
+`copied <path>` or `absent <path>`. When a git command fails, the block writes
+no `MANIFEST`, prints an error, and exits with a non-zero status. Then do not
+dispatch the round; a git failure is not an absent file:
+
+```bash
+inst="$scratch/code-review-<n>-round-<k>-base-instructions"
+prev="<previous-reviewed-head or empty>"
+# Prints the blob id of $1 at $base; a link resolves from its folder in the tree.
+# Status 1: absent. Status 2: a git command failed.
+base_blob() {
+  f=$1 n=0
+  while entry=$(git --literal-pathspecs ls-tree --full-tree "$base" -- "$f"); do
+    set -- $entry
+    [ "$2" = blob ] || return 1
+    [ "$1" = 120000 ] || { printf '%s\n' "$3"; return 0; }
+    n=$((n + 1)); [ "$n" -le 8 ] || return 1
+    to=$(git cat-file blob "$3") || return 2
+    case $to in /*) return 1 ;; esac
+    f=$(set -f; IFS=/; out= p=$(dirname "$f")/$to
+      for seg in $p; do
+        case $seg in
+          '' | .) ;;
+          ..) [ -n "$out" ] || exit 1; case $out in */*) out=${out%/*} ;; *) out= ;; esac ;;
+          *) out=${out:+$out/}$seg ;;
+        esac
+      done
+      [ -n "$out" ] && printf '%s\n' "$out") || return 1
+  done
+  return 2
+}
+rm -rf "$inst" && mkdir -p "$inst" && (
+  set -o pipefail
+  { git diff --name-only --no-renames -z "$base" &&
+      { [ -z "$prev" ] || git diff --name-only --no-renames -z "$prev"; } &&
+      git ls-files --others --exclude-standard -z; } |
+  while IFS= read -r -d '' path; do
+    dir=$(dirname "$path")
+    while :; do
+      for name in AGENTS.md CLAUDE.md REVIEW.md; do
+        if [ "$dir" = . ]; then printf '%s\0' "$name"; else printf '%s\0' "$dir/$name"; fi
+      done
+      [ "$dir" = . ] && break
+      dir=$(dirname "$dir")
+    done
+  done | sort -zu |
+  while IFS= read -r -d '' file; do
+    oid=$(base_blob "$file")
+    case $? in
+      0) mkdir -p "$inst/$(dirname "$file")" && git cat-file blob "$oid" > "$inst/$file" || exit 1
+        printf 'copied %s\n' "$file" ;;
+      1) printf 'absent %s\n' "$file" ;;
+      *) exit 1 ;;
+    esac
+  done > "$inst/MANIFEST.part"
+) && mv "$inst/MANIFEST.part" "$inst/MANIFEST" ||
+  { echo "base instructions: a git command failed; $inst has no MANIFEST" >&2; false; }
+```
+
+Name the folder in every dispatch, because the reviewer reads instruction files
+only from it. A `panel` round also needs one focus diff per lens. A `delta`
 round gives its reviewer the delta diff instead of the full diff:
 
 ```bash
@@ -153,7 +229,9 @@ Make each repair complete, as the contract's Repairs says, before you commit
 it. When a repair adds a branch, a list split, a parser rule, or a refusal, add
 a test that fails when that branch is removed. When a repair changes a parser
 or a matcher, list its input forms, such as delimiters, white space, quotes,
-`--`, aliases, and nested fields, and test each form before the commit. In
+`--`, aliases, and nested fields, and test each form before the commit. Prefer
+a property test with generated inputs for those forms, for example with
+fast-check, Hypothesis, or proptest. Test round-trip and idempotency first. In
 recorded plans, more than half of the later code findings were faults in the
 repair of an earlier finding.
 

@@ -4,8 +4,8 @@ description: "Use when CI or test runs are slow or costly: GitHub Actions queue 
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-03"
-  content_hash: "be442bd7685e231dfa4ac70295df49436aea6ebe51faa185d1e71423be46f8c4"
+  updated: "2026-11-17"
+  content_hash: "beee07a4e4b05b211066c459f119316c3d5912a31ef62f1c33b35326b7c722b6"
 ---
 
 # CI Speed

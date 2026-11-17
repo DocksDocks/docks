@@ -102,6 +102,30 @@ byte-identical absent-lifecycle prerequisite paragraph; no check compares the
 copies. `plugins/plan-lifecycle/skills/AGENTS.md` (Fail-loud routing) owns the
 rule and the command that finds every copy.
 
+## Adding a review rule
+
+A review rule is a check that a reviewer applies to a diff. Add a review rule
+only when the plan record shows all of these:
+
+1. **Two changes.** At least two changes show the defect. The rule cites each
+   issue or pull request.
+2. **Diff trigger.** A reader can see the trigger in a diff: a path glob, a
+   changed symbol kind, or an added call.
+3. **Disproof attempt.** The plan record holds an attempt to reject the rule.
+   The attempt checks if an existing rule or validator covers the case, and if
+   the case is a one-off. Add the rule only when the attempt fails.
+4. **User approval.** The user approves the rule through `ask`, and the plan
+   record holds the answer. A reviewer pass is not approval.
+
+Put a project rule in the `## Triggered checks` table of the `REVIEW.md` in
+the consuming repository. This repository keeps its rules in the root
+`REVIEW.md`. Shipped reviewer text is the `code-reviewer` and `plan-reviewer`
+skills and agents and the docks `code-review` skill. Change it only for a
+review mechanism that `.agents/skills/review-benchmark` measures. The
+`skill-maintenance` skill (Review-Rule Pruning) removes rules.
+
+The text above is identical in `plugins/plan-lifecycle/skills/AGENTS.md` (Adding a review rule). Change both copies together (verify: `diff <(sed -n '/^## Adding a review rule/,/removes rules\.$/p' plugins/docks/skills/AGENTS.md) <(sed -n '/^## Adding a review rule/,/removes rules\.$/p' plugins/plan-lifecycle/skills/AGENTS.md)` prints nothing).
+
 ## Report section (every shipped skill)
 
 Every shipped skill of the docks and plan-lifecycle plugins ends with one byte-identical `## Report a problem with this skill` section, so an agent that uses a skill sees where and how to report a problem with it. The section points to the docks `report-skill-issue` skill. For a runtime without docks, it allows only a draft for the user, because the publication safeguards live in that skill. A new skill copies the section unchanged. The skills guard checks every copy against `scripts/config/report-section.md` (verify: `bun scripts/skills/guard.mjs plugins/docks/skills` and `bun scripts/skills/guard.mjs plugins/plan-lifecycle/skills`); a change to the section changes that file and every copy in the same commit.

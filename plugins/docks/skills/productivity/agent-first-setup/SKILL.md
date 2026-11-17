@@ -1,11 +1,11 @@
 ---
 name: agent-first-setup
-description: "Use when making a repository agent-first in one pass — root AGENTS.md, nested AGENTS.md nodes, .agents/skills with .claude/skills symlinks, no CLAUDE.md, durable docs — or auditing whether a repo is. Runs multi-tool-bridge, then context-tree init, then an agent-first check with a pass/fail report. Not for one step alone: CLAUDE.md migration or skill symlinks (use multi-tool-bridge), nested nodes only (use context-tree), or plan workspace setup (use plan-workspace)."
+description: "Use when making a repository agent-first in one pass — root AGENTS.md, nested AGENTS.md nodes, .agents/skills with .claude/skills symlinks, no CLAUDE.md, durable docs — or auditing whether a repo is. Runs multi-tool-bridge and context-tree init, adds a project verify skill, and ends with a pass/fail check. Not for one step alone: CLAUDE.md migration or skill symlinks (use multi-tool-bridge), nested nodes only (use context-tree), or plan workspace setup (use plan-workspace)."
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-10-23"
-  content_hash: "34a8a3ebebbb12d223958f9db7c87c0e9f5c44bbeaadbffd068b38da0066c7de"
+  updated: "2026-11-17"
+  content_hash: "204944ee5d2aa1a1ecd3926a93cf4d1a826e6a548d8127c2dec5222e53992a18"
 ---
 
 # Agent-First Setup
@@ -15,25 +15,25 @@ Make a repository easy for any coding agent to use, in one pass. An agent-first 
 - **Findable** — a root `AGENTS.md` routes to every nested `AGENTS.md` node; skills live in `.agents/skills/`, and `.claude/skills/<name>` is a symlink to them. Codex reads `AGENTS.md` files only from the project root down to the directory where the session starts, so the root routing table is how a Codex session finds a deeper node. Claude Code loads a nested node when it reads a file in that folder.
 - **Fast to understand** — the root states build/test/lint commands and repo-wide rules only; folder rules live in the folder `AGENTS.md`; each fact has one home.
 - **Trustworthy** — docs hold durable facts only: no line anchors, no live counts or versions, no time-relative phrases; a volatile value carries the command that re-derives it.
-- **Verifiable** — the check in Step 3 is a set of commands, not prose.
+- **Verifiable** — the check in Step 3 is a set of commands, not prose. A project `verify` skill names the commands that start, drive, inspect, and stop the real product.
 - **Free of CLAUDE.md** — a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` without an `@AGENTS.md` import makes Claude read it instead of `AGENTS.md`. A stub that only imports `AGENTS.md` still delivers it; it is redundant, and the kit removes it as cleanup (source: https://code.claude.com/docs/en/memory, section "AGENTS.md").
 
-This skill is an orchestrator. `multi-tool-bridge` and `context-tree` do the work; this skill puts them in order and ends with the check.
+This skill is an orchestrator. `multi-tool-bridge` and `context-tree` do the work; this skill puts them in order, adds the project `verify` skill in Step 2b, and ends with the check.
 
 <constraint>
 Delegate, do not re-implement. For Step 1 and Step 2, load the named skill and follow its workflow as written, including its detection, classification, and verification steps. Do not copy, shorten, or reorder its steps here. If a named skill (`multi-tool-bridge`, `context-tree`) or a prerequisite it names is not available, STOP before any write and name the missing skill or plugin in your final message.
 </constraint>
 
 <constraint>
-Every write stays behind the approval gate of the skill that owns it. At that gate, print the owning skill's proposal and ask for approval with the harness question tool (see "Asking the user"); if the harness has no such tool, end the turn. Resume this workflow only after the user answers. This skill adds no writes of its own. `audit` mode never writes: it runs Step 0, the owning skills' read-only modes, and Step 3, then reports. Step 3 reports findings; it never auto-fixes them.
+Every write stays behind the approval gate of the skill that owns it. At that gate, print the owning skill's proposal and ask for approval with the harness question tool (see "Asking the user"); if the harness has no such tool, end the turn. Resume this workflow only after the user answers. This skill owns one write: the project `verify` skill and its symlink in Step 2b, behind its own approval gate. `audit` mode never writes: it runs Step 0, the owning skills' read-only modes, the Step 2b detection, and Step 3, then reports. Step 3 reports findings; it never auto-fixes them.
 </constraint>
 
 ## Modes
 
 | Invocation | Runs | Writes? |
 |---|---|---|
-| `agent-first-setup` (default) | Step 0 → Step 1 → Step 2 → Step 3 → Step 4 | only through the owning skills' approval gates |
-| `agent-first-setup audit` | Step 0 → read-only detection of Step 1 → `context-tree audit` → Step 3 → Step 4 | never |
+| `agent-first-setup` (default) | Step 0 → Step 1 → Step 2 → Step 2b → Step 3 → Step 4 | only through the owning skills' approval gates and the Step 2b gate |
+| `agent-first-setup audit` | Step 0 → read-only detection of Step 1 → `context-tree audit` → Step 2b detection → Step 3 → Step 4 | never |
 
 ## Asking the user
 
@@ -82,11 +82,13 @@ git ls-files -co --exclude-standard -- ':(glob)**/CLAUDE.md' | sed 's/^/legacy: 
 git ls-files -co -- ':(glob)**/CLAUDE.local.md' | sed 's/^/personal: /'
 git ls-files -co --exclude-standard -- ':(glob)**/AGENTS.md' | grep -v '^AGENTS\.md$' | sed 's/^/node: /'
 find .claude/skills -mindepth 1 -maxdepth 1 ! -type l 2>/dev/null | sed 's/^/not-a-symlink: /'
+test -f .agents/skills/verify/SKILL.md && echo "verify skill: present" || echo "verify skill: missing"
+grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's/^/verify unverified: /'
 ```
 
 Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored.
 
-If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 3. A pass there means the repo is already agent-first.
+If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that failed in an earlier run; Step 2b reruns it. A pass in Step 3 means the repo is already agent-first.
 
 ### Step 1 — Run `multi-tool-bridge`
 
@@ -98,9 +100,36 @@ In `audit` mode, run only its read-only detection and audit steps and record wha
 
 - No nested node exists → load `context-tree` and run `init`. It decides which folders earn a node; a small repo can correctly get none.
 - Nodes exist → run `context-tree audit`. If it reports drift and the user asks to fix it, run `context-tree refresh` through that skill's own handoff.
-- `context-tree` names its own prerequisites (the `plan-lifecycle` plugin). If it stops on one, report that blocker and continue to Step 3 in read-only form.
+- `context-tree` names its own prerequisites (the `plan-lifecycle` plugin). If it stops on one, report that blocker and continue to Step 2b.
 
 In `audit` mode, run `context-tree audit` only.
+
+### Step 2b — Create the project `verify` skill
+
+A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. The template, the surface recipes, and a worked example are in [references/verify-skill-template.md](references/verify-skill-template.md).
+
+1. If `.agents/skills/verify/SKILL.md` exists and Step 0 printed no `verify unverified:` line, make no change and go to Step 3. If Step 0 printed a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, ask for approval through the harness question tool to run them and update them, and then go to step 7. In step 7, run Start, the flows that each `not observed:` row names, and Stop.
+2. Find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of the template's "Surface recipes" table.
+3. If the repository has no runnable surface, write nothing. Record "no runnable surface" for the report and go to Step 3.
+4. Fill the template for each surface. Use only commands that the repository defines or that the recipes name. Ask the user through the harness question tool for a missing start command, port, or test account.
+5. Print the draft `SKILL.md` and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval through the harness question tool. The approval covers the write and one run of each command.
+6. After approval, write `.agents/skills/verify/SKILL.md`. Then create the symlink and check it:
+
+   ```bash
+   mkdir -p .claude/skills
+   ln -s ../../.agents/skills/verify .claude/skills/verify
+   test -f .claude/skills/verify/SKILL.md && echo "verify skill: linked" || echo "BROKEN: .claude/skills/verify"
+   ```
+
+7. Run each command of the new skill once, in order: start, drive and inspect, stop. Replace each expected result, and each `not observed:` entry, with the result that you observed. If a command fails:
+   1. Run the Stop and cleanup commands of the skill at once, before you report or ask. No process, port, or temporary folder from this run stays.
+   2. Keep the failed command in the skill. Do not remove it. In place of its expected result, write `not observed: <first line of the failure>`.
+   3. Do not report the skill as verified. Name the failed command and its output in the report.
+   4. Ask the user through the harness question tool for the fix, for example a missing service, dependency, or test account. If the harness has no such tool, end the turn and report Step 2b as blocked.
+
+   Step 2b is complete only when each command ran and showed its expected result, and the skill holds no `not observed:` entry.
+
+In `audit` mode, run step 1 to step 3 only and record whether the skill exists, each `verify unverified:` row, or the surface that needs it.
 
 ### Step 3 — Agent-first check (read-only)
 
@@ -196,6 +225,12 @@ done
 ls_repo ':(glob)**/AGENTS.md' | while IFS= read -r f; do
   n=$(wc -l < "$f"); if [ "$n" -gt 500 ]; then echo "FINDING C8 over the 500-line kit policy: $f ($n lines)"; fi
 done
+# C9 project verify skill: .agents/skills/verify/SKILL.md exists, and .claude/skills/verify resolves to it
+if test -f .agents/skills/verify/SKILL.md; then
+  test -f .claude/skills/verify/SKILL.md || echo "FAIL C9 .claude/skills/verify does not resolve to .agents/skills/verify"
+else echo "FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)"; fi
+# C9 every command of the verify skill showed its expected result (no `not observed:` entry from a failed run)
+grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's|^|FAIL C9 unverified command (rerun it in Step 2b): .agents/skills/verify/SKILL.md:|'
 ```
 
 Read each `FINDING` line before you report it. A line anchor on a fictional example path, a count that is a stated policy threshold, a time phrase inside a quoted BAD example, and a value inside a dated record (a file or sentence that carries its own date, such as an incident note or "Measured <date>") are not defects: mark each `accepted` with the reason. If the root `AGENTS.md` names a repository doc guard (a lint script for doc pointers), run it too and add its output to the report.
@@ -214,10 +249,11 @@ Print one table. `Result` is `pass`, `fail (<count>)`, or `findings (<count>)`; 
 | C6 skill descriptions | | `skill-maintenance` |
 | C7 no eager `@path` imports | | `context-tree` (`audit` / `refresh`) |
 | C8 node size (500-line kit policy) | | `context-tree` (`audit` / `refresh`; split the folder) |
+| C9 project `verify` skill and its symlink | | this skill, Step 2b |
 
-Below the table, list: files written by Step 1 and Step 2 (from their reports), every open `FAIL` line, every `FINDING` with its accepted/defect decision, and blockers that stopped a step. In Claude Code, tell the user to run `/memory` and confirm `AGENTS.md` is listed (Claude Code v2.1.280 and later list it; on an older version, ask Claude what its project instructions say).
+Below the table, list: files written by Step 1, Step 2, and Step 2b (from their reports), the `verify` skill commands that failed in Step 2b, every open `FAIL` line, every `FINDING` with its accepted/defect decision, and blockers that stopped a step. In Claude Code, tell the user to run `/memory` and confirm `AGENTS.md` is listed (Claude Code v2.1.280 and later list it; on an older version, ask Claude what its project instructions say).
 
-**Idempotency:** on a repository that is already agent-first, Step 1 and Step 2 are no-ops by their own contracts, Step 3 prints no `FAIL` line and no unaccepted `FINDING`, and no file is written. Any write on such a repository is a defect: report it.
+**Idempotency:** on a repository that is already agent-first, Step 1, Step 2, and Step 2b are no-ops by their own contracts, Step 3 prints no `FAIL` line and no unaccepted `FINDING`, and no file is written. Any write on such a repository is a defect: report it.
 
 ## Common Traps
 
@@ -248,6 +284,9 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 | A CLAUDE.md holds rules and no `@AGENTS.md` import | Treat it like a stub | A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md: a C3 `FAIL`. `multi-tool-bridge` moves the content, then deletes the file |
 | A root table row reads `@scripts/AGENTS.md` without backticks | Keep it; it is only a link | A bare `@path` is an import: Claude loads that file into every session (C7). Put the path in backticks |
 | `audit` mode finds a fixable problem | Fix it in the same run | Report it; the user runs the default mode or the owning skill |
+| The `verify` skill lists only the unit-test command | Accept it as verification | A unit test does not drive the product. Add a row that starts the surface, drives a main flow, and names the observable result |
+| The `verify` skill waits with `sleep 5` | Raise the sleep until the run passes | Wait on a readiness signal: an open port, a health URL, or a log line |
+| A `verify` command fails because a service or a dependency is not available | Remove the command from the skill, or ask the user while the server still runs | Run Stop and cleanup first. Keep the command and mark it `not observed:`. Report the failure and ask the user for the fix. Step 2b stays open until the command shows its expected result, also on a later run |
 
 ## Anti-Hallucination Checks
 
@@ -256,12 +295,14 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 - Do not claim "no writes" in idempotent runs without `git status --short` showing no path changed by this run.
 - Do not claim Claude Code loads `AGENTS.md` from file checks alone; the user's `/memory` output (v2.1.280 and later) or Claude's own answer on an older version is the confirmation.
 - A skill you could not load is a blocker to name, not a step to reconstruct from memory.
+- Do not write an expected result into the `verify` skill unless you observed it in this session.
 
 ## References
 
 - `multi-tool-bridge` — root AGENTS.md, legacy CLAUDE.md migration, `.agents/skills` symlinks (Step 1).
 - `context-tree` — nested AGENTS.md nodes: `init`, `audit`, `refresh` (Step 2).
 - `skill-maintenance` — fixes for C5 and C6 findings in SKILL.md files.
+- [references/verify-skill-template.md](references/verify-skill-template.md) — the project `verify` skill template, surface recipes, and a worked example (Step 2b).
 - Codex AGENTS.md discovery (project root down to the working directory): https://developers.openai.com/codex/guides/agents-md
 - Claude Code memory and native AGENTS.md support: https://code.claude.com/docs/en/memory
 - agentskills.io specification: https://agentskills.io/specification

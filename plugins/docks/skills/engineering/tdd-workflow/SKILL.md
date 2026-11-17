@@ -4,8 +4,8 @@ description: Use when the user asks for TDD, test-first, "write the test first t
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-23"
-  content_hash: "c6571cd172d00288928b8badaafde610652cca70ea4ed2f62397ea17a5a87483"
+  updated: "2026-11-17"
+  content_hash: "878ee307a3ff69679e7616a0385c25d90026814657408ed09172dcf7d2eff25c"
 ---
 
 # Test-Driven Development Workflow
@@ -87,6 +87,8 @@ Phase 2 (failing baseline) is mandatory. A test that passes on first run is brok
 | Skipping Phase 2 ("tests will obviously fail") | Trust the obvious | Always run after Phase 1. The failing-mode shape is the contract that says "feature isn't there yet." |
 | Refactoring during Phase 3 ("while I'm here") | Mix refactor + new behavior | Save refactor for Phase 5. Refactoring is unsafe without all-green tests. |
 | Bundling multiple features into one TDD session | One big spec, one giant impl | One feature per TDD cycle. Commit between cycles. |
+| Spec for a parser or a serializer has only a few examples | Add more hand-picked examples | Add a property test next to the examples: round-trip, idempotency, or equivalence to a naive version. Use the property library that the project has. See `test-coverage`, `references/test-types.md` |
+| The red test fails on some runs and passes on others | Count it as the failing baseline | A flaky test is not a red test. Find the cause (seed, clock, order, shared state, network) before Phase 3. Never add a retry, a sleep, or a skip |
 
 ## Phase 1 Example — Test Without Stub
 

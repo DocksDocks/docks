@@ -4,8 +4,8 @@ description: Use when writing tests for code that ALREADY EXISTS — adding cove
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-23"
-  content_hash: "fed3c74e671dbf24548ea2cc5949cacd500c9a0c497b68e21ea598ee8691668f"
+  updated: "2026-11-17"
+  content_hash: "78a6fa7a01bf8181a2f5666d5dd112115cd85801a852501eb0dd20585783697b"
 ---
 
 # Test Coverage Generation
@@ -72,6 +72,7 @@ For the path/function the user gave you:
 - For each: parameter types, return type, side effects (filesystem, network, DB, env vars), error paths
 - External dependencies that need mocking — distinguish "I/O the test must isolate" vs "pure computation that needs no mock"
 - Edge cases: null/undefined, boundary values (0, -1, MAX_INT, empty string, empty array), invalid types if the function is dynamically typed, async error paths, concurrent invocations
+- Test kind for each item: read `references/test-types.md` and choose an end-to-end, property, differential, or example-based test. A user flow needs an end-to-end test. A parser or serializer needs a property test. A replaced implementation needs a differential test
 
 Write this inventory down before writing tests. It's the test plan. If you skip this and jump to test code, you'll write tests for what you remember about the file rather than what's actually in it.
 
@@ -144,6 +145,7 @@ After the suite passes, do NOT report "tests added" yet. Run the post-verificati
 | Test file passes locally but isn't picked up by CI | New test file outside the project's discovery glob | Confirm in coverage report; if missing, fix the glob or rename the file to match |
 | Generating 50 tests at once without inventory | Skip Step 2, write tests by intuition | Inventory first (Step 2), then test the inventory items one by one |
 | Modifying production code mid-test to make a test pass | "I'll just fix this one thing in the source while I'm here" | Stop. Test-coverage mode is read-only on production code. Bug? Report it. |
+| A new test fails now and then | Add a retry flag, a sleep, or a skip until the run passes | Find the root cause (seed, clock, order, shared state, network). If no cause is found, delete the test and record the reason. See `references/test-types.md` |
 
 ## Pairing With tdd-workflow
 
@@ -170,6 +172,7 @@ The skills share the lint-loop 3-strike rule and the discipline of running tests
 
 - Companion skill: **tdd-workflow** — for test-first development (different ordering, tests as spec)
 - Per-framework conventions: `references/jest-vitest.md`, `references/pytest.md`, `references/cargo-test.md`, `references/go-test.md`, `references/junit.md`
+- Test types (end-to-end, property, differential, flaky): `references/test-types.md`
 - Project conventions: always read one existing test file before writing the first new one — that's the project's actual style guide
 
 ## Report a problem with this skill

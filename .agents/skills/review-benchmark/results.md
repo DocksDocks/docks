@@ -1284,3 +1284,66 @@ Every escaped and recall interval contains 0, so with 2 runs per case the benchm
 - 2 runs per case, so the intervals are wide.
 - Three judges listed the arm folder names with `ls`. The finding ids stay opaque, so they could not map a finding to a configuration.
 - Artificial Analysis Intelligence Index v5.0.1 scores Terra `high` at 42 and Sol `high` at 50. This run measured only review recall on the published cases.
+## Run 2026-11-17: plan #133 reviewer changes
+
+- Plan DocksDocks/docks#133 (decision D9) measured three reviewer prompt changes against their released baselines:
+  - `code-reviewer`: `REVIEW.md`, instruction files from a base-instructions folder, and the triggered-check table. Arms `B3` (baseline `plan-lifecycle--v0.20.2`) against `C3`, full review loops.
+  - Docks `code-review`: the same mechanisms. Self-review arms `S3rel` (root `docks--v0.22.0`) against `S3wt` (working tree).
+  - `plan-reviewer`: the end-to-end acceptance check. Arms `P0` against `P1`.
+- Configuration: `openai-codex/gpt-6.1-terra`, effort `high`, tier `default`, 2 runs per arm. The probe confirmed the served model, effort, and tier. The judge and the second judge are Anthropic models. The fixer is `openai-codex/gpt-6.1-sol` at `high`, `priority`.
+- Cases:
+  - dev: 12 code cases, of which 4 are new controls (`code-119-control`, `code-123-control`, `code-126-control`, `code-129-control`), and 15 plan cases.
+  - held-out: 22 code cases and 39 plan cases. The 5 plan-delta cases were left out, because `P1` does not apply to them.
+- Manager stage: only for `C3` on dev. Its served tier was `null` against the configured `priority` in most runs, so kept recall shows `n/a`. Stages therefore give raw recall and final loop recall only.
+- Timing rows are information only. No wave changed its median reviewer seconds by more than 30% from the wave before. The operator reset the codex usage once during the run.
+
+### Decision rule (plan #133 D9, revised before any held-out run)
+
+The first rule (escaped bound 2 per 50, recall bound -0.05, wrong and unknown at most +0.10 per run) was fixed before any run. On 2026-11-17, before any held-out run, a read-only audit of this log and a calibrated simulation changed it. The audit found that a neutral candidate passes one comparison at these sizes with a probability of about 0.40 to 0.45, and all three together with a probability of about 0.08. The revised rule, for changes that add mechanisms and do not aim at recall: a candidate is not worse on the held-out cases when all of these hold:
+
+- its escaped-difference 90% interval against the baseline stays below 4 per 50 known;
+- its round-1 recall difference interval stays above -0.08;
+- a one-sided exact Poisson rate test, with the valid-run count of each arm as its exposure, does not show more wrong findings at p < 0.05, and does not show more unknown findings at p < 0.05;
+- on dev, a `blocked` verdict that the baseline does not give fails the candidate.
+
+Risk accepted: a true loss of up to 8% of the known defects can pass. Plan DocksDocks/docks#135 makes the benchmark powered for smaller margins.
+
+### Dev
+
+| Comparison | Runs | Escaped per 50 | Escaped difference, 90% interval | Round-1 recall difference, 90% interval | Wrong (count / runs) | Poisson p |
+|---|---|---|---|---|---|---|
+| C3 against B3 | 21 / 22 | 31.91 / 36.11 | [-6.06, 0.00] | [0.00, 0.08] | 23/21 against 15/22 | 0.10 |
+| S3wt against S3rel | 24 / 24 | 31.67 / 30.83 | [-2.50, 4.86] | [-0.10, 0.05] | 26/24 against 30/24 | 0.75 |
+| P1 against P0 | 29 / 28 | 31.71 / 33.33 | [-4.76, 2.42] | [-0.05, 0.10] | 18/29 against 13/28 | 0.27 |
+
+- One `C3` delta round (`code-96-r1`, run 1, round 3) returned `blocked`. Its base-instructions `MANIFEST` did not list the parent folders of a file that the case added and a fixer then deleted. That file is in the delta diff but not in the full diff. This was a candidate defect. Both folder builders now use the union of the full-diff and delta-diff paths: `plan-manager` phase 6 and `prepare.mjs` `writeBaseInstructions`. A new unit test covers it. The round ran again with the repaired folder, and no dev `blocked` verdict of a candidate remains.
+- The dev `S3wt` escaped and recall bounds miss the revised rule. The differences sit in 4 of 12 cases, in both directions, with point estimates 31.67 against 30.83. This matches the expected dev noise (the audit puts the neutral pass probability near 0.3 at this size). Dev does not decide, so the candidate went to held-out without a dev iteration.
+- Controls (dev, 4 cases): findings per run B3 4.00, C3 4.13, S3rel 3.38, S3wt 3.00; wrong per run 0.71, 0.75, 0.50, 0.63.
+
+### Held-out
+
+| Comparison | Runs | Cases shared | Escaped per 50 | Escaped difference, 90% interval | Round-1 recall difference, 90% interval | Wrong (count / runs) | Poisson p | Unknown p |
+|---|---|---|---|---|---|---|---|---|
+| C3 against B3 | 28 / 32 | 17 | 26.77 / 21.51 | [-1.98, 2.72] | [-0.04, 0.05] | 28/28 against 27/32 | 0.31 | 0.45 |
+| S3wt against S3rel | 38 / 38 | 22 | 30.42 / 31.47 | [-2.37, 2.35] | [-0.05, 0.05] | 30/38 against 42/38 | 0.94 | - |
+| P1 against P0 | 67 / 67 | 38 | 16.75 / 16.25 | [-0.62, 3.28] | [-0.07, 0.01] | 64/67 against 30/67 | 0.0003 | - |
+
+- Invalid runs: 40 of 220 held-out code runs and a few plan runs failed the read-scope check, spread over the arms (C3 16, B3 12, S3wt 6, S3rel 6). Most named paths that do not exist (for example a doubled `heldheldout-code` segment) or a path with `..` that the scorer does not normalize. The unpaired escaped-per-50 values of B3 and C3 differ for this reason, because their valid runs cover different cases. The paired interval uses only the 17 shared cases.
+- Three plan blocks returned `blocked` (P0 1, P1 2). A separate read-only agent checked each one: each named a real contradiction in its case plan, not a missing harness input.
+
+### Decision under the rule
+
+| Comparison | Result | Decision |
+|---|---|---|
+| `code-reviewer` C3 against B3 | Not worse: both intervals are inside the bounds, and both Poisson tests pass. | Ships. |
+| Docks `code-review` S3wt against S3rel | Not worse. | Ships. |
+| `plan-reviewer` P1 against P0 | Fails the wrong-findings test (p = 0.0003). | The user accepted the check (2026-11-17), with narrowed wording. See below. |
+
+The plan-reviewer failure has one cause. Of P1's 70 wrong-rated findings, 40 (in 23 of 38 cases) are about the new end-to-end acceptance rule. The judge rejected 34 of the 40 because the case snapshots hold the older plan contract, which has no such rule. Without that class, P1 has 30 wrong findings against P0's 36, and recall does not change. The benchmark therefore cannot judge a new contract rule against old case snapshots, because the judge rates by the snapshot's contract. The user chose to accept the check. The rule now fires only when a step's Files change the code or configuration of a driven surface, and a test that starts the real surface counts as an end-to-end row. This narrowing targets the 6 findings that the judge rejected for other reasons. A separate read-only agent checked the 40 findings against the narrowed wording. In 15 of them, the case Files change no driven surface. In 25, an Acceptance row already runs the changed surface. Under the narrowed rule, none of the 40 fires (0 of 40; 0 of the 6 rejected for other reasons). Under a stricter reading of 'checks its output', 3 of the 25 would still fire. The narrowed wording was not measured again with reviewer runs.
+
+### Limits and leads
+
+- The read-scope check rejected runs for reads of paths that do not exist and for unnormalized `..` paths. These reads cannot leak an answer. Plan #135 should normalize paths and ignore reads of paths that do not exist.
+- The manager agent's served tier was `null` in most runs, so the Stages section has no kept recall. Plan #135 should check the manager's tier override before the run.
+- Case snapshots hold no `REVIEW.md`, so the runs measure the cost of the new text, not the value of the 13 `REVIEW.md` rows. `outcomes.mjs` measures that value after merge.
+- A new contract rule needs a contract overlay for both the reviewer and the judge before the benchmark can judge it. Plan #135 should add that path for plan arms.

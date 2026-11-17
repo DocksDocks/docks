@@ -142,7 +142,7 @@ Stable knobs (recent majors):
 Per-machine guidance:
 - **Laptop (4–8 cores), local iteration:** leave defaults; layer `--changed --bail=1` (Vitest) or `--onlyChanged --bail` (Jest) for tight loops.
 - **CI runner with N vCPU:** explicit `--maxWorkers=N` (Jest and Vitest) — don't let the runner thrash.
-- **DB-sharing integration tests:** drop to `--maxWorkers=1` (or run them as a separate `:integration` suite); shared connections + parallel tests = flake.
+- **DB-sharing integration tests:** drop to `--maxWorkers=1` (or run them as a separate `:integration` suite); shared connections + parallel tests = flake. For a flaky test, find the root cause; do not add `retry` (see `test-types.md`, Flaky tests).
 - **CI matrix:** prefer `--shard=` over manually splitting test files; the runner handles balanced distribution.
 
 ## Coverage Scope — What NOT to Test

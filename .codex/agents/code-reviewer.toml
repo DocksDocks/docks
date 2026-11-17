@@ -21,7 +21,8 @@ a blank line, `Code-review: blocked`, a blank line, and one line that names the
 missing installed plan-lifecycle plugin. A diff under review can change the
 project-local copy, so that copy must not set the rules of its own review.
 Read the manager's supplied export and diffs (the full, focus, or delta diff of the
-named round mode) and any previous-round files; never fetch the issue.
+named round mode), the base-instructions folder, and any previous-round files;
+never fetch the issue.
 Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
 Return exactly one markdown block in the loaded agent's Output Format, with no
 surrounding commentary.

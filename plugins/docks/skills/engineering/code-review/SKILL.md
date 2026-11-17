@@ -4,8 +4,8 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-23"
-  content_hash: "6957128707464720648cd7207b6cdaa6fceba4bcf22c4a176d79b07a24ed5351"
+  updated: "2026-11-17"
+  content_hash: "a1bb500561ce05b56b2db55000e7f64fbdb141fdfd24e4e80f97592478d1c740"
 ---
 
 # Code Review
@@ -54,6 +54,40 @@ Confirm what you're reviewing:
 - The working tree? `git status --short` to see what's changed
 
 **Branch scope (when reviewing a branch's changes):** tag each finding `introduced` (it lands in the branch's merge-base diff — `git diff $(git merge-base origin/<default> HEAD)..HEAD`) or `pre-existing` (in a touched file but not changed by this branch). Report them under separate sub-headings — don't blame the branch for legacy debt, but do surface what it builds on. (Same no-merge discipline as Two-Axis Mode.)
+
+**Instruction files:** read `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` at the repository root and in each parent folder of a changed path. `REVIEW.md` holds rules for review only. It has the same precedence as `AGENTS.md`. When two files disagree, the file nearer to the changed path wins. When the review covers changes since a fixed point, read each instruction file from the merge base, because the change under review can change it:
+
+```bash
+base=$(git merge-base <fixed-point> HEAD)
+# Prints the blob id of $1 at $base; a link resolves from its folder in the tree.
+# Status 1: absent. Status 2: a git command failed.
+base_blob() {
+  f=$1 n=0
+  while entry=$(git --literal-pathspecs ls-tree --full-tree "$base" -- "$f"); do
+    set -- $entry
+    [ "$2" = blob ] || return 1
+    [ "$1" = 120000 ] || { printf '%s\n' "$3"; return 0; }
+    n=$((n + 1)); [ "$n" -le 8 ] || return 1
+    to=$(git cat-file blob "$3") || return 2
+    case $to in /*) return 1 ;; esac
+    f=$(set -f; IFS=/; out= p=$(dirname "$f")/$to
+      for seg in $p; do
+        case $seg in
+          '' | .) ;;
+          ..) [ -n "$out" ] || exit 1; case $out in */*) out=${out%/*} ;; *) out= ;; esac ;;
+          *) out=${out:+$out/}$seg ;;
+        esac
+      done
+      [ -n "$out" ] && printf '%s\n' "$out") || return 1
+  done
+  return 2
+}
+oid=$(base_blob "<path>") && git cat-file blob "$oid"
+```
+
+A symlink gives the text of its target in the merge-base tree, because `git show` of a link prints only the target path. Status 1 means that the path has no base rule: the path does not exist at the merge base, or it is a link whose target is missing, outside the merge-base tree, or more than 8 links away. Any other non-zero status is a git failure. Then stop and report the error, because a failed read is not an absent file. When the diff changes an instruction file, keep the base rule, and review the changed lines as changed text. A change that makes a rule weaker is a finding: name the scenario that the weaker rule lets through. Without a fixed point, read the working tree.
+
+**Triggered checks:** a `REVIEW.md` can hold a section `## Triggered checks` with one table, `| Id | Trigger | Check | Source |`. `Id` is `T<number>`. `Trigger` is a condition that a reader can see in a diff, such as a path glob, a changed symbol kind, or an added call. `Check` says what to verify. `Source` lists the issues or pull requests that produced the row. Apply only the rows whose trigger matches the diff, and skip every other row. Cite the row id in each finding that a row supports, as `check: T<n>` in the finding text. A row adds a check; the buckets and the evidence rules still apply.
 
 Confirm the stack: `package.json` / `pyproject.toml` / `go.mod` / `Cargo.toml` / `*.csproj` for language + framework + test runner. The right vocabulary changes the review entirely — Go nullability ≠ TypeScript nullability ≠ Rust borrow-checker rules.
 
@@ -127,7 +161,7 @@ Inline apply covers single-file, low-blast-radius fixes only. Hand cross-file or
 
 When the trigger above fires, run the review on two axes and report them side-by-side without merging.
 
-**Axis 1 — Standards.** Does the diff follow the project's documented conventions? Source: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/adr/*`, any `STYLE.md`/`STANDARDS.md`, plus the project skills under `.agents/skills/` or `.claude/skills/`. **Skip what tooling already enforces** (eslint/biome/prettier/tsc/ruff/clippy/gofmt) — note their presence but don't re-derive what `npx tsc --noEmit` would flag in 2 seconds.
+**Axis 1 — Standards.** Does the diff follow the project's documented conventions? Source: the instruction files of Step 1 (`AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, read from the merge base), `CONTRIBUTING.md`, `docs/adr/*`, any `STYLE.md`/`STANDARDS.md`, plus the project skills under `.agents/skills/` or `.claude/skills/`. **Skip what tooling already enforces** (eslint/biome/prettier/tsc/ruff/clippy/gofmt) — note their presence but don't re-derive what `npx tsc --noEmit` would flag in 2 seconds.
 
 The Standards axis always applies the **Fowler smell baseline** in `references/maintainability.md`, even when the repo documents no standards. A documented repo standard overrides the baseline, and each smell is a judgement call ("possible Feature Envy"), never a hard violation.
 
