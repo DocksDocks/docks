@@ -465,11 +465,12 @@ completed, it also advises:
 
 - on every plan, once per linked child that is not terminal:
   `plan is closed as completed while child #<c> is <status>; run archive <n> again to reopen it safely`;
-- on a plan with the parent row shape (Record and mode), once per Steps row
-  whose Done when is `child #<c> finished` while `<c>` is not a linked
+- on a plan with the parent row shape (Record and mode) that no merged pull
+  request closed (none in its `closedByPullRequestsReferences`), once per Steps
+  row whose Done when is `child #<c> finished` while `<c>` is not a linked
   sub-issue:
   `plan names child #<c>, which is not linked; relink it or edit the row; run archive <n> again to reopen it safely`;
-- on a plan with the parent row shape, when no named child is linked and finished:
+- on such a plan, when no named child is linked and finished:
   `plan is closed as completed but no child finished; run archive <n> again to reopen it safely`.
 
 For an issue that GitHub left
@@ -760,7 +761,8 @@ child. On a plan without children, `archive` without `--pr` refuses. On a plan
 with children that is not a parent (Record and mode), it refuses with
 `archive refused: plan #<n> has its own landing work; archive it with --pr`.
 After its own close, archive compares the plan with its read before the close.
-Open work is a child that is not terminal. On a plan with the parent row shape,
+Open work is a child that is not terminal. On a plan with the parent row shape
+that no merged pull request closed,
 open work is also a child added since that read, a child of that read that is
 no longer linked, and child rows that named a finished child before the close
 and name none after it. A state that existed before the close does not count. On open work,
@@ -778,10 +780,15 @@ failure.
 A retry of `archive <n>` or `archive <n> --pr` on a plan that is closed as
 completed does the same safe reopen for the open work that `show` advises on:
 a child that is not terminal on every plan, and on a plan with the parent row
-shape also a named child that is not linked or no finished named child. The `--pr` retry checks this
+shape that no merged pull request closed, also a named child that is not
+linked or no finished named child. The `--pr` retry checks this
 right after the not-merged refusal, before its other refusals. Run the retry
 when `show` advises it (Normalization, advice, and refusals). Each safe reopen
-also restores `plan:ongoing` when the plan has no phase label.
+also restores `plan:ongoing` when the plan has no phase label. After every safe
+reopen, by `reopen` or by `archive`, the helper reads the plan again. Unless it
+finds exactly one phase label, `plan:ongoing` after a restore or else the phase
+that the plan had before, it refuses with
+`plan issue state differs after reopen`. The printed status comes from that read.
 
 ### Teardown
 
