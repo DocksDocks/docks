@@ -964,9 +964,8 @@ test('dispatch names that collide stop the names and transcripts commands', (t) 
 //   the columns (a case without `split` is in the group `-`). The columns are `configs` in that order (default: the
 //   config names in run order). A section holds `### Decision: <split>` over all its runs, `### Code loops: <split>`
 //   over its loop runs, and `### Single reviews: <split>` over its other runs; a table without runs is left out.
-//   `reference` is the base of the interval rows (default: of the columns with known defects, the one with the
-//   fewest escaped per 50 known; on a tie, the first). The test 'the configuration table ...' gives every row; the
-//   rows are defined above it;
+//   `reference` is the base of the interval rows; a table of two or more columns needs it, and the results never
+//   pick it. The test 'the configuration table ...' gives every row; the rows are defined above it;
 //   `## Judge agreement`, only when scores.agreement is set, with the line
 //   `The second judge agreed with <agreed> of <answers> answers (<rate with 2 decimals>).`
 // - reportCommand(ws, { keys, configs } = {}) returns the scores as today and also stops before it writes report.md:
@@ -1337,7 +1336,7 @@ test('a run with round folders keeps scores and timing per round, and the report
   main(['pairs', ws, '--cases', cases]);
   // The round-1 findings are the known lock defect D1; the round-2 finding is a valid extra.
   judgeAll(ws, (id, known) => (id.includes('/round-1/') && known === 'D1' ? 'match' : 'no'));
-  const scores = reportCommand(ws, { configs: ['low-fast', 'low'] });
+  const scores = reportCommand(ws, { configs: ['low-fast', 'low'], reference: 'low' });
   const loop = scores.runs.find((run) => run.arm === 'C1-low' && run.run === 'run-2');
   const roundRow = ({ round, mode, seconds, tokens, found, verdict }) => [round, mode, seconds, tokens, found, verdict];
   assert.deepEqual(loop.rounds.map(roundRow), [
@@ -1349,7 +1348,7 @@ test('a run with round folders keeps scores and timing per round, and the report
     [loop.seconds, loop.tokens, loop.found, loop.recall, loop.validExtras, loop.roundVerdict],
     [200, 2000, ['D1'], 1 / 3, 1, 'pass'],
   );
-  assert.equal(main(['report', ws, '--configs', 'low-fast,low']), 'report.md: 3 runs');
+  assert.equal(main(['report', ws, '--configs', 'low-fast,low', '--reference', 'low']), 'report.md: 3 runs');
   const table = tableAfter(fs.readFileSync(path.join(ws, 'report.md'), 'utf8'), '### Code loops: dev');
   for (const row of [
     '| Measure | low-fast | low |',
@@ -1378,10 +1377,10 @@ test('a run with round folders keeps scores and timing per round, and the report
 //   the runs, times 50, divided by the known defects of their cases.
 // - Model, Effort, Served tier: the different values of the transcript facts (messages[].model, messages[].effort,
 //   messages[].servedTier; the model and the served tier leave out failed requests), joined by ", ".
-// - Interval rows: pairedBootstrap over the cases that the column and the reference both ran. The value of a case
-//   is the mean over its runs. Round 1 recall: value round-1 found, weight known. Escaped per 50 known: value
-//   escaped, weight known / 50. Loop seconds: value loop seconds, weight 1, over loop runs only. A cell is
-//   `[low, high]`; the reference column and a column without shared cases get `-`.
+// - Interval rows: the two-level pairedBootstrap over the cases that the column and the reference both ran, with the
+//   values of the runs of each column in each case. Round 1 recall: value round-1 found, weight known. Escaped per
+//   50 known: value escaped, weight known / 50. Loop seconds: value loop seconds, weight 1, over loop runs only. A
+//   cell is `[low, high]`; the reference column and a column without shared cases get `-`.
 // Code-loop table, over the loop runs (runs with round folders):
 // - Model, Effort, Served tier after Runs, as in the decision table.
 // - Round <r> rows, for r from 1 to the highest round of the loops, cover the loops that reached round r: seconds
@@ -1449,8 +1448,8 @@ test('the configuration table gives one column per configuration and the rows of
   ];
   const scores = scoreRuns(fixture);
   const configs = ['low', 'low-fast', 'high'];
-  const report = renderReport(scores, { configs });
-  // The reference is low-fast, the column with the fewest escaped defects per 50 known defects.
+  const report = renderReport(scores, { configs, reference: 'low-fast' });
+  // The reference is low-fast, the column that the operator names.
   assert.deepEqual(tableAfter(report, '## Configurations: dev'), [
     '| Measure | low | low-fast | high |',
     '|---|---:|---:|---:|',
@@ -1462,9 +1461,19 @@ test('the configuration table gives one column per configuration and the rows of
     `| Model | ${MODEL} | ${MODEL} | ${MODEL} |`,
     '| Effort | low | low | high |',
     '| Served tier | default | priority | default |',
+    // The exact Poisson rows compare these counts, with the runs of each column as the exposure.
+    '| Wrong findings / runs | 0 / 2 | 1 / 2 | 1 / 2 |',
+    '| Unknown ratings / runs | 0 / 2 | 0 / 2 | 1 / 2 |',
+    '| Reads of missing paths | 0 | 0 | 0 |',
     '| Round 1 recall difference from low-fast, 90% interval | [-0.50, 0.00] | - | [-1.00, -0.50] |',
     '| Escaped per 50 known difference from low-fast, 90% interval | [0.00, 25.00] | - | [25.00, 50.00] |',
     '| Loop seconds difference from low-fast, 90% interval | [50.0, 90.0] | - | [110.0, 210.0] |',
+    // low differs from low-fast in code-7 only; high differs in code-7 and code-8.
+    '| Cases with an escaped difference from low-fast | 1 | - | 2 |',
+    // P(Binomial(1, 1/2) >= 0) = 1, and P(Binomial(2, 1/2) >= 1) = 3/4.
+    '| Wrong findings more than low-fast, one-sided exact Poisson p | 1.0000 | - | 0.7500 |',
+    // P(Binomial(1, 1/2) >= 1) = 1/2.
+    '| Unknown ratings more than low-fast, one-sided exact Poisson p | 1.0000 | - | 0.5000 |',
   ]);
   assert.deepEqual(tableAfter(report, '### Decision: dev'), tableAfter(report, '## Configurations: dev'));
   assert.deepEqual(tableAfter(report, '### Code loops: dev'), [
@@ -1543,15 +1552,27 @@ test('the configuration table gives one column per configuration and the rows of
   // Another reference, and the default column order: the configuration names in run order.
   const byLow = tableAfter(renderReport(scores, { configs, reference: 'low' }), '## Configurations: dev');
   assert.ok(byLow.includes('| Loop seconds difference from low, 90% interval | - | [-90.0, -50.0] | [60.0, 120.0] |'));
-  assert.equal(tableAfter(renderReport(scores), '## Configurations: dev')[0], '| Measure | high | low | low-fast |');
+  // The default column order is the configuration names in run order. A table of two or more columns needs a
+  // reference column, which never comes from the results.
+  assert.equal(
+    tableAfter(renderReport(scores, { reference: 'low' }), '## Configurations: dev')[0],
+    '| Measure | high | low | low-fast |',
+  );
+  assert.throws(() => renderReport(scores), {
+    message:
+      'report needs --reference <column> for a decision table of two or more columns (high, low, low-fast): name the baseline arm or the production setting',
+  });
+  assert.throws(() => renderReport(scores, { configs, reference: 'xhigh' }), {
+    message: 'report --reference names xhigh, which is no column of the report: low, low-fast, high',
+  });
 });
 
-test('pairedBootstrap gives a seeded 90% interval of the difference over resampled cases', () => {
+test('pairedBootstrap gives a seeded 90% interval of the difference over resampled cases and runs', () => {
   // Ten cases with the differences 0.1 to 1.0 on references far apart. The 90% interval is near 0.40 to 0.70.
   const spread = Array.from({ length: 10 }, (_, index) => ({
     case: `case-${index + 1}`,
-    reference: index * 7,
-    value: index * 7 + (index + 1) / 10,
+    references: [index * 7],
+    values: [index * 7 + (index + 1) / 10],
   }));
   const realRandom = Math.random;
   Math.random = () => {
@@ -1566,26 +1587,42 @@ test('pairedBootstrap gives a seeded 90% interval of the difference over resampl
     Math.random = realRandom;
   }
   assert.deepEqual(again, first);
-  assert.deepEqual([first.cases, first.resamples], [10, 10000]);
+  assert.deepEqual([first.cases, first.differing, first.resamples], [10, 10, 10000]);
   assert.ok(Math.abs(first.estimate - 0.55) < 1e-9, `estimate ${first.estimate}`);
   assert.ok(first.low >= 0.36 && first.low <= 0.44, `low ${first.low}`);
   assert.ok(first.high >= 0.66 && first.high <= 0.74, `high ${first.high}`);
   // Paired: the same difference on every case gives that difference, however far apart the references are.
   const constant = score.pairedBootstrap([
-    { value: 0.1, reference: 0 },
-    { value: 0.9, reference: 0.8 },
-    { value: 50.1, reference: 50 },
+    { values: [0.1], references: [0] },
+    { values: [0.9], references: [0.8] },
+    { values: [50.1], references: [50] },
   ]);
   for (const bound of [constant.estimate, constant.low, constant.high]) assert.ok(Math.abs(bound - 0.1) < 1e-9);
-  // Weights make the statistic a ratio of sums: (3 + 0) / (3 + 1), not the mean of 3 / 3 and 0 / 1.
-  assert.deepEqual(
-    score.pairedBootstrap([
-      { value: 4, reference: 1, weight: 3 },
-      { value: 2, reference: 2, weight: 1 },
-    ]),
-    { estimate: 0.75, low: 0, high: 1, cases: 2, resamples: 10000 },
-  );
-  assert.deepEqual(score.pairedBootstrap([]), { estimate: null, low: null, high: null, cases: 0, resamples: 10000 });
+  assert.ok(constant.sd < 1e-9);
+  // Weights make the statistic a ratio of sums: (3 + 0) / (3 + 1), not the mean of 3 / 3 and 0 / 1. The two drawn
+  // cases give 1 (both the first case), 3/4 (one of each), or 0 (both the second case), with the chances 1/4, 1/2,
+  // and 1/4: their standard deviation is 0.375. Only the first case differs.
+  const weighted = score.pairedBootstrap([
+    { values: [4], references: [1], weight: 3 },
+    { values: [2], references: [2], weight: 1 },
+  ]);
+  assert.deepEqual([weighted.estimate, weighted.low, weighted.high, weighted.differing], [0.75, 0, 1, 1]);
+  assert.ok(Math.abs(weighted.sd - 0.375) < 0.01, `sd ${weighted.sd}`);
+  assert.deepEqual(score.pairedBootstrap([]), {
+    estimate: null,
+    low: null,
+    high: null,
+    sd: null,
+    cases: 0,
+    differing: 0,
+    resamples: 10000,
+  });
+  // Two levels: a resample also draws the runs of each column in each case. One case with the runs 0 and 2 against a
+  // reference run of 1 has the means 1 and 1, so a resample of cases alone gives [0, 0]. The runs give the means 0,
+  // 1, and 2 with the chances 1/4, 1/2, and 1/4, so the interval is [-1, 1] and the standard deviation sqrt(1/2).
+  const runs = score.pairedBootstrap([{ values: [0, 2], references: [1] }]);
+  assert.deepEqual([runs.estimate, runs.low, runs.high, runs.differing], [0, -1, 1, 0]);
+  assert.ok(Math.abs(runs.sd - Math.sqrt(0.5)) < 0.01, `sd ${runs.sd}`);
 });
 
 test('report stops on a finding that has neither a match nor an adjudication and names it', (t) => {
@@ -1633,11 +1670,20 @@ test('the judge agreement rate compares the answers of a second judge with the s
     ],
     adjudications: [{ finding: 'F-0000000003', rating: 'wrong' }],
   };
-  assert.deepEqual(score.judgeAgreement(first, second), { answers: 3, agreed: 2, rate: 2 / 3 });
+  // The first judge gave one match answer (F-0000000001 and D1), and the second judge answered it.
+  assert.deepEqual(score.judgeAgreement(first, second), {
+    answers: 3,
+    agreed: 2,
+    rate: 2 / 3,
+    matchAnswers: 1,
+    matchChecked: 1,
+  });
   assert.deepEqual(score.judgeAgreement(first, { matches: [], adjudications: [] }), {
     answers: 0,
     agreed: 0,
     rate: null,
+    matchAnswers: 1,
+    matchChecked: 0,
   });
   assert.throws(
     () => score.judgeAgreement(first, { matches: [{ finding: 'F-0000000009', known: 'D1', verdict: 'no' }] }),
@@ -1663,7 +1709,11 @@ test('the judge agreement rate compares the answers of a second judge with the s
   reportCommand(ws);
   const lines = fs.readFileSync(reportFile, 'utf8').split('\n');
   assert.ok(lines.includes('## Judge agreement'));
-  assert.ok(lines.includes('The second judge agreed with 2 of 3 answers (0.67).'));
+  assert.ok(
+    lines.includes(
+      'The second judge agreed with 2 of 3 answers (0.67). It answered 0 of the 0 match answers of judgments.json.',
+    ),
+  );
 });
 
 test('pairs and report read held-out keys from --keys instead of the cases folder', (t) => {
@@ -2703,7 +2753,10 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
     [4, 170, 50, 4000, 1700, ['D1'], 1, 3, 2],
     [2, 70, 10, 500, 700, [], 2, 1, 1],
   ]);
-  const table = tableAfter(renderReport(scores, { configs: ['low', 'low-fast'] }), '### Code loops: dev');
+  const table = tableAfter(
+    renderReport(scores, { configs: ['low', 'low-fast'], reference: 'low' }),
+    '### Code loops: dev',
+  );
   for (const line of [
     '| Measure | low | low-fast |',
     '| Rounds median | 4.0 | 2.0 |',
@@ -3263,6 +3316,9 @@ test('readScope allows the plan contract of a plugin root and an installed cache
       `${LIVE_PLUGIN}/skills/plan-manager/references/plan-contract.md`,
       `${cache}/engineering/code-review/references/security.md`,
       `${cache}/code-clarity/SKILL.md:1-40`,
+      // A `..` segment that stays among the allowed skills reads the path that it reaches (see normalizeLocal).
+      `${cache}/engineering/code-review/../code-clarity/SKILL.md`,
+      `${cache}/engineering//code-review/./references/perf.md`,
     ),
     { name: 'glob', path: `${cache}/engineering/code-review/references/*.md` },
   ];
@@ -3277,9 +3333,10 @@ test('readScope allows the plan contract of a plugin root and an installed cache
     `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/*.md`,
     `${LIVE_PLUGIN}/skills/a/b/plan-manager/references/plan-contract.md`,
     `${BASELINE_PLUGIN}/skills/productivity/plan-manager/references/plan-contract.md`,
-    // A cache copy of another skill, a path with a `..` segment, and a glob from a folder above the skill folders.
+    // A cache copy of another skill, a path whose `..` segment leaves the allowed skill for it, and a glob from a
+    // folder above the skill folders.
     `${cache}/productivity/plan-manager/references/plan-contract.md`,
-    `${cache}/engineering/code-review/../code-clarity/SKILL.md`,
+    `${cache}/engineering/code-review/../../productivity/plan-manager/SKILL.md`,
     `${cache}/**/code-review/SKILL.md`,
   ];
   assert.deepEqual(score.readScope(reads(...outside), scope), { outside });
@@ -3415,7 +3472,7 @@ test('the code-loop rows leave out single reviews, and the fixer median leaves o
   const scores = scoreRuns(fixture);
   const loops = scores.runs.filter((run) => run.loop).map((run) => `${run.case}/${run.arm}`);
   assert.deepEqual(loops, ['code-7/C1-low', 'code-7/C1-low-fast', 'code-8/C1-low', 'code-8/C1-low-fast']);
-  const report = renderReport(scores, { configs: ['low', 'low-fast'] });
+  const report = renderReport(scores, { configs: ['low', 'low-fast'], reference: 'low-fast' });
   // The decision table covers the loops and the single reviews together.
   const decision = tableAfter(report, '### Decision: dev');
   assert.deepEqual(decision.slice(0, 10), [
@@ -3432,12 +3489,18 @@ test('the code-loop rows leave out single reviews, and the fixer median leaves o
   ]);
   const intervalLabels = decision.slice(10).map((row) => row.split(' | ')[0]);
   assert.deepEqual(intervalLabels, [
+    '| Wrong findings / runs',
+    '| Unknown ratings / runs',
+    '| Reads of missing paths',
     '| Round 1 recall difference from low-fast, 90% interval',
     '| Escaped per 50 known difference from low-fast, 90% interval',
     '| Loop seconds difference from low-fast, 90% interval',
+    '| Cases with an escaped difference from low-fast',
+    '| Wrong findings more than low-fast, one-sided exact Poisson p',
+    '| Unknown ratings more than low-fast, one-sided exact Poisson p',
   ]);
   // Loops only: code-7 differs by 80 seconds and code-8 by 40. The single reviews, 100 seconds each, stay out.
-  assert.equal(decision[12], '| Loop seconds difference from low-fast, 90% interval | [40.0, 80.0] | - |');
+  assert.equal(decision[15], '| Loop seconds difference from low-fast, 90% interval | [40.0, 80.0] | - |');
   assert.deepEqual(tableAfter(report, '### Code loops: dev'), [
     '| Measure | low | low-fast |',
     '|---|---:|---:|',
@@ -3500,11 +3563,11 @@ test('the code-loop rows leave out single reviews, and the fixer median leaves o
   assert.ok(tableAfter(report, '### Single reviews: heldout').includes('| Runs | 1 | 0 |'));
 });
 
-test('the decision table compares with the configuration that has the fewest escaped defects per 50 known', () => {
+test('the decision table compares with the named reference, never with the column that escapes the fewest', () => {
   const round = (seconds, tokens, mode, fixer, answers) => [seconds, tokens, mode, fixer, answers];
   // Invalid runs can leave the configurations with different cases. low-fast escapes 1 of the 2 known defects of its
   // 2 runs (0.50 per run, 25.00 per 50 known); low escapes 1 of the 4 known defects of its 1 run (1.00 per run, 12.50
-  // per 50 known). The reference is low, which is not the last column.
+  // per 50 known). The reference is high, the production setting, which escapes the most per run.
   const fixture = gridFixture(
     {
       'code-7': { split: 'dev', known: ['D1', 'D2', 'D3', 'D4'] },
@@ -3530,27 +3593,40 @@ test('the decision table compares with the configuration that has the fewest esc
       },
     ],
   );
-  const report = renderReport(scoreRuns(fixture), { configs: ['low-fast', 'low', 'high'] });
+  const configs = ['low-fast', 'low', 'high'];
+  const report = renderReport(scoreRuns(fixture), { configs, reference: 'high' });
   const decision = tableAfter(report, '### Decision: dev');
   for (const row of [
     '| Measure | low-fast | low | high |',
     '| Runs | 2 | 1 | 1 |',
     '| Escaped per run | 0.50 | 1.00 | 2.00 |',
     '| Escaped per 50 known | 25.00 | 12.50 | 25.00 |',
-    // low-fast shares no case with low; high and low share code-7.
-    '| Round 1 recall difference from low, 90% interval | - | - | [-0.25, -0.25] |',
-    '| Escaped per 50 known difference from low, 90% interval | - | - | [12.50, 12.50] |',
-    '| Loop seconds difference from low, 90% interval | - | - | [80.0, 80.0] |',
+    // low-fast shares no case with high; low and high share code-7.
+    '| Round 1 recall difference from high, 90% interval | - | [0.25, 0.25] | - |',
+    '| Escaped per 50 known difference from high, 90% interval | - | [-12.50, -12.50] | - |',
+    '| Loop seconds difference from high, 90% interval | - | [-80.0, -80.0] | - |',
   ]) {
     assert.ok(decision.includes(row), `the decision table lacks ${row}`);
   }
+  assert.ok(report.includes('The reference column is high.'));
+  // Without a reference, the report stops: the results never pick it.
+  assert.throws(() => renderReport(scoreRuns(fixture), { configs }), {
+    message:
+      'report needs --reference <column> for a decision table of two or more columns (low-fast, low, high): name the baseline arm or the production setting',
+  });
+  // A table of one column needs no reference and has no comparison rows.
+  const single = tableAfter(renderReport(scoreRuns(fixture), { configs: ['low'] }), '### Decision: dev');
+  assert.equal(
+    single.some((row) => row.includes(' from ')),
+    false,
+  );
 });
 
 // `report --arms <folder,...>` (renderReport option `arms`) replaces the configuration sections with `## Arms: <split>`
 // sections: the same tables, with one column per arm folder in the order of `arms`. The decision table adds the row
 // `Cases` after Runs, and the row `Cases shared with <reference>` before the interval rows: the cases that the column
 // and the reference column both ran (`-` in the reference column). `--configs` and `--arms` together fail.
-test('report --arms gives one column per arm folder and compares it with the arm that escapes the fewest', (t) => {
+test('report --arms gives one column per arm folder and compares it with the named reference folder', (t) => {
   const round = (seconds, tokens, mode, fixer, answers) => [seconds, tokens, mode, fixer, answers];
   const fixture = gridFixture(
     {
@@ -3578,9 +3654,9 @@ test('report --arms gives one column per arm folder and compares it with the arm
     ],
   );
   const scores = scoreRuns(fixture);
-  const report = renderReport(scores, { arms: ['C1-xhigh-fast', 'B0-xhigh-fast'] });
+  const report = renderReport(scores, { arms: ['C1-xhigh-fast', 'B0-xhigh-fast'], reference: 'C1-xhigh-fast' });
   assert.equal(report.includes('## Configurations: dev'), false);
-  // B0 escapes code-8/D1, so C1 is the reference. Round 1 of B0 finds only D1 of code-7; its round 2 finds D2.
+  // C1 is the reference that the operator names. Round 1 of B0 finds only D1 of code-7; its round 2 finds D2.
   assert.deepEqual(tableAfter(report, '## Arms: dev'), [
     '| Measure | C1-xhigh-fast | B0-xhigh-fast |',
     '|---|---:|---:|',
@@ -3593,10 +3669,17 @@ test('report --arms gives one column per arm folder and compares it with the arm
     `| Model | ${MODEL} | ${MODEL} |`,
     '| Effort | xhigh | xhigh |',
     '| Served tier | priority | priority |',
+    '| Wrong findings / runs | 0 / 2 | 0 / 2 |',
+    '| Unknown ratings / runs | 0 / 2 | 0 / 2 |',
+    '| Reads of missing paths | 0 | 0 |',
     '| Cases shared with C1-xhigh-fast | - | 2 |',
     '| Round 1 recall difference from C1-xhigh-fast, 90% interval | - | [-1.00, -0.50] |',
     '| Escaped per 50 known difference from C1-xhigh-fast, 90% interval | - | [0.00, 50.00] |',
     '| Loop seconds difference from C1-xhigh-fast, 90% interval | - | [10.0, 60.0] |',
+    // One shared case differs, too few for a pass.
+    '| Cases with an escaped difference from C1-xhigh-fast | - | 1 |',
+    '| Wrong findings more than C1-xhigh-fast, one-sided exact Poisson p | - | 1.0000 |',
+    '| Unknown ratings more than C1-xhigh-fast, one-sided exact Poisson p | - | 1.0000 |',
   ]);
   assert.deepEqual(tableAfter(report, '### Decision: dev'), tableAfter(report, '## Arms: dev'));
   assert.equal(tableAfter(report, '### Code loops: dev')[0], '| Measure | C1-xhigh-fast | B0-xhigh-fast |');
@@ -3636,7 +3719,18 @@ test('report --arms gives one column per arm folder and compares it with the arm
   assert.throws(() => main(['report', ws, '--configs', 'low', '--arms', 'C1-low']), /not both$/);
   assert.throws(() => main(['report', ws, '--lead', 'C1-low']), /^Error: report takes --lead and --lead-ref together$/);
   assert.equal(
-    main(['report', ws, '--arms', 'C1-low-fast,C1-low', '--lead', 'C1-low', '--lead-ref', 'C1-low-fast']),
+    main([
+      'report',
+      ws,
+      '--arms',
+      'C1-low-fast,C1-low',
+      '--reference',
+      'C1-low-fast',
+      '--lead',
+      'C1-low',
+      '--lead-ref',
+      'C1-low-fast',
+    ]),
     'report.md: 2 runs',
   );
   const written = fs.readFileSync(path.join(ws, 'report.md'), 'utf8');
@@ -3690,9 +3784,10 @@ test('arm columns can hold different cases, and the decision table says how many
     ],
   );
   const arms = ['C1-xhigh-fast', 'S1-xhigh-fast', 'S3-xhigh-fast'];
-  const report = renderReport(scoreRuns(fixture), { arms });
-  // In dev, S1 and S3 escape nothing; S1 is the first of them, so it is the reference. C1 shares code-7 and code-8
-  // with S1, and S3 shares code-8. S1 has no loop, so no column has a loop seconds interval.
+  const report = renderReport(scoreRuns(fixture), { arms, reference: 'S1-xhigh-fast' });
+  // S1 is the reference that the operator names, in every case group. C1 shares code-7 and code-8 with S1, and S3
+  // shares code-8. S1 has no loop, so no column has a loop seconds interval. The escaped intervals are [0.00, 0.00],
+  // but no shared case differs, so they cannot give a pass.
   assert.deepEqual(tableAfter(report, '### Decision: dev'), [
     '| Measure | C1-xhigh-fast | S1-xhigh-fast | S3-xhigh-fast |',
     '|---|---:|---:|---:|',
@@ -3705,22 +3800,28 @@ test('arm columns can hold different cases, and the decision table says how many
     `| Model | ${MODEL} | ${MODEL} | ${MODEL} |`,
     '| Effort | xhigh | xhigh | xhigh |',
     '| Served tier | priority | priority | priority |',
+    '| Wrong findings / runs | 0 / 3 | 0 / 2 | 0 / 2 |',
+    '| Unknown ratings / runs | 0 / 3 | 0 / 2 | 0 / 2 |',
+    '| Reads of missing paths | 0 | 0 | 0 |',
     '| Cases shared with S1-xhigh-fast | 2 | - | 1 |',
     '| Round 1 recall difference from S1-xhigh-fast, 90% interval | [-0.50, 0.00] | - | [0.00, 0.00] |',
     '| Escaped per 50 known difference from S1-xhigh-fast, 90% interval | [0.00, 0.00] | - | [0.00, 0.00] |',
     '| Loop seconds difference from S1-xhigh-fast, 90% interval | - | - | - |',
+    '| Cases with an escaped difference from S1-xhigh-fast | 0 | - | 0 |',
+    '| Wrong findings more than S1-xhigh-fast, one-sided exact Poisson p | 1.0000 | - | 1.0000 |',
+    '| Unknown ratings more than S1-xhigh-fast, one-sided exact Poisson p | 1.0000 | - | 1.0000 |',
   ]);
   assert.ok(tableAfter(report, '### Code loops: dev').includes('| Runs | 3 | 0 | 0 |'));
   const singles = tableAfter(report, '### Single reviews: dev');
   assert.ok(singles.includes('| Runs | 0 | 2 | 2 |'));
   assert.ok(singles.includes('| Seconds median | - | 70.0 | 80.0 |'));
-  // Each case group has its own reference: in heldout, S1 escapes code-5/D1, so C1 is the reference.
+  // The reference is the same in heldout, where S1 escapes code-5/D1 and round 1 of C1 finds it.
   const heldout = tableAfter(report, '## Arms: heldout');
   for (const row of [
     '| Cases | 1 | 1 | 0 |',
     '| Escaped per 50 known | 0.00 | 50.00 | - |',
-    '| Cases shared with C1-xhigh-fast | - | 1 | 0 |',
-    '| Round 1 recall difference from C1-xhigh-fast, 90% interval | - | [-1.00, -1.00] | - |',
+    '| Cases shared with S1-xhigh-fast | 1 | - | 0 |',
+    '| Round 1 recall difference from S1-xhigh-fast, 90% interval | [1.00, 1.00] | - | - |',
   ]) {
     assert.ok(heldout.includes(row), `the heldout arm table lacks ${row}`);
   }
@@ -3997,7 +4098,7 @@ test('report accepts a null-tier run served without a tier and refuses an OpenAI
       ['run-3', ['correctness: served tier priority, not default']],
     ],
   );
-  const lines = renderReport(scores).split('\n');
+  const lines = renderReport(scores, { reference: 'gpt-6.1-sol-xhigh' }).split('\n');
   assert.ok(lines.includes('- code-7/C3/run-3: correctness: served tier priority, not default'));
   assert.equal(
     lines.some((line) => /run-[12]: /.test(line) && line.startsWith('- ')),
@@ -4866,7 +4967,7 @@ test('extra-only rounds count the rounds whose previous fix step repaired valid 
     ],
   );
   const configs = ['low', 'low-fast', 'high', 'xhigh-fast'];
-  const table = tableAfter(renderReport(scores, { configs }), '### Code loops: dev');
+  const table = tableAfter(renderReport(scores, { configs, reference: 'low' }), '### Code loops: dev');
   assert.ok(table.includes('| Extra-only rounds per run | 1.00 | 0.00 | 0.50 | 0.00 |'));
 });
 
@@ -5103,7 +5204,7 @@ test('a run with a reviewer block that holds no review is invalid and leaves the
   assert.equal(tableAfter(configs, '### Decision: dev')[2], '| Runs | 2 |');
   assert.equal(tableAfter(configs, '### Code loops: dev')[2], '| Runs | 1 |');
   assert.equal(tableAfter(configs, '### Single reviews: dev')[2], '| Runs | 1 |');
-  const arms = renderReport(scores, { arms: ['C1-low', 'S1-low'] });
+  const arms = renderReport(scores, { arms: ['C1-low', 'S1-low'], reference: 'C1-low' });
   assert.equal(tableAfter(arms, '### Decision: dev')[2], '| Runs | 1 | 1 |');
 });
 
@@ -5118,7 +5219,7 @@ test('the code-loop and single-review tables show the model, effort, and served 
       { case: 'plan-6', config: 'xhigh-fast', single: true, rounds: [round(50, null, [])] },
     ],
   );
-  const report = renderReport(scoreRuns(fixture), { configs: ['low', 'xhigh-fast'] });
+  const report = renderReport(scoreRuns(fixture), { configs: ['low', 'xhigh-fast'], reference: 'low' });
   const facts = [`| Model | ${MODEL} | ${MODEL} |`, '| Effort | low | xhigh |', '| Served tier | default | priority |'];
   for (const heading of ['### Decision: dev', '### Code loops: dev', '### Single reviews: dev']) {
     const table = tableAfter(report, heading);
@@ -5889,7 +5990,7 @@ test('transcripts lets a variant reviewer read its own plugin root and no other 
   assert.deepEqual(readJson(path.join(run, 'meta.json')).reviewers.plan.readScope, { outside });
 });
 
-test('report --reference compares every arm column with the named folder instead of the best one', (t) => {
+test('report --reference compares every arm column with the named folder, and report needs it', (t) => {
   const { ws, cases } = roundWorkspace(t, [
     {
       config: CONFIGS.low,
@@ -5906,13 +6007,11 @@ test('report --reference compares every arm column with the named folder instead
   judgeAll(ws, (_, known) => (known === 'D1' ? 'match' : 'no'));
   const arms = ['C1-low-fast', 'C1-low'];
   const report = () => readText(path.join(ws, 'report.md'));
-  const fewest = 'The reference column has the fewest escaped defects per 50 known defects.';
-  // The shared-cases row and the three interval rows end the decision table.
-  const compared = () => tableAfter(report(), '### Decision: dev').slice(-4);
-  // C1-low finds D1 and escapes the fewest, so it is the reference by default.
-  reportCommand(ws, { arms });
-  assert.equal(compared()[0], '| Cases shared with C1-low | 1 | - |');
-  assert.ok(report().includes(fewest));
+  // The shared-cases row and the three interval rows come before the rows of the exact tests.
+  const compared = () => tableAfter(report(), '### Decision: dev').slice(-7, -3);
+  // C1-low finds D1 and escapes the fewest, but the report takes no reference from the results.
+  assert.throws(() => reportCommand(ws, { arms }), /^Error: report needs --reference <column>/);
+  assert.equal(fs.existsSync(path.join(ws, 'report.md')), false);
   const named = [
     '| Cases shared with C1-low-fast | - | 1 |',
     '| Round 1 recall difference from C1-low-fast, 90% interval | - | [0.33, 0.33] |',
@@ -5921,10 +6020,9 @@ test('report --reference compares every arm column with the named folder instead
   ];
   reportCommand(ws, { arms, reference: 'C1-low-fast' });
   assert.deepEqual(compared(), named);
-  assert.equal(report().includes(fewest), false);
   assert.ok(report().includes('The reference column is C1-low-fast.'));
   // The command line takes the same option.
-  reportCommand(ws, { arms });
+  reportCommand(ws, { arms, reference: 'C1-low' });
   assert.equal(main(['report', ws, '--arms', arms.join(','), '--reference', 'C1-low-fast']), 'report.md: 2 runs');
   assert.deepEqual(compared(), named);
 });
@@ -6550,7 +6648,7 @@ test('case refuses a show_benchmark that is not true or false and writes nothing
   assert.equal(fs.existsSync(ws), false);
 });
 
-test('report refuses an empty --reference and one without --arms or outside --arms, and writes nothing', (t) => {
+test('report refuses a missing, empty, or unknown --reference and a bad margin, and writes nothing', (t) => {
   const { ws, cases } = roundWorkspace(t, [
     {
       config: CONFIGS.low,
@@ -6566,22 +6664,32 @@ test('report refuses an empty --reference and one without --arms or outside --ar
   main(['pairs', ws, '--cases', cases]);
   judgeAll(ws, (_, known) => (known === 'D1' ? 'match' : 'no'));
   const arms = ['C1-low-fast', 'C1-low'];
-  reportCommand(ws, { arms });
-  const empty = 'report --reference needs the name of an arm folder of --arms';
-  const withoutArms = 'report takes --reference only with --arms';
+  reportCommand(ws, { arms, reference: 'C1-low' });
+  const empty = 'report --reference needs the name of a column: an arm folder of --arms or a configuration';
   const refusals = [
     [{ arms, reference: '' }, empty],
-    [{ reference: 'C1-low' }, withoutArms],
-    [{ configs: ['low'], reference: 'C1-low' }, withoutArms],
+    [
+      { arms },
+      /^report needs --reference <column> for a decision table of two or more columns \(C1-low-fast, C1-low\)/,
+    ],
+    [{ reference: 'C1-low' }, 'report --reference names C1-low, which is no column of the report: low, low-fast'],
+    [{ configs: ['low'], reference: 'C1-low' }, 'report --reference names C1-low, which is not in --configs'],
     [{ arms: ['C1-low-fast'], reference: 'C1-low' }, 'report --reference names C1-low, which is not in --arms'],
+    [{ arms, reference: 'C1-low', sequential: true }, 'report --sequential needs --reference and --margin'],
   ];
   const state = treeState(ws);
   for (const [options, message] of refusals) {
     assert.throws(() => reportCommand(ws, options), { message });
     assert.deepEqual(treeState(ws), state);
   }
-  // The command line gives `--reference ''` as an empty reference.
-  assert.throws(() => main(['report', ws, '--arms', arms.join(','), '--reference', '']), { message: empty });
+  // The command line gives `--reference ''` as an empty reference, and takes a margin of 0 or more only.
+  const cli = (...more) => main(['report', ws, '--arms', arms.join(','), ...more]);
+  assert.throws(() => cli('--reference', ''), { message: empty });
+  for (const margin of ['-1', 'four', ' ']) {
+    assert.throws(() => cli('--reference', 'C1-low', '--margin', margin), {
+      message: `--margin needs a number of at least 0, not ${margin}`,
+    });
+  }
   assert.deepEqual(treeState(ws), state);
 });
 
@@ -7140,7 +7248,13 @@ test('the judge agreement counts the reargued answers of the second judge', (t) 
       { finding: 'F-0000000002', protected: 'U1', verdict: 'match' },
     ],
   };
-  assert.deepEqual(score.judgeAgreement(first, second), { answers: 3, agreed: 2, rate: 2 / 3 });
+  assert.deepEqual(score.judgeAgreement(first, second), {
+    answers: 3,
+    agreed: 2,
+    rate: 2 / 3,
+    matchAnswers: 0,
+    matchChecked: 0,
+  });
   // A reargued answer is compared only with the reargued answer of the same finding and protected id.
   const onlyReargued = (entry) => ({ matches: [], adjudications: [], reargued: [entry] });
   assert.throws(
@@ -7170,7 +7284,11 @@ test('the judge agreement counts the reargued answers of the second judge', (t) 
   });
   reportCommand(ws);
   const lines = fs.readFileSync(path.join(ws, 'report.md'), 'utf8').split('\n');
-  assert.ok(lines.includes('The second judge agreed with 2 of 3 answers (0.67).'));
+  assert.ok(
+    lines.includes(
+      'The second judge agreed with 2 of 3 answers (0.67). It answered 0 of the 0 match answers of judgments.json.',
+    ),
+  );
 });
 
 test('the fix plan of a loop ignores reargued answers', () => {
@@ -7700,7 +7818,7 @@ test('report.md gives the mean diff coverage of the valid runs and the lowest di
   ]);
   // The decision table of each arm or configuration column gives the mean over the reviewers of all rounds of its
   // valid runs, as the summary gives it for each case.
-  const decision = tableAfter(renderReport(scores, { arms: ['B0', 'C3', 'L1'] }), '### Decision: -');
+  const decision = tableAfter(renderReport(scores, { arms: ['B0', 'C3', 'L1'], reference: 'B0' }), '### Decision: -');
   assert.ok(decision.includes('| Diff read mean | - | 0.71 | 0.75 |'), decision.join('\n'));
 });
 
@@ -8487,4 +8605,527 @@ test('outcomes counts only merged revert pull requests and keeps the revert comm
   assert.deepEqual(row.reverts, ['dddddddddddd']);
   // Without a defect label or a defect title, an unmerged revert pull request is no follow-up defect either.
   assert.deepEqual(row.followUps, []);
+});
+
+// Plan #135: the statistics of a decision, the fixed reference, the sequential looks, the batch control, and the
+// harness fixes.
+
+// Writes the documents of gridFixture to the workspace `ws`, as `findings`, `pairs`, the judge, and `transcripts`
+// write them, so that the commands of score.mjs can read them.
+function writeFixture(ws, fixture) {
+  put(ws, 'findings.json', fixture.findings);
+  put(ws, 'pairs.json', fixture.pairs);
+  put(ws, 'judgments.json', fixture.judgments);
+  for (const [key, meta] of Object.entries(fixture.metas)) put(ws, `${key}/meta.json`, meta);
+}
+
+// The cases code-1 to code-<count> of gridFixture, each with the one known defect D1.
+const oneKnownCases = (count, split = 'dev', first = 1) =>
+  Object.fromEntries(Array.from({ length: count }, (_, index) => [`code-${first + index}`, { split, known: ['D1'] }]));
+
+// Single reviews of the arm `arm` at xhigh-fast on the cases code-<first> to code-<first + count - 1>, `runs` runs
+// each. `found(index, run)` tells whether the run of the case with the index `index` (from 0) found D1.
+const singleRuns = (arm, count, runs, found, first = 1) =>
+  Array.from({ length: count }, (_, index) =>
+    Array.from({ length: runs }, (_, run) => ({
+      case: `code-${first + index}`,
+      config: 'xhigh-fast',
+      arm,
+      run: run + 1,
+      single: true,
+      rounds: [[60, 600, null, 0, found(index, run + 1) ? ['D1'] : []]],
+    })),
+  ).flat();
+
+test('the exact Poisson rate test gives the binomial tail of the count of a column on known inputs', () => {
+  // Two events, both in the column, with equal exposures: P(Binomial(2, 1/2) >= 2) = 1/4.
+  assert.equal(score.poissonRateTest(2, 1, 0, 1), 0.25);
+  // P(Binomial(2, 1/2) >= 1) = 3/4, and a count of 0 gives 1.
+  assert.equal(score.poissonRateTest(1, 1, 1, 1), 0.75);
+  assert.equal(score.poissonRateTest(0, 3, 4, 3), 1);
+  // The share of the column is its part of the exposure: P(Binomial(3, 2/3) >= 3) = 8/27.
+  assert.ok(Math.abs(score.poissonRateTest(3, 2, 0, 1) - 8 / 27) < 1e-12);
+  // Only the shares count: P(Binomial(3, 1/2) >= 2) = 1/2.
+  assert.ok(Math.abs(score.poissonRateTest(2, 4, 1, 4) - 0.5) < 1e-12);
+  // The held-out values of plan #133: P1 with 64 wrong findings in 67 runs against P0 with 30 in 67, and C3 with 28
+  // in 28 against B3 with 27 in 32.
+  assert.equal(score.poissonRateTest(64, 67, 30, 67).toFixed(4), '0.0003');
+  assert.equal(score.poissonRateTest(28, 28, 27, 32).toFixed(2), '0.31');
+  // A column without runs has no exposure.
+  assert.equal(score.poissonRateTest(1, 0, 1, 2), null);
+});
+
+test('the normal quantile and the alpha-spending bounds give the published values', () => {
+  assert.ok(Math.abs(score.normalQuantile(0.95) - 1.6448536) < 1e-6);
+  assert.ok(Math.abs(score.normalQuantile(0.8) - 0.8416212) < 1e-6);
+  assert.ok(Math.abs(score.normalQuantile(0.001) + 3.0902323) < 1e-6);
+  assert.ok(Math.abs(score.normalCdf(1.959964) - 0.975) < 1e-6);
+  // gsDesign, sfLDOF with 4 equal looks and a one-sided error of 0.025: 4.3326, 2.9631, 2.3590, 2.0141.
+  assert.deepEqual(
+    score.spendingBounds(4, 0.025).map((bound) => bound.toFixed(4)),
+    ['4.3326', '2.9631', '2.3590', '2.0141'],
+  );
+  // One look spends the whole error, so its bound is the bound of a fixed sample.
+  assert.ok(Math.abs(score.spendingBounds(1, 0.05)[0] - score.normalQuantile(0.95)) < 1e-6);
+  // Look 1 of 4 spends 2 - 2 Phi(z(0.975) / sqrt(1/4)) alone, so its bound is z(1 - that error).
+  const firstLook = 2 - 2 * score.normalCdf(score.normalQuantile(0.975) / 0.5);
+  assert.ok(Math.abs(score.spendingBounds(4)[0] - score.normalQuantile(1 - firstLook)) < 1e-4);
+  // The bounds of the sequential decision: 4 looks, one-sided error 0.05.
+  assert.equal(score.MAX_LOOKS, 4);
+  assert.deepEqual(
+    score.spendingBounds(score.MAX_LOOKS).map((bound) => bound.toFixed(3)),
+    ['3.750', '2.540', '2.016', '1.720'],
+  );
+});
+
+test('a margin pass needs ten cases with a difference, and below that the report says too few differing cases', () => {
+  // B0 is the reference. In each of the 12 cases, `candidate(index)` and `reference(index)` tell whether the arm
+  // found D1.
+  const decision = ({ candidate, reference }, margin) => {
+    const fixture = gridFixture(oneKnownCases(12), [
+      ...singleRuns('B0', 12, 1, reference),
+      ...singleRuns('C1', 12, 1, candidate),
+    ]);
+    const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
+    const report = renderReport(scoreRuns(fixture), { arms, reference: 'B0-xhigh-fast', margin });
+    return tableAfter(report, '### Decision: dev').filter((row) =>
+      /^\| (Cases with an|Not worse|Equivalent)/.test(row),
+    );
+  };
+  const rows = (differing, notWorse, equivalent, margin = 4) => [
+    `| Cases with an escaped difference from B0-xhigh-fast | - | ${differing} |`,
+    `| Not worse than B0-xhigh-fast by ${margin} escaped per 50 known | - | ${notWorse} |`,
+    `| Equivalent to B0-xhigh-fast within ${margin} escaped per 50 known | - | ${equivalent} |`,
+  ];
+  const better = (cases) => ({ candidate: () => true, reference: (index) => index >= cases });
+  // The candidate finds D1 in 9 cases where the reference escapes it. The interval is far below the margin, but 9
+  // cases are too few for a pass.
+  assert.deepEqual(decision(better(9), 4), rows(9, 'too few differing cases', 'too few differing cases'));
+  assert.deepEqual(decision(better(10), 4), rows(10, 'pass', 'no'));
+  // A candidate that escapes D1 in 10 cases where the reference finds it does not pass.
+  assert.deepEqual(
+    decision({ candidate: (index) => index >= 10, reference: () => true }, 4),
+    rows(10, 'no pass', 'no'),
+  );
+  // Five cases better and five worse: the interval is near -22 to 22 per 50 known, inside a margin of 30.
+  const mixed = { candidate: (index) => index < 5 || index >= 10, reference: (index) => index >= 5 };
+  assert.deepEqual(decision(mixed, 30), rows(10, 'pass', 'yes', 30));
+  // Without a margin, the report gives the count of the differing cases and no margin rows.
+  assert.deepEqual(decision(better(10)), rows(10, 'pass', 'no').slice(0, 1));
+});
+
+test('the report prints the batch drift of each A/A control arm and flags a drift interval that leaves the margin', () => {
+  // dev: B3, its control copy AB3, and C3 on 6 cases; AB3 runs like B3. heldout: B3 and AB3 on 5 cases, where AB3
+  // escapes D1 in 3 of them.
+  const cases = { ...oneKnownCases(6), ...oneKnownCases(5, 'heldout', 7) };
+  const runs = [
+    ...singleRuns('B3', 6, 1, () => true),
+    ...singleRuns('AB3', 6, 1, () => true),
+    ...singleRuns('C3', 6, 1, () => true),
+    ...singleRuns('B3', 5, 1, () => true, 7),
+    ...singleRuns('AB3', 5, 1, (index) => index >= 3, 7),
+  ];
+  const scores = scoreRuns(gridFixture(cases, runs));
+  const drift = (report, split) => tableAfter(report, `### Batch drift: ${split}`);
+  const header = [
+    '| Control | Baseline | Cases shared | Cases with a difference | Escaped per 50 known difference, 90% interval | Drift |',
+    '| --- | --- | ---: | ---: | --- | --- |',
+  ];
+  const withMargin = renderReport(scores, { margin: 4 });
+  assert.deepEqual(drift(withMargin, 'dev'), [
+    ...header,
+    '| AB3-xhigh-fast | B3-xhigh-fast | 6 | 0 | [0.00, 0.00] | inside ±4 |',
+  ]);
+  // Five shared cases are too few for a drift check.
+  assert.match(
+    drift(withMargin, 'heldout')[2],
+    /^\| AB3-xhigh-fast \| B3-xhigh-fast \| 5 \| 3 \| \[.*\] \| too few cases \(5 of 6\) \|$/,
+  );
+  // Without a margin, the report gives the drift interval and no check.
+  assert.match(drift(renderReport(scores), 'dev')[2], /\| \[0\.00, 0\.00\] \| no margin \|$/);
+  // A control copy is no configuration column: the configuration table counts the B3 and C3 runs only.
+  assert.ok(tableAfter(withMargin, '### Decision: dev').includes('| Runs | 12 |'));
+  // A drift of 3 of 6 cases leaves a margin of 4. Three escapes of AB3 in a draw of 6 cases give 25 per 50 known.
+  const drifting = scoreRuns(
+    gridFixture(oneKnownCases(6), [
+      ...singleRuns('B3', 6, 1, () => true),
+      ...singleRuns('AB3', 6, 1, (index) => index >= 3),
+    ]),
+  );
+  assert.match(
+    drift(renderReport(drifting, { margin: 4 }), 'dev')[2],
+    /\| 6 \| 3 \| \[8\.33, 41\.67\] \| leaves ±4 \|$/,
+  );
+  // A workspace without a control arm has no drift section.
+  const withoutControl = renderReport(scoreRuns(gridFixture(oneKnownCases(6), runs.slice(0, 6))));
+  assert.equal(withoutControl.includes('## Batch drift'), false);
+});
+
+test('the sequential looks use the alpha-spending bound of each look and stop at the first pass or fail', (t) => {
+  const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
+  const looks = (candidate, reference) => {
+    const fixture = gridFixture(oneKnownCases(12), [
+      ...singleRuns('B0', 12, 4, reference),
+      ...singleRuns('C1', 12, 4, candidate),
+    ]);
+    const report = renderReport(scoreRuns(fixture), { arms, reference: 'B0-xhigh-fast', margin: 4, sequential: true });
+    return tableAfter(report, '### Sequential looks: dev');
+  };
+  const cells = (rows) => rows.slice(2).map((row) => row.split(' | '));
+  // The bound of look k is the bound of the Lan-DeMets O'Brien-Fleming spending for 4 looks.
+  const bounds = ['3.750', '2.540', '2.016', '1.720'];
+  // The candidate finds D1 in every run. The reference escapes it in every run of 9 cases, and in case 10 in run 2
+  // only. Look 1 has 9 differing cases, too few for a pass; look 2 has 10, and its interval is below the margin.
+  const always = () => true;
+  const never = () => false;
+  const first = cells(looks(always, (index, run) => index >= 10 || (index === 9 && run !== 2)));
+  assert.deepEqual(
+    first.map((row) => [row[1], row[2], row[4], row[5], row[8]]),
+    [
+      ['1', '12 / 12', '9', bounds[0], 'continue: too few differing cases |'],
+      ['2', '24 / 24', '10', bounds[1], 'pass: stop |'],
+      ['3', '36 / 36', '10', bounds[2], 'after the stop at look 2 |'],
+      ['4', '48 / 48', '10', bounds[3], 'after the stop at look 2 |'],
+    ],
+  );
+  // Look 1 of the same arms: 9 of 12 cases differ by one escaped defect, so the difference is -37.50 per 50 known.
+  assert.equal(first[0][6], '-37.50');
+  // Equal arms: no case differs, so no look passes, and the last look stops without a pass.
+  const equal = cells(looks(always, always));
+  assert.deepEqual(
+    equal.map((row) => [row[1], row[5], row[7], row[8]]),
+    [
+      ['1', bounds[0], '[0.00, 0.00]', 'continue: too few differing cases |'],
+      ['2', bounds[1], '[0.00, 0.00]', 'continue: too few differing cases |'],
+      ['3', bounds[2], '[0.00, 0.00]', 'continue: too few differing cases |'],
+      ['4', bounds[3], '[0.00, 0.00]', 'no pass: stop |'],
+    ],
+  );
+  // A candidate that escapes D1 in every run of every case is 50 per 50 known worse: it fails at look 1.
+  const worse = cells(looks(never, always));
+  assert.deepEqual(
+    worse.map((row) => [row[1], row[7], row[8]]),
+    [
+      ['1', '[50.00, 50.00]', 'fail: stop |'],
+      ['2', '[50.00, 50.00]', 'after the stop at look 1 |'],
+      ['3', '[50.00, 50.00]', 'after the stop at look 1 |'],
+      ['4', '[50.00, 50.00]', 'after the stop at look 1 |'],
+    ],
+  );
+  // The command line takes --sequential as a switch with --reference and --margin.
+  const ws = path.join(scratch(t), 'ws');
+  const cliRuns = [...singleRuns('B0', 12, 2, always), ...singleRuns('C1', 12, 2, always)];
+  writeFixture(ws, gridFixture(oneKnownCases(12), cliRuns));
+  const cli = ['report', ws, '--arms', arms.join(','), '--reference', 'B0-xhigh-fast'];
+  assert.equal(main([...cli, '--sequential', '--margin', '4']), 'report.md: 48 runs');
+  assert.equal(tableAfter(readText(path.join(ws, 'report.md')), '### Sequential looks: dev').length, 4);
+  assert.throws(() => main([...cli, '--sequential']), {
+    message: 'report --sequential needs --reference and --margin',
+  });
+});
+
+test('power reads an A/A workspace and prints the standard error and the cases that each margin needs', (t) => {
+  // B3 escapes D1 in code-1 and its control copy AB3 in code-2, so the differences of AB3 are -1, 1, 0, and 0, and
+  // the estimate is 0. The standard error is 50 sqrt(4/3 * 2) / 4 = 20.41 per 50 known.
+  const ws = path.join(scratch(t), 'ws');
+  const fixture = gridFixture(oneKnownCases(4), [
+    ...singleRuns('B3', 4, 1, (index) => index !== 0),
+    ...singleRuns('AB3', 4, 1, (index) => index !== 1),
+  ]);
+  writeFixture(ws, fixture);
+  const se = (50 * Math.sqrt((4 / 3) * 2)) / 4;
+  const z = score.normalQuantile(0.95) + score.normalQuantile(0.8);
+  // 4 cases at 1 run per arm give the error se, so c cases at r runs give se sqrt(4 / (c r)).
+  const needed = (margin) => [1, 2, 3, 4].map((runs) => Math.ceil((4 * ((z * se) / margin) ** 2) / runs));
+  const plan = score.powerPlan(
+    [
+      { values: [1], references: [0], known: 1 },
+      { values: [0], references: [1], known: 1 },
+      { values: [0], references: [0], known: 1 },
+      { values: [0], references: [0], known: 1 },
+    ],
+    { margins: [2, 4] },
+  );
+  assert.ok(Math.abs(plan.se - se) < 1e-9);
+  assert.deepEqual(
+    plan.rows.map((entry) => entry.cases),
+    [needed(2), needed(4)],
+  );
+  const lines = main(['power', ws]).split('\n');
+  assert.deepEqual(lines.slice(0, 6), [
+    'A/A comparison: AB3-xhigh-fast against B3-xhigh-fast, 4 cases, 1.0 runs per arm and case, 4 known defects',
+    'Cases with a difference: 2 of 4',
+    'Escaped per 50 known difference: 0.00, standard error 20.41',
+    '',
+    '| Margin per 50 known | Cases at 1 run | Cases at 2 runs | Cases at 3 runs | Cases at 4 runs |',
+    '|---:|---:|---:|---:|---:|',
+  ]);
+  assert.deepEqual(lines.slice(6, 8), [`| 2 | ${needed(2).join(' | ')} |`, `| 4 | ${needed(4).join(' | ')} |`]);
+  const explicit = main(['power', ws, '--arms', 'B3-xhigh-fast,AB3-xhigh-fast', '--margins', '3']);
+  assert.equal(explicit.split('\n')[6], `| 3 | ${needed(3).join(' | ')} |`);
+  assert.throws(() => main(['power', ws, '--margins', '0']), { message: '--margins needs margins above 0' });
+  // Without a control arm, power needs --arms.
+  const plain = path.join(scratch(t), 'plain');
+  const always = () => true;
+  writeFixture(plain, gridFixture(oneKnownCases(4), singleRuns('B3', 4, 1, always)));
+  assert.throws(() => main(['power', plain]), /^Error: power needs one A\/A pair of a control arm A<folder>/);
+});
+
+test('the second-judge sample holds every match answer and a seeded tenth of the other answers, without answers', (t) => {
+  const ws = path.join(scratch(t), 'ws');
+  const id = (n) => `F-${String(n).padStart(10, '0')}`;
+  const judgments = {
+    matches: [
+      ...[1, 2, 3].map((n) => ({ finding: id(n), known: 'D1', verdict: 'match', reason: 'Same cause.' })),
+      ...Array.from({ length: 20 }, (_, index) => ({
+        finding: id(10 + index),
+        known: 'D2',
+        verdict: index % 2 ? 'no' : 'unknown',
+        reason: 'Other cause.',
+      })),
+    ],
+    adjudications: Array.from({ length: 15 }, (_, index) => ({
+      finding: id(40 + index),
+      rating: 'wrong',
+      reason: 'Read.',
+    })),
+    reargued: [
+      { finding: id(1), protected: 'U1', verdict: 'match', reason: 'Steps.' },
+      ...Array.from({ length: 5 }, (_, index) => ({
+        finding: id(60 + index),
+        protected: 'U1',
+        verdict: 'no',
+        reason: 'Steps.',
+      })),
+    ],
+  };
+  put(ws, 'judgments.json', judgments);
+  // 3 match answers and 2 of the 20 others; 1 reargued match and 1 of the 5 others; 2 of the 15 ratings.
+  assert.equal(main(['sample', ws, '--seed', '3']), 'second-sample.json: 5 pairs, 2 protected pairs, 2 findings');
+  const sample = readJson(path.join(ws, 'second-sample.json'));
+  for (const n of [1, 2, 3]) assert.ok(sample.pairs.some((pair) => pair.finding === id(n) && pair.known === 'D1'));
+  assert.equal(sample.pairs.filter((pair) => pair.known === 'D2').length, 2);
+  assert.ok(sample.protectedPairs.some((pair) => pair.finding === id(1)));
+  // The sample holds the pairs and the findings only, no verdict, rating, or reason.
+  for (const pair of sample.pairs) assert.deepEqual(Object.keys(pair), ['finding', 'known']);
+  for (const pair of sample.protectedPairs) assert.deepEqual(Object.keys(pair), ['finding', 'protected']);
+  assert.ok(sample.findings.every((finding) => judgments.adjudications.some((entry) => entry.finding === finding)));
+  // The seed fixes the sample.
+  assert.deepEqual(score.secondJudgeSample(judgments, { seed: 3 }), sample);
+  assert.deepEqual(score.sampleCommand(ws), score.secondJudgeSample(judgments, { seed: 1 }));
+  assert.throws(() => main(['sample', ws, '--seed', '1.5']), { message: '--seed needs a whole number, not 1.5' });
+});
+
+test('a read of a missing path with an error result counts as a missing read and leaves the run valid', (t) => {
+  const root = scratch(t);
+  const missing = path.join(root, 'heldheldout-code', 'snapshot', 'src', 'sync.mjs');
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+  // An error result of a path that does not exist showed no file: the read selector goes, and a glob checks the
+  // folder before its first glob segment.
+  const calls = [
+    { name: 'read', path: `${missing}:1-20`, error: true },
+    { name: 'grep', path: `${root}/nothing/**/*.mjs`, error: true },
+  ];
+  assert.deepEqual(score.readScope(calls, scope), { outside: [], missing: [missing, `${root}/nothing/**/*.mjs`] });
+  // A read without an error result can have shown a file, so it stays outside, also for a missing path. An error
+  // result of a path that exists, and of a URI, stays outside too.
+  const outside = [
+    { name: 'read', path: missing },
+    { name: 'read', path: root, error: true },
+    { name: 'read', path: 'issue://100', error: true },
+  ];
+  assert.deepEqual(score.readScope(outside, scope), { outside: [missing, root, 'issue://100'] });
+  // A `..` read of a run input is the read of that input.
+  const dotted = reads(
+    `${SCOPE_CASE}/C3-low/run-1/round/../../run-1/prompts/correctness.txt`,
+    `${SCOPE_CASE}//snapshot/./src`,
+  );
+  assert.deepEqual(score.readScope(dotted, scope), { outside: [] });
+  // transcriptFacts marks a call whose tool result is an error result.
+  const transcriptCalls = [
+    ['read', { path: missing }],
+    ['read', { path: root }],
+  ];
+  const text = toolTranscript(SCOPE_CASE, 5, transcriptCalls, undefined, { results: { 'call-1': {} }, isError: true });
+  assert.deepEqual(score.transcriptFacts(text, 'missing.jsonl').toolCalls, [
+    { name: 'read', path: missing, error: true },
+    { name: 'read', path: root },
+  ]);
+  // The run stays valid, and the decision table counts the missing reads of each column.
+  const fixture = gridFixture(oneKnownCases(2), [
+    ...singleRuns('B0', 2, 1, () => true),
+    ...singleRuns('C1', 2, 1, () => true),
+  ]);
+  fixture.metas['code-1/C1-xhigh-fast/run-1'].reviewers.full.readScope = { outside: [], missing: [missing, root] };
+  const scores = scoreRuns(fixture);
+  assert.deepEqual(
+    scores.runs.map((run) => run.invalid),
+    [[], [], [], []],
+  );
+  const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
+  const decision = tableAfter(renderReport(scores, { arms, reference: arms[0] }), '### Decision: dev');
+  assert.ok(decision.includes('| Reads of missing paths | 0 | 2 |'));
+});
+
+test('probe gives the manager a prompt, and transcripts records the served tier of the manager', (t) => {
+  const root = neutralScratch(t);
+  const ws = path.join(root, 'ws');
+  const sessions = path.join(root, 'sessions');
+  const project = path.join(root, 'project');
+  const config = CONFIGS['low-fast'];
+  const manager = { model: MODEL, effort: 'high', tier: 'priority' };
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [config, CONFIGS.high], manager });
+  const probe = spawnSync(process.execPath, [PREPARE_SCRIPT, 'probe', '--out', ws, '--project', project], {
+    encoding: 'utf8',
+  });
+  assert.equal(probe.status, 0, probe.stderr);
+  assert.match(probe.stdout, /, and one manager prompt in C1-low-fast$/m);
+  const runDir = path.join(ws, 'probe', 'C1-low-fast', 'run-1');
+  // The manager has one setting for every configuration, so only the run of the first configuration records it.
+  assert.deepEqual(readJson(path.join(runDir, 'meta.json')), { config, managerConfig: manager });
+  assert.deepEqual(readJson(path.join(ws, 'probe', 'C1-high', 'run-1', 'meta.json')), { config: CONFIGS.high });
+  const prompt = promptFileParts(path.join(runDir, 'manager', 'manager-1.txt'));
+  assert.equal(prompt.agent, 'agent: review-bench-manager');
+  assert.ok(prompt.body.includes(`Run folder: ${runDir}`));
+  const names = namesCommand(ws).map((entry) => entry.name);
+  assert.deepEqual(names, ['ProbeC1HighR1Full', 'ProbeC1LowFastR1Full', 'ProbeC1LowFastR1Manager1']);
+  // One transcript per dispatch; the manager is served at the priority tier.
+  const transcript = (file, setting) => {
+    const [provider, model] = setting.model.split('/');
+    const [, , ...task] = readText(file).split('\n');
+    const message = { role: 'user', content: [{ type: 'text', text: task.join('\n') }] };
+    return jsonl([
+      { type: 'session', timestamp: isoAt(0), cwd: LIVE },
+      { type: 'thinking_level_change', timestamp: isoAt(0), thinkingLevel: setting.effort },
+      { type: 'service_tier_change', timestamp: isoAt(0), serviceTier: { openai: setting.tier } },
+      { type: 'message', timestamp: isoAt(0), message },
+      assistantLine(5, provider, model, setting.tier, { input: 90, output: 10 }),
+    ]);
+  };
+  for (const [name, file, setting] of [
+    ['ProbeC1HighR1Full', path.join(ws, 'probe', 'C1-high', 'run-1', 'prompts', 'full.txt'), CONFIGS.high],
+    ['ProbeC1LowFastR1Full', path.join(runDir, 'prompts', 'full.txt'), config],
+    ['ProbeC1LowFastR1Manager1', path.join(runDir, 'manager', 'manager-1.txt'), manager],
+  ]) {
+    put(sessions, `${name}.jsonl`, transcript(file, setting));
+  }
+  transcriptsCommand(ws, sessions);
+  const facts = readJson(path.join(runDir, 'meta.json')).manager.agents['manager-1'];
+  assert.deepEqual(
+    [facts.requestedTier, facts.messages.map((message) => message.servedTier)],
+    ['priority', ['priority']],
+  );
+});
+
+test('case --sequential builds look 1 and adds one run per look up to 4, also to an A/A control arm', (t) => {
+  const { repo, ws, options } = overlayFixture(t);
+  const look = (arms = 'P1,AP1,Va', more = {}) =>
+    prepare.prepareCase({ ...options('plan-3', arms), runs: undefined, sequential: true, ...more }, repo);
+  const caseDir = path.join(ws, 'plan-3');
+  const runsOf = (folder) =>
+    fs
+      .readdirSync(path.join(caseDir, folder))
+      .filter((name) => name.startsWith('run-'))
+      .sort();
+  look();
+  for (const folder of ['P1-low', 'AP1-low', 'Va-low']) assert.deepEqual(runsOf(folder), ['run-1']);
+  // The control copy AP1 runs the agent and the prompt of P1.
+  const prompt = (folder, run) => readText(path.join(caseDir, folder, `run-${run}`, 'prompts', 'plan.txt'));
+  assert.equal(prompt('AP1-low', 1), prompt('P1-low', 1));
+  for (const run of [2, 3, 4]) {
+    look();
+    for (const folder of ['P1-low', 'AP1-low', 'Va-low']) assert.equal(runsOf(folder).length, run);
+    assert.equal(prompt('AP1-low', run), prompt('P1-low', 1));
+    // Each run of the overlay arm gets a contract copy of its own.
+    assert.equal(readText(path.join(caseDir, 'Va-low', `run-${run}`, 'plan-contract.md')), '# Plan contract A\n');
+  }
+  // A sequential decision takes at most 4 looks.
+  assert.throws(() => look(), { message: `${caseDir} holds 4 looks, the most that a sequential decision takes` });
+  assert.throws(() => look('P1,AP1,Va', { runs: '2' }), {
+    message: 'case --sequential adds one run per case for each look; leave out --runs',
+  });
+  assert.throws(() => look('P1,AP1,Va', { extend: true }), {
+    message: 'case --sequential adds a look to an existing case folder by itself; leave out --extend',
+  });
+  // A look adds runs only to the arm folders of the first look, which hold the same number of runs.
+  const fresh = (id) => ({ ...options(id, 'Pd,V16'), runs: undefined, sequential: true });
+  prepare.prepareCase(fresh('plan-4'), repo);
+  const other = path.join(ws, 'plan-4');
+  assert.throws(() => prepare.prepareCase({ ...fresh('plan-4'), arms: 'P0' }, repo), {
+    message: `${path.join(other, 'P0-low')} does not exist; case --sequential adds a look to the arm folders of the first look, so give the arms and configurations of that look`,
+  });
+  fs.cpSync(path.join(other, 'V16-low', 'run-1'), path.join(other, 'V16-low', 'run-2'), { recursive: true });
+  assert.throws(() => prepare.prepareCase(fresh('plan-4'), repo), {
+    message: `the arm folders of ${other} hold different numbers of runs: 1, 2`,
+  });
+  // An A/A control copy of a control copy is no arm.
+  assert.throws(() => prepare.prepareCase(options('plan-5', 'AAP1'), repo), {
+    message: 'arm AAP1 does not apply to plan cases; use P0, P1, V16, Va',
+  });
+});
+
+test('case gives the judge the contract copy of each overlay run, also of a plan or code candidate arm', (t) => {
+  const { root, repo, ws, options } = overlayFixture(t);
+  const judgeCopy = (caseId, folder, run = 1) =>
+    path.join(ws, 'contracts', `${score.runLabel(caseId, folder, `run-${run}`)}.md`);
+  prepare.prepareCase(options('plan-3', 'P1,Va', { runs: '2' }), repo);
+  // The judge copy of a variant run is the contract copy that the reviewer of the run reads; an arm without an
+  // overlay gives the judge no copy, so the judge reads the contract of the snapshot.
+  for (const run of [1, 2]) {
+    const copy = path.join(ws, 'plan-3', 'Va-low', `run-${run}`, 'plan-contract.md');
+    assert.equal(readText(judgeCopy('plan-3', 'Va-low', run)), readText(copy));
+  }
+  assert.equal(fs.readdirSync(path.join(ws, 'contracts')).length, 2);
+  // A case that stops removes the judge copies that it wrote: the prompt of the first Va run names a path with a
+  // word that a prompt cannot hold, after case wrote the judge copy of the run.
+  const named = path.join(root, 'judge-ws');
+  assert.throws(() => prepare.prepareCase({ ...options('plan-3', 'Va'), out: named }, repo), /contains "judge"/);
+  assert.deepEqual(fs.readdirSync(named), []);
+  assert.throws(() => prepare.prepareCase(options('plan-5', 'P1,Va'), repo), {
+    message: noContract(path.join(ws, 'plan-5', 'snapshot')),
+  });
+  assert.equal(fs.readdirSync(path.join(ws, 'contracts')).length, 2);
+  // --candidate-contract-overlay gives the plan candidate arms P1 and Pd the working-tree contract change, as it gives
+  // it to the code candidate arms; the baseline arm P0 keeps the contract of the snapshot.
+  const fixture = variantRepo(t);
+  put(fixture.repo, CONTRACT, '# Plan contract working tree\n');
+  prepare.prepareAgents({ ...variantOptions(fixture), 'candidate-contract-overlay': true }, fixture.repo);
+  const candidateWs = path.join(fixture.root, 'candidate-ws');
+  const cases = path.join(fixture.root, 'candidate-cases');
+  const planCase = { id: 'plan-3', kind: 'plan', split: 'dev', issue: 3, round: 1, plan: 'plan-3-plan.md' };
+  put(cases, 'dev/plan-3.json', { ...planCase, repo_ref: fixture.shas.v16, known: [] });
+  put(cases, 'dev/plan-3-plan.md', '# Plan 3\n\nStep 1.\n');
+  const codeCase = { id: 'code-7', kind: 'code', split: 'dev', issue: 7, round: 1, plan: 'code-7-plan.md' };
+  put(cases, 'dev/code-7.json', { ...codeCase, base: fixture.shas.bare, head: fixture.shas.v16, known: [] });
+  put(cases, 'dev/code-7-plan.md', '# Plan 7\n\nStep 1.\n');
+  const caseOptions = (id, arms) => ({
+    case: path.join(cases, 'dev', `${id}.json`),
+    arms,
+    runs: '1',
+    out: candidateWs,
+    configs: 'low',
+    project: fixture.project,
+  });
+  prepare.prepareCase(caseOptions('plan-3', 'P0,P1'), fixture.repo);
+  prepare.prepareCase(caseOptions('code-7', 'B3,C3,AC3'), fixture.repo);
+  const runDir = (caseId, folder) => path.join(candidateWs, caseId, folder, 'run-1');
+  const copy = path.join(runDir('plan-3', 'P1-low'), 'plan-contract.md');
+  assert.equal(readText(copy), '# Plan contract working tree\n');
+  assert.deepEqual(readJson(path.join(runDir('plan-3', 'P1-low'), 'meta.json')), {
+    config: CONFIGS.low,
+    managerConfig: MANAGER_SETTING,
+    contractOverlay: 'applied',
+  });
+  const [baseline, candidate] = ['P0-low', 'P1-low'].map(
+    (folder) => promptFileParts(path.join(runDir('plan-3', folder), 'prompts', 'plan.txt')).body,
+  );
+  assert.equal(candidate, baseline.replace(SNAPSHOT_CONTRACT_RULE, copyContractRule(copy)));
+  const candidateCopy = (caseId, folder) =>
+    path.join(candidateWs, 'contracts', `${score.runLabel(caseId, folder, 'run-1')}.md`);
+  assert.equal(readText(candidateCopy('plan-3', 'P1-low')), '# Plan contract working tree\n');
+  // The code candidate arm C3 and its control copy AC3 get a judge copy each; P0 and B3 get none.
+  for (const folder of ['C3-low', 'AC3-low']) {
+    assert.equal(readText(candidateCopy('code-7', folder)), '# Plan contract working tree\n');
+  }
+  assert.equal(fs.readdirSync(path.join(candidateWs, 'contracts')).length, 3);
 });
