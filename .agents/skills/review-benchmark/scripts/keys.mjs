@@ -44,7 +44,7 @@ const USAGE = [
   '  backup --keys <dir> --out <vault checkout>',
   '      Encrypts the keys folder to the public key in $XDG_STATE_HOME/docks/review-bench/backup-recipient.asc',
   '      (default ~/.local/state) and writes <out>/keys-<UTC time>.tar.gpg. The key must have the fingerprint',
-  '      of the "Fingerprint: <hex>" line of <out>/README.md.',
+  '      of the "Fingerprint: <hex>" line of <out>/README.md, and <out> must be the root folder of a git checkout.',
   '  restore --archive <file> --out <new dir>',
   '      Decrypts with the key ring of GNUPGHOME (or the default key ring) into a new mode-0700 folder outside',
   '      every git checkout, and verifies every file against the manifest of the archive.',
@@ -128,6 +128,29 @@ export function manifestOf(keys) {
     .join('');
 }
 
+// The SHA-256 of each path of the manifest text `text`.
+function parseManifest(text) {
+  const expected = new Map();
+  for (const line of text.split('\n').filter(Boolean)) {
+    const match = line.match(MANIFEST_LINE);
+    if (!match) fail(`${MANIFEST} has a bad line: ${JSON.stringify(line)}`);
+    expected.set(match[2], match[1]);
+  }
+  return expected;
+}
+
+// The differences between the manifest `expected` and the files `found`, where `hashOf(name)` gives the SHA-256 of a
+// found file: one `missing file`, `extra file`, or `changed file` entry for each file that differs.
+function mismatches(expected, found, hashOf) {
+  return [
+    ...[...expected.keys()].filter((name) => !found.includes(name)).map((name) => `missing file ${name}`),
+    ...found.filter((name) => !expected.has(name)).map((name) => `extra file ${name}`),
+    ...found
+      .filter((name) => expected.has(name) && expected.get(name) !== hashOf(name))
+      .map((name) => `changed file ${name}`),
+  ];
+}
+
 // The reproducible tar of `keys` with `manifest` as its first member. The manifest goes through a private temporary
 // folder, so the keys folder itself stays unchanged.
 export function tarBytes(keys, manifest) {
@@ -145,9 +168,34 @@ export function tarBytes(keys, manifest) {
   }
 }
 
-// The tar of a keys folder with its own manifest.
-export function archiveBytes(keys) {
-  return tarBytes(keys, manifestOf(keys));
+// Checks the members of the tar `bytes` against `manifest`: the manifest member must equal `manifest`, and the bytes of
+// each other file member, read from the tar itself, must have the SHA-256 of the manifest. So a file that changes
+// between the manifest and the tar stops the backup.
+function verifyTar(bytes, manifest) {
+  const tar = (...args) => run('tar', args, { input: bytes, env: { ...process.env, LC_ALL: 'C' } });
+  const member = (name) => tar('-x', '-O', '--no-wildcards', '-f', '-', '--', name);
+  const files = tar('-t', '--quoting-style=literal', '-f', '-')
+    .toString('utf8')
+    .split('\n')
+    .filter((name) => name && !name.endsWith('/'));
+  const problems = mismatches(
+    parseManifest(manifest),
+    files.filter((name) => name !== MANIFEST),
+    (name) => sha256(member(name)),
+  );
+  if (!files.includes(MANIFEST) || !member(MANIFEST).equals(Buffer.from(manifest)))
+    problems.unshift(`changed file ${MANIFEST}`);
+  if (problems.length) fail(`the tar does not match ${MANIFEST}: ${problems.join('; ')}`);
+}
+
+// The verified tar of a keys folder with its own manifest. `beforeTar`, a test seam, runs between the manifest and the
+// tar.
+export function archiveBytes(keys, { beforeTar } = {}) {
+  const manifest = manifestOf(keys);
+  beforeTar?.();
+  const bytes = tarBytes(keys, manifest);
+  verifyTar(bytes, manifest);
+  return bytes;
 }
 
 // Encrypts `bytes` to the one key of `keyFile` into `output`. No options file, no default key, and no `encrypt-to`
@@ -187,8 +235,9 @@ function archiveName(now) {
     .replaceAll(':', '')}.tar.gpg`;
 }
 
-// Writes one encrypted copy of `keys` into the vault checkout `out` and gives its path.
-export function backup({ keys, out, env = process.env, now = new Date() }) {
+// Writes one encrypted copy of `keys` into the vault checkout `out` and gives its path. `out` must be the root folder
+// of a git checkout. `beforeTar` is the test seam of `archiveBytes`.
+export function backup({ keys, out, env = process.env, now = new Date(), beforeTar }) {
   if (!keys || !out) fail('backup needs --keys <dir> --out <vault checkout>');
   const keysDir = fs.realpathSync(keys);
   const vault = fs.realpathSync(out);
@@ -196,6 +245,10 @@ export function backup({ keys, out, env = process.env, now = new Date() }) {
   if (!fs.statSync(vault).isDirectory()) fail(`${out} is no folder`);
   if (isInside(vault, keysDir) || isInside(keysDir, vault))
     fail('the vault and the keys folder must not hold each other');
+  const top = revParse(vault, ['--show-toplevel'], env);
+  if (!top) fail(`${out} is no git checkout; --out must be the root folder of the vault clone`);
+  if (fs.realpathSync(top[0]) !== vault)
+    fail(`${out} is inside the git checkout ${top[0]}; --out must be the root folder of the vault clone`);
   const key = recipientFile(env);
   if (!fs.existsSync(key)) fail(`the recipient key file ${key} is missing`);
   const expected = vaultFingerprint(vault);
@@ -203,7 +256,7 @@ export function backup({ keys, out, env = process.env, now = new Date() }) {
   if (actual !== expected)
     fail(`the recipient key ${actual} differs from the fingerprint ${expected} of the vault README.md`);
   const output = path.join(vault, archiveName(now));
-  encrypt(archiveBytes(keysDir), key, output, env);
+  encrypt(archiveBytes(keysDir, { beforeTar }), key, output, env);
   return output;
 }
 
@@ -212,35 +265,32 @@ export function backup({ keys, out, env = process.env, now = new Date() }) {
 function verifyRestore(dir) {
   const manifestFile = path.join(dir, MANIFEST);
   if (!fs.existsSync(manifestFile)) fail(`the archive has no ${MANIFEST}`);
-  const expected = new Map();
-  for (const line of fs.readFileSync(manifestFile, 'utf8').split('\n').filter(Boolean)) {
-    const match = line.match(MANIFEST_LINE);
-    if (!match) fail(`${MANIFEST} has a bad line: ${JSON.stringify(line)}`);
-    expected.set(match[2], match[1]);
-  }
-  const found = filesOf(dir).filter((name) => name !== MANIFEST);
-  const problems = [
-    ...[...expected.keys()].filter((name) => !found.includes(name)).map((name) => `missing file ${name}`),
-    ...found.filter((name) => !expected.has(name)).map((name) => `extra file ${name}`),
-    ...found
-      .filter((name) => expected.has(name) && expected.get(name) !== sha256(fs.readFileSync(path.join(dir, name))))
-      .map((name) => `changed file ${name}`),
-  ];
+  const problems = mismatches(
+    parseManifest(fs.readFileSync(manifestFile, 'utf8')),
+    filesOf(dir).filter((name) => name !== MANIFEST),
+    (name) => sha256(fs.readFileSync(path.join(dir, name))),
+  );
   if (problems.length) fail(`the restore does not match ${MANIFEST}: ${problems.join('; ')}`);
   fs.rmSync(manifestFile);
 }
 
+// The output lines of `git rev-parse <args>` in `dir`, an existing folder, or undefined when `dir` is in no git
+// repository. Every other git failure, for example a repository of another owner, stops with the folder and the git
+// error, so a caller never takes a failed check for "no checkout".
+function revParse(dir, args, env) {
+  const gitEnv = { ...env, LC_ALL: 'C' };
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_CEILING_DIRECTORIES', 'LANGUAGE']) delete gitEnv[name];
+  const result = spawnSync('git', ['rev-parse', ...args], { cwd: dir, env: gitEnv, encoding: 'utf8' });
+  if (result.error) fail(`git failed in ${dir}: ${result.error.message}`);
+  if (result.status === 0) return result.stdout.split('\n').filter(Boolean);
+  const error = result.stderr.trim();
+  if (/^fatal: not a git repository\b/m.test(error)) return undefined;
+  fail(`git cannot check the folder ${dir}: ${error}`);
+}
+
 // Tells whether `dir`, an existing folder, is inside a git work tree or git folder.
-function insideGit(dir) {
-  const env = { ...process.env };
-  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_CEILING_DIRECTORIES']) delete env[name];
-  const result = spawnSync('git', ['rev-parse', '--is-inside-work-tree', '--is-inside-git-dir'], {
-    cwd: dir,
-    env,
-    encoding: 'utf8',
-  });
-  if (result.error) fail(`git failed: ${result.error.message}`);
-  return result.status === 0 && result.stdout.split('\n').includes('true');
+function insideGit(dir, env) {
+  return (revParse(dir, ['--is-inside-work-tree', '--is-inside-git-dir'], env) ?? []).includes('true');
 }
 
 // Decrypts `archive` into the new folder `out` (mode 0700) and verifies it. A failure leaves no folder.
@@ -250,7 +300,7 @@ export function restore({ archive, out, env = process.env }) {
   if (fs.existsSync(target) || isSymlink(target)) fail(`${out} exists; restore needs a new folder`);
   let parent = path.dirname(target);
   while (!fs.existsSync(parent)) parent = path.dirname(parent);
-  if (insideGit(parent)) fail(`${out} is inside a git checkout; restore outside every checkout`);
+  if (insideGit(parent, env)) fail(`${out} is inside a git checkout; restore outside every checkout`);
   const bytes = run('gpg', ['--batch', '--decrypt', path.resolve(archive)], { env });
   const created = fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   fs.mkdirSync(target, { mode: 0o700 });

@@ -11005,10 +11005,12 @@ function treeOf(root) {
   return entries;
 }
 
-// A vault checkout whose README names `fingerprint`, and the D4 recipient file set to `keyFile`.
+// A vault checkout (the root folder of a new git repository) whose README names `fingerprint`, and the D4 recipient
+// file set to `keyFile`.
 function vaultFor(gnupg, fingerprint, keyFile) {
   const vault = path.join(gnupg.root, 'vault');
   put(vault, 'README.md', `# Held-out keys vault\n\nFingerprint: ${fingerprint}\n`);
+  assert.equal(spawnSync('git', ['init', '-q', vault]).status, 0);
   const recipient = keyBackup.recipientFile(gnupg.env);
   fs.mkdirSync(path.dirname(recipient), { recursive: true });
   fs.copyFileSync(keyFile, recipient);
@@ -11031,16 +11033,16 @@ test('key backup writes only an encrypted copy to the vault, and restore gives a
   const vault = vaultFor(gnupg, fingerprint, file);
   const output = keyBackup.main(['backup', '--keys', keys, '--out', vault], gnupg.env);
   const names = fs.readdirSync(vault).sort();
-  assert.equal(names.length, 2);
-  assert.equal(names[0], 'README.md');
-  assert.match(names[1], /^keys-\d{8}T\d{6}Z\.tar\.gpg$/);
-  assert.equal(output, `backup: wrote ${path.join(fs.realpathSync(vault), names[1])}\n`);
-  assert.ok(!fs.readFileSync(path.join(vault, names[1])).includes('escape-draw-source.json'));
+  assert.equal(names.length, 3);
+  assert.deepEqual(names.slice(0, 2), ['.git', 'README.md']);
+  assert.match(names[2], /^keys-\d{8}T\d{6}Z\.tar\.gpg$/);
+  assert.equal(output, `backup: wrote ${path.join(fs.realpathSync(vault), names[2])}\n`);
+  assert.ok(!fs.readFileSync(path.join(vault, names[2])).includes('escape-draw-source.json'));
   // The backup leaves the keys folder as it was: the manifest goes only into the archive.
   assert.deepEqual(treeOf(keys), before);
   const restored = path.join(gnupg.root, 'restored', 'keys');
   assert.equal(
-    keyBackup.main(['restore', '--archive', path.join(vault, names[1]), '--out', restored], gnupg.env),
+    keyBackup.main(['restore', '--archive', path.join(vault, names[2]), '--out', restored], gnupg.env),
     `restore: verified every file in ${restored}\n`,
   );
   assert.equal(fs.statSync(restored).mode & 0o777, 0o700);
@@ -11112,6 +11114,30 @@ test('restore refuses an existing folder and a folder inside a git checkout, and
   assert.ok(!fs.existsSync(path.join(repository, 'sub')));
 });
 
+test('restore and backup stop with the folder and the git error when git cannot check the folder', (t) => {
+  const root = scratch(t);
+  const repository = path.join(root, 'checkout');
+  assert.equal(spawnSync('git', ['init', '-q', repository]).status, 0);
+  // Git takes the repository for one of another owner. No safe.directory line of a user or system config can allow it.
+  const env = {
+    ...process.env,
+    GIT_TEST_ASSUME_DIFFERENT_OWNER: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  const out = path.join(repository, 'sub', 'restored');
+  assert.throws(() => keyBackup.restore({ archive: path.join(root, 'none.tar.gpg'), out, env }), {
+    message: new RegExp(`^git cannot check the folder ${escapeRegExp(repository)}: fatal: detected dubious ownership`),
+  });
+  assert.ok(!fs.existsSync(path.join(repository, 'sub')));
+  assert.throws(() => keyBackup.backup({ keys: keysFixture(root), out: repository, env }), {
+    message: new RegExp(
+      `^git cannot check the folder ${escapeRegExp(fs.realpathSync(repository))}: fatal: detected dubious ownership`,
+    ),
+  });
+  assert.deepEqual(fs.readdirSync(repository), ['.git']);
+});
+
 test('restore names each file that does not match the manifest of the archive and leaves no folder', (t) => {
   const gnupg = gpgHome(t, 'bench test');
   const keys = keysFixture(gnupg.root);
@@ -11150,7 +11176,39 @@ test('backup refuses a recipient key that the vault README does not name, and wr
   assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env }), {
     message: /recipient key file .* missing/,
   });
-  assert.deepEqual(fs.readdirSync(vault), ['README.md']);
+  assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
+});
+
+test('backup refuses an --out that is no git checkout or that is inside another checkout, and writes nothing', (t) => {
+  const root = scratch(t);
+  const keys = keysFixture(root);
+  const plain = path.join(root, 'plain');
+  put(plain, 'README.md', '# Held-out keys vault\n');
+  assert.throws(() => keyBackup.backup({ keys, out: plain }), {
+    message: `${plain} is no git checkout; --out must be the root folder of the vault clone`,
+  });
+  assert.deepEqual(fs.readdirSync(plain), ['README.md']);
+  const checkout = path.join(root, 'checkout');
+  assert.equal(spawnSync('git', ['init', '-q', checkout]).status, 0);
+  const inner = path.join(checkout, 'vault');
+  put(inner, 'README.md', '# Held-out keys vault\n');
+  const inside = `${inner} is inside the git checkout ${fs.realpathSync(checkout)}`;
+  assert.throws(() => keyBackup.backup({ keys, out: inner }), {
+    message: `${inside}; --out must be the root folder of the vault clone`,
+  });
+  assert.deepEqual(fs.readdirSync(inner), ['README.md']);
+});
+
+test('backup stops and writes nothing when a file changes between the manifest and the tar', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const { fingerprint, file } = gnupg.keys['bench test'];
+  const keys = keysFixture(gnupg.root);
+  const vault = vaultFor(gnupg, fingerprint, file);
+  const beforeTar = () => fs.writeFileSync(path.join(keys, 'heldout/code-1-K1.patch'), 'diff --git a/y b/y\n');
+  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env, beforeTar }), {
+    message: 'the tar does not match MANIFEST.sha256: changed file heldout/code-1-K1.patch',
+  });
+  assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
 });
 
 test('an encrypt-to line of the gpg options file adds no recipient to a backup', (t) => {
