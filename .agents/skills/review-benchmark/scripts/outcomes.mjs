@@ -211,6 +211,16 @@ function revertsOf(pull, { repo, pulls, commits }) {
   return [...revertPulls.map((other) => `#${other.number}`), ...revertCommits.map((commit) => commit.sha.slice(0, 12))];
 }
 
+// The merged pull requests of `repo` that closed `plan`, by merge time: the landing pull requests that the follow-up
+// rule takes. `pullByNumber` maps each pull request number to its pull request.
+export function landedPulls(plan, repo, pullByNumber) {
+  return (plan.closedByPullRequestsReferences ?? [])
+    .filter((ref) => sameRepository(ref, repo))
+    .map((ref) => pullByNumber.get(ref.number))
+    .filter((pull) => pull?.mergedAt)
+    .sort((a, b) => (a.mergedAt < b.mergedAt ? -1 : 1));
+}
+
 // The outcome of each closed plan issue, in issue-number order. `landing` is the last merged pull request that closed
 // the plan. A follow-up defect is an issue or a pull request, created after the landing merge (or after the plan
 // closed, without a landing pull request), that cites a landing pull request or the plan, is not a revert, is no plan
@@ -220,11 +230,7 @@ export function planOutcomes({ repo, plans, issues, pulls, commits }) {
   return [...plans]
     .sort((a, b) => a.number - b.number)
     .map((plan) => {
-      const landed = (plan.closedByPullRequestsReferences ?? [])
-        .filter((ref) => sameRepository(ref, repo))
-        .map((ref) => pullByNumber.get(ref.number))
-        .filter((pull) => pull?.mergedAt)
-        .sort((a, b) => (a.mergedAt < b.mergedAt ? -1 : 1));
+      const landed = landedPulls(plan, repo, pullByNumber);
       const landing = landed.at(-1) ?? null;
       const reverts = [...new Set(landed.flatMap((pull) => revertsOf(pull, { repo, pulls, commits })))];
       const { defects, unreached } = followUpsOf(plan, landed, { repo, plans, issues, pulls }, reverts);

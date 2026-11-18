@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { cites, fetchRepository, planOutcomes } from './outcomes.mjs';
+import { cites, fetchRepository, landedPulls, planOutcomes } from './outcomes.mjs';
 
 const KINDS = ['code', 'code-delta', 'plan', 'plan-delta'];
 // The case folders of this skill.
@@ -130,6 +130,7 @@ function reviewRounds(comments, cutoff) {
             kind: `${reviewer}${/\bdelta\b/i.test(heading[2]) ? '-delta' : ''}`,
             findings: [],
             previous: [],
+            body: [],
             modern: false,
           };
           sequence.push(block);
@@ -137,6 +138,7 @@ function reviewRounds(comments, cutoff) {
         continue;
       }
       if (!block) continue;
+      block.body.push(normalized(line));
       if (/^(?:#{1,6}\s+)?Previous findings\s*:?\s*$/i.test(line.trim())) block.modern = true;
       const previous = line.match(PREVIOUS);
       if (previous) {
@@ -166,10 +168,20 @@ function matchesStatus(finding, status) {
   return normalized(finding.text).includes(status.locator) || normalized(finding.locator).includes(status.locator);
 }
 
+// The findings of `round` that the round before it did not report. The format with Previous findings marks a repeat
+// `open`; in the old format, a repeat has the text of a finding of the round before it in the same cycle.
 function newFindings(round, earlier) {
   const repeats = round.previous.filter((status) => status.state === 'open');
+  const prior = earlier.at(-1);
+  const oldRepeat = (finding) =>
+    !round.modern &&
+    prior &&
+    !prior.modern &&
+    prior.cycle === round.cycle &&
+    prior.findings.some((item) => findingCore(item) === findingCore(finding));
   return round.findings.filter(
     (finding) =>
+      !oldRepeat(finding) &&
       !repeats.some((status) => {
         if (matchesStatus(finding, status)) return true;
         // A repair can move the locator. The review's defect class still identifies an open repeat.
@@ -186,9 +198,18 @@ function newFindings(round, earlier) {
   );
 }
 
+// The text of a finding without its list marker and its severity or kind tag.
+const findingCore = (finding) => normalized(finding.text.match(FINDING)?.[3] ?? finding.text);
+
+// A later round confirms the fix of `finding` of `round`. In the format with Previous findings, a later round of the
+// same cycle marks it fixed or resolved. In the old format, a later old-format review no longer reports it: its text
+// is absent from that review.
 function confirmed(finding, round, later) {
   return later.some((next) => {
-    if (!round.modern && !next.modern) return true; // Old format: a subsequent review is its fix check.
+    if (!round.modern && !next.modern) {
+      const core = findingCore(finding);
+      return !next.body.some((line) => line.includes(core));
+    }
     if (next.cycle !== round.cycle) return false;
     return next.previous.some(
       (status) =>
@@ -221,6 +242,7 @@ function cutoffData(snapshot) {
 // item was created, then to the highest-numbered plan whose follow-up rule took it. The order of the plans and of the
 // items does not change an owner.
 function followUpOwners(data, outcomes) {
+  const pullByNumber = new Map(data.pulls.map((pull) => [pull.number, pull]));
   const items = new Map([...data.pulls, ...data.issues].map((item) => [item.number, item]));
   const plans = new Map(data.plans.map((plan) => [plan.number, plan]));
   const takers = new Map();
@@ -235,10 +257,10 @@ function followUpOwners(data, outcomes) {
     const item = items.get(number);
     const text = `${item.title ?? ''}\n${item.body ?? ''}`;
     const highest = (list) => (list.length ? Math.max(...list) : null);
-    const byLanding = candidates.filter((plan) => {
-      const landing = outcomes.get(plan).landing;
-      return landing !== null && cites(text, data.repo, landing);
-    });
+    // Every landing pull request of a plan counts, the same set that the follow-up rule of outcomes.mjs takes.
+    const byLanding = candidates.filter((plan) =>
+      landedPulls(plans.get(plan), data.repo, pullByNumber).some((pull) => cites(text, data.repo, pull.number)),
+    );
     const byPlan = candidates.filter(
       (plan) => cites(text, data.repo, plan) && time(plans.get(plan).closedAt) < time(item.createdAt),
     );
@@ -247,7 +269,9 @@ function followUpOwners(data, outcomes) {
   return owners;
 }
 
-export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
+// `drawCommit` is the commit of the escapes.mjs that runs the draw, with `-dirty` when its draw code differs from that
+// commit. The frozen part keeps it next to the commit of the snapshot, so a redraw of one snapshot with other code shows.
+export function buildDraw(snapshot, seed, { drawCommit, sourceBytes = frozenJson(snapshot) } = {}) {
   if (
     snapshot.version !== 1 ||
     !snapshot.repo ||
@@ -259,6 +283,7 @@ export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
   )
     throw new Error('invalid escape snapshot');
   if (typeof seed !== 'string' || !seed.length) throw new Error('draw needs --seed <seed>');
+  if (!/^[0-9a-f]{40}(?:-dirty)?$/.test(drawCommit ?? '')) throw new Error('draw needs the commit of its script');
   const data = cutoffData(snapshot);
   const units = [];
   const devPlans = new Set(snapshot.cases.filter((item) => item.split === 'dev').map((item) => item.issue));
@@ -289,6 +314,8 @@ export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
       for (let index = 1; index < sequence.length; index++) {
         const found = sequence[index];
         const missed = sequence[index - 1];
+        // The first round of a new cycle reviews another sequence: it is no escape of the previous cycle.
+        if (found.cycle !== missed.cycle) continue;
         const findings = newFindings(found, sequence.slice(0, index)).filter((finding) =>
           confirmed(finding, found, sequence.slice(index + 1)),
         );
@@ -333,6 +360,7 @@ export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
     version: 1,
     cutoff: snapshot.cutoff,
     script_commit: snapshot.script_commit,
+    draw_commit: drawCommit,
     seed,
     snapshot_sha256: sha256(sourceBytes),
     units,
@@ -346,6 +374,7 @@ export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
     '',
     `- Cutoff (exclusive): ${frozen.cutoff}`,
     `- Script commit: ${frozen.script_commit}`,
+    `- Draw script commit: ${frozen.draw_commit}`,
     `- Seed (JSON): ${JSON.stringify(seed)}`,
     `- Source snapshot SHA-256: ${frozen.snapshot_sha256}`,
     `- Restricted frozen record SHA-256: ${sha256(frozenJson(frozen))}`,
@@ -436,6 +465,16 @@ function checkOutcome(name, outcome, unit, casesDir) {
     const caseData = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (caseData.id !== outcome.case || caseData.issue !== unit.issue || caseData.split !== unit.split)
       fail(`${where}: case ${outcome.case} is not a ${unit.split} case of issue #${unit.issue}`);
+    // The case reviews the missed round of the unit: its kind, its round, and its cycle when the case records one.
+    if (
+      caseData.kind !== unit.kind ||
+      caseData.round !== unit.missed_round ||
+      (Object.hasOwn(caseData, 'cycle') && caseData.cycle !== unit.cycle)
+    ) {
+      fail(
+        `${where}: case ${outcome.case} is a ${caseData.kind} case of round ${caseData.round}, not the ${unit.kind} round ${unit.missed_round} of the unit`,
+      );
+    }
   } else if (outcome.outcome === 'rejected') {
     if (outcome.case !== undefined && outcome.case !== null) fail(`${where}: a rejected unit has no case`);
     if (!Object.hasOwn(REASONS, outcome.reason)) fail(`${where}: a rejected unit needs a reason letter a to e`);
@@ -457,6 +496,8 @@ export function applyOutcomes({ recordText, manifestText, files, casesDir = SKIL
     fail('the manifest names another frozen record than this record');
   const order = new Map(record.frozen.units.map((unit, index) => [unit.id, index]));
   const decided = new Map();
+  // Each case stands for one unit, so no two units name one case.
+  const cases = new Map();
   for (const { name, text } of files) {
     const outcome = JSON.parse(text);
     const id = outcome?.unit;
@@ -464,6 +505,11 @@ export function applyOutcomes({ recordText, manifestText, files, casesDir = SKIL
     if (name !== `${id}.json`) fail(`outcome ${name} must be named ${id}.json`);
     if (decided.has(id)) fail(`unit ${id} has two outcome files`);
     checkOutcome(name, outcome, record.frozen.units[order.get(id)], casesDir);
+    if (outcome.outcome === 'taken') {
+      const key = `${outcome.split}/${outcome.case}`;
+      if (cases.has(key)) fail(`case ${outcome.case} is named by units ${cases.get(key)} and ${id}`);
+      cases.set(key, id);
+    }
     decided.set(id, outcome);
   }
   const outcomes = [...decided.values()].sort((a, b) => order.get(a.unit) - order.get(b.unit));
@@ -543,6 +589,7 @@ export function main(argv) {
             seed: { type: 'string' },
             record: { type: 'string' },
             manifest: { type: 'string' },
+            commit: { type: 'string' },
           }
         : command === 'outcomes'
           ? {
@@ -556,15 +603,7 @@ export function main(argv) {
   const { values } = parseArgs({ args, options, strict: true });
   if (command === 'snapshot') {
     if (!values.out) throw new Error('snapshot needs --out <file>');
-    let commit = values.commit;
-    if (!commit) {
-      const result = spawnSync('git', ['rev-parse', 'HEAD'], {
-        encoding: 'utf8',
-        cwd: fileURLToPath(new URL('.', import.meta.url)),
-      });
-      if (result.error || result.status !== 0) throw new Error('cannot read script commit; use --commit');
-      commit = result.stdout.trim();
-    }
+    const commit = values.commit ?? headCommit(SCRIPT_DIR);
     const snapshot = captureSnapshot({ repo: values.repo, closedBefore: values['closed-before'], commit });
     writeRestricted(values.out, frozenJson(snapshot));
     return null;
@@ -591,10 +630,57 @@ export function main(argv) {
   if (values.record && values.manifest && path.resolve(values.record) === path.resolve(values.manifest))
     throw new Error('record and manifest must be different files');
   const bytes = fs.readFileSync(values.snapshot, 'utf8');
-  const { record, manifest } = buildDraw(JSON.parse(bytes), values.seed, bytes);
+  const drawCommit = drawCommitOf(values.commit);
+  const { record, manifest } = buildDraw(JSON.parse(bytes), values.seed, { drawCommit, sourceBytes: bytes });
   if (values.record) writeRestricted(values.record, frozenJson(record));
   if (values.manifest) fs.writeFileSync(values.manifest, manifest);
   return manifest;
+}
+
+const SCRIPT_DIR = fileURLToPath(new URL('.', import.meta.url));
+// The repository path of this folder, and the files of the draw code.
+const REPOSITORY_SCRIPTS = '.agents/skills/review-benchmark/scripts';
+const DRAW_CODE = ['escapes.mjs', 'outcomes.mjs'];
+
+// The output of a git command in `cwd`, or null when it fails.
+function git(args, cwd = process.cwd()) {
+  const result = spawnSync('git', args, { encoding: 'utf8', cwd });
+  return result.error || result.status !== 0 ? null : result.stdout.trim();
+}
+
+// The commit of the checkout of `cwd`.
+function headCommit(cwd = process.cwd()) {
+  const commit = git(['rev-parse', 'HEAD'], cwd);
+  if (!commit) throw new Error('cannot read the script commit; use --commit');
+  return commit;
+}
+
+// Tells whether the running draw code is the draw code of `commit` in the repository of the current folder: the blob
+// of each running file (with the filters of its repository path) equals the blob of that path at `commit`. The files
+// can run from a checkout or from a `git archive` of the commit.
+function drawCodeMatches(commit) {
+  return DRAW_CODE.every((name) => {
+    const repositoryPath = `${REPOSITORY_SCRIPTS}/${name}`;
+    const committed = git(['rev-parse', '--verify', '--quiet', `${commit}:${repositoryPath}`]);
+    const running = git(['hash-object', `--path=${repositoryPath}`, path.join(SCRIPT_DIR, name)]);
+    return committed !== null && running !== null && committed === running;
+  });
+}
+
+// The draw commit of the frozen part. A given `--commit` must hold the running draw code, else the draw refuses. Without
+// it, the draw takes the commit of the current checkout, marked `-dirty` when the running code differs from it.
+function drawCommitOf(given) {
+  if (given === undefined) {
+    const head = headCommit();
+    return drawCodeMatches(head) ? head : `${head}-dirty`;
+  }
+  if (!/^[0-9a-f]{40}$/.test(given)) throw new Error('draw needs the commit of its script');
+  if (!drawCodeMatches(given)) {
+    throw new Error(
+      `the running escapes.mjs or outcomes.mjs differs from ${REPOSITORY_SCRIPTS} at ${given}; run the scripts of that commit`,
+    );
+  }
+  return given;
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

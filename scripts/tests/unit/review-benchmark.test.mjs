@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import * as escapes from '../../../.agents/skills/review-benchmark/scripts/escapes.mjs';
 import * as outcomes from '../../../.agents/skills/review-benchmark/scripts/outcomes.mjs';
 import * as prepare from '../../../.agents/skills/review-benchmark/scripts/prepare.mjs';
@@ -9918,6 +9919,9 @@ test('case gives the judge the contract copy of each overlay run, also of a plan
   assert.equal(fs.readdirSync(path.join(candidateWs, 'contracts')).length, 3);
 });
 
+// The commit that a test draw records as the commit of its script.
+const DRAW_OPTIONS = { drawCommit: 'd'.repeat(40) };
+
 // The source snapshot is synthetic: no held-out production defect is used in these parser tests.
 function escapeFixture() {
   const date = (day) => `2026-01-${String(day).padStart(2, '0')}T00:00:00Z`;
@@ -10046,7 +10050,7 @@ function repositoryRunner(repository, comments = {}, calls = []) {
 }
 
 test('escape units follow issue, reviewer, and review-sequence order, with two findings in one round', () => {
-  const { record } = escapes.buildDraw(escapeFixture(), 'test');
+  const { record } = escapes.buildDraw(escapeFixture(), 'test', DRAW_OPTIONS);
   assert.deepEqual(
     record.frozen.units.map(({ issue, reviewer, missed_round: round }) => [issue, reviewer, round]),
     [
@@ -10067,7 +10071,7 @@ test('escape units follow issue, reviewer, and review-sequence order, with two f
 });
 
 test('escape draw keeps delta missed rounds and excludes findings without a later fix', () => {
-  const units = escapes.buildDraw(escapeFixture(), 'test').record.frozen.units;
+  const units = escapes.buildDraw(escapeFixture(), 'test', DRAW_OPTIONS).record.frozen.units;
   assert.equal(units[1].kind, 'code-delta');
   assert.equal(units[1].missed_round, 2);
   assert.equal(units[1].findings[0].found_round, 3);
@@ -10078,7 +10082,7 @@ test('escape draw keeps delta missed rounds and excludes findings without a late
 });
 
 test('escape draw accepts the old unnumbered plan review format with a later review', () => {
-  const units = escapes.buildDraw(escapeFixture(), 'test').record.frozen.units;
+  const units = escapes.buildDraw(escapeFixture(), 'test', DRAW_OPTIONS).record.frozen.units;
   const old = units.find((unit) => unit.issue === 20 && unit.reviewer === 'plan');
   assert.equal(old.missed_round, 1);
   assert.equal(old.findings.length, 1);
@@ -10107,11 +10111,11 @@ test('escape snapshot captures complete input and all plan comments once, with c
 
 test('escape draw ignores plans, comments, follow-ups, and merge events at or after the cutoff', () => {
   const fixture = escapeFixture();
-  const original = escapes.buildDraw(fixture, 'test').record.frozen.units;
+  const original = escapes.buildDraw(fixture, 'test', DRAW_OPTIONS).record.frozen.units;
   fixture.comments[10].pop();
   fixture.comments[10] = fixture.comments[10].filter((comment) => comment.id !== 108);
   // Remove a pre-cutoff confirmation too: it must change the draw, unlike the too-late round.
-  const changed = escapes.buildDraw(fixture, 'test').record.frozen.units;
+  const changed = escapes.buildDraw(fixture, 'test', DRAW_OPTIONS).record.frozen.units;
   assert.equal(
     changed.some((unit) => unit.reviewer === 'plan' && unit.issue === 10),
     false,
@@ -10148,7 +10152,7 @@ test('escape draw ignores plans, comments, follow-ups, and merge events at or af
     message: 'Revert #11',
     date: fixture.cutoff,
   });
-  assert.deepEqual(escapes.buildDraw(fixture, 'test').record.frozen.units, changed);
+  assert.deepEqual(escapes.buildDraw(fixture, 'test', DRAW_OPTIONS).record.frozen.units, changed);
 });
 
 test('the given-data follow-up rule agrees with planOutcomes and keeps landing-PR-only citations', () => {
@@ -10167,7 +10171,7 @@ test('the given-data follow-up rule agrees with planOutcomes and keeps landing-P
   );
   assert.equal(result.defects[0].body, 'Cites only #11.');
   const unit = escapes
-    .buildDraw(fixture, 'test')
+    .buildDraw(fixture, 'test', DRAW_OPTIONS)
     .record.frozen.units.find((item) => item.findings.some((finding) => finding.origin === 'follow-up'));
   assert.equal(unit.issue, 10);
   assert.equal(unit.missed_round, 6);
@@ -10176,8 +10180,8 @@ test('the given-data follow-up rule agrees with planOutcomes and keeps landing-P
 
 test('escape frozen record and manifest are byte-stable and reveal no held-out unit identities', () => {
   const fixture = escapeFixture();
-  const first = escapes.buildDraw(fixture, 'test');
-  const second = escapes.buildDraw(JSON.parse(escapes.frozenJson(fixture)), 'test');
+  const first = escapes.buildDraw(fixture, 'test', DRAW_OPTIONS);
+  const second = escapes.buildDraw(JSON.parse(escapes.frozenJson(fixture)), 'test', DRAW_OPTIONS);
   assert.equal(escapes.frozenJson(first.record), escapes.frozenJson(second.record));
   assert.equal(first.manifest, second.manifest);
   assert.doesNotMatch(first.manifest, /SECRET|10-code|10-plan|"issue": 10|heldout-10|#10\b/);
@@ -10185,7 +10189,7 @@ test('escape frozen record and manifest are byte-stable and reveal no held-out u
   const hashes = first.record.frozen.seeded_plans.map((item) => item.hash);
   const reordered = structuredClone(fixture);
   reordered.comments[10].reverse();
-  assert.deepEqual(escapes.buildDraw(reordered, 'test').record.frozen.units, first.record.frozen.units);
+  assert.deepEqual(escapes.buildDraw(reordered, 'test', DRAW_OPTIONS).record.frozen.units, first.record.frozen.units);
   assert.deepEqual(hashes, [...hashes].sort());
   assert.equal(
     first.record.frozen.seeded_plans.some((item) => item.issue === 20),
@@ -10225,12 +10229,14 @@ test('escape draw keeps separate cycles and drops open repeats even when their l
     },
     { id: 7, createdAt: '2026-01-07T00:00:00Z', body: '### Code review round 3 (cycle 2)\nNone.' },
   ];
-  const units = escapes.buildDraw(fixture, 'test').record.frozen.units.filter((unit) => unit.issue === 10);
+  const units = escapes
+    .buildDraw(fixture, 'test', DRAW_OPTIONS)
+    .record.frozen.units.filter((unit) => unit.issue === 10);
+  // The first round of cycle 2 reports a new defect, but it reviews another sequence: no unit for round 4 of cycle 1.
   assert.deepEqual(
     units.map((unit) => [unit.missed_round, unit.cycle]),
     [
       [1, 1],
-      [4, 1],
       [1, 2],
     ],
   );
@@ -10252,6 +10258,14 @@ test('escape CLI writes restricted frozen data and the public manifest, and neve
   const record = readJson(path.join(root, 'record.json'));
   assert.deepEqual(record.outcomes, []);
   assert.equal(record.frozen.units.length, 6);
+  // The draw records the commit of its own script next to the commit of the snapshot.
+  assert.match(record.frozen.draw_commit, /^[0-9a-f]{40}(?:-dirty)?$/);
+  assert.equal(record.frozen.script_commit, 'a'.repeat(40));
+  assert.ok(expected.includes(`- Draw script commit: ${record.frozen.draw_commit}\n`));
+  // A commit that does not hold the running draw code is refused (see the git-archive test below for a match).
+  assert.throws(() => escapes.main([...args, '--commit', 'e'.repeat(40)]), { message: /differs from .* at e{40}/ });
+  assert.throws(() => escapes.main([...args, '--commit', 'HEAD']), { message: 'draw needs the commit of its script' });
+  assert.throws(() => escapes.buildDraw(escapeFixture(), 'test'), { message: 'draw needs the commit of its script' });
   assert.throws(() => escapes.main([...args, '--record', path.join(root, 'record.json')]), /EEXIST/);
 });
 
@@ -10354,7 +10368,9 @@ test('escape review sequences break equal comment times by round number, not com
   third.createdAt = comments.find((comment) => comment.id === 102).createdAt;
   third.id = 100;
   comments.reverse();
-  const units = escapes.buildDraw(fixture, 'test').record.frozen.units.filter((unit) => unit.issue === 10);
+  const units = escapes
+    .buildDraw(fixture, 'test', DRAW_OPTIONS)
+    .record.frozen.units.filter((unit) => unit.issue === 10);
   assert.deepEqual(
     units.map((unit) => [unit.reviewer, unit.missed_round]),
     [
@@ -10400,7 +10416,7 @@ test('escape follow-ups leave out later plans that cite an earlier plan, with th
   const given = outcomes.followUpsOf(plan, [data.pulls[0]], data).defects.map((item) => `#${item.number}`);
   assert.deepEqual(given, row.followUps);
   const followUps = escapes
-    .buildDraw(fixture, 'test')
+    .buildDraw(fixture, 'test', DRAW_OPTIONS)
     .record.frozen.units.flatMap((unit) => unit.findings.filter((finding) => finding.origin === 'follow-up'))
     .map((finding) => finding.item);
   assert.deepEqual(followUps, [41]);
@@ -10416,7 +10432,7 @@ test('escape follow-ups give an item that cites two plans to one plan', () => {
     { number: 46, title: 'Bug in the output', body: 'Seen in #10 and #20.', createdAt: day(13), labels: [] },
   );
   const owners = new Map();
-  for (const unit of escapes.buildDraw(fixture, 'test').record.frozen.units) {
+  for (const unit of escapes.buildDraw(fixture, 'test', DRAW_OPTIONS).record.frozen.units) {
     for (const finding of unit.findings.filter((item) => item.origin === 'follow-up')) {
       owners.set(finding.item, [...(owners.get(finding.item) ?? []), `${unit.issue} ${unit.split}`]);
     }
@@ -10426,7 +10442,7 @@ test('escape follow-ups give an item that cites two plans to one plan', () => {
   fixture.repository.plans.reverse();
   fixture.repository.issues.reverse();
   const again = escapes
-    .buildDraw(fixture, 'test')
+    .buildDraw(fixture, 'test', DRAW_OPTIONS)
     .record.frozen.units.flatMap((unit) =>
       unit.findings.filter((item) => item.origin === 'follow-up').map((item) => [item.item, unit.issue]),
     );
@@ -10449,7 +10465,7 @@ test('the escape manifest lists dev units by commitment and holds no finding tex
     createdAt: '2026-01-13T00:00:00Z',
     labels: [],
   });
-  const { record, manifest } = escapes.buildDraw(fixture, 'test');
+  const { record, manifest } = escapes.buildDraw(fixture, 'test', DRAW_OPTIONS);
   const texts = record.frozen.units.flatMap((unit) => unit.findings.map((finding) => finding.text));
   assert.ok(texts.some((text) => text.includes('DEV_FOLLOW_UP')));
   for (const text of texts) {
@@ -10542,8 +10558,8 @@ function outcomeFixture(t) {
     manifest,
   ]);
   const cases = path.join(root, 'cases');
-  put(cases, 'dev/plan-20-r1.json', { id: 'plan-20-r1', kind: 'plan', split: 'dev', issue: 20 });
-  put(cases, 'heldout/code-10-r1.json', { id: 'code-10-r1', kind: 'code', split: 'heldout', issue: 10 });
+  put(cases, 'dev/plan-20-r1.json', { id: 'plan-20-r1', kind: 'plan', split: 'dev', issue: 20, round: 1 });
+  put(cases, 'heldout/code-10-r1.json', { id: 'code-10-r1', kind: 'code', split: 'heldout', issue: 10, round: 1 });
   const units = readJson(record).frozen.units;
   const outcome = (unit, extra) => ({
     unit: unit.id,
@@ -10684,4 +10700,181 @@ test('escape outcomes keep a note in the restricted record and never print it in
     [fixture.decided[2].unit]: notes[2],
   });
   assert.doesNotMatch(readText(fixture.manifest), /HELD_NOTE|DEV_NOTE|helper|two rounds later/);
+});
+
+test('escape draw confirms an old-format finding only when a later review no longer reports it', () => {
+  const fixture = escapeFixture();
+  const finding = '- [goal_fit] Goal - DEV_FINDING - add the missing output.';
+  const plan20 = (comments) => {
+    fixture.comments[20] = [
+      ...fixture.comments[20].filter((comment) => !comment.body.startsWith('### Plan')),
+      ...comments,
+    ];
+    return escapes
+      .buildDraw(fixture, 'test', DRAW_OPTIONS)
+      .record.frozen.units.filter((unit) => unit.issue === 20 && unit.reviewer === 'plan');
+  };
+  const review = (id, day, body) => ({ id, createdAt: `2026-01-0${day}T00:00:00Z`, body: `### Plan review\n${body}` });
+  // The review after the finding repeats it, and no later review exists: no confirmed fix, so no unit. The repeat is
+  // no new finding of round 3 either.
+  const repeated = [review(201, 1, 'None.'), review(202, 2, finding), review(203, 3, finding)];
+  assert.deepEqual(plan20(repeated), []);
+  // A fourth review no longer reports it: the fix is confirmed, and round 1 is the missed round.
+  const fixed = plan20([...repeated, review(204, 4, 'Plan-review: pass\nNone.')]);
+  assert.deepEqual(
+    fixed.map((unit) => [unit.missed_round, unit.findings.map((item) => item.found_round)]),
+    [[1, [2]]],
+  );
+});
+
+test('escape follow-ups check every landing pull request of a plan before the plan number', () => {
+  const fixture = escapeFixture();
+  const day = (n) => `2026-01-${String(n).padStart(2, '0')}T00:00:00Z`;
+  // Plan 10 landed twice: #11, then #12. The item cites the earlier landing and the number of plan 20.
+  fixture.repository.plans.find((plan) => plan.number === 10).closedByPullRequestsReferences.push({ number: 12 });
+  fixture.repository.pulls.push({
+    number: 12,
+    title: 'Land more work',
+    body: 'Closes #10',
+    createdAt: day(9),
+    mergedAt: day(11),
+    mergeCommit: { oid: 'f'.repeat(40) },
+    labels: [],
+  });
+  fixture.repository.issues.push({
+    number: 47,
+    title: 'fix: crash',
+    body: 'After #11, see #20.',
+    createdAt: day(13),
+    labels: [],
+  });
+  const owners = escapes
+    .buildDraw(fixture, 'test', DRAW_OPTIONS)
+    .record.frozen.units.flatMap((unit) =>
+      unit.findings.filter((item) => item.item === 47).map(() => `${unit.issue} ${unit.split}`),
+    );
+  assert.deepEqual(owners, ['10 heldout']);
+});
+
+test('escape outcomes refuse a case of another kind, round, or cycle, and a case that two units name', (t) => {
+  const fixture = outcomeFixture(t);
+  const [held1] = fixture.units.filter((unit) => unit.split === 'heldout');
+  const apply = (bodies, recordText = readText(fixture.record), manifestText = readText(fixture.manifest)) =>
+    escapes.applyOutcomes({
+      recordText,
+      manifestText,
+      files: bodies.map((body) => ({ name: `${body.unit}.json`, text: JSON.stringify(body) })),
+      casesDir: fixture.cases,
+    });
+  const heldCase = (id, extra) =>
+    put(fixture.cases, `heldout/${id}.json`, { id, kind: 'code', split: 'heldout', issue: 10, round: 1, ...extra });
+  heldCase('code-10-r2', { round: 2 });
+  heldCase('plan-10-r1', { kind: 'plan' });
+  heldCase('code-10-c2-r1', { cycle: 2 });
+  heldCase('code-10-c1-r1', { cycle: 1 });
+  const taken = (id) => fixture.outcome(held1, { outcome: 'taken', case: id });
+  for (const id of ['code-10-r2', 'plan-10-r1', 'code-10-c2-r1']) {
+    assert.throws(() => apply([taken(id)]), { message: /is a (code|plan) case of round \d, not the code round 1/ }, id);
+  }
+  assert.equal(apply([taken('code-10-c1-r1')]).outcomes.length, 1);
+  // Two cycles give two units of the same issue, kind, and round; one case without a cycle cannot stand for both.
+  const root = scratch(t);
+  const source = escapeFixture();
+  source.repository.issues = [];
+  source.comments[10] = [
+    { id: 1, createdAt: '2026-01-01T00:00:00Z', body: '### Code review round 1\n' },
+    { id: 2, createdAt: '2026-01-02T00:00:00Z', body: '### Code review round 2\n- [HIGH] Bug - a.mjs:1 - broken.' },
+    { id: 3, createdAt: '2026-01-03T00:00:00Z', body: '### Code review round 3\nNone.' },
+    { id: 4, createdAt: '2026-01-04T00:00:00Z', body: '### Code review round 1 (cycle 2)\n' },
+    {
+      id: 5,
+      createdAt: '2026-01-05T00:00:00Z',
+      body: '### Code review round 2 (cycle 2)\n- [LOW] Bug - b.mjs:2 - other.',
+    },
+    { id: 6, createdAt: '2026-01-06T00:00:00Z', body: '### Code review round 3 (cycle 2)\nNone.' },
+  ];
+  put(root, 'source.json', source);
+  const record = path.join(root, 'record.json');
+  const manifest = path.join(root, 'manifest.md');
+  const draw = ['draw', '--snapshot', path.join(root, 'source.json'), '--seed', 'test'];
+  escapes.main([...draw, '--record', record, '--manifest', manifest]);
+  const cycles = readJson(record).frozen.units.filter((unit) => unit.issue === 10 && unit.reviewer === 'code');
+  assert.deepEqual(
+    cycles.map((unit) => [unit.missed_round, unit.cycle]),
+    [
+      [1, 1],
+      [1, 2],
+    ],
+  );
+  const bodies = cycles.map((unit) => fixture.outcome(unit, { outcome: 'taken', case: 'code-10-r1' }));
+  assert.throws(() => apply(bodies, readText(record), readText(manifest)), {
+    message: `case code-10-r1 is named by units ${cycles[0].id} and ${cycles[1].id}`,
+  });
+});
+
+// `draw --commit` checks the blobs of the running escapes.mjs and outcomes.mjs against the commit, in the repository of
+// the current folder, so the scripts can also run from a `git archive` of that commit (acceptance A4).
+test('escape draw takes a --commit only when the running draw code is the code of that commit', (t) => {
+  const root = scratch(t);
+  const repo = path.join(root, 'repo');
+  const scriptsPath = '.agents/skills/review-benchmark/scripts';
+  const source = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..', scriptsPath);
+  fs.mkdirSync(path.join(repo, scriptsPath), { recursive: true });
+  for (const name of ['escapes.mjs', 'outcomes.mjs']) {
+    fs.copyFileSync(path.join(source, name), path.join(repo, scriptsPath, name));
+  }
+  const git = (...args) => {
+    const result = spawnSync(
+      'git',
+      ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git('init', '-q');
+  git('add', '.');
+  git('commit', '-q', '-m', 'draw code');
+  const commit = git('rev-parse', 'HEAD');
+  put(root, 'source.json', escapeFixture());
+  const draw = (script, given) =>
+    spawnSync(
+      process.execPath,
+      [script, 'draw', '--snapshot', path.join(root, 'source.json'), '--seed', 'test', '--commit', given],
+      { cwd: repo, encoding: 'utf8' },
+    );
+  const checkout = path.join(repo, scriptsPath, 'escapes.mjs');
+  // The checkout holds the code of the commit.
+  const matched = draw(checkout, commit);
+  assert.equal(matched.status, 0, matched.stderr);
+  assert.ok(matched.stdout.includes(`- Draw script commit: ${commit}\n`));
+  // The scripts of a `git archive` of the commit, outside the work tree, match too.
+  const archive = path.join(root, 'archive');
+  fs.mkdirSync(archive);
+  const tar = spawnSync('sh', ['-c', `git archive ${commit} ${scriptsPath} | tar -x -C "${archive}"`], { cwd: repo });
+  assert.equal(tar.status, 0);
+  const extracted = draw(path.join(archive, scriptsPath, 'escapes.mjs'), commit);
+  assert.equal(extracted.status, 0, extracted.stderr);
+  assert.equal(extracted.stdout, matched.stdout);
+  // A running outcomes.mjs that differs from the commit is refused, and so is an unknown commit.
+  fs.appendFileSync(path.join(repo, scriptsPath, 'outcomes.mjs'), '// changed\n');
+  for (const given of [commit, 'f'.repeat(40)]) {
+    const refused = draw(checkout, given);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, new RegExp(`differs from ${scriptsPath} at ${given}`));
+    assert.equal(refused.stdout, '');
+  }
+  // Without --commit, the draw takes the commit of the checkout and marks the changed code.
+  const head = spawnSync(
+    process.execPath,
+    [checkout, 'draw', '--snapshot', path.join(root, 'source.json'), '--seed', 'test'],
+    {
+      cwd: repo,
+      encoding: 'utf8',
+    },
+  );
+  assert.ok(head.stdout.includes(`- Draw script commit: ${commit}-dirty\n`));
 });
