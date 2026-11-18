@@ -80,12 +80,14 @@ Load each matching docks skill when the runtime has it. A runtime can show it as
 you write Steps. Under `### Engineering standards` in Research, record which
 skill each step applies. When a standard defines completion, put it in that
 step's `Done when`. Apply each step's skills again while you implement that
-step. Run the `code-review` self-review during code review round 1, as
-Self-review in code review says.
+step. Run the self-review during code review round 1, as Self-review in code
+review says.
 
 Apply `code-clarity` to every step that changes code, tests, comments, or error
 messages, together with the other matching skills. Record it for each such
-step, and check its rules again in the self-review.
+step, and check its rules again in the self-review. When docks is not
+installed, the rules at the end of this section replace the docks skills,
+`code-clarity` included.
 
 | Work in a step | docks skill |
 |---|---|
@@ -123,8 +125,9 @@ When docks is not installed, apply these rules:
 
 ## Red baseline
 
-The main context owns the red baseline of each `tdd-workflow` step. A subagent
-can write the spec tests.
+The main context owns the red baseline of each step that adds new behavior
+specified by inputs and outputs (the `tdd-workflow` row above), also when docks
+is not installed. A subagent can write the spec tests.
 
 1. Write the spec tests before the production code of the step.
 2. Run them. Each new test must fail because the behavior is missing: on an
@@ -137,8 +140,8 @@ can write the spec tests.
    the counts for that file.
 4. Keep the staged spec tests unchanged while you write production code:
    `git diff -- <spec files>` prints nothing. When a spec test is wrong, stop
-   and ask the user, as `tdd-workflow` says. Record the answer and the reason
-   in Verification Results, fix the test, and run the baseline again.
+   and ask the user, as `tdd-workflow` also says. Record the answer and the
+   reason in Verification Results, fix the test, and run the baseline again.
 5. A review fix that changes a spec assertion follows item 4. Run the changed
    test against the code before the fix. It must fail on the changed assertion.
    Add this line to Verification Results:
@@ -147,9 +150,9 @@ can write the spec tests.
 ## Commits
 
 1. Commit each step on the linked branch when its proof passes, as
-   `commit-discipline` says. Each commit must pass the focused tests, the type
-   check, and the lint for its files. When a commit hook fails, follow the
-   contract's Repository hooks.
+   `commit-discipline` says when the runtime has it. Each commit must pass the
+   focused tests, the type check, and the lint for its files. When a commit
+   hook fails, follow the contract's Repository hooks.
 2. When you split finished work into commits, check each commit in a temporary
    worktree: `git worktree add --detach <path> <sha>`, run the checks, then
    `git worktree remove -- <path>` and `git worktree prune`. `<path>` is
@@ -177,26 +180,33 @@ Follow the contract's Repository hooks for it.
 
 ## Self-review in code review
 
-Dispatch code review round 1 first. While it runs, run the `code-review`
-self-review as one self-review per lens of the code-review panel:
-`correctness`, `spec-and-tests`, and `text-and-safety`. Run the three at the
-same time, or one after another when the runtime cannot. Give each one the
-full candidate diff and its lens scope from the `code-reviewer` skill, and
-apply `code-clarity` in each. Post their findings as one issue comment whose
-first line is `Self-review`, with one section per lens; write `No findings.`
-for a lens that finds nothing. The helper does not read that comment as a
-review, so it is not a round. In the plugin's benchmark, one self-review per
-lens found more known defects than one self-review (0.67 against 0.50 per run)
-in about the same time, but also more wrong findings. Reproduce each one before
-you fix it, and reject a wrong one with evidence. The self-review does not
-replace round 1.
+Dispatch code review round 1 first. While it runs, review your own candidate
+diff as one self-review per lens of the code-review panel: `correctness`,
+`spec-and-tests`, and `text-and-safety`. Run the three at the same time, or
+one after another when the runtime cannot. Give each one the full candidate
+diff and its lens scope from the `code-reviewer` skill of this plugin.
+
+- With docks installed, run each self-review with the docks `code-review`
+  skill, and apply `code-clarity` in each.
+- Without docks, apply the lens reference of this plugin's `code-reviewer`
+  skill in each self-review: `correctness.md`, `spec-and-tests.md`, and
+  `text-and-safety.md` in `../../code-reviewer/references/`. Apply the rules at
+  the end of Engineering standards in each.
+
+Post the findings as one issue comment whose first line is `Self-review`, with
+one section per lens; write `No findings.` for a lens that finds nothing. The
+helper does not read that comment as a review, so it is not a round. In the
+plugin's benchmark, one self-review per lens found more known defects than one
+self-review (0.67 against 0.50 per run) in about the same time, but also more
+wrong findings. Reproduce each one before you fix it, and reject a wrong one
+with evidence. The self-review does not replace round 1.
 
 After round 1 returns, fix the self-review findings together with the findings
-of round 1. Use `fix-workflow`, and commit the fixes. List the self-review
-findings, named by lens, in the manager response to round 1 with the findings
-of round 1. When the self-review found anything, review again, also when
-round 1 passed. That round is a `delta` round when the contract's Code-review
-rounds allows it.
+of round 1. Use `fix-workflow` when the runtime has it, and commit the fixes.
+List the self-review findings, named by lens, in the manager response to
+round 1 with the findings of round 1. When the self-review found anything,
+review again, also when round 1 passed. That round is a `delta` round when the
+contract's Code-review rounds allows it.
 
 ## Work during a round
 

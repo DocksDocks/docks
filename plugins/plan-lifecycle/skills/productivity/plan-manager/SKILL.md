@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "8a1394331cc7e7709081f845a9134c55f8c1283a72dd441764a93079a99276a1"
+  content_hash: "c0c3c9e7e69ad617641c00a57fd61da3cb43c3bd807ead215671556823fc647c"
 ---
 
 # Plan Manager
@@ -15,7 +15,12 @@ Own the user goal through six phases. Read
 The contract owns the path criteria, record shapes, commands, normalization,
 ownership, the review loop, review trust, and landing safeguards. This skill
 owns the phase order and what each phase must finish. Do not copy contract rules here.
-[`references/practices.md`](references/practices.md) owns the named practices.
+
+<constraint>
+Before phase 1, read the Safety rules of
+[`references/practices.md`](references/practices.md), which owns the named
+practices. Apply them to every issue, comment, commit, and pull request write.
+</constraint>
 
 <constraint>
 Main context owns mode selection, questions, edits, implementation, review
@@ -63,13 +68,12 @@ Done when: the path is direct implementation, or a plan with a settled Mode.
 Complete the preflight in
 [`references/github-issue-publication.md`](references/github-issue-publication.md).
 Create the issue with `new` and the settled mode. Report its number. Draft the
-outcome, research hypothesis, provisional steps, scope, and acceptance proof.
-Keep the plan drafting while those claims remain provisional. When the work
-needs more than one landing pull request, draft a parent plan with no linked
-branch, and create one child per pull request with `new --parent <n>`, as the
-contract's Record and mode says. The parent runs phases 3 and 4 only. Each
-child runs these six phases as its own plan, and starts only after the parent
-passes plan review.
+outcome, research hypothesis, provisional steps, scope, and acceptance proof. Keep
+the plan drafting while those claims remain provisional. When the work needs more
+than one landing pull request, draft a parent plan with no linked branch, and
+create one child per pull request with `new --parent <n>`, as the contract's
+Record and mode says. The parent runs phases 3 and 4 only. Each child runs these
+six phases as its own plan, and starts only after the parent passes plan review.
 
 Done when: `show <n>` prints the header strip with status `drafting`, and for a
 parent, one `child #<c>` line per child.
@@ -90,13 +94,12 @@ Done when: `status <n> planned` succeeds and no advice needs a decision.
 
 ### 4. Plan review
 
-Run the contract's review loop with `plan-reviewer`. For each round, export
-fresh input and dispatch `plan-reviewer` with the issue number, export path, and
-round number. A re-review round after a repair may use the plan `delta` mode,
-as the contract's review loop allows. If no wrapper exists, dispatch a fresh
-read-only reviewer with the `plan-reviewer` skill. Route a user-only decision
-through Open questions and `ask`. Never implement a repaired plan that has not
-passed review.
+Run the contract's review loop with `plan-reviewer`. For each round, export fresh
+input and dispatch `plan-reviewer` with the issue number, export path, and round
+number. A re-review round after a repair may use the plan `delta` mode, as the
+contract's review loop allows. If no wrapper exists, dispatch a fresh read-only
+reviewer with the `plan-reviewer` skill. Route a user-only decision through Open
+questions and `ask`. Never implement a repaired plan that has not passed review.
 
 A plan-only run stops after the pass, at planned. Report the issue and verdict.
 Do not create a branch or implement without a new instruction.
@@ -109,20 +112,18 @@ Move the plan to ongoing. Set up the linked branch with the contract's Linked
 branch steps before you change code. Set each step in-flight, implement or
 delegate it, run its proof, then mark it done. Honor the Effect confirmation
 gate. Follow the practices Engineering standards, Red baseline, Commits, and
-Checks that fail outside the goal.
-When the project has a `verify` skill, for example
-`.agents/skills/verify/SKILL.md`, use it to run the changed surface before you
-mark acceptance. Run all acceptance commands and record real results in
-Verification Results through the export/edit flow. Review plan edits after the
-pass as the contract's Phases and review comments says. Once work starts, put
-new work into a child plan, and act on split advice, as the contract's Status,
-ownership, and frozen state says.
+Checks that fail outside the goal. When the project has a `verify` skill, for
+example `.agents/skills/verify/SKILL.md`, use it to run the changed surface
+before you mark acceptance. Run all acceptance commands and record real results
+in Verification Results through the export/edit flow. Review plan edits after
+the pass as the contract's Phases and review comments says. Once work starts,
+put new work into a child plan, and act on split advice, as the contract's
+Status, ownership, and frozen state says.
 
 Every commit that you make, also each candidate and repair commit, carries a
-`Verified:` trailer. The `commit-discipline` skill owns the trailer format.
-List the commands that ran on the committed bytes, as
-`Verified: <command>[; <command>]`. When no command ran on them, write
-`Verified: none - <reason>`.
+`Verified:` trailer. The `commit-discipline` skill owns the trailer format. List
+the commands that ran on the committed bytes, as `Verified: <command>[; <command>]`.
+When no command ran on them, write `Verified: none - <reason>`.
 
 Done when: every step that can run before the merge is done or skipped, and
 Verification Results hold real acceptance results.
@@ -248,16 +249,15 @@ fast-check, Hypothesis, or proptest. Test round-trip and idempotency first. In
 recorded plans, more than half of the later code findings were faults in the
 repair of an earlier finding.
 
-When a code reviewer returns `blocked` because it left hunks unread, dispatch
-it again as the contract's Code-review rounds says.
-
-Resolve unreadable input before you request a verdict. If you block after
-implementation, commit and push current work to the linked branch before you
-record the blocker, so repairs are not stranded. When a pull request is open,
-update its body right after the push, as the contract's Checklist says. Post
-the pending manager response first, as the contract's review loop says. A hook
-that refuses that commit or push follows the contract's Repository hooks. Then
-run the contract's Teardown for an exit without a merge.
+When a code reviewer returns `blocked` because it left hunks unread, dispatch it
+again as the contract's Code-review rounds says. Resolve unreadable input before
+you request a verdict. If you block after implementation, commit and push
+current work to the linked branch before you record the blocker, so repairs are
+not stranded. When a pull request is open, update its body right after the push,
+as the contract's Checklist says. Post the pending manager response first, as
+the contract's review loop says. A hook that refuses that commit or push follows
+the contract's Repository hooks. Then run the contract's Teardown for an exit
+without a merge.
 
 Done when: `show <n>` reports `code=pass`.
 
