@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // guard.mjs — run the combined skill frontmatter validator, the Codex-fact
 // drift guard, and the reference-hygiene guard, then check that every skill
-// ends with the canonical Report section and that each shared reference copy
+// ends with the canonical Report section and that each shared file copy
 // matches its canonical file. Usage: guard.mjs [skills-dir]
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -13,9 +13,9 @@ const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
 const DIR = process.argv[2] || '';
 // One canonical copy, so that the copies in all plugins cannot drift apart unseen.
 const REPORT_SECTION = 'scripts/config/report-section.md';
-// Reference files that more than one plugin ships with the same bytes, because a plugin cannot
-// link into another plugin. The repository lists them in this file; a repository without it has
-// none. Edit each canonical file, then copy it over each of its copies.
+// Files that more than one plugin ships with the same bytes, such as a reference or a bundled script,
+// because a plugin cannot link into another plugin. The repository lists them in this file; a
+// repository without it has none. Edit each canonical file, then copy it over each of its copies.
 const SHARED_REFERENCES = 'scripts/config/shared-references.json';
 
 function run(args) {
@@ -70,16 +70,16 @@ function reportSectionFailures(skillsRoot) {
   return failures;
 }
 
-// Read the shared-reference list: `[{ "canonical": "<path>", "copies": ["<path>", ...] }]`, with
+// Read the shared-file list: `[{ "canonical": "<path>", "copies": ["<path>", ...] }]`, with
 // paths relative to the repository root. An absent file is an empty list.
-function loadSharedReferences() {
+function loadSharedFiles() {
   const file = path.join(REPO_DIR, SHARED_REFERENCES);
   let text;
   try {
     text = fs.readFileSync(file, 'utf8');
   } catch (error) {
     if (error.code === 'ENOENT') return [];
-    console.error(`FAIL: ${SHARED_REFERENCES}: cannot read the shared-reference list: ${error.message}`);
+    console.error(`FAIL: ${SHARED_REFERENCES}: cannot read the shared-file list: ${error.message}`);
     process.exit(2);
   }
   let list;
@@ -110,19 +110,19 @@ function loadSharedReferences() {
   return list;
 }
 
-// Each copy of a shared reference must equal its canonical file, byte for byte (latin1, as above).
+// Each copy of a shared file must equal its canonical file, byte for byte (latin1, as above).
 // The check reads repository paths, so it runs whatever the target folder is.
-function sharedReferenceFailures() {
+function sharedFileFailures() {
   const failures = [];
   const read = (relative) => {
     try {
       return fs.readFileSync(path.join(REPO_DIR, relative), 'latin1');
     } catch (error) {
-      failures.push(`${relative}: cannot read the shared reference (${error.code ?? error.message})`);
+      failures.push(`${relative}: cannot read the shared file (${error.code ?? error.message})`);
       return undefined;
     }
   };
-  for (const { canonical, copies } of loadSharedReferences()) {
+  for (const { canonical, copies } of loadSharedFiles()) {
     const canonicalText = read(canonical);
     for (const copy of copies) {
       const copyText = read(copy);
@@ -139,10 +139,10 @@ run([lib, '--runtime', 'all', target]);
 run([path.join(REPO_DIR, 'scripts/skills/codex-facts.mjs')]);
 run([path.join(REPO_DIR, 'scripts/skills/refs-guard.mjs'), ...(DIR ? [DIR] : [])]);
 
-const sharedFailures = sharedReferenceFailures();
+const sharedFailures = sharedFileFailures();
 for (const failure of sharedFailures) console.error(`FAIL: ${failure}`);
 if (sharedFailures.length > 0)
-  console.error(`Guard FAILED: ${sharedFailures.length} shared reference file(s) do not match their canonical file`);
+  console.error(`Guard FAILED: ${sharedFailures.length} shared file(s) do not match their canonical file`);
 
 const reportFailures = reportSectionFailures(target);
 if (reportFailures.length > 0) {

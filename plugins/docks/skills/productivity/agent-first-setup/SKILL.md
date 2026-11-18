@@ -4,8 +4,8 @@ description: "Use when making a repository agent-first in one pass — root AGEN
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-11-17"
-  content_hash: "35e495eb279a441ba4d7e641332711c686a1caac5e6cb4b5836c7f5863847024"
+  updated: "2026-11-18"
+  content_hash: "4ed71222d9c0e2c3b78a0bacdeff5a750abab34ed5e6c1c4ad624821da43a353"
 ---
 
 # Agent-First Setup
@@ -88,7 +88,7 @@ grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's/^/ve
 
 Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored. In the same shell, also run the detection block of [references/pull-request-template.md](references/pull-request-template.md) word for word: it defines the `pr_templates` function and prints its `pull-request template:` lines. It tells a usable template from an unusable entry, such as a broken symlink or an empty template folder, and prints `pull-request template: none` when no usable template exists. It needs git; outside git, its last line prints `ERROR`. Report that error. An error is not a missing template.
 
-If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that failed in an earlier run; Step 2b reruns it. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
+If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that has not shown its expected result: it failed, or no run reached it. Step 2b then reruns every command. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
 
 ### Step 1 — Run `multi-tool-bridge`
 
@@ -108,11 +108,11 @@ In `audit` mode, run `context-tree audit` only.
 
 A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. The template, the surface recipes, and a worked example are in [references/verify-skill-template.md](references/verify-skill-template.md).
 
-1. If `.agents/skills/verify/SKILL.md` exists and Step 0 printed no `verify unverified:` line, make no change and go to Step 2c. If Step 0 printed a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, ask for approval through the harness question tool to run them and update them, and then go to step 7. In step 7, run Start, the flows that each `not observed:` row names, and Stop.
+1. If `.agents/skills/verify/SKILL.md` exists and Step 0 printed no `verify unverified:` line, make no change and go to Step 2c. If Step 0 printed a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, ask for approval through the harness question tool to run every command again and update the results, and then run step 7 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow.
 2. Find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of the template's "Surface recipes" table.
 3. If the repository has no runnable surface, write nothing. Record "no runnable surface" for the report and go to Step 2c.
-4. Fill the template for each surface. Use only commands that the repository defines or that the recipes name. Ask the user through the harness question tool for a missing start command, port, or test account.
-5. Print the draft `SKILL.md` and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval through the harness question tool. The approval covers the write and one run of each command.
+4. Fill the template for each surface. Use only commands that the repository defines or that the recipes name. Ask the user through the harness question tool for a missing start command, port, or test account. No run has shown a result yet, so write each expected result as `not observed: expect <result>`: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
+5. Print the draft `SKILL.md`, with its `not observed: expect` marks, and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval through the harness question tool. The approval covers the write and one run of each command, the prerequisite checks included.
 6. After approval, write `.agents/skills/verify/SKILL.md`. Then create the symlink and check it:
 
    ```bash
@@ -121,9 +121,9 @@ A project `verify` skill tells an agent how to run the real product the way a us
    test -f .claude/skills/verify/SKILL.md && echo "verify skill: linked" || echo "BROKEN: .claude/skills/verify"
    ```
 
-7. Run each command of the new skill once, in order: start, drive and inspect, stop. Replace each expected result, and each `not observed:` entry, with the result that you observed. If a command fails:
-   1. Run the Stop and cleanup commands of the skill at once, before you report or ask. No process, port, or temporary folder from this run stays.
-   2. Keep the failed command in the skill. Do not remove it. In place of its expected result, write `not observed: <first line of the failure>`.
+7. Run each command of the new skill once, in order: the check command of each Prerequisites row, Start, every flow, and Stop. Replace a `not observed:` mark with the observed result only after the command shows that result. If a command fails or shows another result:
+   1. If Start ran, run the Stop and cleanup commands of the skill at once, before you report or ask. No process, port, or temporary folder from this run stays.
+   2. Keep the failed command in the skill. Do not remove it. In place of its mark, write `not observed: <first line of the failure>`. The commands after it keep their `not observed: expect` marks.
    3. Do not report the skill as verified. Name the failed command and its output in the report.
    4. Ask the user through the harness question tool for the fix, for example a missing service, dependency, or test account. If the harness has no such tool, end the turn and report Step 2b as blocked.
 
@@ -233,8 +233,8 @@ done
 if test -f .agents/skills/verify/SKILL.md; then
   test -f .claude/skills/verify/SKILL.md || echo "FAIL C9 .claude/skills/verify does not resolve to .agents/skills/verify"
 else echo "FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)"; fi
-# C9 every command of the verify skill showed its expected result (no `not observed:` entry from a failed run)
-grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's|^|FAIL C9 unverified command (rerun it in Step 2b): .agents/skills/verify/SKILL.md:|'
+# C9 every command of the verify skill showed its expected result (a `not observed:` entry is a command that failed or that no run reached)
+grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's|^|FAIL C9 unverified command (rerun every command in Step 2b): .agents/skills/verify/SKILL.md:|'
 # C10 a usable pull-request template exists (pr_templates from Step 0; each unusable entry is named; an error is not a missing template)
 if t=$(pr_templates); then printf '%s\n' "$t" | sed -n 's/^pull-request template: unusable /FINDING C10 unusable pull-request template: /p'; case "$t" in *"pull-request template: none"*) echo "FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)";; esac; else echo "ERROR C10 pull-request template check failed (see the message above)"; fi
 ```
@@ -258,7 +258,7 @@ Print one table. `Result` is `pass`, `fail (<count>)`, `findings (<count>)`, or 
 | C9 project `verify` skill and its symlink | | this skill, Step 2b |
 | C10 pull-request template | | this skill, Step 2c |
 
-Below the table, list: files written by Step 1, Step 2, Step 2b, and Step 2c (from their reports), the `verify` skill commands that failed in Step 2b, every open `FAIL` line, every `FINDING` with its accepted/defect decision, every `ERROR` line from Step 0 and Step 3 with the message above it, and blockers that stopped a step. In Claude Code, tell the user to run `/memory` and confirm `AGENTS.md` is listed (Claude Code v2.1.280 and later list it; on an older version, ask Claude what its project instructions say).
+Below the table, list: files written by Step 1, Step 2, Step 2b, and Step 2c (from their reports), the `verify` skill commands that failed or did not run in Step 2b, every open `FAIL` line, every `FINDING` with its accepted/defect decision, every `ERROR` line from Step 0 and Step 3 with the message above it, and blockers that stopped a step. In Claude Code, tell the user to run `/memory` and confirm `AGENTS.md` is listed (Claude Code v2.1.280 and later list it; on an older version, ask Claude what its project instructions say).
 
 **Idempotency:** on a repository that is already agent-first, Step 1, Step 2, Step 2b, and Step 2c are no-ops by their own contracts, Step 3 prints no `FAIL` line, no `ERROR` line, and no unaccepted `FINDING`, and no file is written. Any write on such a repository is a defect: report it.
 
@@ -293,7 +293,7 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 | `audit` mode finds a fixable problem | Fix it in the same run | Report it; the user runs the default mode or the owning skill |
 | The `verify` skill lists only the unit-test command | Accept it as verification | A unit test does not drive the product. Add a row that starts the surface, drives a main flow, and names the observable result |
 | The `verify` skill waits with `sleep 5` | Raise the sleep until the run passes | Wait on a readiness signal: an open port, a health URL, or a log line |
-| A `verify` command fails because a service or a dependency is not available | Remove the command from the skill, or ask the user while the server still runs | Run Stop and cleanup first. Keep the command and mark it `not observed:`. Report the failure and ask the user for the fix. Step 2b stays open until the command shows its expected result, also on a later run |
+| A `verify` command fails because a service or a dependency is not available | Remove the command from the skill, ask the user while the server still runs, or on a later run rerun only the marked rows | Run Stop and cleanup first. Keep the command and mark it `not observed: <first line of the failure>`; the commands after it keep their `expect` marks. Report the failure and ask the user for the fix. A later run reruns every command in order, because a flow can depend on an earlier flow. Step 2b stays open until each command shows its expected result |
 
 ## Anti-Hallucination Checks
 
@@ -302,7 +302,7 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 - Do not claim "no writes" in idempotent runs without `git status --short` showing no path changed by this run.
 - Do not claim Claude Code loads `AGENTS.md` from file checks alone; the user's `/memory` output (v2.1.280 and later) or Claude's own answer on an older version is the confirmation.
 - A skill you could not load is a blocker to name, not a step to reconstruct from memory.
-- Do not write an expected result into the `verify` skill unless you observed it in this session.
+- Do not write an expected result into the `verify` skill without a `not observed:` mark unless you observed it in this session.
 
 ## References
 

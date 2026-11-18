@@ -20,6 +20,13 @@ function settleRefusal(number) {
   return `plan #${number} changed during the settle wait; run reopen again`;
 }
 
+function closedAgainRefusal(number) {
+  return `plan #${number} closed again after the reopen; run reopen again`;
+}
+
+// A close that lands after the merge of the pull request and after the first write of the reopen.
+const LATER_CLOSE = '2026-08-21T00:00:09Z';
+
 // Every reopen loads the skip-waits hook, so its pauses and its settle wait return at once and get recorded.
 function reopen({ runWith }, plan) {
   return runWith(['--import', SKIP_WAITS], 'reopen', String(plan.number), '--pr', String(plan.pr));
@@ -241,6 +248,55 @@ test('reopen refuses when GitHub leaves the plan closed with reason REOPENED aft
     comments: [{ author: 'plan-agent', body: reopenComment(plan.pr) }],
   });
   assert.equal(context.writes().length, 1);
+});
+
+for (const [name, change] of [
+  ['as completed', {}],
+  ['as not planned', { stateReason: 'NOT_PLANNED' }],
+]) {
+  test(`reopen names its rerun when another actor closes the plan ${name} right after the write`, (t) => {
+    const context = planCliContext(t);
+    const plan = context.partialMerge(`closed ${name} after the reopen`);
+    context.schedule(plan.number, { afterReads: 0, ...closedBy(plan.closer) });
+    context.updateState((state) => {
+      state.afterMutationOnce = { issue: plan.number, ...closedBy(null, LATER_CLOSE), ...change };
+    });
+    const result = reopen(context, plan);
+    refuse(result, closedAgainRefusal(plan.number));
+    assert.equal(result.stdout, '', 'no reopened status is reported');
+    assert.equal(context.writes().length, 1);
+    // The rerun reads the close by the other actor and leaves it to a hand decision.
+    refuse(
+      reopen(context, plan),
+      `plan #${plan.number} was closed by an unknown closer after pull request #${plan.pr} merged; reopen it by hand only if that close was a mistake`,
+    );
+    assert.equal(context.writes().length, 1, 'the rerun writes nothing');
+    const { state, stateReason } = context.issue(plan.number);
+    assert.deepEqual([state, stateReason], ['CLOSED', change.stateReason ?? 'COMPLETED']);
+  });
+}
+
+test('reopen names its rerun, which reopens the plan, when the pull request closes it again right after the write', (t) => {
+  const context = planCliContext(t);
+  const plan = context.partialMerge('closed again by the pull request');
+  context.schedule(plan.number, { afterReads: 0, ...closedBy(plan.closer) });
+  context.updateState((state) => {
+    state.afterMutationOnce = { issue: plan.number, ...closedBy(plan.closer, LATER_CLOSE) };
+  });
+  refuse(reopen(context, plan), closedAgainRefusal(plan.number));
+  const result = reopen(context, plan);
+  expectSuccess(result, 'reopen after the new close');
+  assert.equal(result.stdout, `plan #${plan.number} reopened: ongoing\n`);
+  assert.deepEqual(stored(context, plan.number), {
+    ...ONGOING,
+    stateReason: 'REOPENED',
+    assignees: ['plan-agent'],
+    comments: [
+      { author: 'plan-agent', body: reopenComment(plan.pr) },
+      { author: 'plan-agent', body: reopenComment(plan.pr) },
+    ],
+  });
+  assert.equal(context.writes().length, 2);
 });
 
 test('reopen refuses with the stuck state when GitHub answers the reopen with an error', (t) => {
