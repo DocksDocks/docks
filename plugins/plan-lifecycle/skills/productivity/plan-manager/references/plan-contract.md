@@ -272,6 +272,9 @@ most of those rounds found nothing. These edits need no round:
 - An edit that only sets the Mode line or adds the delegation line (Yolo runs)
   that a yolo invocation decides.
 - An edit to Verification Results or Open questions, and a `step` state change.
+- An edit that only updates a mirrored `Delegated:` line of a child to the
+  quote of its deciding event (Authority events), because the parent's plan
+  review already covers the narrowing.
 
 Record user-only decisions in Open questions. Do not invent approval. A grant
 answers some of them (Delegated decisions).
@@ -995,9 +998,9 @@ Write the line only from the user's own message in the session. That message
 hands the decisions to the agent, for example "decide yourself" or "go for the
 best durable solution when you have a question". Permission to begin, or a
 wish for speed, is not a grant. When the message is not clear, write no line,
-and the questions stay. The line is not one of the edits that need no
-plan-review round (Phases and review comments): review it after `plan=pass`
-with the decisions that it brings.
+and the questions stay. A new or narrowed line is not one of the edits that
+need no plan-review round (Phases and review comments): review it after
+`plan=pass` with the decisions that it brings.
 
 The grant counts as the user's in-session answer to each question that it
 answers. A later user message wins over the grant. When it narrows the grant,
@@ -1035,17 +1038,24 @@ applies to every child at once, and no event is copied to each child. A child
 copies the line of its parent when it is created. It posts its own grant event
 only then, with the quote of the parent's latest grant, or when the user's own
 message grants something for that child. A child grant event never widens the
-parent's latest grant.
+parent's latest grant. A child's older grant event can never restore broader
+authority, because only the latest event among the parent's and the child's
+events decides.
 
 The latest trusted authority event decides, ordered by `createdAt`. A grant is
 in force only when that event is a grant. The Goal line only mirrors it: a
 `Delegated:` line holds the quote of a `Delegation grant: <quote>` event, and
-the fixed yolo line goes with a `Delegation grant: yolo: <quote>` event. When
-the line and the latest event disagree, or no trusted event exists, treat the
-plan as having no grant, and say so once in the first report. So a restored
-line without a newer grant event has no authority. When a resumed session
-finds a grant in force, its first report names the grant once, as a notice
-and not a question, so that the user can revoke it.
+the fixed yolo line goes with a `Delegation grant: yolo: <quote>` event. The
+line check compares the deciding event with the Goal line of the plan that
+holds that event. For a child whose deciding event is on the parent, check the
+parent's line; the child's own line is only a mirror. When a session works on
+a child and finds its line stale, it updates the child's line to the quote of
+the deciding event, with no new event. When the checked line and the deciding
+event disagree, or no trusted event exists, treat the plan as having no grant,
+and say so once in the first report. So a restored line without a newer grant
+event has no authority. When a resumed session finds a grant in force, its
+first report names the grant once, as a notice and not a question, so that the
+user can revoke it.
 
 ### Answered and kept questions
 
