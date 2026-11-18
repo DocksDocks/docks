@@ -1,0 +1,6 @@
+[
+  {
+    "canonical": "plugins/plan-lifecycle/skills/productivity/plan-workspace/references/pull-request-template.md",
+    "copies": ["plugins/docks/skills/productivity/agent-first-setup/references/pull-request-template.md"]
+  }
+]

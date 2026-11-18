@@ -325,3 +325,40 @@ test('review verdicts are invariant under emphasis, code marks, and verdict-line
     { numRuns: NUM_RUNS },
   );
 });
+
+// The manager's response to round k follows the review blocks of round k+1 in the same comment (E5). From its heading
+// line to the end, no line can open a block, set a verdict, or add a severity.
+const managerResponse = fc.record({
+  indent: fc.constantFrom('', ' ', '   '),
+  round: fc.integer({ min: 1, max: 300 }),
+  trailing: fc.constantFrom('', ' ', '\t'),
+  lines: fc.array(
+    fc.constantFrom(
+      SEVERE_FINDING,
+      '- Round 1, src/a.mjs:4: `[CRITICAL] data loss` is fixed in commit abc1234.',
+      'HIGH: the quoted finding',
+      'Severity: high',
+      'Code-review: blocked',
+      'Plan-review: repair',
+      'code review: changes',
+      '### Code review round 3',
+      '## Plan review round 3',
+      '#### Manager response to round 2',
+      'Repaired',
+      'Rejected',
+      '',
+    ),
+    { maxLength: 6 },
+  ),
+});
+
+test('review verdicts ignore every line from the manager response heading to the end of the comment', () => {
+  fc.assert(
+    fc.property(reviewModel, managerResponse, (model, response) => {
+      const heading = `${response.indent}#### Manager response to round ${response.round}${response.trailing}`;
+      const text = `${renderReview(model)}\n${[heading, ...response.lines].join('\n')}`;
+      assert.deepEqual(parseReviewComment(text), expectedReview(model));
+    }),
+    { numRuns: NUM_RUNS },
+  );
+});

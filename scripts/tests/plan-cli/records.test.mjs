@@ -132,22 +132,29 @@ test('edit refuses step ids that collide after normalization and writes nothing'
   assert.equal(issue(collision).body, body(), 'a refused collision writes nothing');
 });
 
-test('show reads a v3 record and the next edit writes it as v4', (t) => {
-  const { run, issue, createPlan, edit } = planCliContext(t);
-  // Old records stay readable, but the next body write uses v4.
-  const legacy = createPlan(
-    'legacy',
-    body()
-      .replace('plan-contract: v4', 'plan-contract: v3')
-      .replace('## Verification Results', '## Review\n\nOld body review.\n\n## Verification Results'),
-  );
+test('show reads a v3 record; the next edit writes v5 before work starts and v4 after', (t) => {
+  const { run, issue, createPlan, updateIssue, edit } = planCliContext(t);
+  // Old records stay readable. A plan whose work has not started moves to v5 on its next body write (E2).
+  const legacyBody = body()
+    .replace('plan-contract: v5', 'plan-contract: v3')
+    .replace('## Verification Results', '## Review\n\nOld body review.\n\n## Verification Results');
+  const legacy = createPlan('legacy', legacyBody);
   const legacyShow = run('show', String(legacy), '--body');
   expectSuccess(legacyShow, 'show v3');
   assert.equal(legacyShow.stdout.trim(), issue(legacy).body.trim());
   assert.match(legacyShow.stderr, /reviews: plan=none code=none/);
   expectSuccess(edit(legacy), 'edit v3');
-  assert.match(issue(legacy).body, /^<!-- plan-contract: v4 -->/);
+  assert.match(issue(legacy).body, /^<!-- plan-contract: v5 -->/);
   assert.doesNotMatch(issue(legacy).body, /^## Review$/m);
+  // A started v3 plan keeps the partial-pull-request flow, so its next body write uses v4, and later writes keep v4.
+  const started = createPlan('started legacy', legacyBody);
+  updateIssue(started, (entry) => {
+    entry.labels = ['plan', 'plan:ongoing'];
+  });
+  expectSuccess(edit(started), 'edit a started v3 plan');
+  assert.match(issue(started).body, /^<!-- plan-contract: v4 -->/);
+  expectSuccess(run('step', String(started), 'fix_parser', 'in-flight'), 'step on a started v4 plan');
+  assert.match(issue(started).body, /^<!-- plan-contract: v4 -->/);
 });
 
 test('dependency normalization resolves a numeric step id and a second pass changes nothing', (t) => {

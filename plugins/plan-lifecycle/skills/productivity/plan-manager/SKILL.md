@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-17"
-  content_hash: "cf84b96f96ade51535509682f70f1f56aed0747f8fccf1df6055a01de1e52e54"
+  updated: "2026-11-18"
+  content_hash: "c0c3c9e7e69ad617641c00a57fd61da3cb43c3bd807ead215671556823fc647c"
 ---
 
 # Plan Manager
@@ -15,6 +15,12 @@ Own the user goal through six phases. Read
 The contract owns the path criteria, record shapes, commands, normalization,
 ownership, the review loop, review trust, and landing safeguards. This skill
 owns the phase order and what each phase must finish. Do not copy contract rules here.
+
+<constraint>
+Before phase 1, read the Safety rules of
+[`references/practices.md`](references/practices.md), which owns the named
+practices. Apply them to every issue, comment, commit, and pull request write.
+</constraint>
 
 <constraint>
 Main context owns mode selection, questions, edits, implementation, review
@@ -62,19 +68,22 @@ Done when: the path is direct implementation, or a plan with a settled Mode.
 Complete the preflight in
 [`references/github-issue-publication.md`](references/github-issue-publication.md).
 Create the issue with `new` and the settled mode. Report its number. Draft the
-outcome, research hypothesis, provisional steps, scope, and acceptance proof.
-Keep the plan drafting while those claims remain provisional.
+outcome, research hypothesis, provisional steps, scope, and acceptance proof. Keep
+the plan drafting while those claims remain provisional. When the work needs more
+than one landing pull request, draft a parent plan with no linked branch, and
+create one child per pull request with `new --parent <n>`, as the contract's
+Record and mode says. The parent runs phases 3 and 4 only. Each child runs these
+six phases as its own plan, and starts only after the parent passes plan review.
 
-Done when: `show <n>` prints the header strip with status `drafting`.
+Done when: `show <n>` prints the header strip with status `drafting`, and for a
+parent, one `child #<c>` line per child.
 
 ### 3. Research
 
-Export the issue and edit the exported file. Check the repository instructions,
-target files, callers, tests, and current official documentation. Use language
-server references before changing exported symbols. Bind research findings to
+Export the issue and edit the exported file. Follow the practices Research order,
+Decisions and corrections, and Engineering standards. Bind research findings to
 repository paths and symbols or official URLs. Name the durable fix and the
 temporary approach it replaces. Make the Files cells cover the intended scope.
-Record the tool facts that the contract's Record and mode asks for.
 
 Fill acceptance with runnable proof, then use `edit` to publish the export.
 Read all advice and resolve any decision it exposes. A defaulted plan-only
@@ -85,13 +94,12 @@ Done when: `status <n> planned` succeeds and no advice needs a decision.
 
 ### 4. Plan review
 
-Run the contract's review loop with `plan-reviewer`. For each round, export
-fresh input and dispatch `plan-reviewer` with the issue number, export path, and
-round number. A re-review round after a repair may use the plan `delta` mode,
-as the contract's review loop allows. If no wrapper exists, dispatch a fresh
-read-only reviewer with the `plan-reviewer` skill. Route a user-only decision
-through Open questions and `ask`. Never implement a repaired plan that has not
-passed review.
+Run the contract's review loop with `plan-reviewer`. For each round, export fresh
+input and dispatch `plan-reviewer` with the issue number, export path, and round
+number. A re-review round after a repair may use the plan `delta` mode, as the
+contract's review loop allows. If no wrapper exists, dispatch a fresh read-only
+reviewer with the `plan-reviewer` skill. Route a user-only decision through Open
+questions and `ask`. Never implement a repaired plan that has not passed review.
 
 A plan-only run stops after the pass, at planned. Report the issue and verdict.
 Do not create a branch or implement without a new instruction.
@@ -103,18 +111,19 @@ Done when: `show <n>` reports `plan=pass`.
 Move the plan to ongoing. Set up the linked branch with the contract's Linked
 branch steps before you change code. Set each step in-flight, implement or
 delegate it, run its proof, then mark it done. Honor the Effect confirmation
-gate. When `docks:code-clarity` is available, use it for self-explaining code.
-When the project has a `verify` skill, for example
-`.agents/skills/verify/SKILL.md`, use it to run the changed surface before you
-mark acceptance. Run all acceptance commands and record real results in
-Verification Results through the export/edit flow. Review plan edits after the
-pass as the contract's Phases and review comments says.
+gate. Follow the practices Engineering standards, Red baseline, Commits, and
+Checks that fail outside the goal. When the project has a `verify` skill, for
+example `.agents/skills/verify/SKILL.md`, use it to run the changed surface
+before you mark acceptance. Run all acceptance commands and record real results
+in Verification Results through the export/edit flow. Review plan edits after
+the pass as the contract's Phases and review comments says. Once work starts,
+put new work into a child plan, and act on split advice, as the contract's
+Status, ownership, and frozen state says.
 
 Every commit that you make, also each candidate and repair commit, carries a
-`Verified:` trailer. The `commit-discipline` skill owns the trailer format.
-List the commands that ran on the committed bytes, as
-`Verified: <command>[; <command>]`. When no command ran on them, write
-`Verified: none - <reason>`.
+`Verified:` trailer. The `commit-discipline` skill owns the trailer format. List
+the commands that ran on the committed bytes, as `Verified: <command>[; <command>]`.
+When no command ran on them, write `Verified: none - <reason>`.
 
 Done when: every step that can run before the merge is done or skipped, and
 Verification Results hold real acceptance results.
@@ -218,12 +227,17 @@ git diff --binary <previous-reviewed-head> HEAD > "$scratch/code-review-<n>-roun
 
 Dispatch the three lens reviewers of a `panel` round in one message, so they
 run at the same time. In each dispatch message, name each changed path that is
-outside the Steps Files cells. Post one comment per round, as the contract's
-review loop says.
+outside the Steps Files cells. Post one comment per round: the blocks of the
+round, then the manager response to the previous round, as the contract's
+review loop says. Write the reviewer's repair record and rejection files from
+that response. While round 1 runs, run the practices Self-review in code
+review. While any round runs, do the practices Work during a round.
 
 Before the next round, fix or reject every finding of the round, as the
 contract's Repairs says. A pass can carry MEDIUM and LOW findings. The posted
-comment is their record; do not change reviewed bytes for them.
+comment is their record; do not change reviewed bytes for them. When a finding
+returns after a repair, redesign the fix yourself and ask the user only in the
+cases that item 5 of the contract's review loop names.
 
 Make each repair complete, as the contract's Repairs says, before you commit
 it. When a repair adds a branch, a list split, a parser rule, or a refusal, add
@@ -235,14 +249,15 @@ fast-check, Hypothesis, or proptest. Test round-trip and idempotency first. In
 recorded plans, more than half of the later code findings were faults in the
 repair of an earlier finding.
 
-When a code reviewer returns `blocked` because it left hunks unread, dispatch
-it again as the contract's Code-review rounds says.
-
-Resolve unreadable input before you request a verdict. If you block after
-implementation, commit and push current work to the linked branch before you
-record the blocker, so repairs are not stranded. A hook that refuses that
-commit or push follows the contract's Repository hooks. Then run the contract's
-Teardown for an exit without a merge.
+When a code reviewer returns `blocked` because it left hunks unread, dispatch it
+again as the contract's Code-review rounds says. Resolve unreadable input before
+you request a verdict. If you block after implementation, commit and push
+current work to the linked branch before you record the blocker, so repairs are
+not stranded. When a pull request is open, update its body right after the push,
+as the contract's Checklist says. Post the pending manager response first, as
+the contract's review loop says. A hook that refuses that commit or push follows
+the contract's Repository hooks. Then run the contract's Teardown for an exit
+without a merge.
 
 Done when: `show <n>` reports `code=pass`.
 
@@ -251,20 +266,34 @@ Done when: `show <n>` reports `code=pass`.
 After code review passes, follow the contract's Landing and archive proof:
 commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
-on `Merge now`. The `Merge now` option states the teardown, as the contract's
-Checks and merge says. After a partial merge, run `reopen <n> --pr <pr>` as the
-contract states. After the landing merge, run each step that runs after the
-merge. Once every step is terminal, run `archive <n> --pr <pr>` with the
-landing pull request.
-After archive, run the contract's Teardown. Without `Merge now`, run Teardown's
-exit without a merge. Report Kept resources in both cases.
+on `Merge now`. Write the description from `references/run-summary.md`, as the
+practices Run summary says. Build the `## Checklist` section and run the landing
+self-check as the contract's Checklist and Checks and merge say. After each
+push, rebuild the ticks and update the body before any wait for checks. The
+merge question states `<k> of <n> checklist items ticked` and lists each
+unticked item with its reason. The `Merge now` option states the teardown, as
+the contract's Checks and merge says. A v5 plan has no partial merge; each part
+lands as a child plan. Only a v4 plan whose work started runs
+`reopen <n> --pr <pr>` after a partial merge, as the contract states. After the
+landing merge, run each step that runs after the merge. Once every step is
+terminal, run `archive <n> --pr <pr>` with the landing pull request. For a
+child, then set its parent row done; when `show <parent>` lists no open child,
+run `archive <parent>`, as the contract's Archive says. After archive, run the
+contract's Teardown. Without `Merge now`, run Teardown's exit without a merge.
+Report Kept resources in both cases.
 
 Render the body only when the user names the plan and asks to see it. After a
 write, report the header strip and changed lines.
 
-Done when: `archive <n> --pr <pr>` prints `plan #<n> finished (closed by <pr-url>)` and
-you reported Kept resources, or the user chose `Leave pull request open` and
-you reported the open pull request and Kept resources.
+Done when: `archive <n> --pr <pr>` prints `plan #<n> finished (closed by <pr-url>)`
+(and for the last child, `archive <parent>` prints
+`plan #<parent> finished (all <k> children finished)`) and you reported Kept
+resources, or the user chose `Leave pull request open` and you reported the
+open pull request and Kept resources.
+
+## Recover after compaction
+
+Rebuild the run state as the practices Recover after compaction says.
 
 ## BAD / GOOD
 
@@ -275,8 +304,11 @@ GOOD: Export the changed plan and get a fresh pass.
 BAD: Merge because checks passed earlier.
 GOOD: Verify the reviewed head and obtain a fresh Merge now answer.
 
-BAD: Merge a partial pull request and trust `Refs #<issue>` to keep the issue open.
-GOOD: Say that the merge closes the issue, merge on `Merge now`, run `reopen <n> --pr <pr>`, and confirm `show` reads ongoing.
+BAD: Merge a partial pull request on a v5 plan.
+GOOD: Open a child plan with `new --parent <n>`; each child lands with `Closes #<c>`.
+
+BAD: Post the repairs of a round as a separate issue comment.
+GOOD: Put them in the manager response after the blocks of the next round comment.
 
 BAD: Run `git branch -D` after `git branch -d` refuses.
 GOOD: Keep the branch and list it under Kept resources.

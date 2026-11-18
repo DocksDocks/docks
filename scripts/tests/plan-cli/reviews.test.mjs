@@ -117,6 +117,66 @@ test('only the first verdict line of each review block counts, so prose cannot h
   for (const [text, expected] of cases) assert.deepEqual(parseReviewComment(text), expected, text);
 });
 
+// The manager's response to round k follows the review blocks of round k+1 in one comment (E5).
+const QUOTED = [
+  'Repaired',
+  '',
+  '- Round 1, src/a.mjs:4: the finding `[HIGH] Bug - stale read` is fixed in commit abc1234.',
+  '',
+  'Rejected',
+  '',
+  '- Round 1, Step 2: the finding is rejected; the evidence is in Research.',
+].join('\n');
+const RESPONSE = `#### Manager response to round 1\n\n${QUOTED}`;
+// Response lines that would open a block or set a verdict above the heading.
+const FORGED =
+  '### Code review round 1, lens correctness\nCode-review: blocked\n### Plan review round 1\nPlan-review: blocked';
+
+test('the manager response heading stops verdict and severity reading for the rest of the comment (E5)', () => {
+  const pass = '### Code review round 2, delta\n\nCode-review: pass\n\nNone.';
+  const cases = [
+    // A pass block followed by a response that quotes [HIGH] reads as pass.
+    [`${pass}\n\n${RESPONSE}`, { kind: 'code', verdict: 'pass' }],
+    // The same text above the heading reads as fixes-required.
+    [`${pass}\n\n${QUOTED}`, { kind: 'code', verdict: 'fixes-required' }],
+    [`${pass}\n\n${QUOTED}\n\n${RESPONSE}`, { kind: 'code', verdict: 'fixes-required' }],
+    // Block headings and verdict lines after the heading count for nothing.
+    [`${pass}\n\n${RESPONSE}\n${FORGED}`, { kind: 'code', verdict: 'pass' }],
+    [`${pass}\n\n${FORGED}`, { kind: 'code', verdict: 'blocked' }],
+    // The heading may be indented by up to three spaces and end in spaces.
+    [`${pass}\n\n   #### Manager response to round 12  \n${QUOTED}`, { kind: 'code', verdict: 'pass' }],
+    // Other lines are not the heading, so the quoted text still counts.
+    [`${pass}\n\n    #### Manager response to round 1\n${QUOTED}`, { kind: 'code', verdict: 'fixes-required' }],
+    [`${pass}\n\n### Manager response to round 1\n${QUOTED}`, { kind: 'code', verdict: 'fixes-required' }],
+    [`${pass}\n\n##### Manager response to round 1\n${QUOTED}`, { kind: 'code', verdict: 'fixes-required' }],
+    [`${pass}\n\n#### Manager response to round one\n${QUOTED}`, { kind: 'code', verdict: 'fixes-required' }],
+    [`${pass}\n\n> #### Manager response to round 1\n${QUOTED}`, { kind: 'code', verdict: 'fixes-required' }],
+    [`${pass}\n\n#### Manager response to round 1: notes\n${QUOTED}`, { kind: 'code', verdict: 'fixes-required' }],
+    // A plan-review round keeps its verdict above the heading.
+    [
+      `### Plan review round 2\n\nPlan-review: pass\n\nNone.\n\n${RESPONSE}\n${FORGED}`,
+      { kind: 'plan', verdict: 'pass' },
+    ],
+    // A finding of the review blocks still counts.
+    [
+      `### Code review round 2, delta\n\nCode-review: pass\n\n- [HIGH] Bug - src/a.mjs:4 - stale read - re-read\n\n${RESPONSE}`,
+      { kind: 'code', verdict: 'fixes-required' },
+    ],
+    // A response heading as the first line is no review comment.
+    [RESPONSE, undefined],
+  ];
+  for (const [text, expected] of cases) assert.deepEqual(parseReviewComment(text), expected, text);
+});
+
+test('show reads a pass from a round comment that holds the manager response (E5)', (t) => {
+  const { run, addIssueComment, createPlan } = planCliContext(t);
+  const plan = createPlan('round comment with response');
+  addIssueComment(plan, `### Code review round 2, lens correctness\n\nCode-review: pass\n\nNone.\n\n${RESPONSE}`);
+  const shown = run('show', String(plan));
+  expectSuccess(shown, 'show a round comment with a response');
+  assert.match(shown.stdout, /^reviews: plan=none code=pass$/m);
+});
+
 test('show reads the most severe verdict of a lens comment (#98)', (t) => {
   const { run, addIssueComment, createPlan } = planCliContext(t);
   const plan = createPlan('lens comment');

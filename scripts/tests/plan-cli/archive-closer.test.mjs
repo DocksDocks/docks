@@ -21,8 +21,14 @@ function finished(plan) {
   return `plan #${plan.number} finished (closed by ${plan.closer.url})\n`;
 }
 
+// The one comment of an archive that closes the plan itself: the reason for the close, then the archive record.
 function closeComment(pr) {
-  return `Closed by archive: pull request #${pr} merged into main and closes this plan, but GitHub left the plan open.`;
+  return `Closed by archive: pull request #${pr} merged into main and closes this plan, but GitHub left the plan open.\n\n${landingRecord(pr).body}`;
+}
+
+// The archive record that a successful archive posts on a plan that GitHub closed.
+function landingRecord(pr) {
+  return { author: 'plan-agent', body: `Archived with landing pull request #${pr}` };
 }
 
 // The plan fields that an archive may change; a comment reduces to its author and body.
@@ -46,7 +52,7 @@ test('archive finishes a closed plan with terminal work, a trusted pass, and the
     state: 'CLOSED',
     stateReason: 'COMPLETED',
     labels: ['plan'],
-    comments: [REVIEW],
+    comments: [REVIEW, landingRecord(plan.pr)],
   });
 });
 
@@ -198,7 +204,7 @@ test('archive finishes an open ongoing plan that GitHub closes during the waits,
     state: 'CLOSED',
     stateReason: 'COMPLETED',
     labels: ['plan'],
-    comments: [REVIEW],
+    comments: [REVIEW, landingRecord(plan.pr)],
   });
   assert.deepEqual(closes(context), []);
 });
