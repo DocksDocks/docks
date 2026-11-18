@@ -9,6 +9,8 @@ import { parseArgs } from 'node:util';
 import { cites, fetchRepository, planOutcomes } from './outcomes.mjs';
 
 const KINDS = ['code', 'code-delta', 'plan', 'plan-delta'];
+// The case folders of this skill.
+const SKILL_CASES = fileURLToPath(new URL('../cases/', import.meta.url));
 const MAX_OUTPUT = 256 * 1024 * 1024;
 const REVIEW = /^#{1,6}\s+(code|plan) review\b(.*)$/i;
 const FINDING =
@@ -43,7 +45,7 @@ function runGh(args) {
 }
 
 function caseInventory() {
-  const root = fileURLToPath(new URL('../cases/', import.meta.url));
+  const root = SKILL_CASES;
   return ['dev', 'heldout'].flatMap((split) =>
     fs
       .readdirSync(path.join(root, split))
@@ -374,14 +376,152 @@ export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
   return { record, manifest };
 }
 
-function writeRestricted(file, content) {
-  // Resolve existing parents so a symlink cannot put restricted data back inside a checkout.
+// The rejection reasons of C3, by letter.
+const REASONS = {
+  a: 'the finding is on lines that the missed round did not see',
+  b: 'no later round confirms the fix',
+  c: 'the base, head, or plan body of the round cannot be rebuilt',
+  d: 'a case for the round existed before the cutoff',
+  e: 'a follow-up item that is no defect of this plan',
+};
+const OUTCOME_FIELDS = new Set([
+  'unit',
+  'issue',
+  'reviewer',
+  'kind',
+  'missed_round',
+  'split',
+  'outcome',
+  'case',
+  'reason',
+  'findings',
+  'inputs',
+  'decided',
+]);
+const OUTCOMES_HEADING = '## Outcomes';
+const FROZEN_HASH_LINE = /^- Restricted frozen record SHA-256: ([0-9a-f]{64})$/m;
+
+// The frozen part of a manifest: the text before its `## Outcomes` section, or all of it.
+function manifestFrozenPart(text) {
+  const at = text.indexOf(`\n\n${OUTCOMES_HEADING}\n`);
+  return at === -1 ? text : text.slice(0, at + 1);
+}
+
+// Checks one outcome file against its frozen unit: the same identity fields, `taken` with an existing case of the
+// unit's issue and split, or `rejected` with a reason letter of C3.
+function checkOutcome(name, outcome, unit, casesDir) {
+  const where = `outcome ${name}`;
+  if (outcome === null || typeof outcome !== 'object' || Array.isArray(outcome)) fail(`${where} holds no object`);
+  const extra = Object.keys(outcome).filter((key) => !OUTCOME_FIELDS.has(key));
+  if (extra.length) fail(`${where} has unknown fields: ${extra.join(', ')}`);
+  for (const field of ['issue', 'reviewer', 'kind', 'missed_round', 'split']) {
+    if (outcome[field] !== unit[field]) {
+      fail(
+        `${where}: ${field} is ${JSON.stringify(outcome[field])}, the frozen unit has ${JSON.stringify(unit[field])}`,
+      );
+    }
+  }
+  if (typeof outcome.decided !== 'string' || !Number.isFinite(time(outcome.decided)))
+    fail(`${where}: decided must be an ISO time`);
+  if (outcome.findings !== undefined && !Array.isArray(outcome.findings)) fail(`${where}: findings must be a list`);
+  if (outcome.outcome === 'taken') {
+    if (outcome.reason !== undefined && outcome.reason !== null) fail(`${where}: a taken unit has no reason`);
+    if (typeof outcome.case !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(outcome.case))
+      fail(`${where}: a taken unit names its case id`);
+    const file = path.join(casesDir, unit.split, `${outcome.case}.json`);
+    if (!fs.existsSync(file)) fail(`${where}: case ${outcome.case} has no case file in ${unit.split}`);
+    const caseData = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (caseData.id !== outcome.case || caseData.issue !== unit.issue || caseData.split !== unit.split)
+      fail(`${where}: case ${outcome.case} is not a ${unit.split} case of issue #${unit.issue}`);
+  } else if (outcome.outcome === 'rejected') {
+    if (outcome.case !== undefined && outcome.case !== null) fail(`${where}: a rejected unit has no case`);
+    if (!Object.hasOwn(REASONS, outcome.reason)) fail(`${where}: a rejected unit needs a reason letter a to e`);
+  } else {
+    fail(`${where}: outcome must be taken or rejected`);
+  }
+}
+
+// The outcome parts (C7). `files` are the outcome files as { name, text }, one per decided unit, named
+// `<unit id>.json`. The record keeps its frozen part byte for byte and gets the outcomes in draw order. The manifest
+// keeps its frozen part byte for byte and gets a new `## Outcomes` section: counts by split and reason, and the dev
+// outcomes in full, with no held-out unit and no finding text. The same input gives the same output.
+export function applyOutcomes({ recordText, manifestText, files, casesDir = SKILL_CASES }) {
+  const record = JSON.parse(recordText);
+  if (frozenJson(record) !== recordText) fail('the record is not in canonical form; it changed after draw');
+  const frozenHash = sha256(frozenJson(record.frozen));
+  const frozenManifest = manifestFrozenPart(manifestText);
+  if (frozenManifest.match(FROZEN_HASH_LINE)?.[1] !== frozenHash)
+    fail('the manifest names another frozen record than this record');
+  const order = new Map(record.frozen.units.map((unit, index) => [unit.id, index]));
+  const decided = new Map();
+  for (const { name, text } of files) {
+    const outcome = JSON.parse(text);
+    const id = outcome?.unit;
+    if (!order.has(id)) fail(`outcome ${name} names no unit of the draw: ${JSON.stringify(id)}`);
+    if (name !== `${id}.json`) fail(`outcome ${name} must be named ${id}.json`);
+    if (decided.has(id)) fail(`unit ${id} has two outcome files`);
+    checkOutcome(name, outcome, record.frozen.units[order.get(id)], casesDir);
+    decided.set(id, outcome);
+  }
+  const outcomes = [...decided.values()].sort((a, b) => order.get(a.unit) - order.get(b.unit));
+  const recordOut = frozenJson({ ...record, outcomes });
+  const count = (split, test) =>
+    record.frozen.units.filter((unit) => unit.split === split && test(decided.get(unit.id))).length;
+  const letters = Object.keys(REASONS);
+  const section = [
+    OUTCOMES_HEADING,
+    '',
+    `Reasons: ${letters.map((letter) => `(${letter}) ${REASONS[letter]}`).join('; ')}.`,
+    '',
+    `| Split | Units | Taken | ${letters.map((letter) => `Rejected (${letter})`).join(' | ')} | Pending |`,
+    `|---|---:|---:|${letters.map(() => '---:|').join('')}---:|`,
+    ...['dev', 'heldout']
+      .map((split) =>
+        [
+          split,
+          count(split, () => true),
+          count(split, (item) => item?.outcome === 'taken'),
+          ...letters.map((letter) => count(split, (item) => item?.outcome === 'rejected' && item.reason === letter)),
+          count(split, (item) => item === undefined),
+        ].join(' | '),
+      )
+      .map((line) => `| ${line} |`),
+    '',
+    '### Dev outcomes',
+    '',
+    '| Issue | Reviewer | Missed round | Kind | Commitment | Outcome | Case or reason |',
+    '|---:|---|---:|---|---|---|---|',
+    ...record.frozen.units
+      .filter((unit) => unit.split === 'dev' && decided.has(unit.id))
+      .map((unit) => {
+        const item = decided.get(unit.id);
+        const detail = item.outcome === 'taken' ? item.case : `(${item.reason})`;
+        return `| #${unit.issue} | ${unit.reviewer} | ${unit.missed_round} | ${unit.kind} | ${sha256(frozenJson(unit))} | ${item.outcome} | ${detail} |`;
+      }),
+    '',
+  ].join('\n');
+  return { record: recordOut, manifest: `${frozenManifest}\n${section}`, outcomes };
+}
+
+function fail(message) {
+  throw new Error(message);
+}
+
+// Refuses a restricted file inside a repository: existing parents resolve, so a symlink cannot put restricted data
+// back inside a checkout. A new file is write-once; `replace` swaps an existing file through a temporary file.
+function writeRestricted(file, content, { replace = false } = {}) {
   const parent = fs.realpathSync(path.dirname(path.resolve(file)));
   for (let dir = parent; ; dir = path.dirname(dir)) {
     if (fs.existsSync(path.join(dir, '.git'))) throw new Error('restricted files must stay outside a repository');
     if (dir === path.dirname(dir)) break;
   }
-  fs.writeFileSync(file, content, { mode: 0o600, flag: 'wx' });
+  if (!replace) {
+    fs.writeFileSync(file, content, { mode: 0o600, flag: 'wx' });
+    return;
+  }
+  const temporary = path.join(parent, `.${path.basename(file)}.${process.pid}.tmp`);
+  fs.writeFileSync(temporary, content, { mode: 0o600, flag: 'wx' });
+  fs.renameSync(temporary, file);
 }
 
 export function main(argv) {
@@ -401,8 +541,15 @@ export function main(argv) {
             record: { type: 'string' },
             manifest: { type: 'string' },
           }
-        : null;
-  if (!options) throw new Error('usage: escapes.mjs <snapshot|draw> [options]');
+        : command === 'outcomes'
+          ? {
+              record: { type: 'string' },
+              outcomes: { type: 'string' },
+              manifest: { type: 'string' },
+              cases: { type: 'string' },
+            }
+          : null;
+  if (!options) throw new Error('usage: escapes.mjs <snapshot|draw|outcomes> [options]');
   const { values } = parseArgs({ args, options, strict: true });
   if (command === 'snapshot') {
     if (!values.out) throw new Error('snapshot needs --out <file>');
@@ -418,6 +565,24 @@ export function main(argv) {
     const snapshot = captureSnapshot({ repo: values.repo, closedBefore: values['closed-before'], commit });
     writeRestricted(values.out, frozenJson(snapshot));
     return null;
+  }
+  if (command === 'outcomes') {
+    if (!values.record || !values.outcomes || !values.manifest)
+      throw new Error('outcomes needs --record <file> --outcomes <dir> --manifest <file> [--cases <dir>]');
+    const files = fs
+      .readdirSync(values.outcomes)
+      .filter((name) => name.endsWith('.json'))
+      .sort()
+      .map((name) => ({ name, text: fs.readFileSync(path.join(values.outcomes, name), 'utf8') }));
+    const result = applyOutcomes({
+      recordText: fs.readFileSync(values.record, 'utf8'),
+      manifestText: fs.readFileSync(values.manifest, 'utf8'),
+      files,
+      ...(values.cases ? { casesDir: path.resolve(values.cases) } : {}),
+    });
+    writeRestricted(values.record, result.record, { replace: true });
+    fs.writeFileSync(values.manifest, result.manifest);
+    return `outcomes: ${result.outcomes.length} decided units written to ${values.record} and ${values.manifest}\n`;
   }
   if (!values.snapshot) throw new Error('draw needs --snapshot <file>');
   if (values.record && values.manifest && path.resolve(values.record) === path.resolve(values.manifest))

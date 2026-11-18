@@ -10513,3 +10513,144 @@ test('score corpus counts the cases with known defects by reviewer and split, al
   );
   assert.throws(() => main(['corpus']), { message: /^usage: score\.mjs / });
 });
+
+// The outcome parts of C7 on a fixture draw: one outcome file per decided unit, case files in a scratch cases folder.
+function outcomeFixture(t) {
+  const root = scratch(t);
+  put(root, 'source.json', escapeFixture());
+  const record = path.join(root, 'record.json');
+  const manifest = path.join(root, 'manifest.md');
+  escapes.main([
+    'draw',
+    '--snapshot',
+    path.join(root, 'source.json'),
+    '--seed',
+    'test',
+    '--record',
+    record,
+    '--manifest',
+    manifest,
+  ]);
+  const cases = path.join(root, 'cases');
+  put(cases, 'dev/plan-20-r1.json', { id: 'plan-20-r1', kind: 'plan', split: 'dev', issue: 20 });
+  put(cases, 'heldout/code-10-r1.json', { id: 'code-10-r1', kind: 'code', split: 'heldout', issue: 10 });
+  const units = readJson(record).frozen.units;
+  const outcome = (unit, extra) => ({
+    unit: unit.id,
+    issue: unit.issue,
+    reviewer: unit.reviewer,
+    kind: unit.kind,
+    missed_round: unit.missed_round,
+    split: unit.split,
+    findings: unit.findings.map((_, index) => index),
+    inputs: { note: 'restricted' },
+    decided: '2026-11-18T12:00:00Z',
+    ...extra,
+  });
+  const [held1, held2] = units.filter((unit) => unit.split === 'heldout');
+  const [devCode, devPlan] = units.filter((unit) => unit.split === 'dev');
+  const decided = [
+    outcome(held1, { outcome: 'taken', case: 'code-10-r1' }),
+    outcome(held2, { outcome: 'rejected', reason: 'a' }),
+    outcome(devCode, { outcome: 'rejected', reason: 'b' }),
+    outcome(devPlan, { outcome: 'taken', case: 'plan-20-r1' }),
+  ];
+  const dir = path.join(root, 'outcomes');
+  for (const item of decided) put(dir, `${item.unit}.json`, item);
+  const args = ['outcomes', '--record', record, '--outcomes', dir, '--manifest', manifest, '--cases', cases];
+  return { root, record, manifest, cases, dir, units, decided, outcome, args, devCode, devPlan };
+}
+
+test('escape outcomes write both outcome parts, keep both frozen parts, and rerun to the same bytes', (t) => {
+  const fixture = outcomeFixture(t);
+  const frozenRecord = readText(fixture.record);
+  const frozenManifest = readText(fixture.manifest);
+  assert.match(escapes.main(fixture.args), /^outcomes: 4 decided units/);
+  const record = readJson(fixture.record);
+  assert.equal(escapes.frozenJson(record.frozen), escapes.frozenJson(JSON.parse(frozenRecord).frozen));
+  assert.equal(fs.statSync(fixture.record).mode & 0o777, 0o600);
+  // Draw order, not file-name order.
+  const order = fixture.units.map((unit) => unit.id);
+  assert.deepEqual(
+    record.outcomes.map((item) => item.unit),
+    order.filter((id) => fixture.decided.some((item) => item.unit === id)),
+  );
+  assert.deepEqual(record.outcomes[0].inputs, { note: 'restricted' });
+  const manifest = readText(fixture.manifest);
+  assert.ok(manifest.startsWith(frozenManifest));
+  const section = manifest.slice(frozenManifest.length);
+  assert.ok(section.startsWith('\n## Outcomes\n'));
+  const commitment = (unit) => createHash('sha256').update(escapes.frozenJson(unit)).digest('hex');
+  const lines = section.split('\n');
+  assert.ok(lines.includes('| dev | 2 | 1 | 0 | 1 | 0 | 0 | 0 | 0 |'));
+  assert.ok(lines.includes('| heldout | 4 | 1 | 1 | 0 | 0 | 0 | 0 | 2 |'));
+  assert.deepEqual(
+    lines.filter((line) => line.startsWith('| #')),
+    [
+      `| #20 | code | 1 | code | ${commitment(fixture.devCode)} | rejected | (b) |`,
+      `| #20 | plan | 1 | plan | ${commitment(fixture.devPlan)} | taken | plan-20-r1 |`,
+    ],
+  );
+  // No held-out unit, case, or finding text.
+  assert.doesNotMatch(section, /#10\b|code-10-r1|10-code|10-plan|SECRET|DEV_|src\//);
+  // A rerun replaces the section and gives the same bytes; an earlier run's section does not stay.
+  const [recordBytes, manifestBytes] = [readText(fixture.record), manifest];
+  escapes.main(fixture.args);
+  assert.equal(readText(fixture.record), recordBytes);
+  assert.equal(readText(fixture.manifest), manifestBytes);
+  fs.rmSync(path.join(fixture.dir, `${fixture.devCode.id}.json`));
+  escapes.main(fixture.args);
+  const fewer = readText(fixture.manifest);
+  assert.ok(fewer.startsWith(frozenManifest));
+  assert.equal(fewer.split('## Outcomes').length, 2);
+  assert.ok(fewer.includes('| dev | 2 | 1 | 0 | 0 | 0 | 0 | 0 | 1 |'));
+  assert.equal(readJson(fixture.record).outcomes.length, 3);
+});
+
+test('escape outcomes refuse outcome files that do not match the frozen draw, and write nothing', (t) => {
+  const fixture = outcomeFixture(t);
+  const recordText = readText(fixture.record);
+  const manifestText = readText(fixture.manifest);
+  const [held1] = fixture.units.filter((unit) => unit.split === 'heldout');
+  const apply = (files, texts = {}) =>
+    escapes.applyOutcomes({
+      recordText: texts.record ?? recordText,
+      manifestText: texts.manifest ?? manifestText,
+      files: files.map((item) => ({ name: item.name ?? `${item.body.unit}.json`, text: JSON.stringify(item.body) })),
+      casesDir: fixture.cases,
+    });
+  const taken = fixture.outcome(held1, { outcome: 'taken', case: 'code-10-r1' });
+  const cases = [
+    [[{ body: { ...taken, unit: '99-code-1' } }], /names no unit of the draw/],
+    [[{ name: 'other.json', body: taken }], /must be named/],
+    [[{ body: taken }, { body: taken }], /has two outcome files/],
+    [[{ body: { ...taken, split: 'dev' } }], /split is "dev", the frozen unit has "heldout"/],
+    [[{ body: { ...taken, kind: 'plan' } }], /kind is "plan"/],
+    [[{ body: { ...taken, case: 'code-10-r9' } }], /has no case file in heldout/],
+    [[{ body: { ...taken, reason: 'a' } }], /a taken unit has no reason/],
+    [[{ body: { ...taken, outcome: 'rejected', case: undefined, reason: 'f' } }], /reason letter a to e/],
+    [[{ body: { ...taken, outcome: 'rejected' } }], /a rejected unit has no case/],
+    [[{ body: { ...taken, outcome: 'maybe' } }], /outcome must be taken or rejected/],
+    [[{ body: { ...taken, decided: 'soon' } }], /decided must be an ISO time/],
+    [[{ body: { ...taken, note: 'x' } }], /unknown fields: note/],
+  ];
+  for (const [files, message] of cases) assert.throws(() => apply(files), { message }, String(message));
+  // A case file of another issue does not count for this unit.
+  put(fixture.cases, 'heldout/code-11-r1.json', { id: 'code-11-r1', kind: 'code', split: 'heldout', issue: 11 });
+  assert.throws(() => apply([{ body: { ...taken, case: 'code-11-r1' } }]), {
+    message: /is not a heldout case of issue #10/,
+  });
+  // An edited record, and a manifest of another draw.
+  assert.throws(() => apply([{ body: taken }], { record: recordText.replace('\n', '\n ') }), {
+    message: /not in canonical form/,
+  });
+  assert.throws(
+    () => apply([{ body: taken }], { manifest: manifestText.replace(/(record SHA-256: )[0-9a-f]/, '$1z') }),
+    { message: /names another frozen record/ },
+  );
+  // The command writes nothing when one outcome file fails.
+  put(fixture.dir, `${held1.id}.json`, { ...taken, reason: 'a' });
+  assert.throws(() => escapes.main(fixture.args), { message: /a taken unit has no reason/ });
+  assert.equal(readText(fixture.record), recordText);
+  assert.equal(readText(fixture.manifest), manifestText);
+});
