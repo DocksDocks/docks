@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Encrypted off-machine copies of the held-out keys folder (see Cases, Key backup). A backup needs only the public key;
-// a restore needs the secret key. No plaintext ever goes into the vault checkout.
+// a restore needs an export of the secret key. No plaintext ever goes into the vault checkout.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -52,9 +52,10 @@ const USAGE = [
   '      Encrypts the keys folder to the public key in $XDG_STATE_HOME/docks/review-bench/backup-recipient.asc',
   '      (default ~/.local/state) and writes <out>/keys-<UTC time>.tar.gpg. The key must have the fingerprint',
   '      of the "Fingerprint: <hex>" line of <out>/README.md, and <out> must be the root folder of a git checkout.',
-  '  restore --archive <file> --out <new dir>',
-  '      Decrypts with the key ring of GNUPGHOME (or the default key ring) into a new mode-0700 folder outside',
-  '      every git checkout, and verifies every file against the manifest of the archive.',
+  '  restore --archive <file> --key <secret-key export> --out <new dir>',
+  '      Imports the key into a new private GnuPG home (never GNUPGHOME), decrypts there into a new mode-0700',
+  '      folder outside every git checkout, and verifies every file against the manifest of the archive. For a',
+  '      passphrase-protected key, gpg asks for the passphrase in the terminal. The private home goes at the end.',
   '  check --keys <dir> [--cases <cases dir>]',
   '      Compares the source snapshot and the frozen record of the folder with cases/escape-draw.md.',
 ].join('\n');
@@ -65,11 +66,18 @@ function fail(message) {
   throw new Error(message);
 }
 
-// Runs a command to completion and gives its stdout as bytes; a start error or a non-zero exit stops.
-function run(command, args, { input, env = process.env, cwd } = {}) {
-  const result = spawnSync(command, args, { input, env, cwd, maxBuffer: MAX_OUTPUT });
+// Runs a command to completion and gives its stdout as bytes; a start error or a non-zero exit stops. When `stdio`
+// gives the stderr of the command to the terminal, the error names only the exit code, because the command wrote its
+// own message there.
+function run(command, args, { input, env = process.env, cwd, stdio } = {}) {
+  const result = spawnSync(command, args, { input, env, cwd, stdio, maxBuffer: MAX_OUTPUT });
   if (result.error) fail(`${command} failed: ${result.error.message}`);
-  if (result.status !== 0) fail(`${command} failed: ${result.stderr.toString('utf8').trim()}`);
+  if (result.status !== 0)
+    fail(
+      result.stderr
+        ? `${command} failed: ${result.stderr.toString('utf8').trim()}`
+        : `${command} failed with exit code ${result.status}`,
+    );
   return result.stdout;
 }
 
@@ -341,16 +349,72 @@ function insideGit(dir, env) {
   return (revParse(dir, ['--is-inside-work-tree', '--is-inside-git-dir'], env) ?? []).includes('true');
 }
 
-// Decrypts `archive` into the new folder `out` (mode 0700) and verifies it. An archive member that is not a regular
-// file or a folder stops the restore before it writes anything. A failure leaves no folder.
-export function restore({ archive, out, env = process.env }) {
-  if (!archive || !out) fail('restore needs --archive <file> --out <new dir>');
+// The line that a failed decrypt gets with libgcrypt 1.12.0. Its bug T8094 makes the agent fail at random, by memory
+// layout (for example the length of the home path or the size of the environment), when it first uses an imported
+// ECC key, such as the cv25519 subkey of a default GnuPG key. Plan #162 saw it with GnuPG 2.4.8; an RSA key did not
+// fail. With a terminal, gpg writes its error there, so the exit code alone also gets the line.
+const T8094_NOTE =
+  'libgcrypt 1.12.0 has the bug T8094 (https://dev.gnupg.org/T8094), which can give "Bad secret key" or "Bad ' +
+  'passphrase" for an ECC key; libgcrypt 1.12.1 or later fixes it. A new run uses a new GnuPG home and can pass, ' +
+  'most of all with another TMPDIR, which gives the home path another length.';
+
+// The decrypted bytes of `archive`, with the secret key of the export `keyBytes` imported into a new private GnuPG
+// home (`mkdtemp` gives it mode 0700). gpg gets `--homedir` and no GNUPGHOME, so it never reads the key ring or the
+// agent of the caller. GPG_TTY names the terminal of the stdin of the caller, or is removed when the stdin is not a
+// terminal, so a wrong GPG_TTY of the caller never gets to the agent. The import has `--batch`, so it never asks for a
+// passphrase, and a protected key stays protected. The decrypt has no `--batch` and uses the loopback mode, so gpg asks
+// for the passphrase of a protected key itself in the terminal, also over SSH, and no pinentry window opens. With a
+// terminal, the stdin and the stderr of the decrypt go to it; the stdout stays bytes. The decrypt runs at once with the
+// agent of the import, and the agent stops only at the end. In every case, the agent stops and the home and its socket
+// folder go.
+function decryptWithKey(archive, keyBytes, env) {
+  const gpgEnv = { ...env };
+  delete gpgEnv.GNUPGHOME;
+  delete gpgEnv.GPG_TTY;
+  if (process.stdin.isTTY) {
+    const tty = spawnSync('tty', { stdio: ['inherit', 'pipe', 'ignore'], encoding: 'utf8' });
+    if (tty.status === 0) gpgEnv.GPG_TTY = tty.stdout.trim();
+  }
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'keys-restore-gnupg-'));
+  const gpg = ['--homedir', home, '--pinentry-mode', 'loopback'];
+  try {
+    run('gpg', [...gpg, '--batch', '--import'], { input: keyBytes, env: gpgEnv });
+    const terminal = process.stdin.isTTY && process.stderr.isTTY;
+    try {
+      return run('gpg', [...gpg, '--decrypt', archive], {
+        env: gpgEnv,
+        stdio: terminal ? ['inherit', 'pipe', 'inherit'] : undefined,
+      });
+    } catch (error) {
+      const version = spawnSync('gpg', ['--version'], { env: gpgEnv, encoding: 'utf8' }).stdout ?? '';
+      if (/Bad secret key|Bad passphrase|exit code/.test(error.message) && /^libgcrypt 1\.12\.0$/m.test(version))
+        error.message += `\n${T8094_NOTE}`;
+      throw error;
+    }
+  } finally {
+    spawnSync('gpgconf', ['--homedir', home, '--kill', 'gpg-agent'], { env: gpgEnv });
+    spawnSync('gpgconf', ['--homedir', home, '--remove-socketdir'], { env: gpgEnv });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Decrypts `archive` with the secret-key export `key` into the new folder `out` (mode 0700) and verifies it. A missing
+// or unreadable key file stops the restore before it writes anything, and so does an archive member that is not a
+// regular file or a folder. A failure leaves no folder.
+export function restore({ archive, key, out, env = process.env }) {
+  if (!archive || !key || !out) fail('restore needs --archive <file> --key <secret-key export> --out <new dir>');
   const target = path.resolve(out);
   if (fs.existsSync(target) || isSymlink(target)) fail(`${out} exists; restore needs a new folder`);
   let parent = path.dirname(target);
   while (!fs.existsSync(parent)) parent = path.dirname(parent);
   if (insideGit(parent, env)) fail(`${out} is inside a git checkout; restore outside every checkout`);
-  const bytes = run('gpg', ['--batch', '--decrypt', path.resolve(archive)], { env });
+  let keyBytes;
+  try {
+    keyBytes = fs.readFileSync(path.resolve(key));
+  } catch (error) {
+    fail(`cannot read the key file ${key}: ${error.message}`);
+  }
+  const bytes = decryptWithKey(path.resolve(archive), keyBytes, env);
   checkMemberTypes(bytes);
   const created = fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   fs.mkdirSync(target, { mode: 0o700 });
@@ -394,14 +458,16 @@ export function main(argv, env = process.env) {
   const [command, ...args] = argv;
   const options = {
     backup: { keys: { type: 'string' }, out: { type: 'string' } },
-    restore: { archive: { type: 'string' }, out: { type: 'string' } },
+    restore: { archive: { type: 'string' }, key: { type: 'string' }, out: { type: 'string' } },
     check: { keys: { type: 'string' }, cases: { type: 'string' } },
   }[command];
   if (!options) fail(USAGE);
   const { values } = parseArgs({ args, options, strict: true });
   if (command === 'backup') return `backup: wrote ${backup({ keys: values.keys, out: values.out, env })}\n`;
-  if (command === 'restore')
-    return `restore: verified every file in ${restore({ archive: values.archive, out: values.out, env })}\n`;
+  if (command === 'restore') {
+    const restored = restore({ archive: values.archive, key: values.key, out: values.out, env });
+    return `restore: verified every file in ${restored}\n`;
+  }
   return check({ keys: values.keys, ...(values.cases ? { cases: path.resolve(values.cases) } : {}) });
 }
 
