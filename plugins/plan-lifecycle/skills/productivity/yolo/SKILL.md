@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "6004cf47436444ec3bb6ff8a1cf56e0c3e54d86895086a29785d9dec594a13cb"
+  content_hash: "8c53ee8a68d0925853cc69aac320d8cce9ce2071008f49811f0bf5aa10e93b44"
 ---
 
 # Yolo
@@ -23,8 +23,9 @@ same installed `plan-lifecycle` plugin:
   section replaces the contract questions for this run.
 - `../plan-manager/references/github-issue-publication.md` owns the preflight.
 - `../plan-manager/references/practices.md` owns the practices of every run.
-  This skill names each practice where the run uses it, and the autonomy rule
-  that replaces a question in it.
+  This skill names each practice where the run uses it. The contract's
+  Delegated decisions section owns each question that the grant of this run
+  answers in them.
 
 Run the helper `../plan-manager/scripts/plan.mjs` from the target repository
 root. If these files are missing, stop and name the missing `plan-lifecycle`
@@ -34,7 +35,8 @@ plugin.
 Start only when the user's own message invokes yolo: `/plan-lifecycle:yolo`,
 `/skill:yolo`, `$yolo`, or a sentence that names the yolo skill. Otherwise stop
 and use `plan-manager`. Do not call `ask` before the merge question. The only
-exception is the stalled-review question in the contract's Yolo runs section.
+exception is the stall question of the Stall rule in the contract's Delegated
+decisions, which this run asks as the contract's Round ceiling says.
 After the merge, each production cleanup in the contract's Teardown needs its
 own question. Resolve every unknown from the codebase, current official
 documentation on the web, or a throwaway experiment.
@@ -74,6 +76,13 @@ practice.
 | Code review | Run Review loops below | `show <n>` reads `code=pass` |
 | Land | Follow Landing below | The merge question has an answer, or no answer is possible |
 
+Until the run posts its grant event (Draft step 4, or adoption step 3), the
+user's invoking message is the authority, and the run makes only the
+delegated decisions that Decide and Draft name. From then on, run the Grant
+check of the contract's Delegated decisions right before each delegated
+decision and each write that relies on the grant. When the grant has ended,
+stop as the contract's Ended grant (Yolo runs) says.
+
 ## Existing plans and incomplete requests
 
 Before Draft, run `list` and `gh pr list --repo <owner/repo> --state open`.
@@ -93,18 +102,22 @@ To adopt a plan:
    (the contract's Record and mode), adopt it with steps 2 to 4 and skip
    step 5. Then get a plan pass that covers the current parent body: when
    `show <n>` does not read `plan=pass`, run Research and Plan review on the
-   parent; when step 3 changed the parent after `plan=pass`, run the re-review
+   parent; when step 4 changed the parent after `plan=pass`, run the re-review
    round that step 4 names, and wait for its pass. The earlier pass does not
    cover the edited body. After that pass, adopt the child that the contract's
    Yolo runs table names with these steps.
-2. Export the plan. Add the delegation line to Goal when it is missing, and set
-   `Mode: plan-and-implement`.
-3. Replace each Goal or Do not touch line that conflicts with this run, such as
+2. Export the plan. Add the delegation line to Goal when it is missing, set
+   `Mode: plan-and-implement`, and publish that edit with `edit` at once. It
+   needs no plan-review round, as the contract's Phases and review comments
+   says.
+3. Post the grant event of this invocation, `Delegation grant: yolo: <quote>`,
+   as the contract's Authority events says.
+4. Run the Grant check; the published line now matches the event. Then
+   replace each Goal or Do not touch line that conflicts with this run, such as
    "leave the pull request open". Record a request correction whose `Asked:`
-   part quotes the old line.
-4. When steps 2 or 3 changed the export, publish it with `edit`. After
-   `plan=pass`, a change from step 3 needs a plan-review round, and step 2
-   needs none, as the contract's Phases and review comments says.
+   part quotes the old line, and publish the change with `edit`. After
+   `plan=pass`, this change needs a plan-review round, as the contract's Phases
+   and review comments says.
 5. Reuse the branch that `gh issue develop <n> --list` shows, or the head branch
    of the open pull request. When neither exists, use the contract's Linked
    branch steps.
@@ -123,13 +136,22 @@ Yolo: the user delegated every decision except the merge to the agent.
 ```
 
 4. Create the issue with `new --title <t> --goal <g> --mode plan-and-implement`.
+   Post its grant event, `Delegation grant: yolo: <quote>`, as the contract's
+   Authority events says.
 5. When the request needs more than one landing pull request, that issue is the
    parent, and it gets no linked branch. Create one child per pull request with
    `new --title <t> --goal <g> --mode plan-and-implement --parent <n>`, with the
-   delegation line in each goal, and give the parent one Steps row per child,
-   as the contract's Record and mode says. Run Research and Plan review on the
-   parent. After that pass, start the child that the contract's Yolo runs table
-   names: set up its linked branch, and run Research to Land on it.
+   delegation line in each goal. Right before you create each child, and again
+   right before its grant event, read the parent's latest trusted event; when
+   it is not the parent grant event of step 4, create or post nothing more and
+   stop as the contract's Ended grant says. Otherwise post the child's grant
+   event once, with the parent's quote and a second line
+   `Parent event: <comment id>` that names that parent event, as
+   the contract's Authority events says. Give the parent one Steps row per
+   child, as the contract's Record and mode says. Run Research
+   and Plan review on the parent. After that pass, start the child that the
+   contract's Yolo runs table names: set up its linked branch, and run
+   Research to Land on it.
 6. Otherwise set up the linked branch now, as the contract's Yolo runs section
    says.
 
@@ -137,18 +159,19 @@ Yolo: the user delegated every decision except the merge to the agent.
 
 Follow the practices Research order, Decisions and corrections, and
 Engineering standards. Settle each question from the codebase, the web, or an
-experiment; do not ask. A decision that the practices send to the user is a
-recorded decision in this run: Open questions holds only a `Blocked:` line, as
-the contract's Delegation line says.
+experiment; do not ask. This run holds the grant of the contract's Delegated
+decisions through its grant event: decide each question that the practices
+send to the user as that section says, with a deliberation record. Open
+questions holds only a `Blocked:` line, as the contract's Delegation line says.
+Run the Grant check before each delegated decision, as Run order says.
 
 ## Implement
 
 Follow the practices Engineering standards, Red baseline, Commits, and Checks
 that fail outside the goal.
 
-Red baseline item 4 changes in this run: when a spec test is wrong, do not ask.
-Record the reason in Verification Results, fix the test, and run the baseline
-again. This record replaces the user escalation that `tdd-workflow` asks for.
+A wrong spec test follows the grant, as the practices Red baseline item 4 and
+the contract's Delegated decisions say.
 
 A repository hook failure that blocks the plan stops the run, as the hook row
 of the contract's Yolo runs table says.
@@ -172,7 +195,7 @@ comments says. The helper advises when an edit needs that round.
 | Verdict | Yolo action |
 |---|---|
 | Plan `repair` | Reproduce each finding, repair a fresh export, and review again |
-| Plan `blocked` | Decide the finding with Research, record the decision, and review again |
+| Plan `blocked` | Decide it as the contract's Delegated decisions says, and review again |
 | Code `fixes-required` | Fix each reproduced finding, rerun its proof, and review again |
 | Code `blocked` for unread hunks | Dispatch that reviewer again with the unread paths before you post the round, as the contract's Code-review rounds says |
 | Code `blocked` for another input | Resolve that input, as plan-manager phase 6 says, and review again |
@@ -184,13 +207,14 @@ Make and record each repair as the contract's Repairs says, in both phases. A
 code repair also gets the tests that plan-manager phase 6 asks for. Reject a
 finding only with evidence, in the `Rejected` list of the manager response.
 When a finding returns after a repair, redesign the fix and record it under
-`Redesigned`, as item 5 of the contract's review loop says. Do not ask the user
-about it; a tradeoff follows the delegation line and the effect table.
+`Redesigned`, as item 5 of the contract's review loop says. A tradeoff follows
+the contract's Delegated decisions and the effect table of Yolo runs.
 
-When a review phase stalls, as the contract's Round ceiling says, post the
-pending manager response first. When the answer is `Leave plan blocked`, or no
-answer is possible, run the contract's Teardown for an exit without a merge.
-The contract's Round ceiling also says this.
+When a review phase stalls, as the contract's Round ceiling says, apply the
+Stall rule of the contract's Delegated decisions first. When that rule asks,
+post the pending manager response first. When the answer is `Leave plan
+blocked`, or no answer is possible, run the contract's Teardown for an exit
+without a merge. The contract's Round ceiling also says this.
 
 ## Landing
 
@@ -212,16 +236,17 @@ The contract's Round ceiling also says this.
    acceptance, review again, and push. Right after the push, build the
    Checklist again from the evidence for the new head, and update the body
    with `gh pr edit <pr> --repo <owner/repo> --body-file <file>`. Then wait
-   again. When the same check still
-   fails after the third fix attempt, stop fixing it. That is a stall under the
-   contract's Round ceiling, as its Checks and merge says.
+   again. When the same check still fails after the third fix attempt, stop
+   fixing it. That is a stall: apply the Stall rule of the contract's Delegated
+   decisions, then the contract's Round ceiling, as its Checks and merge says.
 7. Confirm that `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows
    the reviewed head. Write the pull request URL and the check result into the
    summary file, as the practices Run summary says. Run the landing self-check
    in the contract's Checks and merge: untick each item without evidence, add
    its reason, and update the body again.
 8. Print the run summary. In the same response, state
-   `<k> of <n> checklist items ticked`, list each unticked item with its
+   `<k> of <n> checklist items ticked` and `<d> delegated decisions`, point to
+   Delegated decisions in the run summary, list each unticked item with its
    reason, and ask one question:
    `Merge pull request #<pr> into <default>?`, with the options `Merge now` and
    `Leave pull request open`. An unticked item does not block the question.

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "20cb1b7797cf1c04e0164fc542e9643a7db100448f908a00ba51d56003621534"
+  content_hash: "733a2d6f64c75989eb9cf5db266203b4c15cc4cd4fa56567a20b53f590c71897"
 ---
 
 # Plan Manager
@@ -34,10 +34,10 @@ Ask in-session immediately before running a non-local Effect step. Persisted
 intent is not permission. If confirmation is unavailable, block the step and
 plan with a reason. The settled mode covers routine issue publication and
 linked-branch landing work. Every merge needs a fresh `Merge now` answer. A
-production cleanup in the contract's Teardown needs its own in-session
-question, also in a yolo run. In a yolo run, the contract's Yolo runs section
-replaces every question in this skill except the merge question and a
-production cleanup question.
+production cleanup in the contract's Teardown needs its own in-session question.
+A grant in the contract's Delegated decisions answers none of these questions.
+In a yolo run, the contract's Yolo runs section replaces every question in this
+skill except the merge and production cleanup questions.
 </constraint>
 
 ## Resolve the helper
@@ -99,7 +99,8 @@ input and dispatch `plan-reviewer` with the issue number, export path, and round
 number. A re-review round after a repair may use the plan `delta` mode, as the
 contract's review loop allows. If no wrapper exists, dispatch a fresh read-only
 reviewer with the `plan-reviewer` skill. Route a user-only decision through Open
-questions and `ask`. Never implement a repaired plan that has not passed review.
+questions and `ask`, unless a grant answers it (the contract's Delegated decisions).
+Never implement a repaired plan that has not passed review.
 
 A plan-only run stops after the pass, at planned. Report the issue and verdict.
 Do not create a branch or implement without a new instruction.
@@ -248,19 +249,17 @@ commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
 on `Merge now`. Write the description from `references/run-summary.md`, as the
 practices Run summary says. Build the `## Checklist` section and run the landing
-self-check as the contract's Checklist and Checks and merge say. After each
-push, rebuild the ticks and update the body before any wait for checks. The
-merge question states `<k> of <n> checklist items ticked` and lists each
-unticked item with its reason. The `Merge now` option states the teardown, as
-the contract's Checks and merge says. A v5 plan has no partial merge; each part
-lands as a child plan. Only a v4 plan whose work started runs
-`reopen <n> --pr <pr>` after a partial merge, as the contract states. After the
-landing merge, run each step that runs after the merge. Once every step is
-terminal, run `archive <n> --pr <pr>` with the landing pull request. For a
-child, then set its parent row done; when `show <parent>` lists no open child,
-run `archive <parent>`, as the contract's Archive says. After archive, run the
-contract's Teardown. Without `Merge now`, run Teardown's exit without a merge.
-Report Kept resources in both cases.
+self-check as the contract's Checklist and Checks and merge say. After each push,
+rebuild the ticks and update the body before any wait for checks. The merge
+question and its `Merge now` option state what the contract's Checks and merge
+lists. A v5 plan has no partial merge; each part lands as a child
+plan. Only a v4 plan whose work started runs `reopen <n> --pr <pr>` after a
+partial merge, as the contract states. After the landing merge, run each step that
+runs after the merge. Once every step is terminal, run `archive <n> --pr <pr>`
+with the landing pull request. For a child, then set its parent row done; when
+`show <parent>` lists no open child, run `archive <parent>`, as the contract's
+Archive says. After archive, run the contract's Teardown. Without `Merge now`, run
+Teardown's exit without a merge. Report Kept resources in both cases.
 
 Render the body only when the user names the plan and asks to see it. After a
 write, report the header strip and changed lines.
