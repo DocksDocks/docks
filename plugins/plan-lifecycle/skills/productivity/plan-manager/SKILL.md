@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "c77dfa8dbdc1dd741c35f16c13804d0079b209299454e46f18e9698bcdb2825d"
+  content_hash: "292f5a7de2661917798f9abf7c0fb4f7dd2016e059fc79b83f59ab45a48e3b22"
 ---
 
 # Plan Manager
@@ -99,7 +99,8 @@ input and dispatch `plan-reviewer` with the issue number, export path, and round
 number. A re-review round after a repair may use the plan `delta` mode, as the
 contract's review loop allows. If no wrapper exists, dispatch a fresh read-only
 reviewer with the `plan-reviewer` skill. Route a user-only decision through Open
-questions and `ask`, unless a grant answers it (the contract's Delegated decisions).
+questions and `ask`, unless a grant answers it (the contract's Delegated
+decisions; its Grant check reads the `grant:` line of `show <n>`).
 Never implement a repaired plan that has not passed review.
 
 A plan-only run stops after the pass, at planned. Report the issue and verdict.
