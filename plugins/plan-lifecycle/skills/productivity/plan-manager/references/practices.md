@@ -256,10 +256,15 @@ Follow this practice for each subagent that the run dispatches, in every phase.
    absolute path in each read and edit, and `cd <worktree> &&` at the start of
    each shell command, so that redirects and later commands also run there.
    `git -C <worktree>` moves git only, not a redirect. Require a report of the
-   absolute path of each file that the subagent changed.
-2. Items 3 to 8 apply only when the session checkout and the plan worktree are
-   different folders, as the contract's Linked branch says. When the session
-   checkout holds the plan branch, plan work changes it by design.
+   absolute path of each file that the subagent changed. Before the plan
+   worktree exists, as in plan review or in a plan-only run, the session
+   checkout is the working folder: use the absolute path of the session
+   checkout in this item. From the creation of the plan worktree on, use the
+   worktree.
+2. Items 3 to 8 apply only when the plan worktree exists and the session
+   checkout and the plan worktree are different folders, as the contract's
+   Linked branch says. When the session checkout holds the plan branch, plan
+   work changes it by design.
 3. Before a dispatch, or before a group of dispatches that run at the same
    time, write the listing of the session checkout. Use one `<label>` per
    group. `<checkout>` is the absolute path of the session checkout, and
@@ -269,11 +274,21 @@ Follow this practice for each subagent that the run dispatches, in every phase.
    checkout or a filter does not hide a change. It does not list ignored files.
 
    ```sh
-   dir=$(git -C <checkout> rev-parse --path-format=absolute --git-path docks-review)
+   checkout='<checkout>'
+   skill_dir='<skill-dir>'
+   dir=$(git -C "$checkout" rev-parse --path-format=absolute --git-path docks-review)
    mkdir -p -m 0700 "$dir"
-   sh <skill-dir>/scripts/checkout-state.sh <checkout> > "$dir/checkout-state-<n>-<label>.txt"
+   if sh "$skill_dir/scripts/checkout-state.sh" "$checkout" > "$dir/checkout-state-<n>-<label>.txt.part"; then
+     mv "$dir/checkout-state-<n>-<label>.txt.part" "$dir/checkout-state-<n>-<label>.txt"
+   else
+     rm -f "$dir/checkout-state-<n>-<label>.txt.part"
+   fi
    ```
 
+   The listing gets its name only when the script exits with status 0. On a
+   failure, the block removes the `.part` file and writes no listing; follow
+   item 8. A shell that does not keep variables between commands needs the
+   first three lines of this block again before each later block.
 4. After each agent of the group returns, write the listing again and compare
    it with the first listing of the group. Each changed line names a path that
    changed during the group. The user can edit the checkout at the same time,
@@ -282,7 +297,7 @@ Follow this practice for each subagent that the run dispatches, in every phase.
    the listing did not change.
 
    ```sh
-   now=$(sh <skill-dir>/scripts/checkout-state.sh <checkout>) &&
+   now=$(sh "$skill_dir/scripts/checkout-state.sh" "$checkout") &&
      printf '%s\n' "$now" | diff "$dir/checkout-state-<n>-<label>.txt" -
    ```
 
@@ -293,9 +308,11 @@ Follow this practice for each subagent that the run dispatches, in every phase.
 6. Report each changed path to the user in the first report after the group,
    and in the run summary under Kept resources, with the subagent that reported
    it, if any. The user decides what to do with it.
-7. Keep each listing until Teardown. In Teardown, compare each listing again as
-   item 4 says and report each new path as item 6 says. Then remove this plan's
-   listing files, `checkout-state-<n>-*`, and no other file.
+7. Keep each listing until Teardown. In Teardown, compare each complete
+   listing, `checkout-state-<n>-*.txt`, again as item 4 says, and report each
+   new path as item 6 says. Ignore a `.part` file: it is not a listing. Then
+   remove this plan's listing files and `.part` files, `checkout-state-<n>-*`,
+   and no other file.
 8. When the script fails, the check has no result. Undo nothing, check each
    reported path as item 4 says, and report the failure and each change that
    this leaves under Kept resources.
@@ -367,8 +384,10 @@ Delegated decisions says, before you act on a grant. For a parent, `show <n>`
 lists each child; run `show <c>` for each child to find the one that this run
 works on.
 
-When the review scratch folder of the session checkout holds listing files of
-this plan, `checkout-state-<n>-*.txt`, write the listing again for each one and
-compare the two, as Delegated work item 4 says. Report each changed path and
-leave it, as Delegated work says. Keep each listing, and compare it again in
-Teardown, because an agent that still runs can change the checkout later.
+When the review scratch folder of the session checkout holds complete listing
+files of this plan, `checkout-state-<n>-*.txt`, set the variables of Delegated
+work item 3, write the listing again for each file, and compare the two, as
+Delegated work item 4 says. Ignore a `.part` file: it is not a listing. Report
+each changed path and leave it, as Delegated work says. Keep each listing, and
+compare it again in Teardown, because an agent that still runs can change the
+checkout later.

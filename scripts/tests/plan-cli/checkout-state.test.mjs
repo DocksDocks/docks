@@ -136,6 +136,28 @@ test('a change of each kind changes the line of its path only', (t) => {
   }
 });
 
+// git hash-object --stdin-paths reads a line that starts with `"` as a C-quoted path, and it drops a carriage return at
+// the end of a line. The script quotes each path, so these valid names keep each byte.
+test('a name with a double quote, a backslash, or a carriage return has one line, and a change changes only it', (t) => {
+  const names = ['"quoted.txt', 'back\\slash.txt', 'carriage\r'];
+  for (const name of names) {
+    for (const tracked of [false, true]) {
+      const label = `${JSON.stringify(name)}, ${tracked ? 'tracked' : 'untracked'}`;
+      const { repo } = dirtyRepo(t);
+      put(repo, name, 'first\n');
+      if (tracked) {
+        git(repo, 'add', '--', name);
+        git(repo, 'commit', '-q', '-m', 'add the name');
+      }
+      const before = listing(repo);
+      const blob = git(repo, 'hash-object', '--no-filters', '--', name).trim();
+      assert.equal(lineOf(before, name), `${name}\t${blob}`, label);
+      put(repo, name, 'second\n');
+      assert.deepEqual(changedPaths(before, listing(repo)), [name], label);
+    }
+  }
+});
+
 test('a deleted tracked file is missing, and an executable file has the x field', (t) => {
   const { repo } = dirtyRepo(t);
   fs.rmSync(path.join(repo, 'b.txt'));
