@@ -2779,10 +2779,9 @@ test('validateCase takes pull only as a positive integer, on every kind', () => 
   for (const caseData of [{ ...code, known: [] }, plan]) {
     assert.equal(prepare.validateCase({ ...caseData, pull: 45 }).pull, 45);
     for (const pull of [0, -1, 1.5, '45', null]) {
-      assert.throws(
-        () => prepare.validateCase({ ...caseData, pull }),
-        { message: `case ${caseData.id}: pull must be a positive integer` },
-      );
+      assert.throws(() => prepare.validateCase({ ...caseData, pull }), {
+        message: `case ${caseData.id}: pull must be a positive integer`,
+      });
     }
   }
 });
