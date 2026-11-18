@@ -18,7 +18,7 @@ against.
 | `tiny` | `openai-codex/gpt-6-luna` | low | 21 | $0.0045 | 2.18 s |
 | `fable` | `anthropic/claude-fable-5-2` | medium | 56 (v5.0.1) | $3.80 (v5.0.1) | 11.23 s (v5.0.1) |
 | `switch_fable` | `anthropic/claude-fable-5-2` | medium | 56 (v5.0.1) | $3.80 (v5.0.1) | 11.23 s (v5.0.1) |
-| `astra` | `openai-codex/gpt-6-astra` | xhigh | 52 | $2.31 | 126.90 s |
+| `astra` | `openai-codex/gpt-6.2-astra` | xhigh | 62 (v5.0.1) | $2.52 (v5.0.1) | 52.89 s (v5.0.1) |
 | `reviewer` | `openai-codex/gpt-6.1-terra` | high | 42 (v5.0.1) | $0.26 (v5.0.1) | 10.91 s (v5.0.1) |
 | `web` | `web/firecrawl` | n/a | n/a | n/a | n/a |
 
@@ -26,19 +26,38 @@ The table reports the measured Artificial Analysis figures for each assigned
 model and level. It states no motive that the config or omp's own
 documentation does not establish. AA has not measured output speed or latency
 for GPT-6 Luna medium, so that row carries `n/a` for TTFT. AA measures no web
-search provider, so the `web` row carries no figures. The `reviewer`, `fable`,
-and `switch_fable` rows come from later captures at Intelligence Index v5.0.1.
-The 2026-09-29 capture predates GPT-6.1 Terra and Fable 5.2. Compare those
-rows only with other v5.0.1 figures (see GPT-6.1 Terra and Claude Fable 5.2
-below). A review benchmark chose the model of the `reviewer` role
-(DocksDocks/public#130), not these figures. The tier of that role follows the
-main session (DocksDocks/public#134).
+search provider, so the `web` row carries no figures. The `astra`, `reviewer`,
+`fable`, and `switch_fable` rows come from later captures at Intelligence
+Index v5.0.1: GPT-6.1 Terra from 2026-11-05, Fable 5.2 from 2026-11-12, and
+GPT-6.2 Astra from 2026-11-18. The 2026-09-29 capture predates these models.
+Compare those rows only with other v5.0.1 figures (see GPT-6.2 Astra, GPT-6.1
+Terra, and Claude Fable 5.2 below). A review benchmark chose the model of the
+`reviewer` role (DocksDocks/public#130), not these figures. The tier of that
+role follows the main session (DocksDocks/public#134).
 
 The role map carries no Coding Agent Index column. That index measures specific
 agent harnesses and model levels, not omp roles. The snapshot section below
-lists the relevant entries, including Codex with GPT-6.1 Sol high.
+lists the relevant entries, including Codex with GPT-6.2 Sol and GPT-6.2 Astra
+at high and xhigh.
 
-### GPT-6 Sol and GPT-6 Luna availability
+### AA rows for each role model
+
+For each model that an omp role or retry chain uses, this topic records AA
+rows at `high` and `xhigh` at least. Each set of rows names its Intelligence
+Index version and its capture date. A role or chain change adds the missing
+rows in the same commit. On 2026-11-18, the role map and the retry chains use
+six models, and each has both rows:
+
+| Model | Index version | Capture date |
+|---|---|---|
+| Claude Opus 5.5 | v4.3.2 | 2026-09-29 |
+| GPT-6 Luna | v4.3.2 | 2026-09-29 |
+| Claude Fable 5.2 | v5.0.1 | 2026-11-12 |
+| GPT-6.1 Terra | v5.0.1 | 2026-11-05, speed re-measured 2026-11-18 |
+| GPT-6.2 Sol | v5.0.1 | 2026-11-18 |
+| GPT-6.2 Astra | v5.0.1 | 2026-11-18 |
+
+### OpenAI model availability in omp
 
 The `openai-codex` selectors for GPT-6 Sol and GPT-6 Luna were deployed on
 2026-09-22, while the rollout of both models was still in progress. The owner
@@ -74,6 +93,15 @@ and the request returned HTTP 401 `refresh_token_invalidated`. The Codex
 model cache was last fetched on 2026-09-22 and does not list `gpt-6.1-sol`,
 so that Codex run did not establish model availability.
 
+On 2026-11-18, omp 18.22.2 listed `gpt-6.2-sol` with a 500K context window
+and `gpt-6.2-astra` with a 272K context window. Both had low, medium, high,
+xhigh, and max. An `omp -p --mode json` run on each selector at `:low`
+recorded that same id as the serving model. omp 18.22.2 listed no GPT-6.2
+Terra and no GPT-6.2 Luna. To recheck, run `omp models openai-codex`; the
+`gpt-6.2-sol` and `gpt-6.2-astra` rows must appear. Sync deploys the selectors
+without a catalog check. On an omp release without these ids, omp can resolve
+them by fuzzy match to another model without a warning, as on 2026-09-22.
+
 What omp's settings catalog establishes about these roles:
 
 - `cycleOrder` lists the roles the model switcher cycles. `fable` is the
@@ -94,7 +122,7 @@ provider. "OpenAI fast mode" below describes how that tier changes. The bundled
 `reviewer` and `security-reviewer` agents ship with omp, and the
 `plan-lifecycle` plugin ships `code-reviewer` and `plan-reviewer`.
 `retry.fallbackChains.reviewer` holds `anthropic/claude-opus-5-5:high`, and
-`retry.fallbackChains.task` holds `openai-codex/gpt-6.1-sol:high`; both are
+`retry.fallbackChains.task` holds `openai-codex/gpt-6.2-sol:high`; both are
 cross-vendor fallbacks.
 
 The review benchmark of DocksDocks/public#130 ran on 2026-11-05. It used 24
@@ -117,10 +145,10 @@ recall difference down to -0.07 (bound -0.05). Both intervals include 0, and
 the user judged the difference as noise.
 
 `retry.fallbackChains.astra` holds `anthropic/claude-fable-5-2:medium`.
-`retry.fallbackChains.fable` holds `openai-codex/gpt-6-astra:xhigh`.
+`retry.fallbackChains.fable` holds `openai-codex/gpt-6.2-astra:xhigh`.
 Each deliberate cycle stop falls to the other vendor. Without these explicit
 chains, `retry.fallbackChains.default` would send either stop to
-`openai-codex/gpt-6.1-sol:high`.
+`openai-codex/gpt-6.2-sol:high`.
 Chain entries are concrete selectors, not role aliases, so this pair cannot
 recurse. The hidden `switch_fable` chain stays empty.
 
@@ -175,12 +203,13 @@ comes from the GPT-5.6 Sol high column of the GPT-6.1 Sol high comparison.
 Index composition changes between versions; figures from an earlier capture
 cannot be mixed with these.
 
-The Coding Agent Index page (`/agents/coding-agents`) lists 30 harness, model,
-and level entries. It covers GPT-6.1 Sol with Codex at low, medium, high,
-xhigh, and max; Opus 5.5 and Fable 5.1 with Claude Code at max; and Astra and
-Luna with Codex at max. It also covers Grok Build with Grok 4.7 at xhigh,
-Antigravity SDK with Gemini 3.8 Flash at high, and Opencode with GLM-5.3 and
-Kimi Code CLI with Kimi K3 without levels. The relevant published scores are:
+At v1.5 on 2026-09-29, the Coding Agent Index page (`/agents/coding-agents`)
+listed 30 harness, model, and level entries. It covered GPT-6.1 Sol with Codex
+at low, medium, high, xhigh, and max; Opus 5.5 and Fable 5.1 with Claude Code
+at max; and Astra and Luna with Codex at max. It also covered Grok Build with
+Grok 4.7 at xhigh, Antigravity SDK with Gemini 3.8 Flash at high, and Opencode
+with GLM-5.3 and Kimi Code CLI with Kimi K3 without levels. The relevant
+published v1.5 scores are:
 
 | Harness and model | Coding Agent Index |
 |---|---:|
@@ -196,7 +225,8 @@ Kimi Code CLI with Kimi K3 without levels. The relevant published scores are:
 | Codex - GPT-6 Luna (max) | 41 |
 
 These are coding-agent scores for specific harnesses and levels, not scores
-for the omp role map.
+for the omp role map. The v1.5 table stays as history. Coding Agent Index v2.1
+below has the 2026-11-18 entries for GPT-6.2 Sol and GPT-6.2 Astra.
 
 Column meanings:
 
@@ -211,6 +241,29 @@ Column meanings:
 - **TTFT** - seconds to the first answer token, so reasoning time counts.
 - **TB 4.0** - Terminal-Bench 4.0, one of the index evaluations (ten at v4.3.2,
   nine at v5.0.1).
+
+### Coding Agent Index v2.1
+
+Source: `https://artificialanalysis.ai/agents/coding-agents`, read on
+2026-11-18 at Coding Agent Index v2.1. This version gives equal weight to
+FrontierCode-AA 2.0, Terminal-Bench 4.1, and SWE-Atlas-QnA-AA, and lists 39
+entries. The page draws the scores only in charts. The values below are the
+`indexScore` fields of the page data, on a 0 to 1 scale. The cost and agent
+wall time columns are the mean per task from the same data. This capture did
+not observe the rendered integer values. Do not compare these values with the
+v1.5 integers above.
+
+| Harness and model | indexScore | Cost/task | Agent wall time s |
+|---|---:|---:|---:|
+| Codex - GPT-6.2 Astra (max) | 0.5347 | $5.117 | 1506.7 |
+| Codex - GPT-6.2 Astra (xhigh) | 0.5312 | $3.198 | 992.4 |
+| Codex - GPT-6.2 Astra (high) | 0.5228 | $2.372 | 947.4 |
+| Codex - GPT-6.2 Sol (max) | 0.4862 | $1.216 | 1051.4 |
+| Codex - GPT-6.2 Sol (xhigh) | 0.4979 | $0.898 | 755.8 |
+| Codex - GPT-6.2 Sol (high) | 0.4746 | $0.764 | 635.4 |
+
+GPT-6.2 Sol scores higher at `xhigh` than at `max`. v2.1 lists GPT-6.1 Sol
+and GPT-6.1 Terra with Codex only at max.
 
 ### Claude Opus 5.5 (Anthropic) - `anthropic/claude-opus-5-5`
 
@@ -294,7 +347,74 @@ baseline at v4.3.2.
 Price: $10.00 in, $50.00 out, $0.25 cache hit per 1M. Context 1M. All levels
 run with fallback.
 
-### GPT-6 Astra (OpenAI) - `openai-codex/gpt-6-astra`
+### GPT-6.2 Sol (OpenAI) - `openai-codex/gpt-6.2-sol`
+
+Source: `https://artificialanalysis.ai`, read on 2026-11-18 at Intelligence
+Index v5.0.1. The rows come from the rendered metric table of
+`/models/comparisons/gpt-6-2-sol-vs-gpt-6-1-terra`, which shows every level of
+both models. Tokens per task and index tokens come from the data of the model
+page `/models/gpt-6-2-sol`, because the comparison table does not show them.
+The other values in that data match the rendered table. These rows compare
+only with other v5.0.1 figures, not with the v4.3.2 rows.
+
+| Level | Index | Cost/task | Tokens/task | Index tokens | Speed t/s | TTFT s | TB 4.0 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| max | 57 | $1.01 | 40k | 61M | 85 | 66.70 | 60% |
+| xhigh | 56 | $0.65 | 24k | 33M | 81 | 26.63 | 56% |
+| high | 55 | $0.56 | 20k | 23M | 78 | 9.63 | 59% |
+
+AA and OpenAI list $2.00 input, $0.10 cached input, $2.50 cache write, and
+$10.00 output per 1M tokens. OpenAI also lists a 1,050,000-token context,
+922,000 maximum input tokens, and 128,000 maximum output tokens
+(<https://developers.openai.com/api/docs/models/gpt-6.2-sol>). Prompts above
+272K input tokens cost 2x input and cache rates and 1.5x output rates for the
+full request. The knowledge cutoff is 2026-06-01. OpenAI released the model on
+2026-11-17 (<https://developers.openai.com/api/docs/changelog>). Codex uses a
+500,000-token default context (<https://developers.openai.com/codex/models>).
+On 2026-11-18, omp 18.22.2 listed `gpt-6.2-sol` with the same 500K context
+window, 128K maximum output, and the levels low, medium, high, xhigh, and max.
+
+`retry.fallbackChains.default` and `.task` moved from GPT-6.1 Sol `high` to
+GPT-6.2 Sol `high`, and `.vision` moved at `medium` (DocksDocks/public#175).
+On 2026-11-18, the v5.0.1 data of the model page `/models/gpt-6-1-sol` listed
+GPT-6.1 Sol high at index 50 and $0.59 per task. GPT-6.2 Sol high has 55 and
+$0.56.
+
+### GPT-6.2 Astra (OpenAI) - `openai-codex/gpt-6.2-astra`
+
+Source: `https://artificialanalysis.ai`, read on 2026-11-18 at Intelligence
+Index v5.0.1. The rows come from the rendered metric table of
+`/models/comparisons/gpt-6-2-astra-vs-gpt-6-2-sol`. Tokens per task and index
+tokens come from the data of the model page `/models/gpt-6-2-astra`. These
+rows compare only with other v5.0.1 figures, not with the v4.3.2 rows.
+
+| Level | Index | Cost/task | Tokens/task | Index tokens | Speed t/s | TTFT s | TB 4.0 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| max | 62 | $4.00 | 41k | 66M | 53 | 170.99 | 64% |
+| xhigh | 62 | $2.52 | 22k | 27M | 54 | 52.89 | 64% |
+| high | 60 | $2.07 | 18k | 20M | 56 | 22.07 | 60% |
+
+The `max` and `xhigh` rows both round to 62. The page data gives 62.14 and
+61.56.
+
+AA and OpenAI list $8.00 input, $0.40 cached input, $10.00 cache write, and
+$40.00 output per 1M tokens. OpenAI also lists a 1,050,000-token context,
+922,000 maximum input tokens, and 128,000 maximum output tokens
+(<https://developers.openai.com/api/docs/models/gpt-6.2-astra>). The
+long-prompt rule of GPT-6.2 Sol also applies. The knowledge cutoff is
+2026-05-18. OpenAI released the model on 2026-11-17, in the same changelog
+entry as GPT-6.2 Sol. Codex uses a 272,000-token default context. On
+2026-11-18, omp 18.22.2 listed `gpt-6.2-astra` with the same 272K context
+window, 128K maximum output, and the levels low, medium, high, xhigh, and max.
+
+`modelRoles.astra` and `retry.fallbackChains.fable` moved from GPT-6 Astra
+`xhigh` to GPT-6.2 Astra `xhigh` (DocksDocks/public#175). GPT-6 Astra below
+has the v5.0.1 figures for a like-for-like comparison.
+
+### GPT-6 Astra (OpenAI) - previous generation
+
+The role map and the retry chains no longer use GPT-6 Astra. This table stays
+as the v4.3.2 baseline for the previous `astra` role.
 
 | Level | Index | Cost/task | Tokens/task | Index tokens | Speed t/s | TTFT s | TB 4.0 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -307,7 +427,17 @@ run with fallback.
 Price: $10.00 in, $50.00 out, $1.00 cache hit per 1M. Context 1M. Knowledge
 cutoff 2026-04-30. AA publishes no non-reasoning Astra row.
 
-### GPT-6.1 Sol (OpenAI) - `openai-codex/gpt-6.1-sol`
+On 2026-11-18, the v5.0.1 data of the AA model page `/models/gpt-6-astra`
+listed GPT-6 Astra `xhigh` at index 55 and $3.66 per task, with 44 t/s and an
+83.77 s TTFT. It listed `high` at index 55, $3.24, 44 t/s, and 40.21 s. At
+`xhigh`, GPT-6.2 Astra scores 62 against 55 and costs $2.52 against $3.66 per
+task. It produces 54 against 44 t/s, with a TTFT of 52.89 s against 83.77 s.
+AA marks GPT-6 Astra deprecated, so its comparison pages return HTTP 404.
+
+### GPT-6.1 Sol (OpenAI) - previous generation
+
+The role map and the retry chains no longer use GPT-6.1 Sol. This table stays
+as the v4.3.2 baseline for the former `task` role and retry fallbacks.
 
 | Level | Index | Cost/task | Tokens/task | Index tokens | Speed t/s | TTFT s | TB 4.0 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -323,7 +453,9 @@ OpenAI also lists $2.50 per 1M cache-write tokens, a 1,050,000-token context,
 272K input tokens cost 2x input and cache rates and 1.5x output rates for the
 full request. The knowledge cutoff is 2026-04-30. The API effort ladder is
 `low, medium, high, xhigh, max`, with `medium` as the default. There is no
-`none`, `minimal`, or non-reasoning level.
+`none`, `minimal`, or non-reasoning level. On 2026-11-18, omp 18.22.2 still
+served `gpt-6.1-sol`, and the OpenAI deprecations page did not list it. AA
+marks it deprecated.
 
 ### GPT-6.1 Terra (OpenAI) - `openai-codex/gpt-6.1-terra`
 
@@ -346,12 +478,44 @@ For comparison at the same index version, AA lists GPT-6.1 Sol high at index
 TTFT, and 52% on Terminal-Bench 4.0. The same Sol high row read 50, $0.32, and
 57.26 s at v4.3.2, which shows why the two captures do not mix.
 
+On 2026-11-18, the release comparison page
+`/models/comparisons/gpt-6-2-sol-vs-gpt-6-1-terra` showed new speed and TTFT
+figures for GPT-6.1 Terra at v5.0.1. `high` ran at 65 t/s with a 10.50 s
+TTFT, `xhigh` at 65 t/s with 30.33 s, and `max` at 69 t/s with 146.49 s. The
+index, cost, and token figures were unchanged. AA measures speed and latency
+continuously, so the table keeps the 2026-11-05 rows. The speed comparison
+below uses the 2026-11-18 figures.
+
 AA and OpenAI list $1.00 input, $5.00 output, and $0.05 cached input per 1M
 tokens. OpenAI also lists a 1,050,000-token context, 922,000 maximum input
 tokens, and 128,000 maximum output tokens
 (<https://developers.openai.com/api/docs/models/gpt-6.1-terra>).
 Fast mode costs 2x Standard. The knowledge cutoff is 2026-06-01. The API effort
 ladder is `none, low, medium, high, xhigh, max`, with `medium` as the default.
+
+### Output speed: GPT-6.2 Sol and GPT-6.1 Terra
+
+GPT-6.2 Sol has the higher output speed at `high` and at `xhigh`.
+The figures come from one page,
+`/models/comparisons/gpt-6-2-sol-vs-gpt-6-1-terra`, read on 2026-11-18 at
+Intelligence Index v5.0.1.
+
+| Metric | GPT-6.2 Sol | GPT-6.1 Terra |
+|---|---:|---:|
+| `high` output speed | 78 t/s | 65 t/s |
+| `xhigh` output speed | 81 t/s | 65 t/s |
+| `high` TTFT | 9.63 s | 10.50 s |
+| `xhigh` TTFT | 26.63 s | 30.33 s |
+| `high` end-to-end time | 42.65 s | 43.91 s |
+| `xhigh` end-to-end time | 85.03 s | 86.53 s |
+
+At `high`, Sol produces about 19% more tokens per second than Terra. At
+`xhigh`, the gain is about 24%. Sol also has the lower TTFT and end-to-end
+time at both levels.
+
+The `reviewer` role stays on GPT-6.1 Terra `high`. The #130 benchmark chose
+Terra by escaped defects, not by speed. omp 18.22.2 lists no GPT-6.2 Terra. A
+move of the reviewer to GPT-6.2 Sol needs a new benchmark.
 
 ### GPT-6 Luna (OpenAI) - `openai-codex/gpt-6-luna`
 
@@ -373,7 +537,7 @@ has measured both at the other levels.
 ### GPT-5.6 Sol (OpenAI) - previous generation
 
 The role map no longer uses GPT-5.6 Sol. This table stays as the measured
-baseline for the GPT-6.1 Sol `task` retry fallback.
+baseline for the former GPT-6.1 Sol `task` retry fallback.
 
 | Level | Index | Cost/task | Tokens/task | Index tokens | Speed t/s | TTFT s | TB 4.0 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -407,12 +571,16 @@ Price: $0.20 in, $1.20 out, $0.02 cache hit per 1M. Context 1M.
 
 `task` runs `anthropic/claude-opus-5-5:high`, the same model and level as
 `default`. The owner moved it from `openai-codex/gpt-6.1-sol:high` on
-2026-10-09. GPT-6.1 Sol high is now the `task` retry fallback. The owner uses
-Astra only for main orchestration, so Astra has a dedicated `astra` cycle stop
-at `xhigh`. This comparison keeps the retired Astra-low, GPT-5.6 Sol, and
-GPT-6.1 Sol choices beside the current Opus level.
+2026-10-09. GPT-6.1 Sol high then became the `task` retry fallback. Since
+DocksDocks/public#175, the fallback is GPT-6.2 Sol high
+(`openai-codex/gpt-6.2-sol:high`). The owner uses Astra only for main
+orchestration, so Astra has a dedicated `astra` cycle stop at `xhigh`. This
+comparison keeps the retired Astra-low, GPT-5.6 Sol, and GPT-6.1 Sol choices
+beside the current Opus level. It is the v4.3.2 capture of 2026-09-29, so it
+does not compare with the v5.0.1 GPT-6.2 rows. GPT-6.2 Sol above has the
+figures for the current fallback.
 
-| Metric | Astra low, retired | GPT-5.6 Sol high, retired | GPT-6.1 Sol high, fallback | GPT-6.1 Sol max | Opus 5.5 high, current |
+| Metric | Astra low, retired | GPT-5.6 Sol high, retired | GPT-6.1 Sol high, former fallback | GPT-6.1 Sol max | Opus 5.5 high, current |
 |---|---:|---:|---:|---:|---:|
 | Intelligence Index | 46 | 42 | 50 | 52 | 54 |
 | Cost per Index task | $0.82 | $0.81 | $0.32 | $0.72 | $1.82 |
@@ -443,9 +611,9 @@ Opus 5.5 high scores 54 against GPT-6.1 Sol high at 50, 57% against 52% on
 Terminal-Bench 4.0, and 1705 against 1471 on AA-Briefcase. It costs $1.82
 against $0.32 per index task. Its answer TTFT is 52.85 s against 57.26 s.
 
-The `astra` cycle stop runs xhigh: index 52, $2.31 per index task, and
-126.90 s TTFT. AA publishes a Coding Agent Index entry for Astra only at
-max with Codex, where it scores 62.
+The `astra` cycle stop runs GPT-6.2 Astra `xhigh`. At v5.0.1 it has index 62,
+$2.52 per index task, and a 52.89 s TTFT (see GPT-6.2 Astra). Coding Agent
+Index v2.1 lists Codex with GPT-6.2 Astra at high, xhigh, and max.
 
 ## How Astra is selected in practice
 
@@ -456,10 +624,13 @@ No subagent selects Astra automatically.
 
 `SoT/.omp/models.yml` declares the full `low, medium, high, xhigh, max` ladder
 with `defaultLevel: xhigh` under
-`providers.openai-codex.modelOverrides.gpt-6-astra.thinking`.
+`providers.openai-codex.modelOverrides.gpt-6.2-astra.thinking`.
 The override stays as the kit's worked example of a provider ladder
 redefinition. The in-session thinking control can still select `low` for a
-quick answer.
+quick answer. The block is keyed by model id, so it moved from `gpt-6-astra`
+to `gpt-6.2-astra` with the role. `ompRemovals.ts syncOmpModelRemovals`
+prunes the deployed `gpt-6-astra` block while it equals the shipped block, and
+keeps a block that the user edited.
 
 - The bundled `scout` and `sonic` agents carry `model: "@smol"` and
   `thinking-level: medium` in their embedded frontmatter, so they run Luna,
@@ -493,9 +664,12 @@ The runtime per-agent measurement from fresh `omp -p` runs on 2026-09-09
 predates this change. It applies to the retired Astra-low `task` configuration,
 not the current role map.
 
-omp's 272k context window is the `/extended-context off` window for Astra.
-`/extended-context on` uses the 922k input window, 1.05M total, which matches
-AA's 1M.
+On 2026-11-18, omp 18.22.2 listed GPT-6.2 Astra with a 272,000-token context
+window. This is the `/extended-context off` window, and it equals the Codex
+default context. OpenAI lists a 1,050,000-token context and 922,000 maximum
+input tokens. For GPT-6 Astra, `/extended-context on` used the 922k input
+window. The kit has not checked the window that `/extended-context on` gives
+for GPT-6.2 Astra.
 
 ## Free session launcher (`docks-kit omp`)
 
@@ -680,10 +854,13 @@ and the ladder counts in these docs in the same commit.
 values, and exits without starting a session. `priority` is the tier omp's
 `/fast on` selects for OpenAI and OpenAI-Codex models. `--fast` over
 `ultrafast` selects `priority`. The kit ships no Ultrafast toggle: omp honors
-`ultrafast` for a Codex model only when its catalog `serviceTiers` lists it,
-and the omp 18.4.9 catalog lists none for GPT-6.1 Sol, Astra, or Luna. The SoT
-does not declare `tier.openai`, so the additive sync merge keeps the toggled
-value. New sessions read it; a running session changes through `/fast`.
+`ultrafast` for a Codex model only when its catalog `serviceTiers` lists it.
+The omp 18.4.9 catalog listed none for GPT-6.1 Sol, Astra, or Luna. On
+2026-11-18, `omp models openai-codex --json` on omp 18.22.2 listed no
+`serviceTiers` for any `gpt-6` id, `gpt-6.2-sol` and `gpt-6.2-astra`
+included. The SoT does not declare `tier.openai`, so the additive sync merge
+keeps the toggled value. New sessions read it; a running session changes
+through `/fast`.
 
 The four review agents inherit the live tier of the main session
 (`task.agentServiceTierOverrides: inherit`). In a new session after
@@ -702,12 +879,27 @@ on normal processing, use `docks-kit omp --fast` and a new session, not
 
 ## Maintenance
 
-- Refresh each per-level row from the metric table of
-  `/models/comparisons/<level-slug>-vs-gpt-5-6-sol-high`. Check that the page
-  title names the requested model and level. Take `max` from the bare model
-  slug. Do not read values from the chart payloads of the model pages: each
-  chart holds only about 20 models, so a missing value there does not mean
-  that AA has not measured it.
+- Refresh each per-level row from the rendered metric table of a release
+  comparison page, for example
+  `/models/comparisons/gpt-6-2-sol-vs-gpt-6-1-terra` and
+  `/models/comparisons/gpt-6-2-astra-vs-gpt-6-2-sol`. Each page shows every
+  level of both models. Take tokens per task and index tokens from the data
+  of the model page, for example `/models/gpt-6-2-sol`, and check that its
+  other values match the rendered table. A model-page chart holds only about
+  20 models, so a value missing there does not mean that AA has not measured
+  it.
+- On 2026-11-18, the per-level pattern
+  `/models/comparisons/<level-slug>-vs-gpt-5-6-sol-high` returned HTTP 404. A
+  comparison with a model that AA marks deprecated also returned HTTP 404, for
+  example `gpt-6-1-sol`, `gpt-6-astra`, or `gpt-5-6-sol`. Read such a model
+  from the data of its model page.
+- Keep AA rows at `high` and `xhigh` at least for each model that an omp role
+  or retry chain uses, with the index version and the capture date (see AA
+  rows for each role model). Add the missing rows in the same commit as a
+  role or chain change.
+- After a role or chain change, run `omp models openai-codex` and check that
+  it lists every `openai-codex` id that the roles and chains name. Sync does
+  not check the omp catalog.
 - Refresh the Coding Agent Index from `/agents/coding-agents`.
 - Record the index version with the numbers. AA changes index composition
   between versions, so a score from another version is not a comparison.

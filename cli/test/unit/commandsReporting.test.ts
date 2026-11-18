@@ -122,7 +122,7 @@ describe("command reporting", () => {
       // The toolchain probes ran against the stubs: the table carries the stub's
       // omp version, and the stub logged the probe.
       expect(output.toolchain.state).toBe("valid");
-      expect(output.toolchain.table).toMatch(/^omp\s+check\s+18\.4\.4\s/m);
+      expect(output.toolchain.table).toMatch(/^omp\s+check\s+18\.22\.2\s/m);
       expect(readFileSync(argvLog, "utf8")).toContain("omp\t--version");
 
       const humanResult = runCli(["status"], home);

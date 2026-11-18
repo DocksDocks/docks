@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-11-18 - docks-kit 0.22.27: omp roles move to GPT-6.2 Sol and GPT-6.2 Astra
+
+### Changed
+
+- The omp retry chains that named GPT-6.1 Sol now name GPT-6.2 Sol at the
+  same levels: `retry.fallbackChains.default` and `.task` run
+  `openai-codex/gpt-6.2-sol:high`, and `.vision` runs
+  `openai-codex/gpt-6.2-sol:medium`. The `astra` role and the Fable retry chain
+  move from GPT-6 Astra to `openai-codex/gpt-6.2-astra:xhigh`, and the switcher
+  tag reads `GPT-6.2 Astra`. The `reviewer` role stays on GPT-6.1 Terra `high`,
+  because the review benchmark of #130 chose that model, and omp 18.22.2 lists
+  no GPT-6.2 Terra.
+- The Astra ladder override in `SoT/.omp/models.yml` moves from the
+  `gpt-6-astra` key to `gpt-6.2-astra`. Sync prunes the deployed
+  `gpt-6-astra` block while it equals the shipped block, so a user edit stays.
+- The `omp-models` topic adds GPT-6.2 Sol and GPT-6.2 Astra at Artificial
+  Analysis Intelligence Index v5.0.1 (captured 2026-11-18), and states that it
+  always records the `high` and `xhigh` rows of each model that an omp role or
+  retry chain uses. At the same capture, GPT-6.2 Sol outputs 78 tokens per
+  second at `high` and 81 at `xhigh`, against 65 and 65 for GPT-6.1 Terra.
+- The `SoT/toolchain.json` omp floor and verified pin move from 18.4.4 to
+  18.22.2, the release that lists and serves both GPT-6.2 ids. The floor is a
+  doctor check: sync does not read the omp catalog, so an older omp can match
+  a missing id to another model.
+
 ## 2026-11-18 - docks-kit 0.22.26: global agent rules name the plan grant and the settled-Mode writes
 
 ### Changed

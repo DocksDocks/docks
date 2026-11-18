@@ -33,8 +33,8 @@ constant.
 
 | Lane | Window | Reserve | Threshold | Percent of window |
 |---|---:|---:|---:|---:|
-| `openai-codex/gpt-6-astra`, `openai-codex/gpt-6-luna` | 272,000 | 40,800 | 231,200 | 85.0% |
-| `openai-codex/gpt-6.1-sol`, `openai-codex/gpt-6.1-terra` | 500,000 | 75,000 | 425,000 | 85.0% |
+| `openai-codex/gpt-6.2-astra`, `openai-codex/gpt-6-luna` | 272,000 | 40,800 | 231,200 | 85.0% |
+| `openai-codex/gpt-6.2-sol`, `openai-codex/gpt-6.1-terra` | 500,000 | 75,000 | 425,000 | 85.0% |
 | `anthropic/*` | 1,000,000 | 150,000 | 850,000 | 85.0% |
 
 Every lane compacts at the same fraction of its own window. The absolute
@@ -93,8 +93,8 @@ to `contextWindow - 1`. On any model whose window is at or below the pinned
 value, the reserve collapses to one token, so omp compacts only once the
 context is already full. omp 18.8.8 and later fall back to the reserve-based
 budget for such a pin, so this collapse does not occur there. The kit floor is
-omp 18.4.4, so a supported host can still have the clamp. The reserve-based
-default always leaves at least 15% of the window free.
+omp 18.22.2, later than 18.8.8, so a supported host no longer has the clamp.
+The reserve-based default always leaves at least 15% of the window free.
 
 No current role model has a window below 272,000, so the hazard was latent
 rather than live. Not pinning removes it entirely, including for any future
@@ -112,7 +112,7 @@ key turns idle compaction off on fresh installs.
 
 | Setting | Value | Reason |
 |---|---|---|
-| `extendedContext` | `false` | omp 17.4.0 added the setting with the default on, and a later release changed the default to off. The setting controls the window omp reports for a model with a long-context limit. On omp 18.10.4, `omp models openai-codex` lists `openai-codex/gpt-6.1-sol` at 500,000 tokens with the setting off and 922,000 tokens with it on. The Codex lane uses this model for the `default`, `task`, and `vision` fallbacks. The `reviewer` role uses `openai-codex/gpt-6.1-terra`, which omp 18.16.0 also lists at 500,000 tokens with the setting off and which has the same 272,000-token long-prompt rule. OpenAI bills the whole request at the long-prompt rate when the input is above 272,000 tokens. For GPT-6.1 Sol, that rate is input $4.00 instead of $2.00, cache read $0.20 instead of $0.10, cache write $5.00 instead of $2.50, and output $15.00 instead of $10.00. The cost is a cliff rather than a marginal rate. Keeping the setting off keeps the smaller window, so fewer requests cross that cliff. |
+| `extendedContext` | `false` | omp 17.4.0 added the setting with the default on, and a later release changed the default to off. The setting controls the window omp reports for a model with a long-context limit. On omp 18.10.4, `omp models openai-codex` listed `openai-codex/gpt-6.1-sol` at 500,000 tokens with the setting off and 922,000 tokens with it on. The fallback chains now use `openai-codex/gpt-6.2-sol` for the `default`, `task`, and `vision` fallbacks. omp 18.22.2 lists that model at 500,000 tokens with the setting off. The kit has not checked the window that omp 18.22.2 reports for it with the setting on. The `reviewer` role uses `openai-codex/gpt-6.1-terra`, which omp 18.16.0 also lists at 500,000 tokens with the setting off and which has the same 272,000-token long-prompt rule. OpenAI bills the whole request at the long-prompt rate when the input is above 272,000 tokens. For GPT-6.2 Sol, OpenAI applies 2x the input and cache rates and 1.5x the output rate to the full request. From the base prices, that gives input $4.00 instead of $2.00, cache read $0.20 instead of $0.10, cache write $5.00 instead of $2.50, and output $15.00 instead of $10.00. The cost is a cliff rather than a marginal rate. Keeping the setting off keeps the smaller window, so fewer requests cross that cliff. |
 | `compaction.idleThresholdTokens` | `200000` | omp default. |
 | `compaction.idleTimeoutSeconds` | `300` | omp default. |
 | `compaction.methodOrder` | `["remote","snapcompact","handoff","shake","soft"]` | omp default, remote first. Since omp 18.1.18 the Anthropic server-side lane handles Anthropic models, so snapcompact is a fallback rather than the primary path. |

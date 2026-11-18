@@ -48,7 +48,7 @@ modelRoles:
   slow: anthropic/claude-opus-5-5:xhigh
   fable: anthropic/claude-fable-5-2:medium
   switch_fable: anthropic/claude-fable-5-2:medium
-  astra: openai-codex/gpt-6-astra:xhigh
+  astra: openai-codex/gpt-6.2-astra:xhigh
   reviewer: openai-codex/gpt-6.1-terra:high
   web: web/firecrawl
 
@@ -59,7 +59,7 @@ modelTags:
     name: Fable switch default
     hidden: true
   astra:
-    name: GPT-6 Astra
+    name: GPT-6.2 Astra
   reviewer:
     name: Reviewer
     hidden: true
@@ -73,11 +73,11 @@ providers:
 retry:
   fallbackChains:
     default:
-      - openai-codex/gpt-6.1-sol:high
+      - openai-codex/gpt-6.2-sol:high
     task:
-      - openai-codex/gpt-6.1-sol:high
+      - openai-codex/gpt-6.2-sol:high
     vision:
-      - openai-codex/gpt-6.1-sol:medium
+      - openai-codex/gpt-6.2-sol:medium
     smol:
       - anthropic/claude-opus-5-5:low
     tiny:
@@ -86,7 +86,7 @@ retry:
       - anthropic/claude-opus-5-5:medium
     switch_fable: []
     fable:
-      - openai-codex/gpt-6-astra:xhigh
+      - openai-codex/gpt-6.2-astra:xhigh
     astra:
       - anthropic/claude-fable-5-2:medium
     reviewer:
