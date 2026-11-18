@@ -9008,7 +9008,8 @@ test('each sequential look runs the betting test at the error that it spends, wi
       ...singleRuns('B0', 60, 4, reference),
       ...singleRuns('C1', 60, 4, candidate),
     ]);
-    const scores = { ...scoreRuns(fixture), runPlan };
+    // A fixed-sample report needs a workspace without a declaration (see renderReport).
+    const scores = { ...scoreRuns(fixture), runPlan: options.sequential ? runPlan : null };
     const report = renderReport(scores, { arms, reference: 'B0-xhigh-fast', margin: 4, ...options });
     const decision = tableAfter(report, '### Decision: dev').filter((row) => DECISION_ROW.test(row));
     return options.sequential ? { decision, rows: lookRows(report) } : { decision };
@@ -9021,7 +9022,7 @@ test('each sequential look runs the betting test at the error that it spends, wi
   // the not-worse test, so the equivalence decision gives yes at look 3 too.
   const { decision, rows: equal } = looks(always, always);
   // The sequential looks are the decision: the decision rows give no result of their own at the threshold 20, which
-  // the same data reach without --sequential.
+  // the same data reach in a fixed-sample report of a workspace without run-plan.json.
   assert.deepEqual(
     decision.map((row) => row.split(' | ').at(-1)),
     ['see sequential looks: not-worse decision |', 'see sequential looks: equivalence decision |'],
@@ -9214,8 +9215,60 @@ test('a sequential effort comparison declares both configurations and compares t
   );
   assert.throws(() => renderReport(scores, { ...options, reference: 'B0-high' }), {
     message:
-      'report --sequential compares the reference B0-xhigh-fast of run-plan.json with its candidates; give --arms with B0-xhigh-fast and --reference B0-xhigh-fast',
+      'report --sequential compares the reference B0-xhigh-fast of run-plan.json with its candidates; give --reference B0-xhigh-fast',
   });
+});
+
+test('with run-plan.json, the decision table and the sequential looks of report --sequential take the declared folders', () => {
+  // The reference B0 at xhigh-fast, and the candidates B0 at high and C1 at xhigh-fast, over 12 cases and 1 look.
+  const folders = [
+    ['B0', 'xhigh-fast'],
+    ['B0', 'high'],
+    ['C1', 'xhigh-fast'],
+  ];
+  const runs = caseIdsOf(12).flatMap((caseId) =>
+    folders.map(([arm, config]) => ({
+      case: caseId,
+      config,
+      arm,
+      run: 1,
+      single: true,
+      rounds: [[60, 600, null, 0, ['D1']]],
+    })),
+  );
+  const scores = { ...scoreRuns(gridFixture(oneKnownCases(12), runs)), runPlan: runPlanOf(caseIdsOf(12), folders, 1) };
+  const report = (options) =>
+    renderReport(scores, { reference: 'B0-xhigh-fast', margin: 4, sequential: true, ...options });
+  const refused = (detail) =>
+    `report --sequential takes its columns from run-plan.json: give --arms with the declared folders B0-xhigh-fast, B0-high, C1-xhigh-fast in any order (${detail})`;
+  // --arms that leave out a declared candidate, that add a folder, or --configs in place of --arms are refused.
+  assert.throws(() => report({ arms: ['B0-xhigh-fast', 'B0-high'] }), { message: refused('missing C1-xhigh-fast') });
+  assert.throws(() => report({ arms: ['B0-xhigh-fast', 'B0-high', 'C1-high'] }), {
+    message: refused('missing C1-xhigh-fast; not declared C1-high'),
+  });
+  assert.throws(() => report({ configs: ['xhigh-fast', 'high'], reference: 'xhigh-fast' }), {
+    message: refused('missing B0-xhigh-fast, B0-high, C1-xhigh-fast'),
+  });
+  // The declaration makes the report sequential: without --sequential, no fixed-sample decision row at threshold 20.
+  assert.throws(() => report({ arms: ['B0-xhigh-fast', 'B0-high', 'C1-xhigh-fast'], sequential: undefined }), {
+    message:
+      'report on a workspace with run-plan.json needs --sequential: the declaration of prepare.mjs sequential-plan makes the looks the decision',
+  });
+  // The declared folders in another order give each declared candidate the exact tests and a sequential look.
+  const text = report({ arms: ['C1-xhigh-fast', 'B0-xhigh-fast', 'B0-high'] });
+  const decision = tableAfter(text, '### Decision: dev').map((row) => row.slice(2, -2).split(' | '));
+  const header = decision[0];
+  for (const label of ['Wrong findings', 'Unknown ratings']) {
+    const row = decision.find((cells) => cells[0] === `${label} more than B0-xhigh-fast, one-sided exact Poisson p`);
+    assert.deepEqual(
+      ['C1-xhigh-fast', 'B0-high'].map((folder) => /^\d\.\d{4}$/.test(row[header.indexOf(folder)])),
+      [true, true],
+    );
+  }
+  assert.deepEqual(
+    lookRows(text).map((row) => row[0]),
+    ['C1-xhigh-fast', 'B0-high'],
+  );
 });
 
 test('a deciding report holds its decisions until the second judge answers every item of its sample', (t) => {
@@ -9247,6 +9300,8 @@ test('a deciding report holds its decisions until the second judge answers every
   main([...cli, '--sequential']);
   const look = tableAfter(readText(path.join(ws, 'report.md')), '### Sequential looks: dev')[2];
   assert.match(look, /\| second judge incomplete \(1 of 80\) \|$/);
+  // A workspace with run-plan.json takes only sequential reports, so the fixed-sample checks below go without it.
+  fs.rmSync(path.join(ws, 'run-plan.json'));
   // A complete second judge lets the tests decide.
   put(ws, 'judgments-second.json', { matches: sample.pairs.map(answer) });
   main(cli);

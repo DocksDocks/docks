@@ -2352,9 +2352,10 @@ function controlSection(runs) {
 // that the intervals and tests compare with: a table of two or more columns needs it. `margin` adds the not-worse,
 // equivalence, and drift checks, and `sequential` (with `reference` and `margin`) the sequential looks, which then are
 // the decision: the not-worse and equivalence rows point to the not-worse and equivalence decisions of the looks.
-// `runPlan` (see readRunPlan) is the declaration of run-plan.json: the sequential looks compare its reference arm
-// folder with each candidate arm folder, each at its own configuration, and it gives the runs that each look needs;
-// without it, every look is held. With a declaration, `reference` must be the declared reference folder. `lead` (lead
+// `runPlan` (see readRunPlan) is the declaration of run-plan.json: it gives the runs that each sequential look needs;
+// without it, every look is held. A declaration needs `sequential`, which then needs `arms` with exactly the declared
+// reference folder and candidate folders, in any order, and `reference` must be the declared reference folder, so the
+// decision table and the sequential looks compare the same columns, each arm at its own configuration. `lead` (lead
 // folders) and `leadRef` (the reference folder) together add the self-review lead. `secondJudge` (see
 // workspaceScores) gives the requested and answered items of the second-judge sample: with a margin, a sample with an
 // unanswered item holds every decision (the not-worse and equivalence rows and each sequential look) at `second judge
@@ -2365,6 +2366,12 @@ export function renderReport(
 ) {
   if (configs && arms) fail('report takes --configs or --arms, not both');
   if (Boolean(lead) !== Boolean(leadRef)) fail('report takes --lead and --lead-ref together');
+  // A declaration makes the workspace sequential: a fixed-sample decision row would spend the whole error at one look.
+  if (runPlan && !sequential) {
+    fail(
+      `report on a workspace with ${RUN_PLAN} needs --sequential: the declaration of prepare.mjs sequential-plan makes the looks the decision`,
+    );
+  }
   const configured = runs.filter((run) => run.config && !isControlArm(run.arm));
   const comparison = arms
     ? {
@@ -2395,11 +2402,26 @@ export function renderReport(
   if (sequential && (reference === undefined || margin === undefined)) {
     fail('report --sequential needs --reference and --margin');
   }
-  if (sequential && runPlan && reference !== runPlan.reference.folder) {
-    const folder = runPlan.reference.folder;
-    fail(
-      `report --sequential compares the reference ${folder} of ${RUN_PLAN} with its candidates; give --arms with ${folder} and --reference ${folder}`,
-    );
+  // With a declaration, the decision table and the sequential looks both have the declared arm folders as columns.
+  if (sequential && runPlan) {
+    const declared = [runPlan.reference, ...runPlan.candidates].map((entry) => entry.folder);
+    const given = arms ?? [];
+    const missing = declared.filter((folder) => !given.includes(folder));
+    const extra = given.filter((folder) => !declared.includes(folder));
+    if (missing.length || extra.length) {
+      const parts = [
+        ...(missing.length ? [`missing ${missing.join(', ')}`] : []),
+        ...(extra.length ? [`not declared ${extra.join(', ')}`] : []),
+      ];
+      fail(
+        `report --sequential takes its columns from ${RUN_PLAN}: give --arms with the declared folders ${declared.join(', ')} in any order (${parts.join('; ')})`,
+      );
+    }
+    if (reference !== runPlan.reference.folder) {
+      fail(
+        `report --sequential compares the reference ${runPlan.reference.folder} of ${RUN_PLAN} with its candidates; give --reference ${runPlan.reference.folder}`,
+      );
+    }
   }
   const columnNote = arms
     ? 'An arm table has one column per arm folder in one case group. Its decision table also gives the cases of each column and the cases that the column and the reference column both ran.'
@@ -2452,20 +2474,13 @@ export function renderReport(
     ...comparisonSections(comparison.runs, { ...comparison, reference, margin, hold: decisionHold }),
     ...driftSection(runs, { margin }),
     ...(sequential
-      ? sequentialSection(
-          runPlan ? runs : comparison.runs,
-          runPlan
-            ? {
-                columns: [runPlan.reference.folder, ...runPlan.candidates.map((entry) => entry.folder)],
-                columnOf: armColumn,
-                planColumnOf: (key) => key.folder,
-                reference,
-                margin,
-                hold: judgeHold,
-                runPlan: runPlan.keys,
-              }
-            : { ...comparison, reference, margin, hold: judgeHold, runPlan: null },
-        )
+      ? sequentialSection(comparison.runs, {
+          ...comparison,
+          reference,
+          margin,
+          hold: judgeHold,
+          runPlan: runPlan?.keys ?? null,
+        })
       : []),
     ...stageSection(runs),
     ...controlSection(runs),
