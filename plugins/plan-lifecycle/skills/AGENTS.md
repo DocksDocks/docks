@@ -80,10 +80,10 @@ vocabulary in the read-only reviewers.
 the research order, the commits, and the self-review; the contract owns the
 rules. `plan-manager/references/run-summary.md` owns the pull request
 description template. `plan-manager` and `yolo` point to both and copy neither.
-The contract's Delegated decisions section owns the grant and the Stall rule,
-and `practices.md` owns the Deliberation record that each delegated decision
-gets. When the grant changes, update the contract, the practices, the run
-summary, and both entry points together.
+The contract's Delegated decisions section owns the grant, its authority
+events, and the Stall rule, and `practices.md` owns the Deliberation record
+that each delegated decision gets. When the grant changes, update the
+contract, the practices, the run summary, and both entry points together.
 
 Coordinate edits across those surfaces when concepts change. Refresh content
 hashes after all reference edits finish. `scripts/tests/plan-cli.mjs` exercises

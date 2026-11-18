@@ -50,7 +50,7 @@ a pass.
 In Delegated decisions, list each decision that a grant answered (the
 contract's Delegated decisions): the question, the choice, each rejected option
 with its reason, the reversibility, and the locator of its deliberation record.
-Write `none` when the Goal holds no grant. With a grant, the merge question
+Write `none` when no grant is in force. With a grant, the merge question
 states `<d> delegated decisions` and points to this section.
 
 In Kept resources, list what stays after `Merge now`: the recorded compose

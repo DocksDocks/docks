@@ -91,7 +91,7 @@ Settle Mode before implementation. `plan-only` stops after plan review;
 `plan-and-implement` permits the full lifecycle. A defaulted Mode permits no implementation.
 Each non-local step requires an in-session `ask` immediately before it runs.
 A user-invoked `yolo` run replaces these asks with the contract's Yolo runs section and asks only before merge.
-A `Delegated:` line in the plan Goal hands the design and tradeoff decisions to the agent (the contract's Delegated decisions). It does not replace these asks or the merge question; a `yolo` run includes that grant.
+A delegation grant hands the design and tradeoff decisions of a plan to the agent (the contract's Delegated decisions). Its authority comes only from a trusted `Delegation grant:` comment; the Goal's `Delegated:` line mirrors it. It does not replace these asks or the merge question; a `yolo` run includes that grant.
 Merge requires a fresh `Merge now` answer. Without it, leave the pull request open.
 
 Read `skills/productivity/plan-manager/references/plan-contract.md` inside the

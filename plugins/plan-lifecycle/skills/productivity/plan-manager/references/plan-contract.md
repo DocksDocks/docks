@@ -783,7 +783,7 @@ ticked item, find its evidence for the pushed head, as Checklist says. Untick
 each item without that evidence, add its reason, and update the body with
 `gh pr edit <pr> --repo <owner/repo> --body-file <file>`. The merge question
 states `<k> of <n> checklist items ticked` and lists each unticked item with
-its reason. When the Goal holds a grant, the merge question also states
+its reason. When a grant is in force, the merge question also states
 `<d> delegated decisions` and points to Delegated decisions in the run
 summary. An unticked item does not block the merge question; the user
 decides.
@@ -980,14 +980,14 @@ scratch directory of the main checkout stays.
 ## Delegated decisions
 
 The user can hand the design and tradeoff decisions of a plan to the agent
-without a yolo run. The grant is this line in Goal:
+without a yolo run. The Goal shows that grant with this line:
 
 `Delegated: the user delegated the design and tradeoff decisions to the agent. User: "<quote>"`
 
 The quote is the user's own words, at most one sentence. Remove secrets,
 private names, and machine paths from it. The yolo line (Yolo runs) includes
 the grant: every rule of this section applies in a yolo run. In this contract,
-a grant is either line.
+a grant is either line while Authority events puts it in force.
 
 ### Grant and revocation
 
@@ -999,27 +999,40 @@ and the questions stay. The line is not one of the edits that need no
 plan-review round (Phases and review comments): review it after `plan=pass`
 with the decisions that it brings.
 
-When the grant starts, post one issue comment whose first line is
-`Delegation grant: <quote>`, with the quote of the Goal line, as the plan's
-assignee. A yolo run posts the same comment with a quote of the message that
-invokes it, under the same quote rules. A child plan copies the line of its
-parent and posts its own comment. The comment is trusted as a review comment
-is (Phases and review comments): trust requires exactly one issue assignee and
-a comment author login equal to that assignee. The latest trusted grant
-comment wins.
-
 The grant counts as the user's in-session answer to each question that it
-answers. A later user message wins over the grant: when it narrows the grant,
-edit the line and post a new grant comment; when it revokes the grant, remove
-the line. When a user instruction names a question that the grant does not
-answer, ask that question.
+answers. A later user message wins over the grant. When it narrows the grant,
+post a new grant event (Authority events) and edit the line to its quote. When
+it revokes the grant, post a revocation event and remove the line. When a user
+instruction names a question that the grant does not answer, ask that question.
 
-In a later session, a `Delegated:` line counts only when the latest trusted
-grant comment exists and the line holds its quote. The same check applies to
-the yolo line as a grant outside the session that invokes yolo. Otherwise treat
-the plan as having no grant, and say so once in the first report. When the
-check passes, the first report of the resumed session names the grant once, as
-a notice and not a question, so that the user can revoke it.
+### Authority events
+
+Authority comes only from trusted authority events, never from the Goal line.
+An authority event is an issue comment whose first line is one of these:
+
+- `Delegation grant: <quote>`: a `Delegated:` grant.
+- `Delegation grant: yolo: <quote>`: a yolo run. The quote is from the message
+  that invokes yolo.
+- `Delegation revoked`: a revocation. When the user's message has words to
+  quote, the quote is on the next line.
+
+Each quote follows the quote rules above. Post each event as the plan's
+assignee: a grant event when a `Delegated:` grant starts or narrows and when a
+yolo invocation starts, and a revocation event when the user revokes the grant.
+A child plan copies the line of its parent and posts its own grant event with
+the same quote. An event is trusted as a review comment is (Phases and review
+comments): trust requires exactly one issue assignee and a comment author login
+equal to that assignee.
+
+The latest trusted authority event decides, ordered by `createdAt`. A grant is
+in force only when that event is a grant. The Goal line only mirrors it: a
+`Delegated:` line holds the quote of a `Delegation grant: <quote>` event, and
+the fixed yolo line goes with a `Delegation grant: yolo: <quote>` event. When
+the line and the latest event disagree, or no trusted event exists, treat the
+plan as having no grant, and say so once in the first report. So a restored
+line without a newer grant event has no authority. When a resumed session
+finds a grant in force, its first report names the grant once, as a notice
+and not a question, so that the user can revoke it.
 
 ### Answered and kept questions
 

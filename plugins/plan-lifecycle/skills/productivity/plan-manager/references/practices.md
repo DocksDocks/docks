@@ -71,7 +71,7 @@ Asked: <what the request said>. Did: <what the run does>. Reason: <evidence>.
 ```
 
 A decision that only the user can make goes through Open questions and `ask`,
-as plan-manager phase 4 says. When the Goal holds a grant (the contract's
+as plan-manager phase 4 says. When a grant is in force (the contract's
 Delegated decisions), decide each question that the grant answers, and record
 it with a full deliberation record. Ask only the questions that the grant does
 not answer.
@@ -206,7 +206,7 @@ is not installed. A subagent can write the spec tests.
    `git diff -- <spec files>` prints nothing. When a spec test is wrong, stop
    and ask the user, as `tdd-workflow` also says. Record the answer and the
    reason in Verification Results, fix the test, and run the baseline again.
-   When the Goal holds a grant (the contract's Delegated decisions), do not
+   When a grant is in force (the contract's Delegated decisions), do not
    ask: write the full deliberation record in a Verification Results entry,
    fix the test, run the baseline again, and list the decision under
    Delegated decisions in the run summary. That record replaces the user
@@ -307,6 +307,9 @@ and read the branch from `gh pr view <pr> --repo <owner/repo> --json headRefName
 Run `git worktree list` for a worktree. Count review rounds from round
 comments: a comment whose first line names the review kind. One round comment
 can hold several lens blocks and the manager response to the previous round.
-A `Self-review` comment, or a comment that holds only a pending manager
-response, is not a round. For a parent, `show <n>` lists each child; run
-`show <c>` for each child to find the one that this run works on.
+A `Self-review` comment, an authority event (`Delegation grant:` or
+`Delegation revoked`), or a comment that holds only a pending manager response,
+is not a round. Check the latest trusted authority event, as the contract's
+Delegated decisions says, before you act on a grant. For a parent, `show <n>`
+lists each child; run `show <c>` for each child to find the one that this run
+works on.

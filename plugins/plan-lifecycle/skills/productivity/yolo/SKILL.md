@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "1a5d4798fdaad42077fee5da8009f10aecb3bc459da194a3fa7768716a20c3c1"
+  content_hash: "b0fb0348ddd172c5f2af70f6a2257233570f3a4210c58f946f50f042ab947cb2"
 ---
 
 # Yolo
@@ -100,8 +100,8 @@ To adopt a plan:
    cover the edited body. After that pass, adopt the child that the contract's
    Yolo runs table names with these steps.
 2. Export the plan. Add the delegation line to Goal when it is missing, and set
-   `Mode: plan-and-implement`. Post the grant comment of this invocation, as
-   the contract's Delegated decisions says.
+   `Mode: plan-and-implement`. Post the grant event of this invocation,
+   `Delegation grant: yolo: <quote>`, as the contract's Authority events says.
 3. Replace each Goal or Do not touch line that conflicts with this run, such as
    "leave the pull request open". Record a request correction whose `Asked:`
    part quotes the old line.
@@ -126,14 +126,15 @@ Yolo: the user delegated every decision except the merge to the agent.
 ```
 
 4. Create the issue with `new --title <t> --goal <g> --mode plan-and-implement`.
-   Post its grant comment, as the contract's Delegated decisions says.
+   Post its grant event, `Delegation grant: yolo: <quote>`, as the contract's
+   Authority events says.
 5. When the request needs more than one landing pull request, that issue is the
    parent, and it gets no linked branch. Create one child per pull request with
    `new --title <t> --goal <g> --mode plan-and-implement --parent <n>`, with the
-   delegation line and a grant comment in each child, and give the parent one
-   Steps row per child, as the contract's Record and mode says. Run Research
-   and Plan review on the parent. After that pass, start the child that the
-   contract's Yolo runs table names: set up its linked branch, and run
+   delegation line and the same grant event in each child, and give the parent
+   one Steps row per child, as the contract's Record and mode says. Run
+   Research and Plan review on the parent. After that pass, start the child
+   that the contract's Yolo runs table names: set up its linked branch, and run
    Research to Land on it.
 6. Otherwise set up the linked branch now, as the contract's Yolo runs section
    says.
@@ -142,10 +143,10 @@ Yolo: the user delegated every decision except the merge to the agent.
 
 Follow the practices Research order, Decisions and corrections, and
 Engineering standards. Settle each question from the codebase, the web, or an
-experiment; do not ask. The delegation line holds the grant of the contract's
-Delegated decisions: decide each question that the practices send to the user
-as that section says, with a deliberation record. Open questions holds only a
-`Blocked:` line, as the contract's Delegation line says.
+experiment; do not ask. This run holds the grant of the contract's Delegated
+decisions through its grant event: decide each question that the practices
+send to the user as that section says, with a deliberation record. Open
+questions holds only a `Blocked:` line, as the contract's Delegation line says.
 
 ## Implement
 
