@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "e248e20ab14768e5d23cdd51aa45bff4af05333a86266f4fbcd369decd8e8c3c"
+  content_hash: "05d4dbc615b6519e945f76422ff962a35452d5b3fc66aecf3a230c14b4479d39"
 ---
 
 # Yolo
@@ -103,9 +103,10 @@ To adopt a plan:
    (the contract's Record and mode), adopt it with steps 2 to 4 and skip
    step 5. Then get a plan pass that covers the current parent body: when
    `show <n>` does not read `plan=pass`, run Research and Plan review on the
-   parent; when step 4 changed the parent after `plan=pass`, run the re-review
-   round that step 4 names, and wait for its pass. The earlier pass does not
-   cover the edited body. After that pass, adopt the child that the contract's
+   parent; when, after `plan=pass`, step 2 replaced a `Delegated:` line or
+   step 4 changed the parent, run the re-review round that the step names,
+   and wait for its pass. The earlier pass does not cover the edited body.
+   After that pass, adopt the child that the contract's
    Yolo runs table names with these steps.
 2. Export the plan. Add the yolo delegation line to Goal when it is missing.
    When Goal has a live `Delegated:` line, replace that line with the yolo
