@@ -1057,15 +1057,25 @@ grant comes only from its own grant events: the event posted at its creation,
 with the parent's quote at that time, which the child's plan review covers, or
 a later event from the user's own message for that child.
 
-A child's line must match the child's own latest grant event, and it holds
-only when no parent event is newer than that grant event. Any newer parent
-event, a revocation or a narrowing, ends the child's grant; the child keeps no
-partial grant. When a session works on a child and finds a newer parent event,
-it removes the child's line, with no new event, and never writes the parent's
-quote into the child. That removal only removes authority, so it takes effect
-at once and needs no plan-review round. To delegate again on that child, the
-user's own message gives a new grant for it: a new child grant event and a new
-line, which need the child's plan-review round, as any new grant does.
+A child grant event posted at the child's creation copies a parent grant
+event, and its second line names it: `Parent event: <comment id>`. Such a grant
+holds only while the parent's latest trusted event is the named parent event;
+any other parent event ends it, whatever the order of the timestamps. Before
+the run posts a child grant event, it reads the parent's latest trusted event.
+When that is not the event that it copies, it posts no child grant, and the
+grant has ended as Grant check says. A grant from the user's own message for
+that child has no `Parent event:` line, and any parent event newer than it
+ends it.
+
+A child's line must match the child's own latest grant event, and holds only
+while that grant holds. The child keeps no partial grant after a parent
+revocation or narrowing. When a session works on a child whose grant a parent
+event ended, it removes the child's line, with no new event, and never writes
+the parent's quote into the child. That removal only removes authority, so it
+takes effect at once and needs no plan-review round. To delegate again on that
+child, the user's own message gives a new grant for it: a new child grant event
+and a new line, which need the child's plan-review round, as any new grant
+does.
 
 ### Grant check
 
@@ -1075,11 +1085,11 @@ each delegated decision from then on. Before a yolo run posts its grant event,
 the user's invoking message in this session is the authority, and the run
 makes only the delegated decisions that the yolo skill's Decide and Draft
 steps name. The grant has ended after a newer revocation on the plan, a newer
-narrowing of a yolo grant (Grant and revocation), or any newer parent event
-(Authority events). Then a yolo run stops as Ended grant in Yolo runs says.
-Another run continues with no grant, and asks each question that the grant
-answered. A narrowed `Delegated:` grant on the plan itself continues as the
-narrower grant. A later run on a plan whose grant has ended is a
+narrowing of a yolo grant (Grant and revocation), or a parent event that ends
+a child grant (Authority events). Then a yolo run stops as Ended grant in Yolo
+runs says. Another run continues with no grant, and asks each question that
+the grant answered. A narrowed `Delegated:` grant on the plan itself continues
+as the narrower grant. A later run on a plan whose grant has ended is a
 `plan-manager` run with no grant, unless the user's own message gives a new
 grant.
 

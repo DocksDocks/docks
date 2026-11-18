@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "1790d8be734fe1cd349d07ee757b885212e0ba5691ce093d29f7b07e00cee16c"
+  content_hash: "b205354d75c9beb444696d6a0353a24480475d31fcde275e15c031785ee6eb4c"
 ---
 
 # Yolo
@@ -138,10 +138,13 @@ Yolo: the user delegated every decision except the merge to the agent.
 5. When the request needs more than one landing pull request, that issue is the
    parent, and it gets no linked branch. Create one child per pull request with
    `new --title <t> --goal <g> --mode plan-and-implement --parent <n>`, with the
-   delegation line in each goal. Post each child's grant event once, at its
-   creation, with the parent's quote; a later parent event ends the grant of
-   every child, as the contract's Authority events says. Give the parent one
-   Steps row per child, as the contract's Record and mode says. Run Research
+   delegation line in each goal. Before each child's grant event, read the
+   parent's latest trusted event; when it is not the parent grant event of
+   step 4, post no child grant and stop as the contract's Ended grant says.
+   Otherwise post the child's grant event once, with the parent's quote and a
+   second line `Parent event: <comment id>` that names that parent event, as
+   the contract's Authority events says. Give the parent one Steps row per
+   child, as the contract's Record and mode says. Run Research
    and Plan review on the parent. After that pass, start the child that the
    contract's Yolo runs table names: set up its linked branch, and run
    Research to Land on it.
