@@ -947,9 +947,15 @@ const INCOMING_REF = `${BENCH_REFS}incoming/`;
 const MAIN_REF = 'refs/remotes/origin/main';
 const FORK_NOTE = 'case and pin fetch from origin; when origin is a fork, set origin to the remote of DocksDocks/docks';
 
-// The command that fetches the head of the pull request of a case and pins the case commits (see preparePin).
+// Quotes `text` for a POSIX shell: single quotes keep each character as it is, and `'\''` gives a single quote.
+function shellQuote(text) {
+  return `'${text.replaceAll("'", "'\\''")}'`;
+}
+
+// The command that fetches the head of the pull request of a case and pins the case commits (see preparePin). Both
+// paths are quoted, so the command runs as printed.
 function pinCommand(casePath) {
-  return `node ${SCRIPT_PATH} pin --case ${casePath}`;
+  return `node ${shellQuote(SCRIPT_PATH)} pin --case ${shellQuote(casePath)}`;
 }
 
 // The commits of the case fields that name one. When a commit of a case with `pull` is missing, the head of that pull
@@ -962,11 +968,12 @@ function caseCommits(repo, caseData, casePath) {
   const fields = COMMIT_FIELDS.filter((field) => caseData[field]);
   const resolve = () => Object.fromEntries(fields.map((field) => [field, commitOf(repo, caseData[field])]));
   let commits = resolve();
-  if (caseData.pull && fields.some((field) => !commits[field])) {
-    fetchPull(repo, caseData, casePath);
+  const firstMissing = () => fields.find((field) => !commits[field]);
+  if (caseData.pull && firstMissing()) {
+    fetchPull(repo, caseData, firstMissing(), casePath);
     commits = resolve();
   }
-  const missing = fields.find((field) => !commits[field]);
+  const missing = firstMissing();
   if (missing) fail(missingCommitMessage(caseData, missing, casePath));
   for (const commit of new Set(Object.values(commits))) keepCommit(repo, caseData, commit);
   return commits;
@@ -988,8 +995,10 @@ function keepCommit(repo, { id }, commit) {
 // Saves the head of the pull request `pull` of a case at refs/review-bench/pull/<pull>, unless that ref exists. The
 // fetch goes to a ref of this run only, and `git update-ref` with an empty old value creates the saved ref only when
 // it does not exist, so a saved ref never moves. When a parallel run saved the ref first, this run deletes its incoming
-// ref; the fetched objects stay, and caseCommits pins the commits that the case uses.
-function fetchPull(repo, { id, pull }, casePath) {
+// ref; the fetched objects stay, and caseCommits pins the commits that the case uses. `field` is a case field whose
+// commit is missing; the stop message of a failed fetch names it.
+function fetchPull(repo, caseData, field, casePath) {
+  const { id, pull } = caseData;
   const saved = `${PULL_REF}${pull}`;
   if (runGit(repo, ['show-ref', '--verify', '--quiet', saved]).status === 0) return;
   const incoming = `${INCOMING_REF}${pull}-${process.pid}`;
@@ -997,7 +1006,7 @@ function fetchPull(repo, { id, pull }, casePath) {
   const fetched = runGit(repo, fetchArgs);
   if (fetched.status !== 0) {
     fail(
-      `case ${id}: git ${fetchArgs.join(' ')} failed: ${fetched.stderr.toString().trim()}; to fetch the head of pull request ${pull} and pin the case commits, run ${pinCommand(casePath)} (${FORK_NOTE})`,
+      `${notACommit(caseData, field)}, and git ${fetchArgs.join(' ')} failed: ${fetched.stderr.toString().trim()}; to fetch the head of pull request ${pull} and pin the case commits, run ${pinCommand(casePath)} (${FORK_NOTE})`,
     );
   }
   let created;
@@ -1011,10 +1020,15 @@ function fetchPull(repo, { id, pull }, casePath) {
   }
 }
 
+// The start of the stop message of a case commit that the repository does not hold.
+function notACommit(caseData, field) {
+  return `case ${caseData.id}: ${field} ${caseData[field]} is not a commit in this repository`;
+}
+
 // The stop message of a case commit that the repository does not hold.
 function missingCommitMessage(caseData, field, casePath) {
-  const { id, pull } = caseData;
-  const head = `case ${id}: ${field} ${caseData[field]} is not a commit in this repository`;
+  const { pull } = caseData;
+  const head = notACommit(caseData, field);
   if (!pull) {
     return `${head}; give the case a pull field that names the pull request whose head holds the commit, then run case again, which fetches that head, or run ${pinCommand(casePath)}, which fetches that head and pins the case commits (${FORK_NOTE})`;
   }
