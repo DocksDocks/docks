@@ -9,8 +9,10 @@
 //                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
 //                           [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
 //                           [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
-//   node prepare.mjs case --case <case.json> --arms <B0,C3,...> --runs <k> --out <ws> [--configs <list>]
-//                         [--keys <dir>] [--loop] [--extend] [--project <dir>]
+//   node prepare.mjs sequential-plan --cases <case.json,...> --reference <arm>@<config>
+//                         --candidates <arm>@<config>[,...] --looks <1,...,k> --out <ws> [--project <dir>]
+//   node prepare.mjs case --case <case.json> --arms <B0,C3,...> (--runs <k> | --sequential) --out <ws>
+//                         [--configs <list>] [--keys <dir>] [--loop] [--extend] [--project <dir>]
 //   node prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>]
 //                         [--fixer-patch <file>]
 //   node prepare.mjs manager --ws <ws>
@@ -27,17 +29,22 @@ import { parseArgs } from 'node:util';
 import {
   BASE_INSTRUCTIONS,
   CONTRACT_COPY,
+  CONTROL_PREFIX,
   caseFilePath,
   FIXER_DIR,
   FIXER_NAME,
   fixPlan,
+  JUDGE_CONTRACTS,
   JUDGE_TREES,
   loadJudgments,
   loopEnds,
   MANAGER_DIR,
   MANAGER_NAME,
   MANAGER_VERDICTS,
+  MAX_LOOKS,
+  RUN_PLAN,
   readKnown,
+  readRunPlan,
   reviewerPluginRoots,
   runLabel,
   SELF_REVIEW_AGENT_PREFIX,
@@ -296,15 +303,19 @@ const variantSide = (name) => `variant-${name}`;
 // or `S3<name>` of a self-review root of `selfReviewRoots` (the list that `agents --self-review-roots` wrote). A
 // variant arm runs the variant agent in full mode. On a plan-delta case, it runs in delta mode, unless the variant has
 // no delta mode (`--full-only`). The arm of a variant of `--contract-overlay` also has `contractDiff`, the contract
-// change of the variant, and so has a candidate arm of a code kind when `agents --candidate-contract-overlay` recorded
-// `candidateContractDiff`. A self-review root arm is the arm S1 or S3 with `root`, the name of the root.
-function armSpec(kind, arm, { variants = [], candidateContractDiff, selfReviewRoots = [] } = {}) {
+// change of the variant, and so has a candidate arm (code or plan) when `agents --candidate-contract-overlay`
+// recorded `candidateContractDiff`. A self-review root arm is the arm S1 or S3 with `root`, the name of the root. The
+// arm `A<arm>` is the A/A control copy of the arm `<arm>` (CONTROL_PREFIX): the same agent, prompt, and policy in an
+// arm folder of its own, so that `score.mjs report` can measure the drift of the batch.
+function armSpec(kind, arm, lists = {}) {
+  const { variants = [], candidateContractDiff, selfReviewRoots = [] } = lists;
+  if (arm.startsWith(CONTROL_PREFIX)) {
+    const copied = arm.slice(CONTROL_PREFIX.length);
+    return copied.startsWith(CONTROL_PREFIX) ? undefined : armSpec(kind, copied, lists);
+  }
   if (Object.hasOwn(ARMS[kind], arm)) {
     const spec = ARMS[kind][arm];
-    const codeKind = kind === 'code' || kind === 'code-delta';
-    return candidateContractDiff && codeKind && spec.side === 'candidate'
-      ? { ...spec, contractDiff: candidateContractDiff }
-      : spec;
+    return candidateContractDiff && spec.side === 'candidate' ? { ...spec, contractDiff: candidateContractDiff } : spec;
   }
   const rootArm = kind === 'code' ? SELF_REVIEW_ROOT_ARM.exec(arm) : null;
   if (rootArm) {
@@ -524,14 +535,15 @@ export function buildTail({ caseData, side, mode, round, reviewer, paths }) {
 }
 
 // The prompt file of one reviewer. The arm gives the side; `mode` and `round` default to the arm's mode and the case
-// round, and a loop round gives its own. `spec` is the arm (see armSpec); it defaults to the arm of ARMS.
+// round, and a loop round gives its own. `spec` is the arm (see armSpec); it defaults to the arm of armSpec without
+// the lists of `agents`, so a variant arm or a self-review root arm needs its `spec`.
 export function buildPromptFile({
   caseData,
   arm,
   config,
   reviewer,
   paths,
-  spec = ARMS[caseData.kind][arm],
+  spec = armSpec(caseData.kind, arm),
   mode = spec.mode,
   round = caseData.round,
 }) {
@@ -1024,17 +1036,160 @@ function checkLoopArms(arms, specOf) {
   if (selfReview.length) fail(`${selfReview.join(', ')} run one self-review before round 1; leave them out of --loop`);
 }
 
+// The runs of the first look of `case --sequential` (see ../SKILL.md, Procedure): one run per case.
+const FIRST_LOOK_RUNS = 1;
+
+// The look that `case --sequential` adds to the arm folders `armDirs` of an existing case folder: one more than the
+// runs that each of them holds. Each arm folder must exist and hold the runs run-1 to run-<k> of k looks, the same k
+// for each, and k must be below MAX_LOOKS.
+function nextLook(caseDir, armDirs) {
+  const missing = armDirs.find((dir) => !fs.existsSync(dir));
+  if (missing) {
+    fail(
+      `${missing} does not exist; the first look of case --sequential prepares every declared arm folder, so restore the folder or declare a new decision in another workspace`,
+    );
+  }
+  const looks = armDirs.map((dir) => {
+    const runs = fs.readdirSync(dir).filter((name) => RUN_FOLDER.test(name));
+    const complete = runs.every((_, index) => runs.includes(`run-${index + 1}`));
+    if (!complete) fail(`${dir} holds the runs ${runs.join(', ')}, which are not run-1 to run-${runs.length}`);
+    return runs.length;
+  });
+  if (new Set(looks).size > 1)
+    fail(`the arm folders of ${caseDir} hold different numbers of runs: ${looks.join(', ')}`);
+  if (looks[0] >= MAX_LOOKS) fail(`${caseDir} holds ${MAX_LOOKS} looks, the most that a sequential decision takes`);
+  return looks[0] + 1;
+}
+
+// The runs of the looks of `sequential-plan --looks`: look k has the run k, so the list is 1 to the last look, at most
+// MAX_LOOKS looks.
+function parseLooks(value) {
+  const runs = parseList(value, '--looks').map(Number);
+  const expected = Array.from({ length: runs.length }, (_, index) => index + 1);
+  if (runs.join(',') !== expected.join(',') || runs.length > MAX_LOOKS) {
+    fail(`sequential-plan --looks takes the runs 1 to k of the looks 1 to k, k at most ${MAX_LOOKS}, not ${value}`);
+  }
+  return runs;
+}
+
+// One arm of `sequential-plan`: `<arm>@<configuration>`, with one configuration for the arm. The same arm can come
+// twice with two configurations, for example C3@high and C3@medium for an effort choice.
+function parseEntry(text, option) {
+  const match = /^([^@\s]+)@([^@\s]+)$/.exec(text);
+  if (!match) fail(`${option} takes <arm>@<configuration>, for example C3@high, not ${text}`);
+  const [, arm, config] = match;
+  return { arm, config, folder: armFolder(arm, config) };
+}
+
+// The `sequential-plan` command: it declares the whole grid of a sequential decision once, before any case. It takes
+// every case file of the decision (`cases`), the reference arm and the candidate arms, each with its configuration
+// (`reference`, `candidates`: `<arm>@<configuration>`; an A/A control copy of the reference is a candidate too), and
+// the runs of the looks (`looks`, for example 1,2,3,4). Each configuration must be in the list that `agents` wrote.
+// It writes `<out>/run-plan.json` (see score.mjs readRunPlan): the reference, the candidates, the looks, and one key
+// for every case, declared arm, and run of every look, with the configuration of the arm. It refuses a file that
+// exists. `case --sequential` then prepares the declared arms of a case, and `score.mjs report --sequential` compares
+// the reference with each candidate and holds a look until every key of it and the earlier looks has a valid run.
+export function sequentialPlan(options, repo) {
+  for (const name of ['cases', 'reference', 'candidates', 'looks', 'out']) {
+    if (!options[name]) fail(`sequential-plan needs --${name}`);
+  }
+  const file = path.join(path.resolve(options.out), RUN_PLAN);
+  if (fs.existsSync(file)) {
+    fail(`${file} exists; a sequential decision declares its plan once, so choose another --out`);
+  }
+  const reference = parseEntry(options.reference, '--reference');
+  const candidates = parseList(options.candidates, '--candidates').map((text) => parseEntry(text, '--candidates'));
+  const entries = [reference, ...candidates];
+  const folders = entries.map((entry) => entry.folder);
+  if (new Set(folders).size !== folders.length) {
+    fail(
+      `sequential-plan declares the arm folder ${folders.find((folder, index) => folders.indexOf(folder) !== index)} twice`,
+    );
+  }
+  const configNames = [...new Set(entries.map((entry) => entry.config))];
+  const lists = selectConfigs({ ...options, configs: configNames.join(',') }, repo);
+  const runs = parseLooks(options.looks);
+  const cases = parseList(options.cases, '--cases').map((file) => {
+    const casePath = path.resolve(file);
+    const caseData = validateCase(readJson(casePath));
+    if (path.basename(casePath) !== `${caseData.id}.json`) {
+      fail(`case file ${casePath} must be named ${caseData.id}.json`);
+    }
+    parseArms([...new Set(entries.map((entry) => entry.arm))].join(','), caseData.kind, lists);
+    return caseData;
+  });
+  const ids = cases.map((caseData) => caseData.id);
+  if (new Set(ids).size !== ids.length) fail(`sequential-plan --cases names a case twice: ${ids.join(', ')}`);
+  const keys = cases.flatMap((caseData) =>
+    entries.flatMap((entry) =>
+      runs.map((run) => ({ case: caseData.id, split: caseData.split ?? null, ...entry, run, look: run })),
+    ),
+  );
+  writeJson(file, { reference, candidates, looks: runs, keys });
+  console.log(
+    `wrote ${file}: ${cases.length} cases x ${folders.join(', ')} x ${runs.length} looks, ${keys.length} keys`,
+  );
+}
+
+// The arms of a `case --sequential` call for the case `caseData` in the workspace `ws`: every arm folder that
+// `<ws>/run-plan.json` declares for the case, as `{ arm, config }` with the configuration of `lists`, and `runs`, the
+// declared run numbers of the case. The declaration, not the options, gives the arms, so each look prepares every
+// declared arm of the case. `--arms` and `--configs` may only repeat the declared arms and configurations. The call
+// refuses a workspace without the file and a case that the file does not declare.
+function declaredEntries(ws, caseData, options, lists) {
+  const file = path.join(ws, RUN_PLAN);
+  const plan = fromScore(() => readRunPlan(ws));
+  if (plan === null) fail(`case --sequential needs ${file}; run prepare.mjs sequential-plan first`);
+  const keys = plan.keys.filter((key) => key.case === caseData.id);
+  if (keys.length === 0)
+    fail(`${file} does not declare ${caseData.id}; case --sequential prepares only declared cases`);
+  const folders = [...new Set(keys.map((key) => key.folder))];
+  const entries = folders.map((folder) => {
+    const key = keys.find((entry) => entry.folder === folder);
+    const config = lists.configs.find((entry) => entry.name === key.config);
+    if (!config) fail(`${file} declares the configuration ${key.config}, which ${lists.file} does not hold`);
+    return { arm: key.arm, config };
+  });
+  const declaredArms = [...new Set(entries.map((entry) => entry.arm))];
+  const declaredConfigs = [...new Set(entries.map((entry) => entry.config.name))];
+  const same = (value, declared) =>
+    [...new Set(value.split(',').map((item) => item.trim()))].sort().join(',') === [...declared].sort().join(',');
+  if (options.arms && !same(options.arms, declaredArms)) {
+    fail(
+      `${file} declares the arms ${declaredArms.join(', ')} for ${caseData.id}; case --sequential prepares all of them, so leave out --arms ${options.arms}`,
+    );
+  }
+  if (options.configs && !same(options.configs, declaredConfigs)) {
+    fail(
+      `${file} declares the configurations ${declaredConfigs.join(', ')} for ${caseData.id}; case --sequential prepares all of them, so leave out --configs ${options.configs}`,
+    );
+  }
+  parseArms(declaredArms.join(','), caseData.kind, lists);
+  return { entries, runs: [...new Set(keys.map((key) => key.run))] };
+}
+
 // The `case` command. `repo` is the git repository of the case commits. With `loop`, each run starts a review loop
 // in `run-<k>/round-1/`, whose mode the round policy of the arm picks, and the meta.json of the run records that
 // policy. `prepareLoop` builds the later rounds with the policy that this meta.json records. With `extend`, the case
 // folder exists: `case` adds the folders of the arms and keeps the snapshot, the diffs, and every other arm folder; it
-// writes the base-instructions folder of a code case only when the case folder has none. Each run of a variant with a
-// contract overlay gets its copy of the plan contract (see writeContractCopy), and its meta.json records whether the
-// contract change applied (`contractOverlay`). When the list of configurations has a manager setting, the meta.json
-// of each run (of round 1 of a loop) records it as `managerConfig`, which marks the run for the manager stage.
+// writes the base-instructions folder of a code case only when the case folder has none. With `sequential`, `case`
+// takes its arms and configurations from run-plan.json (see declaredEntries): it builds the first look of every
+// declared arm folder of the case (one run each), or, when the case folder exists, adds the next look: one run to each
+// of these folders (see nextLook), up to the last declared look. Each run of an arm with a contract overlay gets its copy of
+// the plan contract (see writeContractCopy), and its meta.json records whether the contract change applied
+// (`contractOverlay`). The judge gets the same copy as `<ws>/contracts/<run label>.md` (JUDGE_CONTRACTS), so that it
+// judges the findings of the run under the contract that the reviewer read. When the list of configurations has a
+// manager setting, the meta.json of each run (of round 1 of a loop) records it as `managerConfig`, which marks the run
+// for the manager stage.
 export function prepareCase(options, repo) {
   if (!options.case) fail('case needs --case <path to case.json>');
   if (!options.out) fail('case needs --out <workspace dir>');
+  if (options.sequential && options.runs !== undefined) {
+    fail('case --sequential adds one run per case for each look; leave out --runs');
+  }
+  if (options.sequential && options.extend) {
+    fail('case --sequential adds a look to an existing case folder by itself; leave out --extend');
+  }
   const casePath = path.resolve(options.case);
   const caseData = validateCase(readJson(casePath));
   if (path.basename(casePath) !== `${caseData.id}.json`)
@@ -1045,32 +1200,52 @@ export function prepareCase(options, repo) {
   }
   // The list of configurations names the variants and the self-review roots, which give the variant arms of the plan
   // kinds and the self-review root arms of the code kind.
-  const lists = selectConfigs(options, repo);
-  const { configs, fixer, manager, variants, selfReviewRoots, candidateContractDiff, file: configsFile } = lists;
+  // A sequential call takes every configuration of the list and keeps the ones that run-plan.json declares.
+  const lists = selectConfigs(options.sequential ? { ...options, configs: undefined } : options, repo);
+  const { fixer, manager, variants, selfReviewRoots, candidateContractDiff, file: configsFile } = lists;
   const specOf = (arm) => armSpec(caseData.kind, arm, { variants, candidateContractDiff, selfReviewRoots });
-  const arms = parseArms(options.arms, caseData.kind, lists);
+  const declared = options.sequential ? declaredEntries(path.resolve(options.out), caseData, options, lists) : null;
+  // Each entry is one arm folder: an arm at a configuration.
+  const entries =
+    declared?.entries ??
+    lists.configs.flatMap((config) => parseArms(options.arms, caseData.kind, lists).map((arm) => ({ arm, config })));
+  const arms = [...new Set(entries.map((entry) => entry.arm))];
+  const configs = [...new Set(entries.map((entry) => entry.config))];
   if (options.loop) checkLoopArms(arms, specOf);
   // A candidate contract overlay reaches only the prompts that case writes; the later rounds of a loop would review
   // without the contract copy, so a loop of a candidate arm cannot measure the change.
-  const overlaid = candidateContractDiff ? arms.filter((arm) => ARMS[caseData.kind][arm]?.side === 'candidate') : [];
+  const overlaid = candidateContractDiff ? arms.filter((arm) => specOf(arm).contractDiff) : [];
   if (options.loop && overlaid.length) {
     fail(
       `case --loop does not take a candidate contract overlay (${overlaid.join(', ')}): the later rounds of a loop would review without the contract copy; build single-round runs, or run agents without --candidate-contract-overlay`,
     );
   }
-  const runs = parseRuns(options.runs);
+  const runs = options.sequential ? FIRST_LOOK_RUNS : parseRuns(options.runs);
   // A loop records the fixer setting, so that `score.mjs report` can check the transcript of each fixer against it.
   if (options.loop && !fixer) fail(`${configsFile} has no fixer setting; run prepare.mjs agents again`);
   const caseDir = path.join(path.resolve(options.out), caseData.id);
   const paths = workspacePaths(caseDir, caseData);
-  if (options.extend) {
+  const addLook = options.sequential && fs.existsSync(caseDir);
+  const extending = options.extend || addLook;
+  if (extending) {
     checkExtend(casePath, caseDir, paths);
   } else if (fs.existsSync(caseDir)) {
     fail(`${caseDir} exists; remove it, choose another --out, or add arms with --extend`);
   }
-  const armDirs = configs.flatMap((config) => arms.map((arm) => path.join(caseDir, armFolder(arm, config.name))));
-  const existing = armDirs.find((dir) => fs.existsSync(dir));
-  if (existing) fail(`${existing} exists; leave its arm out of --arms`);
+  const armDirs = entries.map(({ arm, config }) => path.join(caseDir, armFolder(arm, config.name)));
+  let firstRun = 1;
+  if (addLook) {
+    firstRun = nextLook(caseDir, armDirs);
+  } else {
+    const existing = armDirs.find((dir) => fs.existsSync(dir));
+    if (existing) fail(`${existing} exists; leave its arm out of --arms`);
+  }
+  const lastRun = firstRun + runs - 1;
+  if (declared && !declared.runs.includes(firstRun)) {
+    fail(
+      `${path.resolve(options.out, RUN_PLAN)} declares no look ${firstRun} of ${caseData.id}; the decision has ${declared.runs.length} looks`,
+    );
+  }
   const sources = caseSources(caseData, path.dirname(casePath), keys);
   const commits = caseCommits(repo, caseData);
   const hidden = hiddenPathspec(repo, caseData);
@@ -1079,13 +1254,15 @@ export function prepareCase(options, repo) {
   const runMetas = [];
   const loopModes = new Map();
   const overlays = new Map();
+  const judgeContracts = path.join(path.dirname(caseDir), JUDGE_CONTRACTS);
+  const judgeCopies = [];
   const managerConfig = manager ? { managerConfig: manager } : {};
-  // With --extend, a code case folder of an earlier version has no base-instructions folder; this call then writes it
-  // and removes it again when it stops.
-  const addBase = options.extend && !isPlanKind(caseData.kind) && !fs.existsSync(paths.baseInstructions);
+  // With --extend or a new look, a code case folder of an earlier version has no base-instructions folder; this call
+  // then writes it and removes it again when it stops.
+  const addBase = extending && !isPlanKind(caseData.kind) && !fs.existsSync(paths.baseInstructions);
   try {
     let tree = null;
-    if (!options.extend) {
+    if (!extending) {
       tree = buildCaseWorkspace({ repo, caseData, commits, hidden, casePath, sources, caseDir, paths });
     } else if (options.loop || addBase) {
       tree = withIndex(caseDir, (env) => {
@@ -1097,6 +1274,8 @@ export function prepareCase(options, repo) {
     const fullLines = options.loop ? diffSize(repo, hidden, commits.base, tree) : null;
     for (const config of configs) {
       for (const arm of arms) {
+        // A sequential declaration need not hold every pair of its arms and configurations.
+        if (!entries.some((entry) => entry.arm === arm && entry.config === config)) continue;
         const spec = specOf(arm);
         const { policy, mode: armMode, reviewers: armReviewers, contractDiff } = spec;
         const mode = options.loop ? roundMode({ policy, round: 1, fullLines }) : armMode;
@@ -1109,8 +1288,9 @@ export function prepareCase(options, repo) {
           }));
         // The prompt of a run with a contract overlay names the copy of the plan contract in its own run folder.
         const prompts = contractDiff ? null : promptsFor(paths);
-        for (let run = 1; run <= runs; run += 1) {
-          const runDir = path.join(caseDir, armFolder(arm, config.name), `run-${run}`);
+        for (let run = firstRun; run <= lastRun; run += 1) {
+          const folder = armFolder(arm, config.name);
+          const runDir = path.join(caseDir, folder, `run-${run}`);
           if (options.loop) {
             runMetas.push({ file: path.join(runDir, 'meta.json'), meta: { policy } });
             const meta = { config, fixerConfig: fixer, ...managerConfig, mode, fullLines };
@@ -1119,6 +1299,10 @@ export function prepareCase(options, repo) {
             const contract = path.join(runDir, CONTRACT_COPY);
             const contractOverlay = writeContractCopy(paths.snapshot, contractDiff, contract);
             overlays.set(arm, contractOverlay);
+            const judgeCopy = path.join(judgeContracts, `${runLabel(caseData.id, folder, `run-${run}`)}.md`);
+            fs.mkdirSync(judgeContracts, { recursive: true });
+            fs.copyFileSync(contract, judgeCopy);
+            judgeCopies.push(judgeCopy);
             const runPrompts = promptsFor({ ...paths, contract });
             runFolders.push({ dir: runDir, meta: { config, ...managerConfig, contractOverlay }, prompts: runPrompts });
           } else {
@@ -1130,17 +1314,27 @@ export function prepareCase(options, repo) {
     writeRuns(runFolders);
     for (const { file, meta } of runMetas) writeJson(file, meta);
   } catch (error) {
-    // A failed call removes what it wrote: the case folder, or with --extend only the new arm folders and the
-    // base-instructions folder that it added.
-    const written = options.extend ? [...armDirs, ...(addBase ? [paths.baseInstructions] : [])] : [caseDir];
-    for (const dir of written) fs.rmSync(dir, { recursive: true, force: true });
+    // A failed call removes what it wrote: the case folder, with --extend only the new arm folders and the
+    // base-instructions folder that it added, and for a new look only the run folders of that look; and the judge
+    // copies of the plan contract.
+    const lookDirs = armDirs.flatMap((dir) =>
+      Array.from({ length: runs }, (_, index) => path.join(dir, `run-${firstRun + index}`)),
+    );
+    const added = [...(addLook ? lookDirs : armDirs), ...(addBase ? [paths.baseInstructions] : [])];
+    for (const dir of [...(extending ? added : [caseDir]), ...judgeCopies]) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    removeIfEmpty(judgeContracts);
     throw error;
   }
   const prompts = runFolders.reduce((sum, run) => sum + run.prompts.length, 0);
-  const counts = `${arms.join(', ')} x ${configs.length} configurations x ${runs} runs`;
+  const runsNote = addLook ? `run ${firstRun} (look ${firstRun} of at most ${MAX_LOOKS})` : `${runs} runs`;
+  const counts = declared
+    ? `${armDirs.map((dir) => path.basename(dir)).join(', ')} x ${runsNote}`
+    : `${arms.join(', ')} x ${configs.length} configurations x ${runsNote}`;
   const notes = (label, entries) =>
     entries.size ? `; ${label}: ${[...entries].map(([arm, value]) => `${arm} ${value}`).join(', ')}` : '';
-  const verb = options.extend ? 'extended' : 'prepared';
+  const verb = extending ? 'extended' : 'prepared';
   const summary = `${counts}${notes('round 1 modes', loopModes)}${notes('contract overlay', overlays)}`;
   console.log(`${verb} ${caseDir}: ${prompts} prompts for ${summary}`);
 }
@@ -1317,13 +1511,15 @@ export function prepareLoop(options, repo) {
   const ws = path.dirname(caseDir);
   const [caseId, armName, runName] = [caseDir, armDir, runDir].map((dir) => path.basename(dir));
   const arm = armName.split('-')[0];
+  // armSpec also resolves the control copy A<arm> of a loop arm, which runs the loop of its arm.
+  const spec = armSpec('code', arm);
   if (!RUN_FOLDER.test(runName) || !armName.includes('-') || !fs.existsSync(path.join(caseDir, 'case.json')))
     fail(`--run must name a run folder <ws>/<case>/<arm>-<config>/run-<k>, not ${runDir}`);
   const caseData = validateCase(readJson(path.join(caseDir, 'case.json')));
-  if (caseData.kind !== 'code' || !ARMS.code[arm]?.policy) {
+  if (caseData.kind !== 'code' || !spec?.policy) {
     const loopArms = Object.keys(ARMS.code).filter((name) => ARMS.code[name].policy);
     fail(
-      `loop takes the runs of the code arms ${loopArms.join(', ')}; ${caseId} is a ${caseData.kind} case and ${arm} is its arm`,
+      `loop takes the runs of the code arms ${loopArms.join(', ')} and of their control copies A<arm>; ${caseId} is a ${caseData.kind} case and ${arm} is its arm`,
     );
   }
   const keys = keyFolder(caseData, options.keys);
@@ -1471,7 +1667,8 @@ export function prepareLoop(options, repo) {
     const nextMode = roundMode({ policy, round: nextRound, fullLines, completed: true, repairsOnly, deltaLines });
     const paths = reviewPaths(nextDir, planExport, plan.rejections.length > 0);
     const prompts = MODE_REVIEWERS[nextMode].map((reviewer) => {
-      const prompt = { caseData, arm, config: config.name, reviewer, paths, mode: nextMode, round: promptRound + 1 };
+      const round = promptRound + 1;
+      const prompt = { caseData, arm, spec, config: config.name, reviewer, paths, mode: nextMode, round };
       return { reviewer, text: buildPromptFile(prompt) };
     });
     const meta = { config, mode: nextMode, head, repairsOnly, fullLines, deltaLines };
@@ -2138,23 +2335,34 @@ export function prepareAgents(options, repo) {
 // One run per configuration: the candidate code agent of the configuration gets a short task, so its transcript
 // shows the model, the effort, and the served tier at little cost. The task names the run folder, because
 // `score.mjs transcripts` takes only a transcript whose task names a path in the case folder. The probe changes no
-// file, so its full.diff is empty: `transcripts` reads full.diff for the read scope of a code run.
+// file, so its full.diff is empty: `transcripts` reads full.diff for the read scope of a code run. The manager has one
+// setting for every configuration, so the run of the first configuration also gets one manager prompt with the same
+// task, and its meta.json records the manager setting as `managerConfig`.
 function prepareProbe(options, repo) {
   if (!options.out) fail('probe needs --out <workspace dir>');
-  const { configs } = selectConfigs(options, repo);
+  const { configs, manager } = selectConfigs(options, repo);
   const caseDir = path.join(path.resolve(options.out), PROBE_CASE.id);
   if (fs.existsSync(caseDir)) fail(`${caseDir} exists; remove it or choose another --out`);
   writeJson(path.join(caseDir, 'case.json'), PROBE_CASE);
   fs.writeFileSync(path.join(caseDir, 'full.diff'), '');
+  const task = (agent, dir) => `agent: ${agent}\n\n${PROBE_TASK}\n\nRun folder: ${dir}\n`;
+  const runDir = (config) => path.join(caseDir, armFolder(PROBE_ARM, config.name), 'run-1');
   writeRuns(
-    configs.map((config) => {
-      const dir = path.join(caseDir, armFolder(PROBE_ARM, config.name), 'run-1');
+    configs.map((config, index) => {
       const agent = armAgent('code', ARMS.code[PROBE_ARM].side, config.name);
-      const text = `agent: ${agent}\n\n${PROBE_TASK}\n\nRun folder: ${dir}\n`;
-      return { dir, meta: { config }, prompts: [{ reviewer: 'full', text }] };
+      const meta = index === 0 && manager ? { config, managerConfig: manager } : { config };
+      return { dir: runDir(config), meta, prompts: [{ reviewer: 'full', text: task(agent, runDir(config)) }] };
     }),
   );
-  console.log(`prepared ${caseDir}: one prompt for each of ${configs.map((config) => config.name).join(', ')}`);
+  if (manager) {
+    const managerDir = path.join(runDir(configs[0]), MANAGER_DIR);
+    fs.mkdirSync(managerDir, { recursive: true });
+    fs.writeFileSync(path.join(managerDir, `${MANAGER_NAME}.txt`), task(MANAGER_AGENT, runDir(configs[0])));
+  }
+  const managerNote = manager ? `, and one manager prompt in ${armFolder(PROBE_ARM, configs[0].name)}` : '';
+  console.log(
+    `prepared ${caseDir}: one prompt for each of ${configs.map((config) => config.name).join(', ')}${managerNote}`,
+  );
 }
 
 const PROJECT_OPTION = { project: { type: 'string' } };
@@ -2171,6 +2379,7 @@ const COMMANDS = {
       keys: { type: 'string' },
       loop: { type: 'boolean' },
       extend: { type: 'boolean' },
+      sequential: { type: 'boolean' },
       ...PROJECT_OPTION,
     },
   },
@@ -2208,6 +2417,17 @@ const COMMANDS = {
     },
   },
   manager: { run: prepareManager, options: { ws: { type: 'string' } } },
+  'sequential-plan': {
+    run: sequentialPlan,
+    options: {
+      cases: { type: 'string' },
+      reference: { type: 'string' },
+      candidates: { type: 'string' },
+      looks: { type: 'string' },
+      out: { type: 'string' },
+      ...PROJECT_OPTION,
+    },
+  },
   probe: {
     run: prepareProbe,
     options: { out: { type: 'string' }, configs: { type: 'string' }, ...PROJECT_OPTION },
@@ -2222,8 +2442,10 @@ const USAGE = `usage:
                      [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
                      [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
                      [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
-  prepare.mjs case --case <case.json> --arms <list> --runs <k> --out <ws> [--configs <list>] [--keys <dir>]
-                   [--loop] [--extend] [--project <dir>]
+  prepare.mjs sequential-plan --cases <case.json,...> --reference <arm>@<config> --candidates <arm>@<config>[,...]
+                   --looks <1,...,k> --out <ws> [--project <dir>]
+  prepare.mjs case --case <case.json> --arms <list> (--runs <k> | --sequential) --out <ws> [--configs <list>]
+                   [--keys <dir>] [--loop] [--extend] [--project <dir>]
   prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>] [--fixer-patch <file>]
   prepare.mjs manager --ws <ws>
   prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
