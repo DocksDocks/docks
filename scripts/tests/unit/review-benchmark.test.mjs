@@ -1118,8 +1118,9 @@ function roundWorkspace(t, runs) {
   return { ws, cases };
 }
 
-// Runs of `<arm>-<config>` arm folders, as scoreRuns gets them. `cases` maps a case id to its split, known ids, and
-// kind (default `code`). Each run is { case, config, arm, run, rounds, single }: arm defaults to `C1` and run to 1, so
+// Runs of `<arm>-<config>` arm folders, as scoreRuns gets them. `cases` maps a case id to its split, known ids, kind
+// (default `code`), and optional seeded flag, which workspaceScores reads from case.json. Each run is { case, config,
+// arm, run, rounds, single }: arm defaults to `C1` and run to 1, so
 // without them a fixture has one run per case and config. Each round is [seconds, tokens, mode, fixer seconds,
 // answers]. A run has round folders; a run with `single: true` is a single review: its one round has no round folder.
 // An answer is a finding: the known id that it matches, or the rating of a finding without a match. Each round of a
@@ -1186,12 +1187,13 @@ function gridFixture(cases, runs) {
     }
   }
   const pairs = {
-    cases: Object.entries(cases).map(([id, { split, known, kind = 'code' }]) => ({
+    cases: Object.entries(cases).map(([id, { split, known, kind = 'code', seeded }]) => ({
       case: id,
       kind,
       split,
       known: known.map((knownId) => ({ id: knownId, title: `Hidden ${knownId}`, locator: 'src/sync.mjs:1' })),
       runs: [],
+      ...(seeded === undefined ? {} : { seeded }),
     })),
   };
   return { findings: { blocks, findings }, pairs, judgments, metas };
@@ -1381,6 +1383,9 @@ test('a run with round folders keeps scores and timing per round, and the report
 //   values of the runs of each column in each case. Round 1 recall: value round-1 found, weight known. Escaped per
 //   50 known: value escaped, weight known / 50. Loop seconds: value loop seconds, weight 1, over loop runs only. A
 //   cell is `[low, high]`; the reference column and a column without shared cases get `-`.
+// - N rows, after the exact Poisson rows: the shared cases with known defects; the seeded share of them
+//   (`<seeded> of <cases> (<share>)` when the case.json of each case tells it, else `-`); and N, 50 times the mean of
+//   e = (mean escaped of the column - mean escaped of the reference) / known over these cases.
 // Code-loop table, over the loop runs (runs with round folders):
 // - Model, Effort, Served tier after Runs, as in the decision table.
 // - Round <r> rows, for r from 1 to the highest round of the loops, cover the loops that reached round r: seconds
@@ -1474,6 +1479,11 @@ test('the configuration table gives one column per configuration and the rows of
     '| Wrong findings more than low-fast, one-sided exact Poisson p | 1.0000 | - | 0.7500 |',
     // P(Binomial(1, 1/2) >= 1) = 1/2.
     '| Unknown ratings more than low-fast, one-sided exact Poisson p | 1.0000 | - | 0.5000 |',
+    // N weighs each shared case with known defects 1. The fixture has no case.json, so no case tells whether a patch
+    // seeded its defects.
+    '| Cases with known defects shared with low-fast | 2 | - | 2 |',
+    '| Seeded cases of the shared cases with known defects | - | - | - |',
+    '| Escaped per 50 known difference from low-fast, each case weighs 1 (N) | 12.50 | - | 37.50 |',
   ]);
   assert.deepEqual(tableAfter(report, '### Decision: dev'), tableAfter(report, '## Configurations: dev'));
   assert.deepEqual(tableAfter(report, '### Code loops: dev'), [
@@ -3498,6 +3508,9 @@ test('the code-loop rows leave out single reviews, and the fixer median leaves o
     '| Cases with an escaped difference from low-fast',
     '| Wrong findings more than low-fast, one-sided exact Poisson p',
     '| Unknown ratings more than low-fast, one-sided exact Poisson p',
+    '| Cases with known defects shared with low-fast',
+    '| Seeded cases of the shared cases with known defects',
+    '| Escaped per 50 known difference from low-fast, each case weighs 1 (N)',
   ]);
   // Loops only: code-7 differs by 80 seconds and code-8 by 40. The single reviews, 100 seconds each, stay out.
   assert.equal(decision[15], '| Loop seconds difference from low-fast, 90% interval | [40.0, 80.0] | - |');
@@ -3676,10 +3689,12 @@ test('report --arms gives one column per arm folder and compares it with the nam
     '| Round 1 recall difference from C1-xhigh-fast, 90% interval | - | [-1.00, -0.50] |',
     '| Escaped per 50 known difference from C1-xhigh-fast, 90% interval | - | [0.00, 50.00] |',
     '| Loop seconds difference from C1-xhigh-fast, 90% interval | - | [10.0, 60.0] |',
-    // One shared case differs, too few for a pass.
     '| Cases with an escaped difference from C1-xhigh-fast | - | 1 |',
     '| Wrong findings more than C1-xhigh-fast, one-sided exact Poisson p | - | 1.0000 |',
     '| Unknown ratings more than C1-xhigh-fast, one-sided exact Poisson p | - | 1.0000 |',
+    '| Cases with known defects shared with C1-xhigh-fast | - | 2 |',
+    '| Seeded cases of the shared cases with known defects | - | - |',
+    '| Escaped per 50 known difference from C1-xhigh-fast, each case weighs 1 (N) | - | 25.00 |',
   ]);
   assert.deepEqual(tableAfter(report, '### Decision: dev'), tableAfter(report, '## Arms: dev'));
   assert.equal(tableAfter(report, '### Code loops: dev')[0], '| Measure | C1-xhigh-fast | B0-xhigh-fast |');
@@ -3786,8 +3801,7 @@ test('arm columns can hold different cases, and the decision table says how many
   const arms = ['C1-xhigh-fast', 'S1-xhigh-fast', 'S3-xhigh-fast'];
   const report = renderReport(scoreRuns(fixture), { arms, reference: 'S1-xhigh-fast' });
   // S1 is the reference that the operator names, in every case group. C1 shares code-7 and code-8 with S1, and S3
-  // shares code-8. S1 has no loop, so no column has a loop seconds interval. The escaped intervals are [0.00, 0.00],
-  // but no shared case differs, so they cannot give a pass.
+  // shares code-8. S1 has no loop, so no column has a loop seconds interval. No shared case differs, so N is 0.
   assert.deepEqual(tableAfter(report, '### Decision: dev'), [
     '| Measure | C1-xhigh-fast | S1-xhigh-fast | S3-xhigh-fast |',
     '|---|---:|---:|---:|',
@@ -3810,6 +3824,9 @@ test('arm columns can hold different cases, and the decision table says how many
     '| Cases with an escaped difference from S1-xhigh-fast | 0 | - | 0 |',
     '| Wrong findings more than S1-xhigh-fast, one-sided exact Poisson p | 1.0000 | - | 1.0000 |',
     '| Unknown ratings more than S1-xhigh-fast, one-sided exact Poisson p | 1.0000 | - | 1.0000 |',
+    '| Cases with known defects shared with S1-xhigh-fast | 2 | - | 1 |',
+    '| Seeded cases of the shared cases with known defects | - | - | - |',
+    '| Escaped per 50 known difference from S1-xhigh-fast, each case weighs 1 (N) | 0.00 | - | 0.00 |',
   ]);
   assert.ok(tableAfter(report, '### Code loops: dev').includes('| Runs | 3 | 0 | 0 |'));
   const singles = tableAfter(report, '### Single reviews: dev');
@@ -6028,8 +6045,8 @@ test('report --reference compares every arm column with the named folder, and re
   judgeAll(ws, (_, known) => (known === 'D1' ? 'match' : 'no'));
   const arms = ['C1-low-fast', 'C1-low'];
   const report = () => readText(path.join(ws, 'report.md'));
-  // The shared-cases row and the three interval rows come before the rows of the exact tests.
-  const compared = () => tableAfter(report(), '### Decision: dev').slice(-7, -3);
+  // The shared-cases row and the three interval rows come before the rows of the exact tests and of N.
+  const compared = () => tableAfter(report(), '### Decision: dev').slice(-10, -6);
   // C1-low finds D1 and escapes the fewest, but the report takes no reference from the results.
   assert.throws(() => reportCommand(ws, { arms }), /^Error: report needs --reference <column>/);
   assert.equal(fs.existsSync(path.join(ws, 'report.md')), false);
@@ -8676,66 +8693,219 @@ test('the exact Poisson rate test gives the binomial tail of the count of a colu
   assert.equal(score.poissonRateTest(1, 0, 1, 2), null);
 });
 
-test('the normal quantile and the alpha-spending bounds give the published values', () => {
+test('the normal quantile and the alpha spending of each look give the published values', () => {
   assert.ok(Math.abs(score.normalQuantile(0.95) - 1.6448536) < 1e-6);
   assert.ok(Math.abs(score.normalQuantile(0.8) - 0.8416212) < 1e-6);
   assert.ok(Math.abs(score.normalQuantile(0.001) + 3.0902323) < 1e-6);
   assert.ok(Math.abs(score.normalCdf(1.959964) - 0.975) < 1e-6);
-  // gsDesign, sfLDOF with 4 equal looks and a one-sided error of 0.025: 4.3326, 2.9631, 2.3590, 2.0141.
-  assert.deepEqual(
-    score.spendingBounds(4, 0.025).map((bound) => bound.toFixed(4)),
-    ['4.3326', '2.9631', '2.3590', '2.0141'],
-  );
-  // One look spends the whole error, so its bound is the bound of a fixed sample.
-  assert.ok(Math.abs(score.spendingBounds(1, 0.05)[0] - score.normalQuantile(0.95)) < 1e-6);
-  // Look 1 of 4 spends 2 - 2 Phi(z(0.975) / sqrt(1/4)) alone, so its bound is z(1 - that error).
-  const firstLook = 2 - 2 * score.normalCdf(score.normalQuantile(0.975) / 0.5);
-  assert.ok(Math.abs(score.spendingBounds(4)[0] - score.normalQuantile(1 - firstLook)) < 1e-4);
-  // The bounds of the sequential decision: 4 looks, one-sided error 0.05.
+  // The O'Brien-Fleming spending function of Lan and DeMets: alpha(t) = 2 - 2 Phi(z(0.975) / sqrt(t)) with z(0.975) =
+  // 1.959964. Look k of 4 spends alpha(k / 4) - alpha((k - 1) / 4).
+  const spent = (t) => (t === 0 ? 0 : 2 - 2 * score.normalCdf(1.959964 / Math.sqrt(t)));
+  const errors = score.spendingIncrements(score.MAX_LOOKS);
   assert.equal(score.MAX_LOOKS, 4);
+  for (const [index, error] of errors.entries()) {
+    assert.ok(Math.abs(error - (spent((index + 1) / 4) - spent(index / 4))) < 1e-8);
+  }
+  // The errors add up to the one-sided error 0.05, so the looks together keep it (union bound).
+  assert.ok(Math.abs(errors.reduce((total, error) => total + error, 0) - 0.05) < 1e-6);
   assert.deepEqual(
-    score.spendingBounds(score.MAX_LOOKS).map((bound) => bound.toFixed(3)),
-    ['3.750', '2.540', '2.016', '1.720'],
+    errors.map((error) => error.toPrecision(3)),
+    ['0.0000886', '0.00549', '0.0181', '0.0264'],
   );
+  // The threshold of look k is 1 / alpha_k.
+  assert.deepEqual(
+    errors.map((error) => Math.round(1 / error)),
+    [11290, 182, 55, 38],
+  );
+  // One look spends the whole error.
+  assert.ok(Math.abs(score.spendingIncrements(1)[0] - 0.05) < 1e-6);
 });
 
-test('a margin pass needs ten cases with a difference, and below that the report says too few differing cases', () => {
-  // B0 is the reference. In each of the 12 cases, `candidate(index)` and `reference(index)` tell whether the arm
-  // found D1.
-  const decision = ({ candidate, reference }, margin) => {
-    const fixture = gridFixture(oneKnownCases(12), [
-      ...singleRuns('B0', 12, 1, reference),
-      ...singleRuns('C1', 12, 1, candidate),
-    ]);
-    const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
-    const report = renderReport(scoreRuns(fixture), { arms, reference: 'B0-xhigh-fast', margin });
-    return tableAfter(report, '### Decision: dev').filter((row) =>
-      /^\| (Cases with an|Not worse|Equivalent)/.test(row),
-    );
-  };
-  const rows = (differing, notWorse, equivalent, margin = 4) => [
-    `| Cases with an escaped difference from B0-xhigh-fast | - | ${differing} |`,
-    `| Not worse than B0-xhigh-fast by ${margin} escaped per 50 known | - | ${notWorse} |`,
-    `| Equivalent to B0-xhigh-fast within ${margin} escaped per 50 known | - | ${equivalent} |`,
-  ];
-  const better = (cases) => ({ candidate: () => true, reference: (index) => index >= cases });
-  // The candidate finds D1 in 9 cases where the reference escapes it. The interval is far below the margin, but 9
-  // cases are too few for a pass.
-  assert.deepEqual(decision(better(9), 4), rows(9, 'too few differing cases', 'too few differing cases'));
-  assert.deepEqual(decision(better(10), 4), rows(10, 'pass', 'no'));
-  // A candidate that escapes D1 in 10 cases where the reference finds it does not pass.
-  assert.deepEqual(
-    decision({ candidate: (index) => index >= 10, reference: () => true }, 4),
-    rows(10, 'no pass', 'no'),
+test('the betting test passes 40 cases without a difference and 5 cases with e = -1 at margin 4, as the rule gives', () => {
+  // At margin 4 the bound of the mean e is 0.08, so the test bets against x = (e + 1) / 2 >= m = 0.54 with the cap
+  // 0.9 / (1 - m). For these values the plug-in bet is above the cap at each case, so each case multiplies the capital
+  // by 1 + 0.9 (m - x) / (1 - m), and the test passes when the product reaches 1 / 0.05 = 20.
+  const m = 0.54;
+  const factor = (x) => 1 + (0.9 * (m - x)) / (1 - m);
+  const fill = (count, value) => Array.from({ length: count }, () => value);
+  const smallest = (x) => Math.ceil(Math.log(20) / Math.log(factor(x)));
+  // All-zero cases: 20 needs ceil(ln 20 / ln(1 + 0.9 * 0.04 / 0.46)) = ceil(39.76) = 40 cases.
+  assert.equal(smallest(0.5), 40);
+  for (const [count, passes] of [
+    [39, false],
+    [40, true],
+  ]) {
+    const result = score.bettingTest(fill(count, 0), { bound: 4 });
+    assert.ok(Math.abs(result.capital - factor(0.5) ** count) < 1e-9);
+    assert.deepEqual([result.rejected, result.threshold, result.stop], [passes, 20, passes ? count : null]);
+  }
+  // The smallest passing count is above the neutral-data limit: (1 - 4 / 50)^n <= 0.05 needs n >= 36.
+  assert.equal(score.neutralDataLimit(4), 36);
+  assert.ok(smallest(0.5) > score.neutralDataLimit(4));
+  // Cases with e = -1: ceil(ln 20 / ln(1 + 0.9 * 0.54 / 0.46)) = ceil(4.67) = 5 cases.
+  assert.equal(smallest(0), 5);
+  for (const [count, passes] of [
+    [4, false],
+    [5, true],
+  ]) {
+    const result = score.bettingTest(fill(count, -1), { bound: 4 });
+    assert.ok(Math.abs(result.capital - factor(0) ** count) < 1e-9);
+    assert.equal(result.rejected, passes);
+  }
+  // A case with e = 1 keeps 1 - 0.9 of the capital; the test stops at the first case that reaches 20.
+  assert.ok(Math.abs(score.bettingTest([1], { bound: 4 }).capital - 0.1) < 1e-12);
+  assert.equal(score.bettingTest(fill(60, -1), { bound: 4 }).stop, 5);
+  // The other sides: `above` mirrors `below`, and `outside` halves each side.
+  assert.equal(score.bettingTest(fill(40, 0), { bound: -4, side: 'above' }).rejected, true);
+  assert.equal(score.bettingTest(fill(60, 0), { bound: 4, side: 'outside' }).rejected, false);
+  // The seed fixes the case order, so a rerun gives the same capital.
+  const mixed = [...fill(50, 0), 0.5, -0.5, 1, -1];
+  assert.equal(score.bettingTest(mixed, { bound: 4 }).capital, score.bettingTest(mixed, { bound: 4 }).capital);
+  assert.notEqual(
+    score.bettingTest(mixed, { bound: 4, seed: 2 }).capital,
+    score.bettingTest(mixed, { bound: 4 }).capital,
   );
-  // Five cases better and five worse: the interval is near -22 to 22 per 50 known, inside a margin of 30.
-  const mixed = { candidate: (index) => index < 5 || index >= 10, reference: (index) => index >= 5 };
-  assert.deepEqual(decision(mixed, 30), rows(10, 'pass', 'yes', 30));
-  // Without a margin, the report gives the count of the differing cases and no margin rows.
-  assert.deepEqual(decision(better(10)), rows(10, 'pass', 'no').slice(0, 1));
+  // The neutral-data limit of each margin: ceil(ln 0.05 / ln(1 - margin / 50)).
+  assert.deepEqual([score.neutralDataLimit(2), score.neutralDataLimit(0)], [74, Number.POSITIVE_INFINITY]);
+  assert.throws(() => score.bettingTest([0], { bound: 50 }), /^Error: bettingTest needs a bound between -50 and 50/);
+  assert.throws(() => score.bettingTest([2], { bound: 4 }), /^Error: bettingTest needs values from -1 to 1$/);
+  assert.throws(() => score.bettingTest([0], { bound: 4, side: 'both' }), /^Error: bettingTest takes the side below/);
 });
 
-test('the report prints the batch drift of each A/A control arm and flags a drift interval that leaves the margin', () => {
+// The runs of an arm on the cases of `known` (case id to known ids) with `runs` runs per case, as gridFixture takes
+// them; `found(caseId, run)` gives the known ids that the run found.
+const caseRuns = (arm, known, runs, found) =>
+  Object.keys(known).flatMap((caseId) =>
+    Array.from({ length: runs }, (_, index) => ({
+      case: caseId,
+      config: 'xhigh-fast',
+      arm,
+      run: index + 1,
+      single: true,
+      rounds: [[60, 600, null, 0, found(caseId, index + 1)]],
+    })),
+  );
+
+// The decision rows of C1 against the reference B0, by label (with `B0` for `B0-xhigh-fast`), from the runs of
+// `candidate` and `reference` (see caseRuns) on the cases of `known`.
+function decisionRows(known, { candidate, reference, runs = 1, margin = 4, seeded = {} }) {
+  const cases = Object.fromEntries(
+    Object.entries(known).map(([id, ids]) => [id, { split: 'dev', known: ids, seeded: seeded[id] }]),
+  );
+  const fixture = gridFixture(cases, [
+    ...caseRuns('B0', known, runs, reference),
+    ...caseRuns('C1', known, runs, candidate),
+  ]);
+  const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
+  const report = renderReport(scoreRuns(fixture), { arms, reference: 'B0-xhigh-fast', margin });
+  const rows = new Map();
+  for (const line of tableAfter(report, '### Decision: dev').slice(2)) {
+    const [label, , cell] = line.slice(2, -2).split(' | ');
+    rows.set(label.replaceAll('B0-xhigh-fast', 'B0'), cell);
+  }
+  return rows;
+}
+
+const oneKnown = (count, first = 1) =>
+  Object.fromEntries(Array.from({ length: count }, (_, index) => [`code-${first + index}`, ['D1']]));
+const everyId = (known) => (caseId) => known[caseId];
+const NOT_WORSE = 'Not worse than B0 by 4 escaped per 50 known: betting test on N, if assumption S holds';
+const EQUIVALENT =
+  'Equivalent to B0 within 4 escaped per 50 known: two one-sided betting tests on N, if assumption S holds';
+const FIXED_CORPUS = 'Not worse than B0 by 4 on these cases, run noise only: a check, not a ship decision';
+const NEUTRAL_LIMIT = 'Neutral-data limit at 4 per 50 known (information)';
+const N_ROW = 'Escaped per 50 known difference from B0, each case weighs 1 (N)';
+
+test('the not-worse row decides on N, so a loss in one heavy case weighs as one case, and W stays information', () => {
+  // 60 cases with one known defect that both arms find, and code-61 with 14 known defects, of which C1 escapes 7.
+  const heavy = Array.from({ length: 14 }, (_, index) => `D${index + 1}`);
+  const known = { ...oneKnown(60), 'code-61': heavy };
+  const rows = decisionRows(known, {
+    reference: everyId(known),
+    candidate: (caseId) => (caseId === 'code-61' ? heavy.slice(7) : known[caseId]),
+  });
+  // W: 7 escaped of 74 known, 4.73 per 50 known, above the margin of 4. N: e = 0.5 in one of 61 cases, 0.41.
+  assert.equal(rows.get('Escaped per 50 known'), '4.73');
+  assert.equal(rows.get(N_ROW), '0.41');
+  assert.equal(rows.get('Cases with known defects shared with B0'), '61');
+  assert.equal(rows.get(NOT_WORSE), 'pass (capital 20.33; threshold 20)');
+  // The W interval stays in the report as information; its upper end is above the margin.
+  assert.equal(rows.get('Escaped per 50 known difference from B0, 90% interval'), '[0.00, 10.50]');
+  assert.equal(rows.get(NEUTRAL_LIMIT), 'neutral-data limit: 61 of 36 cases with known defects');
+  // With one run per case, the fixed-corpus check has no run noise to draw: its interval is N itself.
+  assert.equal(rows.get(FIXED_CORPUS), 'pass (90% run interval [0.41, 0.41])');
+});
+
+test('the per-run statistic fails a candidate that finds a defect in half of its runs only', () => {
+  // 60 cases, 2 runs per arm. B0 finds D1 in each run; C1 finds it in run 1 only in code-1 to code-10. Each of these
+  // cases has e = (0.5 - 0) / 1 = 0.5, so N = 50 * 5 / 60 = 4.17, above the margin. A count of the defects that any
+  // run found would show no difference.
+  const known = oneKnown(60);
+  const halfRun = new Set(Object.keys(known).slice(0, 10));
+  const rows = decisionRows(known, {
+    runs: 2,
+    reference: everyId(known),
+    candidate: (caseId, run) => (halfRun.has(caseId) && run === 2 ? [] : known[caseId]),
+  });
+  assert.equal(rows.get('Cases with an escaped difference from B0'), '10');
+  assert.equal(rows.get(N_ROW), '4.17');
+  assert.equal(rows.get(NOT_WORSE), 'no pass (capital 0.34; threshold 20)');
+  // The fixed-corpus check bootstraps the runs of these cases only. Its upper end is above the margin too.
+  assert.equal(rows.get(FIXED_CORPUS), 'no pass (90% run interval [2.50, 5.83])');
+});
+
+test('the equivalence row runs two one-sided betting tests and fails in each direction', () => {
+  const known = oneKnown(60);
+  const all = everyId(known);
+  const none = () => [];
+  // Equal arms: the not-worse test passes at 40 of the 60 cases (see the hand computation above), and so does the
+  // mirrored test of a mean e of -0.08 or less.
+  const equal = decisionRows(known, { candidate: all, reference: all });
+  const capital = (1 + (0.9 * 0.04) / 0.46) ** 40;
+  assert.equal(equal.get(NOT_WORSE), `pass (capital ${capital.toFixed(2)}; threshold 20)`);
+  assert.equal(equal.get(EQUIVALENT), `yes (capitals ${capital.toFixed(2)}, ${capital.toFixed(2)}; threshold 20)`);
+  assert.equal(equal.get(FIXED_CORPUS), 'pass (90% run interval [0.00, 0.00])');
+  assert.equal(equal.get(NEUTRAL_LIMIT), 'neutral-data limit: 60 of 36 cases with known defects');
+  // C1 better in each case: not worse passes at 5 cases, but the test of a mean e of -0.08 or less does not reject.
+  const better = decisionRows(known, { candidate: all, reference: none });
+  assert.equal(better.get(N_ROW), '-50.00');
+  assert.equal(better.get(NOT_WORSE), `pass (capital ${((1 + (0.9 * 0.54) / 0.46) ** 5).toFixed(2)}; threshold 20)`);
+  assert.match(better.get(EQUIVALENT), /^no \(capitals /);
+  // C1 worse in each case: neither test passes.
+  const worse = decisionRows(known, { candidate: none, reference: all });
+  assert.match(worse.get(NOT_WORSE), /^no pass \(capital /);
+  assert.match(worse.get(EQUIVALENT), /^no \(capitals /);
+  assert.equal(worse.get(FIXED_CORPUS), 'no pass (90% run interval [50.00, 50.00])');
+});
+
+test('the decision table gives the share of seeded cases when the case metadata tells it', (t) => {
+  const known = oneKnown(4);
+  const all = everyId(known);
+  const seededRow = 'Seeded cases of the shared cases with known defects';
+  const seeded = { 'code-1': true, 'code-2': false, 'code-3': false, 'code-4': false };
+  assert.equal(decisionRows(known, { candidate: all, reference: all, seeded }).get(seededRow), '1 of 4 (0.25)');
+  // One case that does not tell it gives no share.
+  const partial = { ...seeded, 'code-4': undefined };
+  assert.equal(decisionRows(known, { candidate: all, reference: all, seeded: partial }).get(seededRow), '-');
+  // `report` reads the flag from case.json: a code case with a patch is seeded, and a plan case does not tell it.
+  const ws = path.join(scratch(t), 'ws');
+  const always = () => true;
+  const runs = [...singleRuns('B0', 2, 1, always), ...singleRuns('C1', 2, 1, always)];
+  writeFixture(ws, gridFixture(oneKnownCases(2), runs));
+  put(ws, 'code-1/case.json', { id: 'code-1', kind: 'code', split: 'dev', patch: 'plant.patch' });
+  put(ws, 'code-2/case.json', { id: 'code-2', kind: 'code', split: 'dev' });
+  const cli = ['report', ws, '--arms', 'B0-xhigh-fast,C1-xhigh-fast', '--reference', 'B0-xhigh-fast'];
+  const row = () =>
+    tableAfter(readText(path.join(ws, 'report.md')), '### Decision: dev').find((line) => line.startsWith('| Seeded'));
+  main(cli);
+  assert.equal(row(), `| ${seededRow} | - | 1 of 2 (0.50) |`);
+  put(ws, 'code-2/case.json', { id: 'code-2', kind: 'plan', split: 'dev' });
+  main(cli);
+  assert.equal(row(), `| ${seededRow} | - | - |`);
+  assert.throws(() => main([...cli, '--margin', '50']), { message: 'report --margin needs a margin below 50, not 50' });
+});
+
+test('the report prints the batch drift of each A/A control arm with the two-sided betting test', () => {
   // dev: B3, its control copy AB3, and C3 on 6 cases; AB3 runs like B3. heldout: B3 and AB3 on 5 cases, where AB3
   // escapes D1 in 3 of them.
   const cases = { ...oneKnownCases(6), ...oneKnownCases(5, 'heldout', 7) };
@@ -8749,88 +8919,79 @@ test('the report prints the batch drift of each A/A control arm and flags a drif
   const scores = scoreRuns(gridFixture(cases, runs));
   const drift = (report, split) => tableAfter(report, `### Batch drift: ${split}`);
   const header = [
-    '| Control | Baseline | Cases shared | Cases with a difference | Escaped per 50 known difference, 90% interval | Drift |',
-    '| --- | --- | ---: | ---: | --- | --- |',
+    '| Control | Baseline | Cases shared | Cases with a difference | Escaped per 50 known difference, 90% interval | N | Two-sided capital | Drift |',
+    '| --- | --- | ---: | ---: | --- | ---: | ---: | --- |',
   ];
   const withMargin = renderReport(scores, { margin: 4 });
   assert.deepEqual(drift(withMargin, 'dev'), [
     ...header,
-    '| AB3-xhigh-fast | B3-xhigh-fast | 6 | 0 | [0.00, 0.00] | inside ±4 |',
+    '| AB3-xhigh-fast | B3-xhigh-fast | 6 | 0 | [0.00, 0.00] | 0.00 | 0.33 | not shown to leave ±4 |',
   ]);
   // Five shared cases are too few for a drift check.
   assert.match(
     drift(withMargin, 'heldout')[2],
-    /^\| AB3-xhigh-fast \| B3-xhigh-fast \| 5 \| 3 \| \[.*\] \| too few cases \(5 of 6\) \|$/,
+    /^\| AB3-xhigh-fast \| B3-xhigh-fast \| 5 \| 3 \| \[.*\] \| .* \| too few cases \(5 of 6\) \|$/,
   );
-  // Without a margin, the report gives the drift interval and no check.
-  assert.match(drift(renderReport(scores), 'dev')[2], /\| \[0\.00, 0\.00\] \| no margin \|$/);
+  // Without a margin, the report gives the drift values and no check.
+  assert.match(drift(renderReport(scores), 'dev')[2], /\| \[0\.00, 0\.00\] \| 0\.00 \| - \| no margin \|$/);
   // A control copy is no configuration column: the configuration table counts the B3 and C3 runs only.
   assert.ok(tableAfter(withMargin, '### Decision: dev').includes('| Runs | 12 |'));
-  // A drift of 3 of 6 cases leaves a margin of 4. Three escapes of AB3 in a draw of 6 cases give 25 per 50 known.
+  // AB3 escapes D1 in each of 8 cases that B3 finds, so e = 1 in each case. Half of K+ at 0.54 grows by 1 + (0.9 /
+  // 0.54) 0.46 per case, and it reaches 20 at the 7th case: the drift leaves ±4.
   const drifting = scoreRuns(
-    gridFixture(oneKnownCases(6), [
-      ...singleRuns('B3', 6, 1, () => true),
-      ...singleRuns('AB3', 6, 1, (index) => index >= 3),
-    ]),
+    gridFixture(oneKnownCases(8), [...singleRuns('B3', 8, 1, () => true), ...singleRuns('AB3', 8, 1, () => false)]),
   );
-  assert.match(
+  const stop = (0.5 * (1 + (0.9 / 0.54) * 0.46) ** 7).toFixed(2);
+  assert.equal(
     drift(renderReport(drifting, { margin: 4 }), 'dev')[2],
-    /\| 6 \| 3 \| \[8\.33, 41\.67\] \| leaves ±4 \|$/,
+    `| AB3-xhigh-fast | B3-xhigh-fast | 8 | 8 | [50.00, 50.00] | 50.00 | ${stop} | leaves ±4 |`,
   );
   // A workspace without a control arm has no drift section.
   const withoutControl = renderReport(scoreRuns(gridFixture(oneKnownCases(6), runs.slice(0, 6))));
   assert.equal(withoutControl.includes('## Batch drift'), false);
 });
 
-test('the sequential looks use the alpha-spending bound of each look and stop at the first pass or fail', (t) => {
+test('each sequential look runs the betting test at the error that it spends, with the threshold 1 / error', (t) => {
   const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
   const looks = (candidate, reference) => {
-    const fixture = gridFixture(oneKnownCases(12), [
-      ...singleRuns('B0', 12, 4, reference),
-      ...singleRuns('C1', 12, 4, candidate),
+    const fixture = gridFixture(oneKnownCases(60), [
+      ...singleRuns('B0', 60, 4, reference),
+      ...singleRuns('C1', 60, 4, candidate),
     ]);
     const report = renderReport(scoreRuns(fixture), { arms, reference: 'B0-xhigh-fast', margin: 4, sequential: true });
-    return tableAfter(report, '### Sequential looks: dev');
+    return tableAfter(report, '### Sequential looks: dev')
+      .slice(2)
+      .map((row) => row.slice(2, -2).split(' | '));
   };
-  const cells = (rows) => rows.slice(2).map((row) => row.split(' | '));
-  // The bound of look k is the bound of the Lan-DeMets O'Brien-Fleming spending for 4 looks.
-  const bounds = ['3.750', '2.540', '2.016', '1.720'];
-  // The candidate finds D1 in every run. The reference escapes it in every run of 9 cases, and in case 10 in run 2
-  // only. Look 1 has 9 differing cases, too few for a pass; look 2 has 10, and its interval is below the margin.
   const always = () => true;
   const never = () => false;
-  const first = cells(looks(always, (index, run) => index >= 10 || (index === 9 && run !== 2)));
+  // Equal arms: each look has 60 cases without a difference. Their capital grows by 1 + 0.9 * 0.04 / 0.46 per case,
+  // to about 92 after 60 cases: below the thresholds 11290 and 182 of looks 1 and 2. Look 3 has the threshold 55.4 and
+  // stops after ceil(ln 55.4 / ln(1 + 0.9 * 0.04 / 0.46)) = 54 cases with a pass.
+  const equal = looks(always, always);
   assert.deepEqual(
-    first.map((row) => [row[1], row[2], row[4], row[5], row[8]]),
+    equal.map((row) => [row[1], row[2], row[3], row[4], row[5], row[9]]),
     [
-      ['1', '12 / 12', '9', bounds[0], 'continue: too few differing cases |'],
-      ['2', '24 / 24', '10', bounds[1], 'pass: stop |'],
-      ['3', '36 / 36', '10', bounds[2], 'after the stop at look 2 |'],
-      ['4', '48 / 48', '10', bounds[3], 'after the stop at look 2 |'],
+      ['1', '60 / 60', '60', '0.0000886', '11290', 'continue'],
+      ['2', '120 / 120', '60', '0.00549', '182', 'continue'],
+      ['3', '180 / 180', '60', '0.0181', '55', 'pass: stop'],
+      ['4', '240 / 240', '60', '0.0264', '38', 'after the stop at look 3'],
     ],
   );
-  // Look 1 of the same arms: 9 of 12 cases differ by one escaped defect, so the difference is -37.50 per 50 known.
-  assert.equal(first[0][6], '-37.50');
-  // Equal arms: no case differs, so no look passes, and the last look stops without a pass.
-  const equal = cells(looks(always, always));
+  const factor = 1 + (0.9 * 0.04) / 0.46;
+  assert.equal(equal[0][7], (factor ** 60).toFixed(2));
+  const stopAt = Math.ceil(Math.log(1 / score.spendingIncrements(4)[2]) / Math.log(factor));
+  assert.equal(stopAt, 54);
+  assert.equal(equal[2][7], (factor ** stopAt).toFixed(2));
+  // A candidate that escapes D1 in every run of every case has e = 1: the worse test reaches 11290 at look 1.
+  const worse = looks(never, always);
   assert.deepEqual(
-    equal.map((row) => [row[1], row[5], row[7], row[8]]),
+    worse.map((row) => [row[1], row[6], row[9]]),
     [
-      ['1', bounds[0], '[0.00, 0.00]', 'continue: too few differing cases |'],
-      ['2', bounds[1], '[0.00, 0.00]', 'continue: too few differing cases |'],
-      ['3', bounds[2], '[0.00, 0.00]', 'continue: too few differing cases |'],
-      ['4', bounds[3], '[0.00, 0.00]', 'no pass: stop |'],
-    ],
-  );
-  // A candidate that escapes D1 in every run of every case is 50 per 50 known worse: it fails at look 1.
-  const worse = cells(looks(never, always));
-  assert.deepEqual(
-    worse.map((row) => [row[1], row[7], row[8]]),
-    [
-      ['1', '[50.00, 50.00]', 'fail: stop |'],
-      ['2', '[50.00, 50.00]', 'after the stop at look 1 |'],
-      ['3', '[50.00, 50.00]', 'after the stop at look 1 |'],
-      ['4', '[50.00, 50.00]', 'after the stop at look 1 |'],
+      ['1', '50.00', 'fail: stop'],
+      ['2', '50.00', 'after the stop at look 1'],
+      ['3', '50.00', 'after the stop at look 1'],
+      ['4', '50.00', 'after the stop at look 1'],
     ],
   );
   // The command line takes --sequential as a switch with --reference and --margin.
@@ -8845,48 +9006,82 @@ test('the sequential looks use the alpha-spending bound of each look and stop at
   });
 });
 
-test('power reads an A/A workspace and prints the standard error and the cases that each margin needs', (t) => {
-  // B3 escapes D1 in code-1 and its control copy AB3 in code-2, so the differences of AB3 are -1, 1, 0, and 0, and
-  // the estimate is 0. The standard error is 50 sqrt(4/3 * 2) / 4 = 20.41 per 50 known.
-  const ws = path.join(scratch(t), 'ws');
+test('power prints the noise, the neutral-data limit, the corpus cases per reviewer, and a seeded size table', (t) => {
+  // B3 escapes D1 in code-1 and its control copy AB3 in code-2, so the differences of AB3 are -1, 1, 0, and 0.
+  const root = scratch(t);
+  const ws = path.join(root, 'ws');
   const fixture = gridFixture(oneKnownCases(4), [
     ...singleRuns('B3', 4, 1, (index) => index !== 0),
     ...singleRuns('AB3', 4, 1, (index) => index !== 1),
   ]);
   writeFixture(ws, fixture);
-  const se = (50 * Math.sqrt((4 / 3) * 2)) / 4;
-  const z = score.normalQuantile(0.95) + score.normalQuantile(0.8);
-  // 4 cases at 1 run per arm give the error se, so c cases at r runs give se sqrt(4 / (c r)).
-  const needed = (margin) => [1, 2, 3, 4].map((runs) => Math.ceil((4 * ((z * se) / margin) ** 2) / runs));
-  const plan = score.powerPlan(
-    [
-      { values: [1], references: [0], known: 1 },
-      { values: [0], references: [1], known: 1 },
-      { values: [0], references: [0], known: 1 },
-      { values: [0], references: [0], known: 1 },
+  // The standard error of W is 50 sqrt(4/3 * 2) / 3 for 3 known defects; N leaves out the case without one.
+  const noise = score.aaNoise([
+    { values: [1], references: [0], known: 1 },
+    { values: [0], references: [1], known: 1 },
+    { values: [0], references: [0], known: 1 },
+    { values: [0], references: [0], known: 0 },
+  ]);
+  assert.ok(Math.abs(noise.se - (50 * Math.sqrt((4 / 3) * 2)) / 3) < 1e-9);
+  assert.deepEqual([noise.withKnown, noise.normalized], [3, 0]);
+  // A corpus: dev has a code case with 1 known defect, a plan case with 2, and a control; heldout has a code-delta
+  // case with a key list of 3, a plan-delta case with a key object of 2, a plan case without a key file, and a file
+  // that is no case.
+  const cases = path.join(root, 'cases');
+  const known = (count) => Array.from({ length: count }, (_, index) => ({ id: `K${index + 1}`, title: 'Hidden' }));
+  put(cases, 'dev/code-1.json', { id: 'code-1', kind: 'code', split: 'dev', known: known(1) });
+  put(cases, 'dev/plan-2.json', { id: 'plan-2', kind: 'plan', split: 'dev', known: known(2) });
+  put(cases, 'dev/code-3.json', { id: 'code-3', kind: 'code', split: 'dev', control: true, known: [] });
+  put(cases, 'heldout/code-4.json', { id: 'code-4', kind: 'code-delta', split: 'heldout' });
+  put(cases, 'heldout/code-4.key.json', known(3));
+  put(cases, 'heldout/plan-5.json', { id: 'plan-5', kind: 'plan-delta', split: 'heldout' });
+  put(cases, 'heldout/plan-5.key.json', { known: known(2) });
+  put(cases, 'heldout/plan-6.json', { id: 'plan-6', kind: 'plan', split: 'heldout' });
+  put(cases, 'heldout/notes.json', { text: 'no case' });
+  assert.deepEqual(score.corpusCounts(cases), {
+    rows: [
+      { reviewer: 'code-reviewer', dev: 1, heldout: 1 },
+      { reviewer: 'plan-reviewer', dev: 1, heldout: 1 },
     ],
-    { margins: [2, 4] },
-  );
-  assert.ok(Math.abs(plan.se - se) < 1e-9);
-  assert.deepEqual(
-    plan.rows.map((entry) => entry.cases),
-    [needed(2), needed(4)],
-  );
-  const lines = main(['power', ws]).split('\n');
-  assert.deepEqual(lines.slice(0, 6), [
+    missingKeys: 1,
+    knownCounts: [1, 2, 3, 2],
+  });
+  // The detection rates of the 4 pilot defects are 0.5, 0.5, 1, and 1 (one run of each arm per case), and the corpus
+  // gives the known counts 1, 2, 3, and 2. The seeded simulation then gives the same table each time.
+  const lines = main(['power', ws, '--cases', cases]).replace(cases, '<cases>').split('\n');
+  assert.deepEqual(lines, [
     'A/A comparison: AB3-xhigh-fast against B3-xhigh-fast, 4 cases, 1.0 runs per arm and case, 4 known defects',
     'Cases with a difference: 2 of 4',
-    'Escaped per 50 known difference: 0.00, standard error 20.41',
+    'Escaped per 50 known difference (W): 0.00, standard error 20.41',
+    'Escaped per 50 known difference, each case weighs 1 (N): 0.00 over 4 cases with known defects',
+    '',
+    '| Margin per 50 known | Neutral-data limit |',
+    '|---:|---:|',
+    '| 2 | 74 |',
+    '| 4 | 36 |',
+    '',
+    'Below the neutral-data limit of a margin, no valid not-worse rule can pass a candidate that differs in no case: such a pass needs (1 - margin / 50)^n at or below 0.05 for n cases with known defects. A candidate that is better in enough cases can pass with fewer.',
+    '',
+    '| Reviewer | Dev cases with known defects | Held-out cases with known defects |',
+    '|---|---:|---:|',
+    '| code-reviewer | 1 | 1 |',
+    '| plan-reviewer | 1 | 1 |',
+    '',
+    'The cases of the corpus <cases>, by count only. Held-out cases without a key file: 1.',
     '',
     '| Margin per 50 known | Cases at 1 run | Cases at 2 runs | Cases at 3 runs | Cases at 4 runs |',
     '|---:|---:|---:|---:|---:|',
+    '| 2 | > 400 | > 400 | > 400 | 313 |',
+    '| 4 | > 400 | 160 | 98 | 82 |',
+    '',
+    'A cell gives the smallest number of cases with known defects at which at least 80% of 1000 seeded neutral simulations pass the not-worse betting test at that margin. A simulated case draws its known defects from the 4 cases with known defects of the corpus, and each of its defects draws its detection rate from the 4 known defects of the A/A comparison, the same for both arms.',
   ]);
-  assert.deepEqual(lines.slice(6, 8), [`| 2 | ${needed(2).join(' | ')} |`, `| 4 | ${needed(4).join(' | ')} |`]);
-  const explicit = main(['power', ws, '--arms', 'B3-xhigh-fast,AB3-xhigh-fast', '--margins', '3']);
-  assert.equal(explicit.split('\n')[6], `| 3 | ${needed(3).join(' | ')} |`);
+  const explicit = main(['power', ws, '--arms', 'B3-xhigh-fast,AB3-xhigh-fast', '--margins', '3', '--cases', cases]);
+  assert.ok(explicit.split('\n').includes('| 3 | 49 |'));
   assert.throws(() => main(['power', ws, '--margins', '0']), { message: '--margins needs margins above 0' });
+  assert.throws(() => main(['power', ws, '--margins', '50']), { message: '--margins needs margins below 50' });
   // Without a control arm, power needs --arms.
-  const plain = path.join(scratch(t), 'plain');
+  const plain = path.join(root, 'plain');
   const always = () => true;
   writeFixture(plain, gridFixture(oneKnownCases(4), singleRuns('B3', 4, 1, always)));
   assert.throws(() => main(['power', plain]), /^Error: power needs one A\/A pair of a control arm A<folder>/);

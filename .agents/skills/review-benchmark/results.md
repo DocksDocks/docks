@@ -1403,3 +1403,48 @@ A cell gives the cases that 80% power needs for a not-worse decision at that mar
 - 2 runs per arm and 12 cases, with 30 known defects. The standard error comes from 1 differing case, so it is rough.
 - The read-scope check takes a glob exclusion pattern (`!<path>`) as a read outside the inputs.
 - Fixers asked the operator over IRC about findings that they could not repair inside the patch scope: findings against the plan export only, and an API conflict in `code-89-r1`. Four fixer dispatches of three fixer prompts returned a failure. One prompt (`code-89-r1/AC3-high/run-1/round-4`) wrote no patch twice and ran three times in total.
+
+### Addendum 2026-11-17: the pilot under rule F13
+
+Plan #135 step 8 replaced the decision rule after this pilot (decision F13 of the plan, see `SKILL.md`, Decisions). The measure is N, the escaped difference per 50 known with each case weighing 1. The not-worse row is a one-sided betting test on N (Waudby-Smith and Ramdas, JRSS-B 2024). It caps the bet at 0.9/(1 − margin/50) and uses the threshold 20, and its claim needs assumption S. W and the bootstrap intervals stay as information. The gate of 10 differing cases is gone, so rule F13 supersedes the `too few differing cases` rows above. The earlier text of this entry stays as it was. The outputs below come from `score.mjs` at step 8 on the restored pilot workspace.
+
+`score.mjs power <ws> --arms C3-high,AC3-high --margins 2,4`:
+
+- 12 cases, 1.9 runs per arm and case, 30 known defects, 1 case with a difference.
+- W: 0.83 per 50 known, standard error 0.76. N: 0.52 over the 8 cases with known defects.
+
+| Margin per 50 known | Neutral-data limit |
+|---:|---:|
+| 2 | 74 |
+| 4 | 36 |
+
+| Reviewer | Dev cases with known defects | Held-out cases with known defects |
+|---|---:|---:|
+| code-reviewer | 14 | 23 |
+| plan-reviewer | 19 | 44 |
+
+Smallest number of cases with known defects at which at least 80% of 1000 seeded neutral simulations pass the not-worse betting test. A simulated case draws its known defects from the 100 corpus cases with known defects, and each defect draws its detection rate from the 30 pilot defects:
+
+| Margin per 50 known | Cases at 1 run | Cases at 2 runs | Cases at 3 runs | Cases at 4 runs |
+|---:|---:|---:|---:|---:|
+| 2 | 175 | 109 | 101 | 97 |
+| 4 | 51 | 47 | 46 | 44 |
+
+`score.mjs report <ws> --arms C3-high,AC3-high --reference C3-high --margin 4`, the rows of `AC3-high` against `C3-high` that F13 adds:
+
+| Measure | AC3-high |
+|---|---:|
+| Cases with known defects shared with C3-high | 8 |
+| Seeded cases of the shared cases with known defects | 1 of 8 (0.13) |
+| Escaped per 50 known difference from C3-high, each case weighs 1 (N) | -0.52 |
+| Not worse than C3-high by 4 escaped per 50 known: betting test on N, if assumption S holds | no pass (capital 1.97; threshold 20) |
+| Equivalent to C3-high within 4 escaped per 50 known: two one-sided betting tests on N, if assumption S holds | no (capitals 1.97, 1.69; threshold 20) |
+| Not worse than C3-high by 4 on these cases, run noise only: a check, not a ship decision | pass (90% run interval [-1.04, 0.00]) |
+| Neutral-data limit at 4 per 50 known (information) | neutral-data limit: 8 of 36 cases with known defects |
+
+- The rows before them did not change: W 34.26 and 32.76, the W interval [-2.50, 0.00], 1 case with an escaped difference, and the Poisson p values 0.3877 and 0.6875. No row gives the result of the old gate.
+- Batch drift: `AC3-high` against `C3-high`, 12 shared cases, N -0.52, two-sided capital 0.31, `not shown to leave ±4`.
+- The pilot has 8 cases with known defects, below the neutral-data limit of 36. A pair that differs this little cannot pass on so few cases, and the betting row gives no pass with the capital 1.97. The fixed-corpus check passes, but it covers only these 8 cases and is no ship decision.
+- The size table agrees with the research of the plan: about 48 cases at 2 runs and 45 at 4 runs at margin 4. The 23 held-out `code-reviewer` cases are below the neutral-data limit, and the 44 `plan-reviewer` cases reach the 80% line only at 4 runs.
+- `score.mjs` cuts the bet of the not-worse side at 0.9 / (1 - m), as Waudby-Smith and Ramdas do, so one case keeps at least 0.1 of the capital. At margin 4, cases without a difference then pass from 40 cases, and cases with e = -1 from 5 cases; the unit tests pin both counts. The research simulation of the plan cut that side at 0.9 / m, which gives capitals of about 10.2 for 36 cases without a difference and 13.0 for 4 cases with e = -1.
+- Limits: the detection rates come from the 30 defects of 12 dev code cases. The simulation applies them to the plan cases too [INFERENCE: plan detection rates are like code detection rates].

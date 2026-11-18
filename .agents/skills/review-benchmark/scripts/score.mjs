@@ -3,7 +3,8 @@
 // finding whose text changed or that is gone, `pairs` builds the judge input, `report` turns the judgments, the run
 // metadata, and the manager verdicts into recall, cost, configuration or arm tables, the exact tests of the wrong and
 // unknown findings, the batch drift, the sequential looks, the stage and control tables, and the self-review lead,
-// `power` plans the sample size of a decision from an A/A workspace, `sample` picks the answers of the second judge,
+// `power` gives the noise of an A/A workspace, the neutral-data limit, the corpus cases per reviewer, and a simulated
+// sample size of a decision, `sample` picks the answers of the second judge,
 // `transcripts` fills the run metadata, the read scope, and the read coverage of each reviewer from omp subagent
 // transcripts, and `names` prints the dispatch name of every prompt that the operator still dispatches (a fixer prompt
 // only until its patch exists, a manager prompt only until its verdict file exists). `loadJudgments`, `fixPlan`, and
@@ -12,14 +13,14 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   parsePlan,
   parseReviewComment,
 } from '../../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
 
 const USAGE =
-  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...>] [--reference <column>] [--margin <per 50 known>] [--sequential] [--lead <folder,...> --lead-ref <folder>] | power <ws> [--keys <keys-dir>] [--arms <folder>,<folder>] [--margins <per 50 known,...>] | sample <ws> [--seed <n>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
+  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...>] [--reference <column>] [--margin <per 50 known>] [--sequential] [--lead <folder,...> --lead-ref <folder>] | power <ws> [--keys <keys-dir>] [--arms <folder>,<folder>] [--margins <per 50 known,...>] [--cases <cases-dir>] | sample <ws> [--seed <n>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
 const CASE_KINDS = new Set(['code', 'code-delta', 'plan', 'plan-delta']);
 const REVIEWER_ORDER = ['full', 'correctness', 'spec-and-tests', 'text-and-safety', 'delta', 'plan'];
 const RUN_DIR = /^run-(\d+)$/;
@@ -1059,6 +1060,7 @@ function scoreRun(run, caseEntry, judged, metas) {
     loop: run.hasRounds,
     rounds: roundScores,
     control: caseEntry.control === true,
+    seeded: caseEntry.seeded ?? null,
     manager,
     finalFound: run.hasRounds ? knownIds.filter((id) => repaired.has(id)) : null,
   };
@@ -1149,18 +1151,14 @@ function quantile(sorted, share) {
 
 const meanOf = (values) => sum(values) / values.length;
 
-// A pass of a decision needs at least this many cases whose two columns differ. Detection is close to fixed for each
-// known defect, so only a few cases of a comparison differ, and a bootstrap over so few cases gives too narrow an
-// interval.
-export const MIN_DIFFERING_CASES = 10;
-
 // A two-level paired bootstrap. Each case is `{ values, references, weight = 1 }`: the values of the runs of a column
 // and of the reference column in the case. The statistic of a set of cases is the sum of mean(values) -
 // mean(references) over the cases, divided by the sum of their weights. A resample draws as many cases as there are,
-// with replacement, and then, in each drawn case, as many runs of each column as the case has, with replacement. A
-// list of one run gives that run and draws no random number. `sd` is the standard deviation of the resampled
-// statistics, and `differing` counts the cases whose two means differ.
-export function pairedBootstrap(cases, { seed = 1, resamples = 10000, level = 0.9 } = {}) {
+// with replacement, and then, in each drawn case, as many runs of each column as the case has, with replacement. With
+// `fixedCases`, a resample takes each case once and draws only its runs: the interval then shows the run noise of
+// these cases only. A list of one run gives that run and draws no random number. `sd` is the standard deviation of the
+// resampled statistics, and `differing` counts the cases whose two means differ.
+export function pairedBootstrap(cases, { seed = 1, resamples = 10000, level = 0.9, fixedCases = false } = {}) {
   const items = cases.map(({ values, references, weight = 1 }) => ({ values, references, weight }));
   const differing = items.filter((item) => meanOf(item.values) !== meanOf(item.references)).length;
   const weight = sum(items.map((item) => item.weight));
@@ -1179,7 +1177,7 @@ export function pairedBootstrap(cases, { seed = 1, resamples = 10000, level = 0.
     let difference = 0;
     let drawnWeight = 0;
     for (let index = 0; index < items.length; index += 1) {
-      const item = items[Math.floor(random() * items.length)];
+      const item = fixedCases ? items[index] : items[Math.floor(random() * items.length)];
       difference += draw(item.values) - draw(item.references);
       drawnWeight += item.weight;
     }
@@ -1237,55 +1235,88 @@ export function normalQuantile(share) {
 
 // A sequential decision looks at most this many times: look k has k runs per case.
 export const MAX_LOOKS = 4;
-// The one-sided error of a not-worse decision, the error of the upper bound of a 90% interval.
+// The one-sided error of a not-worse decision.
 const DECISION_ALPHA = 0.05;
-// The step of the integration grid of spendingBounds, on the scale of the sum statistic.
-const BOUND_GRID_STEP = 0.02;
-const boundCache = new Map();
 
-// The one-sided group-sequential bounds of `looks` equally spaced looks with the error `alpha`, from the
-// O'Brien-Fleming spending function of Lan and DeMets (Biometrika 70, 1983): alpha(t) = 2 - 2 Phi(z(1 - alpha / 2) /
-// sqrt(t)). Look k gets the bound z_k of its standard normal statistic, so that the chance to cross a bound first at
-// look k under no difference is alpha(k / looks) - alpha((k - 1) / looks). The density of the sum statistic on the
-// region that did not stop goes from look to look on a grid with Simpson weights.
-export function spendingBounds(looks, alpha = DECISION_ALPHA) {
-  const key = `${looks} ${alpha}`;
-  if (boundCache.has(key)) return boundCache.get(key);
+// The error that each of `looks` equally spaced looks spends, from the O'Brien-Fleming spending function of Lan and
+// DeMets (Biometrika 70, 1983): alpha(t) = 2 - 2 Phi(z(1 - alpha / 2) / sqrt(t)), and look k spends alpha(k / looks) -
+// alpha((k - 1) / looks). The errors add up to `alpha`, so tests at these errors keep the chance of a false pass over
+// all looks at most `alpha` (union bound).
+export function spendingIncrements(looks, alpha = DECISION_ALPHA) {
   const zHalf = normalQuantile(1 - alpha / 2);
   const spent = (t) => (t === 0 ? 0 : 2 * (1 - normalCdf(zHalf / Math.sqrt(t))));
-  const floor = -10;
-  const bounds = [];
-  let grid = null;
-  for (let look = 1; look <= looks; look += 1) {
-    const [before, now] = [(look - 1) / looks, look / looks];
-    const target = spent(now) - spent(before);
-    const sd = Math.sqrt(now - before);
-    const crossing = (bound) =>
-      grid === null
-        ? 1 - normalCdf(bound / sd)
-        : sum(grid.map(([point, mass]) => mass * (1 - normalCdf((bound - point) / sd))));
-    let [lower, upper] = [floor, 20];
-    for (let step = 0; step < 100; step += 1) {
-      const middle = (lower + upper) / 2;
-      if (crossing(middle) > target) lower = middle;
-      else upper = middle;
-    }
-    const bound = (lower + upper) / 2;
-    bounds.push(bound / Math.sqrt(now));
-    const intervals = 2 * Math.ceil((bound - floor) / BOUND_GRID_STEP / 2);
-    const width = (bound - floor) / intervals;
-    const density = (point) =>
-      grid === null
-        ? normalDensity(point / sd) / sd
-        : sum(grid.map(([other, mass]) => (mass * normalDensity((point - other) / sd)) / sd));
-    grid = Array.from({ length: intervals + 1 }, (_, index) => {
-      const point = floor + index * width;
-      const simpson = index === 0 || index === intervals ? 1 : index % 2 ? 4 : 2;
-      return [point, ((simpson * width) / 3) * density(point)];
-    });
+  return Array.from({ length: looks }, (_, index) => spent((index + 1) / looks) - spent(index / looks));
+}
+
+// The bet cap c of the betting test: one case can take at most this share of the capital.
+export const BET_CAP = 0.9;
+// The sides of the betting test (see bettingTest).
+const BETTING_SIDES = new Set(['below', 'above', 'outside']);
+
+// The capital after each value of `xs` (values in [0, 1]) of one betting process of Waudby-Smith and Ramdas
+// ("Estimating means of bounded random variables by betting", JRSS-B 86(1), 2024, section 4). `direction` +1 bets that
+// the mean is above `m` (K+: factor 1 + bet (x - m)), and -1 that it is below `m` (K-: factor 1 - bet (x - m)). The
+// bet is the predictable plug-in sqrt(2 ln(odds) / (variance t ln(1 + t))), from the values before case t only: the
+// variance is (1/4 + sum of (x_i - mean_i)^2) / t over the earlier cases, where mean_i = (1/2 + x_1 + ... + x_i) /
+// (i + 1). The bet is cut at BET_CAP / m for K+ and BET_CAP / (1 - m) for K-, so one case keeps at least 1 - BET_CAP of
+// the capital.
+function bettingCapital(xs, m, direction, odds) {
+  const cap = BET_CAP / (direction > 0 ? m : 1 - m);
+  const capitals = [];
+  let capital = 1;
+  let total = 0;
+  let squares = 0;
+  for (let t = 1; t <= xs.length; t += 1) {
+    const variance = (0.25 + squares) / t;
+    const bet = Math.min(cap, Math.sqrt((2 * Math.log(odds)) / (variance * t * Math.log(1 + t))));
+    const x = xs[t - 1];
+    capital *= 1 + direction * bet * (x - m);
+    capitals.push(capital);
+    total += x;
+    squares += (x - (0.5 + total) / (t + 1)) ** 2;
   }
-  boundCache.set(key, bounds);
-  return bounds;
+  return capitals;
+}
+
+// The betting test of the mean of the per-case values `effects` in [-1, 1]. It maps each value e to (e + 1) / 2 in
+// [0, 1] and takes the cases in a seeded random order. `bound` is in escaped defects per 50 known, so the bound of the
+// mean is b = bound / 50:
+// - `below` tests H0 "mean >= b" with K- at (1 + b) / 2; a rejection shows a mean below b.
+// - `above` tests H0 "mean <= b" with K+ at (1 + b) / 2; a rejection shows a mean above b.
+// - `outside` tests H0 "-|b| <= mean <= |b|" with the hedged capital max(K+ at (1 + |b|) / 2, K- at (1 - |b|) / 2) / 2;
+//   a rejection shows a mean outside -|b| to |b|.
+// The test stops at the first case at which the capital reaches the threshold 1 / alpha, and then rejects. By
+// Ville's inequality, a true H0 gives a rejection with a chance of at most alpha. `capital` is the capital at the stop,
+// else after the last case, and `stop` the number of cases at the stop, else null.
+export function bettingTest(effects, { bound, side = 'below', alpha = DECISION_ALPHA, seed = 1 } = {}) {
+  if (!BETTING_SIDES.has(side)) fail(`bettingTest takes the side below, above, or outside, not ${side}`);
+  if (!(Math.abs(bound) < 50)) fail(`bettingTest needs a bound between -50 and 50 per 50 known, not ${bound}`);
+  if (effects.some((effect) => !(effect >= -1 && effect <= 1))) fail('bettingTest needs values from -1 to 1');
+  const xs = shuffled(effects, seededRandom(seed)).map((effect) => (effect + 1) / 2);
+  const share = bound / 50;
+  const processes =
+    side === 'outside'
+      ? [
+          [0.5, bettingCapital(xs, (1 + Math.abs(share)) / 2, 1, 2 / alpha)],
+          [0.5, bettingCapital(xs, (1 - Math.abs(share)) / 2, -1, 2 / alpha)],
+        ]
+      : [[1, bettingCapital(xs, (1 + share) / 2, side === 'above' ? 1 : -1, 1 / alpha)]];
+  const threshold = 1 / alpha;
+  let capital = Math.max(...processes.map(([weight]) => weight));
+  for (let index = 0; index < xs.length; index += 1) {
+    capital = Math.max(...processes.map(([weight, capitals]) => weight * capitals[index]));
+    if (capital >= threshold) return { cases: xs.length, capital, threshold, rejected: true, stop: index + 1 };
+  }
+  return { cases: xs.length, capital, threshold, rejected: false, stop: null };
+}
+
+// The neutral-data limit of a margin: below this number of cases with known defects, no valid not-worse rule can pass
+// data in which no case differs. A candidate that loses a whole, fully found case with the chance margin / 50 is at the
+// margin, and it shows no difference in n cases with the chance (1 - margin / 50)^n. A rule that passes such data
+// passes this candidate with at least that chance, so a valid pass needs it at or below alpha. The limit bounds a
+// neutral candidate only: a candidate that is better in enough cases can pass with fewer. A margin of 0 has no limit.
+export function neutralDataLimit(margin, alpha = DECISION_ALPHA) {
+  return margin > 0 ? Math.ceil(Math.log(alpha) / Math.log(1 - margin / 50)) : Number.POSITIVE_INFINITY;
 }
 
 // The chance that a Binomial(trials, share) count is `count` or more.
@@ -1310,20 +1341,21 @@ export function poissonRateTest(count, exposure, referenceCount, referenceExposu
   return binomialUpperTail(count, count + referenceCount, exposure / (exposure + referenceExposure));
 }
 
-// The one-sided error and the power of the sample size that powerPlan gives.
+// The share of the neutral simulations that a sample size of the power table must pass.
 const PLAN_POWER = 0.8;
 // The runs per case of the columns of a power table.
 const PLAN_RUNS = [1, 2, 3, 4];
+// The simulations per sample size of the power table, and the largest sample size that the table tries.
+export const POWER_SIMULATIONS = 1000;
+export const MAX_SIMULATED_CASES = 400;
 
-// The sample size of a not-worse decision on escaped defects per 50 known, from an A/A comparison. Each case is
-// `{ values, references, known }`: the escaped defects of the runs of each column in the case, and its known defects.
-// The difference of a case is mean(values) - mean(references), and the estimate is 50 times the sum of the
-// differences divided by the sum of the known defects. Its standard error `se` is the ratio-estimator error over the
-// cases: 50 sqrt(n / (n - 1) * sum((difference - estimate * known / 50)^2)) / sum(known), null for less than 2 cases.
-// A planned sample of c cases with r runs per column and case has the error se * sqrt(n * runs / (c * r)), where n
-// and runs are the cases and the mean runs per column and case of the A/A comparison. So a margin m needs c = ceil(n
-// * runs * ((z(1 - alpha) + z(power)) * se / m)^2 / r) cases at r runs for the given power when the columns are equal.
-export function powerPlan(cases, { margins, alpha = DECISION_ALPHA, power = PLAN_POWER } = {}) {
+// The noise of an A/A comparison. Each case is `{ values, references, known }`: the escaped defects of the runs of each
+// column in the case, and its known defects. The difference of a case is mean(values) - mean(references). `estimate`
+// is W, 50 times the sum of the differences divided by the sum of the known defects, and `se` its ratio-estimator
+// error over the cases: 50 sqrt(n / (n - 1) * sum((difference - estimate * known / 50)^2)) / sum(known), null for less
+// than 2 cases. `normalized` is N, 50 times the mean of difference / known over the `withKnown` cases with known
+// defects.
+export function aaNoise(cases) {
   const n = cases.length;
   const known = sum(cases.map((item) => item.known));
   const differences = cases.map((item) => meanOf(item.values) - meanOf(item.references));
@@ -1332,17 +1364,69 @@ export function powerPlan(cases, { margins, alpha = DECISION_ALPHA, power = PLAN
   const residuals = differences.map((difference, index) => difference - (estimate * cases[index].known) / 50);
   const se =
     n >= 2 && known ? (50 * Math.sqrt((n / (n - 1)) * sum(residuals.map((value) => value ** 2)))) / known : null;
-  const z = normalQuantile(1 - alpha) + normalQuantile(power);
-  const needed = (margin, perCase) => (se === null ? null : Math.ceil((n * runs * ((z * se) / margin) ** 2) / perCase));
+  const effects = cases.flatMap((item, index) => (item.known > 0 ? [differences[index] / item.known] : []));
   return {
     cases: n,
     runs,
     known,
+    withKnown: effects.length,
     differing: differences.filter((difference) => difference !== 0).length,
     estimate,
     se,
-    rows: margins.map((margin) => ({ margin, cases: PLAN_RUNS.map((perCase) => needed(margin, perCase)) })),
+    normalized: effects.length ? 50 * meanOf(effects) : null,
   };
+}
+
+// The share of `simulations` seeded neutral samples of `count` cases with `runs` runs per arm that pass the not-worse
+// betting test at `margin`. Each case draws its known defects from `knownCounts`, and each of its defects draws a
+// detection rate from `rates`. Each run of each of the two arms finds the defect with that rate, apart from the other
+// runs. Both arms have the same rates, so the candidate is neutral.
+function neutralPassShare({ rates, knownCounts, count, runs, margin, simulations, seed }) {
+  const random = seededRandom(seed);
+  const pick = (list) => list[Math.floor(random() * list.length)];
+  const escapes = (rate) => Number(random() >= rate);
+  let passes = 0;
+  for (let trial = 0; trial < simulations; trial += 1) {
+    const effects = [];
+    for (let item = 0; item < count; item += 1) {
+      const known = pick(knownCounts);
+      let difference = 0;
+      for (let defect = 0; defect < known; defect += 1) {
+        const rate = pick(rates);
+        for (let run = 0; run < runs; run += 1) difference += escapes(rate) - escapes(rate);
+      }
+      effects.push(difference / runs / known);
+    }
+    if (bettingTest(effects, { bound: margin, seed: trial + 1 }).rejected) passes += 1;
+  }
+  return passes / simulations;
+}
+
+// For each margin and each runs per case of PLAN_RUNS, the smallest number of cases with known defects at which at
+// least PLAN_POWER of the neutral simulations pass (see neutralPassShare); null when MAX_SIMULATED_CASES cases do not
+// reach it. `rates` are the detection rates of the known defects of an A/A pilot, and `knownCounts` the known defects
+// of the cases of a corpus. The search halves the range of sample sizes, so it takes the pass share to grow with the
+// cases. The seed of each sample size and runs is fixed, so the table is the same each time.
+export function simulatedSampleSizes({ rates, knownCounts, margins, seed = 1, simulations = POWER_SIMULATIONS }) {
+  if (rates.length === 0 || knownCounts.length === 0) {
+    return margins.map((margin) => ({ margin, cases: PLAN_RUNS.map(() => null) }));
+  }
+  return margins.map((margin) => ({
+    margin,
+    cases: PLAN_RUNS.map((runs) => {
+      const seedOf = (count) => seed + 7919 * count + 104729 * runs;
+      const passes = (count) =>
+        neutralPassShare({ rates, knownCounts, count, runs, margin, simulations, seed: seedOf(count) }) >= PLAN_POWER;
+      if (!passes(MAX_SIMULATED_CASES)) return null;
+      let [low, high] = [0, MAX_SIMULATED_CASES];
+      while (high - low > 1) {
+        const middle = Math.floor((low + high) / 2);
+        if (passes(middle)) high = middle;
+        else low = middle;
+      }
+      return high;
+    }),
+  }));
 }
 
 // Compares each answer of a second judge with the same answer of the first judge: a `matches` answer with the answer
@@ -1568,7 +1652,7 @@ function pairedCases(runs, referenceRuns, value, weight) {
     for (const run of list) {
       const item = value(run);
       if (typeof item !== 'number') continue;
-      if (!values.has(run.case)) values.set(run.case, { known: run.known, values: [] });
+      if (!values.has(run.case)) values.set(run.case, { known: run.known, seeded: run.seeded, values: [] });
       values.get(run.case).values.push(item);
     }
     return values;
@@ -1583,6 +1667,7 @@ function pairedCases(runs, referenceRuns, value, weight) {
       values: own.get(caseId).values,
       references: reference.get(caseId).values,
       weight: weight(own.get(caseId).known),
+      seeded: own.get(caseId).seeded,
     }));
 }
 
@@ -1591,6 +1676,44 @@ const escapedComparison = (runs, referenceRuns) =>
   pairedBootstrap(pairedCases(runs, referenceRuns, escapedValue, escapedWeight), { level: 0.9 });
 
 const intervalText = ({ low, high }, format) => (low === null ? '-' : `[${format(low)}, ${format(high)}]`);
+
+// The per-case escaped differences of `runs` against `referenceRuns` on the shared cases with known defects: in each
+// case with k known defects, e = (mean escaped of its runs - mean escaped of its reference runs) / k, from -1 to 1, so
+// each run counts. The decision measure N is 50 times the mean of e: escaped per 50 known, each case weighs 1.
+function caseEffects(runs, referenceRuns) {
+  return pairedCases(runs, referenceRuns, escapedValue, (known) => known)
+    .filter((item) => item.weight > 0)
+    .map((item) => ({ ...item, effect: (meanOf(item.values) - meanOf(item.references)) / item.weight }));
+}
+const effectValues = (effects) => effects.map((item) => item.effect);
+const normalizedEscaped = (effects) => (effects.length ? 50 * meanOf(effectValues(effects)) : null);
+
+// The fixed-corpus check: the 90% interval of N from the run noise of these cases only, as pairedBootstrap with
+// `fixedCases` gives it. Each run value is divided by the known defects of its case, and each case weighs 1 / 50.
+const fixedCorpusInterval = (effects) =>
+  pairedBootstrap(
+    effects.map((item) => ({
+      values: item.values.map((value) => value / item.weight),
+      references: item.references.map((value) => value / item.weight),
+      weight: 1 / 50,
+    })),
+    { fixedCases: true },
+  );
+
+// The seeded cases of `effects` and their share, when the case metadata of each case tells whether its defects are
+// seeded (see workspaceScores), else `-`.
+function seededShare(effects) {
+  if (effects.length === 0 || effects.some((item) => typeof item.seeded !== 'boolean')) return '-';
+  const seeded = effects.filter((item) => item.seeded).length;
+  return `${seeded} of ${effects.length} (${ratio(seeded / effects.length)})`;
+}
+
+const limitText = (limit) => (Number.isFinite(limit) ? String(limit) : '∞');
+// The neutral-data limit line of a comparison with `cases` cases with known defects (see neutralDataLimit).
+const neutralLimitText = (cases, margin) =>
+  `neutral-data limit: ${cases} of ${limitText(neutralDataLimit(margin))} cases with known defects`;
+const capitals = (...tests) =>
+  `${tests.map((test) => ratio(test.capital)).join(', ')}; threshold ${whole(tests[0].threshold)}`;
 
 function intervalRows(reference, runsOf) {
   return INTERVAL_ROWS.map(([measure, value, weight, format, compared]) => {
@@ -1604,7 +1727,6 @@ function intervalRows(reference, runsOf) {
   });
 }
 
-const TOO_FEW_DIFFERING = 'too few differing cases';
 const pValue = decimals(4);
 // The finding counts that the exact Poisson rows compare: [label, field of a run].
 const EXACT_ROWS = [
@@ -1612,26 +1734,35 @@ const EXACT_ROWS = [
   ['Unknown ratings', 'unknown'],
 ];
 
-// The rows of a decision table that compare each column with the reference column, beside the interval rows: the
-// cases whose mean escaped defects differ, the one-sided exact Poisson test of more wrong findings and of more
-// unknown ratings than the reference (see poissonRateTest; the exposure of a column is its runs), and with a margin
-// the not-worse row and the equivalence row of the escaped interval. Both need MIN_DIFFERING_CASES cases with a
-// difference, else they give TOO_FEW_DIFFERING and no pass.
+// The rows of a decision table that compare each column with the reference column, beside the interval rows, which are
+// information:
+// - the cases whose mean escaped defects differ, and the one-sided exact Poisson tests of more wrong findings and of
+//   more unknown ratings than the reference (see poissonRateTest; the exposure of a column is its runs);
+// - the shared cases with known defects, the share of seeded cases among them, and the decision measure N over them
+//   (see caseEffects);
+// - with a margin: the not-worse row, the betting test of H0 "mean e >= margin / 50" (see bettingTest), whose claim
+//   on the population of review rounds needs assumption S (see SKILL.md, Decisions); the equivalence row, which also
+//   needs the test of H0 "mean e <= -margin / 50"; the fixed-corpus check, which holds the cases fixed and is no ship
+//   decision; and the neutral-data limit (see neutralDataLimit), as information.
 function referenceRows(reference, runsOf, margin) {
   const referenceRuns = runsOf(reference);
-  const comparisons = new Map();
-  const escaped = (list, name) => {
-    if (!comparisons.has(name)) comparisons.set(name, escapedComparison(list, referenceRuns));
-    return comparisons.get(name);
+  const cached = (compute) => {
+    const values = new Map();
+    return (list, name) => {
+      if (!values.has(name)) values.set(name, compute(list));
+      return values.get(name);
+    };
   };
+  const escaped = cached((list) => escapedComparison(list, referenceRuns));
+  const effectsOf = cached((list) => caseEffects(list, referenceRuns));
   const other = (cell) => (list, name) => (name === reference ? '-' : cell(list, name));
-  const verdict = (holds, [yes, no]) =>
+  // A cell of the effects of the column; a column without shared cases with known defects gets `-`.
+  const withEffects = (cell) =>
     other((list, name) => {
-      const comparison = escaped(list, name);
-      if (comparison.low === null) return '-';
-      if (comparison.differing < MIN_DIFFERING_CASES) return TOO_FEW_DIFFERING;
-      return holds(comparison) ? yes : no;
+      const effects = effectsOf(list, name);
+      return effects.length ? cell(effects) : '-';
     });
+  const test = (effects, bound, side) => bettingTest(effectValues(effects), { bound, side });
   const count = (list, field) => sum(list.map((run) => run[field]));
   return [
     [`Cases with an escaped difference from ${reference}`, other((list, name) => escaped(list, name).differing)],
@@ -1641,16 +1772,39 @@ function referenceRows(reference, runsOf, margin) {
         pValue(poissonRateTest(count(list, field), list.length, count(referenceRuns, field), referenceRuns.length)),
       ),
     ]),
+    [`Cases with known defects shared with ${reference}`, other((list, name) => effectsOf(list, name).length)],
+    ['Seeded cases of the shared cases with known defects', withEffects(seededShare)],
+    [
+      `Escaped per 50 known difference from ${reference}, each case weighs 1 (N)`,
+      withEffects((effects) => ratio(normalizedEscaped(effects))),
+    ],
     ...(margin === undefined
       ? []
       : [
           [
-            `Not worse than ${reference} by ${margin} escaped per 50 known`,
-            verdict((comparison) => comparison.high < margin, ['pass', 'no pass']),
+            `Not worse than ${reference} by ${margin} escaped per 50 known: betting test on N, if assumption S holds`,
+            withEffects((effects) => {
+              const notWorse = test(effects, margin, 'below');
+              return `${notWorse.rejected ? 'pass' : 'no pass'} (capital ${capitals(notWorse)})`;
+            }),
           ],
           [
-            `Equivalent to ${reference} within ${margin} escaped per 50 known`,
-            verdict((comparison) => comparison.low > -margin && comparison.high < margin, ['yes', 'no']),
+            `Equivalent to ${reference} within ${margin} escaped per 50 known: two one-sided betting tests on N, if assumption S holds`,
+            withEffects((effects) => {
+              const tests = [test(effects, margin, 'below'), test(effects, -margin, 'above')];
+              return `${tests.every((entry) => entry.rejected) ? 'yes' : 'no'} (capitals ${capitals(...tests)})`;
+            }),
+          ],
+          [
+            `Not worse than ${reference} by ${margin} on these cases, run noise only: a check, not a ship decision`,
+            withEffects((effects) => {
+              const interval = fixedCorpusInterval(effects);
+              return `${interval.high < margin ? 'pass' : 'no pass'} (90% run interval ${intervalText(interval, ratio)})`;
+            }),
+          ],
+          [
+            `Neutral-data limit at ${margin} per 50 known (information)`,
+            other((list, name) => neutralLimitText(effectsOf(list, name).length, margin)),
           ],
         ]),
   ];
@@ -1791,21 +1945,23 @@ const isControlArm = (folder) => folder.startsWith(CONTROL_PREFIX);
 // A drift check needs at least this many cases that the control arm and its arm share.
 export const MIN_CONTROL_CASES = 6;
 
-// The drift check of a control arm against its arm: too few shared cases, or, with a margin, whether the drift
-// interval stays inside plus and minus the margin.
+// The drift check of a control arm against its arm: too few shared cases, or, with a margin, whether the two-sided
+// betting test (see bettingTest, side `outside`) shows that the mean e of the control leaves plus and minus the margin.
 const driftCheck =
   (margin) =>
-  ({ comparison }) => {
+  ({ comparison, test }) => {
     if (comparison.low === null) return '-';
     if (comparison.cases < MIN_CONTROL_CASES) return `too few cases (${comparison.cases} of ${MIN_CONTROL_CASES})`;
     if (margin === undefined) return 'no margin';
-    return comparison.low > -margin && comparison.high < margin ? `inside ±${margin}` : `leaves ±${margin}`;
+    if (test === null) return '-';
+    return test.rejected ? `leaves ±${margin}` : `not shown to leave ±${margin}`;
   };
 
 // The batch drift: for each control arm folder `A<folder>` of a case group whose folder `<folder>` has valid runs in
-// the group too, one row with the escaped difference per 50 known of the control against the folder (see
-// escapedComparison). Both run the same setup, so the difference is the drift of the batch. No section without a
-// control arm.
+// the group too, one row with the escaped difference of the control against the folder: W with its two-level
+// bootstrap interval (see escapedComparison) as information, N (see caseEffects), and with a margin the capital of the
+// two-sided betting test on N. Both arms run the same setup, so the difference is the drift of the batch. No section
+// without a control arm.
 function driftSection(runs, { margin }) {
   const valid = runs.filter((run) => run.invalid.length === 0);
   const columns = [
@@ -1814,6 +1970,8 @@ function driftSection(runs, { margin }) {
     ['Cases shared', (entry) => entry.comparison.cases, true],
     ['Cases with a difference', (entry) => entry.comparison.differing, true],
     ['Escaped per 50 known difference, 90% interval', (entry) => intervalText(entry.comparison, ratio)],
+    ['N', (entry) => ratio(normalizedEscaped(entry.effects)), true],
+    ['Two-sided capital', (entry) => (entry.test === null ? '-' : ratio(entry.test.capital)), true],
     ['Drift', driftCheck(margin)],
   ];
   const groups = bySplit(valid).flatMap(([group, groupRuns]) => {
@@ -1824,7 +1982,12 @@ function driftSection(runs, { margin }) {
       .sort(compare)
       .map((control) => {
         const baseline = control.slice(CONTROL_PREFIX.length);
-        return { control, baseline, comparison: escapedComparison(runsOf(control), runsOf(baseline)) };
+        const effects = caseEffects(runsOf(control), runsOf(baseline));
+        const test =
+          margin === undefined || effects.length === 0
+            ? null
+            : bettingTest(effectValues(effects), { bound: margin, side: 'outside' });
+        return { control, baseline, comparison: escapedComparison(runsOf(control), runsOf(baseline)), effects, test };
       });
     return entries.length ? [`### Batch drift: ${group}`, '', ...table(columns, entries), ''] : [];
   });
@@ -1832,43 +1995,50 @@ function driftSection(runs, { margin }) {
   return [
     '## Batch drift',
     '',
-    `A control arm folder ${CONTROL_PREFIX}<folder> runs the setup of <folder> again in the same batch, so their escaped difference per 50 known defects is the drift of the batch. The interval is the 90% two-level paired bootstrap interval over the shared cases. The drift check needs at least ${MIN_CONTROL_CASES} shared cases; with a margin, it flags a drift interval that leaves plus and minus the margin.`,
+    `A control arm folder ${CONTROL_PREFIX}<folder> runs the setup of <folder> again in the same batch, so their escaped difference is the drift of the batch. The interval is the 90% two-level paired bootstrap interval of the escaped difference per 50 known defects over the shared cases, as information. N is the escaped difference per 50 known with each shared case with known defects weighing 1. The drift check needs at least ${MIN_CONTROL_CASES} shared cases. With a margin, it runs the two-sided betting test of the hypothesis that the mean per-case difference is inside plus and minus the margin, with the hedged capital and the threshold ${whole(1 / DECISION_ALPHA)}. When the capital reaches the threshold, the check gives leaves ±<margin>, and the batch does not decide.`,
     '',
     ...groups,
   ];
 }
 
 // The looks of a sequential decision of one column against the reference column. Look k takes the runs 1 to k of
-// each case (at most MAX_LOOKS looks). Its interval is the escaped difference per 50 known plus and minus z_k times
-// the standard deviation of the two-level bootstrap, where z_k is the bound of look k (see spendingBounds). A look
-// stops with `pass` when the interval is below the margin and at least MIN_DIFFERING_CASES cases differ, and with
-// `fail` when the interval is above the margin. The last look stops with `no pass` when it does not pass. Every other
-// look asks for the next look, and a look after a stop shows that stop.
+// each case (at most MAX_LOOKS looks), so its e values are the per-run means of these runs (see caseEffects). Look k
+// runs the betting tests at the error alpha_k that it spends (see spendingIncrements), with the threshold 1 /
+// alpha_k. A look stops with `pass` when the test of H0 "mean e >= margin / 50" rejects, and with `fail` when the test
+// of H0 "mean e <= margin / 50" rejects. The last look stops with `no pass` when it does not pass. Every other look
+// asks for the next look, and a look after a stop shows that stop. The later looks change the e values of the earlier
+// cases, so the capital of one look does not carry to the next; the errors of the looks add up to DECISION_ALPHA.
 function sequentialLooks(runs, referenceRuns, { column, margin }) {
   if (runs.length === 0 || referenceRuns.length === 0) return [];
-  const bounds = spendingBounds(MAX_LOOKS);
+  const errors = spendingIncrements(MAX_LOOKS);
   const looks = Math.min(MAX_LOOKS, Math.max(...[...runs, ...referenceRuns].map((run) => runNumber(run.run))));
   let stop = null;
   return Array.from({ length: looks }, (_, index) => {
     const look = index + 1;
     const upTo = (list) => list.filter((run) => runNumber(run.run) <= look);
-    const comparison = escapedComparison(upTo(runs), upTo(referenceRuns));
-    const bound = bounds[index];
-    const known = comparison.estimate !== null;
-    const low = known ? comparison.estimate - bound * comparison.sd : null;
-    const high = known ? comparison.estimate + bound * comparison.sd : null;
+    const effects = caseEffects(upTo(runs), upTo(referenceRuns));
+    const alpha = errors[index];
+    const values = effectValues(effects);
+    const [notWorse, worse] = effects.length
+      ? [
+          bettingTest(values, { bound: margin, side: 'below', alpha }),
+          bettingTest(values, { bound: margin, side: 'above', alpha }),
+        ]
+      : [null, null];
     let decision;
     if (stop !== null) decision = `after the stop at look ${stop}`;
-    else if (!known) decision = '-';
-    else if (high < margin && comparison.differing >= MIN_DIFFERING_CASES) decision = 'pass: stop';
-    else if (low > margin) decision = 'fail: stop';
+    else if (notWorse === null) decision = '-';
+    else if (notWorse.rejected) decision = 'pass: stop';
+    else if (worse.rejected) decision = 'fail: stop';
     else if (look === MAX_LOOKS) decision = 'no pass: stop';
-    else decision = high < margin ? `continue: ${TOO_FEW_DIFFERING}` : 'continue';
+    else decision = 'continue';
     if (stop === null && decision.endsWith(': stop')) stop = look;
     const counts = `${upTo(runs).length} / ${upTo(referenceRuns).length}`;
-    return { column, look, counts, comparison, bound, low, high, decision };
+    return { column, look, counts, effects, alpha, notWorse, worse, decision };
   });
 }
+
+const capitalCell = (test) => (test === null ? '-' : ratio(test.capital));
 
 // The sequential section: the looks of each column that is not the reference, one table per case group.
 function sequentialSection(runs, { columns, columnOf, reference, margin }) {
@@ -1877,11 +2047,12 @@ function sequentialSection(runs, { columns, columnOf, reference, margin }) {
     ['Column', (entry) => entry.column],
     ['Look', (entry) => entry.look, true],
     ['Runs', (entry) => entry.counts, true],
-    ['Cases', (entry) => entry.comparison.cases, true],
-    ['Cases with a difference', (entry) => entry.comparison.differing, true],
-    ['Bound z', (entry) => decimals(3)(entry.bound), true],
-    ['Escaped per 50 known difference', (entry) => ratio(entry.comparison.estimate), true],
-    ['Interval', (entry) => intervalText(entry, ratio)],
+    ['Cases with known defects', (entry) => entry.effects.length, true],
+    ['Error of the look', (entry) => entry.alpha.toPrecision(3), true],
+    ['Threshold', (entry) => whole(1 / entry.alpha), true],
+    ['N', (entry) => ratio(normalizedEscaped(entry.effects)), true],
+    ['Not-worse capital', (entry) => capitalCell(entry.notWorse), true],
+    ['Worse capital', (entry) => capitalCell(entry.worse), true],
     ['Decision', (entry) => entry.decision],
   ];
   const groups = bySplit(shown).flatMap(([group, groupRuns]) => {
@@ -1894,7 +2065,7 @@ function sequentialSection(runs, { columns, columnOf, reference, margin }) {
   return [
     '## Sequential looks',
     '',
-    `A sequential decision runs one run per case for each look, at most ${MAX_LOOKS} looks, and compares each column with ${reference} on the escaped defects per 50 known with the margin ${margin}. Look k takes the runs 1 to k of each case. Its interval is the difference plus and minus the bound z times the standard deviation of the two-level bootstrap. The bounds are the O'Brien-Fleming bounds of the Lan-DeMets alpha spending for ${MAX_LOOKS} looks and a one-sided error of ${DECISION_ALPHA}. A look passes when its interval is below the margin and at least ${MIN_DIFFERING_CASES} cases differ, and fails when its interval is above the margin; both stop the runs. Every other look asks for the next look, and the last look without a pass gives no pass.`,
+    `A sequential decision runs one run per case for each look, at most ${MAX_LOOKS} looks, and compares each column with ${reference} on N, the escaped defects per 50 known with each case weighing 1, with the margin ${margin}. Look k takes the per-run means of the runs 1 to k of each case. It runs the betting tests at the error that it spends under the O'Brien-Fleming alpha spending of Lan and DeMets for ${MAX_LOOKS} looks and a one-sided error of ${DECISION_ALPHA}, with the threshold 1 / error. The errors of the looks add up to ${DECISION_ALPHA}. A look passes when the not-worse capital reaches its threshold, and fails when the worse capital (the test of a mean above the margin) reaches it; both stop the runs. Every other look asks for the next look, and the last look without a pass gives no pass.`,
     '',
     ...groups,
   ];
@@ -2110,7 +2281,7 @@ export function renderReport(
     'Seconds is the slowest reviewer of a round, added over the rounds of a run. Tokens is the sum over the reviewers and rounds of a run. A dash means no value.',
     'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose reviewer transcripts show another model, effort, or served tier than their configuration; loops whose fixer transcripts show another model, effort, or served tier than the fixer setting; runs with a reviewer or a fixer without transcript facts or without a served assistant message, also a loop round that gave findings to the fixer and has no transcript facts of its fixer (for example a repair with --fixer-patch); loops with a fixer but without a fixer setting; runs with a reviewer that read a file outside the inputs of its run; and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
     `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% two-level paired bootstrap interval of the difference from the reference column, over the cases that both columns ran: each resample draws the cases, then the runs of each column in each drawn case. ${referenceNote} The loop seconds interval compares loop runs only.`,
-    `The decision table also gives the wrong findings and the unknown ratings of each column with its runs, and the reads of missing paths: reads with an error result of a path that does not exist, which make no run invalid. Against the reference column, it gives the cases whose escaped defects differ, and the one-sided exact Poisson test of more wrong findings and of more unknown ratings than the reference, with the runs of each column as the exposure. With a margin, the not-worse row gives pass when the escaped interval is below the margin, and the equivalence row gives yes when the interval is inside plus and minus the margin. Both need at least ${MIN_DIFFERING_CASES} cases with a difference, else they give ${TOO_FEW_DIFFERING}.`,
+    `The decision table also gives the wrong findings and the unknown ratings of each column with its runs, and the reads of missing paths: reads with an error result of a path that does not exist, which make no run invalid. Against the reference column, it gives the cases whose escaped defects differ, and the one-sided exact Poisson test of more wrong findings and of more unknown ratings than the reference, with the runs of each column as the exposure. The intervals and the escaped defects per 50 known (W) are information. The decision measure is N: for each shared case with known defects, e is the mean escaped defects of the runs of the column minus those of the reference runs, divided by the known defects of the case, and N is 50 times the mean of e, so each case weighs 1. The seeded row gives the share of these cases whose defects a patch planted, when the case metadata tells it for each case. With a margin m, the not-worse row runs a one-sided betting test of the hypothesis that the mean e is m / 50 or more (Waudby-Smith and Ramdas, JRSS-B 86(1), 2024): each e goes to (e + 1) / 2 in a seeded case order, with predictable plug-in bets cut at ${BET_CAP}, and the row gives pass when the capital reaches the threshold ${whole(1 / DECISION_ALPHA)}. Its claim holds for the population of review rounds only if assumption S holds: the cases are independent draws from the review rounds that the case-building procedure gives. The equivalence row gives yes when the test of a mean e of -m / 50 or less also rejects. The fixed-corpus row holds the cases fixed and bootstraps the runs only: it is a check of these cases, not a ship decision. The neutral-data limit row gives the shared cases with known defects and the count below which no valid rule can pass a column that differs in no case, as information.`,
     '',
     '## Summary',
     '',
@@ -3304,10 +3475,14 @@ function workspaceScores(ws, keys) {
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');
   const judgments = loadJudgments(ws);
   if (keys) requireCurrentKeys(pairs, keys);
-  // The control flag stays out of pairs.json, which the judge reads; the case.json of the workspace gives it.
+  // The control flag and the seeded flag stay out of pairs.json, which the judge reads; the case.json of the workspace
+  // gives them. A code case is seeded when its `patch` plants its defects; a plan case file does not tell it.
   for (const entry of pairs.cases) {
     const caseFile = path.join(ws, entry.case, 'case.json');
-    if (fs.existsSync(caseFile) && readJson(caseFile).control === true) entry.control = true;
+    if (!fs.existsSync(caseFile)) continue;
+    const caseData = readJson(caseFile);
+    if (caseData.control === true) entry.control = true;
+    if (CASE_KINDS.has(caseData.kind) && caseFamily(caseData.kind) === 'code') entry.seeded = Boolean(caseData.patch);
   }
   const scores = scoreRuns({ findings, pairs, judgments, metas: readMetas(ws, findings.blocks) });
   requireJudgedFindings(findings.findings, judgments);
@@ -3321,6 +3496,7 @@ function workspaceScores(ws, keys) {
 // intervals and tests compare with, `margin` adds the margin checks, `sequential` the sequential looks, and `lead`
 // with `leadRef` the self-review lead (see renderReport).
 export function reportCommand(ws, { keys, configs, arms, reference, margin, sequential, lead, leadRef } = {}) {
+  if (margin !== undefined && !(margin < 50)) fail(`report --margin needs a margin below 50, not ${margin}`);
   if (reference !== undefined) {
     if (!reference) fail('report --reference needs the name of a column: an arm folder of --arms or a configuration');
     if (arms && !arms.includes(reference)) fail(`report --reference names ${reference}, which is not in --arms`);
@@ -3355,32 +3531,93 @@ function aaPair(runs, arms) {
   return pairs[0];
 }
 
-// The sample-size plan of an A/A workspace (see powerPlan): the escaped defects of the valid runs of the two arm
-// folders of the pair (see aaPair) on the cases that both ran, for each margin of `margins`. `text` is the printed
-// plan.
-export function powerCommand(ws, { keys, arms, margins = DEFAULT_MARGINS } = {}) {
+// The cases of the corpus `casesDir` with known defects, by reviewer and split, from the case files of its `dev` and
+// `heldout` folders: the known defects of a development case file, or of the key file next to a held-out case file.
+// `missingKeys` counts the held-out cases without a key file, and `knownCounts` lists the known defects of each case
+// with known defects. The result holds counts only, so a held-out reader learns no case content.
+export function corpusCounts(casesDir) {
+  const reviewers = new Map([
+    ['code', { reviewer: 'code-reviewer', dev: 0, heldout: 0 }],
+    ['plan', { reviewer: 'plan-reviewer', dev: 0, heldout: 0 }],
+  ]);
+  const knownCounts = [];
+  let missingKeys = 0;
+  for (const split of ['dev', 'heldout']) {
+    const dir = path.join(casesDir, split);
+    const caseIds = baseNames(dir, '.json').filter((name) => !name.endsWith('.key'));
+    for (const caseId of caseIds.sort(compare)) {
+      const data = readJson(path.join(dir, `${caseId}.json`));
+      if (data?.id !== caseId || !CASE_KINDS.has(data.kind)) continue;
+      const known = data.known === undefined ? readKeyFile(dir, caseId)?.known : requireKnownList(caseId, data.known);
+      if (known === undefined) {
+        missingKeys += 1;
+        continue;
+      }
+      if (known.length === 0) continue;
+      reviewers.get(caseFamily(data.kind))[split] += 1;
+      knownCounts.push(known.length);
+    }
+  }
+  return { rows: [...reviewers.values()], missingKeys, knownCounts };
+}
+
+// The corpus of this skill, which `power` counts when it gets no --cases.
+const SKILL_CASES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'cases');
+const runsHeading = (perCase) => `Cases at ${perCase} run${perCase === 1 ? '' : 's'}`;
+
+// The power plan of an A/A workspace: the escaped defects of the valid runs of the two arm folders of the pair (see
+// aaPair) on the cases that both ran (see aaNoise), the neutral-data limit of each margin of `margins` (see
+// neutralDataLimit), the cases with known defects of the corpus `casesDir` per reviewer (see corpusCounts), and the
+// simulated sample sizes of each margin (see simulatedSampleSizes). The simulation takes the detection rate of each
+// known defect of the shared cases (the share of the runs of both arms that found it) and the known defects of the
+// cases of the corpus. `text` is the printed plan.
+export function powerCommand(
+  ws,
+  { keys, arms, margins = DEFAULT_MARGINS, cases: casesDir = SKILL_CASES, simulations = POWER_SIMULATIONS } = {},
+) {
   const valid = workspaceScores(ws, keys).runs.filter((run) => run.invalid.length === 0);
   const [first, second] = aaPair(valid, arms);
   const runsOf = columnRuns(valid, armColumn);
-  const cases = pairedCases(runsOf(first), runsOf(second), escapedValue, (known) => known).map((item) => ({
-    values: item.values,
-    references: item.references,
-    known: item.weight,
-  }));
+  const shared = pairedCases(runsOf(first), runsOf(second), escapedValue, (known) => known);
+  const cases = shared.map((item) => ({ values: item.values, references: item.references, known: item.weight }));
   if (cases.length < 2) fail(`power needs at least 2 cases that ${first} and ${second} both ran, not ${cases.length}`);
-  const plan = powerPlan(cases, { margins });
+  const noise = aaNoise(cases);
+  // Each known defect of a shared case found in `count` of the runs of both arms has the rate count / runs; a defect
+  // that no run found has the rate 0.
+  const rates = shared.flatMap((item) => {
+    const caseRuns = [...runsOf(first), ...runsOf(second)].filter((run) => run.case === item.case);
+    const counts = new Map();
+    for (const id of caseRuns.flatMap((run) => run.found)) counts.set(id, (counts.get(id) ?? 0) + 1);
+    const found = [...counts.values()].map((count) => count / caseRuns.length);
+    return [...found, ...Array.from({ length: item.weight - found.length }, () => 0)];
+  });
+  const corpus = corpusCounts(casesDir);
+  const sizes = simulatedSampleSizes({ rates, knownCounts: corpus.knownCounts, margins, simulations });
   const text = [
-    `A/A comparison: ${first} against ${second}, ${plan.cases} cases, ${oneDecimal(plan.runs)} runs per arm and case, ${plan.known} known defects`,
-    `Cases with a difference: ${plan.differing} of ${plan.cases}`,
-    `Escaped per 50 known difference: ${ratio(plan.estimate)}, standard error ${ratio(plan.se)}`,
+    `A/A comparison: ${first} against ${second}, ${noise.cases} cases, ${oneDecimal(noise.runs)} runs per arm and case, ${noise.known} known defects`,
+    `Cases with a difference: ${noise.differing} of ${noise.cases}`,
+    `Escaped per 50 known difference (W): ${ratio(noise.estimate)}, standard error ${ratio(noise.se)}`,
+    `Escaped per 50 known difference, each case weighs 1 (N): ${ratio(noise.normalized)} over ${noise.withKnown} cases with known defects`,
     '',
-    row(['Margin per 50 known', ...PLAN_RUNS.map((perCase) => `Cases at ${perCase} run${perCase === 1 ? '' : 's'}`)]),
+    row(['Margin per 50 known', 'Neutral-data limit']),
+    '|---:|---:|',
+    ...margins.map((margin) => row([margin, limitText(neutralDataLimit(margin))])),
+    '',
+    `Below the neutral-data limit of a margin, no valid not-worse rule can pass a candidate that differs in no case: such a pass needs (1 - margin / 50)^n at or below ${DECISION_ALPHA} for n cases with known defects. A candidate that is better in enough cases can pass with fewer.`,
+    '',
+    row(['Reviewer', 'Dev cases with known defects', 'Held-out cases with known defects']),
+    '|---|---:|---:|',
+    ...corpus.rows.map((entry) => row([entry.reviewer, entry.dev, entry.heldout])),
+    '',
+    `The cases of the corpus ${casesDir}, by count only.${corpus.missingKeys ? ` Held-out cases without a key file: ${corpus.missingKeys}.` : ''}`,
+    '',
+    row(['Margin per 50 known', ...PLAN_RUNS.map(runsHeading)]),
     `|${['---:', ...PLAN_RUNS.map(() => '---:')].join('|')}|`,
-    ...plan.rows.map((entry) => row([entry.margin, ...entry.cases.map((count) => count ?? '-')])),
+    ...sizes.map((entry) => row([entry.margin, ...entry.cases.map((count) => count ?? `> ${MAX_SIMULATED_CASES}`)])),
     '',
-    `A cell gives the cases that ${PLAN_POWER * 100}% power needs for a not-worse decision at that margin, with a one-sided error of ${DECISION_ALPHA}, when the arms are equal and new cases have the noise of these cases. A pass also needs at least ${MIN_DIFFERING_CASES} cases with a difference.`,
+    `A cell gives the smallest number of cases with known defects at which at least ${PLAN_POWER * 100}% of ${simulations} seeded neutral simulations pass the not-worse betting test at that margin. A simulated case draws its known defects from the ${corpus.knownCounts.length} cases with known defects of the corpus, and each of its defects draws its detection rate from the ${rates.length} known defects of the A/A comparison, the same for both arms.`,
   ].join('\n');
-  return { ...plan, first, second, text };
+  return { ...noise, first, second, rates, corpus, sizes, text };
 }
 
 // Writes `<ws>/second-sample.json`, the answers of judgments.json that the second judge answers again (see
@@ -3580,11 +3817,13 @@ const COMMANDS = {
     },
   },
   power: {
-    optional: ['--keys', '--arms', '--margins'],
+    optional: ['--keys', '--arms', '--margins', '--cases'],
     run: (ws, options) => {
       const margins = nameList(options['--margins'])?.map((value) => numberOption(value, '--margins', 0));
       if (margins?.includes(0)) fail('--margins needs margins above 0');
-      return powerCommand(ws, { keys: options['--keys'], arms: nameList(options['--arms']), margins }).text;
+      if (margins?.some((margin) => margin >= 50)) fail('--margins needs margins below 50');
+      const cases = options['--cases'] === undefined ? undefined : path.resolve(options['--cases']);
+      return powerCommand(ws, { keys: options['--keys'], arms: nameList(options['--arms']), margins, cases }).text;
     },
   },
   sample: {
