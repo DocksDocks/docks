@@ -6740,11 +6740,13 @@ test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of 
   const ws = path.join(root, 'ws');
   const cases = path.join(root, 'cases');
   const project = path.join(root, 'project');
-  // As in the snapshot test above, a copy of the scripts runs in a repository with a benchmark skill folder.
+  // As in the snapshot test above, a copy of the scripts runs in a repository with a benchmark skill folder. A code
+  // case also runs the base-instructions reader of that repository.
   const skill = '.agents/skills/review-benchmark';
   const helper = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+  const reader = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/base-blob.sh';
   const live = path.join(import.meta.dirname, '../../..');
-  for (const file of [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`, helper]) {
+  for (const file of [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`, helper, reader]) {
     put(repo, file, readText(path.join(live, file)));
   }
   put(repo, `${skill}/SKILL.md`, '# Review benchmark\n');
@@ -6854,7 +6856,7 @@ test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of 
       .map((file) => path.relative(dir, file).split(path.sep).join('/'))
       .sort();
   const scripts = [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`];
-  const headFiles = [...skillFiles, ...scripts, helper, 'src/app.mjs'].sort();
+  const headFiles = [...skillFiles, ...scripts, helper, reader, 'src/app.mjs'].sort();
   const fixerDir = path.join(run, 'round-1', 'fixer');
   assert.deepEqual(treeFiles(path.join(fixerDir, 'snapshot')), headFiles);
   // The fixer repairs extra.mjs and adds a file of 60 lines, so round 2 is a panel round. The patch also adds a file
@@ -8027,21 +8029,21 @@ test('manager writes one manager prompt per round with findings, and names lists
 });
 
 // The links of the base commit of instructionRepo: each path, its target, and its MANIFEST line. The benchmark
-// builder and `base_blob` of plan-manager phase 6 and docks code-review resolve a link from the folder of the link.
-// The four `base_blob` cases are also the inputs of the shell tests of the production builders, so that the two
-// implementations stay equal.
+// builder runs base-blob.sh of plan-manager, as plan-manager phase 6 and docks code-review do: a link resolves from
+// the folder of the link. The four numbered cases are also the inputs of the shell tests of the production
+// builders.
 const BASE_LINKS = [
   ['CLAUDE.md', 'AGENTS.md', 'copied'],
-  // base_blob case 1: a root link out of the tree is absent, not a git failure.
+  // Case 1: a root link out of the tree is absent, not a git failure.
   ['REVIEW.md', '../outside.md', 'absent'],
   // A loop.
   ['src/CLAUDE.md', 'CLAUDE.md', 'absent'],
-  // A path through the folder link docs -> src: ls-tree does not enter a folder link.
-  ['src/lib/CLAUDE.md', '../../docs/REVIEW.md', 'absent'],
+  // A path through the folder link docs -> src.
+  ['src/lib/CLAUDE.md', '../../docs/REVIEW.md', 'copied'],
   ['src/lib/REVIEW.md', '../../../outside.md', 'absent'],
-  // base_blob case 2: a link to the parent folder names a folder, not the first blob of that folder.
+  // Case 2: a link to the parent folder names a folder, not the first blob of that folder.
   ['tools/CLAUDE.md', '..', 'absent'],
-  // base_blob case 4: `.` segments drop, and `..` drops the segment before it.
+  // Case 4: `.` parts drop, and `..` goes to the parent folder.
   ['tools/REVIEW.md', './../src/./REVIEW.md', 'copied'],
 ];
 // A chain of `count` links from `first` through the files `chain/<prefix><i>` to src/REVIEW.md.
@@ -8052,9 +8054,10 @@ function linkChain(first, prefix, count) {
 }
 
 // A repository whose base commit holds a root AGENTS.md, src/REVIEW.md, the folder link docs -> src, the links of
-// BASE_LINKS, src/AGENTS.md as a link to an absolute path, tools/AGENTS.md as a link with an empty target (base_blob
-// case 3), chain/AGENTS.md as a chain of 8 links, and chain/CLAUDE.md as a chain of 9 links. The head changes
-// AGENTS.md and src/a.mjs, makes tools/AGENTS.md a file, and adds src/lib/b.mjs, src/lib/AGENTS.md, and chain/n.mjs.
+// BASE_LINKS, src/AGENTS.md as a link to an absolute path, tools/AGENTS.md as a link with an empty target (case
+// 3), chain/AGENTS.md as a chain of 8 links, chain/CLAUDE.md as a chain of 9 links, and chain/REVIEW.md as a
+// chain of 41 links. The head changes AGENTS.md and src/a.mjs, makes tools/AGENTS.md a file, and adds src/lib/b.mjs,
+// src/lib/AGENTS.md, and chain/n.mjs.
 function instructionRepo(t) {
   isolateGit(t);
   const root = neutralScratch(t);
@@ -8072,6 +8075,8 @@ function instructionRepo(t) {
     ['src/AGENTS.md', path.join(root, 'outside.md')],
     ...linkChain('chain/AGENTS.md', 'r', 8),
     ...linkChain('chain/CLAUDE.md', 'a', 9),
+    // Git and Linux follow at most 40 links.
+    ...linkChain('chain/REVIEW.md', 'b', 41),
   ];
   for (const [file, target] of links) {
     const at = path.join(repo, ...file.split('/'));
@@ -8124,13 +8129,13 @@ test('case writes the base-instructions folder of a code case, and its prompt an
       'copied CLAUDE.md',
       'absent REVIEW.md',
       'copied chain/AGENTS.md',
-      'absent chain/CLAUDE.md',
+      'copied chain/CLAUDE.md',
       'absent chain/REVIEW.md',
       'absent src/AGENTS.md',
       'absent src/CLAUDE.md',
       'copied src/REVIEW.md',
       'absent src/lib/AGENTS.md',
-      'absent src/lib/CLAUDE.md',
+      'copied src/lib/CLAUDE.md',
       'absent src/lib/REVIEW.md',
       'absent tools/AGENTS.md',
       'absent tools/CLAUDE.md',
@@ -8138,14 +8143,16 @@ test('case writes the base-instructions folder of a code case, and its prompt an
       '',
     ].join('\n'),
   );
-  // Each copy holds the text of the base commit; a link gives the text of its target, after at most 8 links. An
-  // absolute link, an empty target, a loop, a path through a folder link, a link to a folder, a link that leaves the
-  // tree, and a chain of 9 links are absent.
+  // Each copy holds the text of the base commit; a link gives the text of its target, also through a folder link and
+  // after 9 links. An absolute link, an empty target, a loop, a link to a folder, a link that leaves the tree, and a
+  // chain of 41 links are absent.
   for (const [file, text] of [
     ['AGENTS.md', '# Root rules at the base\n'],
     ['CLAUDE.md', '# Root rules at the base\n'],
     ['src/REVIEW.md', '# Review rules at the base\n'],
+    ['src/lib/CLAUDE.md', '# Review rules at the base\n'],
     ['chain/AGENTS.md', '# Review rules at the base\n'],
+    ['chain/CLAUDE.md', '# Review rules at the base\n'],
     ['tools/REVIEW.md', '# Review rules at the base\n'],
   ]) {
     assert.equal(readText(path.join(folder, ...file.split('/'))), text, file);
@@ -8153,7 +8160,7 @@ test('case writes the base-instructions folder of a code case, and its prompt an
   for (const [file, , outcome] of BASE_LINKS) {
     assert.equal(fs.existsSync(path.join(folder, ...file.split('/'))), outcome === 'copied', file);
   }
-  for (const file of ['src/AGENTS.md', 'tools/AGENTS.md', 'chain/CLAUDE.md', 'src/lib/AGENTS.md']) {
+  for (const file of ['src/AGENTS.md', 'tools/AGENTS.md', 'chain/REVIEW.md', 'src/lib/AGENTS.md']) {
     assert.equal(fs.existsSync(path.join(folder, ...file.split('/'))), false, file);
   }
   const runDir = path.join(caseDir, 'C1-low', 'run-1');
@@ -8176,7 +8183,10 @@ test('case stops on a git failure in the base instructions and writes no absent 
   // head keeps the link.
   const blob = gitIn(repo, 'rev-parse', `${base}:CLAUDE.md`).trim();
   fs.rmSync(path.join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
-  assert.throws(() => logged(() => prepare.prepareCase(options, repo)), new RegExp(`git cat-file blob ${blob} failed`));
+  assert.throws(
+    () => logged(() => prepare.prepareCase(options, repo)),
+    new RegExp(`base-blob\\.sh ${base} CLAUDE\\.md failed with status 2: .*${blob}`),
+  );
   assert.equal(fs.existsSync(caseDir), false);
 });
 

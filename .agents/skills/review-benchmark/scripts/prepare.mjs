@@ -65,6 +65,15 @@ const WORKTREE_ROOT = 'worktree';
 const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'];
 // The plan contract of plan-lifecycle. A variant of `agents --contract-overlay` changes it (see writeContractCopy).
 const CONTRACT_PATH = `${PLUGIN_PATH}/skills/productivity/plan-manager/references/plan-contract.md`;
+// The reader of merge-base instruction files that plan-manager phase 6 and docks code-review run. `case` runs the file
+// of the checkout that holds this script, not of the case repository, so a case reads each file with the production
+// code.
+const BASE_BLOB_SCRIPT = path.join(
+  SKILL_DIR,
+  '../../..',
+  PLUGIN_PATH,
+  'skills/productivity/plan-manager/scripts/base-blob.sh',
+);
 const PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
 // The marker file of a plugin copy (the baseline or a variant) records the commit of the copy.
 const PLUGIN_COPY_MARKER = '.review-bench-ref';
@@ -739,42 +748,18 @@ function writeFocusDiffs(repo, hidden, base, tree, paths, full) {
   }
 }
 
-// commitFileText follows at most this many symbolic links, as `base_blob` of plan-manager phase 6 does.
-const MAX_LINK_DEPTH = 8;
-
-// The tree path that a link in the folder `folder` (`.` for the root) with the relative target `target` names: empty
-// and `.` segments drop, and `..` drops the segment before it. A path that leaves the tree or names the root is null.
-function linkPath(folder, target) {
-  const out = [];
-  for (const segment of `${folder}/${target}`.split('/')) {
-    if (segment === '' || segment === '.') continue;
-    if (segment !== '..') out.push(segment);
-    else if (out.length) out.pop();
-    else return null;
+// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. BASE_BLOB_SCRIPT
+// resolves each symbolic link on the path, also a folder link; its status 1 means absent. Any other status stops
+// `case` with the error of the script, so a git failure is never an absent file.
+function baseInstructionText(repo, commit, file) {
+  const result = spawnSync('sh', [BASE_BLOB_SCRIPT, commit, file], { cwd: repo, maxBuffer: MAX_OUTPUT });
+  if (result.error) fail(`sh ${BASE_BLOB_SCRIPT} did not run: ${result.error.message}`);
+  if (result.status === 1) return null;
+  if (result.status !== 0) {
+    const status = result.status ?? result.signal;
+    fail(`base-blob.sh ${commit} ${file} failed with status ${status}: ${result.stderr.toString().trim()}`);
   }
-  return out.length ? out.join('/') : null;
-}
-
-// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. It reads the tree as
-// `base_blob` of plan-manager phase 6 and of docks code-review does: `git ls-tree` lists one path at a time, and a
-// symbolic link (mode 120000, for example `CLAUDE.md` -> `AGENTS.md`) resolves from the folder of the link. A missing
-// path, a folder, an absolute, empty, or outside-tree target, a path through a folder link (ls-tree does not enter
-// it), and a chain of more than MAX_LINK_DEPTH links give null. A git command that fails throws, so a git failure is
-// never an absent file.
-function commitFileText(repo, commit, file) {
-  let current = file;
-  for (let links = 0; ; links += 1) {
-    const listing = git(repo, ['--literal-pathspecs', 'ls-tree', '--full-tree', commit, '--', current]);
-    const [mode, type, oid] = listing.toString().trim().split(/\s+/);
-    if (type !== 'blob') return null;
-    if (mode !== '120000') return git(repo, ['cat-file', 'blob', oid]);
-    if (links >= MAX_LINK_DEPTH) return null;
-    // A shell command substitution drops the trailing newlines of the target, so this drops them too.
-    const target = git(repo, ['cat-file', 'blob', oid]).toString().replace(/\n+$/, '');
-    if (target.startsWith('/')) return null;
-    current = linkPath(path.posix.dirname(current), target);
-    if (current === null) return null;
-  }
+  return git(repo, ['cat-file', 'blob', result.stdout.toString().trim()]);
 }
 
 // Writes the base-instructions folder of a review into `dir` (see the base-instructions contract in ../SKILL.md,
@@ -798,7 +783,7 @@ function writeBaseInstructions(repo, hidden, base, tree, dir, deltaFrom = null) 
   for (const folder of [...folders].sort()) {
     for (const name of INSTRUCTION_FILES) {
       const file = folder ? `${folder}/${name}` : name;
-      const text = commitFileText(repo, base, file);
+      const text = baseInstructionText(repo, base, file);
       manifest.push(`${text === null ? 'absent' : 'copied'} ${file}`);
       if (text === null) continue;
       fs.mkdirSync(path.join(out, ...folder.split('/')), { recursive: true });

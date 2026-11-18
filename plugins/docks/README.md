@@ -69,7 +69,7 @@ plugin in this same marketplace. It includes the lifecycle skills, an
 explicit-only `yolo` skill that runs the whole lifecycle and asks only before
 merge, the shipped `plan.mjs`, a marker-based plan contract, and the read-only
 `plan-reviewer` and `code-reviewer` wrappers. Plan repairs are re-reviewed from fresh exports, and
-code fixes are re-reviewed from fresh diffs, with a five-round ceiling in each
+code fixes are re-reviewed from fresh diffs, with a 10-round ceiling in each
 review phase. Each reviewer returns one markdown block that the manager stores
 as one issue comment. When implementation starts, the manager reuses or creates
 the GitHub-linked plan branch. After code review passes, it commits and pushes

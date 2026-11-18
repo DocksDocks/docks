@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "c0c3c9e7e69ad617641c00a57fd61da3cb43c3bd807ead215671556823fc647c"
+  content_hash: "733a2d6f64c75989eb9cf5db266203b4c15cc4cd4fa56567a20b53f590c71897"
 ---
 
 # Plan Manager
@@ -34,10 +34,10 @@ Ask in-session immediately before running a non-local Effect step. Persisted
 intent is not permission. If confirmation is unavailable, block the step and
 plan with a reason. The settled mode covers routine issue publication and
 linked-branch landing work. Every merge needs a fresh `Merge now` answer. A
-production cleanup in the contract's Teardown needs its own in-session
-question, also in a yolo run. In a yolo run, the contract's Yolo runs section
-replaces every question in this skill except the merge question and a
-production cleanup question.
+production cleanup in the contract's Teardown needs its own in-session question.
+A grant in the contract's Delegated decisions answers none of these questions.
+In a yolo run, the contract's Yolo runs section replaces every question in this
+skill except the merge and production cleanup questions.
 </constraint>
 
 ## Resolve the helper
@@ -99,7 +99,8 @@ input and dispatch `plan-reviewer` with the issue number, export path, and round
 number. A re-review round after a repair may use the plan `delta` mode, as the
 contract's review loop allows. If no wrapper exists, dispatch a fresh read-only
 reviewer with the `plan-reviewer` skill. Route a user-only decision through Open
-questions and `ask`. Never implement a repaired plan that has not passed review.
+questions and `ask`, unless a grant answers it (the contract's Delegated decisions).
+Never implement a repaired plan that has not passed review.
 
 A plan-only run stops after the pass, at planned. Report the issue and verdict.
 Do not create a branch or implement without a new instruction.
@@ -155,65 +156,45 @@ root and in each parent folder of a changed path. The changed paths are the
 paths of the full diff and, in a later round, also the paths of the delta diff.
 A file that the branch added and a repair then deleted is in the delta diff
 only. Set `prev` to the previous round's reviewed head, or leave it empty in
-round 1. A symlink gives the text of its target in the merge-base tree, under
-the path of the link. A link whose target is missing, outside the tree, or more
-than 8 links away is absent. The folder's `MANIFEST` lists each checked path as
-`copied <path>` or `absent <path>`. When a git command fails, the block writes
-no `MANIFEST`, prints an error, and exits with a non-zero status. Then do not
-dispatch the round; a git failure is not an absent file:
+round 1. Put the folder of this skill, which holds `scripts/plan.mjs`, in place
+of `<skill-dir>`. Its `scripts/base-blob.sh` reads each file. A symlink, also a
+folder link on the path, gives the text of its target in the merge-base tree,
+under the path of the link. A path is absent when it is missing or names a
+folder, or when a link on it has a target outside the tree or more than 40
+links away. The folder's `MANIFEST` lists each checked path as `copied <path>`
+or `absent <path>`. When git or the script fails, the block writes no
+`MANIFEST`, prints an error, and exits with a non-zero status. Then do not
+dispatch the round; a failed read is not an absent file:
 
 ```bash
 inst="$scratch/code-review-<n>-round-<k>-base-instructions"
 prev="<previous-reviewed-head or empty>"
-# Prints the blob id of $1 at $base; a link resolves from its folder in the tree.
-# Status 1: absent. Status 2: a git command failed.
-base_blob() {
-  f=$1 n=0
-  while entry=$(git --literal-pathspecs ls-tree --full-tree "$base" -- "$f"); do
-    set -- $entry
-    [ "$2" = blob ] || return 1
-    [ "$1" = 120000 ] || { printf '%s\n' "$3"; return 0; }
-    n=$((n + 1)); [ "$n" -le 8 ] || return 1
-    to=$(git cat-file blob "$3") || return 2
-    case $to in /*) return 1 ;; esac
-    f=$(set -f; IFS=/; out= p=$(dirname "$f")/$to
-      for seg in $p; do
-        case $seg in
-          '' | .) ;;
-          ..) [ -n "$out" ] || exit 1; case $out in */*) out=${out%/*} ;; *) out= ;; esac ;;
-          *) out=${out:+$out/}$seg ;;
-        esac
-      done
-      [ -n "$out" ] && printf '%s\n' "$out") || return 1
-  done
-  return 2
-}
 rm -rf "$inst" && mkdir -p "$inst" && (
   set -o pipefail
   { git diff --name-only --no-renames -z "$base" &&
       { [ -z "$prev" ] || git diff --name-only --no-renames -z "$prev"; } &&
       git ls-files --others --exclude-standard -z; } |
   while IFS= read -r -d '' path; do
-    dir=$(dirname "$path")
-    while :; do
+    dir=$path
+    while [ "$dir" != . ]; do
+      case $dir in */*) dir=${dir%/*} ;; *) dir=. ;; esac
       for name in AGENTS.md CLAUDE.md REVIEW.md; do
         if [ "$dir" = . ]; then printf '%s\0' "$name"; else printf '%s\0' "$dir/$name"; fi
       done
-      [ "$dir" = . ] && break
-      dir=$(dirname "$dir")
     done
   done | sort -zu |
   while IFS= read -r -d '' file; do
-    oid=$(base_blob "$file")
+    oid=$(sh "<skill-dir>/scripts/base-blob.sh" "$base" "$file")
     case $? in
-      0) mkdir -p "$inst/$(dirname "$file")" && git cat-file blob "$oid" > "$inst/$file" || exit 1
+      0) copy="$inst/$file"
+        mkdir -p "${copy%/*}" && git cat-file blob "$oid" > "$copy" || exit 1
         printf 'copied %s\n' "$file" ;;
       1) printf 'absent %s\n' "$file" ;;
       *) exit 1 ;;
     esac
   done > "$inst/MANIFEST.part"
 ) && mv "$inst/MANIFEST.part" "$inst/MANIFEST" ||
-  { echo "base instructions: a git command failed; $inst has no MANIFEST" >&2; false; }
+  { echo "base instructions: a read failed; $inst has no MANIFEST" >&2; false; }
 ```
 
 Name the folder in every dispatch, because the reviewer reads instruction files
@@ -268,19 +249,17 @@ commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
 on `Merge now`. Write the description from `references/run-summary.md`, as the
 practices Run summary says. Build the `## Checklist` section and run the landing
-self-check as the contract's Checklist and Checks and merge say. After each
-push, rebuild the ticks and update the body before any wait for checks. The
-merge question states `<k> of <n> checklist items ticked` and lists each
-unticked item with its reason. The `Merge now` option states the teardown, as
-the contract's Checks and merge says. A v5 plan has no partial merge; each part
-lands as a child plan. Only a v4 plan whose work started runs
-`reopen <n> --pr <pr>` after a partial merge, as the contract states. After the
-landing merge, run each step that runs after the merge. Once every step is
-terminal, run `archive <n> --pr <pr>` with the landing pull request. For a
-child, then set its parent row done; when `show <parent>` lists no open child,
-run `archive <parent>`, as the contract's Archive says. After archive, run the
-contract's Teardown. Without `Merge now`, run Teardown's exit without a merge.
-Report Kept resources in both cases.
+self-check as the contract's Checklist and Checks and merge say. After each push,
+rebuild the ticks and update the body before any wait for checks. The merge
+question and its `Merge now` option state what the contract's Checks and merge
+lists. A v5 plan has no partial merge; each part lands as a child
+plan. Only a v4 plan whose work started runs `reopen <n> --pr <pr>` after a
+partial merge, as the contract states. After the landing merge, run each step that
+runs after the merge. Once every step is terminal, run `archive <n> --pr <pr>`
+with the landing pull request. For a child, then set its parent row done; when
+`show <parent>` lists no open child, run `archive <parent>`, as the contract's
+Archive says. After archive, run the contract's Teardown. Without `Merge now`, run
+Teardown's exit without a merge. Report Kept resources in both cases.
 
 Render the body only when the user names the plan and asks to see it. After a
 write, report the header strip and changed lines.
