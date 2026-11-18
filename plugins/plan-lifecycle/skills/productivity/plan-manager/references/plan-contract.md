@@ -1005,6 +1005,12 @@ post a new grant event (Authority events) and edit the line to its quote. When
 it revokes the grant, post a revocation event and remove the line. When a user
 instruction names a question that the grant does not answer, ask that question.
 
+A yolo grant is not narrowed in place: the yolo line is fixed, and yolo always
+means every decision except the merge. To narrow it, post `Delegation revoked`,
+then a `Delegation grant: <quote>` event with the narrower quote, and change
+the Goal line from the yolo line to a `Delegated:` line. The plan then runs as
+a `plan-manager` plan with a grant, without the effect table of Yolo runs.
+
 ### Authority events
 
 Authority comes only from trusted authority events, never from the Goal line.
@@ -1019,10 +1025,17 @@ An authority event is an issue comment whose first line is one of these:
 Each quote follows the quote rules above. Post each event as the plan's
 assignee: a grant event when a `Delegated:` grant starts or narrows and when a
 yolo invocation starts, and a revocation event when the user revokes the grant.
-A child plan copies the line of its parent and posts its own grant event with
-the same quote. An event is trusted as a review comment is (Phases and review
-comments): trust requires exactly one issue assignee and a comment author login
-equal to that assignee.
+An event is trusted as a review comment is (Phases and review comments): trust
+requires exactly one issue assignee and a comment author login equal to that
+assignee.
+
+For a child plan, the latest trusted event among the parent's events and the
+child's events decides. So a revocation or a narrowing posted on the parent
+applies to every child at once, and no event is copied to each child. A child
+copies the line of its parent when it is created. It posts its own grant event
+only then, with the quote of the parent's latest grant, or when the user's own
+message grants something for that child. A child grant event never widens the
+parent's latest grant.
 
 The latest trusted authority event decides, ordered by `createdAt`. A grant is
 in force only when that event is a grant. The Goal line only mirrors it: a
