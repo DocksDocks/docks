@@ -4443,10 +4443,10 @@ function promptFileParts(file) {
   return { agent, body: rest.join('\n') };
 }
 
-// `case --loop` with the arms B0, B1, C1, and C3 at configuration `low`, one run each, for dev case code-7. The case
-// head adds src/sync.mjs with `count` lines, so the full diff changes `count` lines. Line 5 carries the known defect
-// D1, and its fix patch changes that line only.
-function policyLoops(t, count) {
+// `case --loop` with `arms` (default: the arms of POLICY_ARMS) at configuration `low`, one run each, for dev case
+// code-7. The case head adds src/sync.mjs with `count` lines, so the full diff changes `count` lines. Line 5 carries
+// the known defect D1, and its fix patch changes that line only.
+function policyLoops(t, count, arms = Object.keys(POLICY_ARMS)) {
   isolateGit(t);
   const root = neutralScratch(t);
   const repo = path.join(root, 'repo');
@@ -4482,7 +4482,7 @@ function policyLoops(t, count) {
   put(cases, 'dev/code-7.D1.fix.patch', filePatch(repo, 'src/sync.mjs', sync({ 5: 0 }), sync({})));
   const options = {
     case: path.join(cases, 'dev', 'code-7.json'),
-    arms: Object.keys(POLICY_ARMS).join(','),
+    arms: arms.join(','),
     runs: '1',
     out: ws,
     configs: 'low',
@@ -4641,8 +4641,29 @@ test('loop follows the round policy that the run meta.json records and refuses a
   // A self-review arm runs no loop.
   assert.throws(
     () => prepare.prepareLoop({ run: path.join(ws, 'code-7', 'S1-low', 'run-1'), cases }, repo),
-    /loop takes the runs of the code arms B0, B1, B3, C1, C3; code-7 is a code case and S1 is its arm/,
+    /loop takes the runs of the code arms B0, B1, B3, C1, C3 and of their control copies A<arm>; code-7 is a code case and S1 is its arm/,
   );
+});
+
+test('loop runs the control copy AC3 as the loop of C3', (t) => {
+  const { repo, ws, cases, run } = policyLoops(t, 50, ['C3', 'AC3']);
+  const answers = [];
+  for (const arm of ['C3', 'AC3']) {
+    assert.deepEqual(readJson(path.join(run(arm), 'meta.json')), { policy: 'panel-delta' });
+    for (const lens of prepare.LENSES) put(run(arm), `round-1/blocks/${lens}.md`, policyBlock(lens));
+    answers.push([`code-7/${arm}-low/run-1/round-1/correctness#1`, 'D1']);
+  }
+  findingsCommand(ws);
+  judgeLoop(ws, answers);
+  const delta = (arm) => path.join(run(arm), 'round-2', 'prompts', 'delta.txt');
+  for (const arm of ['C3', 'AC3']) {
+    assert.equal(prepare.prepareLoop({ run: run(arm), cases }, repo), path.join(run(arm), 'round-2'));
+    assert.equal(readJson(path.join(run(arm), 'round-2', 'meta.json')).mode, 'delta');
+    assert.equal(promptFileParts(delta(arm)).agent, 'agent: review-bench-candidate-code-low');
+  }
+  // The copy gets the round-2 prompt of C3, with the files of its own run folder.
+  const [c3, ac3] = ['C3', 'AC3'].map((arm) => promptFileParts(delta(arm)).body);
+  assert.equal(ac3.replaceAll(run('AC3'), run('C3')), c3);
 });
 
 // Plan #100, code review round 1: the loop control. A round that did not complete, a missing judgments.json, a

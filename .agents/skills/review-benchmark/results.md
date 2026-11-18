@@ -1347,3 +1347,59 @@ The plan-reviewer failure has one cause. Of P1's 70 wrong-rated findings, 40 (in
 - The manager agent's served tier was `null` in most runs, so the Stages section has no kept recall. Plan #135 should check the manager's tier override before the run.
 - Case snapshots hold no `REVIEW.md`, so the runs measure the cost of the new text, not the value of the 13 `REVIEW.md` rows. `outcomes.mjs` measures that value after merge.
 - A new contract rule needs a contract overlay for both the reviewer and the judge before the benchmark can judge it. Plan #135 should add that path for plan arms.
+
+## Run 2026-11-17: plan #135 A/A pilot
+
+- Plan DocksDocks/docks#135 (step 7, `aa_pilot`) ran the A/A pilot that `score.mjs power` needs: `C3` against its control copy `AC3`, with the same agent, prompt, and round policy. Both arms ran as review loops (`--loop`, policy `panel-delta`), 2 runs per arm, on the 12 dev `code` cases (4 of them controls). No held-out case and no manager stage.
+- Configuration: `agents --baseline-ref plan-lifecycle--v0.20.2 --model openai-codex/gpt-6.1-terra --efforts high --tiers default --project /home/docks/projects/docks`. The probe confirmed effort `high` and tier `default` for the reviewer, and tier `priority` for the manager. The fixer is `openai-codex/gpt-6.1-sol` at `high`, `priority`. The judge and the second judge are Anthropic models.
+- Dispatch: at most 16 agents at a time, with the arms interleaved in each wave. No wave had a limit error or a transcript with another provider, model, effort, or served tier. The subagent runtime limit cut the operator once, during wave 17. The 16 dispatches of that wave were cancelled. Their outputs and transcripts were set aside, and the wave ran again as wave 18. The older copy of each repeated task name went to `superseded-transcripts/` before `transcripts` ran.
+- Valid runs: 23 of 24 per arm. The read-scope check rejected `code-102-r1/C3-high/run-2`, which read `/home/docks/projects/d/dummy`, and `code-22-pr24/AC3-high/run-2`, whose glob had an exclusion pattern `!<snapshot>/…/scripts/**`. The scorer took that pattern as a path outside the inputs. Reads of missing paths: 1 in `C3`, 14 in `AC3`.
+- The second judge agreed with 135 of 139 answers (0.97).
+
+### Standard error and power
+
+`score.mjs power <ws> --arms C3-high,AC3-high --margins 2,4`: 12 cases, 1.9 runs per arm and case, 30 known defects. 1 of 12 cases had a difference. The escaped-per-50-known difference was 0.83, with a standard error of 0.76.
+
+| Margin per 50 known | Cases at 1 run | Cases at 2 runs | Cases at 3 runs | Cases at 4 runs |
+|---:|---:|---:|---:|---:|
+| 2 | 21 | 11 | 7 | 6 |
+| 4 | 6 | 3 | 2 | 2 |
+
+A cell gives the cases that 80% power needs for a not-worse decision at that margin, with a one-sided error of 0.05, when the arms are equal and new cases have the noise of these cases. A pass also needs at least 10 cases with a difference.
+
+### A/A decision rows (`report --arms C3-high,AC3-high --reference C3-high --margin 4`)
+
+| Measure | C3-high | AC3-high |
+|---|---:|---:|
+| Runs | 23 | 23 |
+| Escaped per 50 known | 34.26 | 32.76 |
+| Round 1 recall difference, 90% interval | - | [0.00, 0.05] |
+| Escaped per 50 known difference, 90% interval | - | [-2.50, 0.00] |
+| Loop seconds difference, 90% interval | - | [-23.7, 39.8] |
+| Cases with an escaped difference | - | 1 (`code-96-r1`) |
+| Wrong findings / runs | 23 / 23 | 26 / 23 |
+| Wrong findings more than C3-high, one-sided exact Poisson p | - | 0.3877 |
+| Unknown ratings / runs | 2 / 23 | 2 / 23 |
+| Unknown ratings more than C3-high, one-sided exact Poisson p | - | 0.6875 |
+| Not worse than C3-high by 4 escaped per 50 known | - | too few differing cases |
+| Equivalent to C3-high within 4 escaped per 50 known | - | too few differing cases |
+
+- The escaped interval [-2.50, 0.00] is inside ±4, and neither Poisson test is near 0.05. Even so, the not-worse and equivalence rows do not pass. They give `too few differing cases`, because only 1 of the 12 cases differs and a pass needs 10. At the A/A noise of this corpus, the gate on differing cases binds before the interval does. A neutral candidate on 12 cases cannot pass it.
+- Batch drift: control `AC3-high` against `C3-high`, 12 shared cases, 1 with a difference, interval [-2.50, 0.00], inside ±4.
+- Loops: median rounds 2 (`C3`) and 3 (`AC3`), 5 at most in both. Loops with a fixer: 18 and 20. Valid extras per run: 5.00 and 5.91. Controls: findings per run 1.75 and 2.88, wrong per run 0.88 and 1.00.
+
+### Cost
+
+- Dispatches: 254 reviewer, 94 fixer, 45 first-judge batches, and 4 second-judge batches. In addition, 16 dispatches of wave 17 (4 reviewer, 12 fixer) were cancelled and ran again.
+- Tokens: reviewers 75.1 M, fixers 28.7 M, first judges 24.9 M, second judges 8.5 M, and the cancelled wave 1.7 M.
+- Time: 27 completed dispatch waves took 3708 s in total, the first judges 1448 s, and the second judges about 330 s, so about 92 minutes of active work. The wall clock ran from 18:37 to 20:55, including about 39 minutes idle after the runtime cut.
+
+### Defect that the pilot found
+
+- `prepare.mjs loop` refused every `AC3` run after round 1: `loop takes the runs of the code arms B0, B1, B3, C1, C3; code-102-r1 is a code case and AC3 is its arm`. `prepareLoop` looked up `ARMS.code[arm]`, which has no `A<arm>` control copies, and the next-round `buildPromptFile` call used the same lookup. The fix resolves the arm through `armSpec('code', arm)`, checks `spec?.policy`, and passes `spec` to the next-round prompt. `buildPromptFile` now defaults `spec` to `armSpec(caseData.kind, arm)`. A unit test runs `loop` on an `AC3` run. It fails without the fix and passes with it. `unit-review-benchmark` `expected_min` was raised to the new count. The pilot resumed after the fix, with no rerun.
+
+### Limits and leads
+
+- 2 runs per arm and 12 cases, with 30 known defects. The standard error comes from 1 differing case, so it is rough.
+- The read-scope check takes a glob exclusion pattern (`!<path>`) as a read outside the inputs.
+- Fixers asked the operator over IRC about findings that they could not repair inside the patch scope: findings against the plan export only, and an API conflict in `code-89-r1`. Four fixer dispatches of three fixer prompts returned a failure. One prompt (`code-89-r1/AC3-high/run-1/round-4`) wrote no patch twice and ran three times in total.

@@ -531,14 +531,15 @@ export function buildTail({ caseData, side, mode, round, reviewer, paths }) {
 }
 
 // The prompt file of one reviewer. The arm gives the side; `mode` and `round` default to the arm's mode and the case
-// round, and a loop round gives its own. `spec` is the arm (see armSpec); it defaults to the arm of ARMS.
+// round, and a loop round gives its own. `spec` is the arm (see armSpec); it defaults to the arm of armSpec without
+// the lists of `agents`, so a variant arm or a self-review root arm needs its `spec`.
 export function buildPromptFile({
   caseData,
   arm,
   config,
   reviewer,
   paths,
-  spec = ARMS[caseData.kind][arm],
+  spec = armSpec(caseData.kind, arm),
   mode = spec.mode,
   round = caseData.round,
 }) {
@@ -1382,13 +1383,15 @@ export function prepareLoop(options, repo) {
   const ws = path.dirname(caseDir);
   const [caseId, armName, runName] = [caseDir, armDir, runDir].map((dir) => path.basename(dir));
   const arm = armName.split('-')[0];
+  // armSpec also resolves the control copy A<arm> of a loop arm, which runs the loop of its arm.
+  const spec = armSpec('code', arm);
   if (!RUN_FOLDER.test(runName) || !armName.includes('-') || !fs.existsSync(path.join(caseDir, 'case.json')))
     fail(`--run must name a run folder <ws>/<case>/<arm>-<config>/run-<k>, not ${runDir}`);
   const caseData = validateCase(readJson(path.join(caseDir, 'case.json')));
-  if (caseData.kind !== 'code' || !ARMS.code[arm]?.policy) {
+  if (caseData.kind !== 'code' || !spec?.policy) {
     const loopArms = Object.keys(ARMS.code).filter((name) => ARMS.code[name].policy);
     fail(
-      `loop takes the runs of the code arms ${loopArms.join(', ')}; ${caseId} is a ${caseData.kind} case and ${arm} is its arm`,
+      `loop takes the runs of the code arms ${loopArms.join(', ')} and of their control copies A<arm>; ${caseId} is a ${caseData.kind} case and ${arm} is its arm`,
     );
   }
   const keys = keyFolder(caseData, options.keys);
@@ -1536,7 +1539,8 @@ export function prepareLoop(options, repo) {
     const nextMode = roundMode({ policy, round: nextRound, fullLines, completed: true, repairsOnly, deltaLines });
     const paths = reviewPaths(nextDir, planExport, plan.rejections.length > 0);
     const prompts = MODE_REVIEWERS[nextMode].map((reviewer) => {
-      const prompt = { caseData, arm, config: config.name, reviewer, paths, mode: nextMode, round: promptRound + 1 };
+      const round = promptRound + 1;
+      const prompt = { caseData, arm, spec, config: config.name, reviewer, paths, mode: nextMode, round };
       return { reviewer, text: buildPromptFile(prompt) };
     });
     const meta = { config, mode: nextMode, head, repairsOnly, fullLines, deltaLines };
