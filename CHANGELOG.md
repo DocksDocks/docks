@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-11-18 - docks-kit 0.22.26: global agent rules name the plan grant and the settled-Mode writes
+
+### Changed
+
+- The global agent rules of all three harnesses (`SoT/.omp/AGENTS.md`,
+  `SoT/.codex/AGENTS.md`, `SoT/.claude/CLAUDE.md`) now describe the plan
+  grant of plan-lifecycle 0.22.0 (DocksDocks/docks#149). A grant answers only
+  the asks that the contract's Delegated decisions section lists. Only trusted
+  `Delegation grant:` and `Delegation revoked` comments give or end it; the
+  latest comment on the plan decides, and a parent plan can end the grant of
+  its child. The agent runs the contract's grant check right before each
+  delegated decision and each write that relies on the grant. A grant never
+  answers the Mode, a non-local effect, the merge, a destructive action,
+  secrets, production, a temporary workaround, or a fact that only the user
+  holds (#172).
+- The rules also say that a settled plan Mode covers the routine
+  plan-lifecycle writes in the resolved repository: the plan issue, plan
+  edits, review comments, and each other issue or comment that the
+  plan-lifecycle contract requires, such as a grant event or a follow-up
+  issue. A `plan-and-implement` Mode also covers the landing work: the push
+  of the linked branch and the pull request. Before this change, the omp ask
+  list asked before every issue or comment, so a literal reading asked before
+  each review comment. Every other issue, comment, release, or upstream pull
+  request still needs an ask.
+- The Codex and Claude rules now carry the `yolo` sentence of the omp rules,
+  and all three files narrow it: a `yolo` invocation answers the routine asks
+  of its plan run until the merge question, or until the grant check of the
+  plan-lifecycle contract finds that its grant has ended. Before the grant
+  comment exists, the invoking message is the authority, as the grant check
+  says. The sentence never covers destructive work, secrets, production
+  systems, or a repository hook that fails; for a failed hook, the agent
+  follows the hook rule of the plan-lifecycle contract. Before this change,
+  the omp sentence answered every ask of the list. The Codex and Claude rule
+  that treats probe, production access, publish, push, release, and deploy
+  as literal current-request effects is unchanged.
+
 ## 2026-11-16 - docks-kit 0.22.25: omp file-removal rule teaches the git folder form
 
 ### Changed
