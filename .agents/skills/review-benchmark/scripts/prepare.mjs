@@ -938,8 +938,8 @@ const COMMIT_FIELDS = ['base', 'head', 'delta_base', 'repo_ref'];
 const BENCH_REFS = 'refs/review-bench/';
 const PULL_REF = `${BENCH_REFS}pull/`;
 const KEPT_REF = `${BENCH_REFS}kept/`;
-// The refs that one `case` run or one shell of the recovery command fetches into. The process id keeps a parallel run
-// from changing what this run saves.
+// The refs that one `case` run or one run of the recovery command fetches into. The process id of a `case` run and the
+// random suffix of a recovery run (see manualFetchCommand) keep a parallel run from changing what this run saves.
 const INCOMING_REF = `${BENCH_REFS}incoming/`;
 const MAIN_REF = 'refs/remotes/origin/main';
 const FORK_NOTE = 'when origin is a fork, use the remote of DocksDocks/docks instead of origin';
@@ -1002,12 +1002,13 @@ function fetchPull(repo, { id, pull }) {
 }
 
 // The command that fetches the head of the pull request `pull` and pins it at `${KEPT_REF}<sha>`, the ref that
-// keepCommit uses. The shell fetches into a ref that only it writes (`$$` is its process id), reads the object id once
-// from that ref, and uses that id for the name and the value of the pin. `git update-ref` with an empty old value fails
-// when the pin exists, so a second run of the command never moves a ref. The command then deletes its fetch ref.
-// `case` then finds the commit present and pinned.
+// keepCommit uses. The shell fetches into a ref that only it writes: 16 random hex characters from /dev/urandom make
+// the name new for each run, also for parallel subshells, which share `$$`. The shell reads the object id once from
+// that ref and uses that id for the name and the value of the pin. `git update-ref` with an empty old value fails when
+// the pin exists, so a second run of the command never moves a ref. The command then deletes its fetch ref. `case`
+// then finds the commit present and pinned.
 function manualFetchCommand(pull) {
-  return `t=${INCOMING_REF}manual-$$ && git fetch --no-tags --no-write-fetch-head origin +refs/pull/${pull}/head:$t && sha=$(git rev-parse "$t") && git update-ref "${KEPT_REF}$sha" "$sha" ""; git update-ref -d "$t"`;
+  return `t=${INCOMING_REF}manual-${pull}-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \\n') && git fetch --no-tags --no-write-fetch-head origin +refs/pull/${pull}/head:$t && sha=$(git rev-parse "$t") && git update-ref "${KEPT_REF}$sha" "$sha" ""; git update-ref -d "$t"`;
 }
 
 // The stop message of a case commit that the repository does not hold.

@@ -2719,14 +2719,16 @@ function pullFixture(t) {
   return { ...fixture, remote, clone, ws, cases, caseDir: path.join(ws, 'code-7'), caseOptions, refs };
 }
 const FORK_NOTE = '(when origin is a fork, use the remote of DocksDocks/docks instead of origin)';
-// The recovery command of a stop: it fetches the head of pull request `pull` into a ref of its shell and pins that head
-// at refs/review-bench/kept/<sha>.
+// The recovery command of a stop: it fetches the head of pull request `pull` into a ref of its shell, named with 16
+// random hex characters, and pins that head at refs/review-bench/kept/<sha>.
 const recoveryCommand = (pull) =>
-  `t=refs/review-bench/incoming/manual-$$ && git fetch --no-tags --no-write-fetch-head origin +refs/pull/${pull}/head:$t && sha=$(git rev-parse "$t") && git update-ref "refs/review-bench/kept/$sha" "$sha" ""; git update-ref -d "$t"`;
+  `t=refs/review-bench/incoming/manual-${pull}-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \\n') && git fetch --no-tags --no-write-fetch-head origin +refs/pull/${pull}/head:$t && sha=$(git rev-parse "$t") && git update-ref "refs/review-bench/kept/$sha" "$sha" ""; git update-ref -d "$t"`;
 const manualFetch = (pull) => escapeRegExp(`${recoveryCommand(pull)} ${FORK_NOTE}`);
+// The recovery command of a stop message.
+const printedCommand = (message) => message.match(/yourself: (.+) \(when origin is a fork/)[1];
 // Runs the recovery command of a stop message through `sh -c` in `repo`.
 const runRecovery = (repo, message) =>
-  spawnSync('sh', ['-c', message.match(/yourself: (.+) \(when origin is a fork/)[1]], { cwd: repo, encoding: 'utf8' });
+  spawnSync('sh', ['-c', printedCommand(message)], { cwd: repo, encoding: 'utf8' });
 const missingHead = (head, pull) =>
   new RegExp(
     pull
@@ -2872,6 +2874,16 @@ test('a second run of the recovery command of a stop moves no ref', (t) => {
   // The pin exists, so the update-ref of the second run fails, and the second run then deletes its fetch ref.
   runRecovery(clone, message);
   assert.equal(refs('refs/review-bench'), pinned);
+  // Each run names its fetch ref with 16 new random hex characters, so parallel subshells, which share `$$`, write
+  // different refs.
+  const fetchRef = () => {
+    const named = spawnSync('sh', ['-c', `${printedCommand(message).split(' && ')[0]} && echo "$t"`], {
+      encoding: 'utf8',
+    });
+    assert.match(named.stdout, /^refs\/review-bench\/incoming\/manual-7-[0-9a-f]{16}\n$/);
+    return named.stdout;
+  };
+  assert.notEqual(fetchRef(), fetchRef());
 });
 
 test('validateCase takes pull only as a positive integer, on every kind', () => {
