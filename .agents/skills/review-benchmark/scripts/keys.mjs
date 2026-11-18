@@ -12,6 +12,8 @@ import { frozenJson } from './escapes.mjs';
 
 // The case folders of this skill.
 const SKILL_CASES = fileURLToPath(new URL('../cases/', import.meta.url));
+// The committed public key of the backup (see Cases, Key backup). `backup --recipient <file>` overrides it.
+const BACKUP_KEY = fileURLToPath(new URL('../backup-key.asc', import.meta.url));
 const MAX_OUTPUT = 1024 * 1024 * 1024;
 const MANIFEST = 'MANIFEST.sha256';
 const MANIFEST_LINE = /^([0-9a-f]{64}) {2}(.+)$/;
@@ -48,10 +50,10 @@ const CHECKS = [
 ];
 const USAGE = [
   'usage: keys.mjs <backup|restore|check> [options]',
-  '  backup --keys <dir> --out <vault checkout>',
-  '      Encrypts the keys folder to the public key in $XDG_STATE_HOME/docks/review-bench/backup-recipient.asc',
-  '      (default ~/.local/state) and writes <out>/keys-<UTC time>.tar.gpg. The key must have the fingerprint',
-  '      of the "Fingerprint: <hex>" line of <out>/README.md, and <out> must be the root folder of a git checkout.',
+  '  backup --keys <dir> --out <vault checkout> [--recipient <public-key file>]',
+  '      Encrypts the keys folder to the public key in backup-key.asc of the skill folder, or in the --recipient',
+  '      file, and writes <out>/keys-<UTC time>.tar.gpg. The key must have the fingerprint of the',
+  '      "Fingerprint: <hex>" line of <out>/README.md, and <out> must be the root folder of a git checkout.',
   '  restore --archive <file> --key <secret-key export> --out <new dir>',
   '      Imports the key into a new private GnuPG home (never GNUPGHOME), decrypts there into a new mode-0700',
   '      folder outside every git checkout, and verifies every file against the manifest of the archive. For a',
@@ -81,14 +83,6 @@ function run(command, args, { input, env = process.env, cwd } = {}) {
 function isInside(child, parent) {
   const relative = path.relative(parent, child);
   return relative === '' || !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
-}
-
-// The D4 public-key file of the state folder.
-export function recipientFile(env = process.env) {
-  const state = path.isAbsolute(env.XDG_STATE_HOME ?? '')
-    ? env.XDG_STATE_HOME
-    : path.join(env.HOME || os.homedir(), '.local', 'state');
-  return path.join(state, 'docks', 'review-bench', 'backup-recipient.asc');
 }
 
 // The primary fingerprint of the one public key in `file`.
@@ -270,8 +264,9 @@ function archiveName(now) {
 }
 
 // Writes one encrypted copy of `keys` into the vault checkout `out` and gives its path. `out` must be the root folder
-// of a git checkout. `beforeTar` is the test seam of `archiveBytes`.
-export function backup({ keys, out, env = process.env, now = new Date(), beforeTar }) {
+// of a git checkout. `recipient` is the public-key file, by default the committed `backup-key.asc`. `beforeTar` is the
+// test seam of `archiveBytes`.
+export function backup({ keys, out, recipient = BACKUP_KEY, env = process.env, now = new Date(), beforeTar }) {
   if (!keys || !out) fail('backup needs --keys <dir> --out <vault checkout>');
   const keysDir = fs.realpathSync(keys);
   const vault = fs.realpathSync(out);
@@ -283,8 +278,15 @@ export function backup({ keys, out, env = process.env, now = new Date(), beforeT
   if (!top) fail(`${out} is no git checkout; --out must be the root folder of the vault clone`);
   if (fs.realpathSync(top[0]) !== vault)
     fail(`${out} is inside the git checkout ${top[0]}; --out must be the root folder of the vault clone`);
-  const key = recipientFile(env);
-  if (!fs.existsSync(key)) fail(`the recipient key file ${key} is missing`);
+  const key = path.resolve(recipient);
+  let stat;
+  try {
+    fs.accessSync(key, fs.constants.R_OK);
+    stat = fs.statSync(key);
+  } catch (error) {
+    fail(`cannot read the recipient key file ${key}: ${error.message}`);
+  }
+  if (!stat.isFile()) fail(`the recipient key file ${key} is no file`);
   const expected = vaultFingerprint(vault);
   const actual = fingerprintOf(key, env);
   if (actual !== expected)
@@ -577,13 +579,14 @@ export function check({ keys, cases = SKILL_CASES }) {
 export async function main(argv, env = process.env) {
   const [command, ...args] = argv;
   const options = {
-    backup: { keys: { type: 'string' }, out: { type: 'string' } },
+    backup: { keys: { type: 'string' }, out: { type: 'string' }, recipient: { type: 'string' } },
     restore: { archive: { type: 'string' }, key: { type: 'string' }, out: { type: 'string' } },
     check: { keys: { type: 'string' }, cases: { type: 'string' } },
   }[command];
   if (!options) fail(USAGE);
   const { values } = parseArgs({ args, options, strict: true });
-  if (command === 'backup') return `backup: wrote ${backup({ keys: values.keys, out: values.out, env })}\n`;
+  if (command === 'backup')
+    return `backup: wrote ${backup({ keys: values.keys, out: values.out, recipient: values.recipient, env })}\n`;
   if (command === 'restore') {
     const restored = await restore({ archive: values.archive, key: values.key, out: values.out, env });
     return `restore: verified every file in ${restored}\n`;

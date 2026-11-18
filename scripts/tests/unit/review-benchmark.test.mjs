@@ -11346,8 +11346,8 @@ test('escape draw takes a --commit only when the running draw code is the code o
 });
 
 // A throwaway GnuPG home with one key pair (no passphrase) for each user id, so no test touches the key ring of the
-// user. Each key has its public key in `file` and an export of its secret key in `secret`. `env` also points
-// XDG_STATE_HOME into the folder, so `backup` reads its recipient file from there. The keys are RSA keys: with
+// user. Each key has its public key in `file` and an export of its secret key in `secret`; a test gives `file` to
+// `backup` as the recipient, so no test encrypts to the committed key unless it says so. The keys are RSA keys: with
 // libgcrypt 1.12.0, the bug T8094 makes the first use of an imported ECC key fail at random (plan #162).
 function gpgHome(t, ...names) {
   const version = spawnSync('gpg', ['--version'], { encoding: 'utf8' });
@@ -11355,7 +11355,7 @@ function gpgHome(t, ...names) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'keys-test-'));
   const home = path.join(root, 'gnupg');
   fs.mkdirSync(home, { mode: 0o700 });
-  const env = { ...process.env, GNUPGHOME: home, XDG_STATE_HOME: path.join(root, 'state') };
+  const env = { ...process.env, GNUPGHOME: home };
   t.after(() => {
     spawnSync('gpgconf', ['--kill', 'gpg-agent'], { env });
     spawnSync('gpgconf', ['--remove-socketdir'], { env });
@@ -11419,15 +11419,11 @@ function treeOf(root) {
   return entries;
 }
 
-// A vault checkout (the root folder of a new git repository) whose README names `fingerprint`, and the D4 recipient
-// file set to `keyFile`.
-function vaultFor(gnupg, fingerprint, keyFile) {
+// A vault checkout (the root folder of a new git repository) whose README names `fingerprint`.
+function vaultFor(gnupg, fingerprint) {
   const vault = path.join(gnupg.root, 'vault');
   put(vault, 'README.md', `# Held-out keys vault\n\nFingerprint: ${fingerprint}\n`);
   assert.equal(spawnSync('git', ['init', '-q', vault]).status, 0);
-  const recipient = keyBackup.recipientFile(gnupg.env);
-  fs.mkdirSync(path.dirname(recipient), { recursive: true });
-  fs.copyFileSync(keyFile, recipient);
   return vault;
 }
 
@@ -11444,8 +11440,8 @@ test('key backup writes only an encrypted copy to the vault, and restore gives a
   const { fingerprint, file, secret } = gnupg.keys['bench test'];
   const keys = keysFixture(gnupg.root);
   const before = treeOf(keys);
-  const vault = vaultFor(gnupg, fingerprint, file);
-  const output = await keyBackup.main(['backup', '--keys', keys, '--out', vault], gnupg.env);
+  const vault = vaultFor(gnupg, fingerprint);
+  const output = await keyBackup.main(['backup', '--keys', keys, '--out', vault, '--recipient', file], gnupg.env);
   const names = fs.readdirSync(vault).sort();
   assert.equal(names.length, 3);
   assert.deepEqual(names.slice(0, 2), ['.git', 'README.md']);
@@ -11466,12 +11462,14 @@ test('key backup writes only an encrypted copy to the vault, and restore gives a
   assert.deepEqual(treeOf(restored), before);
   // Two copies in one second would get one name; the second backup refuses and keeps the first copy.
   const now = new Date('2030-01-01T00:00:00.000Z');
-  const first = keyBackup.backup({ keys, out: vault, env: gnupg.env, now });
+  const first = keyBackup.backup({ keys, out: vault, recipient: file, env: gnupg.env, now });
   assert.equal(path.basename(first), 'keys-20300101T000000Z.tar.gpg');
   const bytes = fs.readFileSync(first);
-  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env, now }), { message: /exists/ });
+  assert.throws(() => keyBackup.backup({ keys, out: vault, recipient: file, env: gnupg.env, now }), {
+    message: /exists/,
+  });
   assert.ok(fs.readFileSync(first).equals(bytes));
-  assert.throws(() => keyBackup.backup({ keys, out: keys, env: gnupg.env }), {
+  assert.throws(() => keyBackup.backup({ keys, out: keys, recipient: file, env: gnupg.env }), {
     message: 'the vault and the keys folder must not hold each other',
   });
 });
@@ -11512,7 +11510,8 @@ test('restore refuses an existing folder and a folder inside a git checkout, and
   const { fingerprint, file } = gnupg.keys['bench test'];
   const archive = keyBackup.backup({
     keys: keysFixture(gnupg.root),
-    out: vaultFor(gnupg, fingerprint, file),
+    out: vaultFor(gnupg, fingerprint),
+    recipient: file,
     env: gnupg.env,
   });
   const existing = path.join(gnupg.root, 'existing');
@@ -11725,7 +11724,7 @@ test('backup stores each hard-linked file as a regular member, and restore gives
   const copies = keysFixture(gnupg.root, 'copies');
   put(copies, 'heldout/code-1-K1 copy.patch', fs.readFileSync(patch, 'utf8'));
   assert.ok(keyBackup.archiveBytes(keys).equals(keyBackup.archiveBytes(copies)));
-  const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint, file), env: gnupg.env });
+  const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint), recipient: file, env: gnupg.env });
   const restored = path.join(gnupg.root, 'restored', 'keys');
   assert.equal(await keyBackup.restore({ archive, key: secret, out: restored, env: gnupg.env }), restored);
   assert.deepEqual(treeOf(restored), before);
@@ -11785,7 +11784,7 @@ test('restore --key gives the same folder on each of 10 runs, whatever GNUPGHOME
   const { fingerprint, file, secret } = gnupg.keys['bench test'];
   const keys = keysFixture(gnupg.root);
   const before = treeOf(keys);
-  const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint, file), env: gnupg.env });
+  const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint), recipient: file, env: gnupg.env });
   // Each run has the wrong GPG_TTY `not a tty` of a shell without a terminal; the restore removes it. On each second
   // run, GNUPGHOME also names a folder that does not exist. The restore never reads it, so the result stays the same,
   // and gpg does not make the folder. A `gpg` shim logs each call and gives it to the real gpg.
@@ -11828,7 +11827,7 @@ test('restore with a terminal on stdin decrypts without --batch, with the termin
   const { fingerprint, file, secret } = gnupg.keys['bench test'];
   const keys = keysFixture(gnupg.root);
   const before = treeOf(keys);
-  const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint, file), env: gnupg.env });
+  const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint), recipient: file, env: gnupg.env });
   const log = path.join(gnupg.root, 'gpg-calls.log');
   const PATH = gpgCallLog(gnupg, log);
   const out = path.join(gnupg.root, 'restored', 'keys');
@@ -11883,7 +11882,8 @@ test('restore removes the private GnuPG home when gpgconf cannot stop its agent,
   const { fingerprint, file, secret } = gnupg.keys['bench test'];
   const archive = keyBackup.backup({
     keys: keysFixture(gnupg.root),
-    out: vaultFor(gnupg, fingerprint, file),
+    out: vaultFor(gnupg, fingerprint),
+    recipient: file,
     env: gnupg.env,
   });
   // The `gpgconf` shim fails each `--kill`, after it asks the agent for its pid; it gives every other call to the real
@@ -11932,7 +11932,8 @@ test('restore stops at SIGHUP, SIGINT, and SIGTERM during the decrypt with the e
   const { fingerprint, file, secret } = gnupg.keys['bench test'];
   const archive = keyBackup.backup({
     keys: keysFixture(gnupg.root),
-    out: vaultFor(gnupg, fingerprint, file),
+    out: vaultFor(gnupg, fingerprint),
+    recipient: file,
     env: gnupg.env,
   });
   // The `gpg` shim marks the start of each `--decrypt` and then sleeps, as gpg does at the passphrase prompt; it gives
@@ -11991,7 +11992,8 @@ test('restore without --key or with a key file that it cannot read stops before 
   const { fingerprint, file } = gnupg.keys['bench test'];
   const archive = keyBackup.backup({
     keys: keysFixture(gnupg.root),
-    out: vaultFor(gnupg, fingerprint, file),
+    out: vaultFor(gnupg, fingerprint),
+    recipient: file,
     env: gnupg.env,
   });
   const out = path.join(gnupg.root, 'bad', 'restored');
@@ -12020,7 +12022,8 @@ test('restore with the secret key of another key pair stops with the gpg error a
   const { fingerprint, file } = gnupg.keys['bench test'];
   const archive = keyBackup.backup({
     keys: keysFixture(gnupg.root),
-    out: vaultFor(gnupg, fingerprint, file),
+    out: vaultFor(gnupg, fingerprint),
+    recipient: file,
     env: gnupg.env,
   });
   const out = path.join(gnupg.root, 'bad', 'restored');
@@ -12037,19 +12040,77 @@ test('backup refuses a recipient key that the vault README does not name, and wr
   const keys = keysFixture(gnupg.root);
   const { fingerprint } = gnupg.keys['bench test'];
   const other = gnupg.keys['bench other'];
-  const vault = vaultFor(gnupg, fingerprint, other.file);
-  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env }), {
+  const vault = vaultFor(gnupg, fingerprint);
+  assert.throws(() => keyBackup.backup({ keys, out: vault, recipient: other.file, env: gnupg.env }), {
     message: `the recipient key ${other.fingerprint} differs from the fingerprint ${fingerprint} of the vault README.md`,
   });
   fs.writeFileSync(path.join(vault, 'README.md'), '# Held-out keys vault\n');
-  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env }), {
+  assert.throws(() => keyBackup.backup({ keys, out: vault, recipient: other.file, env: gnupg.env }), {
     message: `the README.md of ${fs.realpathSync(vault)} must have exactly one "Fingerprint: <hex>" line`,
   });
-  fs.rmSync(keyBackup.recipientFile(gnupg.env));
-  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env }), {
-    message: /recipient key file .* missing/,
-  });
   assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
+});
+
+// The committed public key of the backup, and its primary fingerprint and encryption subkey id from
+// `gpg --show-keys`.
+function committedKey(gnupg) {
+  const file = path.join(import.meta.dirname, '../../../.agents/skills/review-benchmark/backup-key.asc');
+  const lines = gnupg.gpg(['--no-options', '--with-colons', '--show-keys', file]).split('\n');
+  assert.equal(lines.filter((line) => line.startsWith('pub:')).length, 1);
+  const fingerprint = lines[lines.findIndex((line) => line.startsWith('pub:')) + 1].split(':')[9];
+  const subkey = lines.find((line) => line.startsWith('sub:') && line.split(':')[11].includes('e')).split(':')[4];
+  return { file, fingerprint, subkey };
+}
+
+test('backup without --recipient encrypts to the committed backup-key.asc that the vault README names', async (t) => {
+  const gnupg = gpgHome(t);
+  const committed = committedKey(gnupg);
+  const keys = keysFixture(gnupg.root);
+  const vault = vaultFor(gnupg, committed.fingerprint);
+  const output = await keyBackup.main(['backup', '--keys', keys, '--out', vault], gnupg.env);
+  const names = fs.readdirSync(vault).sort();
+  assert.equal(names.length, 3);
+  assert.match(names[2], /^keys-\d{8}T\d{6}Z\.tar\.gpg$/);
+  assert.equal(output, `backup: wrote ${path.join(fs.realpathSync(vault), names[2])}\n`);
+  assert.deepEqual(recipientsOf(gnupg, path.join(vault, names[2])), [committed.subkey]);
+});
+
+test('backup without --recipient refuses the committed backup-key.asc when the vault README names another key', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const committed = committedKey(gnupg);
+  const { fingerprint } = gnupg.keys['bench test'];
+  const vault = vaultFor(gnupg, fingerprint);
+  const cli = spawnSync(process.execPath, [KEYS_SCRIPT, 'backup', '--keys', keysFixture(gnupg.root), '--out', vault], {
+    env: gnupg.env,
+    encoding: 'utf8',
+  });
+  assert.equal(cli.status, 1);
+  assert.equal(cli.stdout, '');
+  assert.equal(
+    cli.stderr,
+    `keys.mjs: the recipient key ${committed.fingerprint} differs from the fingerprint ${fingerprint} ` +
+      'of the vault README.md\n',
+  );
+  assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
+});
+
+test('backup --recipient with a missing file or a folder stops before it writes anything and names the file', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const keys = keysFixture(gnupg.root);
+  const vault = vaultFor(gnupg, gnupg.keys['bench test'].fingerprint);
+  const missing = path.join(gnupg.root, 'none.asc');
+  for (const [recipient, stderr] of [
+    [missing, new RegExp(`^keys\\.mjs: cannot read the recipient key file ${escapeRegExp(missing)}: ENOENT\\b.*\n$`)],
+    [gnupg.root, `keys.mjs: the recipient key file ${gnupg.root} is no file\n`],
+  ]) {
+    const args = ['backup', '--keys', keys, '--out', vault, '--recipient', recipient];
+    const cli = spawnSync(process.execPath, [KEYS_SCRIPT, ...args], { env: gnupg.env, encoding: 'utf8' });
+    assert.equal(cli.status, 1);
+    assert.equal(cli.stdout, '');
+    if (typeof stderr === 'string') assert.equal(cli.stderr, stderr);
+    else assert.match(cli.stderr, stderr);
+    assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
+  }
 });
 
 test('backup refuses an --out that is no git checkout or that is inside another checkout, and writes nothing', (t) => {
@@ -12076,16 +12137,16 @@ test('backup stops and writes nothing when a file changes between the manifest a
   const gnupg = gpgHome(t, 'bench test');
   const { fingerprint, file } = gnupg.keys['bench test'];
   const keys = keysFixture(gnupg.root);
-  const vault = vaultFor(gnupg, fingerprint, file);
+  const vault = vaultFor(gnupg, fingerprint);
   const beforeTar = () => fs.writeFileSync(path.join(keys, 'heldout/code-1-K1.patch'), 'diff --git a/y b/y\n');
-  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env, beforeTar }), {
+  assert.throws(() => keyBackup.backup({ keys, out: vault, recipient: file, env: gnupg.env, beforeTar }), {
     message: 'the tar does not match MANIFEST.sha256: changed file heldout/code-1-K1.patch',
   });
   assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
   // The tar check also finds a changed file whose name has spaces and quotes.
   const note = `heldout/note "it's" here.txt`;
   const changeNote = () => fs.writeFileSync(path.join(keys, note), 'another note\n');
-  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env, beforeTar: changeNote }), {
+  assert.throws(() => keyBackup.backup({ keys, out: vault, recipient: file, env: gnupg.env, beforeTar: changeNote }), {
     message: `the tar does not match MANIFEST.sha256: changed file ${note}`,
   });
   assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
@@ -12101,7 +12162,8 @@ test('an encrypt-to line of the gpg options file adds no recipient to a backup',
   assert.deepEqual(recipientsOf(gnupg, plain).sort(), [subkey, gnupg.keys['bench other'].subkey].sort());
   const archive = keyBackup.backup({
     keys: keysFixture(gnupg.root),
-    out: vaultFor(gnupg, fingerprint, file),
+    out: vaultFor(gnupg, fingerprint),
+    recipient: file,
     env: gnupg.env,
   });
   assert.deepEqual(recipientsOf(gnupg, archive), [subkey]);
