@@ -2718,24 +2718,20 @@ function pullFixture(t) {
   const refs = (prefix) => gitIn(clone, 'for-each-ref', '--format=%(refname) %(objectname)', prefix).trim();
   return { ...fixture, remote, clone, ws, cases, caseDir: path.join(ws, 'code-7'), caseOptions, refs };
 }
-const FORK_NOTE = '(when origin is a fork, use the remote of DocksDocks/docks instead of origin)';
-// The recovery command of a stop: it fetches the head of pull request `pull` into a ref of its shell, named with 16
-// random hex characters, and pins that head at refs/review-bench/kept/<sha>.
-const recoveryCommand = (pull) =>
-  `t=refs/review-bench/incoming/manual-${pull}-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \\n') && git fetch --no-tags --no-write-fetch-head origin +refs/pull/${pull}/head:$t && sha=$(git rev-parse "$t") && git update-ref "refs/review-bench/kept/$sha" "$sha" ""; git update-ref -d "$t"`;
-const manualFetch = (pull) => escapeRegExp(`${recoveryCommand(pull)} ${FORK_NOTE}`);
-// The recovery command of a stop message.
-const printedCommand = (message) => message.match(/yourself: (.+) \(when origin is a fork/)[1];
-// Runs the recovery command of a stop message through `sh -c` in `repo`.
-const runRecovery = (repo, message) =>
-  spawnSync('sh', ['-c', printedCommand(message)], { cwd: repo, encoding: 'utf8' });
-const missingHead = (head, pull) =>
+const FORK_NOTE =
+  '(case and pin fetch from origin; when origin is a fork, set origin to the remote of DocksDocks/docks)';
+// The recovery that each stop message of `case` names: the `pin` command of prepare.mjs on the case file.
+const pinCommand = (caseFile) => `node ${fs.realpathSync(PREPARE_SCRIPT)} pin --case ${caseFile}`;
+const missingHead = (head, caseFile, pull) =>
   new RegExp(
-    pull
-      ? `${escapeRegExp(`case code-7: head ${head} is not a commit in this repository, and refs/review-bench/pull/${pull} does not hold it; check that pull names the pull request whose head holds the commit, or fetch that head yourself: `)}${manualFetch(pull)}`
-      : `${escapeRegExp(`case code-7: head ${head} is not a commit in this repository; give the case a pull field that names the pull request whose head holds the commit, so that case fetches it, or fetch that head yourself: `)}${manualFetch('<n>')}`,
+    escapeRegExp(
+      pull
+        ? `case code-7: head ${head} is not a commit in this repository, and refs/review-bench/pull/${pull} does not hold it; check that pull names the pull request whose head holds the commit, then fetch that head and pin the case commits: ${pinCommand(caseFile)} ${FORK_NOTE}`
+        : `case code-7: head ${head} is not a commit in this repository; give the case a pull field that names the pull request whose head holds the commit, then run case again, which fetches that head, or run ${pinCommand(caseFile)}, which fetches that head and pins the case commits ${FORK_NOTE}`,
+    ),
   );
-// Runs `case`, which must stop with a message that matches `pattern`. No command of the message fetches into
+// Runs `case`, which must stop with a message that matches `pattern`. Each stop message names the pin command of the
+// case file and the fork note, and holds no shell text for the recovery. No command of the message fetches into
 // refs/review-bench/pull/, so a stop never leads a person to move the ref that case saves. The result is the message.
 const caseStops = (options, clone, pattern) => {
   let message;
@@ -2747,7 +2743,22 @@ const caseStops = (options, clone, pattern) => {
     },
   );
   assert.match(message, pattern);
+  assert.ok(message.includes(pinCommand(options.case)), message);
+  assert.ok(message.endsWith(` ${FORK_NOTE}`), message);
+  assert.doesNotMatch(message, /&&|\$\(|update-ref|urandom|refs\/review-bench\/kept\//);
   assert.doesNotMatch(message, /:refs\/review-bench\/pull\//);
+  return message;
+};
+// Runs `pin` on the case file of `options`, which must stop. The result is the message.
+const pinStops = (options, clone) => {
+  let message;
+  assert.throws(
+    () => prepare.preparePin({ case: options.case }, clone),
+    (error) => {
+      message = error.message;
+      return true;
+    },
+  );
   return message;
 };
 
@@ -2763,29 +2774,34 @@ test('case fetches the head of the pull request of a missing commit into refs/re
   assert.ok(fs.existsSync(path.join(caseDir, 'C1-low', 'run-1', 'prompts', 'full.txt')));
 });
 
-test('case stops on a missing commit of a case without pull, gives the fetch command, and writes no case folder', (t) => {
+test('case stops on a missing commit of a case without pull, gives the pin command, and writes no case folder', (t) => {
   const { clone, head, caseDir, caseOptions, refs } = pullFixture(t);
-  caseStops(caseOptions({ pull: undefined }), clone, missingHead(head));
+  const options = caseOptions({ pull: undefined });
+  caseStops(options, clone, missingHead(head, options.case));
   assert.equal(fs.existsSync(caseDir), false);
   assert.equal(refs('refs/review-bench'), '');
 });
 
 test('case stops when the head of the pull request of pull lacks the commit and writes no case folder', (t) => {
   const { clone, base, head, caseDir, caseOptions, refs } = pullFixture(t);
-  caseStops(caseOptions({ pull: 8 }), clone, missingHead(head, 8));
+  const options = caseOptions({ pull: 8 });
+  caseStops(options, clone, missingHead(head, options.case, 8));
   assert.equal(fs.existsSync(caseDir), false);
   // The run keeps the fetched head and removes its incoming ref.
   assert.equal(refs('refs/review-bench'), `refs/review-bench/pull/8 ${base}`);
 });
 
-test('case stops on a failed fetch with the git error and the recovery command, and writes no case folder', (t) => {
+test('case stops on a failed fetch with the git error and the pin command, and writes no case folder', (t) => {
   const { clone, caseDir, caseOptions, refs } = pullFixture(t);
   // The remote has no refs/pull/9/head.
   const failed = escapeRegExp(
     `case code-7: git fetch --no-tags --no-write-fetch-head origin +refs/pull/9/head:refs/review-bench/incoming/9-${process.pid} failed: `,
   );
-  const recovery = `; fetch the head of pull request 9 yourself: ${manualFetch(9)}`;
-  caseStops(caseOptions({ pull: 9 }), clone, new RegExp(`${failed}[^;]*refs/pull/9/head${recovery}`));
+  const options = caseOptions({ pull: 9 });
+  const recovery = escapeRegExp(
+    `; to fetch the head of pull request 9 and pin the case commits, run ${pinCommand(options.case)} ${FORK_NOTE}`,
+  );
+  caseStops(options, clone, new RegExp(`${failed}[^;]*refs/pull/9/head${recovery}`));
   assert.equal(fs.existsSync(caseDir), false);
   assert.equal(refs('refs/review-bench'), '');
 });
@@ -2834,56 +2850,99 @@ test('case pins its fetched commit under refs/review-bench/kept/ when a parallel
 });
 
 // Stops case with the head of pull request 7 missing, while an existing refs/review-bench/pull/7 holds only the base.
-// The result is the stop message.
 const stopOnStalePull = ({ root, remote, clone, base, head, caseDir, caseOptions, refs }) => {
   gitIn(clone, 'update-ref', 'refs/review-bench/pull/7', base);
   // A fetch would fail with a git error instead of the message of the missing commit.
   gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
-  const message = caseStops(caseOptions(), clone, missingHead(head, 7));
+  const options = caseOptions();
+  caseStops(options, clone, missingHead(head, options.case, 7));
   assert.equal(fs.existsSync(caseDir), false);
   assert.equal(refs('refs/review-bench'), `refs/review-bench/pull/7 ${base}`);
   gitIn(clone, 'remote', 'set-url', 'origin', remote);
-  return message;
 };
 
-test('case does not fetch again or move an existing refs/review-bench/pull/<n> that lacks the commit of pull, and the recovery command of the stop recovers', (t) => {
+test('case does not fetch again or move an existing refs/review-bench/pull/<n> that lacks the commit of pull, and pin recovers the case', (t) => {
   const fixture = pullFixture(t);
   const { root, clone, base, head, caseDir, caseOptions, refs } = fixture;
-  const message = stopOnStalePull(fixture);
-  // The recovery command of the message pins the head, and case then finds the pin and prepares the workspace with no
-  // fetch.
-  const recovered = runRecovery(clone, message);
-  assert.equal(recovered.status, 0, recovered.stderr);
+  stopOnStalePull(fixture);
+  // pin pins the head and deletes its temporary ref; it does not move the saved ref.
+  prepare.preparePin({ case: caseOptions().case }, clone);
+  const pinned = [`refs/review-bench/kept/${head} ${head}`, `refs/review-bench/pull/7 ${base}`].join('\n');
+  assert.equal(refs('refs/review-bench'), pinned);
+  // case then finds the pin and prepares the workspace with no fetch.
   gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
   prepare.prepareCase(caseOptions(), clone);
   assert.equal(readText(path.join(caseDir, 'snapshot', 'src', 'sync.mjs')), SYNC_HEAD);
-  assert.equal(
-    refs('refs/review-bench'),
-    [`refs/review-bench/kept/${head} ${head}`, `refs/review-bench/pull/7 ${base}`].join('\n'),
+  assert.equal(refs('refs/review-bench'), pinned);
+});
+
+test('a second run of pin moves no ref', (t) => {
+  const fixture = pullFixture(t);
+  const { clone, base, head, caseOptions, refs } = fixture;
+  stopOnStalePull(fixture);
+  const pinned = [`refs/review-bench/kept/${head} ${head}`, `refs/review-bench/pull/7 ${base}`].join('\n');
+  prepare.preparePin({ case: caseOptions().case }, clone);
+  assert.equal(refs('refs/review-bench'), pinned);
+  // The pin exists with the same commit, so the second run succeeds and changes no ref.
+  prepare.preparePin({ case: caseOptions().case }, clone);
+  assert.equal(refs('refs/review-bench'), pinned);
+});
+
+test('pin stops on a failed fetch with the git error and leaves no temporary ref', (t) => {
+  const { clone, caseOptions, refs } = pullFixture(t);
+  // The remote has no refs/pull/9/head.
+  const message = pinStops(caseOptions({ pull: 9 }), clone);
+  const fetch = escapeRegExp(
+    `pin code-7: git fetch --no-tags --no-write-fetch-head origin +refs/pull/9/head:refs/review-bench/incoming/9-${process.pid}-`,
+  );
+  assert.match(
+    message,
+    new RegExp(`^${fetch}[0-9a-f]{8} failed: [^;]*refs/pull/9/head[^;]*${escapeRegExp(FORK_NOTE)}$`),
+  );
+  assert.equal(refs('refs/review-bench'), '');
+});
+
+test('pin stops on a failed pin with the git error and keeps its temporary ref', (t) => {
+  const { root, clone, head, caseOptions, refs } = pullFixture(t);
+  // The hook rejects each transaction that writes a ref under refs/review-bench/kept/.
+  const hooks = path.join(root, 'hooks');
+  fs.mkdirSync(hooks);
+  fs.writeFileSync(
+    path.join(hooks, 'reference-transaction'),
+    [
+      '#!/bin/sh',
+      '[ "$1" = prepared ] || exit 0',
+      'while read -r old new ref; do',
+      '  case "$ref" in refs/review-bench/kept/*) exit 1 ;; esac',
+      'done',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  gitIn(clone, 'config', 'core.hooksPath', hooks);
+  const message = pinStops(caseOptions(), clone);
+  const kept = refs('refs/review-bench');
+  const incoming = new RegExp(`^(refs/review-bench/incoming/7-${process.pid}-[0-9a-f]{8}) ${head}$`);
+  assert.match(kept, incoming);
+  const temporary = kept.match(incoming)[1];
+  assert.match(
+    message,
+    new RegExp(
+      `^${escapeRegExp(`case code-7: git update-ref refs/review-bench/kept/${head} ${head} failed: `)}.+${escapeRegExp(`; the temporary ref ${temporary} keeps the fetched head ${head}; delete it after a run of pin succeeds`)}$`,
+      's',
+    ),
   );
 });
 
-test('a second run of the recovery command of a stop moves no ref', (t) => {
-  const fixture = pullFixture(t);
-  const { clone, base, head, refs } = fixture;
-  const message = stopOnStalePull(fixture);
-  const pinned = [`refs/review-bench/kept/${head} ${head}`, `refs/review-bench/pull/7 ${base}`].join('\n');
-  const first = runRecovery(clone, message);
-  assert.equal(first.status, 0, first.stderr);
-  assert.equal(refs('refs/review-bench'), pinned);
-  // The pin exists, so the update-ref of the second run fails, and the second run then deletes its fetch ref.
-  runRecovery(clone, message);
-  assert.equal(refs('refs/review-bench'), pinned);
-  // Each run names its fetch ref with 16 new random hex characters, so parallel subshells, which share `$$`, write
-  // different refs.
-  const fetchRef = () => {
-    const named = spawnSync('sh', ['-c', `${printedCommand(message).split(' && ')[0]} && echo "$t"`], {
-      encoding: 'utf8',
-    });
-    assert.match(named.stdout, /^refs\/review-bench\/incoming\/manual-7-[0-9a-f]{16}\n$/);
-    return named.stdout;
-  };
-  assert.notEqual(fetchRef(), fetchRef());
+test('pin stops and writes no ref when the head of the pull request of pull lacks a case commit', (t) => {
+  const { clone, base, head, caseOptions, refs } = pullFixture(t);
+  // refs/pull/8/head holds the base only.
+  const message = pinStops(caseOptions({ pull: 8 }), clone);
+  assert.equal(
+    message,
+    `pin code-7: the head ${base} of pull request 8 does not reach head ${head}, and origin/main does not reach it either; pin wrote no ref; check that pull names the pull request whose head holds the case commits`,
+  );
+  assert.equal(refs('refs/review-bench'), '');
 });
 
 test('validateCase takes pull only as a positive integer, on every kind', () => {
