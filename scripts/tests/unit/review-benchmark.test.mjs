@@ -8978,22 +8978,17 @@ test('the report prints the batch drift of each A/A control arm with the two-sid
   assert.equal(withoutControl.includes('## Batch drift'), false);
 });
 
-// The keys of a run-plan.json for the cases `caseIds`, the arms and configurations `arms` ([arm, configuration name])
-// and the runs 1 to `runs` of each, one run per look, as `prepare.mjs case --sequential` writes them.
-const runPlanOf = (caseIds, arms, runs, split = 'dev') =>
-  caseIds.flatMap((caseId) =>
-    arms.flatMap(([arm, config]) =>
-      Array.from({ length: runs }, (_, index) => ({
-        case: caseId,
-        split,
-        arm,
-        folder: `${arm}-${config}`,
-        config,
-        run: index + 1,
-        look: index + 1,
-      })),
+// A run-plan.json for the cases `caseIds` and the arms `arms` ([arm, configuration name], the reference first), with
+// the runs 1 to `runs` of each, one run per look, as `prepare.mjs sequential-plan` writes it.
+const runPlanOf = (caseIds, arms, runs, split = 'dev') => {
+  const [reference, ...candidates] = arms.map(([arm, config]) => ({ arm, config, folder: `${arm}-${config}` }));
+  const keys = caseIds.flatMap((caseId) =>
+    [reference, ...candidates].flatMap((entry) =>
+      Array.from({ length: runs }, (_, index) => ({ case: caseId, split, ...entry, run: index + 1, look: index + 1 })),
     ),
   );
+  return { reference, candidates, keys };
+};
 const B0_C1 = [
   ['B0', 'xhigh-fast'],
   ['C1', 'xhigh-fast'],
@@ -9126,46 +9121,6 @@ test('a sequential look decides only when each run of the run plan has a valid r
       ['4', '239 / 239', missingBoth, missingBoth],
     ],
   );
-  // Two arms in one configuration: in the configuration high, B0 has run 2 of code-5 and C1 has not. The run of B0
-  // does not stand in for the run of C1, because the run plan names each arm folder.
-  const configRun = (arm, config, caseId, run) => ({
-    case: caseId,
-    config,
-    arm,
-    run,
-    single: true,
-    rounds: [[60, 600, null, 0, ['D1']]],
-  });
-  const configRuns = caseIdsOf(60).flatMap((caseId) =>
-    [1, 2].flatMap((run) => [
-      configRun('B0', 'xhigh-fast', caseId, run),
-      configRun('B0', 'high', caseId, run),
-      ...(caseId === 'code-5' && run === 2 ? [] : [configRun('C1', 'high', caseId, run)]),
-    ]),
-  );
-  const configPlan = runPlanOf(
-    caseIdsOf(60),
-    [
-      ['B0', 'xhigh-fast'],
-      ['B0', 'high'],
-      ['C1', 'high'],
-    ],
-    2,
-  );
-  const configScores = { ...scoreRuns(gridFixture(oneKnownCases(60), configRuns)), runPlan: configPlan };
-  const configReport = renderReport(configScores, {
-    configs: ['xhigh-fast', 'high'],
-    reference: 'xhigh-fast',
-    margin: 4,
-    sequential: true,
-  });
-  assert.deepEqual(
-    lookRows(configReport).map((row) => [row[0], row[1], row[11]]),
-    [
-      ['high', '1', 'continue'],
-      ['high', '2', 'incomplete look (code-5 C1-high run-2)'],
-    ],
-  );
   // A run without a configuration in its meta.json holds the look, also when the plan has a key for it.
   const singles = [...singleRuns('B0', 12, 1, always), ...singleRuns('C1', 12, 1, always)];
   const unconfigured = gridFixture(oneKnownCases(12), singles);
@@ -9184,7 +9139,7 @@ test('a sequential look decides only when each run of the run plan has a valid r
   const kept = cliRuns.filter((run) => !skipped(run));
   writeFixture(ws, gridFixture(oneKnownCases(12), kept));
   assert.equal(fs.existsSync(path.join(ws, 'code-7', 'C1-xhigh-fast')), false);
-  put(ws, 'run-plan.json', { keys: runPlanOf(caseIdsOf(12), B0_C1, 2) });
+  put(ws, 'run-plan.json', runPlanOf(caseIdsOf(12), B0_C1, 2));
   main(['report', ws, '--arms', arms.join(','), '--reference', arms[0], '--margin', '4', '--sequential']);
   assert.deepEqual(
     lookRows(readText(path.join(ws, 'report.md'))).map((row) => row[11]),
@@ -9194,12 +9149,73 @@ test('a sequential look decides only when each run of the run plan has a valid r
     ],
   );
   // A run that the plan does not name holds the look too.
-  put(ws, 'run-plan.json', { keys: runPlanOf(caseIdsOf(12), B0_C1, 2).filter((key) => key.case !== 'code-1') });
+  const withoutCode1 = runPlanOf(caseIdsOf(12), B0_C1, 2);
+  put(ws, 'run-plan.json', { ...withoutCode1, keys: withoutCode1.keys.filter((key) => key.case !== 'code-1') });
   main(['report', ws, '--arms', arms.join(','), '--reference', arms[0], '--margin', '4', '--sequential']);
   assert.match(
     lookRows(readText(path.join(ws, 'report.md')))[0][11],
     /^incomplete look \(code-1 B0-xhigh-fast run-1 not in run-plan\.json, code-1 C1-xhigh-fast run-1 not in run-plan\.json, code-7 C1-xhigh-fast run-1\)$/,
   );
+});
+
+test('a sequential effort comparison declares both configurations and compares the reference with each candidate', () => {
+  // The reference B0 at xhigh-fast against the candidate B0 at high: one arm at two configurations, each with its own
+  // keys. 60 equal cases with 3 runs each pass the not-worse test at look 3, the last declared look.
+  const known = oneKnownCases(60);
+  const configs = ['xhigh-fast', 'high'];
+  const runsOf = (skip = () => false) =>
+    caseIdsOf(60).flatMap((caseId) =>
+      [1, 2, 3].flatMap((run) =>
+        configs
+          .filter((config) => !skip(config, caseId, run))
+          .map((config) => ({
+            case: caseId,
+            config,
+            arm: 'B0',
+            run,
+            single: true,
+            rounds: [[60, 600, null, 0, ['D1']]],
+          })),
+      ),
+    );
+  const plan = runPlanOf(
+    caseIdsOf(60),
+    configs.map((config) => ['B0', config]),
+    3,
+  );
+  const options = { arms: ['B0-xhigh-fast', 'B0-high'], reference: 'B0-xhigh-fast', margin: 4, sequential: true };
+  const looks = (fixture) =>
+    lookRows(renderReport({ ...scoreRuns(fixture), runPlan: plan }, options)).map((row) => [row[0], row[1], row[11]]);
+  assert.deepEqual(looks(gridFixture(known, runsOf())), [
+    ['B0-high', '1', 'continue'],
+    ['B0-high', '2', 'continue'],
+    ['B0-high', '3', 'pass: stop'],
+  ]);
+  // The candidate configuration misses run 2 of code-5, so looks 2 and 3 wait for it.
+  const missing = runsOf((config, caseId, run) => config === 'high' && caseId === 'code-5' && run === 2);
+  assert.deepEqual(
+    looks(gridFixture(known, missing)).map((row) => row[2]),
+    ['continue', 'incomplete look (code-5 B0-high run-2)', 'incomplete look (code-5 B0-high run-2)'],
+  );
+  // A run of the candidate folder that ran at the other configuration does not count for its key.
+  const swapped = gridFixture(known, runsOf());
+  swapped.metas['code-6/B0-high/run-1'].config = CONFIGS['xhigh-fast'];
+  swapped.metas['code-6/B0-high/run-1'].reviewers.full = provenCost(CONFIGS['xhigh-fast'], 60, 600);
+  assert.equal(
+    looks(swapped)[0][2],
+    'incomplete look (code-6 B0-high run-1 has the configuration xhigh-fast, not high)',
+  );
+  // The report compares the declared reference, so --reference must name it.
+  const scores = { ...scoreRuns(gridFixture(known, runsOf())), runPlan: plan };
+  // The text names the command that writes the declaration.
+  assert.match(
+    renderReport(scores, options),
+    /run-plan\.json, which prepare\.mjs sequential-plan writes once before any case,/,
+  );
+  assert.throws(() => renderReport(scores, { ...options, reference: 'B0-high' }), {
+    message:
+      'report --sequential compares the reference B0-xhigh-fast of run-plan.json with its candidates; give --arms with B0-xhigh-fast and --reference B0-xhigh-fast',
+  });
 });
 
 test('a deciding report holds its decisions until the second judge answers every item of its sample', (t) => {
@@ -9227,7 +9243,7 @@ test('a deciding report holds its decisions until the second judge answers every
   main(cli);
   assert.deepEqual(cells(), ['second judge incomplete (1 of 80)', 'second judge incomplete (1 of 80)']);
   // The sequential looks wait for the second judge too, also with a complete run plan.
-  put(ws, 'run-plan.json', { keys: runPlanOf(caseIdsOf(40), B0_C1, 1) });
+  put(ws, 'run-plan.json', runPlanOf(caseIdsOf(40), B0_C1, 1));
   main([...cli, '--sequential']);
   const look = tableAfter(readText(path.join(ws, 'report.md')), '### Sequential looks: dev')[2];
   assert.match(look, /\| second judge incomplete \(1 of 80\) \|$/);
@@ -9558,75 +9574,66 @@ test('probe gives the manager a prompt, and transcripts records the served tier 
   );
 });
 
-// The declaration of a sequential decision of `overlayFixture` over plan-3 and plan-5 at the configuration low, with
-// the reference P1 and the candidates `candidates`, for the looks `looks`.
-function declarePlan({ repo, ws, project, cases }, { candidates = 'AP1,Va', looks = '1,2,3,4', ...more } = {}) {
+// The declaration of a sequential decision of `overlayFixture` over plan-3 and plan-5, with the reference
+// `reference` and the candidates `candidates` (`<arm>@<configuration>`), for the looks `looks`.
+function declarePlan(
+  { repo, ws, project, cases },
+  { reference = 'P1@low', candidates = 'AP1@low,Va@low', looks = '1,2,3,4', ...more } = {},
+) {
   const caseFile = (id) => path.join(cases, 'dev', `${id}.json`);
+  const ids = ['plan-3', 'plan-5'];
   prepare.sequentialPlan(
-    {
-      cases: [caseFile('plan-3'), caseFile('plan-5')].join(','),
-      reference: 'P1',
-      candidates,
-      config: 'low',
-      looks,
-      out: ws,
-      project,
-      ...more,
-    },
+    { cases: ids.map(caseFile).join(','), reference, candidates, looks, out: ws, project, ...more },
     repo,
   );
 }
 
-test('sequential-plan declares the whole grid once, and case --sequential adds only declared runs', (t) => {
+test('sequential-plan declares the whole grid once, and case --sequential prepares every declared arm', (t) => {
   const fixture = overlayFixture(t);
   const { repo, ws, options } = fixture;
   const look = (id, arms, more = {}) =>
     prepare.prepareCase({ ...options(id, arms), runs: undefined, sequential: true, ...more }, repo);
   const planFile = path.join(ws, 'run-plan.json');
   // case --sequential needs the declaration.
-  assert.throws(() => look('plan-3', 'P1,AP1,Va'), {
+  assert.throws(() => look('plan-3'), {
     message: `case --sequential needs ${planFile}; run prepare.mjs sequential-plan first`,
   });
-  // The declaration holds every case, arm, and run of every look at once.
+  // The declaration holds every case, declared arm, and run of every look at once.
   declarePlan(fixture);
   const plan = readJson(planFile);
-  const declared = [plan.reference, plan.candidates, plan.config, plan.looks];
-  assert.deepEqual(declared, ['P1', ['AP1', 'Va'], 'low', [1, 2, 3, 4]]);
+  const entry = (arm) => ({ arm, config: 'low', folder: `${arm}-low` });
+  assert.deepEqual(
+    [plan.reference, plan.candidates, plan.looks],
+    [entry('P1'), [entry('AP1'), entry('Va')], [1, 2, 3, 4]],
+  );
   assert.deepEqual(
     plan.keys,
     ['plan-3', 'plan-5'].flatMap((caseId) =>
       ['P1', 'AP1', 'Va'].flatMap((arm) =>
-        [1, 2, 3, 4].map((run) => ({
-          case: caseId,
-          split: 'dev',
-          arm,
-          folder: `${arm}-low`,
-          config: 'low',
-          run,
-          look: run,
-        })),
+        [1, 2, 3, 4].map((run) => ({ case: caseId, split: 'dev', ...entry(arm), run, look: run })),
       ),
     ),
   );
-  assert.deepEqual(score.readRunPlan(ws), plan.keys);
+  assert.deepEqual(score.readRunPlan(ws), { reference: plan.reference, candidates: plan.candidates, keys: plan.keys });
   const planText = readText(planFile);
   assert.throws(() => declarePlan(fixture), {
     message: `${planFile} exists; a sequential decision declares its plan once, so choose another --out`,
   });
-  // Four looks of plan-3 with the three declared arms; case --sequential writes no key.
+  // Each look of plan-3 prepares the three declared arms; case --sequential writes no key.
   const caseDir = path.join(ws, 'plan-3');
-  const runsOf = (folder) =>
+  const runsOf = (folder, dir = caseDir) =>
     fs
-      .readdirSync(path.join(caseDir, folder))
+      .readdirSync(path.join(dir, folder))
       .filter((name) => name.startsWith('run-'))
       .sort();
-  look('plan-3', 'P1,AP1,Va');
+  look('plan-3');
   for (const folder of ['P1-low', 'AP1-low', 'Va-low']) assert.deepEqual(runsOf(folder), ['run-1']);
   // The control copy AP1 runs the agent and the prompt of P1.
   const prompt = (folder, run) => readText(path.join(caseDir, folder, `run-${run}`, 'prompts', 'plan.txt'));
   assert.equal(prompt('AP1-low', 1), prompt('P1-low', 1));
   for (const run of [2, 3, 4]) {
-    look('plan-3', 'P1,AP1,Va');
+    // --arms that repeat the declared arms are accepted.
+    look('plan-3', run === 2 ? 'Va,P1,AP1' : undefined);
     for (const folder of ['P1-low', 'AP1-low', 'Va-low']) assert.equal(runsOf(folder).length, run);
     assert.equal(prompt('AP1-low', run), prompt('P1-low', 1));
     // Each run of the overlay arm gets a contract copy of its own.
@@ -9634,53 +9641,82 @@ test('sequential-plan declares the whole grid once, and case --sequential adds o
   }
   assert.equal(readText(planFile), planText);
   // A sequential decision takes at most 4 looks.
-  assert.throws(() => look('plan-3', 'P1,AP1,Va'), {
+  assert.throws(() => look('plan-3'), {
     message: `${caseDir} holds 4 looks, the most that a sequential decision takes`,
   });
-  assert.throws(() => look('plan-3', 'P1,AP1,Va', { runs: '2' }), {
+  assert.throws(() => look('plan-3', undefined, { runs: '2' }), {
     message: 'case --sequential adds one run per case for each look; leave out --runs',
   });
-  assert.throws(() => look('plan-3', 'P1,AP1,Va', { extend: true }), {
+  assert.throws(() => look('plan-3', undefined, { extend: true }), {
     message: 'case --sequential adds a look to an existing case folder by itself; leave out --extend',
   });
-  // An arm, a configuration, or a case that the declaration does not hold is refused before any folder exists.
+  // A call that names one arm only, another arm, or another configuration is refused before any folder exists, so a
+  // first look always prepares every declared arm. An undeclared case is refused too.
   const otherDir = path.join(ws, 'plan-5');
-  assert.throws(() => look('plan-5', 'P1,V16'), {
-    message: `${planFile} does not declare plan-5 V16-low run-1; case --sequential adds only the runs that sequential-plan declared`,
-  });
-  assert.throws(() => look('plan-5', 'P1', { configs: 'xhigh' }), {
-    message: `${planFile} does not declare plan-5 P1-xhigh run-1; case --sequential adds only the runs that sequential-plan declared`,
+  const leaveOut = (option) =>
+    `${planFile} declares the ${option === 'arms' ? 'arms P1, AP1, Va' : 'configurations low'} for plan-5; case --sequential prepares all of them`;
+  assert.throws(() => look('plan-5', 'P1'), { message: `${leaveOut('arms')}, so leave out --arms P1` });
+  assert.throws(() => look('plan-5', 'P1,AP1,V16'), { message: `${leaveOut('arms')}, so leave out --arms P1,AP1,V16` });
+  assert.throws(() => look('plan-5', undefined, { configs: 'xhigh' }), {
+    message: `${leaveOut('configs')}, so leave out --configs xhigh`,
   });
   assert.throws(() => look('code-7', 'B0'), {
-    message: `${planFile} does not declare code-7 B0-low run-1; case --sequential adds only the runs that sequential-plan declared`,
+    message: `${planFile} does not declare code-7; case --sequential prepares only declared cases`,
   });
   assert.equal(fs.existsSync(otherDir), false);
-  // A case prepared with the reference arm only is declared, so case accepts it; report holds its looks until the
-  // candidate arms have their runs (see the next test).
-  look('plan-5', 'P1');
-  const plan5Runs = fs.readdirSync(path.join(otherDir, 'P1-low')).filter((name) => name.startsWith('run-'));
-  assert.deepEqual(plan5Runs, ['run-1']);
   assert.equal(readText(planFile), planText);
   // A look adds runs only to the arm folders of the first look, which hold the same number of runs.
-  assert.throws(() => look('plan-5', 'P1,Va'), {
-    message: `${path.join(otherDir, 'Va-low')} does not exist; case --sequential adds a look to the arm folders of the first look, so give the arms and configurations of that look`,
-  });
   fs.rmSync(path.join(caseDir, 'P1-low', 'run-4'), { recursive: true });
-  assert.throws(() => look('plan-3', 'P1,AP1,Va'), {
+  assert.throws(() => look('plan-3'), {
     message: `the arm folders of ${caseDir} hold different numbers of runs: 3, 4, 4`,
+  });
+  fs.rmSync(path.join(caseDir, 'Va-low'), { recursive: true });
+  assert.throws(() => look('plan-3'), {
+    message: `${path.join(caseDir, 'Va-low')} does not exist; the first look of case --sequential prepares every declared arm folder, so restore the folder or declare a new decision in another workspace`,
+  });
+  // An effort choice declares one arm at two configurations; each look prepares the declared arm folders only, up to
+  // the last declared look. The control copy runs at xhigh-fast only, so AP1-low is no folder.
+  const effort = { ...fixture, ws: path.join(fixture.root, 'effort') };
+  declarePlan(effort, { candidates: 'P1@xhigh-fast,AP1@xhigh-fast', looks: '1,2' });
+  const effortLook = () =>
+    prepare.prepareCase(
+      { ...options('plan-3'), out: effort.ws, configs: undefined, runs: undefined, sequential: true },
+      repo,
+    );
+  effortLook();
+  effortLook();
+  const effortDir = path.join(effort.ws, 'plan-3');
+  const effortFolders = ['AP1-xhigh-fast', 'P1-low', 'P1-xhigh-fast'];
+  assert.deepEqual(
+    fs
+      .readdirSync(effortDir)
+      .filter((name) => /^A?P1-/.test(name))
+      .sort(),
+    effortFolders,
+  );
+  for (const folder of effortFolders) assert.deepEqual(runsOf(folder, effortDir), ['run-1', 'run-2']);
+  assert.equal(readJson(path.join(effortDir, 'P1-xhigh-fast', 'run-2', 'meta.json')).config.name, 'xhigh-fast');
+  assert.throws(() => effortLook(), {
+    message: `${path.join(effort.ws, 'run-plan.json')} declares no look 3 of plan-3; the decision has 2 looks`,
   });
   // The declaration checks its options.
   const other = { ...fixture, ws: path.join(fixture.root, 'other') };
-  assert.throws(() => declarePlan(other, { candidates: 'P1,Va' }), {
-    message: 'sequential-plan --candidates lists the reference P1',
+  assert.throws(() => declarePlan(other, { candidates: 'P1@low,Va@low' }), {
+    message: 'sequential-plan declares the arm folder P1-low twice',
+  });
+  assert.throws(() => declarePlan(other, { candidates: 'Va' }), {
+    message: '--candidates takes <arm>@<configuration>, for example C3@high, not Va',
+  });
+  assert.throws(() => declarePlan(other, { candidates: 'Va@nope' }), {
+    message: '--configs does not take nope; use low, low-fast, xhigh, xhigh-fast',
   });
   assert.throws(() => declarePlan(other, { looks: '1,3' }), {
     message: 'sequential-plan --looks takes the runs 1 to k of the looks 1 to k, k at most 4, not 1,3',
   });
-  assert.throws(() => declarePlan(other, { candidates: 'B0' }), {
+  assert.throws(() => declarePlan(other, { candidates: 'B0@low' }), {
     message: 'arm B0 does not apply to plan cases; use P0, P1, V16, Va',
   });
-  assert.throws(() => declarePlan(other, { reference: undefined }), { message: 'sequential-plan needs --reference' });
+  assert.throws(() => declarePlan(other, { reference: '' }), { message: 'sequential-plan needs --reference' });
   // An A/A control copy of a control copy is no arm.
   assert.throws(() => prepare.prepareCase(options('plan-5', 'AAP1'), repo), {
     message: 'arm AAP1 does not apply to plan cases; use P0, P1, V16, Va',
@@ -9690,7 +9726,7 @@ test('sequential-plan declares the whole grid once, and case --sequential adds o
 test('a declared grid holds a look that misses an arm of a case or a run of a later look, and a complete grid decides', (t) => {
   // The keys come from sequential-plan over plan-3 and plan-5 with the reference P1 and the candidate Va, looks 1 to 3.
   const fixture = overlayFixture(t);
-  declarePlan(fixture, { candidates: 'Va', looks: '1,2,3' });
+  declarePlan(fixture, { candidates: 'Va@low', looks: '1,2,3' });
   const runPlan = score.readRunPlan(fixture.ws);
   const cases = {
     'plan-3': { split: 'dev', known: ['D1'], kind: 'plan' },

@@ -2181,7 +2181,7 @@ function sequentialSection(runs, { columns, columnOf, planColumnOf, reference, m
   return [
     '## Sequential looks',
     '',
-    `A sequential decision runs one run per case for each look, at most ${MAX_LOOKS} looks, and compares each column with ${reference} on N, the escaped defects per 50 known with each case weighing 1, with the margin ${margin}. The sequential looks are the decision: the not-worse row and the equivalence row of the decision tables point to the not-worse decision and the equivalence decision of the looks. Look k takes the per-run means of the valid runs 1 to k of each case. It decides only when ${RUN_PLAN}, which prepare.mjs case --sequential writes before the runs, exists and each of its keys of looks 1 to k (a case, arm folder, and run number) has a valid run of the configuration of the key, and no run of the columns is outside the file; else it gives incomplete look with the reasons. It runs four betting tests at the error that it spends under the O'Brien-Fleming alpha spending of Lan and DeMets for ${MAX_LOOKS} looks and a one-sided error of ${DECISION_ALPHA}, with the threshold 1 / error: not worse (a mean below the margin), worse (a mean above the margin), not better (a mean above minus the margin), and better (a mean below minus the margin). The errors of the looks add up to ${DECISION_ALPHA}. The not-worse decision passes when the not-worse capital reaches its threshold and fails when the worse capital reaches it. The equivalence decision gives yes when the not-worse and the not-better capitals both reach it, and no when the worse or the better capital reaches it. Each decision stops on its own; every other look asks for the next look, and the last look without a pass gives no pass and no equivalence.`,
+    `A sequential decision runs one run per case for each look, at most ${MAX_LOOKS} looks, and compares each column with ${reference} on N, the escaped defects per 50 known with each case weighing 1, with the margin ${margin}. With ${RUN_PLAN}, the columns are the declared candidate arm folders, each at its own configuration. The sequential looks are the decision: the not-worse row and the equivalence row of the decision tables point to the not-worse decision and the equivalence decision of the looks. Look k takes the per-run means of the valid runs 1 to k of each case. It decides only when ${RUN_PLAN}, which prepare.mjs sequential-plan writes once before any case, exists and each of its keys of looks 1 to k (a case, arm folder, and run number) has a valid run of the configuration of the key, and no run of the columns is outside the file; else it gives incomplete look with the reasons. It runs four betting tests at the error that it spends under the O'Brien-Fleming alpha spending of Lan and DeMets for ${MAX_LOOKS} looks and a one-sided error of ${DECISION_ALPHA}, with the threshold 1 / error: not worse (a mean below the margin), worse (a mean above the margin), not better (a mean above minus the margin), and better (a mean below minus the margin). The errors of the looks add up to ${DECISION_ALPHA} or less. The not-worse decision passes when the not-worse capital reaches its threshold and fails when the worse capital reaches it. The equivalence decision gives yes when the not-worse and the not-better capitals both reach it, and no when the worse or the better capital reaches it. Each decision stops on its own; every other look asks for the next look, and the last declared look without a pass gives no pass and no equivalence.`,
     '',
     ...groups,
   ];
@@ -2352,7 +2352,9 @@ function controlSection(runs) {
 // that the intervals and tests compare with: a table of two or more columns needs it. `margin` adds the not-worse,
 // equivalence, and drift checks, and `sequential` (with `reference` and `margin`) the sequential looks, which then are
 // the decision: the not-worse and equivalence rows point to the not-worse and equivalence decisions of the looks.
-// `runPlan` (see readRunPlan) gives the runs that each sequential look needs; without it, every look is held. `lead` (lead
+// `runPlan` (see readRunPlan) is the declaration of run-plan.json: the sequential looks compare its reference arm
+// folder with each candidate arm folder, each at its own configuration, and it gives the runs that each look needs;
+// without it, every look is held. With a declaration, `reference` must be the declared reference folder. `lead` (lead
 // folders) and `leadRef` (the reference folder) together add the self-review lead. `secondJudge` (see
 // workspaceScores) gives the requested and answered items of the second-judge sample: with a margin, a sample with an
 // unanswered item holds every decision (the not-worse and equivalence rows and each sequential look) at `second judge
@@ -2392,6 +2394,12 @@ export function renderReport(
   }
   if (sequential && (reference === undefined || margin === undefined)) {
     fail('report --sequential needs --reference and --margin');
+  }
+  if (sequential && runPlan && reference !== runPlan.reference.folder) {
+    const folder = runPlan.reference.folder;
+    fail(
+      `report --sequential compares the reference ${folder} of ${RUN_PLAN} with its candidates; give --arms with ${folder} and --reference ${folder}`,
+    );
   }
   const columnNote = arms
     ? 'An arm table has one column per arm folder in one case group. Its decision table also gives the cases of each column and the cases that the column and the reference column both ran.'
@@ -2444,13 +2452,20 @@ export function renderReport(
     ...comparisonSections(comparison.runs, { ...comparison, reference, margin, hold: decisionHold }),
     ...driftSection(runs, { margin }),
     ...(sequential
-      ? sequentialSection(comparison.runs, {
-          ...comparison,
-          reference,
-          margin,
-          hold: judgeHold,
-          runPlan: runPlan ?? null,
-        })
+      ? sequentialSection(
+          runPlan ? runs : comparison.runs,
+          runPlan
+            ? {
+                columns: [runPlan.reference.folder, ...runPlan.candidates.map((entry) => entry.folder)],
+                columnOf: armColumn,
+                planColumnOf: (key) => key.folder,
+                reference,
+                margin,
+                hold: judgeHold,
+                runPlan: runPlan.keys,
+              }
+            : { ...comparison, reference, margin, hold: judgeHold, runPlan: null },
+        )
       : []),
     ...stageSection(runs),
     ...controlSection(runs),
@@ -3624,18 +3639,25 @@ function readMetas(ws, blocks) {
 }
 
 // `prepare.mjs sequential-plan` declares the whole grid of a sequential decision in `<ws>/run-plan.json` once, before
-// any case: one key per case, arm, configuration, and run number of every look, with the look of the run.
+// any case: the reference arm and the candidate arms, each at its configuration, and one key per case, declared arm,
+// and run number of every look, with the configuration of the arm and the look of the run.
 export const RUN_PLAN = 'run-plan.json';
 const RUN_PLAN_TEXTS = ['case', 'arm', 'folder', 'config'];
+const ENTRY_TEXTS = ['arm', 'config', 'folder'];
 
-// The keys of `<ws>/run-plan.json`: `{ case, split, arm, folder, config, run, look }`, with the arm folder
-// `<arm>-<config>` and the split of the case (null for a case without one). Null without the file; the command stops
-// on a key that lacks a field. Only this file gives the runs that a sequential look needs (see lookGaps).
+// The declaration of `<ws>/run-plan.json`: `reference` and `candidates` (`{ arm, config, folder }`, with the arm
+// folder `<arm>-<config>`), and `keys`, each `{ case, split, arm, folder, config, run, look }` with the split of the
+// case (null for a case without one). Null without the file; the command stops on a field that is missing. Only this
+// file gives the columns of the sequential looks and the runs that a look needs (see lookGaps).
 export function readRunPlan(ws) {
   const file = path.join(ws, RUN_PLAN);
   if (!fs.existsSync(file)) return null;
   const plan = readJson(file);
-  if (!Array.isArray(plan?.keys)) fail(`${file} has no list of keys`);
+  const entry = (value) => ENTRY_TEXTS.every((field) => typeof value?.[field] === 'string' && value[field] !== '');
+  if (!entry(plan?.reference) || !Array.isArray(plan.candidates) || !plan.candidates.every(entry)) {
+    fail(`${file} has no reference and candidates of arm, config, and folder; run prepare.mjs sequential-plan`);
+  }
+  if (!Array.isArray(plan.keys)) fail(`${file} has no list of keys`);
   for (const key of plan.keys) {
     const texts = RUN_PLAN_TEXTS.every((field) => typeof key?.[field] === 'string' && key[field] !== '');
     const numbers = [key?.run, key?.look].every((value) => Number.isInteger(value) && value >= 1);
@@ -3644,7 +3666,7 @@ export function readRunPlan(ws) {
       fail(`${file} has a key without case, split, arm, folder, config, run, and look: ${JSON.stringify(key)}`);
     }
   }
-  return plan.keys;
+  return { reference: plan.reference, candidates: plan.candidates, keys: plan.keys };
 }
 
 // The scores of the workspace `ws`, as `report` and `power` read them. It stops when a key under `keys` changed after
@@ -3654,7 +3676,7 @@ export function readRunPlan(ws) {
 // sample is derived again from the current judgments.json, with the seed that `<ws>/second-sample.json` records (else
 // DEFAULT_SAMPLE_SEED), so an answer to an item that is no longer in the sample does not count, and a match that the
 // first judge added after the sample needs an answer too. `caseKinds` maps each case of pairs.json to its kind, and
-// `runPlan` holds the keys of `<ws>/run-plan.json`, null without the file (see readRunPlan).
+// `runPlan` is the declaration of `<ws>/run-plan.json`, null without the file (see readRunPlan).
 function workspaceScores(ws, keys) {
   const findings = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');

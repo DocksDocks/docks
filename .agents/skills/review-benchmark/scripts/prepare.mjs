@@ -9,8 +9,8 @@
 //                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
 //                           [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
 //                           [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
-//   node prepare.mjs sequential-plan --cases <case.json,...> --reference <arm> --candidates <arm,...> --config <name>
-//                         --looks <1,...,k> --out <ws> [--project <dir>]
+//   node prepare.mjs sequential-plan --cases <case.json,...> --reference <arm>@<config>
+//                         --candidates <arm>@<config>[,...] --looks <1,...,k> --out <ws> [--project <dir>]
 //   node prepare.mjs case --case <case.json> --arms <B0,C3,...> (--runs <k> | --sequential) --out <ws>
 //                         [--configs <list>] [--keys <dir>] [--loop] [--extend] [--project <dir>]
 //   node prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>]
@@ -1046,7 +1046,7 @@ function nextLook(caseDir, armDirs) {
   const missing = armDirs.find((dir) => !fs.existsSync(dir));
   if (missing) {
     fail(
-      `${missing} does not exist; case --sequential adds a look to the arm folders of the first look, so give the arms and configurations of that look`,
+      `${missing} does not exist; the first look of case --sequential prepares every declared arm folder, so restore the folder or declare a new decision in another workspace`,
     );
   }
   const looks = armDirs.map((dir) => {
@@ -1072,29 +1072,42 @@ function parseLooks(value) {
   return runs;
 }
 
+// One arm of `sequential-plan`: `<arm>@<configuration>`, with one configuration for the arm. The same arm can come
+// twice with two configurations, for example C3@high and C3@medium for an effort choice.
+function parseEntry(text, option) {
+  const match = /^([^@\s]+)@([^@\s]+)$/.exec(text);
+  if (!match) fail(`${option} takes <arm>@<configuration>, for example C3@high, not ${text}`);
+  const [, arm, config] = match;
+  return { arm, config, folder: armFolder(arm, config) };
+}
+
 // The `sequential-plan` command: it declares the whole grid of a sequential decision once, before any case. It takes
-// every case file of the decision (`cases`), the reference arm and the candidate arms (`reference`, `candidates`; an
-// A/A control copy of the reference is a candidate too), one configuration of the list that `agents` wrote
-// (`config`), and the runs of the looks (`looks`, for example 1,2,3,4). It writes `<out>/run-plan.json` (see score.mjs
-// readRunPlan) with one key for every case, arm, and run of every look, and refuses a file that exists. `case
-// --sequential` adds only runs that the file declares, and `score.mjs report --sequential` holds a look until every
-// key of it and the earlier looks has a valid run.
+// every case file of the decision (`cases`), the reference arm and the candidate arms, each with its configuration
+// (`reference`, `candidates`: `<arm>@<configuration>`; an A/A control copy of the reference is a candidate too), and
+// the runs of the looks (`looks`, for example 1,2,3,4). Each configuration must be in the list that `agents` wrote.
+// It writes `<out>/run-plan.json` (see score.mjs readRunPlan): the reference, the candidates, the looks, and one key
+// for every case, declared arm, and run of every look, with the configuration of the arm. It refuses a file that
+// exists. `case --sequential` then prepares the declared arms of a case, and `score.mjs report --sequential` compares
+// the reference with each candidate and holds a look until every key of it and the earlier looks has a valid run.
 export function sequentialPlan(options, repo) {
-  for (const name of ['cases', 'reference', 'candidates', 'config', 'looks', 'out']) {
+  for (const name of ['cases', 'reference', 'candidates', 'looks', 'out']) {
     if (!options[name]) fail(`sequential-plan needs --${name}`);
   }
   const file = path.join(path.resolve(options.out), RUN_PLAN);
   if (fs.existsSync(file)) {
     fail(`${file} exists; a sequential decision declares its plan once, so choose another --out`);
   }
-  const lists = selectConfigs({ ...options, configs: options.config }, repo);
-  if (lists.configs.length !== 1) fail(`sequential-plan --config takes one configuration, not ${options.config}`);
-  const [config] = lists.configs;
-  const candidates = parseList(options.candidates, '--candidates');
-  if (candidates.includes(options.reference)) {
-    fail(`sequential-plan --candidates lists the reference ${options.reference}`);
+  const reference = parseEntry(options.reference, '--reference');
+  const candidates = parseList(options.candidates, '--candidates').map((text) => parseEntry(text, '--candidates'));
+  const entries = [reference, ...candidates];
+  const folders = entries.map((entry) => entry.folder);
+  if (new Set(folders).size !== folders.length) {
+    fail(
+      `sequential-plan declares the arm folder ${folders.find((folder, index) => folders.indexOf(folder) !== index)} twice`,
+    );
   }
-  const arms = [options.reference, ...candidates];
+  const configNames = [...new Set(entries.map((entry) => entry.config))];
+  const lists = selectConfigs({ ...options, configs: configNames.join(',') }, repo);
   const runs = parseLooks(options.looks);
   const cases = parseList(options.cases, '--cases').map((file) => {
     const casePath = path.resolve(file);
@@ -1102,47 +1115,57 @@ export function sequentialPlan(options, repo) {
     if (path.basename(casePath) !== `${caseData.id}.json`) {
       fail(`case file ${casePath} must be named ${caseData.id}.json`);
     }
-    parseArms(arms.join(','), caseData.kind, lists);
+    parseArms([...new Set(entries.map((entry) => entry.arm))].join(','), caseData.kind, lists);
     return caseData;
   });
   const ids = cases.map((caseData) => caseData.id);
   if (new Set(ids).size !== ids.length) fail(`sequential-plan --cases names a case twice: ${ids.join(', ')}`);
   const keys = cases.flatMap((caseData) =>
-    arms.flatMap((arm) =>
-      runs.map((run) => ({
-        case: caseData.id,
-        split: caseData.split ?? null,
-        arm,
-        folder: armFolder(arm, config.name),
-        config: config.name,
-        run,
-        look: run,
-      })),
+    entries.flatMap((entry) =>
+      runs.map((run) => ({ case: caseData.id, split: caseData.split ?? null, ...entry, run, look: run })),
     ),
   );
-  writeJson(file, { reference: options.reference, candidates, config: config.name, looks: runs, keys });
+  writeJson(file, { reference, candidates, looks: runs, keys });
   console.log(
-    `wrote ${file}: ${cases.length} cases x ${arms.length} arms x ${runs.length} looks at ${config.name}, ${keys.length} keys`,
+    `wrote ${file}: ${cases.length} cases x ${folders.join(', ')} x ${runs.length} looks, ${keys.length} keys`,
   );
 }
 
-// Refuses a `case --sequential` call in the workspace `ws` for a run that `<ws>/run-plan.json` does not declare: a
-// case, arm, configuration, or run number outside the plan of `sequential-plan`, or a workspace without the file.
-function requireDeclared(ws, { caseData, arms, configs, firstRun, lastRun }) {
+// The arms of a `case --sequential` call for the case `caseData` in the workspace `ws`: every arm folder that
+// `<ws>/run-plan.json` declares for the case, as `{ arm, config }` with the configuration of `lists`, and `runs`, the
+// declared run numbers of the case. The declaration, not the options, gives the arms, so each look prepares every
+// declared arm of the case. `--arms` and `--configs` may only repeat the declared arms and configurations. The call
+// refuses a workspace without the file and a case that the file does not declare.
+function declaredEntries(ws, caseData, options, lists) {
   const file = path.join(ws, RUN_PLAN);
-  const declared = fromScore(() => readRunPlan(ws));
-  if (declared === null) fail(`case --sequential needs ${file}; run prepare.mjs sequential-plan first`);
-  const names = new Set(declared.map((key) => `${key.case} ${key.folder} run-${key.run}`));
-  const runNumbers = Array.from({ length: lastRun - firstRun + 1 }, (_, index) => firstRun + index);
-  const requested = configs.flatMap((config) =>
-    arms.flatMap((arm) => runNumbers.map((run) => `${caseData.id} ${armFolder(arm, config.name)} run-${run}`)),
-  );
-  const undeclared = requested.filter((name) => !names.has(name));
-  if (undeclared.length) {
+  const plan = fromScore(() => readRunPlan(ws));
+  if (plan === null) fail(`case --sequential needs ${file}; run prepare.mjs sequential-plan first`);
+  const keys = plan.keys.filter((key) => key.case === caseData.id);
+  if (keys.length === 0)
+    fail(`${file} does not declare ${caseData.id}; case --sequential prepares only declared cases`);
+  const folders = [...new Set(keys.map((key) => key.folder))];
+  const entries = folders.map((folder) => {
+    const key = keys.find((entry) => entry.folder === folder);
+    const config = lists.configs.find((entry) => entry.name === key.config);
+    if (!config) fail(`${file} declares the configuration ${key.config}, which ${lists.file} does not hold`);
+    return { arm: key.arm, config };
+  });
+  const declaredArms = [...new Set(entries.map((entry) => entry.arm))];
+  const declaredConfigs = [...new Set(entries.map((entry) => entry.config.name))];
+  const same = (value, declared) =>
+    [...new Set(value.split(',').map((item) => item.trim()))].sort().join(',') === [...declared].sort().join(',');
+  if (options.arms && !same(options.arms, declaredArms)) {
     fail(
-      `${file} does not declare ${undeclared.join(', ')}; case --sequential adds only the runs that sequential-plan declared`,
+      `${file} declares the arms ${declaredArms.join(', ')} for ${caseData.id}; case --sequential prepares all of them, so leave out --arms ${options.arms}`,
     );
   }
+  if (options.configs && !same(options.configs, declaredConfigs)) {
+    fail(
+      `${file} declares the configurations ${declaredConfigs.join(', ')} for ${caseData.id}; case --sequential prepares all of them, so leave out --configs ${options.configs}`,
+    );
+  }
+  parseArms(declaredArms.join(','), caseData.kind, lists);
+  return { entries, runs: [...new Set(keys.map((key) => key.run))] };
 }
 
 // The `case` command. `repo` is the git repository of the case commits. With `loop`, each run starts a review loop
@@ -1150,9 +1173,9 @@ function requireDeclared(ws, { caseData, arms, configs, firstRun, lastRun }) {
 // policy. `prepareLoop` builds the later rounds with the policy that this meta.json records. With `extend`, the case
 // folder exists: `case` adds the folders of the arms and keeps the snapshot, the diffs, and every other arm folder; it
 // writes the base-instructions folder of a code case only when the case folder has none. With `sequential`, `case`
-// builds the first look (one run per case), or, when the case folder exists, adds the next look: one run to each arm
-// folder of the arms and configurations (see nextLook); it adds only runs that run-plan.json declares (see
-// requireDeclared). Each run of an arm with a contract overlay gets its copy of
+// takes its arms and configurations from run-plan.json (see declaredEntries): it builds the first look of every
+// declared arm folder of the case (one run each), or, when the case folder exists, adds the next look: one run to each
+// of these folders (see nextLook), up to the last declared look. Each run of an arm with a contract overlay gets its copy of
 // the plan contract (see writeContractCopy), and its meta.json records whether the contract change applied
 // (`contractOverlay`). The judge gets the same copy as `<ws>/contracts/<run label>.md` (JUDGE_CONTRACTS), so that it
 // judges the findings of the run under the contract that the reviewer read. When the list of configurations has a
@@ -1177,10 +1200,17 @@ export function prepareCase(options, repo) {
   }
   // The list of configurations names the variants and the self-review roots, which give the variant arms of the plan
   // kinds and the self-review root arms of the code kind.
-  const lists = selectConfigs(options, repo);
-  const { configs, fixer, manager, variants, selfReviewRoots, candidateContractDiff, file: configsFile } = lists;
+  // A sequential call takes every configuration of the list and keeps the ones that run-plan.json declares.
+  const lists = selectConfigs(options.sequential ? { ...options, configs: undefined } : options, repo);
+  const { fixer, manager, variants, selfReviewRoots, candidateContractDiff, file: configsFile } = lists;
   const specOf = (arm) => armSpec(caseData.kind, arm, { variants, candidateContractDiff, selfReviewRoots });
-  const arms = parseArms(options.arms, caseData.kind, lists);
+  const declared = options.sequential ? declaredEntries(path.resolve(options.out), caseData, options, lists) : null;
+  // Each entry is one arm folder: an arm at a configuration.
+  const entries =
+    declared?.entries ??
+    lists.configs.flatMap((config) => parseArms(options.arms, caseData.kind, lists).map((arm) => ({ arm, config })));
+  const arms = [...new Set(entries.map((entry) => entry.arm))];
+  const configs = [...new Set(entries.map((entry) => entry.config))];
   if (options.loop) checkLoopArms(arms, specOf);
   // A candidate contract overlay reaches only the prompts that case writes; the later rounds of a loop would review
   // without the contract copy, so a loop of a candidate arm cannot measure the change.
@@ -1202,7 +1232,7 @@ export function prepareCase(options, repo) {
   } else if (fs.existsSync(caseDir)) {
     fail(`${caseDir} exists; remove it, choose another --out, or add arms with --extend`);
   }
-  const armDirs = configs.flatMap((config) => arms.map((arm) => path.join(caseDir, armFolder(arm, config.name))));
+  const armDirs = entries.map(({ arm, config }) => path.join(caseDir, armFolder(arm, config.name)));
   let firstRun = 1;
   if (addLook) {
     firstRun = nextLook(caseDir, armDirs);
@@ -1211,8 +1241,11 @@ export function prepareCase(options, repo) {
     if (existing) fail(`${existing} exists; leave its arm out of --arms`);
   }
   const lastRun = firstRun + runs - 1;
-  // A sequential decision adds only the runs that sequential-plan declared (see requireDeclared).
-  if (options.sequential) requireDeclared(path.resolve(options.out), { caseData, arms, configs, firstRun, lastRun });
+  if (declared && !declared.runs.includes(firstRun)) {
+    fail(
+      `${path.resolve(options.out, RUN_PLAN)} declares no look ${firstRun} of ${caseData.id}; the decision has ${declared.runs.length} looks`,
+    );
+  }
   const sources = caseSources(caseData, path.dirname(casePath), keys);
   const commits = caseCommits(repo, caseData);
   const hidden = hiddenPathspec(repo, caseData);
@@ -1241,6 +1274,8 @@ export function prepareCase(options, repo) {
     const fullLines = options.loop ? diffSize(repo, hidden, commits.base, tree) : null;
     for (const config of configs) {
       for (const arm of arms) {
+        // A sequential declaration need not hold every pair of its arms and configurations.
+        if (!entries.some((entry) => entry.arm === arm && entry.config === config)) continue;
         const spec = specOf(arm);
         const { policy, mode: armMode, reviewers: armReviewers, contractDiff } = spec;
         const mode = options.loop ? roundMode({ policy, round: 1, fullLines }) : armMode;
@@ -1294,7 +1329,9 @@ export function prepareCase(options, repo) {
   }
   const prompts = runFolders.reduce((sum, run) => sum + run.prompts.length, 0);
   const runsNote = addLook ? `run ${firstRun} (look ${firstRun} of at most ${MAX_LOOKS})` : `${runs} runs`;
-  const counts = `${arms.join(', ')} x ${configs.length} configurations x ${runsNote}`;
+  const counts = declared
+    ? `${armDirs.map((dir) => path.basename(dir)).join(', ')} x ${runsNote}`
+    : `${arms.join(', ')} x ${configs.length} configurations x ${runsNote}`;
   const notes = (label, entries) =>
     entries.size ? `; ${label}: ${[...entries].map(([arm, value]) => `${arm} ${value}`).join(', ')}` : '';
   const verb = extending ? 'extended' : 'prepared';
@@ -2386,7 +2423,6 @@ const COMMANDS = {
       cases: { type: 'string' },
       reference: { type: 'string' },
       candidates: { type: 'string' },
-      config: { type: 'string' },
       looks: { type: 'string' },
       out: { type: 'string' },
       ...PROJECT_OPTION,
@@ -2406,7 +2442,7 @@ const USAGE = `usage:
                      [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
                      [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
                      [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
-  prepare.mjs sequential-plan --cases <case.json,...> --reference <arm> --candidates <arm,...> --config <name>
+  prepare.mjs sequential-plan --cases <case.json,...> --reference <arm>@<config> --candidates <arm>@<config>[,...]
                    --looks <1,...,k> --out <ws> [--project <dir>]
   prepare.mjs case --case <case.json> --arms <list> (--runs <k> | --sequential) --out <ws> [--configs <list>]
                    [--keys <dir>] [--loop] [--extend] [--project <dir>]
