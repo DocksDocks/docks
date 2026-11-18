@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "7a1036c6b158e062b9bc3dfceeec6a404a1a3bc339810938cd50f8fff1cc3b2b"
+  content_hash: "cd9930839fde78d4bffa2a1ca002d3f9eb8a9bccd99b635286f9adec81f26e1e"
 ---
 
 # Commit & PR Discipline
@@ -209,6 +209,10 @@ sitting, or your description needs "also", split.
    for UI); a reviewer shouldn't have to re-derive your evidence.
 5. **Out of scope** — adjacent work deliberately not done, so review comments
    don't relitigate it.
+6. **Checklist** — a `## Checklist` section of top-level task items: template
+   items first, then the required checks and code review. Tick an item only on
+   evidence for the pushed head; the order, defaults, and rules are in
+   [references/pull-request-checklist.md](references/pull-request-checklist.md).
 
 **Self-review before requesting review** — open your own diff in the PR view and
 read it as the reviewer: leave inline comments on anything non-obvious you'd

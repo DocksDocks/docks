@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-17"
-  content_hash: "83bf60ac6b34c16badf080e2fd4175e674f0c458eeee5966c52bf82bf7c78638"
+  content_hash: "426314172f4e1cd1356a973057a94dd3de0cc7cd9d7bef3dafcbc16605fd6266"
 ---
 
 # Yolo
@@ -340,23 +340,34 @@ The contract's Round ceiling also says this.
    review scratch directory. The run summary is the whole pull request
    description; do not add the `commit-discipline` description sections. Write
    `pending` for the pull request URL and the checks. Include Kept resources,
-   as the template says. End the file with `Closes #<n>` on its own line.
+   as the template says. Fill its `## Checklist` section as the contract's
+   Pull requests says: tick an item only with its evidence on the reviewed
+   head, and end each unticked item with its reason. End the file with
+   `Closes #<n>` on its own line.
 5. When `gh pr list --repo <owner/repo> --head <branch> --state open` shows a
    pull request, update its body with `gh pr edit <pr> --repo <owner/repo>
    --body-file <file>`. Otherwise open the pull request with `gh pr create
    --repo <owner/repo> --base <default> --head <branch> --title <title>
    --body-file <file>`.
 6. Wait for checks as the contract says. If a check fails, fix it, rerun
-   acceptance, review again, push, and wait again. When the same check still
+   acceptance, review again, and push. Right after the push, build the
+   Checklist again from the evidence for the new head, and update the body
+   with `gh pr edit <pr> --repo <owner/repo> --body-file <file>`. Then wait
+   again. When the same check still
    fails after the third fix attempt, stop fixing it. That is a stall under the
    contract's Round ceiling, as its Checks and merge says.
 7. Confirm that `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows
    the reviewed head. Write the pull request URL and the check result into the
    summary file. Then update the body with `gh pr edit <pr> --repo <owner/repo>
-   --body-file <file>`.
-8. Print the run summary. In the same response, ask one question:
+   --body-file <file>`. Run the landing self-check in the contract's Checks and
+   merge: untick each item without evidence, add its reason, and update the
+   body again.
+8. Print the run summary. In the same response, state
+   `<k> of <n> checklist items ticked`, list each unticked item with its
+   reason, and ask one question:
    `Merge pull request #<pr> into <default>?`, with the options `Merge now` and
-   `Leave pull request open`. The `Merge now` option states the teardown, as the
+   `Leave pull request open`. An unticked item does not block the question.
+   The `Merge now` option states the teardown, as the
    contract's Checks and merge says, including `git branch -d <branch>`.
 9. On `Merge now`, merge as the contract says. Ask separately before each plan
    step that runs after the merge, and run it. Then archive with

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "5f7d916121f30273f163b5bdac9660dd9709ab058de183171e5d731a69e11cd1"
+  content_hash: "bd2a17cb087a28e1c2fa00c8b90973f1ac2c597cf25c4e846dd2a0f7210e1fca"
 ---
 
 # Plans Workspace
@@ -39,7 +39,11 @@ Report its resolved path or that the plugin is unavailable.
 
 ## Classify
 
-Inspect the standard, routing nodes, root Plans section, and reviewer wrappers.
+Inspect the standard, routing nodes, root Plans section, reviewer wrappers, and
+pull-request template. Detect the template with the detection in
+[`references/pull-request-template.md`](references/pull-request-template.md).
+A missing or unusable template is a report item, not drift: name each
+`unusable` line. A detection error is not a missing template: report the error.
 Use generated scaffolding outside frozen history to recognize legacy workspaces.
 
 | Class | Evidence | Action |
@@ -83,6 +87,16 @@ For audit, that report is final.
 5. Seed only missing Codex reviewer files from
    [`references/codex-agent-templates.md`](references/codex-agent-templates.md).
    Never overwrite an existing wrapper or create a manager wrapper.
+6. Offer to create the pull-request template from
+   [`references/pull-request-template.md`](references/pull-request-template.md).
+   Run its detection first. When it prints a usable template, make no change.
+   When it prints an `ERROR` line, report the error and write nothing. Only on
+   `pull-request template: none`, fill in the check command that the root
+   instruction file names, print the draft with each `unusable` line, and ask.
+   When the user accepts, run the reference's write gate, and write
+   `.github/pull_request_template.md` only on `target free`. On
+   `target occupied`, report the entry that occupies the path and write
+   nothing; the user resolves it. Never write through a symlink.
 
 ## Migrate or refresh
 
@@ -119,7 +133,8 @@ Plan issues are the live records. Leave `docs/plans/finished/` frozen.
 ## Verification
 
 Check each changed section: standard pointer, docs routing, absence of a
-legacy `docs/CLAUDE.md`, root routing, and both reviewer wrappers. If generated
+legacy `docs/CLAUDE.md`, root routing, both reviewer wrappers, and the
+pull-request template. If generated
 content shrinks, account for each removed section in the canonical reference or
 record why it was obsolete.
 Do not discard project-owned rules. Verify links resolve in the installed plugin.
@@ -135,6 +150,12 @@ grep -c 'Pointers here name concepts' docs/AGENTS.md   # 1 or more
 ls .codex/agents/plan-reviewer.toml .codex/agents/code-reviewer.toml
 find . \( -name .git -o -name node_modules -o -path ./docs/plans/finished \) -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print   # no output
 ```
+
+Run the template detection in
+[`references/pull-request-template.md`](references/pull-request-template.md).
+It prints a usable template, or `pull-request template: none` only when the
+user declined the offer or an unusable entry occupies the target. Report an
+`ERROR` line as a failed check.
 
 For migration, confirm each issue uses a user-restated title and goal, and
 read back its drafting state. Confirm no operation touched or inventoried

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-17"
-  content_hash: "98343009368afffa91a293111510f736dc4e29c496d05645697a23675bc3b0ae"
+  content_hash: "da6f8cda3a5c995ddd5dece48eb497b704f0e47adb9ea9604018bd74a1e624b8"
 ---
 
 # Plan Manager
@@ -252,10 +252,11 @@ it again as the contract's Code-review rounds says.
 
 Resolve unreadable input before you request a verdict. If you block after
 implementation, commit and push current work to the linked branch before you
-record the blocker, so repairs are not stranded. Post the pending manager
-response first, as the contract's review loop says. A hook that refuses that
-commit or push follows the contract's Repository hooks. Then run the contract's
-Teardown for an exit without a merge.
+record the blocker, so repairs are not stranded. When a pull request is open,
+update its body right after the push, as the contract's Checklist says. Post
+the pending manager response first, as the contract's review loop says. A hook
+that refuses that commit or push follows the contract's Repository hooks. Then
+run the contract's Teardown for an exit without a merge.
 
 Done when: `show <n>` reports `code=pass`.
 
@@ -264,7 +265,11 @@ Done when: `show <n>` reports `code=pass`.
 After code review passes, follow the contract's Landing and archive proof:
 commit and push the reviewed bytes, open or update the pull request, wait for
 checks, ask afresh for `Merge now` or `Leave pull request open`, and merge only
-on `Merge now`. The `Merge now` option states the teardown, as the contract's
+on `Merge now`. Build the `## Checklist` section and run the landing self-check
+as the contract's Checklist and Checks and merge say. After each push, rebuild
+the ticks and update the body before any wait for checks. The merge question
+states `<k> of <n> checklist items ticked` and lists each unticked item with
+its reason. The `Merge now` option states the teardown, as the contract's
 Checks and merge says. A v5 plan has no partial merge; each part lands as a
 child plan. Only a v4 plan whose work started runs `reopen <n> --pr <pr>` after
 a partial merge, as the contract states. After the landing merge, run each step

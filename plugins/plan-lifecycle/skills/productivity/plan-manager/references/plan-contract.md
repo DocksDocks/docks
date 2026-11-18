@@ -653,7 +653,8 @@ and prints nothing.
 
 Open every plan pull request from the linked branch, after code review passes.
 Commit and push only reviewed bytes. The landing pull request completes the
-plan. Put `Closes #<issue>` on its own line in the description. `archive` needs
+plan. Its description holds the summary, then the `## Checklist` section
+(Checklist below), then `Closes #<issue>` on its own line. `archive` needs
 this keyword as proof.
 
 A v5 plan has no partial pull request. Put each part of the work that lands on
@@ -690,21 +691,93 @@ retry the reopen. Record the remaining step results in one issue comment,
 report the plan as stuck, and ask the repository owner to contact GitHub
 Support. After GitHub repairs the issue, continue normally.
 
+#### Checklist
+
+The `## Checklist` section shows which required checks passed on the reviewed
+head. GitHub shows the progress of its task items, for example `2 of 3 tasks`.
+Write each item as a top-level task item: `- [ ] <text>` or `- [x] <text>`.
+Do not nest items. GitHub does not document how it counts nested items.
+
+Add the items in this order:
+
+1. The task items of a usable pull-request template of the repository, with
+   their text as written. GitHub reads a template from the root, from `docs/`,
+   or from `.github/`: a file named `pull_request_template`, with an extension
+   such as `.md` or `.txt`, in any letter case, or a `PULL_REQUEST_TEMPLATE/`
+   folder that holds several templates
+   (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates>).
+   Find it with the detection in the `plan-workspace` skill's
+   `references/pull-request-template.md`, and take items only from an entry
+   that it reports as usable. Name each `unusable` entry, such as a broken
+   symlink or an empty template folder, in the merge question. A detection
+   error is not a missing template: report it in the merge question.
+   `gh pr create --body-file` uses the file as given and copies no template,
+   so copy the items yourself. When there are several templates, use the one
+   that applies to the change, and name it in the merge question.
+2. One item for each Acceptance row that a repository instruction requires,
+   as "`<command>` passes".
+3. "Tested locally with the `verify` skill" when an Acceptance row runs a
+   driven surface end to end.
+4. "Code review passed".
+
+When the repository has no usable pull-request template, use these default
+items in place of the template items: "`<check command>` passes", with the check
+command from the root instruction file (for example `bun run check`); "Tested
+locally with the `verify` skill"; and "Code review passed". When the root
+instruction file names no check command, the first item reads "Checks pass"
+and stays unticked, with the reason
+`no check command in the repository instructions`. Skip an item of 2 to 4 when
+a template item or a default item already covers it, so that no check and no
+review shows twice.
+
+Tick an item (`- [x]`) only when its evidence is for the reviewed head that you
+push now:
+
+- a command item: Verification Results record a pass of that command on that
+  head;
+- the tested-locally item: Verification Results record a pass of the `verify`
+  skill flow on that head;
+- the code-review item: `show <n>` reports `code=pass`, and the passing round
+  reviewed that head;
+- a template item: a Verification Results entry or the code-review verdict for
+  that head proves it.
+
+Otherwise keep the item unticked, and end its line with ` - <reason>`, for
+example ``- [ ] Tested locally with the `verify` skill - the change touches no driven surface``.
+A template item without proof gets the reason `not checked by the plan`.
+After each push to the linked branch while the pull request is open, also a
+push of current work before a block or a stall, build every tick again from
+the evidence for the new head. Evidence for an older head ticks nothing: the
+item stays unticked, with the reason `not checked on <short-sha>`, until it
+passes on the new head. Update the body right after the push, before any wait
+for checks, with `gh pr edit <pr> --repo <owner/repo> --body-file <file>`.
+
 ### Checks and merge
 
 Wait up to five minutes for checks to appear. Then wait for every check to
 finish, for example with `gh pr checks <pr> --repo <owner/repo> --watch`. A
 failed or cancelled check blocks the merge question until its fix passes code
-review. If the repository has no configured checks, use the green local gate as
-the check result and say so in the merge question.
+review. After you push the fix, update the body as Checklist says before you
+wait for checks again. If the repository has no configured checks, use the
+green local gate as the check result and say so in the merge question.
 
 When the same check still fails after the third fix attempt on one plan, stop
 fixing it. Outside a yolo run, ask with the options `Continue fixing` and
 `Leave plan blocked`. `Continue fixing` gives the check three more fix
 attempts. On `Leave plan blocked`, or without an answer, commit and push
-current work to the linked branch, set the status to `blocked` with the check
-name as the reason, run Teardown's exit without a merge, and report. In a yolo
+current work to the linked branch, update the body as Checklist says, set the
+status to `blocked` with the check name as the reason, run Teardown's exit
+without a merge, and report. In a yolo
 run, the third failure is a stall under Round ceiling.
+
+Before the merge question, run the landing self-check. Read the pushed body
+with `gh pr view <pr> --repo <owner/repo> --json body --jq .body`. For each
+ticked item, find its evidence for the pushed head, as Checklist says. Untick
+each item without that evidence, add its reason, and update the body with
+`gh pr edit <pr> --repo <owner/repo> --body-file <file>`. The merge question
+states `<k> of <n> checklist items ticked` and lists each unticked item with
+its reason. An unticked item does not block the merge question; the user
+decides.
 
 Ask afresh with two options: `Merge now` and `Leave pull request open`. The
 `Merge now` option states the teardown that follows the merge: the processes
@@ -994,7 +1067,8 @@ code-review pass that still lists MEDIUM or LOW findings, land, and list those
 findings in the run summary.
 
 On a stall, commit and push current work to the linked branch first, when code
-exists. A hook that refuses them follows Repository hooks. Then ask once, with
+exists. When the pull request is open, update its body as Checklist says. A
+hook that refuses them follows Repository hooks. Then ask once, with
 the options `Continue yolo` and `Leave plan
 blocked`. Keep the status unchanged while you ask, because the helper does not
 move a blocked plan back to `drafting` or `planned`. `Continue yolo` gives the
@@ -1005,8 +1079,9 @@ and report.
 
 ### Merge question
 
-After checks pass, print the run summary that the `yolo` skill defines. Then ask
-the question in Checks and merge. Each step after the landing merge needs its
+After checks pass, run the landing self-check in Checks and merge, and print the
+run summary that the `yolo` skill defines. Then ask the question in Checks and
+merge, with the checklist line. Each step after the landing merge needs its
 own question.
 
 ### Published text

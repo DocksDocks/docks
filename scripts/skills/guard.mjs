@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 // guard.mjs — run the combined skill frontmatter validator, the Codex-fact
 // drift guard, and the reference-hygiene guard, then check that every skill
-// ends with the canonical Report section. Usage: guard.mjs [skills-dir]
+// ends with the canonical Report section and that each shared reference copy
+// matches its canonical file. Usage: guard.mjs [skills-dir]
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,6 +13,10 @@ const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
 const DIR = process.argv[2] || '';
 // One canonical copy, so that the copies in all plugins cannot drift apart unseen.
 const REPORT_SECTION = 'scripts/config/report-section.md';
+// Reference files that more than one plugin ships with the same bytes, because a plugin cannot
+// link into another plugin. The repository lists them in this file; a repository without it has
+// none. Edit each canonical file, then copy it over each of its copies.
+const SHARED_REFERENCES = 'scripts/config/shared-references.json';
 
 function run(args) {
   const result = spawnSync('bun', args, { stdio: 'inherit' });
@@ -65,17 +70,85 @@ function reportSectionFailures(skillsRoot) {
   return failures;
 }
 
+// Read the shared-reference list: `[{ "canonical": "<path>", "copies": ["<path>", ...] }]`, with
+// paths relative to the repository root. An absent file is an empty list.
+function loadSharedReferences() {
+  const file = path.join(REPO_DIR, SHARED_REFERENCES);
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    console.error(`FAIL: ${SHARED_REFERENCES}: cannot read the shared-reference list: ${error.message}`);
+    process.exit(2);
+  }
+  let list;
+  try {
+    list = JSON.parse(text);
+  } catch (error) {
+    console.error(`FAIL: ${SHARED_REFERENCES}: not valid JSON: ${error.message}`);
+    process.exit(2);
+  }
+  const isPath = (value) => typeof value === 'string' && value !== '' && !path.isAbsolute(value);
+  const valid =
+    Array.isArray(list) &&
+    list.every(
+      (entry) =>
+        entry !== null &&
+        typeof entry === 'object' &&
+        isPath(entry.canonical) &&
+        Array.isArray(entry.copies) &&
+        entry.copies.length > 0 &&
+        entry.copies.every(isPath),
+    );
+  if (!valid) {
+    console.error(
+      `FAIL: ${SHARED_REFERENCES}: must be a list of { "canonical": "<path>", "copies": ["<path>", ...] }, with relative paths`,
+    );
+    process.exit(2);
+  }
+  return list;
+}
+
+// Each copy of a shared reference must equal its canonical file, byte for byte (latin1, as above).
+// The check reads repository paths, so it runs whatever the target folder is.
+function sharedReferenceFailures() {
+  const failures = [];
+  const read = (relative) => {
+    try {
+      return fs.readFileSync(path.join(REPO_DIR, relative), 'latin1');
+    } catch (error) {
+      failures.push(`${relative}: cannot read the shared reference (${error.code ?? error.message})`);
+      return undefined;
+    }
+  };
+  for (const { canonical, copies } of loadSharedReferences()) {
+    const canonicalText = read(canonical);
+    for (const copy of copies) {
+      const copyText = read(copy);
+      if (canonicalText !== undefined && copyText !== undefined && copyText !== canonicalText)
+        failures.push(`${copy}: differs from ${canonical}; copy that file over it`);
+    }
+  }
+  return failures;
+}
+
 const lib = path.join(REPO_DIR, 'scripts/lib/validate-skills.mjs');
 const target = DIR || path.join(REPO_DIR, 'plugins/docks/skills');
 run([lib, '--runtime', 'all', target]);
 run([path.join(REPO_DIR, 'scripts/skills/codex-facts.mjs')]);
 run([path.join(REPO_DIR, 'scripts/skills/refs-guard.mjs'), ...(DIR ? [DIR] : [])]);
 
+const sharedFailures = sharedReferenceFailures();
+for (const failure of sharedFailures) console.error(`FAIL: ${failure}`);
+if (sharedFailures.length > 0)
+  console.error(`Guard FAILED: ${sharedFailures.length} shared reference file(s) do not match their canonical file`);
+
 const reportFailures = reportSectionFailures(target);
 if (reportFailures.length > 0) {
   for (const failure of reportFailures) console.error(`FAIL: ${failure}`);
   console.error(`Guard FAILED: ${reportFailures.length} skill file(s) do not end with the canonical Report section`);
-  process.exit(1);
 }
+if (sharedFailures.length > 0 || reportFailures.length > 0) process.exit(1);
 
 console.log('Guard PASSED: skills match Codex and Claude conventions and end with the canonical Report section');
