@@ -78,6 +78,7 @@ Do not track plan bodies in repository files.
 Skill roles and reviewer wrappers are defined in `plugins/plan-lifecycle/skills/AGENTS.md` (Roles).
 Each non-local step needs an in-session `ask` immediately before it runs.
 A user-invoked `yolo` run replaces these asks with the contract's Yolo runs section and asks only before merge.
+A `Delegated:` line in the plan Goal hands the design and tradeoff decisions to the agent (the contract's Delegated decisions). It does not replace these asks or the merge question; a `yolo` run includes that grant.
 Merge needs a fresh `Merge now` answer. Plan approval does not authorize merge.
 Read `skills/productivity/plan-manager/references/plan-contract.md` inside the
 installed `plan-lifecycle` plugin for the complete contract.

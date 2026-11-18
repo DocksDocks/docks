@@ -12,6 +12,7 @@ Resolve `skills/productivity/plan-manager/scripts/plan.mjs` within that installe
 - [Helper commands and output](#helper-commands-and-output)
 - [Normalization, advice, and refusals](#normalization-advice-and-refusals)
 - [Landing and archive proof](#landing-and-archive-proof)
+- [Delegated decisions](#delegated-decisions)
 - [Yolo runs](#yolo-runs)
 
 ## Record and mode
@@ -209,14 +210,16 @@ Run this review loop for plan review and for code review:
    Then start the next round.
 5. When a finding returns after a repair, do not repeat its approach. Research
    the defect class again, pick a different approach, and record it under
-   `Redesigned`. Outside a yolo run, ask the user to continue or block only for
-   a fix that needs a tradeoff the user owns (accepting a known limit, changing
-   the Goal or the scope, or a non-local effect), or on a stall: the same
-   finding returns after two different approaches, round 10 ends without a
-   pass, or dispatch fails twice without a relevant change. If no answer is
-   available, record the reason and block. A yolo run uses only the redesign
-   rule. It settles a tradeoff by its delegation line and the effect table of
-   Yolo runs, and asks only the Round ceiling question.
+   `Redesigned`. A phase stalls when the same finding returns after two
+   different approaches, round 10 ends without a pass, or dispatch fails twice
+   without a relevant change. Without a grant (Delegated decisions), ask the
+   user to continue or block only for a fix that needs a tradeoff the user
+   owns (accepting a known limit, changing the Goal or the scope, or a
+   non-local effect), or on a stall. If no answer is available, record the
+   reason and block. Under a grant, decide the tradeoff as Delegated decisions
+   says, and ask only for a non-local effect; a yolo run settles that effect by
+   the effect table of Yolo runs. On a stall under a grant, apply the Stall
+   rule of Delegated decisions.
 
 Each round adds one issue comment. The manager response to round k starts with
 the heading line `#### Manager response to round <k>`, exactly so, and holds
@@ -268,7 +271,8 @@ most of those rounds found nothing. These edits need no round:
   that a yolo invocation decides.
 - An edit to Verification Results or Open questions, and a `step` state change.
 
-Record user-only decisions in Open questions. Do not invent approval.
+Record user-only decisions in Open questions. Do not invent approval. A grant
+answers some of them (Delegated decisions).
 
 The helper finds review records in comments with these rules. The reviewer
 agents define the exact block they return, and that block follows these rules.
@@ -397,9 +401,9 @@ mode unread (the `code-reviewer` skill, Round modes), dispatch it again before
 you post the round, with the same inputs and the unread paths that its block
 names. Count each such block as a failed dispatch. A second such block from
 that reviewer on the same reviewed head is the second failed dispatch without a
-relevant change: follow step 5 of the review loop, or in a yolo run the stall
-rule of the Round ceiling. A `blocked` verdict for another input keeps the
-route of plan-manager phase 6: resolve that input before you request a verdict.
+relevant change: follow step 5 of the review loop. A `blocked` verdict for
+another input keeps the route of plan-manager phase 6: resolve that input
+before you request a verdict.
 
 Dispatch every lens and every delta round as the `code-reviewer` agent. A
 per-agent model setting, such as omp `task.agentModelOverrides.code-reviewer`
@@ -762,13 +766,14 @@ wait for checks again. If the repository has no configured checks, use the
 green local gate as the check result and say so in the merge question.
 
 When the same check still fails after the third fix attempt on one plan, stop
-fixing it. Outside a yolo run, ask with the options `Continue fixing` and
+fixing it. That is a stall. In a yolo run, follow Round ceiling. Otherwise,
+under a grant, apply the Stall rule of Delegated decisions first. Without a
+grant, or when the Stall rule asks, ask with the options `Continue fixing` and
 `Leave plan blocked`. `Continue fixing` gives the check three more fix
 attempts. On `Leave plan blocked`, or without an answer, commit and push
 current work to the linked branch, update the body as Checklist says, set the
 status to `blocked` with the check name as the reason, run Teardown's exit
-without a merge, and report. In a yolo
-run, the third failure is a stall under Round ceiling.
+without a merge, and report.
 
 Before the merge question, run the landing self-check. Read the pushed body
 with `gh pr view <pr> --repo <owner/repo> --json body --jq .body`. For each
@@ -776,7 +781,9 @@ ticked item, find its evidence for the pushed head, as Checklist says. Untick
 each item without that evidence, add its reason, and update the body with
 `gh pr edit <pr> --repo <owner/repo> --body-file <file>`. The merge question
 states `<k> of <n> checklist items ticked` and lists each unticked item with
-its reason. An unticked item does not block the merge question; the user
+its reason. When the Goal holds a grant, the merge question also states
+`<d> delegated decisions` and points to Delegated decisions in the run
+summary. An unticked item does not block the merge question; the user
 decides.
 
 Ask afresh with two options: `Merge now` and `Leave pull request open`. The
@@ -968,12 +975,104 @@ resource by its provider and name. Do not write absolute machine paths.
 `git worktree remove` also removes the review scratch of a linked worktree. The
 scratch directory of the main checkout stays.
 
+## Delegated decisions
+
+The user can hand the design and tradeoff decisions of a plan to the agent
+without a yolo run. The grant is this line in Goal:
+
+`Delegated: the user delegated the design and tradeoff decisions to the agent. User: "<quote>"`
+
+The quote is the user's own words, at most one sentence. Remove secrets,
+private names, and machine paths from it. The yolo line (Yolo runs) includes
+the grant: every rule of this section applies in a yolo run. In this contract,
+a grant is either line.
+
+### Grant and revocation
+
+Write the line only from the user's own message in the session. That message
+hands the decisions to the agent, for example "decide yourself" or "go for the
+best durable solution when you have a question". Permission to begin, or a
+wish for speed, is not a grant. When the message is not clear, write no line,
+and the questions stay. A child plan copies the line of its parent. The line
+is not one of the edits that need no plan-review round (Phases and review
+comments): review it after `plan=pass` with the decisions that it brings.
+
+The grant counts as the user's in-session answer to each question that it
+answers. A later user message wins over the grant: when it narrows or revokes
+the grant, edit or remove the line. When a user instruction names a question
+that the grant does not answer, ask that question. In a later session, the
+line keeps the grant for the same plan. The first report of a resumed session
+names the grant once, as a notice and not a question, so that the user can
+revoke it.
+
+### Answered and kept questions
+
+The grant answers these questions:
+
+- A decision that the practices send to the user.
+- A request flaw: record a request correction and do the durable alternative.
+- A plan-review `blocked` verdict: decide it, record the decision, and review
+  again.
+- A tradeoff of review loop item 5: accept a known limit, or change the Goal
+  or the scope.
+- Red baseline item 4 of the practices: record the reason, fix the test, and
+  run the baseline again.
+- The first stall (Stall rule).
+
+The grant does not answer these questions. Ask each one as this contract says:
+
+- The path and the Mode.
+- Each non-local Effect step.
+- The merge.
+- A production cleanup.
+- A destructive action on the user's work.
+- Secrets, and the publication of a sensitive finding.
+- A temporary workaround.
+- A fact that only the user holds, such as the meaning of an ambiguous request
+  or the target account.
+- The dirty-checkout question of Linked branch.
+
+A yolo run settles some of these questions by the rules of Yolo runs.
+
+### Delegated records
+
+Record each delegated decision with the full deliberation record of the
+practices (`practices.md`, Deliberation record), in Research or under
+`Redesigned`. List it under Delegated decisions in the run summary
+(`run-summary.md`).
+Plan reviewers and code reviewers treat the choice
+of a recorded decision as settled, and report a false premise or a broken
+effect.
+
+### Stall rule
+
+A review phase stalls as review loop item 5 says. Landing stalls when the same
+pull-request check still fails after the third fix attempt, as Checks and merge
+says. Under a grant, the first stall of a phase, or of a landing check, is a
+delegated decision:
+
+1. Research the class again. Choose an approach that has not run and that has
+   evidence. For two failed dispatches, the new approach is a different
+   dispatch path, such as a fresh read-only agent with the reviewer skill.
+2. Record the approach under `Redesigned` with the full deliberation record.
+3. Continue with 10 more rounds, or with three more fix attempts of the check.
+
+When no untried approach has evidence, do not extend: ask the stall question
+at once. The next stall also asks the stall question. In a yolo run, the stall
+question is the question of Round ceiling. Outside a yolo run, it is the
+continue-or-block question of review loop item 5, or the `Continue fixing`
+question of Checks and merge. Keep the status unchanged while you ask, because
+the helper does not move a blocked plan back to `drafting` or `planned`.
+Without an answer, block as the section of that question says.
+
 ## Yolo runs
 
 The user starts a yolo run by invoking the `yolo` skill with a request. The
 invocation settles the path as a plan and the Mode as `plan-and-implement`. It
 is the user's in-session answer for every routine action below, until the merge
-question. All other contract rules stay in force.
+question. Its delegation line includes the grant of Delegated decisions, so
+every rule of that section applies. This section holds only what a yolo run
+adds. All other contract rules stay in force.
 
 | Contract question | Yolo rule |
 |---|---|
@@ -985,7 +1084,6 @@ question. All other contract rules stay in force.
 | Linked-branch timing | Right after `new`, while the plan is drafting; a parent gets no linked branch, and a child gets its branch when the run starts it |
 | Dirty checkout at linked-branch setup | A separate clean worktree, without a question, when the checks of Worktree hooks pass; otherwise block (Linked branch timing) |
 | Review-loop continuation | The round ceiling below |
-| Plan-review `blocked` verdict | The manager decides with evidence |
 | Code-review `blocked` verdict for unread hunks | Dispatch that reviewer again, as Code-review rounds says; a second such block on the same head stalls the phase (round ceiling below) |
 | Public disclosure of a sensitive finding | Stop before any write |
 | Production cleanup in Teardown | Its own question, like a step after the landing merge |
@@ -997,10 +1095,9 @@ The Goal of a yolo plan contains this exact line:
 
 `Yolo: the user delegated every decision except the merge to the agent.`
 
-The manager records each decision in Research with its evidence. Open questions
-holds only a `Blocked:` line. Plan reviewers and code reviewers treat the choice
-of a recorded decision as settled, and report a false premise or a broken
-effect.
+The line includes the grant of Delegated decisions. The manager records each
+decision in Research with its evidence. Open questions holds only a `Blocked:`
+line.
 
 ### Effects before the landing merge
 
@@ -1066,16 +1163,16 @@ still fails after the third fix attempt, as Checks and merge says. When round
 code-review pass that still lists MEDIUM or LOW findings, land, and list those
 findings in the run summary.
 
-On a stall, commit and push current work to the linked branch first, when code
-exists. When the pull request is open, update its body as Checklist says. A
-hook that refuses them follows Repository hooks. Then ask once, with
-the options `Continue yolo` and `Leave plan
-blocked`. Keep the status unchanged while you ask, because the helper does not
-move a blocked plan back to `drafting` or `planned`. `Continue yolo` gives the
-phase 10 more rounds, or gives a failing check three more fix attempts. On
-`Leave plan blocked`, or without an answer, set the
-status to `blocked` with the stall reason, run Teardown's exit without a merge,
-and report.
+On a stall, apply the Stall rule of Delegated decisions first. When it asks,
+commit and push current work to the linked branch first, when code exists.
+When the pull request is open, update its body as Checklist says. A hook that
+refuses them follows Repository hooks. Then ask once, with the options
+`Continue yolo` and `Leave plan blocked`. Keep the status unchanged while you
+ask, because the helper does not move a blocked plan back to `drafting` or
+`planned`. `Continue yolo` gives the phase 10 more rounds, or gives a failing
+check three more fix attempts. On `Leave plan blocked`, or without an answer,
+set the status to `blocked` with the stall reason, run Teardown's exit without
+a merge, and report.
 
 ### Merge question
 

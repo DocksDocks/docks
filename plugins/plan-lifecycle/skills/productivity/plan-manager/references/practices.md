@@ -2,9 +2,9 @@
 
 These practices apply to every plan run: a `plan-manager` run and a `yolo` run.
 The contract (`plan-contract.md`) states what a record holds and what must
-happen. This reference states how to do the work. The `yolo` skill replaces
-some questions in these practices; it names each replacement next to the
-practice.
+happen. This reference states how to do the work. A grant in the contract's
+Delegated decisions answers some questions in these practices. A `yolo` run
+holds that grant. Each practice names the question that the grant answers.
 
 ## Contents
 
@@ -71,7 +71,70 @@ Asked: <what the request said>. Did: <what the run does>. Reason: <evidence>.
 ```
 
 A decision that only the user can make goes through Open questions and `ask`,
-as plan-manager phase 4 says.
+as plan-manager phase 4 says. When the Goal holds a grant (the contract's
+Delegated decisions), decide each question that the grant answers, and record
+it with a full deliberation record. Ask only the questions that the grant does
+not answer.
+
+### Deliberation record
+
+Think each decision through before you act on it, and write the result down.
+Write the record before you act on the choice. A full record has these parts:
+
+1. Question: the decision to make.
+2. Options: at least two real options. Include "keep the current state" when
+   it applies.
+3. Evidence for each option: code, official documentation with its URL, or an
+   experiment with its command and output.
+4. Failure modes and second-order effects of each option.
+5. Reversibility and cost.
+6. Durability test: the option fixes the root cause, moves every caller, and
+   leaves no shim, alias, or temporary workaround.
+7. Pre-mortem: assume that the choice failed after six months. Name the most
+   likely cause and the guard against it.
+8. Choice: the chosen option, and each rejected option with its reason.
+
+Choose the depth of the record:
+
+- One line, with the choice, the reason, and the rejected option: a cheap,
+  reversible, local choice.
+- The full record: a choice that is hard to reverse, such as a public contract,
+  published text, data, a dependency, a new convention, or a non-local effect;
+  a choice that the user would otherwise own; each delegated decision; and each
+  `Redesigned` entry.
+
+Put the record in Research decisions, or in the `Redesigned` entry of a manager
+response. The run summary lists each delegated decision with the locator of its
+record. Write each part as short bullets. A long record pushes the body toward
+the split advice of the contract's Normalization, advice, and refusals.
+
+A full record:
+
+```text
+- Question: how the `--since` option parses a date.
+  - Options: (a) keep `Date.parse`; (b) the strict ISO 8601 parser that three
+    other commands use; (c) a new date library.
+  - Evidence: (a) accepts formats that each engine defines
+    (<https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/parse>);
+    the scratch run `node -e "console.log(Date.parse('2026-1-2'))"` printed a
+    local-time value. (b) the parser and its tests exist. (c) adds a dependency.
+  - Failure modes: (a) a date shifts by the time zone of the machine. (b) a
+    user who typed `2026-1-2` gets an error. (c) a supply-chain risk and an
+    upgrade cost.
+  - Reversibility: (b) and (c) change the accepted input, a public contract.
+  - Durability: (b) moves the last caller to the shared parser and removes the
+    second path.
+  - Pre-mortem: (b) failed because users pass dates without zero padding.
+    Guard: the error names the expected form `YYYY-MM-DD`.
+  - Choice: (b). Rejected: (a), because of the time-zone shift; (c), because
+    (b) covers every form that the commands accept.
+```
+
+A one-line record:
+
+```text
+Choice: name the flag `--since`, as the other commands do. Rejected: `--from`, because no command uses it.
+```
 
 ## Engineering standards
 
@@ -142,6 +205,10 @@ is not installed. A subagent can write the spec tests.
    `git diff -- <spec files>` prints nothing. When a spec test is wrong, stop
    and ask the user, as `tdd-workflow` also says. Record the answer and the
    reason in Verification Results, fix the test, and run the baseline again.
+   When the Goal holds a grant (the contract's Delegated decisions), do not
+   ask: record the reason in Verification Results, fix the test, and run the
+   baseline again. That record replaces the user escalation that
+   `tdd-workflow` asks for.
 5. A review fix that changes a spec assertion follows item 4. Run the changed
    test against the code before the fix. It must fail on the changed assertion.
    Add this line to Verification Results:
@@ -219,9 +286,11 @@ The run summary is the whole pull request description. Do not add the
 `commit-discipline` description sections. Write it from
 [`run-summary.md`](run-summary.md) to a file in the review scratch directory.
 Write `pending` for the pull request URL and the checks. Include Kept
-resources, as the template says. Fill its `## Checklist` section as the
-contract's Pull requests says: tick an item only with its evidence on the
-reviewed head, and end each unticked item with its reason. End the file with
+resources, as the template says. Under Delegated decisions, list each decision
+that a grant answered, as the template says, or write `none`. Fill its
+`## Checklist` section as the contract's Pull requests says: tick an item only
+with its evidence on the reviewed head, and end each unticked item with its
+reason. End the file with
 `Closes #<n>` on its own line. After the checks finish, write the pull request
 URL and the check result into the file, and update the body with
 `gh pr edit <pr> --repo <owner/repo> --body-file <file>`.

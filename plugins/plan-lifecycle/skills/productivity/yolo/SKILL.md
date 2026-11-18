@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "6004cf47436444ec3bb6ff8a1cf56e0c3e54d86895086a29785d9dec594a13cb"
+  content_hash: "1fb4530aaf4c1e211af8c3f8d63815a2291759a2dab4dcaecc54741c443a3764"
 ---
 
 # Yolo
@@ -23,8 +23,9 @@ same installed `plan-lifecycle` plugin:
   section replaces the contract questions for this run.
 - `../plan-manager/references/github-issue-publication.md` owns the preflight.
 - `../plan-manager/references/practices.md` owns the practices of every run.
-  This skill names each practice where the run uses it, and the autonomy rule
-  that replaces a question in it.
+  This skill names each practice where the run uses it. The contract's
+  Delegated decisions section owns each question that the grant of this run
+  answers in them.
 
 Run the helper `../plan-manager/scripts/plan.mjs` from the target repository
 root. If these files are missing, stop and name the missing `plan-lifecycle`
@@ -34,7 +35,8 @@ plugin.
 Start only when the user's own message invokes yolo: `/plan-lifecycle:yolo`,
 `/skill:yolo`, `$yolo`, or a sentence that names the yolo skill. Otherwise stop
 and use `plan-manager`. Do not call `ask` before the merge question. The only
-exception is the stalled-review question in the contract's Yolo runs section.
+exception is the stall question of the Stall rule in the contract's Delegated
+decisions, which this run asks as the contract's Round ceiling says.
 After the merge, each production cleanup in the contract's Teardown needs its
 own question. Resolve every unknown from the codebase, current official
 documentation on the web, or a throwaway experiment.
@@ -137,18 +139,18 @@ Yolo: the user delegated every decision except the merge to the agent.
 
 Follow the practices Research order, Decisions and corrections, and
 Engineering standards. Settle each question from the codebase, the web, or an
-experiment; do not ask. A decision that the practices send to the user is a
-recorded decision in this run: Open questions holds only a `Blocked:` line, as
-the contract's Delegation line says.
+experiment; do not ask. The delegation line holds the grant of the contract's
+Delegated decisions: decide each question that the practices send to the user
+as that section says, with a deliberation record. Open questions holds only a
+`Blocked:` line, as the contract's Delegation line says.
 
 ## Implement
 
 Follow the practices Engineering standards, Red baseline, Commits, and Checks
 that fail outside the goal.
 
-Red baseline item 4 changes in this run: when a spec test is wrong, do not ask.
-Record the reason in Verification Results, fix the test, and run the baseline
-again. This record replaces the user escalation that `tdd-workflow` asks for.
+A wrong spec test follows the grant, as the practices Red baseline item 4 and
+the contract's Delegated decisions say.
 
 A repository hook failure that blocks the plan stops the run, as the hook row
 of the contract's Yolo runs table says.
@@ -172,7 +174,7 @@ comments says. The helper advises when an edit needs that round.
 | Verdict | Yolo action |
 |---|---|
 | Plan `repair` | Reproduce each finding, repair a fresh export, and review again |
-| Plan `blocked` | Decide the finding with Research, record the decision, and review again |
+| Plan `blocked` | Decide it as the contract's Delegated decisions says, and review again |
 | Code `fixes-required` | Fix each reproduced finding, rerun its proof, and review again |
 | Code `blocked` for unread hunks | Dispatch that reviewer again with the unread paths before you post the round, as the contract's Code-review rounds says |
 | Code `blocked` for another input | Resolve that input, as plan-manager phase 6 says, and review again |
@@ -184,13 +186,14 @@ Make and record each repair as the contract's Repairs says, in both phases. A
 code repair also gets the tests that plan-manager phase 6 asks for. Reject a
 finding only with evidence, in the `Rejected` list of the manager response.
 When a finding returns after a repair, redesign the fix and record it under
-`Redesigned`, as item 5 of the contract's review loop says. Do not ask the user
-about it; a tradeoff follows the delegation line and the effect table.
+`Redesigned`, as item 5 of the contract's review loop says. A tradeoff follows
+the contract's Delegated decisions and the effect table of Yolo runs.
 
-When a review phase stalls, as the contract's Round ceiling says, post the
-pending manager response first. When the answer is `Leave plan blocked`, or no
-answer is possible, run the contract's Teardown for an exit without a merge.
-The contract's Round ceiling also says this.
+When a review phase stalls, as the contract's Round ceiling says, apply the
+Stall rule of the contract's Delegated decisions first. When that rule asks,
+post the pending manager response first. When the answer is `Leave plan
+blocked`, or no answer is possible, run the contract's Teardown for an exit
+without a merge. The contract's Round ceiling also says this.
 
 ## Landing
 
@@ -212,16 +215,17 @@ The contract's Round ceiling also says this.
    acceptance, review again, and push. Right after the push, build the
    Checklist again from the evidence for the new head, and update the body
    with `gh pr edit <pr> --repo <owner/repo> --body-file <file>`. Then wait
-   again. When the same check still
-   fails after the third fix attempt, stop fixing it. That is a stall under the
-   contract's Round ceiling, as its Checks and merge says.
+   again. When the same check still fails after the third fix attempt, stop
+   fixing it. That is a stall: apply the Stall rule of the contract's Delegated
+   decisions, then the contract's Round ceiling, as its Checks and merge says.
 7. Confirm that `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows
    the reviewed head. Write the pull request URL and the check result into the
    summary file, as the practices Run summary says. Run the landing self-check
    in the contract's Checks and merge: untick each item without evidence, add
    its reason, and update the body again.
 8. Print the run summary. In the same response, state
-   `<k> of <n> checklist items ticked`, list each unticked item with its
+   `<k> of <n> checklist items ticked` and `<d> delegated decisions`, point to
+   Delegated decisions in the run summary, list each unticked item with its
    reason, and ask one question:
    `Merge pull request #<pr> into <default>?`, with the options `Merge now` and
    `Leave pull request open`. An unticked item does not block the question.

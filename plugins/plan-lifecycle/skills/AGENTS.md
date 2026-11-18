@@ -46,7 +46,8 @@ present". `scripts/skills/no-author-scripts.mjs` enforces this.
 the repository plan labels. Main-context `plan-manager` runs decide, draft,
 research, plan review, implement, and code review, with fresh review after
 repairs, a parent plan with one child plan per landing pull request, and user
-decisions when review cannot progress;
+decisions when review cannot progress, or the grant of the contract's
+Delegated decisions when the user hands those decisions to the agent;
 `plan-reviewer` returns one read-only pre-implementation verdict block per
 round; internal `code-reviewer` returns one read-only code-review block per
 reviewer, for one lens or for the changes of a delta round. The
@@ -59,10 +60,14 @@ context-tree node (`claude plugin validate` lints every `agents/*.md` as a
 subagent, so an `AGENTS.md` there fails validation).
 The explicit-only `yolo` skill is a user entry point. It runs `plan-manager`'s
 six phases under the contract's Yolo runs section and asks only the merge
-question. `disable-model-invocation` keeps Claude Code and omp from loading it
-on their own, and its `agents/openai.yaml` does the same for Codex. It holds
-only the autonomy rules: it points to `plan-manager/references/practices.md`
-for each practice, and keeps each autonomy replacement next to its pointer.
+question and the stall question. `disable-model-invocation` keeps Claude Code
+and omp from loading it on their own, and its `agents/openai.yaml` does the
+same for Codex. Its delegation line includes the grant of the contract's
+Delegated decisions. It holds only what yolo adds: it points to
+`plan-manager/references/practices.md` for each practice, and to the
+contract's Delegated decisions for each question that the grant answers. A
+question replacement that the grant and `yolo` share lives in the contract
+and next to its practice in `practices.md`, not in one entry point.
 
 ## Plan-skill contract sync
 
@@ -75,6 +80,10 @@ vocabulary in the read-only reviewers.
 the research order, the commits, and the self-review; the contract owns the
 rules. `plan-manager/references/run-summary.md` owns the pull request
 description template. `plan-manager` and `yolo` point to both and copy neither.
+The contract's Delegated decisions section owns the grant and the Stall rule,
+and `practices.md` owns the Deliberation record that each delegated decision
+gets. When the grant changes, update the contract, the practices, the run
+summary, and both entry points together.
 
 Coordinate edits across those surfaces when concepts change. Refresh content
 hashes after all reference edits finish. `scripts/tests/plan-cli.mjs` exercises

@@ -13,6 +13,9 @@ Pull request: <url>. Checks: <state>. Reviewed head: `<sha>`.
 ### Decisions and corrections
 - <decision or request correction, with its evidence>
 
+### Delegated decisions
+- <question>: <choice>. Rejected: <option, with its reason>. Reversibility: <how to undo it>. Record: <Research decision or `Redesigned` entry>; or none
+
 ### Reviews
 Plan review passed in round <k>. Code review passed in round <k>.
 Open findings: <unreached LOW findings that landed, with the follow-up issue; MEDIUM or LOW findings left at the ceiling; or none>.
@@ -43,6 +46,12 @@ review. Use only top-level task items, so that GitHub shows `k of n tasks`.
 Copy each failure and limitation from Verification Results into Limits and
 failures. Report a check that partly failed as a failure with its cause, not as
 a pass.
+
+In Delegated decisions, list each decision that a grant answered (the
+contract's Delegated decisions): the question, the choice, each rejected option
+with its reason, the reversibility, and the locator of its deliberation record.
+Write `none` when the Goal holds no grant. With a grant, the merge question
+states `<d> delegated decisions` and points to this section.
 
 In Kept resources, list what stays after `Merge now`: the recorded compose
 volumes, the resources that Teardown keeps, and the production resources that
