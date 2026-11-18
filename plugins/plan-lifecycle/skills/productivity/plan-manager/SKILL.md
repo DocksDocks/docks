@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "292f5a7de2661917798f9abf7c0fb4f7dd2016e059fc79b83f59ab45a48e3b22"
+  content_hash: "981ef2d41a64aba78572465371dc7dab160cdc95310243a00982e04bc33ff9d0"
 ---
 
 # Plan Manager
@@ -98,7 +98,9 @@ Run the contract's review loop with `plan-reviewer`. For each round, export fres
 input and dispatch `plan-reviewer` with the issue number, export path, and round
 number. A re-review round after a repair may use the plan `delta` mode, as the
 contract's review loop allows. If no wrapper exists, dispatch a fresh read-only
-reviewer with the `plan-reviewer` skill. Route a user-only decision through Open
+reviewer with the `plan-reviewer` skill. Each reviewer dispatch of a round or a
+re-review round follows the practices Delegated work; item 1 uses the session
+checkout until the plan worktree exists. Route a user-only decision through Open
 questions and `ask`, unless a grant answers it (the contract's Delegated
 decisions; its Grant check reads the `grant:` line of `show <n>`).
 Never implement a repaired plan that has not passed review.

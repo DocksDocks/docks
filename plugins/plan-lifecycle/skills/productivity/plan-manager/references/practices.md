@@ -276,30 +276,45 @@ Follow this practice for each subagent that the run dispatches, in every phase.
    ```sh
    checkout='<checkout>'
    skill_dir='<skill-dir>'
-   dir=$(git -C "$checkout" rev-parse --path-format=absolute --git-path docks-review)
-   mkdir -p -m 0700 "$dir"
-   if sh "$skill_dir/scripts/checkout-state.sh" "$checkout" > "$dir/checkout-state-<n>-<label>.txt.part"; then
-     mv "$dir/checkout-state-<n>-<label>.txt.part" "$dir/checkout-state-<n>-<label>.txt"
-   else
-     rm -f "$dir/checkout-state-<n>-<label>.txt.part"
-   fi
+   dir=$(git -C "$checkout" rev-parse --path-format=absolute --git-path docks-review) &&
+     mkdir -p -m 0700 "$dir" &&
+     state="$dir/checkout-state-<n>-<label>" &&
+     { sh "$skill_dir/scripts/checkout-state.sh" "$checkout" > "$state.txt.part" &&
+       mv "$state.txt.part" "$state.txt" ||
+       { rm -f "$state.txt.part"; false; }; }
    ```
 
-   The listing gets its name only when the script exits with status 0. On a
-   failure, the block removes the `.part` file and writes no listing; follow
-   item 8. A shell that does not keep variables between commands needs the
-   first three lines of this block again before each later block.
+   The listing gets its name only when the script exits with status 0. When a
+   setup command or the script fails, the block removes the `.part` file,
+   writes no listing, and exits with a status other than 0; follow item 8. A
+   shell that does not keep variables between commands needs `checkout`,
+   `skill_dir`, `dir`, and `state` again, with the same values, before each
+   later block.
 4. After each agent of the group returns, write the listing again and compare
    it with the first listing of the group. Each changed line names a path that
    changed during the group. The user can edit the checkout at the same time,
    so a change is a signal to inspect, not proof. Also check each path that the
    subagent reported: a path outside the worktree is a stray edit, also when
-   the listing did not change.
+   the listing did not change. The block writes the new listing to its own
+   `.part` file, gives it the name `checkout-state-<n>-<label>.now` only when
+   the script exits with status 0, and compares the two files byte for byte.
+   An empty listing stays empty, so two equal listings give no diff.
 
    ```sh
-   now=$(sh "$skill_dir/scripts/checkout-state.sh" "$checkout") &&
-     printf '%s\n' "$now" | diff "$dir/checkout-state-<n>-<label>.txt" -
+   if sh "$skill_dir/scripts/checkout-state.sh" "$checkout" > "$state.now.part" &&
+     mv "$state.now.part" "$state.now"; then
+     diff "$state.txt" "$state.now"
+   else
+     rm -f "$state.now.part"
+     false
+   fi
    ```
+
+   Status 0 means no change, and status 1 with diff lines means a change. When
+   the script or `mv` fails, the block removes the `.part` file, runs no
+   `diff`, and exits with status 1; follow item 8. Status 2 means that `diff`
+   could not read a file; also follow item 8. After you report the changes as
+   item 6 says, remove the `.now` file with `rm -f "$state.now"`.
 
 5. Undo nothing in the session checkout: no edit tool, no `git restore`, no
    shell redirect from `HEAD`, and no trash. Redo in the worktree, with
@@ -308,14 +323,16 @@ Follow this practice for each subagent that the run dispatches, in every phase.
 6. Report each changed path to the user in the first report after the group,
    and in the run summary under Kept resources, with the subagent that reported
    it, if any. The user decides what to do with it.
-7. Keep each listing until Teardown. In Teardown, compare each complete
-   listing, `checkout-state-<n>-*.txt`, again as item 4 says, and report each
-   new path as item 6 says. Ignore a `.part` file: it is not a listing. Then
-   remove this plan's listing files and `.part` files, `checkout-state-<n>-*`,
-   and no other file.
-8. When the script fails, the check has no result. Undo nothing, check each
-   reported path as item 4 says, and report the failure and each change that
-   this leaves under Kept resources.
+7. Keep each listing until Teardown. In Teardown, for each complete listing,
+   `checkout-state-<n>-*.txt`, set `state` to its path without `.txt`, compare
+   it again as item 4 says, and report each new path as item 6 says. Ignore
+   each `.part` file and each `.now` file: they are not baselines. Then remove
+   this plan's listing, `.part`, and `.now` files, `checkout-state-<n>-*`, and
+   no other file.
+8. When a block of item 3 or 4 fails before `diff` runs, or `diff` exits with
+   status 2, the check has no result. Undo nothing, check each reported path as
+   item 4 says, and report the failure and each change that this leaves under
+   Kept resources.
 
 ## Self-review in code review
 
@@ -385,9 +402,9 @@ lists each child; run `show <c>` for each child to find the one that this run
 works on.
 
 When the review scratch folder of the session checkout holds complete listing
-files of this plan, `checkout-state-<n>-*.txt`, set the variables of Delegated
-work item 3, write the listing again for each file, and compare the two, as
-Delegated work item 4 says. Ignore a `.part` file: it is not a listing. Report
-each changed path and leave it, as Delegated work says. Keep each listing, and
-compare it again in Teardown, because an agent that still runs can change the
-checkout later.
+files of this plan, `checkout-state-<n>-*.txt`, set `checkout`, `skill_dir`,
+and `dir` as Delegated work item 3 says. For each file, set `state` to its path
+without `.txt`, and run the block of Delegated work item 4. Ignore each `.part`
+file and each `.now` file: they are not baselines. Report each changed path
+and leave it, as Delegated work says. Keep each listing, and compare it again
+in Teardown, because an agent that still runs can change the checkout later.
