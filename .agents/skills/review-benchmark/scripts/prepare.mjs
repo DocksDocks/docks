@@ -9,6 +9,8 @@
 //                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
 //                           [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
 //                           [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
+//   node prepare.mjs sequential-plan --cases <case.json,...> --reference <arm> --candidates <arm,...> --config <name>
+//                         --looks <1,...,k> --out <ws> [--project <dir>]
 //   node prepare.mjs case --case <case.json> --arms <B0,C3,...> (--runs <k> | --sequential) --out <ws>
 //                         [--configs <list>] [--keys <dir>] [--loop] [--extend] [--project <dir>]
 //   node prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>]
@@ -1059,44 +1061,88 @@ function nextLook(caseDir, armDirs) {
   return looks[0] + 1;
 }
 
-// The run plan after a `case --sequential` call that writes the runs `firstRun` to `lastRun` of the arms `arms` at the
-// configurations `configs` for the case `caseData`, in the workspace `ws`: `file` (`<ws>/run-plan.json`), its text
-// before the call (`previous`, null without the file), and `keys`, the keys of the file and one key per case, arm,
-// configuration, and run (see score.mjs readRunPlan; one run per look, so a run has its own look). The update keeps
-// every earlier key. It refuses a first look of a case that the file plans, and a later look of a case whose earlier
-// looks the file does not plan with the same arm folders: such a look would leave the earlier keys without runs.
-function runPlanUpdate(ws, { caseData, arms, configs, firstRun, lastRun }) {
-  const file = path.join(ws, RUN_PLAN);
-  const previous = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
-  const earlier = fromScore(() => readRunPlan(ws)) ?? [];
-  const additions = configs.flatMap((config) =>
+// The runs of the looks of `sequential-plan --looks`: look k has the run k, so the list is 1 to the last look, at most
+// MAX_LOOKS looks.
+function parseLooks(value) {
+  const runs = parseList(value, '--looks').map(Number);
+  const expected = Array.from({ length: runs.length }, (_, index) => index + 1);
+  if (runs.join(',') !== expected.join(',') || runs.length > MAX_LOOKS) {
+    fail(`sequential-plan --looks takes the runs 1 to k of the looks 1 to k, k at most ${MAX_LOOKS}, not ${value}`);
+  }
+  return runs;
+}
+
+// The `sequential-plan` command: it declares the whole grid of a sequential decision once, before any case. It takes
+// every case file of the decision (`cases`), the reference arm and the candidate arms (`reference`, `candidates`; an
+// A/A control copy of the reference is a candidate too), one configuration of the list that `agents` wrote
+// (`config`), and the runs of the looks (`looks`, for example 1,2,3,4). It writes `<out>/run-plan.json` (see score.mjs
+// readRunPlan) with one key for every case, arm, and run of every look, and refuses a file that exists. `case
+// --sequential` adds only runs that the file declares, and `score.mjs report --sequential` holds a look until every
+// key of it and the earlier looks has a valid run.
+export function sequentialPlan(options, repo) {
+  for (const name of ['cases', 'reference', 'candidates', 'config', 'looks', 'out']) {
+    if (!options[name]) fail(`sequential-plan needs --${name}`);
+  }
+  const file = path.join(path.resolve(options.out), RUN_PLAN);
+  if (fs.existsSync(file)) {
+    fail(`${file} exists; a sequential decision declares its plan once, so choose another --out`);
+  }
+  const lists = selectConfigs({ ...options, configs: options.config }, repo);
+  if (lists.configs.length !== 1) fail(`sequential-plan --config takes one configuration, not ${options.config}`);
+  const [config] = lists.configs;
+  const candidates = parseList(options.candidates, '--candidates');
+  if (candidates.includes(options.reference)) {
+    fail(`sequential-plan --candidates lists the reference ${options.reference}`);
+  }
+  const arms = [options.reference, ...candidates];
+  const runs = parseLooks(options.looks);
+  const cases = parseList(options.cases, '--cases').map((file) => {
+    const casePath = path.resolve(file);
+    const caseData = validateCase(readJson(casePath));
+    if (path.basename(casePath) !== `${caseData.id}.json`) {
+      fail(`case file ${casePath} must be named ${caseData.id}.json`);
+    }
+    parseArms(arms.join(','), caseData.kind, lists);
+    return caseData;
+  });
+  const ids = cases.map((caseData) => caseData.id);
+  if (new Set(ids).size !== ids.length) fail(`sequential-plan --cases names a case twice: ${ids.join(', ')}`);
+  const keys = cases.flatMap((caseData) =>
     arms.flatMap((arm) =>
-      Array.from({ length: lastRun - firstRun + 1 }, (_, index) => ({
+      runs.map((run) => ({
         case: caseData.id,
         split: caseData.split ?? null,
         arm,
         folder: armFolder(arm, config.name),
         config: config.name,
-        run: firstRun + index,
-        look: firstRun + index,
+        run,
+        look: run,
       })),
     ),
   );
-  const ofCase = earlier.filter((key) => key.case === caseData.id);
-  const folders = (keys) => [...new Set(keys.map((key) => key.folder))].sort();
-  if (firstRun === 1 && ofCase.length) {
-    fail(`${file} already plans ${caseData.id}; a first look plans a case once, so choose another --out`);
+  writeJson(file, { reference: options.reference, candidates, config: config.name, looks: runs, keys });
+  console.log(
+    `wrote ${file}: ${cases.length} cases x ${arms.length} arms x ${runs.length} looks at ${config.name}, ${keys.length} keys`,
+  );
+}
+
+// Refuses a `case --sequential` call in the workspace `ws` for a run that `<ws>/run-plan.json` does not declare: a
+// case, arm, configuration, or run number outside the plan of `sequential-plan`, or a workspace without the file.
+function requireDeclared(ws, { caseData, arms, configs, firstRun, lastRun }) {
+  const file = path.join(ws, RUN_PLAN);
+  const declared = fromScore(() => readRunPlan(ws));
+  if (declared === null) fail(`case --sequential needs ${file}; run prepare.mjs sequential-plan first`);
+  const names = new Set(declared.map((key) => `${key.case} ${key.folder} run-${key.run}`));
+  const runNumbers = Array.from({ length: lastRun - firstRun + 1 }, (_, index) => firstRun + index);
+  const requested = configs.flatMap((config) =>
+    arms.flatMap((arm) => runNumbers.map((run) => `${caseData.id} ${armFolder(arm, config.name)} run-${run}`)),
+  );
+  const undeclared = requested.filter((name) => !names.has(name));
+  if (undeclared.length) {
+    fail(
+      `${file} does not declare ${undeclared.join(', ')}; case --sequential adds only the runs that sequential-plan declared`,
+    );
   }
-  if (firstRun > 1) {
-    const before = folders(ofCase.filter((key) => key.look === firstRun - 1));
-    const now = folders(additions);
-    if (before.join(',') !== now.join(',')) {
-      fail(
-        `${file} plans look ${firstRun - 1} of ${caseData.id} for the arm folders ${before.join(', ') || 'none'}; case --sequential adds look ${firstRun} for the same arm folders, not ${now.join(', ')}`,
-      );
-    }
-  }
-  return { file, previous, keys: [...earlier, ...additions] };
 }
 
 // The `case` command. `repo` is the git repository of the case commits. With `loop`, each run starts a review loop
@@ -1105,7 +1151,8 @@ function runPlanUpdate(ws, { caseData, arms, configs, firstRun, lastRun }) {
 // folder exists: `case` adds the folders of the arms and keeps the snapshot, the diffs, and every other arm folder; it
 // writes the base-instructions folder of a code case only when the case folder has none. With `sequential`, `case`
 // builds the first look (one run per case), or, when the case folder exists, adds the next look: one run to each arm
-// folder of the arms and configurations (see nextLook). Each run of an arm with a contract overlay gets its copy of
+// folder of the arms and configurations (see nextLook); it adds only runs that run-plan.json declares (see
+// requireDeclared). Each run of an arm with a contract overlay gets its copy of
 // the plan contract (see writeContractCopy), and its meta.json records whether the contract change applied
 // (`contractOverlay`). The judge gets the same copy as `<ws>/contracts/<run label>.md` (JUDGE_CONTRACTS), so that it
 // judges the findings of the run under the contract that the reviewer read. When the list of configurations has a
@@ -1164,10 +1211,8 @@ export function prepareCase(options, repo) {
     if (existing) fail(`${existing} exists; leave its arm out of --arms`);
   }
   const lastRun = firstRun + runs - 1;
-  // A sequential decision records the keys of its runs in run-plan.json before it writes them (see runPlanUpdate).
-  const planUpdate = options.sequential
-    ? runPlanUpdate(path.resolve(options.out), { caseData, arms, configs, firstRun, lastRun })
-    : null;
+  // A sequential decision adds only the runs that sequential-plan declared (see requireDeclared).
+  if (options.sequential) requireDeclared(path.resolve(options.out), { caseData, arms, configs, firstRun, lastRun });
   const sources = caseSources(caseData, path.dirname(casePath), keys);
   const commits = caseCommits(repo, caseData);
   const hidden = hiddenPathspec(repo, caseData);
@@ -1183,7 +1228,6 @@ export function prepareCase(options, repo) {
   // then writes it and removes it again when it stops.
   const addBase = extending && !isPlanKind(caseData.kind) && !fs.existsSync(paths.baseInstructions);
   try {
-    if (planUpdate) writeJson(planUpdate.file, { keys: planUpdate.keys });
     let tree = null;
     if (!extending) {
       tree = buildCaseWorkspace({ repo, caseData, commits, hidden, casePath, sources, caseDir, paths });
@@ -1246,9 +1290,6 @@ export function prepareCase(options, repo) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
     removeIfEmpty(judgeContracts);
-    // The run plan goes back to its content before this call.
-    if (planUpdate?.previous === null) fs.rmSync(planUpdate.file, { force: true });
-    else if (planUpdate) fs.writeFileSync(planUpdate.file, planUpdate.previous);
     throw error;
   }
   const prompts = runFolders.reduce((sum, run) => sum + run.prompts.length, 0);
@@ -2339,6 +2380,18 @@ const COMMANDS = {
     },
   },
   manager: { run: prepareManager, options: { ws: { type: 'string' } } },
+  'sequential-plan': {
+    run: sequentialPlan,
+    options: {
+      cases: { type: 'string' },
+      reference: { type: 'string' },
+      candidates: { type: 'string' },
+      config: { type: 'string' },
+      looks: { type: 'string' },
+      out: { type: 'string' },
+      ...PROJECT_OPTION,
+    },
+  },
   probe: {
     run: prepareProbe,
     options: { out: { type: 'string' }, configs: { type: 'string' }, ...PROJECT_OPTION },
@@ -2353,6 +2406,8 @@ const USAGE = `usage:
                      [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
                      [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
                      [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
+  prepare.mjs sequential-plan --cases <case.json,...> --reference <arm> --candidates <arm,...> --config <name>
+                   --looks <1,...,k> --out <ws> [--project <dir>]
   prepare.mjs case --case <case.json> --arms <list> (--runs <k> | --sequential) --out <ws> [--configs <list>]
                    [--keys <dir>] [--loop] [--extend] [--project <dir>]
   prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>] [--fixer-patch <file>]

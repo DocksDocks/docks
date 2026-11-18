@@ -9558,83 +9558,198 @@ test('probe gives the manager a prompt, and transcripts records the served tier 
   );
 });
 
-test('case --sequential builds look 1 and adds one run per look up to 4, also to an A/A control arm', (t) => {
-  const { repo, ws, options } = overlayFixture(t);
-  const look = (arms = 'P1,AP1,Va', more = {}) =>
-    prepare.prepareCase({ ...options('plan-3', arms), runs: undefined, sequential: true, ...more }, repo);
+// The declaration of a sequential decision of `overlayFixture` over plan-3 and plan-5 at the configuration low, with
+// the reference P1 and the candidates `candidates`, for the looks `looks`.
+function declarePlan({ repo, ws, project, cases }, { candidates = 'AP1,Va', looks = '1,2,3,4', ...more } = {}) {
+  const caseFile = (id) => path.join(cases, 'dev', `${id}.json`);
+  prepare.sequentialPlan(
+    {
+      cases: [caseFile('plan-3'), caseFile('plan-5')].join(','),
+      reference: 'P1',
+      candidates,
+      config: 'low',
+      looks,
+      out: ws,
+      project,
+      ...more,
+    },
+    repo,
+  );
+}
+
+test('sequential-plan declares the whole grid once, and case --sequential adds only declared runs', (t) => {
+  const fixture = overlayFixture(t);
+  const { repo, ws, options } = fixture;
+  const look = (id, arms, more = {}) =>
+    prepare.prepareCase({ ...options(id, arms), runs: undefined, sequential: true, ...more }, repo);
+  const planFile = path.join(ws, 'run-plan.json');
+  // case --sequential needs the declaration.
+  assert.throws(() => look('plan-3', 'P1,AP1,Va'), {
+    message: `case --sequential needs ${planFile}; run prepare.mjs sequential-plan first`,
+  });
+  // The declaration holds every case, arm, and run of every look at once.
+  declarePlan(fixture);
+  const plan = readJson(planFile);
+  const declared = [plan.reference, plan.candidates, plan.config, plan.looks];
+  assert.deepEqual(declared, ['P1', ['AP1', 'Va'], 'low', [1, 2, 3, 4]]);
+  assert.deepEqual(
+    plan.keys,
+    ['plan-3', 'plan-5'].flatMap((caseId) =>
+      ['P1', 'AP1', 'Va'].flatMap((arm) =>
+        [1, 2, 3, 4].map((run) => ({
+          case: caseId,
+          split: 'dev',
+          arm,
+          folder: `${arm}-low`,
+          config: 'low',
+          run,
+          look: run,
+        })),
+      ),
+    ),
+  );
+  assert.deepEqual(score.readRunPlan(ws), plan.keys);
+  const planText = readText(planFile);
+  assert.throws(() => declarePlan(fixture), {
+    message: `${planFile} exists; a sequential decision declares its plan once, so choose another --out`,
+  });
+  // Four looks of plan-3 with the three declared arms; case --sequential writes no key.
   const caseDir = path.join(ws, 'plan-3');
   const runsOf = (folder) =>
     fs
       .readdirSync(path.join(caseDir, folder))
       .filter((name) => name.startsWith('run-'))
       .sort();
-  look();
+  look('plan-3', 'P1,AP1,Va');
   for (const folder of ['P1-low', 'AP1-low', 'Va-low']) assert.deepEqual(runsOf(folder), ['run-1']);
   // The control copy AP1 runs the agent and the prompt of P1.
   const prompt = (folder, run) => readText(path.join(caseDir, folder, `run-${run}`, 'prompts', 'plan.txt'));
   assert.equal(prompt('AP1-low', 1), prompt('P1-low', 1));
   for (const run of [2, 3, 4]) {
-    look();
+    look('plan-3', 'P1,AP1,Va');
     for (const folder of ['P1-low', 'AP1-low', 'Va-low']) assert.equal(runsOf(folder).length, run);
     assert.equal(prompt('AP1-low', run), prompt('P1-low', 1));
     // Each run of the overlay arm gets a contract copy of its own.
     assert.equal(readText(path.join(caseDir, 'Va-low', `run-${run}`, 'plan-contract.md')), '# Plan contract A\n');
   }
-  // Each look records its keys in run-plan.json before it writes its runs, and keeps the keys of the earlier looks.
-  const planFile = path.join(ws, 'run-plan.json');
-  const split = readJson(options('plan-3', 'P1').case).split ?? null;
-  assert.deepEqual(
-    readJson(planFile).keys,
-    [1, 2, 3, 4].flatMap((run) =>
-      ['P1', 'AP1', 'Va'].map((arm) => ({
-        case: 'plan-3',
-        split,
-        arm,
-        folder: `${arm}-low`,
-        config: 'low',
-        run,
-        look: run,
-      })),
-    ),
-  );
-  assert.deepEqual(score.readRunPlan(ws), readJson(planFile).keys);
+  assert.equal(readText(planFile), planText);
   // A sequential decision takes at most 4 looks.
-  assert.throws(() => look(), { message: `${caseDir} holds 4 looks, the most that a sequential decision takes` });
-  assert.throws(() => look('P1,AP1,Va', { runs: '2' }), {
+  assert.throws(() => look('plan-3', 'P1,AP1,Va'), {
+    message: `${caseDir} holds 4 looks, the most that a sequential decision takes`,
+  });
+  assert.throws(() => look('plan-3', 'P1,AP1,Va', { runs: '2' }), {
     message: 'case --sequential adds one run per case for each look; leave out --runs',
   });
-  assert.throws(() => look('P1,AP1,Va', { extend: true }), {
+  assert.throws(() => look('plan-3', 'P1,AP1,Va', { extend: true }), {
     message: 'case --sequential adds a look to an existing case folder by itself; leave out --extend',
   });
+  // An arm, a configuration, or a case that the declaration does not hold is refused before any folder exists.
+  const otherDir = path.join(ws, 'plan-5');
+  assert.throws(() => look('plan-5', 'P1,V16'), {
+    message: `${planFile} does not declare plan-5 V16-low run-1; case --sequential adds only the runs that sequential-plan declared`,
+  });
+  assert.throws(() => look('plan-5', 'P1', { configs: 'xhigh' }), {
+    message: `${planFile} does not declare plan-5 P1-xhigh run-1; case --sequential adds only the runs that sequential-plan declared`,
+  });
+  assert.throws(() => look('code-7', 'B0'), {
+    message: `${planFile} does not declare code-7 B0-low run-1; case --sequential adds only the runs that sequential-plan declared`,
+  });
+  assert.equal(fs.existsSync(otherDir), false);
+  // A case prepared with the reference arm only is declared, so case accepts it; report holds its looks until the
+  // candidate arms have their runs (see the next test).
+  look('plan-5', 'P1');
+  const plan5Runs = fs.readdirSync(path.join(otherDir, 'P1-low')).filter((name) => name.startsWith('run-'));
+  assert.deepEqual(plan5Runs, ['run-1']);
+  assert.equal(readText(planFile), planText);
   // A look adds runs only to the arm folders of the first look, which hold the same number of runs.
-  const fresh = (id) => ({ ...options(id, 'Pd,V16'), runs: undefined, sequential: true });
-  prepare.prepareCase(fresh('plan-4'), repo);
-  const other = path.join(ws, 'plan-4');
-  assert.throws(() => prepare.prepareCase({ ...fresh('plan-4'), arms: 'P0' }, repo), {
-    message: `${path.join(other, 'P0-low')} does not exist; case --sequential adds a look to the arm folders of the first look, so give the arms and configurations of that look`,
+  assert.throws(() => look('plan-5', 'P1,Va'), {
+    message: `${path.join(otherDir, 'Va-low')} does not exist; case --sequential adds a look to the arm folders of the first look, so give the arms and configurations of that look`,
   });
-  // A later look needs the arm folders that run-plan.json plans for the earlier look; a look of fewer arms would leave
-  // the keys of the others without runs, so the call refuses it and keeps the file.
-  const planText = readText(planFile);
-  assert.throws(() => prepare.prepareCase({ ...fresh('plan-4'), arms: 'Pd' }, repo), {
-    message: `${planFile} plans look 1 of plan-4 for the arm folders Pd-low, V16-low; case --sequential adds look 2 for the same arm folders, not Pd-low`,
+  fs.rmSync(path.join(caseDir, 'P1-low', 'run-4'), { recursive: true });
+  assert.throws(() => look('plan-3', 'P1,AP1,Va'), {
+    message: `the arm folders of ${caseDir} hold different numbers of runs: 3, 4, 4`,
   });
-  assert.equal(readText(planFile), planText);
-  assert.equal(fs.existsSync(path.join(other, 'Pd-low', 'run-2')), false);
-  fs.cpSync(path.join(other, 'V16-low', 'run-1'), path.join(other, 'V16-low', 'run-2'), { recursive: true });
-  assert.throws(() => prepare.prepareCase(fresh('plan-4'), repo), {
-    message: `the arm folders of ${other} hold different numbers of runs: 1, 2`,
+  // The declaration checks its options.
+  const other = { ...fixture, ws: path.join(fixture.root, 'other') };
+  assert.throws(() => declarePlan(other, { candidates: 'P1,Va' }), {
+    message: 'sequential-plan --candidates lists the reference P1',
   });
-  // A first look plans a case once: a new case folder of a case that run-plan.json plans is refused.
-  fs.rmSync(other, { recursive: true });
-  assert.throws(() => prepare.prepareCase(fresh('plan-4'), repo), {
-    message: `${planFile} already plans plan-4; a first look plans a case once, so choose another --out`,
+  assert.throws(() => declarePlan(other, { looks: '1,3' }), {
+    message: 'sequential-plan --looks takes the runs 1 to k of the looks 1 to k, k at most 4, not 1,3',
   });
-  assert.equal(readText(planFile), planText);
+  assert.throws(() => declarePlan(other, { candidates: 'B0' }), {
+    message: 'arm B0 does not apply to plan cases; use P0, P1, V16, Va',
+  });
+  assert.throws(() => declarePlan(other, { reference: undefined }), { message: 'sequential-plan needs --reference' });
   // An A/A control copy of a control copy is no arm.
   assert.throws(() => prepare.prepareCase(options('plan-5', 'AAP1'), repo), {
     message: 'arm AAP1 does not apply to plan cases; use P0, P1, V16, Va',
   });
+});
+
+test('a declared grid holds a look that misses an arm of a case or a run of a later look, and a complete grid decides', (t) => {
+  // The keys come from sequential-plan over plan-3 and plan-5 with the reference P1 and the candidate Va, looks 1 to 3.
+  const fixture = overlayFixture(t);
+  declarePlan(fixture, { candidates: 'Va', looks: '1,2,3' });
+  const runPlan = score.readRunPlan(fixture.ws);
+  const cases = {
+    'plan-3': { split: 'dev', known: ['D1'], kind: 'plan' },
+    'plan-5': { split: 'dev', known: ['D1'], kind: 'plan' },
+  };
+  // The runs of the arms and run numbers `plan` (`<case>: [<arm>, <runs>]...`), each finding D1.
+  const runsOf = (plan) =>
+    Object.entries(plan).flatMap(([caseId, arms]) =>
+      arms.flatMap(([arm, runs]) =>
+        Array.from({ length: runs }, (_, index) => ({
+          case: caseId,
+          config: 'low',
+          arm,
+          run: index + 1,
+          single: true,
+          rounds: [[60, 600, null, 0, ['D1']]],
+        })),
+      ),
+    );
+  const looks = (plan) =>
+    lookRows(
+      renderReport(
+        { ...scoreRuns(gridFixture(cases, runsOf(plan))), runPlan },
+        { arms: ['P1-low', 'Va-low'], reference: 'P1-low', margin: 4, sequential: true },
+      ),
+    ).map((row) => row[11]);
+  // plan-5 was prepared with the reference arm only: every look waits for its Va runs.
+  const referenceOnly = looks({
+    'plan-3': [
+      ['P1', 3],
+      ['Va', 3],
+    ],
+    'plan-5': [['P1', 3]],
+  });
+  assert.equal(referenceOnly[0], 'incomplete look (plan-5 Va-low run-1)');
+  // Look 3 was prepared for plan-3 only: looks 1 and 2 decide, look 3 waits for both arms of plan-5.
+  const partialLook = looks({
+    'plan-3': [
+      ['P1', 3],
+      ['Va', 3],
+    ],
+    'plan-5': [
+      ['P1', 2],
+      ['Va', 2],
+    ],
+  });
+  assert.deepEqual(partialLook, ['continue', 'continue', 'incomplete look (plan-5 P1-low run-3, plan-5 Va-low run-3)']);
+  // The complete declared grid decides at each look, and look 3, the last declared look, ends the decision.
+  const complete = looks({
+    'plan-3': [
+      ['P1', 3],
+      ['Va', 3],
+    ],
+    'plan-5': [
+      ['P1', 3],
+      ['Va', 3],
+    ],
+  });
+  assert.deepEqual(complete, ['continue', 'continue', 'no pass: stop']);
 });
 
 test('case gives the judge the contract copy of each overlay run, also of a plan or code candidate arm', (t) => {

@@ -2094,6 +2094,9 @@ function sequentialLooks(runs, referenceRuns, { column, margin, hold, planned })
     ...[...runs, ...referenceRuns].map((run) => runNumber(run.run)),
   );
   const looks = Math.min(MAX_LOOKS, lastLook);
+  // The last look of the decision: the last look that run-plan.json declares, else MAX_LOOKS. The errors stay those of
+  // MAX_LOOKS looks, which a plan of fewer looks does not spend in full.
+  const finalLook = planned?.length ? Math.min(MAX_LOOKS, Math.max(...planned.map((key) => key.look))) : MAX_LOOKS;
   const validRuns = (list) => list.filter((run) => run.invalid.length === 0);
   const stops = { notWorse: null, equivalence: null };
   return Array.from({ length: looks }, (_, index) => {
@@ -2116,7 +2119,7 @@ function sequentialLooks(runs, referenceRuns, { column, margin, hold, planned })
       else if (missing.length) decision = `incomplete look (${listSome(missing, 3)})`;
       else if (hold) decision = hold;
       else if (tests.notWorse === null) decision = '-';
-      else decision = verdict(look === MAX_LOOKS);
+      else decision = verdict(look === finalLook);
       if (stops[name] === null && decision.endsWith(': stop')) stops[name] = look;
       return decision;
     };
@@ -3620,8 +3623,8 @@ function readMetas(ws, blocks) {
   return metas;
 }
 
-// `prepare.mjs case --sequential` records the run plan of a sequential decision in `<ws>/run-plan.json` before it
-// writes the runs of a look: one key per case, arm, configuration, and run number, with the look of the run.
+// `prepare.mjs sequential-plan` declares the whole grid of a sequential decision in `<ws>/run-plan.json` once, before
+// any case: one key per case, arm, configuration, and run number of every look, with the look of the run.
 export const RUN_PLAN = 'run-plan.json';
 const RUN_PLAN_TEXTS = ['case', 'arm', 'folder', 'config'];
 
