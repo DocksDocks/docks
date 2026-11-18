@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "8c53ee8a68d0925853cc69aac320d8cce9ce2071008f49811f0bf5aa10e93b44"
+  content_hash: "98ecb8569141801eeaf018cb676194de22d310f8791ca19c005fc1651f0f6fa5"
 ---
 
 # Yolo
@@ -80,8 +80,9 @@ Until the run posts its grant event (Draft step 4, or adoption step 3), the
 user's invoking message is the authority, and the run makes only the
 delegated decisions that Decide and Draft name. From then on, run the Grant
 check of the contract's Delegated decisions right before each delegated
-decision and each write that relies on the grant. When the grant has ended,
-stop as the contract's Ended grant (Yolo runs) says.
+decision and each write that relies on the grant: read the `grant:` line of
+`show <n>`. When the grant has ended, stop as the contract's Ended grant (Yolo
+runs) says.
 
 ## Existing plans and incomplete requests
 
@@ -112,10 +113,11 @@ To adopt a plan:
    says.
 3. Post the grant event of this invocation, `Delegation grant: yolo: <quote>`,
    as the contract's Authority events says.
-4. Run the Grant check; the published line now matches the event. Then
-   replace each Goal or Do not touch line that conflicts with this run, such as
-   "leave the pull request open". Record a request correction whose `Asked:`
-   part quotes the old line, and publish the change with `edit`. After
+4. Run the Grant check: `show <n>` now reads
+   `grant: in force (yolo) by comment <id>`, where `<id>` is the step 3 event.
+   Then replace each Goal or Do not touch line that conflicts with this run,
+   such as "leave the pull request open". Record a request correction whose
+   `Asked:` part quotes the old line, and publish the change with `edit`. After
    `plan=pass`, this change needs a plan-review round, as the contract's Phases
    and review comments says.
 5. Reuse the branch that `gh issue develop <n> --list` shows, or the head branch
@@ -142,13 +144,13 @@ Yolo: the user delegated every decision except the merge to the agent.
    parent, and it gets no linked branch. Create one child per pull request with
    `new --title <t> --goal <g> --mode plan-and-implement --parent <n>`, with the
    delegation line in each goal. Right before you create each child, and again
-   right before its grant event, read the parent's latest trusted event; when
-   it is not the parent grant event of step 4, create or post nothing more and
-   stop as the contract's Ended grant says. Otherwise post the child's grant
-   event once, with the parent's quote and a second line
-   `Parent event: <comment id>` that names that parent event, as
-   the contract's Authority events says. Give the parent one Steps row per
-   child, as the contract's Record and mode says. Run Research
+   right before its grant event, read the parent's `grant:` line in
+   `show <parent>`; when it does not read `in force` by the parent grant event
+   of step 4, create or post nothing more and stop as the contract's Ended
+   grant says. Otherwise post the child's grant event once, with the parent's
+   quote and a second line `Parent event: <comment id>` that names that parent
+   event, as the contract's Authority events says. Give the parent one Steps
+   row per child, as the contract's Record and mode says. Run Research
    and Plan review on the parent. After that pass, start the child that the
    contract's Yolo runs table names: set up its linked branch, and run
    Research to Land on it.
