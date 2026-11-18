@@ -3698,13 +3698,15 @@ function workspaceScores(ws, keys) {
   const judgments = loadJudgments(ws);
   if (keys) requireCurrentKeys(pairs, keys);
   // The control flag and the seeded flag stay out of pairs.json, which the judge reads; the case.json of the workspace
-  // gives them. A code case is seeded when its `patch` plants its defects; a plan case file does not tell it.
+  // gives them. A code case uses `patch`; a plan case uses an explicit `seeded` flag.
   for (const entry of pairs.cases) {
     const caseFile = path.join(ws, entry.case, 'case.json');
     if (!fs.existsSync(caseFile)) continue;
     const caseData = readJson(caseFile);
     if (caseData.control === true) entry.control = true;
     if (CASE_KINDS.has(caseData.kind) && caseFamily(caseData.kind) === 'code') entry.seeded = Boolean(caseData.patch);
+    if (CASE_KINDS.has(caseData.kind) && caseFamily(caseData.kind) === 'plan' && typeof caseData.seeded === 'boolean')
+      entry.seeded = caseData.seeded;
   }
   const scores = scoreRuns({ findings, pairs, judgments, metas: readMetas(ws, findings.blocks) });
   requireJudgedFindings(findings.findings, judgments);

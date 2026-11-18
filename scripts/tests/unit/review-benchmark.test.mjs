@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import * as escapes from '../../../.agents/skills/review-benchmark/scripts/escapes.mjs';
 import * as outcomes from '../../../.agents/skills/review-benchmark/scripts/outcomes.mjs';
 import * as prepare from '../../../.agents/skills/review-benchmark/scripts/prepare.mjs';
 import { focusesForPath } from '../../../.agents/skills/review-benchmark/scripts/prepare.mjs';
@@ -8590,14 +8591,9 @@ test('outcomes counts the reverts and follow-up defects of each landed plan', ()
   }
   // fetchRepository reads the plans, the issues, the pull requests, and the commit lines through gh.
   const calls = [];
-  const run = (args) => {
-    calls.push(args.slice(0, 2).join(' '));
-    if (args[0] === 'api') return `${JSON.stringify(commits[0])}\n${JSON.stringify(commits[2])}\n`;
-    if (args.includes('--label')) return JSON.stringify(plans);
-    return JSON.stringify(args[0] === 'pr' ? pulls : issues);
-  };
+  const run = repositoryRunner({ plans, issues, pulls, commits: [commits[0], commits[2]] }, {}, calls);
   const fetched = outcomes.fetchRepository(repo, run);
-  assert.deepEqual(calls, ['issue list', 'issue list', 'pr list', 'api --paginate']);
+  assert.deepEqual(calls, ['plans', 'issues', 'pulls', 'commits']);
   assert.deepEqual(
     [fetched.plans, fetched.issues, fetched.pulls, fetched.commits],
     [plans, issues, pulls, [commits[0], commits[2]]],
@@ -9907,4 +9903,454 @@ test('case gives the judge the contract copy of each overlay run, also of a plan
     assert.equal(readText(candidateCopy('code-7', folder)), '# Plan contract working tree\n');
   }
   assert.equal(fs.readdirSync(path.join(candidateWs, 'contracts')).length, 3);
+});
+
+// The source snapshot is synthetic: no held-out production defect is used in these parser tests.
+function escapeFixture() {
+  const date = (day) => `2026-01-${String(day).padStart(2, '0')}T00:00:00Z`;
+  const comment = (id, day, body) => ({ id, createdAt: date(day), url: `https://example.test/comments/${id}`, body });
+  const modern = (reviewer, round, findings = [], previous = [], suffix = '') =>
+    `### ${reviewer} review round ${round}${suffix}\n\n${findings.join('\n')}\n\nPrevious findings:\n\n${previous.join('\n')}`;
+  const plans = [20, 10, 30].map((number) => ({
+    number,
+    title: `Plan ${number}`,
+    closedAt: date(number === 30 ? 25 : 10),
+    closedByPullRequestsReferences: number === 10 ? [{ number: 11 }] : [],
+  }));
+  return {
+    version: 1,
+    repo: 'Owner/repo',
+    cutoff: date(20),
+    script_commit: 'a'.repeat(40),
+    cases: [
+      { id: 'dev-20', issue: 20, round: 1, kind: 'plan', split: 'dev' },
+      { id: 'heldout-10', issue: 10, round: 9, kind: 'plan', split: 'heldout' },
+    ],
+    repository: {
+      plans,
+      issues: [
+        { number: 41, title: 'fix: follow-up', body: 'Cites only #11.', createdAt: date(12), labels: [] },
+        { number: 42, title: 'fix: too late', body: 'See #11.', createdAt: date(20), labels: [] },
+      ],
+      pulls: [
+        {
+          number: 11,
+          title: 'Land work',
+          body: 'Closes #10',
+          createdAt: date(1),
+          mergedAt: date(10),
+          mergeCommit: { oid: 'b'.repeat(40) },
+          labels: [],
+        },
+      ],
+      commits: [{ sha: 'b'.repeat(40), message: 'Land work', date: date(10) }],
+    },
+    comments: {
+      10: [
+        comment(101, 1, modern('Code', 1)),
+        comment(
+          102,
+          2,
+          modern('Code', 2, ['- [HIGH] Bug - src/a.mjs:1 - SECRET_A - repair A. - class: failure a'], [], ', delta'),
+        ),
+        comment(
+          103,
+          2,
+          modern(
+            'Code',
+            2,
+            ['- [MEDIUM] Spec - src/b.mjs:2 - SECRET_B - repair B. - class: failure b'],
+            [],
+            ', lens spec-and-tests',
+          ),
+        ),
+        comment(
+          104,
+          3,
+          modern(
+            'Code',
+            3,
+            ['- [LOW] Bug - src/c.mjs:3 - SECRET_C - repair C.'],
+            [
+              '- Round-2 finding on src/a.mjs:1: fixed - repaired A.',
+              '- Round-2 finding on src/b.mjs:2: fixed - repaired B.',
+            ],
+            ', delta',
+          ),
+        ),
+        comment(105, 4, modern('Code', 4, [], ['- Round-3 finding on src/c.mjs:3: resolved - repaired C.'], ', delta')),
+        comment(106, 5, modern('Code', 5, ['- [HIGH] Bug - src/d.mjs:4 - UNFIXED - repair D.'])),
+        comment(107, 6, modern('Code', 6, [], ['- Round-5 finding on src/d.mjs:4: open - still broken.'])),
+        comment(108, 20, modern('Code', 7, [], ['- Round-5 finding on src/d.mjs:4: fixed - too late.'])),
+        comment(109, 7, modern('Plan', 1)),
+        comment(110, 8, modern('Plan', 2, ['- security_risk - Steps 3 - SECRET_PLAN - check containment.'])),
+        comment(111, 9, modern('Plan', 3, [], ['- Round-2 finding on Steps 3: resolved - repaired.'])),
+      ],
+      20: [
+        comment(201, 1, '### Plan review\nPlan-review: pass\nNone.'),
+        comment(202, 2, '### Plan review\n- [goal_fit] Goal - DEV_FINDING - add the missing output.'),
+        comment(203, 3, '### Plan review\nPlan-review: pass\nNone.'),
+        comment(204, 1, modern('Code', 1)),
+        comment(205, 2, modern('Code', 2, ['- [LOW] Bug - src/dev.mjs:1 - DEV_CODE - repair.'])),
+        comment(206, 3, modern('Code', 3, [], ['- Round-2 finding on src/dev.mjs:1: fixed - repaired.'])),
+      ],
+      30: [comment(301, 1, '### Code review round 1')],
+    },
+  };
+}
+
+function repositoryRunner(repository, comments = {}, calls = []) {
+  const lines = (items) => items.map((item) => JSON.stringify(item)).join('\n');
+  return (args) => {
+    if (args[1] !== 'graphql') {
+      const commentPath = args.find((arg) => /\/issues\/\d+\/comments\?/.test(arg));
+      if (commentPath) {
+        const issue = Number(commentPath.match(/\/issues\/(\d+)\//)[1]);
+        calls.push(`comments:${issue}`);
+        return lines(comments[issue] ?? []);
+      }
+      calls.push('commits');
+      return lines(repository.commits);
+    }
+    assert.ok(args.includes('--paginate'));
+    const query = args.find((arg) => arg.startsWith('query='));
+    if (query.includes('closedByPullRequestsReferences')) {
+      calls.push('plans');
+      return lines(
+        repository.plans.map((plan) => ({
+          ...plan,
+          closedByPullRequestsReferences: {
+            nodes: plan.closedByPullRequestsReferences,
+            referencePage: { hasNextPage: false, endCursor: null },
+          },
+        })),
+      );
+    }
+    const kind = query.includes('pullRequests(') ? 'pulls' : 'issues';
+    calls.push(kind);
+    return lines(repository[kind].map((item) => ({ ...item, labels: { nodes: item.labels } })));
+  };
+}
+
+test('escape units follow issue, reviewer, and review-sequence order, with two findings in one round', () => {
+  const { record } = escapes.buildDraw(escapeFixture(), 'test');
+  assert.deepEqual(
+    record.frozen.units.map(({ issue, reviewer, missed_round: round }) => [issue, reviewer, round]),
+    [
+      [10, 'code', 1],
+      [10, 'code', 2],
+      [10, 'code', 6],
+      [10, 'plan', 1],
+      [20, 'code', 1],
+      [20, 'plan', 1],
+    ],
+  );
+  assert.deepEqual(
+    record.frozen.units[0].findings.map((finding) => finding.locator),
+    ['src/a.mjs:1', 'src/b.mjs:2'],
+  );
+  assert.equal(record.frozen.units[0].split, 'heldout');
+  assert.equal(record.frozen.units.at(-1).split, 'dev');
+});
+
+test('escape draw keeps delta missed rounds and excludes findings without a later fix', () => {
+  const units = escapes.buildDraw(escapeFixture(), 'test').record.frozen.units;
+  assert.equal(units[1].kind, 'code-delta');
+  assert.equal(units[1].missed_round, 2);
+  assert.equal(units[1].findings[0].found_round, 3);
+  assert.equal(
+    units.some((unit) => unit.findings.some((finding) => finding.text.includes('UNFIXED'))),
+    false,
+  );
+});
+
+test('escape draw accepts the old unnumbered plan review format with a later review', () => {
+  const units = escapes.buildDraw(escapeFixture(), 'test').record.frozen.units;
+  const old = units.find((unit) => unit.issue === 20 && unit.reviewer === 'plan');
+  assert.equal(old.missed_round, 1);
+  assert.equal(old.findings.length, 1);
+  assert.equal(old.findings[0].category, 'goal_fit');
+  assert.match(old.findings[0].text, /DEV_FINDING/);
+});
+
+test('escape snapshot captures complete input and all plan comments once, with cutoff and script commit', () => {
+  const fixture = escapeFixture();
+  const calls = [];
+  const snapshot = escapes.captureSnapshot(
+    {
+      repo: fixture.repo,
+      closedBefore: fixture.cutoff,
+      commit: fixture.script_commit,
+      cases: fixture.cases,
+    },
+    repositoryRunner(fixture.repository, fixture.comments, calls),
+  );
+  assert.deepEqual(snapshot.repository, fixture.repository);
+  assert.deepEqual(snapshot.comments, { 10: fixture.comments[10], 20: fixture.comments[20] });
+  assert.equal(snapshot.cutoff, fixture.cutoff.replace('Z', '.000Z'));
+  assert.equal(snapshot.script_commit, fixture.script_commit);
+  assert.deepEqual(calls, ['plans', 'issues', 'pulls', 'commits', 'comments:10', 'comments:20']);
+});
+
+test('escape draw ignores plans, comments, follow-ups, and merge events at or after the cutoff', () => {
+  const fixture = escapeFixture();
+  const original = escapes.buildDraw(fixture, 'test').record.frozen.units;
+  fixture.comments[10].pop();
+  fixture.comments[10] = fixture.comments[10].filter((comment) => comment.id !== 108);
+  // Remove a pre-cutoff confirmation too: it must change the draw, unlike the too-late round.
+  const changed = escapes.buildDraw(fixture, 'test').record.frozen.units;
+  assert.equal(
+    changed.some((unit) => unit.reviewer === 'plan' && unit.issue === 10),
+    false,
+  );
+  assert.equal(
+    original.some((unit) => unit.issue === 30),
+    false,
+  );
+  assert.equal(
+    original.some((unit) => unit.findings.some((finding) => finding.item === 42)),
+    false,
+  );
+  fixture.repository.plans.find((plan) => plan.number === 10).closedByPullRequestsReferences.push({ number: 12 });
+  fixture.repository.pulls.push({
+    number: 12,
+    title: 'Later landing',
+    body: 'Closes #10',
+    createdAt: '2026-01-09T00:00:00Z',
+    mergedAt: fixture.cutoff,
+    mergeCommit: { oid: 'd'.repeat(40) },
+    labels: [],
+  });
+  fixture.repository.pulls.push({
+    number: 43,
+    title: 'Revert work',
+    body: 'Reverts #11',
+    createdAt: '2026-01-12T00:00:00Z',
+    mergedAt: fixture.cutoff,
+    mergeCommit: { oid: 'c'.repeat(40) },
+    labels: [],
+  });
+  fixture.repository.commits.push({
+    sha: 'c'.repeat(40),
+    message: 'Revert #11',
+    date: fixture.cutoff,
+  });
+  assert.deepEqual(escapes.buildDraw(fixture, 'test').record.frozen.units, changed);
+});
+
+test('the given-data follow-up rule agrees with planOutcomes and keeps landing-PR-only citations', () => {
+  const fixture = escapeFixture();
+  const data = { repo: fixture.repo, ...fixture.repository };
+  const plan = data.plans.find((item) => item.number === 10);
+  const result = outcomes.followUpsOf(plan, data.pulls, data);
+  const row = outcomes.planOutcomes(data).find((item) => item.plan === 10);
+  assert.deepEqual(
+    result.defects.map((item) => `#${item.number}`),
+    row.followUps,
+  );
+  assert.deepEqual(
+    result.unreached.map((item) => `#${item.number}`),
+    row.unreached,
+  );
+  assert.equal(result.defects[0].body, 'Cites only #11.');
+  const unit = escapes
+    .buildDraw(fixture, 'test')
+    .record.frozen.units.find((item) => item.findings.some((finding) => finding.origin === 'follow-up'));
+  assert.equal(unit.issue, 10);
+  assert.equal(unit.missed_round, 6);
+  assert.equal(unit.findings[0].item, 41);
+});
+
+test('escape frozen record and manifest are byte-stable and reveal no held-out unit identities', () => {
+  const fixture = escapeFixture();
+  const first = escapes.buildDraw(fixture, 'test');
+  const second = escapes.buildDraw(JSON.parse(escapes.frozenJson(fixture)), 'test');
+  assert.equal(escapes.frozenJson(first.record), escapes.frozenJson(second.record));
+  assert.equal(first.manifest, second.manifest);
+  assert.match(first.manifest, /DEV_FINDING/);
+  assert.match(first.manifest, /DEV_CODE/);
+  assert.doesNotMatch(first.manifest, /SECRET|10-code|10-plan|"issue": 10|heldout-10/);
+  assert.match(first.manifest, /\| heldout \| code-delta \| 1 \|/);
+  const hashes = first.record.frozen.seeded_plans.map((item) => item.hash);
+  const reordered = structuredClone(fixture);
+  reordered.comments[10].reverse();
+  assert.deepEqual(escapes.buildDraw(reordered, 'test').record.frozen.units, first.record.frozen.units);
+  assert.deepEqual(hashes, [...hashes].sort());
+  assert.equal(
+    first.record.frozen.seeded_plans.some((item) => item.issue === 20),
+    false,
+  );
+});
+
+test('escape draw keeps separate cycles and drops open repeats even when their locator moves', () => {
+  const fixture = escapeFixture();
+  fixture.repository.issues = [];
+  fixture.comments[10] = [
+    { id: 1, createdAt: '2026-01-01T00:00:00Z', body: '### Code review round 1\n' },
+    {
+      id: 2,
+      createdAt: '2026-01-02T00:00:00Z',
+      body: '### Code review round 2\n- [HIGH] Bug - a.mjs:1 - broken - class: carried',
+    },
+    {
+      id: 3,
+      createdAt: '2026-01-03T00:00:00Z',
+      body: '### Code review round 3\nPrevious findings:\n- Round-2 finding on a.mjs:1: open - repeat.\n- [HIGH] Bug - a.mjs:7 - still broken - class: carried',
+    },
+    {
+      id: 4,
+      createdAt: '2026-01-04T00:00:00Z',
+      body: '### Code review round 4\nPrevious findings:\n- Round-2 finding on a.mjs:1: fixed - repaired.',
+    },
+    {
+      id: 5,
+      createdAt: '2026-01-05T00:00:00Z',
+      body: '### Code review round 1 (cycle 2)\n- [LOW] Bug - a.mjs:8 - New cycle defect - repair.',
+    },
+    {
+      id: 6,
+      createdAt: '2026-01-06T00:00:00Z',
+      body: '### Code review round 2 (cycle 2)\n- [low] a.mjs:2 - Other bug - repair.',
+    },
+    { id: 7, createdAt: '2026-01-07T00:00:00Z', body: '### Code review round 3 (cycle 2)\nNone.' },
+  ];
+  const units = escapes.buildDraw(fixture, 'test').record.frozen.units.filter((unit) => unit.issue === 10);
+  assert.deepEqual(
+    units.map((unit) => [unit.missed_round, unit.cycle]),
+    [
+      [1, 1],
+      [4, 1],
+      [1, 2],
+    ],
+  );
+  assert.notEqual(units[0].id, units[1].id);
+  assert.equal(units[0].findings.length, 1);
+});
+
+test('escape CLI writes restricted frozen data and the public manifest, and never overwrites a record', (t) => {
+  const root = scratch(t);
+  put(root, 'source.json', escapeFixture());
+  const args = ['draw', '--snapshot', path.join(root, 'source.json'), '--seed', 'test'];
+  const expected = escapes.main(args);
+  assert.equal(
+    escapes.main([...args, '--record', path.join(root, 'record.json'), '--manifest', path.join(root, 'manifest.md')]),
+    expected,
+  );
+  assert.equal(readText(path.join(root, 'manifest.md')), expected);
+  assert.equal(fs.statSync(path.join(root, 'record.json')).mode & 0o777, 0o600);
+  const record = readJson(path.join(root, 'record.json'));
+  assert.deepEqual(record.outcomes, []);
+  assert.equal(record.frozen.units.length, 6);
+  assert.throws(() => escapes.main([...args, '--record', path.join(root, 'record.json')]), /EEXIST/);
+});
+
+test('repository fetching paginates lists and closing references without a fixed list limit', () => {
+  const fixture = escapeFixture();
+  const base = repositoryRunner(fixture.repository);
+  let extraPage = false;
+  const run = (args) => {
+    const query = args.find((arg) => arg.startsWith('query=')) ?? '';
+    assert.equal(args.includes('--limit'), false);
+    if (query.includes('issue(number: 10)')) {
+      extraPage = true;
+      assert.ok(args.includes('cursor=more-refs'));
+      return JSON.stringify({
+        data: {
+          repository: {
+            issue: {
+              closedByPullRequestsReferences: {
+                nodes: [{ number: 12 }],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          },
+        },
+      });
+    }
+    const result = base(args);
+    if (!query.includes('closedByPullRequestsReferences')) return result;
+    return result
+      .split('\n')
+      .map((line) => {
+        const plan = JSON.parse(line);
+        if (plan.number === 10)
+          plan.closedByPullRequestsReferences.referencePage = { hasNextPage: true, endCursor: 'more-refs' };
+        return JSON.stringify(plan);
+      })
+      .join('\n');
+  };
+  const result = outcomes.fetchRepository(fixture.repo, run);
+  assert.equal(extraPage, true);
+  assert.deepEqual(result.plans.find((plan) => plan.number === 10).closedByPullRequestsReferences, [
+    { number: 11 },
+    { number: 12 },
+  ]);
+  assert.deepEqual(result.issues, fixture.repository.issues);
+});
+
+test('plan cases validate seeded as a boolean while code cases use patch', () => {
+  const plan = {
+    id: 'plan-5',
+    kind: 'plan',
+    split: 'dev',
+    issue: 5,
+    round: 1,
+    plan: 'plan.md',
+    repo_ref: 'HEAD',
+    known: [],
+  };
+  for (const seeded of [true, false]) assert.equal(prepare.validateCase({ ...plan, seeded }).seeded, seeded);
+  for (const seeded of [null, 1, 'true', [], {}])
+    assert.throws(() => prepare.validateCase({ ...plan, seeded }), {
+      message: 'case plan-5: seeded must be true or false',
+    });
+  assert.equal(prepare.validateCase(plan).seeded, undefined);
+  assert.equal(
+    prepare.validateCase({
+      ...plan,
+      kind: 'plan-delta',
+      previous_body: 'previous.md',
+      previous_review: 'review.md',
+      seeded: true,
+    }).seeded,
+    true,
+  );
+  assert.throws(() => prepare.validateCase({ ...plan, kind: 'code', base: 'a', head: 'b', seeded: true }), {
+    message: 'case plan-5: only plan cases take seeded; code cases use patch',
+  });
+});
+
+test('the seeded-share report counts seeded plan cases and keeps older plan status unknown', (t) => {
+  const ws = path.join(scratch(t), 'ws');
+  const runs = [...singleRuns('B0', 2, 1, () => true), ...singleRuns('C1', 2, 1, () => true)];
+  writeFixture(ws, gridFixture(oneKnownCases(2), runs));
+  put(ws, 'code-1/case.json', { id: 'code-1', kind: 'plan', split: 'dev', seeded: true });
+  put(ws, 'code-2/case.json', { id: 'code-2', kind: 'plan-delta', split: 'dev', seeded: false });
+  const args = ['report', ws, '--arms', 'B0-xhigh-fast,C1-xhigh-fast', '--reference', 'B0-xhigh-fast'];
+  const row = () =>
+    tableAfter(readText(path.join(ws, 'report.md')), '### Decision: dev').find((line) => line.startsWith('| Seeded'));
+  main(args);
+  assert.equal(row(), '| Seeded cases of the shared cases with known defects | - | 1 of 2 (0.50) |');
+  put(ws, 'code-2/case.json', { id: 'code-2', kind: 'plan-delta', split: 'dev' });
+  main(args);
+  assert.equal(row(), '| Seeded cases of the shared cases with known defects | - | - |');
+});
+
+test('escape review sequences break equal comment times by round number, not comment id', () => {
+  const fixture = escapeFixture();
+  const comments = fixture.comments[10];
+  const third = comments.find((comment) => comment.id === 104);
+  third.createdAt = comments.find((comment) => comment.id === 102).createdAt;
+  third.id = 100;
+  comments.reverse();
+  const units = escapes.buildDraw(fixture, 'test').record.frozen.units.filter((unit) => unit.issue === 10);
+  assert.deepEqual(
+    units.map((unit) => [unit.reviewer, unit.missed_round]),
+    [
+      ['code', 1],
+      ['code', 2],
+      ['code', 6],
+      ['plan', 1],
+    ],
+  );
 });
