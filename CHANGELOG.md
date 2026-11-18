@@ -10,8 +10,8 @@
   `openai-codex/gpt-6.2-sol:medium`. The `astra` role and the Fable retry chain
   move from GPT-6 Astra to `openai-codex/gpt-6.2-astra:xhigh`, and the switcher
   tag reads `GPT-6.2 Astra`. The `reviewer` role stays on GPT-6.1 Terra `high`,
-  because the review benchmark of #130 chose that model and no GPT-6.2 Terra
-  exists.
+  because the review benchmark of #130 chose that model, and omp 18.22.2 lists
+  no GPT-6.2 Terra.
 - The Astra ladder override in `SoT/.omp/models.yml` moves from the
   `gpt-6-astra` key to `gpt-6.2-astra`. Sync prunes the deployed
   `gpt-6-astra` block while it equals the shipped block, so a user edit stays.

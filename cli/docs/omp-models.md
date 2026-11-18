@@ -495,7 +495,7 @@ ladder is `none, low, medium, high, xhigh, max`, with `medium` as the default.
 
 ### Output speed: GPT-6.2 Sol and GPT-6.1 Terra
 
-GPT-6.2 Sol has the higher output speed at both levels that the kit uses.
+GPT-6.2 Sol has the higher output speed at `high` and at `xhigh`.
 The figures come from one page,
 `/models/comparisons/gpt-6-2-sol-vs-gpt-6-1-terra`, read on 2026-11-18 at
 Intelligence Index v5.0.1.
