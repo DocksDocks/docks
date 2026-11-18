@@ -1493,12 +1493,16 @@ function shuffled(items, random) {
   return copy;
 }
 
+// The seed of `sample` when it gets no --seed.
+export const DEFAULT_SAMPLE_SEED = 1;
+
 // The answers of the first judge that the second judge answers again (see ../references/judge.md, Second judge):
 // every `matches` entry with the verdict `match`, because a found known defect, and so each recall difference, comes
 // only from such an answer; every `reargued` entry with the verdict `match`; and a seeded random share SAMPLE_SHARE
 // (rounded up) of the other `matches`, `reargued`, and `adjudications` entries. Each list is in a seeded random order,
 // so that the second judge cannot tell a `match` answer from another. The sample holds no answer of the first judge.
-export function secondJudgeSample(judgments, { seed = 1 } = {}) {
+// `seed` records the seed, so that `report` can derive the same sample again from the current answers.
+export function secondJudgeSample(judgments, { seed = DEFAULT_SAMPLE_SEED } = {}) {
   const random = seededRandom(seed);
   const some = (entries) => shuffled(entries, random).slice(0, Math.ceil(entries.length * SAMPLE_SHARE));
   const byVerdict = (entries) => [
@@ -1508,6 +1512,7 @@ export function secondJudgeSample(judgments, { seed = 1 } = {}) {
   const [matched, unmatched] = byVerdict(judgments.matches ?? []);
   const [rearguedMatched, rearguedOther] = byVerdict(judgments.reargued ?? []);
   return {
+    seed,
     pairs: shuffled([...matched, ...some(unmatched)], random).map(({ finding, known }) => ({ finding, known })),
     protectedPairs: shuffled([...rearguedMatched, ...some(rearguedOther)], random).map((entry) => ({
       finding: entry.finding,
@@ -1766,8 +1771,8 @@ const EXACT_ROWS = [
 //   on the population of review rounds needs assumption S (see SKILL.md, Decisions); the equivalence row, which also
 //   needs the test of H0 "mean e <= -margin / 50"; the fixed-corpus check, which holds the cases fixed and is no ship
 //   decision; and the neutral-data limit (see neutralDataLimit), as information.
-// `hold`, when set, is the text of the not-worse row and the equivalence row in place of a test result: the decision
-// waits for the second judge, or it comes from the sequential looks.
+// `hold`, when set, gives the text of the not-worse row (`notWorse`) and of the equivalence row (`equivalence`) in
+// place of a test result: the decision waits for the second judge, or it comes from the sequential looks.
 function referenceRows(reference, runsOf, margin, hold) {
   const referenceRuns = runsOf(reference);
   const cached = (compute) => {
@@ -1808,7 +1813,7 @@ function referenceRows(reference, runsOf, margin, hold) {
           [
             `Not worse than ${reference} by ${margin} escaped per 50 known: betting test on N, if assumption S holds`,
             withEffects((effects) => {
-              if (hold) return hold;
+              if (hold) return hold.notWorse;
               const notWorse = test(effects, margin, 'below');
               return `${notWorse.rejected ? 'pass' : 'no pass'} (capital ${capitals(notWorse)})`;
             }),
@@ -1816,7 +1821,7 @@ function referenceRows(reference, runsOf, margin, hold) {
           [
             `Equivalent to ${reference} within ${margin} escaped per 50 known: two one-sided betting tests on N, if assumption S holds`,
             withEffects((effects) => {
-              if (hold) return hold;
+              if (hold) return hold.equivalence;
               const tests = [test(effects, margin, 'below'), test(effects, -margin, 'above')];
               return `${tests.every((entry) => entry.rejected) ? 'yes' : 'no'} (capitals ${capitals(...tests)})`;
             }),
@@ -1979,10 +1984,10 @@ export const MIN_CONTROL_CASES = 6;
 const driftCheck =
   (margin) =>
   ({ comparison, effects, test }) => {
-    if (comparison.low === null) return '-';
     if (effects.length < MIN_CONTROL_CASES) {
       return `too few cases with known defects (${effects.length} of ${MIN_CONTROL_CASES})`;
     }
+    if (comparison.low === null) return '-';
     if (margin === undefined) return 'no margin';
     return test.rejected ? `leaves ±${margin}` : `not shown to leave ±${margin}`;
   };
@@ -2032,66 +2037,87 @@ function driftSection(runs, { margin }) {
   ];
 }
 
-// The looks of a sequential decision of one column against the reference column, from all runs of both columns, also
-// the invalid runs. Look k takes the valid runs 1 to k of each case (at most MAX_LOOKS looks), so its e values are the
-// per-run means of these runs (see caseEffects). Look k runs the betting tests at the error alpha_k that it spends
-// (see spendingIncrements), with the threshold 1 / alpha_k. A look decides only when each planned case (each case of
-// a run of either column) has valid runs 1 to k in both columns; else it gives `incomplete look (<missing runs>)` and
-// neither passes nor fails. A complete look stops with `pass` when the test of H0 "mean e >= margin / 50" rejects, and
-// with `fail` when the test of H0 "mean e <= margin / 50" rejects; `hold` (an incomplete second judge) replaces both.
-// The last look stops with `no pass` when it does not pass. Every other look asks for the next look, and a look after
-// a stop shows that stop. The later looks change the e values of the earlier cases, so the capital of one look does
-// not carry to the next; the errors of the looks add up to DECISION_ALPHA.
-function sequentialLooks(runs, referenceRuns, { column, reference, margin, hold }) {
-  if (runs.length === 0 || referenceRuns.length === 0) return [];
+// The runs that look `look` needs and that have no valid run in `runs`: for every entry of `planned` (an arm folder
+// of a case in the run plan, see readRunPlan), the runs 1 to `look`, as `<case> <arm folder> run-<k>`. The run plan,
+// not the runs that the scores hold, gives the expected runs, so a run of one arm folder never stands in for a run of
+// another. Every sequential look checks its completeness with this function.
+function missingLookRuns(planned, runs, look) {
+  const valid = new Set(
+    runs.filter((run) => run.invalid.length === 0).map((run) => `${run.case} ${run.arm} run-${runNumber(run.run)}`),
+  );
+  const expected = planned.flatMap((entry) =>
+    Array.from({ length: look }, (_, index) => `${entry.case} ${entry.folder} run-${index + 1}`),
+  );
+  return expected.filter((key) => !valid.has(key)).sort(compare);
+}
+
+// The looks of a sequential decision of one column against the reference column. `runs` and `referenceRuns` hold all
+// runs of both columns, also the invalid runs, and `planned` the entries of the run plan of both columns. Look k takes
+// the valid runs 1 to k of each case (at most MAX_LOOKS looks, as many as the run plan holds), so its e values are the
+// per-run means of these runs (see caseEffects). Look k runs four betting tests at the error alpha_k that it spends
+// (see spendingIncrements), with the threshold 1 / alpha_k: H0 "mean e >= m / 50" (not worse), H0 "mean e <= m / 50"
+// (worse), H0 "mean e <= -m / 50" (not better), and H0 "mean e >= -m / 50" (better), for the margin m. A look decides
+// only when the run plan has no missing run (see missingLookRuns); else both decisions give `incomplete look
+// (<missing runs>)`. `hold` (an incomplete second judge) holds both decisions too. The two decisions stop on their
+// own rules:
+// - not worse: `pass` when the not-worse test rejects, `fail` when the worse test rejects, and `no pass` at the last
+//   look;
+// - equivalence: `yes` when the not-worse test and the not-better test both reject, `no` when the worse test or the
+//   better test rejects, and `no` at the last look.
+// Every other look asks for the next look, and a look after a stop shows that stop. The later looks change the e
+// values of the earlier cases, so the capital of one look does not carry to the next; the errors of the looks add up to
+// DECISION_ALPHA.
+function sequentialLooks(runs, referenceRuns, { column, margin, hold, planned }) {
+  if (runs.length === 0 || referenceRuns.length === 0 || planned.length === 0) return [];
   const errors = spendingIncrements(MAX_LOOKS);
-  const looks = Math.min(MAX_LOOKS, Math.max(...[...runs, ...referenceRuns].map((run) => runNumber(run.run))));
-  const planned = [...casesOf([...runs, ...referenceRuns])].sort(compare);
+  const looks = Math.min(MAX_LOOKS, Math.max(...planned.flatMap((entry) => entry.runs)));
   const validRuns = (list) => list.filter((run) => run.invalid.length === 0);
-  const arms = [
-    [column, validRuns(runs)],
-    [reference, validRuns(referenceRuns)],
-  ];
-  let stop = null;
+  const stops = { notWorse: null, equivalence: null };
   return Array.from({ length: looks }, (_, index) => {
     const look = index + 1;
-    const upTo = (list) => list.filter((run) => runNumber(run.run) <= look);
-    const missing = planned.flatMap((caseId) =>
-      arms.flatMap(([name, list]) =>
-        Array.from({ length: look }, (_, run) => run + 1)
-          .filter((number) => !list.some((entry) => entry.case === caseId && runNumber(entry.run) === number))
-          .map((number) => `${caseId} ${name} run-${number}`),
-      ),
-    );
-    const effects = caseEffects(upTo(arms[0][1]), upTo(arms[1][1]));
+    const upTo = (list) => validRuns(list).filter((run) => runNumber(run.run) <= look);
+    const missing = missingLookRuns(planned, [...runs, ...referenceRuns], look);
+    const effects = caseEffects(upTo(runs), upTo(referenceRuns));
     const alpha = errors[index];
     const values = effectValues(effects);
-    const [notWorse, worse] = effects.length
-      ? [
-          bettingTest(values, { bound: margin, side: 'below', alpha }),
-          bettingTest(values, { bound: margin, side: 'above', alpha }),
-        ]
-      : [null, null];
-    let decision;
-    if (stop !== null) decision = `after the stop at look ${stop}`;
-    else if (missing.length) decision = `incomplete look (${listSome(missing, 3)})`;
-    else if (hold) decision = hold;
-    else if (notWorse === null) decision = '-';
-    else if (notWorse.rejected) decision = 'pass: stop';
-    else if (worse.rejected) decision = 'fail: stop';
-    else if (look === MAX_LOOKS) decision = 'no pass: stop';
-    else decision = 'continue';
-    if (stop === null && decision.endsWith(': stop')) stop = look;
-    const counts = `${upTo(arms[0][1]).length} / ${upTo(arms[1][1]).length}`;
-    return { column, look, counts, effects, alpha, notWorse, worse, decision };
+    const test = (bound, side) => (effects.length ? bettingTest(values, { bound, side, alpha }) : null);
+    const tests = {
+      notWorse: test(margin, 'below'),
+      worse: test(margin, 'above'),
+      notBetter: test(-margin, 'above'),
+      better: test(-margin, 'below'),
+    };
+    const decide = (name, verdict) => {
+      let decision;
+      if (stops[name] !== null) decision = `after the stop at look ${stops[name]}`;
+      else if (missing.length) decision = `incomplete look (${listSome(missing, 3)})`;
+      else if (hold) decision = hold;
+      else if (tests.notWorse === null) decision = '-';
+      else decision = verdict(look === MAX_LOOKS);
+      if (stops[name] === null && decision.endsWith(': stop')) stops[name] = look;
+      return decision;
+    };
+    const notWorse = decide('notWorse', (last) => {
+      if (tests.notWorse.rejected) return 'pass: stop';
+      if (tests.worse.rejected) return 'fail: stop';
+      return last ? 'no pass: stop' : 'continue';
+    });
+    const equivalence = decide('equivalence', (last) => {
+      if (tests.notWorse.rejected && tests.notBetter.rejected) return 'yes: stop';
+      if (tests.worse.rejected || tests.better.rejected) return 'no: stop';
+      return last ? 'no: stop' : 'continue';
+    });
+    const counts = `${upTo(runs).length} / ${upTo(referenceRuns).length}`;
+    return { column, look, counts, effects, alpha, tests, notWorse, equivalence };
   });
 }
 
 const capitalCell = (test) => (test === null ? '-' : ratio(test.capital));
 
 // The sequential section: the looks of each column that is not the reference, one table per case group, from all runs
-// of the columns (see sequentialLooks).
-function sequentialSection(runs, { columns, columnOf, reference, margin, hold }) {
+// of the columns and the entries of `runPlan` (see readRunPlan) whose column (`planColumnOf`) is the column or the
+// reference (see sequentialLooks).
+function sequentialSection(runs, { columns, columnOf, planColumnOf, reference, margin, hold, runPlan }) {
   const shown = runs.filter((run) => columns.includes(columnOf(run)));
   const lookColumns = [
     ['Column', (entry) => entry.column],
@@ -2101,21 +2127,33 @@ function sequentialSection(runs, { columns, columnOf, reference, margin, hold })
     ['Error of the look', (entry) => entry.alpha.toPrecision(3), true],
     ['Threshold', (entry) => whole(1 / entry.alpha), true],
     ['N', (entry) => ratio(normalizedEscaped(entry.effects)), true],
-    ['Not-worse capital', (entry) => capitalCell(entry.notWorse), true],
-    ['Worse capital', (entry) => capitalCell(entry.worse), true],
-    ['Decision', (entry) => entry.decision],
+    ['Not-worse capital', (entry) => capitalCell(entry.tests.notWorse), true],
+    ['Worse capital', (entry) => capitalCell(entry.tests.worse), true],
+    ['Not-better capital', (entry) => capitalCell(entry.tests.notBetter), true],
+    ['Better capital', (entry) => capitalCell(entry.tests.better), true],
+    ['Not-worse decision', (entry) => entry.notWorse],
+    ['Equivalence decision', (entry) => entry.equivalence],
   ];
   const groups = bySplit(shown).flatMap(([group, groupRuns]) => {
     const runsOf = columnRuns(groupRuns, columnOf);
+    const plannedOf = (names) =>
+      runPlan.filter((entry) => (entry.split ?? '-') === group && names.includes(planColumnOf(entry)));
     const entries = columns
       .filter((name) => name !== reference)
-      .flatMap((column) => sequentialLooks(runsOf(column), runsOf(reference), { column, reference, margin, hold }));
+      .flatMap((column) =>
+        sequentialLooks(runsOf(column), runsOf(reference), {
+          column,
+          margin,
+          hold,
+          planned: plannedOf([column, reference]),
+        }),
+      );
     return entries.length ? [`### Sequential looks: ${group}`, '', ...table(lookColumns, entries), ''] : [];
   });
   return [
     '## Sequential looks',
     '',
-    `A sequential decision runs one run per case for each look, at most ${MAX_LOOKS} looks, and compares each column with ${reference} on N, the escaped defects per 50 known with each case weighing 1, with the margin ${margin}. The sequential looks are the decision: the not-worse and equivalence rows of the decision tables say see sequential looks. Look k takes the per-run means of the valid runs 1 to k of each case. It decides only when each planned case (a case of a run of either column) has valid runs 1 to k in both columns, and else it gives incomplete look with the missing runs. It runs the betting tests at the error that it spends under the O'Brien-Fleming alpha spending of Lan and DeMets for ${MAX_LOOKS} looks and a one-sided error of ${DECISION_ALPHA}, with the threshold 1 / error. The errors of the looks add up to ${DECISION_ALPHA}. A look passes when the not-worse capital reaches its threshold, and fails when the worse capital (the test of a mean above the margin) reaches it; both stop the runs. Every other look asks for the next look, and the last look without a pass gives no pass.`,
+    `A sequential decision runs one run per case for each look, at most ${MAX_LOOKS} looks, and compares each column with ${reference} on N, the escaped defects per 50 known with each case weighing 1, with the margin ${margin}. The sequential looks are the decision: the not-worse row and the equivalence row of the decision tables point to the not-worse decision and the equivalence decision of the looks. Look k takes the per-run means of the valid runs 1 to k of each case. It decides only when every arm folder of the run plan of both columns (the case, arm, and configuration folders that prepare.mjs wrote) has valid runs 1 to k, and else it gives incomplete look with the missing runs. It runs four betting tests at the error that it spends under the O'Brien-Fleming alpha spending of Lan and DeMets for ${MAX_LOOKS} looks and a one-sided error of ${DECISION_ALPHA}, with the threshold 1 / error: not worse (a mean below the margin), worse (a mean above the margin), not better (a mean above minus the margin), and better (a mean below minus the margin). The errors of the looks add up to ${DECISION_ALPHA}. The not-worse decision passes when the not-worse capital reaches its threshold and fails when the worse capital reaches it. The equivalence decision gives yes when the not-worse and the not-better capitals both reach it, and no when the worse or the better capital reaches it. Each decision stops on its own; every other look asks for the next look, and the last look without a pass gives no pass and no equivalence.`,
     '',
     ...groups,
   ];
@@ -2285,25 +2323,34 @@ function controlSection(runs) {
 // default columns are the configuration names in run order, without the control arms. `reference` names the column
 // that the intervals and tests compare with: a table of two or more columns needs it. `margin` adds the not-worse,
 // equivalence, and drift checks, and `sequential` (with `reference` and `margin`) the sequential looks, which then are
-// the decision: the not-worse and equivalence rows say `see sequential looks`. `lead` (lead folders) and `leadRef`
-// (the reference folder) together add the self-review lead. `secondJudge` (see workspaceScores) gives the requested
-// and answered items of the second-judge sample: with a margin, a sample with an unanswered item holds every decision
-// (the not-worse and equivalence rows and each sequential look) at `second judge incomplete (<answered> of
-// <requested>)`.
+// the decision: the not-worse and equivalence rows point to the not-worse and equivalence decisions of the looks.
+// `runPlan` (see readRunPlan) gives the runs that each sequential look needs, so `sequential` needs it. `lead` (lead
+// folders) and `leadRef` (the reference folder) together add the self-review lead. `secondJudge` (see
+// workspaceScores) gives the requested and answered items of the second-judge sample: with a margin, a sample with an
+// unanswered item holds every decision (the not-worse and equivalence rows and each sequential look) at `second judge
+// incomplete (<answered> of <requested>)`.
 export function renderReport(
-  { summaries, runs, agreement, secondJudge },
+  { summaries, runs, agreement, secondJudge, runPlan },
   { configs, arms, reference, margin, sequential, lead, leadRef } = {},
 ) {
   if (configs && arms) fail('report takes --configs or --arms, not both');
   if (Boolean(lead) !== Boolean(leadRef)) fail('report takes --lead and --lead-ref together');
   const configured = runs.filter((run) => run.config && !isControlArm(run.arm));
   const comparison = arms
-    ? { title: 'Arms', runs, columns: arms, columnOf: armColumn, sharedCases: true }
+    ? {
+        title: 'Arms',
+        runs,
+        columns: arms,
+        columnOf: armColumn,
+        planColumnOf: (entry) => entry.folder,
+        sharedCases: true,
+      }
     : {
         title: 'Configurations',
         runs: configured,
         columns: configs ?? distinct(configured.map(configColumn)),
         columnOf: configColumn,
+        planColumnOf: (entry) => (isControlArm(entry.folder) ? null : entry.config),
         sharedCases: false,
       };
   const { columns } = comparison;
@@ -2318,6 +2365,9 @@ export function renderReport(
   if (sequential && (reference === undefined || margin === undefined)) {
     fail('report --sequential needs --reference and --margin');
   }
+  if (sequential && !runPlan) {
+    fail('report --sequential needs the run plan of the workspace (the case, arm, and run folders of prepare.mjs)');
+  }
   const columnNote = arms
     ? 'An arm table has one column per arm folder in one case group. Its decision table also gives the cases of each column and the cases that the column and the reference column both ran.'
     : 'A configuration table has one column per configuration in one case group.';
@@ -2329,7 +2379,14 @@ export function renderReport(
     margin !== undefined && secondJudge && secondJudge.answered < secondJudge.requested
       ? `second judge incomplete (${secondJudge.answered} of ${secondJudge.requested})`
       : null;
-  const sequentialHold = sequential ? 'see sequential looks' : null;
+  const decisionHold = judgeHold
+    ? { notWorse: judgeHold, equivalence: judgeHold }
+    : sequential
+      ? {
+          notWorse: 'see sequential looks: not-worse decision',
+          equivalence: 'see sequential looks: equivalence decision',
+        }
+      : null;
   return [
     '# Review benchmark report',
     '',
@@ -2341,7 +2398,7 @@ export function renderReport(
     'The Runs table lists every run. The summary, the configuration or arm tables, and the self-review lead leave out invalid runs: runs whose reviewer transcripts show another model, effort, or served tier than their configuration; loops whose fixer transcripts show another model, effort, or served tier than the fixer setting; runs with a reviewer or a fixer without transcript facts or without a served assistant message, also a loop round that gave findings to the fixer and has no transcript facts of its fixer (for example a repair with --fixer-patch); loops with a fixer but without a fixer setting; runs with a reviewer that read a file outside the inputs of its run; and runs with a round in which a reviewer block holds no review (missing, unreadable, or blocked).',
     `${columnNote} The decision table covers all runs of the group. The code-loop table covers the loop runs (runs with round folders), and the single-review table covers the other runs; a table without runs is left out. A round row covers the loops that reached that round. Extra-only rounds are rounds whose previous fix step repaired valid extra findings and no known defect that a finding of the previous round matched. The fixer repaired the valid extras when it got them, its patch changed the tree, and it did not reply not present for each of them. A known defect was repaired when its fix patch applied, or when the fixer repaired it (a fixer patch that changed nothing, or a not present reply for each finding of the defect, repairs none). A patch whose fix the tree already held and a pulled-in patch repair no such defect. Fixer seconds and fixer tokens are the time and the tokens of the fix steps of a loop, apart from the loop seconds and the tokens of the reviewers; their medians cover only the loops with a fixer. An interval row gives the 90% two-level paired bootstrap interval of the difference from the reference column, over the cases that both columns ran: each resample draws the cases, then the runs of each column in each drawn case. ${referenceNote} The loop seconds interval compares loop runs only.`,
     `The decision table also gives the wrong findings and the unknown ratings of each column with its runs, and the reads of missing paths: reads with an error result of a path that does not exist, which make no run invalid. Against the reference column, it gives the cases whose escaped defects differ, and the one-sided exact Poisson test of more wrong findings and of more unknown ratings than the reference, with the runs of each column as the exposure. The intervals and the escaped defects per 50 known (W) are information. The decision measure is N: for each shared case with known defects, e is the mean escaped defects of the runs of the column minus those of the reference runs, divided by the known defects of the case, and N is 50 times the mean of e, so each case weighs 1. The seeded row gives the share of these cases whose defects a patch planted, when the case metadata tells it for each case. With a margin m, the not-worse row runs a one-sided betting test of the hypothesis that the mean e is m / 50 or more (Waudby-Smith and Ramdas, JRSS-B 86(1), 2024): each e goes to (e + 1) / 2 in a seeded case order, with predictable plug-in bets cut at ${BET_CAP}, and the row gives pass when the capital reaches the threshold ${whole(1 / DECISION_ALPHA)}. Its claim holds for the population of review rounds only if assumption S holds: the cases are independent draws from the review rounds that the case-building procedure gives. The equivalence row gives yes when the test of a mean e of -m / 50 or less also rejects. The fixed-corpus row holds the cases fixed and bootstraps the runs only: it is a check of these cases, not a ship decision. The neutral-data limit row gives the shared cases with known defects and the count below which no valid rule can pass a column that differs in no case, as information.`,
-    'With a margin, the second judge must answer every item of its sample, or each decision row and each sequential look gives second judge incomplete and no pass. With --sequential, the sequential looks are the decision, and the not-worse and equivalence rows give see sequential looks.',
+    'With a margin, the second judge must answer every item of the sample that its seed gives from the current answers of the first judge, or each decision row and each sequential look gives second judge incomplete and no pass. With --sequential, the sequential looks are the decision, and the not-worse and equivalence rows point to the not-worse and equivalence decisions of the looks.',
     '',
     '## Summary',
     '',
@@ -2359,9 +2416,11 @@ export function renderReport(
           ...invalid.map((run) => `- ${run.case}/${run.arm}/${run.run}: ${run.invalid.join('; ')}`),
           '',
         ]),
-    ...comparisonSections(comparison.runs, { ...comparison, reference, margin, hold: judgeHold ?? sequentialHold }),
+    ...comparisonSections(comparison.runs, { ...comparison, reference, margin, hold: decisionHold }),
     ...driftSection(runs, { margin }),
-    ...(sequential ? sequentialSection(comparison.runs, { ...comparison, reference, margin, hold: judgeHold }) : []),
+    ...(sequential
+      ? sequentialSection(comparison.runs, { ...comparison, reference, margin, hold: judgeHold, runPlan })
+      : []),
     ...stageSection(runs),
     ...controlSection(runs),
     ...(lead ? leadSection(runs, { lead, leadRef }) : []),
@@ -3533,12 +3592,38 @@ function readMetas(ws, blocks) {
   return metas;
 }
 
+// The run plan of the workspace `ws`, as `prepare.mjs case` wrote it: one entry per case of pairs.json (`pairsDoc`) and
+// arm folder of its case folder that holds run folders, with the split of the case, the configuration name that the
+// meta.json of a run folder (or of its round 1) records, and the run numbers of the run folders on disk. A sequential
+// look checks its runs against this plan (see missingLookRuns), not against the runs that the scores hold.
+function readRunPlan(ws, pairsDoc) {
+  const configOf = (armDir, run) => {
+    const files = [path.join(armDir, run, 'meta.json'), path.join(armDir, run, 'round-1', 'meta.json')];
+    const file = files.find((candidate) => fs.existsSync(candidate) && readJson(candidate).config);
+    return file ? readJson(file).config.name : null;
+  };
+  return pairsDoc.cases.flatMap((entry) => {
+    const caseDir = path.join(ws, entry.case);
+    if (!fs.existsSync(caseDir)) return [];
+    return directories(caseDir).flatMap((folder) => {
+      const armDir = path.join(caseDir, folder);
+      const runs = directories(armDir).filter((name) => RUN_DIR.test(name));
+      if (runs.length === 0) return [];
+      const config = runs.map((run) => configOf(armDir, run)).find((name) => name !== null) ?? null;
+      const numbers = runs.map(runNumber).sort((a, b) => a - b);
+      return [{ case: entry.case, split: entry.split ?? null, folder, config, runs: numbers }];
+    });
+  });
+}
+
 // The scores of the workspace `ws`, as `report` and `power` read them. It stops when a key under `keys` changed after
 // `pairs`, when a candidate pair or a protected pair has no answer, or when a finding has neither a `match` answer nor
 // an adjudication. `<ws>/judgments-second.json`, when it exists, gives the agreement. `secondJudge` gives the items of
-// the second-judge sample and the items of them that judgments-second.json answers (see secondJudgeCoverage): the
-// sample is `<ws>/second-sample.json`, or without that file the sample that `sample` writes with its default seed.
-// `caseKinds` maps each case of pairs.json to its kind.
+// the second-judge sample and the items of them that judgments-second.json answers (see secondJudgeCoverage). The
+// sample is derived again from the current judgments.json, with the seed that `<ws>/second-sample.json` records (else
+// DEFAULT_SAMPLE_SEED), so an answer to an item that is no longer in the sample does not count, and a match that the
+// first judge added after the sample needs an answer too. `caseKinds` maps each case of pairs.json to its kind, and
+// `runPlan` is the run plan of the workspace (see readRunPlan).
 function workspaceScores(ws, keys) {
   const findings = readJson(path.join(ws, 'findings.json'), '; run score.mjs findings first');
   const pairs = readJson(path.join(ws, 'pairs.json'), '; run score.mjs pairs first');
@@ -3559,9 +3644,10 @@ function workspaceScores(ws, keys) {
   const second = fs.existsSync(secondFile) ? readJson(secondFile) : null;
   if (second) scores.agreement = judgeAgreement(judgments, second);
   const sampleFile = path.join(ws, 'second-sample.json');
-  const sample = fs.existsSync(sampleFile) ? readJson(sampleFile) : secondJudgeSample(judgments);
-  scores.secondJudge = secondJudgeCoverage(sample, second);
+  const seed = (fs.existsSync(sampleFile) ? readJson(sampleFile).seed : undefined) ?? DEFAULT_SAMPLE_SEED;
+  scores.secondJudge = secondJudgeCoverage(secondJudgeSample(judgments, { seed }), second);
   scores.caseKinds = new Map(pairs.cases.map((entry) => [entry.case, entry.kind]));
+  scores.runPlan = readRunPlan(ws, pairs);
   return scores;
 }
 
@@ -3739,9 +3825,10 @@ export function powerCommand(
 }
 
 // Writes `<ws>/second-sample.json`, the answers of judgments.json that the second judge answers again (see
-// secondJudgeSample): `pairs` (finding and known defect), `protectedPairs` (finding and protected decision), and
-// `findings` (finding ids to rate), without the answers of the first judge.
-export function sampleCommand(ws, { seed = 1 } = {}) {
+// secondJudgeSample): `seed`, `pairs` (finding and known defect), `protectedPairs` (finding and protected decision),
+// and `findings` (finding ids to rate), without the answers of the first judge. `report` derives the sample again
+// from the current judgments.json with this seed (see workspaceScores).
+export function sampleCommand(ws, { seed = DEFAULT_SAMPLE_SEED } = {}) {
   const sample = secondJudgeSample(loadJudgments(ws), { seed });
   writeJson(path.join(ws, 'second-sample.json'), sample);
   return sample;

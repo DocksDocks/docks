@@ -8947,6 +8947,18 @@ test('the report prints the batch drift of each A/A control arm with the two-sid
     drift(renderReport(mostlyControls, { margin: 4 }), 'dev')[2],
     /^\| AB3-xhigh-fast \| B3-xhigh-fast \| 6 \| 1 \| 0 \| .* \| too few cases with known defects \(1 of 6\) \|$/,
   );
+  // Six shared control cases and no case with known defects: the check names the count, not a missing interval.
+  const onlyControls = Object.fromEntries(
+    Array.from({ length: 6 }, (_, index) => [`code-${index + 1}`, { split: 'dev', known: [] }]),
+  );
+  const never = () => false;
+  const allControls = scoreRuns(
+    gridFixture(onlyControls, [...singleRuns('B3', 6, 1, never), ...singleRuns('AB3', 6, 1, never)]),
+  );
+  assert.match(
+    drift(renderReport(allControls, { margin: 4 }), 'dev')[2],
+    /^\| AB3-xhigh-fast \| B3-xhigh-fast \| 6 \| 0 \| 0 \| - \| - \| - \| too few cases with known defects \(0 of 6\) \|$/,
+  );
   // Without a margin, the report gives the drift values and no check.
   assert.match(drift(renderReport(scores), 'dev')[2], /\| \[0\.00, 0\.00\] \| 0\.00 \| - \| no margin \|$/);
   // A control copy is no configuration column: the configuration table counts the B3 and C3 runs only.
@@ -8966,60 +8978,97 @@ test('the report prints the batch drift of each A/A control arm with the two-sid
   assert.equal(withoutControl.includes('## Batch drift'), false);
 });
 
+// The run plan of the cases `caseIds` with the arm folders `folders` ([folder, configuration name]) and the runs 1 to
+// `runs` each, as readRunPlan reads it from the folders that prepare.mjs wrote.
+const runPlanOf = (caseIds, folders, runs, split = 'dev') =>
+  caseIds.flatMap((caseId) =>
+    folders.map(([folder, config]) => ({
+      case: caseId,
+      split,
+      folder,
+      config,
+      runs: Array.from({ length: runs }, (_, index) => index + 1),
+    })),
+  );
+const caseIdsOf = (count) => Array.from({ length: count }, (_, index) => `code-${index + 1}`);
+// The cells of the rows of a sequential table.
+const lookRows = (report, split = 'dev') =>
+  tableAfter(report, `### Sequential looks: ${split}`)
+    .slice(2)
+    .map((row) => row.slice(2, -2).split(' | '));
+
 test('each sequential look runs the betting test at the error that it spends, with the threshold 1 / error', (t) => {
   const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
+  const runPlan = runPlanOf(
+    caseIdsOf(60),
+    arms.map((folder) => [folder, 'xhigh-fast']),
+    4,
+  );
   const looks = (candidate, reference, options = { sequential: true }) => {
     const fixture = gridFixture(oneKnownCases(60), [
       ...singleRuns('B0', 60, 4, reference),
       ...singleRuns('C1', 60, 4, candidate),
     ]);
-    const report = renderReport(scoreRuns(fixture), { arms, reference: 'B0-xhigh-fast', margin: 4, ...options });
+    const scores = { ...scoreRuns(fixture), runPlan };
+    const report = renderReport(scores, { arms, reference: 'B0-xhigh-fast', margin: 4, ...options });
     const decision = tableAfter(report, '### Decision: dev').filter((row) => DECISION_ROW.test(row));
-    if (!options.sequential) return { decision };
-    const rows = tableAfter(report, '### Sequential looks: dev')
-      .slice(2)
-      .map((row) => row.slice(2, -2).split(' | '));
-    return { decision, rows };
+    return options.sequential ? { decision, rows: lookRows(report) } : { decision };
   };
   const always = () => true;
   const never = () => false;
   // Equal arms: each look has 60 cases without a difference. Their capital grows by 1 + 0.9 * 0.04 / 0.46 per case,
   // to about 92 after 60 cases: below the thresholds 11290 and 182 of looks 1 and 2. Look 3 has the threshold 55.4 and
-  // stops after ceil(ln 55.4 / ln(1 + 0.9 * 0.04 / 0.46)) = 54 cases with a pass.
+  // stops after ceil(ln 55.4 / ln(1 + 0.9 * 0.04 / 0.46)) = 54 cases with a pass. The not-better test is the mirror of
+  // the not-worse test, so the equivalence decision gives yes at look 3 too.
   const { decision, rows: equal } = looks(always, always);
-  // The sequential looks are the decision: the decision rows give no pass of their own at the threshold 20, which the
-  // same data reach without --sequential.
+  // The sequential looks are the decision: the decision rows give no result of their own at the threshold 20, which
+  // the same data reach without --sequential.
   assert.deepEqual(
     decision.map((row) => row.split(' | ').at(-1)),
-    ['see sequential looks |', 'see sequential looks |'],
+    ['see sequential looks: not-worse decision |', 'see sequential looks: equivalence decision |'],
   );
   assert.match(looks(always, always, {}).decision[0], /\| pass \(capital [\d.]+; threshold 20\) \|$/);
   assert.deepEqual(
-    equal.map((row) => [row[1], row[2], row[3], row[4], row[5], row[9]]),
+    equal.map((row) => [row[1], row[2], row[3], row[4], row[5], row[11], row[12]]),
     [
-      ['1', '60 / 60', '60', '0.0000886', '11290', 'continue'],
-      ['2', '120 / 120', '60', '0.00549', '182', 'continue'],
-      ['3', '180 / 180', '60', '0.0181', '55', 'pass: stop'],
-      ['4', '240 / 240', '60', '0.0264', '38', 'after the stop at look 3'],
+      ['1', '60 / 60', '60', '0.0000886', '11290', 'continue', 'continue'],
+      ['2', '120 / 120', '60', '0.00549', '182', 'continue', 'continue'],
+      ['3', '180 / 180', '60', '0.0181', '55', 'pass: stop', 'yes: stop'],
+      ['4', '240 / 240', '60', '0.0264', '38', 'after the stop at look 3', 'after the stop at look 3'],
     ],
   );
   const factor = 1 + (0.9 * 0.04) / 0.46;
   assert.equal(equal[0][7], (factor ** 60).toFixed(2));
+  assert.equal(equal[0][9], (factor ** 60).toFixed(2));
   const stopAt = Math.ceil(Math.log(1 / score.spendingIncrements(4)[2]) / Math.log(factor));
   assert.equal(stopAt, 54);
   assert.equal(equal[2][7], (factor ** stopAt).toFixed(2));
-  // A candidate that escapes D1 in every run of every case has e = 1: the worse test reaches 11290 at look 1.
+  // A candidate that escapes D1 in every run of every case has e = 1: the worse test reaches 11290 at look 1, so the
+  // not-worse decision fails and the equivalence decision gives no.
   const { rows: worse } = looks(never, always);
   assert.deepEqual(
-    worse.map((row) => [row[1], row[6], row[9]]),
+    worse.map((row) => [row[1], row[6], row[11], row[12]]),
     [
-      ['1', '50.00', 'fail: stop'],
-      ['2', '50.00', 'after the stop at look 1'],
-      ['3', '50.00', 'after the stop at look 1'],
-      ['4', '50.00', 'after the stop at look 1'],
+      ['1', '50.00', 'fail: stop', 'no: stop'],
+      ['2', '50.00', 'after the stop at look 1', 'after the stop at look 1'],
+      ['3', '50.00', 'after the stop at look 1', 'after the stop at look 1'],
+      ['4', '50.00', 'after the stop at look 1', 'after the stop at look 1'],
     ],
   );
-  // The command line takes --sequential as a switch with --reference and --margin.
+  // A candidate that finds D1 in every run where the reference escapes it has e = -1: the not-worse decision passes at
+  // look 1, but the better test also rejects there, so the equivalence decision gives no.
+  const { rows: better } = looks(always, never);
+  assert.deepEqual(
+    better.map((row) => [row[1], row[6], row[11], row[12]]),
+    [
+      ['1', '-50.00', 'pass: stop', 'no: stop'],
+      ['2', '-50.00', 'after the stop at look 1', 'after the stop at look 1'],
+      ['3', '-50.00', 'after the stop at look 1', 'after the stop at look 1'],
+      ['4', '-50.00', 'after the stop at look 1', 'after the stop at look 1'],
+    ],
+  );
+  // The command line takes --sequential as a switch with --reference and --margin, and reads the run plan from the
+  // run folders of the workspace.
   const ws = path.join(scratch(t), 'ws');
   const cliRuns = [...singleRuns('B0', 12, 2, always), ...singleRuns('C1', 12, 2, always)];
   writeFixture(ws, gridFixture(oneKnownCases(12), cliRuns));
@@ -9029,9 +9078,13 @@ test('each sequential look runs the betting test at the error that it spends, wi
   assert.throws(() => main([...cli, '--sequential']), {
     message: 'report --sequential needs --reference and --margin',
   });
+  const noPlan = scoreRuns(gridFixture(oneKnownCases(12), cliRuns));
+  assert.throws(() => renderReport(noPlan, { arms, reference: arms[0], margin: 4, sequential: true }), {
+    message: 'report --sequential needs the run plan of the workspace (the case, arm, and run folders of prepare.mjs)',
+  });
 });
 
-test('a sequential look decides only when each planned case has valid runs 1 to k in both columns', () => {
+test('a sequential look decides only when each run of the run plan has a valid run', (t) => {
   // 60 equal cases with 4 runs per column, which pass at look 3 when complete. C1 has no run 3 of code-5, and run 2
   // of B0 in code-9 is invalid: it has no transcript facts.
   const always = () => true;
@@ -9040,25 +9093,81 @@ test('a sequential look decides only when each planned case has valid runs 1 to 
   );
   const fixture = gridFixture(oneKnownCases(60), runs);
   fixture.metas['code-9/B0-xhigh-fast/run-2'].reviewers = {};
-  const scores = scoreRuns(fixture);
+  const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
+  const runPlan = runPlanOf(
+    caseIdsOf(60),
+    arms.map((folder) => [folder, 'xhigh-fast']),
+    4,
+  );
+  const scores = { ...scoreRuns(fixture), runPlan };
   const invalidRun = scores.runs.find(
     (run) => run.case === 'code-9' && run.arm === 'B0-xhigh-fast' && run.run === 'run-2',
   );
   assert.ok(invalidRun.invalid.length > 0);
-  const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
   const report = renderReport(scores, { arms, reference: 'B0-xhigh-fast', margin: 4, sequential: true });
-  const rows = tableAfter(report, '### Sequential looks: dev')
-    .slice(2)
-    .map((row) => row.slice(2, -2).split(' | '));
+  const missingBoth = 'incomplete look (code-5 C1-xhigh-fast run-3, code-9 B0-xhigh-fast run-2)';
   assert.deepEqual(
-    rows.map((row) => [row[1], row[2], row[9]]),
+    lookRows(report).map((row) => [row[1], row[2], row[11], row[12]]),
     [
-      ['1', '60 / 60', 'continue'],
-      ['2', '120 / 119', 'incomplete look (code-9 B0-xhigh-fast run-2)'],
-      ['3', '179 / 179', 'incomplete look (code-5 C1-xhigh-fast run-3, code-9 B0-xhigh-fast run-2)'],
-      ['4', '239 / 239', 'incomplete look (code-5 C1-xhigh-fast run-3, code-9 B0-xhigh-fast run-2)'],
+      ['1', '60 / 60', 'continue', 'continue'],
+      ['2', '120 / 119', ...Array(2).fill('incomplete look (code-9 B0-xhigh-fast run-2)')],
+      ['3', '179 / 179', missingBoth, missingBoth],
+      ['4', '239 / 239', missingBoth, missingBoth],
     ],
   );
+  // Two arms in one configuration: in the configuration high, B0 has run 2 of code-5 and C1 has not. The run of B0
+  // does not stand in for the run of C1, because the run plan names each arm folder.
+  const configRun = (arm, config, caseId, run) => ({
+    case: caseId,
+    config,
+    arm,
+    run,
+    single: true,
+    rounds: [[60, 600, null, 0, ['D1']]],
+  });
+  const configRuns = caseIdsOf(60).flatMap((caseId) =>
+    [1, 2].flatMap((run) => [
+      configRun('B0', 'xhigh-fast', caseId, run),
+      configRun('B0', 'high', caseId, run),
+      ...(caseId === 'code-5' && run === 2 ? [] : [configRun('C1', 'high', caseId, run)]),
+    ]),
+  );
+  const configPlan = runPlanOf(
+    caseIdsOf(60),
+    [
+      ['B0-xhigh-fast', 'xhigh-fast'],
+      ['B0-high', 'high'],
+      ['C1-high', 'high'],
+    ],
+    2,
+  );
+  const configScores = { ...scoreRuns(gridFixture(oneKnownCases(60), configRuns)), runPlan: configPlan };
+  const configReport = renderReport(configScores, {
+    configs: ['xhigh-fast', 'high'],
+    reference: 'xhigh-fast',
+    margin: 4,
+    sequential: true,
+  });
+  assert.deepEqual(
+    lookRows(configReport).map((row) => [row[0], row[1], row[11]]),
+    [
+      ['high', '1', 'continue'],
+      ['high', '2', 'incomplete look (code-5 C1-high run-2)'],
+    ],
+  );
+  // On a workspace, report reads the run plan from the run folders that prepare.mjs wrote: here the run folder of
+  // code-3/C1-xhigh-fast/run-2 exists without a run of the scores, so look 2 is incomplete.
+  const ws = path.join(scratch(t), 'ws');
+  const cliRuns = [...singleRuns('B0', 12, 2, always), ...singleRuns('C1', 12, 2, always)];
+  const cliFixture = gridFixture(
+    oneKnownCases(12),
+    cliRuns.filter((run) => !(run.arm === 'C1' && run.case === 'code-3' && run.run === 2)),
+  );
+  writeFixture(ws, cliFixture);
+  put(ws, 'code-3/C1-xhigh-fast/run-2/meta.json', { config: CONFIGS['xhigh-fast'] });
+  main(['report', ws, '--arms', arms.join(','), '--reference', arms[0], '--margin', '4', '--sequential']);
+  const cliRows = lookRows(readText(path.join(ws, 'report.md')));
+  assert.equal(cliRows[1][11], 'incomplete look (code-3 C1-xhigh-fast run-2)');
 });
 
 test('a deciding report holds its decisions until the second judge answers every item of its sample', (t) => {
@@ -9100,6 +9209,45 @@ test('a deciding report holds its decisions until the second judge answers every
   put(ws, 'judgments-second.json', { matches: [] });
   main(cli.slice(0, -2));
   assert.deepEqual(cells(), []);
+});
+
+test('a match that the first judge adds after the second judge answered its sample holds the decision', (t) => {
+  // 60 cases: both arms find D1 in code-1 to code-59 and escape it in code-60, so the sample holds 118 match answers.
+  const ws = path.join(scratch(t), 'ws');
+  const fixtureOf = (candidate) =>
+    gridFixture(oneKnownCases(60), [
+      ...singleRuns('B0', 60, 1, (index) => index < 59),
+      ...singleRuns('C1', 60, 1, candidate),
+    ]);
+  const before = fixtureOf((index) => index < 59);
+  writeFixture(ws, before);
+  main(['sample', ws, '--seed', '5']);
+  const sample = readJson(path.join(ws, 'second-sample.json'));
+  // The sample records its seed, so report can derive it again.
+  assert.equal(sample.seed, 5);
+  const answer = (judgments) => (pair) => judgments.matches.find((entry) => entry.finding === pair.finding);
+  put(ws, 'judgments-second.json', { matches: sample.pairs.map(answer(before.judgments)) });
+  const cli = ['report', ws, '--arms', 'B0-xhigh-fast,C1-xhigh-fast', '--reference', 'B0-xhigh-fast', '--margin', '4'];
+  const notWorse = () =>
+    tableAfter(readText(path.join(ws, 'report.md')), '### Decision: dev')
+      .find((row) => DECISION_ROW.test(row))
+      .split(' | ')
+      .at(-1)
+      .slice(0, -2);
+  main(cli);
+  assert.match(notWorse(), /^pass \(capital /);
+  // A later run of C1 finds D1 in code-60, and the first judge answers its finding with a match. The stored sample
+  // and its answers stay as they were, but the sample derived from the current answers holds the new match.
+  const after = fixtureOf(() => true);
+  writeFixture(ws, after);
+  main(cli);
+  assert.equal(notWorse(), 'second judge incomplete (118 of 119)');
+  // A new sample with the same seed and an answer for the new match let the test decide again.
+  main(['sample', ws, '--seed', '5']);
+  const current = readJson(path.join(ws, 'second-sample.json'));
+  put(ws, 'judgments-second.json', { matches: current.pairs.map(answer(after.judgments)) });
+  main(cli);
+  assert.match(notWorse(), /^pass \(capital /);
 });
 
 test('power prints the noise, the neutral-data limit, the corpus cases per reviewer, and a seeded size table', (t) => {
