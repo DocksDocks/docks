@@ -1,0 +1,15 @@
+{
+  "id": "code-31-s146",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 31,
+  "round": 1,
+  "base": "2b0bb1c92e10214613b9348cbdf42e1b6925bce5",
+  "head": "4d3263c531c33b6b84892349ad310e6baa25b4d3",
+  "plan": "code-31-s146-plan.md",
+  "patch": "code-31-s146.patch",
+  "external": [
+    "plan",
+    "patch"
+  ]
+}
