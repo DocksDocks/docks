@@ -2674,6 +2674,177 @@ test('case --keys reads the files of the external fields of a held-out case from
   );
 });
 
+// A bare remote whose main branch holds only the base commit of the loop repository and whose refs/pull/7/head holds
+// the case head, as GitHub keeps the head of a squash-merged pull request; its refs/pull/8/head holds the base only. The
+// clone of the remote lacks the head, and its `origin` is the path of the remote. `caseOptions` writes dev case code-7
+// (base, head, and `pull: 7`) with `fields` over it, where an undefined field leaves the field out, and gives the
+// options of `case`. `refs` lists the refs of the clone under a prefix with their commits.
+function pullFixture(t) {
+  const fixture = loopRepo(t);
+  const { root, repo, base, head, patches } = fixture;
+  const remote = path.join(root, 'remote.git');
+  gitIn(root, 'init', '-q', '--bare', '-b', 'main', remote);
+  gitIn(repo, 'push', '-q', remote, 'main');
+  gitIn(remote, 'update-ref', 'refs/pull/7/head', head);
+  gitIn(remote, 'update-ref', 'refs/pull/8/head', base);
+  gitIn(remote, 'update-ref', 'refs/heads/main', base);
+  const clone = path.join(root, 'clone');
+  // --no-local copies only the objects that the branches reach, as a clone from GitHub does.
+  gitIn(root, 'clone', '-q', '--no-local', remote, clone);
+  assert.notEqual(spawnSync('git', ['cat-file', '-e', `${head}^{commit}`], { cwd: clone }).status, 0);
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const project = path.join(root, 'project');
+  put(project, '.omp/agents/review-bench-configs.json', { configs: [CONFIGS.low], fixer: FIXER_SETTING });
+  put(cases, 'dev/code-7-plan.md', '# Plan 7\n');
+  put(cases, 'dev/code-7.D1.fix.patch', patches.D1);
+  const seeded = { category: 'bug', source: 'seeded' };
+  const caseData = {
+    id: 'code-7',
+    kind: 'code',
+    split: 'dev',
+    issue: 7,
+    pull: 7,
+    round: 1,
+    plan: 'code-7-plan.md',
+    base,
+    head,
+    known: [{ id: 'D1', locator: 'src/sync.mjs:5', ...seeded, summary: 'v5 is 0.', fix: 'code-7.D1.fix.patch' }],
+  };
+  const caseOptions = (fields = {}) => {
+    put(cases, 'dev/code-7.json', { ...caseData, ...fields });
+    return { case: path.join(cases, 'dev', 'code-7.json'), arms: 'C1', runs: '1', out: ws, configs: 'low', project };
+  };
+  const refs = (prefix) => gitIn(clone, 'for-each-ref', '--format=%(refname) %(objectname)', prefix).trim();
+  return { ...fixture, clone, ws, cases, caseDir: path.join(ws, 'code-7'), caseOptions, refs };
+}
+const FORK_NOTE = '(when origin is a fork, use the remote of DocksDocks/docks instead of origin)';
+const missingHead = (head, pull) =>
+  new RegExp(
+    escapeRegExp(
+      pull
+        ? `case code-7: head ${head} is not a commit in this repository, and refs/review-bench/pull/${pull} does not hold it; check that pull names the pull request whose head holds the commit, or fetch that head yourself: git fetch origin pull/${pull}/head:refs/review-bench/pull/${pull} ${FORK_NOTE}`
+        : `case code-7: head ${head} is not a commit in this repository; give the case a pull field that names the pull request whose head holds the commit, so that case fetches it, or fetch that head yourself: git fetch origin pull/<n>/head:refs/review-bench/pull/<n> ${FORK_NOTE}`,
+    ),
+  );
+
+test('case fetches the head of the pull request of a missing commit into refs/review-bench/pull/<n>', (t) => {
+  const { clone, head, caseDir, caseOptions, refs } = pullFixture(t);
+  prepare.prepareCase(caseOptions(), clone);
+  assert.equal(refs('refs/review-bench/pull'), `refs/review-bench/pull/7 ${head}`);
+  assert.equal(refs('refs/review-bench/incoming'), '');
+  assert.equal(readText(path.join(caseDir, 'snapshot', 'src', 'sync.mjs')), SYNC_HEAD);
+  assert.ok(changedLines(path.join(caseDir, 'full.diff')).includes('+export const v5 = 0;'));
+  assert.ok(fs.existsSync(path.join(caseDir, 'C1-low', 'run-1', 'prompts', 'full.txt')));
+});
+
+test('case stops on a missing commit of a case without pull, gives the fetch command, and writes no case folder', (t) => {
+  const { clone, head, caseDir, caseOptions, refs } = pullFixture(t);
+  assert.throws(() => prepare.prepareCase(caseOptions({ pull: undefined }), clone), missingHead(head));
+  assert.equal(fs.existsSync(caseDir), false);
+  assert.equal(refs('refs/review-bench'), '');
+});
+
+test('case stops when the head of the pull request of pull lacks the commit and writes no case folder', (t) => {
+  const { clone, base, head, caseDir, caseOptions, refs } = pullFixture(t);
+  assert.throws(() => prepare.prepareCase(caseOptions({ pull: 8 }), clone), missingHead(head, 8));
+  assert.equal(fs.existsSync(caseDir), false);
+  // The run keeps the fetched head and removes its incoming ref.
+  assert.equal(refs('refs/review-bench'), `refs/review-bench/pull/8 ${base}`);
+});
+
+test('case with pull runs no fetch when the repository holds every case commit', (t) => {
+  const { root, clone, caseDir, caseOptions, refs } = pullFixture(t);
+  gitIn(clone, 'fetch', '-q', 'origin', 'refs/pull/7/head:refs/heads/topic');
+  // A fetch from the remote would now fail.
+  gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
+  prepare.prepareCase(caseOptions(), clone);
+  assert.equal(readText(path.join(caseDir, 'snapshot', 'src', 'sync.mjs')), SYNC_HEAD);
+  assert.equal(refs('refs/review-bench'), '');
+});
+
+test('case does not fetch again or move an existing refs/review-bench/pull/<n> that lacks the commit of pull', (t) => {
+  const { root, clone, base, head, caseDir, caseOptions, refs } = pullFixture(t);
+  gitIn(clone, 'update-ref', 'refs/review-bench/pull/7', base);
+  // A fetch would fail with a git error instead of the message of the missing commit.
+  gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
+  assert.throws(() => prepare.prepareCase(caseOptions(), clone), missingHead(head, 7));
+  assert.equal(fs.existsSync(caseDir), false);
+  assert.equal(refs('refs/review-bench'), `refs/review-bench/pull/7 ${base}`);
+});
+
+test('validateCase takes pull only as a positive integer, on every kind', () => {
+  const code = { id: 'code-7', kind: 'code', split: 'dev', issue: 7, round: 1, plan: 'p.md', base: 'a', head: 'b' };
+  const plan = { id: 'plan-3', kind: 'plan', split: 'heldout', issue: 3, round: 1, plan: 'p.md', repo_ref: 'c' };
+  for (const caseData of [{ ...code, known: [] }, plan]) {
+    assert.equal(prepare.validateCase({ ...caseData, pull: 45 }).pull, 45);
+    for (const pull of [0, -1, 1.5, '45', null]) {
+      assert.throws(
+        () => prepare.validateCase({ ...caseData, pull }),
+        { message: `case ${caseData.id}: pull must be a positive integer` },
+      );
+    }
+  }
+});
+
+test('loop round 1 resolves the head that case fetched from the pull request of pull', (t) => {
+  const { root, clone, ws, caseOptions } = pullFixture(t);
+  prepare.prepareCase({ ...caseOptions(), loop: true }, clone);
+  // The saved ref keeps the head through git gc, and loop fetches nothing.
+  gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
+  gitIn(clone, 'gc', '-q', '--prune=now');
+  const run = path.join(ws, 'code-7', 'C1-low', 'run-1');
+  put(run, 'round-1/blocks/full.md', LOOP_ROUND_1);
+  findingsCommand(ws);
+  judgeLoop(ws, [
+    [`${LOOP_R1}#1`, 'wrong', 'The callers do not divide by b.'],
+    [`${LOOP_R1}#2`, 'wrong', 'README.md:1 names the module.'],
+    [`${LOOP_R1}#3`, 'D1'],
+  ]);
+  const round2 = path.join(run, 'round-2');
+  assert.equal(prepare.prepareLoop({ run, cases: path.join(root, 'cases') }, clone), round2);
+  assert.equal(readText(path.join(round2, 'snapshot', 'src', 'sync.mjs')), SYNC_D1);
+});
+
+// A case commit that origin/main does not reach, such as a commit of a squash-merged pull request, is missing from a
+// fresh clone, so its case needs `pull`. The test reads only the commit fields, `pull`, and `id` of each case file.
+test('every case with a commit that origin/main does not reach names its pull request in pull', () => {
+  const live = path.join(import.meta.dirname, '../../..');
+  const liveGit = (...args) => spawnSync('git', args, { cwd: live, encoding: 'utf8' });
+  assert.notEqual(
+    liveGit('rev-parse', '--is-shallow-repository').stdout.trim(),
+    'true',
+    'the repository is shallow, so the test cannot tell which case commits origin/main reaches; run git fetch --unshallow',
+  );
+  assert.equal(
+    liveGit('rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main^{commit}').status,
+    0,
+    'the repository has no origin/main, so the test cannot tell which case commits it reaches; run git fetch origin main',
+  );
+  const reached = new Map();
+  const reaches = (commit) => {
+    if (!reached.has(commit)) {
+      reached.set(commit, liveGit('merge-base', '--is-ancestor', commit, 'refs/remotes/origin/main').status === 0);
+    }
+    return reached.get(commit);
+  };
+  const unreached = [];
+  for (const split of ['dev', 'heldout']) {
+    const dir = path.join(live, '.agents/skills/review-benchmark/cases', split);
+    const caseFiles = fs.readdirSync(dir).filter((name) => name.endsWith('.json') && !name.endsWith('.key.json'));
+    for (const name of caseFiles.sort()) {
+      const { id, base, head, delta_base: deltaBase, repo_ref: repoRef, pull } = readJson(path.join(dir, name));
+      const commits = [base, head, deltaBase, repoRef].filter(Boolean);
+      if (pull === undefined && commits.some((commit) => !reaches(commit))) unreached.push(id);
+    }
+  }
+  assert.deepEqual(
+    unreached,
+    [],
+    `these cases name a commit that origin/main does not reach and have no pull field: ${unreached.join(', ')}`,
+  );
+});
+
 test('round folders get dispatch names of their own, and names and transcripts work on them', (t) => {
   assert.equal(dispatchName('code-7', 'C1-low', 'run-1', 'delta', 2), 'Code7C1LowR1K2Delta');
   assert.equal(dispatchName('code-7', 'C1-low', 'run-1', 'delta'), 'Code7C1LowR1Delta');

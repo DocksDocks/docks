@@ -20,7 +20,8 @@
 //   node prepare.mjs clean [--project <dir>]
 //
 // ../SKILL.md describes the case schema, the configurations, the arms, the workspace layout, the review loop, and the
-// manager stage. The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun.
+// manager stage. The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun. Its one fetch
+// is in `case`: the head of the pull request of a case (`pull`) when a case commit is missing (see caseCommits).
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -431,6 +432,9 @@ export function validateCase(caseData) {
   if (Object.hasOwn(caseData, 'control') && typeof caseData.control !== 'boolean') {
     fail(`case ${id}: control must be true or false`);
   }
+  // The pull request whose head holds a case commit that origin/main does not reach (see caseCommits).
+  if (Object.hasOwn(caseData, 'pull') && (!Number.isInteger(caseData.pull) || caseData.pull < 1))
+    fail(`case ${id}: pull must be a positive integer`);
   if (split === 'heldout') {
     if (Object.hasOwn(caseData, 'known')) fail(`held-out case ${id} lists known defects; move them to ${id}.key.json`);
     // A reviewer can search the checkout, and the protected decisions show what the case tests, so they stay with the
@@ -683,12 +687,18 @@ function repoRoot() {
   return git(path.dirname(SCRIPT_PATH), ['rev-parse', '--show-toplevel']).toString().trim();
 }
 
-function resolveCommit(repo, ref, label) {
+// The commit of `ref`, or null when `ref` names no commit in `repo`.
+function commitOf(repo, ref) {
   const result = runGit(repo, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
-  if (result.status !== 0) {
+  return result.status === 0 ? result.stdout.toString().trim() : null;
+}
+
+function resolveCommit(repo, ref, label) {
+  const commit = commitOf(repo, ref);
+  if (!commit) {
     fail(`${label} ${ref} is not a commit in this repository; fetch it first, for example: git fetch origin ${ref}`);
   }
-  return result.stdout.toString().trim();
+  return commit;
 }
 
 const DIFF_FLAGS = [
@@ -919,13 +929,68 @@ function caseSources(caseData, caseFolder, keys) {
   return sources;
 }
 
-// The commits of the case fields that name one.
+// The case fields that name a commit.
+const COMMIT_FIELDS = ['base', 'head', 'delta_base', 'repo_ref'];
+// `case` saves the head of the pull request `<n>` of a case (`pull`) at `${PULL_REF}<n>`. git fetch --prune removes no
+// ref outside the fetch refspecs, git gc keeps every object that a ref reaches, and the script never moves a saved ref,
+// so every commit that the ref reached stays in the repository.
+const PULL_REF = 'refs/review-bench/pull/';
+// The ref that one `case` run fetches into, before it saves the head at PULL_REF. The process id keeps a parallel run
+// from changing what this run saves.
+const INCOMING_REF = 'refs/review-bench/incoming/';
+const FORK_NOTE = 'when origin is a fork, use the remote of DocksDocks/docks instead of origin';
+
+// The commits of the case fields that name one. When a commit is missing and the case has `pull`, the head of that pull
+// request holds it: `case` fetches the head once (see fetchPull) and resolves every commit again. A missing commit
+// stops the script before it writes a workspace file.
 function caseCommits(repo, caseData) {
-  const commits = {};
-  for (const field of ['base', 'head', 'delta_base', 'repo_ref']) {
-    if (caseData[field]) commits[field] = resolveCommit(repo, caseData[field], `${caseData.id} ${field}`);
+  const fields = COMMIT_FIELDS.filter((field) => caseData[field]);
+  const resolve = () => Object.fromEntries(fields.map((field) => [field, commitOf(repo, caseData[field])]));
+  let commits = resolve();
+  if (caseData.pull && fields.some((field) => !commits[field])) {
+    fetchPull(repo, caseData);
+    commits = resolve();
   }
+  const missing = fields.find((field) => !commits[field]);
+  if (missing) fail(missingCommitMessage(caseData, missing));
   return commits;
+}
+
+// Saves the head of the pull request `pull` of a case at refs/review-bench/pull/<pull>, unless that ref exists. The
+// fetch goes to a ref of this run only, and `git update-ref` with an empty old value creates the saved ref only when
+// it does not exist, so a saved ref never moves. When a parallel run saved the ref first, this run reads its ref.
+function fetchPull(repo, { id, pull }) {
+  const saved = `${PULL_REF}${pull}`;
+  if (runGit(repo, ['show-ref', '--verify', '--quiet', saved]).status === 0) return;
+  const incoming = `${INCOMING_REF}${pull}-${process.pid}`;
+  const fetchArgs = ['fetch', '--no-tags', '--no-write-fetch-head', 'origin', `+refs/pull/${pull}/head:${incoming}`];
+  const fetched = runGit(repo, fetchArgs);
+  if (fetched.status !== 0) {
+    fail(
+      `case ${id}: git ${fetchArgs.join(' ')} failed: ${fetched.stderr.toString().trim()}; fetch the head of pull request ${pull} yourself: ${pullFetchCommand(pull)} (${FORK_NOTE})`,
+    );
+  }
+  let created;
+  try {
+    created = runGit(repo, ['update-ref', saved, git(repo, ['rev-parse', '--verify', incoming]).toString().trim(), '']);
+  } finally {
+    git(repo, ['update-ref', '-d', incoming]);
+  }
+  if (created.status !== 0 && !commitOf(repo, saved)) {
+    fail(`case ${id}: git update-ref ${saved} failed: ${created.stderr.toString().trim()}`);
+  }
+}
+
+const pullFetchCommand = (pull) => `git fetch origin pull/${pull}/head:${PULL_REF}${pull}`;
+
+// The stop message of a case commit that the repository does not hold.
+function missingCommitMessage(caseData, field) {
+  const { id, pull } = caseData;
+  const head = `case ${id}: ${field} ${caseData[field]} is not a commit in this repository`;
+  if (!pull) {
+    return `${head}; give the case a pull field that names the pull request whose head holds the commit, so that case fetches it, or fetch that head yourself: ${pullFetchCommand('<n>')} (${FORK_NOTE})`;
+  }
+  return `${head}, and ${PULL_REF}${pull} does not hold it; check that pull names the pull request whose head holds the commit, or fetch that head yourself: ${pullFetchCommand(pull)} (${FORK_NOTE})`;
 }
 
 // Reads the reviewed tree of a case into the index of `env`: the head commit (for a plan kind, the repo_ref commit)
