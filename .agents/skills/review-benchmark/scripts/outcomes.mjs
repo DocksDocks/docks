@@ -11,7 +11,6 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-const LIST_LIMIT = '1000';
 const MAX_OUTPUT = 256 * 1024 * 1024;
 // A revert names this word in its title, body, or commit message.
 const REVERT_MARKER = /\brevert/i;
@@ -38,51 +37,139 @@ function gh(args) {
 
 // The closed plan issues, all issues, all pull requests, and the commits of the default branch of `repo`.
 export function fetchRepository(repo, run = gh) {
-  const json = (args) => JSON.parse(run(args));
-  const plans = json([
-    'issue',
-    'list',
-    '--repo',
-    repo,
-    '--label',
-    'plan',
-    '--state',
-    'closed',
-    '--limit',
-    LIST_LIMIT,
-    '--json',
-    'number,title,closedAt,closedByPullRequestsReferences',
-  ]);
-  const issues = json([
-    'issue',
-    'list',
-    '--repo',
-    repo,
-    '--state',
-    'all',
-    '--limit',
-    LIST_LIMIT,
-    '--json',
-    'number,title,body,createdAt,labels',
-  ]);
-  const pulls = json([
-    'pr',
-    'list',
-    '--repo',
-    repo,
-    '--state',
-    'all',
-    '--limit',
-    LIST_LIMIT,
-    '--json',
-    'number,title,body,createdAt,mergedAt,mergeCommit,labels',
-  ]);
+  const nodes = (connection, fields, args = '') => {
+    const query = `query($owner: String!, $name: String!, $endCursor: String) {
+      repository(owner: $owner, name: $name) {
+        ${connection}(first: 100, after: $endCursor${args}) {
+          nodes { ${fields} }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }`;
+    return run([
+      'api',
+      'graphql',
+      '--paginate',
+      '-F',
+      `owner=${repo.split('/')[0]}`,
+      '-F',
+      `name=${repo.split('/')[1]}`,
+      '-f',
+      `query=${query}`,
+      '--jq',
+      `.data.repository.${connection}.nodes[]`,
+    ])
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  };
+  const plans = nodes(
+    'issues',
+    `number title closedAt closedByPullRequestsReferences(first: 100) {
+      nodes { number repository { name owner { login } } }
+      referencePage: pageInfo { hasNextPage endCursor }
+    }`,
+    ', labels: ["plan"], states: [CLOSED]',
+  );
+  // The alias keeps gh --paginate from using this nested cursor for the outer issue connection.
+  for (const plan of plans) {
+    const refs = plan.closedByPullRequestsReferences;
+    let cursor = refs.referencePage;
+    while (cursor.hasNextPage) {
+      const query = `query($owner: String!, $name: String!, $cursor: String!) {
+        repository(owner: $owner, name: $name) {
+          issue(number: ${plan.number}) {
+            closedByPullRequestsReferences(first: 100, after: $cursor) {
+              nodes { number repository { name owner { login } } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }
+      }`;
+      const page = JSON.parse(
+        run([
+          'api',
+          'graphql',
+          '-F',
+          `owner=${repo.split('/')[0]}`,
+          '-F',
+          `name=${repo.split('/')[1]}`,
+          '-F',
+          `cursor=${cursor.endCursor}`,
+          '-f',
+          `query=${query}`,
+        ]),
+      ).data.repository.issue.closedByPullRequestsReferences;
+      refs.nodes.push(...page.nodes);
+      cursor = page.pageInfo;
+    }
+    plan.closedByPullRequestsReferences = refs.nodes;
+  }
+  const issues = nodes('issues', 'number title body createdAt labels(first: 100) { nodes { name } }');
+  const pulls = nodes(
+    'pullRequests',
+    'number title body createdAt mergedAt mergeCommit { oid } labels(first: 100) { nodes { name } }',
+  );
+  for (const item of [...issues, ...pulls]) item.labels = item.labels.nodes;
   const jq = '.[] | {sha: .sha, message: .commit.message, date: .commit.committer.date}';
   const commits = run(['api', '--paginate', `repos/${repo}/commits?per_page=100`, '--jq', jq])
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line));
   return { plans, issues, pulls, commits };
+}
+
+// A closing reference names a pull request of `repo`, or of the same repository when it names none.
+function sameRepository(ref, repo) {
+  const [owner, name] = repo.toLowerCase().split('/');
+  return (
+    !ref.repository ||
+    (ref.repository.owner?.login?.toLowerCase() === owner && ref.repository.name?.toLowerCase() === name)
+  );
+}
+
+// The work of the plans: each closed plan issue, each open issue with the `plan` label, and each pull request that
+// closed a plan. A later plan that cites an earlier plan is such work, not a defect of the earlier plan.
+function planWork({ repo, plans, issues }) {
+  return new Set([
+    ...plans.flatMap((plan) => [
+      plan.number,
+      ...(plan.closedByPullRequestsReferences ?? [])
+        .filter((ref) => sameRepository(ref, repo))
+        .map((ref) => ref.number),
+    ]),
+    ...issues.filter((item) => labelNames(item).includes('plan')).map((item) => item.number),
+  ]);
+}
+
+// The follow-up rule on frozen data. `landed` includes every merged pull request that closed the plan, not just the
+// last one: a defect can cite only an earlier landing pull request. Plan work (see planWork) is no defect, also with a
+// defect title or the `Unreached:` marker; `unreached` still lists every cited issue with that marker.
+export function followUpsOf(plan, landed, { repo, plans, issues, pulls }, reverts = []) {
+  const since = landed.at(-1)?.mergedAt ?? plan.closedAt ?? null;
+  const revertIds = new Set(reverts);
+  const own = new Set([plan.number, ...landed.map((pull) => pull.number)]);
+  const work = planWork({ repo, plans, issues });
+  const candidates = [
+    ...issues.map((item) => ({ ...item, type: 'issue' })),
+    ...pulls.map((item) => ({ ...item, type: 'pull' })),
+  ].filter(
+    (item) =>
+      !own.has(item.number) &&
+      !revertIds.has(`#${item.number}`) &&
+      after(item, since) &&
+      [...own].some((number) => cites(textOf(item), repo, number)),
+  );
+  const unreached = candidates.filter((item) => item.type === 'issue' && UNREACHED_MARKER.test(item.body ?? ''));
+  const unreachedIds = new Set(unreached.map((item) => item.number));
+  const defects = candidates.filter(
+    (item) =>
+      !work.has(item.number) &&
+      (unreachedIds.has(item.number) ||
+        labelNames(item).some((label) => DEFECT_LABEL.test(label)) ||
+        DEFECT_TITLE.test(item.title ?? '')),
+  );
+  return { defects, unreached };
 }
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -124,46 +211,29 @@ function revertsOf(pull, { repo, pulls, commits }) {
   return [...revertPulls.map((other) => `#${other.number}`), ...revertCommits.map((commit) => commit.sha.slice(0, 12))];
 }
 
+// The merged pull requests of `repo` that closed `plan`, by merge time: the landing pull requests that the follow-up
+// rule takes. `pullByNumber` maps each pull request number to its pull request.
+export function landedPulls(plan, repo, pullByNumber) {
+  return (plan.closedByPullRequestsReferences ?? [])
+    .filter((ref) => sameRepository(ref, repo))
+    .map((ref) => pullByNumber.get(ref.number))
+    .filter((pull) => pull?.mergedAt)
+    .sort((a, b) => (a.mergedAt < b.mergedAt ? -1 : 1));
+}
+
 // The outcome of each closed plan issue, in issue-number order. `landing` is the last merged pull request that closed
 // the plan. A follow-up defect is an issue or a pull request, created after the landing merge (or after the plan
-// closed, without a landing pull request), that cites a landing pull request or the plan, is not a revert, and has a
-// defect label, a defect title, or the `Unreached:` marker.
+// closed, without a landing pull request), that cites a landing pull request or the plan, is not a revert, is no plan
+// work, and has a defect label, a defect title, or the `Unreached:` marker.
 export function planOutcomes({ repo, plans, issues, pulls, commits }) {
   const pullByNumber = new Map(pulls.map((pull) => [pull.number, pull]));
-  const [owner, name] = repo.toLowerCase().split('/');
   return [...plans]
     .sort((a, b) => a.number - b.number)
     .map((plan) => {
-      const landed = (plan.closedByPullRequestsReferences ?? [])
-        .filter(
-          (ref) =>
-            !ref.repository ||
-            (ref.repository.owner?.login?.toLowerCase() === owner && ref.repository.name?.toLowerCase() === name),
-        )
-        .map((ref) => pullByNumber.get(ref.number))
-        .filter((pull) => pull?.mergedAt)
-        .sort((a, b) => (a.mergedAt < b.mergedAt ? -1 : 1));
+      const landed = landedPulls(plan, repo, pullByNumber);
       const landing = landed.at(-1) ?? null;
-      const since = landing?.mergedAt ?? plan.closedAt ?? null;
       const reverts = [...new Set(landed.flatMap((pull) => revertsOf(pull, { repo, pulls, commits })))];
-      const revertIds = new Set(reverts);
-      const own = new Set([plan.number, ...landed.map((pull) => pull.number)]);
-      const citesWork = (item) =>
-        [plan.number, ...landed.map((pull) => pull.number)].some((n) => cites(textOf(item), repo, n));
-      const candidates = [
-        ...issues.map((item) => ({ ...item, type: 'issue' })),
-        ...pulls.map((item) => ({ ...item, type: 'pull' })),
-      ].filter(
-        (item) => !own.has(item.number) && !revertIds.has(`#${item.number}`) && after(item, since) && citesWork(item),
-      );
-      const unreached = candidates.filter((item) => item.type === 'issue' && UNREACHED_MARKER.test(item.body ?? ''));
-      const unreachedIds = new Set(unreached.map((item) => item.number));
-      const defects = candidates.filter(
-        (item) =>
-          unreachedIds.has(item.number) ||
-          labelNames(item).some((label) => DEFECT_LABEL.test(label)) ||
-          DEFECT_TITLE.test(item.title ?? ''),
-      );
+      const { defects, unreached } = followUpsOf(plan, landed, { repo, plans, issues, pulls }, reverts);
       return {
         plan: plan.number,
         title: plan.title,

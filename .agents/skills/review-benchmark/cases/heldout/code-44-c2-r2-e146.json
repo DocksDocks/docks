@@ -1,0 +1,14 @@
+{
+  "id": "code-44-c2-r2-e146",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 44,
+  "round": 2,
+  "cycle": 2,
+  "base": "996db4197b56680d628b889bd636ce2817a796b5",
+  "head": "348af213cd48a938f2f8c98c2b4c8fbfb138bce9",
+  "plan": "code-44-c2-r2-e146-plan.md",
+  "external": [
+    "plan"
+  ]
+}

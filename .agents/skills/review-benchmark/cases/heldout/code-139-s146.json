@@ -1,0 +1,15 @@
+{
+  "id": "code-139-s146",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 139,
+  "round": 1,
+  "base": "ec02003759d3ec5853e7a8a27e8670f78cef4043",
+  "head": "14d3ddbda5f4883607145cedfb4ebab9bfadb3c7",
+  "plan": "code-139-s146-plan.md",
+  "patch": "code-139-s146.patch",
+  "external": [
+    "plan",
+    "patch"
+  ]
+}

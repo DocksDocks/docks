@@ -1451,3 +1451,77 @@ With `--reviewer plan-reviewer` (the 44 held-out `plan-reviewer` cases, with the
 - The size table agrees with the research of the plan: about 48 cases at 2 runs and 45 at 4 runs at margin 4. The 23 held-out `code-reviewer` cases are below the neutral-data limit, and the 44 `plan-reviewer` cases are just below the 80% line at margin 4 even with 4 runs.
 - `score.mjs` cuts the bet of the not-worse side at 0.9 / (1 - m), as Waudby-Smith and Ramdas do, so one case keeps at least 0.1 of the capital. At margin 4, cases without a difference then pass from 40 cases, and cases with e = -1 from 5 cases; the unit tests pin both counts. The research simulation of the plan cut that side at 0.9 / m, which gives capitals of about 10.2 for 36 cases without a difference and 13.0 for 4 cases with e = -1.
 - Limits: the detection rates come from the 30 defects of 12 dev code cases. The simulation applies them to the plan cases too [INFERENCE: plan detection rates are like code detection rates].
+
+## Run 2026-11-18: plan #146 corpus growth
+
+Plan DocksDocks/docks#146 grew the held-out corpus to the decision floor of 48 cases with known defects for each reviewer. It drew production escapes first, by the rules C1 to C9 of `SKILL.md` (Cases), and filled the remaining `code-reviewer` gap with seeded cases (C6). No reviewer ran on a candidate.
+
+### Draw
+
+From the frozen part of `cases/escape-draw.md`:
+
+- Cutoff (exclusive): 2026-11-18T03:58:00.000Z
+- Seed: `146-2026-11-18-2`
+- Script commit of `escapes.mjs`: `841e5a0752721613e45b496708e079b5687f6309`
+- Source snapshot SHA-256: `9f8de17b39e9cf2d103e564cb552b80462a438c72ae356690316465d94bbb22b`
+- Restricted frozen record SHA-256: `e7a620cb461847c000aa6cf3a108f5b2792f1ddac191fe27dc3110e35855dcb9`
+- Units: 20 dev (8 `code`, 4 `code-delta`, 6 `plan`, 2 `plan-delta`) and 35 held-out (14 `code`, 8 `code-delta`, 9 `plan`, 4 `plan-delta`).
+
+### Outcomes
+
+From the `## Outcomes` section of the manifest. Reasons (C3): (a) the finding is on lines that the missed round did not see; (b) no later round confirms the fix; (c) the base, head, or plan body of the round cannot be rebuilt; (d) a case for the round existed before the cutoff; (e) a follow-up item that is no defect of this plan.
+
+| Split | Units | Taken | Rejected (a) | Rejected (b) | Rejected (c) | Rejected (d) | Rejected (e) | Pending |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| dev | 20 | 5 | 5 | 0 | 0 | 9 | 1 | 0 |
+| heldout | 35 | 16 | 15 | 0 | 0 | 4 | 0 | 0 |
+
+The manifest gives each dev outcome in full. Seeded cases (C6): 13 new held-out `code` cases, with 37 planted known defects in all, 2 or 3 per case. No seeded plan case was needed.
+
+### Corpus
+
+`node .agents/skills/review-benchmark/scripts/score.mjs corpus --cases .agents/skills/review-benchmark/cases --keys <keys folder>`:
+
+| Reviewer | Split | Cases with known defects | Distinct plans |
+|---|---|---:|---:|
+| code-reviewer | dev | 18 | 11 |
+| code-reviewer | held-out | 48 | 30 |
+| plan-reviewer | dev | 20 | 11 |
+| plan-reviewer | held-out | 48 | 38 |
+
+- Seeded share of the held-out `code-reviewer` cases with known defects: 21 of 48 (0.44), the 8 earlier seeded cases and the 13 new ones. A code case is seeded when its `patch` plants its defects.
+- Seeded share of the held-out `plan-reviewer` cases with known defects: no new plan case is seeded, and the 4 new ones carry `seeded: false`. The 44 earlier plan cases do not carry the field, so the report gives `-` for a table that includes them.
+
+### Limits
+
+- C9 exception of this draw: the manager and the case builder read the candidates of the first draw before the follow-up rule of `escapes.mjs` was fixed, and the rule that gives each follow-up item to one plan was written after that reading. No unit was chosen by its outcome, but this draw does not keep the full rule that no candidate is read before the draw is fixed. Later draws keep the full rule.
+- Assumption S has two known limits (C4): the cases of one plan are related rounds and need not be independent draws (30 and 38 distinct plans hold the 48 cases of each reviewer), and the 12 plans that are in both splits stay there, because the held-out set is frozen.
+- No new `power` table: `score.mjs power` needs an A/A workspace, and the size table waits for the first A/A pilot on the grown corpus. The table of the plan #135 pilot assumed the detection rates of its dev code cases.
+- The held-out keys, the source snapshot, and the restricted draw record stay in the keys folder (`$XDG_STATE_HOME/docks/review-bench/keys/`), outside the repository, until the first decision on the new held-out set. A later plan then publishes them, and the hashes above make them checkable.
+
+### Addendum 2026-11-18: the third draw
+
+Code-review round 1 of plan #146 found defects in the draw rules of `escapes.mjs` (C10): a finding was paired with the last round of an earlier review cycle; an old-format review counted as a fix confirmation even when it repeated the finding; the attribution of a follow-up item saw only the last landing pull request of a plan; and an outcome could name a case of another round or kind. The fixed scripts of commit `67d54713` ran the third draw on the same snapshot, with the same cutoff and seed. The draw ran from a `git archive` of that commit, and `draw --commit` refuses scripts whose blobs differ from the commit. The keys folder keeps the second draw's record and manifest for the audit.
+
+- Frozen part of `cases/escape-draw.md`: cutoff 2026-11-18T03:58:00.000Z, seed `146-2026-11-18-2`, snapshot script commit `841e5a0752721613e45b496708e079b5687f6309`, draw script commit `67d54713d039cd72f52ee41b31b1c94e3ea64f1a`, source snapshot SHA-256 `9f8de17b39e9cf2d103e564cb552b80462a438c72ae356690316465d94bbb22b`, restricted frozen record SHA-256 `d8f8186c776d5292eb6b3c3a6192a366fb8bdac888cf4f0d50b9bb056609ad1c`.
+- Result: 53 units in place of 55. No unit was added, and no remaining unit changed. Two held-out units dropped out: one `code` unit that was taken (a cross-cycle pairing) and one `plan` unit that was rejected (its review comments were posted out of round order, so the fixed rule sees two cycles). Units: 20 dev (8 `code`, 4 `code-delta`, 6 `plan`, 2 `plan-delta`) and 33 held-out (13 `code`, 8 `code-delta`, 8 `plan`, 4 `plan-delta`).
+
+| Split | Units | Taken | Rejected (a) | Rejected (b) | Rejected (c) | Rejected (d) | Rejected (e) | Pending |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| dev | 20 | 5 | 5 | 0 | 0 | 9 | 1 | 0 |
+| heldout | 33 | 15 | 14 | 0 | 0 | 4 | 0 | 0 |
+
+- The case of the dropped taken unit was removed with its key, inputs, and fix patches, and the outcome files of both dropped units went to the trash. One more seeded `code` case came from the next eligible plan of the frozen seeded order (C6). This plan now has 14 seeded held-out `code` cases, with 40 planted known defects in all, 2 or 3 per case.
+
+`node .agents/skills/review-benchmark/scripts/score.mjs corpus --cases .agents/skills/review-benchmark/cases --keys <keys folder>`:
+
+| Reviewer | Split | Cases with known defects | Distinct plans |
+|---|---|---:|---:|
+| code-reviewer | dev | 18 | 11 |
+| code-reviewer | held-out | 48 | 31 |
+| plan-reviewer | dev | 20 | 11 |
+| plan-reviewer | held-out | 48 | 38 |
+
+- Seeded share of the held-out `code-reviewer` cases with known defects: 22 of 48 (0.46), the 8 earlier seeded cases and the 14 of this plan. The `plan-reviewer` share is unchanged: no plan case is seeded, and the report gives `-` while the 44 earlier plan cases do not carry `seeded`.
+- The C9 limit extends to this draw: the candidates of the first and second draws were read before the rule fixes of round 1, so this draw also does not keep the full rule that no candidate is read before the draw is fixed. No reviewer ran on a candidate, and no unit was chosen by its outcome.
+- Acceptance A4 now extracts the scripts of the draw script commit of the manifest with `git archive` and runs them with `--commit`, so it reproduces the frozen part with the code that drew it. On the third draw it printed the frozen part byte for byte, and the frozen record hash matched the manifest.

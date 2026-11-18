@@ -1,0 +1,17 @@
+{
+  "id": "code-134-r4-e146",
+  "kind": "code-delta",
+  "split": "heldout",
+  "issue": 134,
+  "round": 4,
+  "cycle": 1,
+  "base": "ea4f683f3204a45a408b9c3336c21af3547fdd81",
+  "delta_base": "9c76348923ec73d4a4ae03cf2700c54f75fc2ace",
+  "head": "77dc17f186e717ddf31eb72d06843964060eb603",
+  "plan": "code-134-r4-e146-plan.md",
+  "previous_review": "code-134-r4-e146-previous-review.md",
+  "external": [
+    "plan",
+    "previous_review"
+  ]
+}
