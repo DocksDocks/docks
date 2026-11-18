@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9393,6 +9394,7 @@ test('power prints the noise, the neutral-data limit, the corpus cases per revie
     ],
     missingKeys: 2,
     knownCounts: { code: { dev: [1], heldout: [3] }, plan: { dev: [2], heldout: [2, 14] } },
+    plans: { code: { dev: [], heldout: [] }, plan: { dev: [], heldout: [] } },
   });
   // With a keys folder, every held-out key comes from it, as for pairs and report: the key of code-17 exists only
   // there. The pilot cases have no key in it, so `--keys` also leaves the pilot as it is.
@@ -9405,6 +9407,7 @@ test('power prints the noise, the neutral-data limit, the corpus cases per revie
     ],
     missingKeys: 3,
     knownCounts: { code: { dev: [1], heldout: [3, 1] }, plan: { dev: [2], heldout: [] } },
+    plans: { code: { dev: [], heldout: [] }, plan: { dev: [], heldout: [] } },
   });
   // The pilot cases are code cases, so the simulation draws from the held-out code-reviewer cases only: the plan case
   // with 14 known defects stays out. The detection rates of the 4 pilot defects are 0.5, 0.5, 1, and 1 (one run of
@@ -10167,9 +10170,7 @@ test('escape frozen record and manifest are byte-stable and reveal no held-out u
   const second = escapes.buildDraw(JSON.parse(escapes.frozenJson(fixture)), 'test');
   assert.equal(escapes.frozenJson(first.record), escapes.frozenJson(second.record));
   assert.equal(first.manifest, second.manifest);
-  assert.match(first.manifest, /DEV_FINDING/);
-  assert.match(first.manifest, /DEV_CODE/);
-  assert.doesNotMatch(first.manifest, /SECRET|10-code|10-plan|"issue": 10|heldout-10/);
+  assert.doesNotMatch(first.manifest, /SECRET|10-code|10-plan|"issue": 10|heldout-10|#10\b/);
   assert.match(first.manifest, /\| heldout \| code-delta \| 1 \|/);
   const hashes = first.record.frozen.seeded_plans.map((item) => item.hash);
   const reordered = structuredClone(fixture);
@@ -10353,4 +10354,162 @@ test('escape review sequences break equal comment times by round number, not com
       ['plan', 1],
     ],
   );
+});
+
+// C9: a plan issue, or a pull request that closed a plan, is later plan work, also with a defect title or label.
+test('escape follow-ups leave out later plans that cite an earlier plan, with their landing pull requests', () => {
+  const fixture = escapeFixture();
+  const { repository } = fixture;
+  const day = (n) => `2026-01-${String(n).padStart(2, '0')}T00:00:00Z`;
+  repository.plans.push({
+    number: 50,
+    title: 'Fix the crash of #10',
+    closedAt: day(15),
+    closedByPullRequestsReferences: [{ number: 51 }],
+  });
+  repository.issues.push(
+    { number: 50, title: 'Fix the crash of #10', body: 'Follows #10.', createdAt: day(12), labels: [{ name: 'plan' }] },
+    // An open plan is in no plan list, but its label marks it.
+    { number: 52, title: 'Fix more of #11', body: 'Follows #11.', createdAt: day(12), labels: [{ name: 'plan' }] },
+  );
+  repository.pulls.push({
+    number: 51,
+    title: 'fix: land plan 50',
+    body: 'Closes #50. Follows #10.',
+    createdAt: day(13),
+    mergedAt: day(14),
+    mergeCommit: { oid: 'e'.repeat(40) },
+    labels: [],
+  });
+  const data = { repo: fixture.repo, ...repository };
+  // Their titles are defect titles, but the one follow-up rule of outcomes.mjs and of the draw leaves them out.
+  const row = outcomes.planOutcomes(data).find((item) => item.plan === 10);
+  assert.ok(row.followUps.includes('#41'));
+  for (const id of ['#50', '#51', '#52']) assert.equal(row.followUps.includes(id), false, id);
+  const plan = data.plans.find((item) => item.number === 10);
+  const given = outcomes.followUpsOf(plan, [data.pulls[0]], data).defects.map((item) => `#${item.number}`);
+  assert.deepEqual(given, row.followUps);
+  const followUps = escapes
+    .buildDraw(fixture, 'test')
+    .record.frozen.units.flatMap((unit) => unit.findings.filter((finding) => finding.origin === 'follow-up'))
+    .map((finding) => finding.item);
+  assert.deepEqual(followUps, [41]);
+});
+
+test('escape follow-ups give an item that cites two plans to one plan', () => {
+  const fixture = escapeFixture();
+  const day = (n) => `2026-01-${String(n).padStart(2, '0')}T00:00:00Z`;
+  fixture.repository.issues.push(
+    // Cites the landing pull request of plan 10 and the number of plan 20: the landing citation wins.
+    { number: 45, title: 'fix: crash', body: 'Breaks #20 and #11.', createdAt: day(13), labels: [] },
+    // Cites two plans that closed before it: the higher number wins.
+    { number: 46, title: 'Bug in the output', body: 'Seen in #10 and #20.', createdAt: day(13), labels: [] },
+  );
+  const owners = new Map();
+  for (const unit of escapes.buildDraw(fixture, 'test').record.frozen.units) {
+    for (const finding of unit.findings.filter((item) => item.origin === 'follow-up')) {
+      owners.set(finding.item, [...(owners.get(finding.item) ?? []), `${unit.issue} ${unit.split}`]);
+    }
+  }
+  assert.deepEqual(Object.fromEntries(owners), { 41: ['10 heldout'], 45: ['10 heldout'], 46: ['20 dev'] });
+  // The order of the plans gives the same owners.
+  fixture.repository.plans.reverse();
+  fixture.repository.issues.reverse();
+  const again = escapes
+    .buildDraw(fixture, 'test')
+    .record.frozen.units.flatMap((unit) =>
+      unit.findings.filter((item) => item.origin === 'follow-up').map((item) => [item.item, unit.issue]),
+    );
+  assert.deepEqual(
+    again.toSorted((a, b) => a[0] - b[0]),
+    [
+      [41, 10],
+      [45, 10],
+      [46, 20],
+    ],
+  );
+});
+
+test('the escape manifest lists dev units by commitment and holds no finding text', () => {
+  const fixture = escapeFixture();
+  fixture.repository.issues.push({
+    number: 46,
+    title: 'Bug in the output',
+    body: 'DEV_FOLLOW_UP text after #20.',
+    createdAt: '2026-01-13T00:00:00Z',
+    labels: [],
+  });
+  const { record, manifest } = escapes.buildDraw(fixture, 'test');
+  const texts = record.frozen.units.flatMap((unit) => unit.findings.map((finding) => finding.text));
+  assert.ok(texts.some((text) => text.includes('DEV_FOLLOW_UP')));
+  for (const text of texts) {
+    for (const line of text.split('\n').filter((part) => part.trim().length > 8)) {
+      assert.equal(manifest.includes(line), false, line);
+    }
+  }
+  assert.doesNotMatch(manifest, /DEV_FINDING|DEV_CODE|DEV_FOLLOW_UP|SECRET|src\//);
+  const dev = record.frozen.units.filter((unit) => unit.split === 'dev');
+  const commitment = (unit) => createHash('sha256').update(escapes.frozenJson(unit)).digest('hex');
+  assert.deepEqual(
+    manifest.split('\n').filter((line) => line.startsWith('| #')),
+    dev.map(
+      (unit) => `| #${unit.issue} | ${unit.reviewer} | ${unit.missed_round} | ${unit.kind} | ${commitment(unit)} |`,
+    ),
+  );
+  assert.equal(dev.length, 3);
+});
+
+test('score corpus counts the cases with known defects by reviewer and split, also with --keys', (t) => {
+  const root = scratch(t);
+  const cases = path.join(root, 'cases');
+  const keys = path.join(root, 'keys');
+  const known = (count) => Array.from({ length: count }, (_, index) => ({ id: `K${index + 1}`, title: 'Hidden' }));
+  put(cases, 'dev/code-3.json', { id: 'code-3', kind: 'code', split: 'dev', issue: 3, known: known(1) });
+  put(cases, 'dev/code-3b.json', { id: 'code-3b', kind: 'code-delta', split: 'dev', issue: 3, known: known(2) });
+  put(cases, 'dev/plan-3.json', { id: 'plan-3', kind: 'plan', split: 'dev', issue: 3, known: known(2) });
+  put(cases, 'dev/code-9.json', { id: 'code-9', kind: 'code', split: 'dev', issue: 9, control: true, known: [] });
+  put(cases, 'heldout/code-4.json', { id: 'code-4', kind: 'code', split: 'heldout', issue: 4 });
+  put(cases, 'heldout/plan-4.json', { id: 'plan-4', kind: 'plan', split: 'heldout', issue: 4 });
+  put(cases, 'heldout/plan-4.key.json', known(3));
+  put(cases, 'heldout/plan-5.json', { id: 'plan-5', kind: 'plan-delta', split: 'heldout', issue: 5 });
+  put(cases, 'heldout/plan-5.key.json', { known: known(1) });
+  const table = (keyRows, missing) => [
+    '| Reviewer | Split | Cases with known defects | Distinct plans |',
+    '|---|---|---:|---:|',
+    ...keyRows,
+    '',
+    `The cases of the corpus <cases>, by count only. Held-out cases without a key file: ${missing}.`,
+  ];
+  const run = (...args) =>
+    main(['corpus', '--cases', cases, ...args])
+      .replaceAll(cases, '<cases>')
+      .split('\n');
+  assert.deepEqual(
+    run(),
+    table(
+      [
+        '| code-reviewer | dev | 2 | 1 |',
+        '| code-reviewer | held-out | 0 | 0 |',
+        '| plan-reviewer | dev | 1 | 1 |',
+        '| plan-reviewer | held-out | 2 | 2 |',
+      ],
+      1,
+    ),
+  );
+  // With --keys, every held-out key comes from the keys folder.
+  put(keys, 'code-4.key.json', known(2));
+  put(keys, 'plan-5.key.json', known(1));
+  assert.deepEqual(
+    run('--keys', keys),
+    table(
+      [
+        '| code-reviewer | dev | 2 | 1 |',
+        '| code-reviewer | held-out | 1 | 1 |',
+        '| plan-reviewer | dev | 1 | 1 |',
+        '| plan-reviewer | held-out | 1 | 1 |',
+      ],
+      1,
+    ),
+  );
+  assert.throws(() => main(['corpus']), { message: /^usage: score\.mjs / });
 });

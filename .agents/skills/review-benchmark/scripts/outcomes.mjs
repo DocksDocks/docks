@@ -119,12 +119,37 @@ export function fetchRepository(repo, run = gh) {
   return { plans, issues, pulls, commits };
 }
 
+// A closing reference names a pull request of `repo`, or of the same repository when it names none.
+function sameRepository(ref, repo) {
+  const [owner, name] = repo.toLowerCase().split('/');
+  return (
+    !ref.repository ||
+    (ref.repository.owner?.login?.toLowerCase() === owner && ref.repository.name?.toLowerCase() === name)
+  );
+}
+
+// The work of the plans: each closed plan issue, each open issue with the `plan` label, and each pull request that
+// closed a plan. A later plan that cites an earlier plan is such work, not a defect of the earlier plan.
+function planWork({ repo, plans, issues }) {
+  return new Set([
+    ...plans.flatMap((plan) => [
+      plan.number,
+      ...(plan.closedByPullRequestsReferences ?? [])
+        .filter((ref) => sameRepository(ref, repo))
+        .map((ref) => ref.number),
+    ]),
+    ...issues.filter((item) => labelNames(item).includes('plan')).map((item) => item.number),
+  ]);
+}
+
 // The follow-up rule on frozen data. `landed` includes every merged pull request that closed the plan, not just the
-// last one: a defect can cite only an earlier landing pull request.
-export function followUpsOf(plan, landed, { repo, issues, pulls }, reverts = []) {
+// last one: a defect can cite only an earlier landing pull request. Plan work (see planWork) is no defect, also with a
+// defect title or the `Unreached:` marker; `unreached` still lists every cited issue with that marker.
+export function followUpsOf(plan, landed, { repo, plans, issues, pulls }, reverts = []) {
   const since = landed.at(-1)?.mergedAt ?? plan.closedAt ?? null;
   const revertIds = new Set(reverts);
   const own = new Set([plan.number, ...landed.map((pull) => pull.number)]);
+  const work = planWork({ repo, plans, issues });
   const candidates = [
     ...issues.map((item) => ({ ...item, type: 'issue' })),
     ...pulls.map((item) => ({ ...item, type: 'pull' })),
@@ -139,9 +164,10 @@ export function followUpsOf(plan, landed, { repo, issues, pulls }, reverts = [])
   const unreachedIds = new Set(unreached.map((item) => item.number));
   const defects = candidates.filter(
     (item) =>
-      unreachedIds.has(item.number) ||
-      labelNames(item).some((label) => DEFECT_LABEL.test(label)) ||
-      DEFECT_TITLE.test(item.title ?? ''),
+      !work.has(item.number) &&
+      (unreachedIds.has(item.number) ||
+        labelNames(item).some((label) => DEFECT_LABEL.test(label)) ||
+        DEFECT_TITLE.test(item.title ?? '')),
   );
   return { defects, unreached };
 }
@@ -187,26 +213,21 @@ function revertsOf(pull, { repo, pulls, commits }) {
 
 // The outcome of each closed plan issue, in issue-number order. `landing` is the last merged pull request that closed
 // the plan. A follow-up defect is an issue or a pull request, created after the landing merge (or after the plan
-// closed, without a landing pull request), that cites a landing pull request or the plan, is not a revert, and has a
-// defect label, a defect title, or the `Unreached:` marker.
+// closed, without a landing pull request), that cites a landing pull request or the plan, is not a revert, is no plan
+// work, and has a defect label, a defect title, or the `Unreached:` marker.
 export function planOutcomes({ repo, plans, issues, pulls, commits }) {
   const pullByNumber = new Map(pulls.map((pull) => [pull.number, pull]));
-  const [owner, name] = repo.toLowerCase().split('/');
   return [...plans]
     .sort((a, b) => a.number - b.number)
     .map((plan) => {
       const landed = (plan.closedByPullRequestsReferences ?? [])
-        .filter(
-          (ref) =>
-            !ref.repository ||
-            (ref.repository.owner?.login?.toLowerCase() === owner && ref.repository.name?.toLowerCase() === name),
-        )
+        .filter((ref) => sameRepository(ref, repo))
         .map((ref) => pullByNumber.get(ref.number))
         .filter((pull) => pull?.mergedAt)
         .sort((a, b) => (a.mergedAt < b.mergedAt ? -1 : 1));
       const landing = landed.at(-1) ?? null;
       const reverts = [...new Set(landed.flatMap((pull) => revertsOf(pull, { repo, pulls, commits })))];
-      const { defects, unreached } = followUpsOf(plan, landed, { repo, issues, pulls }, reverts);
+      const { defects, unreached } = followUpsOf(plan, landed, { repo, plans, issues, pulls }, reverts);
       return {
         plan: plan.number,
         title: plan.title,

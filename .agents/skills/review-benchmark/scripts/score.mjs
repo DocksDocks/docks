@@ -4,7 +4,8 @@
 // metadata, and the manager verdicts into recall, cost, configuration or arm tables, the exact tests of the wrong and
 // unknown findings, the batch drift, the sequential looks, the stage and control tables, and the self-review lead,
 // `power` gives the noise of an A/A workspace, the neutral-data limit, the corpus cases per reviewer, and a simulated
-// sample size of a decision, `sample` picks the answers of the second judge,
+// sample size of a decision, `corpus` gives the cases with known defects of a corpus per reviewer and split without a
+// workspace, `sample` picks the answers of the second judge,
 // `transcripts` fills the run metadata, the read scope, and the read coverage of each reviewer from omp subagent
 // transcripts, and `names` prints the dispatch name of every prompt that the operator still dispatches (a fixer prompt
 // only until its patch exists, a manager prompt only until its verdict file exists). `loadJudgments`, `fixPlan`, and
@@ -20,7 +21,7 @@ import {
 } from '../../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
 
 const USAGE =
-  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...>] [--reference <column>] [--margin <per 50 known>] [--sequential] [--lead <folder,...> --lead-ref <folder>] | power <ws> [--keys <keys-dir>] [--arms <folder>,<folder>] [--margins <per 50 known,...>] [--cases <cases-dir>] [--reviewer <code-reviewer|plan-reviewer>] [--split <dev|heldout>] | sample <ws> [--seed <n>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
+  'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...>] [--reference <column>] [--margin <per 50 known>] [--sequential] [--lead <folder,...> --lead-ref <folder>] | power <ws> [--keys <keys-dir>] [--arms <folder>,<folder>] [--margins <per 50 known,...>] [--cases <cases-dir>] [--reviewer <code-reviewer|plan-reviewer>] [--split <dev|heldout>] | corpus --cases <cases-dir> [--keys <keys-dir>] | sample <ws> [--seed <n>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
 const CASE_KINDS = new Set(['code', 'code-delta', 'plan', 'plan-delta']);
 const REVIEWER_ORDER = ['full', 'correctness', 'spec-and-tests', 'text-and-safety', 'delta', 'plan'];
 const RUN_DIR = /^run-(\d+)$/;
@@ -3769,11 +3770,18 @@ const SPLITS = ['dev', 'heldout'];
 // `heldout` folders: the known defects of a development case file, or of the key file of a held-out case file. The key
 // file is `<keys>/<id>.key.json` with `keys`, as for readKnown, else the one next to the case file. `missingKeys`
 // counts the held-out cases without a key file, and `knownCounts[family][split]` lists the known defects of each case
-// with known defects. The result holds counts only, so a held-out reader learns no case content.
+// with known defects, and `plans[family][split]` lists the distinct plan issues of these cases. The result holds counts
+// and plan numbers only, so a held-out reader learns no case content.
 export function corpusCounts(casesDir, { keys } = {}) {
-  const knownCounts = Object.fromEntries(
-    Object.keys(FAMILY_REVIEWERS).map((family) => [family, Object.fromEntries(SPLITS.map((split) => [split, []]))]),
-  );
+  const bySplit = (make) =>
+    Object.fromEntries(
+      Object.keys(FAMILY_REVIEWERS).map((family) => [
+        family,
+        Object.fromEntries(SPLITS.map((split) => [split, make()])),
+      ]),
+    );
+  const knownCounts = bySplit(() => []);
+  const plans = bySplit(() => new Set());
   let missingKeys = 0;
   for (const split of SPLITS) {
     const dir = path.join(casesDir, split);
@@ -3787,7 +3795,10 @@ export function corpusCounts(casesDir, { keys } = {}) {
         missingKeys += 1;
         continue;
       }
-      if (known.length > 0) knownCounts[caseFamily(data.kind)][split].push(known.length);
+      if (known.length > 0) {
+        knownCounts[caseFamily(data.kind)][split].push(known.length);
+        if (Number.isInteger(data.issue)) plans[caseFamily(data.kind)][split].add(data.issue);
+      }
     }
   }
   const rows = Object.entries(FAMILY_REVIEWERS).map(([family, reviewer]) => ({
@@ -3795,7 +3806,31 @@ export function corpusCounts(casesDir, { keys } = {}) {
     dev: knownCounts[family].dev.length,
     heldout: knownCounts[family].heldout.length,
   }));
-  return { rows, missingKeys, knownCounts };
+  const planLists = Object.fromEntries(
+    Object.entries(plans).map(([family, splits]) => [
+      family,
+      Object.fromEntries(Object.entries(splits).map(([split, set]) => [split, [...set].sort((a, b) => a - b)])),
+    ]),
+  );
+  return { rows, missingKeys, knownCounts, plans: planLists };
+}
+
+// The corpus table of `score.mjs corpus`: the cases with known defects and their distinct plans, per reviewer and
+// split (see corpusCounts). It needs no workspace, so it counts a corpus before any pilot runs.
+export function corpusCommand(casesDir, { keys } = {}) {
+  const corpus = corpusCounts(casesDir, { keys });
+  const text = [
+    row(['Reviewer', 'Split', 'Cases with known defects', 'Distinct plans']),
+    '|---|---|---:|---:|',
+    ...Object.entries(FAMILY_REVIEWERS).flatMap(([family, reviewer]) =>
+      SPLITS.map((split) =>
+        row([reviewer, splitName(split), corpus.knownCounts[family][split].length, corpus.plans[family][split].length]),
+      ),
+    ),
+    '',
+    `The cases of the corpus ${casesDir}, by count only.${corpus.missingKeys ? ` Held-out cases without a key file: ${corpus.missingKeys}.` : ''}`,
+  ].join('\n');
+  return { ...corpus, text };
 }
 
 // The corpus of this skill, which `power` counts when it gets no --cases.
@@ -4127,12 +4162,21 @@ const COMMANDS = {
         .map(({ prompt, name }) => `${prompt}\t${name}`)
         .join('\n'),
   },
+  corpus: {
+    workspace: false,
+    required: ['--cases'],
+    optional: ['--keys'],
+    run: (options) => corpusCommand(path.resolve(options['--cases']), { keys: options['--keys'] }).text,
+  },
 };
 
-export function main([command, ws, ...args]) {
-  if (!Object.hasOwn(COMMANDS, command) || !ws) fail(USAGE);
-  const { run, ...flags } = COMMANDS[command];
-  return run(path.resolve(ws), parseOptions(args, flags));
+export function main([command, ...args]) {
+  if (!Object.hasOwn(COMMANDS, command)) fail(USAGE);
+  const { run, workspace = true, ...flags } = COMMANDS[command];
+  if (!workspace) return run(parseOptions(args, flags));
+  const [ws, ...rest] = args;
+  if (!ws) fail(USAGE);
+  return run(path.resolve(ws), parseOptions(rest, flags));
 }
 
 function invokedDirectly() {

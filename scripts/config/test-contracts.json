@@ -297,7 +297,7 @@
       "selection": {
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/review-benchmark.test.mjs",
-        "expected_min": 188
+        "expected_min": 192
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["bun-1"],

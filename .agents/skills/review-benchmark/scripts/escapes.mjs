@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { fetchRepository, planOutcomes } from './outcomes.mjs';
+import { cites, fetchRepository, planOutcomes } from './outcomes.mjs';
 
 const KINDS = ['code', 'code-delta', 'plan', 'plan-delta'];
 const MAX_OUTPUT = 256 * 1024 * 1024;
@@ -214,6 +214,37 @@ function cutoffData(snapshot) {
   };
 }
 
+// The one plan of each follow-up defect (C9). The follow-up rule of outcomes.mjs already leaves out plan work. An item
+// goes to the plan whose landing pull request it cites, then to the highest-numbered cited plan that closed before the
+// item was created, then to the highest-numbered plan whose follow-up rule took it. The order of the plans and of the
+// items does not change an owner.
+function followUpOwners(data, outcomes) {
+  const items = new Map([...data.pulls, ...data.issues].map((item) => [item.number, item]));
+  const plans = new Map(data.plans.map((plan) => [plan.number, plan]));
+  const takers = new Map();
+  for (const row of outcomes.values()) {
+    for (const id of row.followUps) {
+      const number = Number(id.slice(1));
+      takers.set(number, [...(takers.get(number) ?? []), row.plan]);
+    }
+  }
+  const owners = new Map();
+  for (const [number, candidates] of takers) {
+    const item = items.get(number);
+    const text = `${item.title ?? ''}\n${item.body ?? ''}`;
+    const highest = (list) => (list.length ? Math.max(...list) : null);
+    const byLanding = candidates.filter((plan) => {
+      const landing = outcomes.get(plan).landing;
+      return landing !== null && cites(text, data.repo, landing);
+    });
+    const byPlan = candidates.filter(
+      (plan) => cites(text, data.repo, plan) && time(plans.get(plan).closedAt) < time(item.createdAt),
+    );
+    owners.set(number, highest(byLanding) ?? highest(byPlan) ?? highest(candidates));
+  }
+  return owners;
+}
+
 export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
   if (
     snapshot.version !== 1 ||
@@ -230,6 +261,7 @@ export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
   const units = [];
   const devPlans = new Set(snapshot.cases.filter((item) => item.split === 'dev').map((item) => item.issue));
   const outcomes = new Map(planOutcomes(data).map((row) => [row.plan, row]));
+  const owners = followUpOwners(data, outcomes);
   for (const plan of [...data.plans].sort((a, b) => a.number - b.number)) {
     const rounds = reviewRounds(snapshot.comments[plan.number] ?? [], snapshot.cutoff);
     const byRound = new Map();
@@ -266,7 +298,8 @@ export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
           );
       }
     }
-    // A follow-up can cite only the landing pull request. Reuse the outcomes rule, not an issue-only matcher.
+    // A follow-up can cite only the landing pull request. The outcomes rule finds the defects; owners gives each one
+    // plan.
     const row = outcomes.get(plan.number);
     const landingTime = row.merged ?? plan.closedAt;
     const missed = rounds.code.filter((round) => time(round.createdAt) <= time(landingTime)).at(-1) ?? {
@@ -278,6 +311,7 @@ export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
     };
     for (const id of row.followUps) {
       const number = Number(id.slice(1));
+      if (owners.get(number) !== plan.number) continue;
       const item =
         data.issues.find((issue) => issue.number === number) ?? data.pulls.find((pull) => pull.number === number);
       add('code', missed, [
@@ -325,9 +359,16 @@ export function buildDraw(snapshot, seed, sourceBytes = frozenJson(snapshot)) {
     '',
     '### Dev units',
     '',
-    '```json',
-    frozenJson(units.filter((unit) => unit.split === 'dev')).trimEnd(),
-    '```',
+    'A commitment is the SHA-256 of the canonical JSON of the unit in the restricted record.',
+    '',
+    '| Issue | Reviewer | Missed round | Kind | Commitment |',
+    '|---:|---|---:|---|---|',
+    ...units
+      .filter((unit) => unit.split === 'dev')
+      .map(
+        (unit) =>
+          `| #${unit.issue} | ${unit.reviewer} | ${unit.missed_round} | ${unit.kind} | ${sha256(frozenJson(unit))} |`,
+      ),
     '',
   ].join('\n');
   return { record, manifest };
