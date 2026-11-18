@@ -501,6 +501,11 @@ async function testFocusedCiCommandSelection() {
     'plugins/docks/skills/productivity/write-skill/scripts',
     'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts',
   ];
+  // Each selected plugin lints its shipped shell scripts, also the bundled skill scripts: plan-manager ships
+  // base-blob.sh, and docks code-review ships a copy of it.
+  const planLifecycleShell = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/base-blob.sh';
+  const docksShell = 'plugins/docks/skills/engineering/code-review/scripts/base-blob.sh';
+  const shellcheckArgv = (...files) => ['-S', 'warning', ...files];
   // The repo lane owns exactly the paths no plugin claims. Derived from the registry so
   // this stays a statement about ownership rather than about a pasted argv.
   const repoBiomeCiArgv = ['run', 'biome', 'ci', ...REPO_WIDE_JAVASCRIPT_QUALITY.ci];
@@ -524,6 +529,18 @@ async function testFocusedCiCommandSelection() {
       );
     }
     assert.equal(countToolInvocation(targeted.calls, 'bun', planLifecycleBiomeCiArgv), 1);
+    for (const [label, selected, files] of [
+      ['Plan Lifecycle-targeted', targeted, [planLifecycleShell]],
+      ['Docks-targeted', docksTargeted, [docksShell]],
+      ['core', core, [docksShell, planLifecycleShell]],
+      ['full', untargeted, [docksShell, planLifecycleShell]],
+    ]) {
+      assert.equal(
+        countToolInvocation(selected.calls, 'shellcheck', shellcheckArgv(...files)),
+        1,
+        `${label} CI must lint ${files.join(' and ')} once; observed ${JSON.stringify(selected.calls.filter(({ tool }) => tool === 'shellcheck'))}`,
+      );
+    }
     assert.match(targeted.result.stdout, /javascript quality/);
     assert.doesNotMatch(
       targeted.result.stdout,
