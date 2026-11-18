@@ -18,7 +18,7 @@ Ask me only through `ask`, never in prose. Use `ask` before these steps:
 
 A settled plan Mode covers the routine plan-lifecycle writes in the resolved repository: the plan issue, plan edits, review comments, and each other issue or comment that the plan-lifecycle contract requires. A `plan-and-implement` Mode also covers the landing work: the push of the linked branch and the pull request. Every other issue, comment, release, or upstream pull request still needs an ask.
 
-A `yolo` invocation answers the routine asks of its plan run until its merge question, unless a revocation ends its grant first. It does not cover destructive work, secrets, production systems, or a repository hook that fails; for a failed hook, follow the hook rule of the plan-lifecycle contract.
+A `yolo` invocation answers the routine asks of its plan run until its merge question, or until the grant check of the plan-lifecycle contract finds that its grant has ended. It does not cover destructive work, secrets, production systems, or a repository hook that fails; for a failed hook, follow the hook rule of the plan-lifecycle contract.
 
 A plan grant answers the asks that the Delegated decisions section of the plan-lifecycle contract lists as answered. Only trusted `Delegation grant:` and `Delegation revoked` comments give or end a grant. On the plan issue, the latest such comment decides, and a comment on a parent plan can end the grant of its child. The `Delegated:` line of the plan only mirrors that comment.
 

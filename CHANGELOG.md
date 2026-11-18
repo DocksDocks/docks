@@ -26,8 +26,10 @@
   request still needs an ask.
 - The Codex and Claude rules now carry the `yolo` sentence of the omp rules,
   and all three files narrow it: a `yolo` invocation answers the routine asks
-  of its plan run until the merge question, unless a revocation ends its
-  grant first. It never covers destructive work, secrets, production
+  of its plan run until the merge question, or until the grant check of the
+  plan-lifecycle contract finds that its grant has ended. Before the grant
+  comment exists, the invoking message is the authority, as the grant check
+  says. The sentence never covers destructive work, secrets, production
   systems, or a repository hook that fails; for a failed hook, the agent
   follows the hook rule of the plan-lifecycle contract. Before this change,
   the omp sentence answered every ask of the list. The Codex and Claude rule
