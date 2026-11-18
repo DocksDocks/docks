@@ -1079,15 +1079,18 @@ does.
 
 ### Grant check
 
-A run that acts under a grant reads the latest authority events of the plan
-and of its parent at the start of each phase after its grant event, and before
-each delegated decision from then on. Before a yolo run posts its grant event,
-the user's invoking message in this session is the authority, and the run
-makes only the delegated decisions that the yolo skill's Decide and Draft
-steps name. The grant has ended after a newer revocation on the plan, a newer
-narrowing of a yolo grant (Grant and revocation), or a parent event that ends
-a child grant (Authority events). Then a yolo run stops as Ended grant in Yolo
-runs says. Another run continues with no grant, and asks each question that
+Before a yolo run posts its grant event, the user's invoking message in this
+session is the authority, and the run makes only the delegated decisions that
+the yolo skill's Decide and Draft steps name. From the moment the grant event
+exists, a run that acts under a grant reads the latest authority events of the
+plan and of its parent right before each delegated decision and right before
+each write that relies on the grant: a body edit, the creation of a child
+issue, a child grant event, a step state change that a delegated decision
+makes, and each push of a delegated change. The grant has ended after a newer
+revocation on the plan, a newer narrowing of a yolo grant (Grant and
+revocation), or a parent event that ends a child grant (Authority events).
+Then a yolo run stops as Ended grant in Yolo runs says. Another run continues
+with no grant, and asks each question that
 the grant answered. A narrowed `Delegated:` grant on the plan itself continues
 as the narrower grant. A later run on a plan whose grant has ended is a
 `plan-manager` run with no grant, unless the user's own message gives a new

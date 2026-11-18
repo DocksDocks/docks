@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "b205354d75c9beb444696d6a0353a24480475d31fcde275e15c031785ee6eb4c"
+  content_hash: "7805c7f851fdd874d3002589c193ea2fe175097696339d3149c44295620ecf28"
 ---
 
 # Yolo
@@ -78,10 +78,10 @@ practice.
 
 Until the run posts its grant event (Draft step 4, or adoption step 2), the
 user's invoking message is the authority, and the run makes only the
-delegated decisions that Decide and Draft name. From the first phase after
-that event, at the start of each phase and before each delegated decision, run
-the Grant check of the contract's Delegated decisions. When the grant has
-ended, stop as the contract's Ended grant (Yolo runs) says.
+delegated decisions that Decide and Draft name. From then on, run the Grant
+check of the contract's Delegated decisions right before each delegated
+decision and each write that relies on the grant. When the grant has ended,
+stop as the contract's Ended grant (Yolo runs) says.
 
 ## Existing plans and incomplete requests
 
@@ -109,9 +109,9 @@ To adopt a plan:
 2. Export the plan. Add the delegation line to Goal when it is missing, and set
    `Mode: plan-and-implement`. Post the grant event of this invocation,
    `Delegation grant: yolo: <quote>`, as the contract's Authority events says.
-3. Replace each Goal or Do not touch line that conflicts with this run, such as
-   "leave the pull request open". Record a request correction whose `Asked:`
-   part quotes the old line.
+3. Run the Grant check. Then replace each Goal or Do not touch line that
+   conflicts with this run, such as "leave the pull request open". Record a
+   request correction whose `Asked:` part quotes the old line.
 4. When steps 2 or 3 changed the export, publish it with `edit`. After
    `plan=pass`, a change from step 3 needs a plan-review round, and step 2
    needs none, as the contract's Phases and review comments says.
@@ -138,11 +138,12 @@ Yolo: the user delegated every decision except the merge to the agent.
 5. When the request needs more than one landing pull request, that issue is the
    parent, and it gets no linked branch. Create one child per pull request with
    `new --title <t> --goal <g> --mode plan-and-implement --parent <n>`, with the
-   delegation line in each goal. Before each child's grant event, read the
-   parent's latest trusted event; when it is not the parent grant event of
-   step 4, post no child grant and stop as the contract's Ended grant says.
-   Otherwise post the child's grant event once, with the parent's quote and a
-   second line `Parent event: <comment id>` that names that parent event, as
+   delegation line in each goal. Right before you create each child, and again
+   right before its grant event, read the parent's latest trusted event; when
+   it is not the parent grant event of step 4, create or post nothing more and
+   stop as the contract's Ended grant says. Otherwise post the child's grant
+   event once, with the parent's quote and a second line
+   `Parent event: <comment id>` that names that parent event, as
    the contract's Authority events says. Give the parent one Steps row per
    child, as the contract's Record and mode says. Run Research
    and Plan review on the parent. After that pass, start the child that the
