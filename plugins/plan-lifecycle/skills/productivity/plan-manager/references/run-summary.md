@@ -3,7 +3,7 @@
 Keep the summary short. Use this shape:
 
 ```markdown
-## Yolo run: #<n> <title>
+## Plan run: #<n> <title>
 
 Pull request: <url>. Checks: <state>. Reviewed head: `<sha>`.
 

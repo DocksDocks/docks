@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-11-17"
-  content_hash: "426314172f4e1cd1356a973057a94dd3de0cc7cd9d7bef3dafcbc16605fd6266"
+  updated: "2026-11-18"
+  content_hash: "6004cf47436444ec3bb6ff8a1cf56e0c3e54d86895086a29785d9dec594a13cb"
 ---
 
 # Yolo
@@ -22,6 +22,9 @@ same installed `plan-lifecycle` plugin:
 - `../plan-manager/references/plan-contract.md` owns the rules. Its Yolo runs
   section replaces the contract questions for this run.
 - `../plan-manager/references/github-issue-publication.md` owns the preflight.
+- `../plan-manager/references/practices.md` owns the practices of every run.
+  This skill names each practice where the run uses it, and the autonomy rule
+  that replaces a question in it.
 
 Run the helper `../plan-manager/scripts/plan.mjs` from the target repository
 root. If these files are missing, stop and name the missing `plan-lifecycle`
@@ -65,9 +68,9 @@ practice.
 |---|---|---|
 | Decide | Apply Existing plans and incomplete requests below. Otherwise the path is a new plan with Mode `plan-and-implement`. Ask nothing. | The run adopted a plan, or the goal fits in one sentence |
 | Draft | Skip when the run adopted a plan. Run the preflight, create the issue, and set up the linked branch, or for a parent create its children, as Draft below says | The run adopted a plan, or `show <n>` reads drafting and the branch is listed, or for a parent each child is listed |
-| Research | Follow Research and Engineering standards below | `status <n> planned` succeeds, or `show <n>` of an adopted plan already reads planned or ongoing. No advice needs a decision |
+| Research | Follow Research below | `status <n> planned` succeeds, or `show <n>` of an adopted plan already reads planned or ongoing. No advice needs a decision |
 | Plan review | Run Review loops below | `show <n>` reads `plan=pass` |
-| Implement | Follow plan-manager phase 5, Engineering standards (always with `code-clarity`), Red baseline, and Commits below | Verification Results hold real results, and the candidate is committed |
+| Implement | Follow plan-manager phase 5 and Implement below | Verification Results hold real results, and the candidate is committed |
 | Code review | Run Review loops below | `show <n>` reads `code=pass` |
 | Land | Follow Landing below | The merge question has an answer, or no answer is possible |
 
@@ -132,141 +135,23 @@ Yolo: the user delegated every decision except the merge to the agent.
 
 ## Research
 
-Answer each open question in this order. Stop at the first step that settles it.
+Follow the practices Research order, Decisions and corrections, and
+Engineering standards. Settle each question from the codebase, the web, or an
+experiment; do not ask. A decision that the practices send to the user is a
+recorded decision in this run: Open questions holds only a `Blocked:` line, as
+the contract's Delegation line says.
 
-1. Codebase: read callers, tests, configuration, and local instructions. Use
-   language server references before you change an exported symbol.
-2. Web: read current official documentation, release notes, specifications, or
-   upstream issues. Do this for every claim about a library, framework, API,
-   tool, standard, or version. Record each URL.
-3. Experiment: when sources disagree or say nothing, test the behavior in the
-   scratch directory `$(git rev-parse --git-path docks-review)/yolo-<n>/`.
-   Record the command and its output. Write the scratch expression, not its
-   absolute path.
+## Implement
 
-Record each decision in Research: the decision, its evidence, and the rejected
-options. A repository fact needs no web source. Every other claim needs one.
-Record the tool facts that the contract's Record and mode asks for.
+Follow the practices Engineering standards, Red baseline, Commits, and Checks
+that fail outside the goal.
 
-Record each request correction under `### Request corrections` in Research:
+Red baseline item 4 changes in this run: when a spec test is wrong, do not ask.
+Record the reason in Verification Results, fix the test, and run the baseline
+again. This record replaces the user escalation that `tdd-workflow` asks for.
 
-```text
-Asked: <what the request said>. Did: <what the run does>. Reason: <evidence>.
-```
-
-Read the instruction files that apply to each path in the Files cells:
-`AGENTS.md`, `CLAUDE.md`, and `CONTRIBUTING.md` in that folder and its parent
-folders. Add one Acceptance row for each check that they require for the change.
-When a step's Files change the code or configuration of a surface that a user
-or another program drives, such as a CLI command, a hook, a service, or a UI,
-add at least one Acceptance row that runs that surface end to end and names
-the observable result. A test file that starts the real surface counts; a
-unit-test command that only calls internal functions does not. A change to
-prose or skill text alone needs no such row. The contract's Steps, acceptance,
-and effects states the rule.
-
-## Engineering standards
-
-Load each matching docks skill when the runtime has it. A runtime can show it as
-`docks:<name>` or as `<name>`. Read each matching skill during Research, before
-you write Steps. Under `### Engineering standards` in Research, record which
-skill each step applies. When a standard defines completion, put it in that
-step's `Done when`. Apply each step's skills again while you implement that
-step. Run the `code-review` self-review during code review round 1, as Review
-loops says.
-
-Apply `code-clarity` to every step that changes code, tests, comments, or error
-messages, together with the other matching skills. Record it for each such
-step, and check its rules again in the self-review.
-
-| Work in a step | docks skill |
-|---|---|
-| New behavior specified by inputs and outputs | `tdd-workflow` |
-| Tests for code that already exists | `test-coverage` |
-| A bug, regression, or review finding | `fix-workflow` |
-| Module, class, or service boundaries | `solid` |
-| Every change to code, tests, comments, or error messages | `code-clarity` |
-| Identifier types, input parsing, tagged unions | `type-safety-discipline` |
-| A linter or type-checker error | `lint-no-suppressions` |
-| Lint rules or repeated literal values | `code-guardrails` |
-| Dependency upgrades or advisories | `dep-vuln-workflow` |
-| Commits | `commit-discipline` |
-| React components | `react-component-patterns` |
-| Colors, tokens, and themes | `design-tokenization` |
-| Keyboard, focus, and ARIA | `accessibility` |
-| Visual polish and motion | `make-interfaces-feel-better` |
-| Self-review during code review round 1 | `code-review` |
-
-Do not start `security`, `refactor`, or `skill-agent-pipeline`. Each one opens
-its own plan. Put that work into the Steps of this plan.
-
-When docks is not installed, apply these rules:
-
-- Write a test only for behavior that a consumer sees: results, boundaries,
-  errors, and transitions.
-- Do not test wiring, copies, forwarding, mock echoes, or source text. Do not
-  add a second test for the same path.
-- Fix each lint or type error. Do not add a suppression comment.
-- Reuse the pattern that the repository has. Do not add a second convention.
-- Leave no dead code, compatibility alias, or shim.
-- Name things with domain words. Write comments that give the reason, not the
-  mechanics. Make each error name the failed operation, its subject, and the
-  recovery.
-
-## Red baseline
-
-The main context owns the red baseline of each `tdd-workflow` step. A subagent
-can write the spec tests.
-
-1. Write the spec tests before the production code of the step.
-2. Run them. Each new test must fail because the behavior is missing: on an
-   assertion, or on an export or symbol that this step adds. A failure from any
-   other import, setup, or syntax error is not a red baseline. Do not add an
-   empty stub to change a missing export into an assertion failure.
-3. Stage the spec tests with `git add`. Add this line to Verification Results:
-   `Red baseline, step <id>: <command>: <k> failed, <m> passed`. When a missing
-   export stops a test file, write `<file> failed: missing <symbol>` instead of
-   the counts for that file.
-4. Keep the staged spec tests unchanged while you write production code:
-   `git diff -- <spec files>` prints nothing. When a spec test is wrong, record
-   the reason in Verification Results, fix the test, and run the baseline again.
-   This record replaces the user escalation that `tdd-workflow` asks for.
-5. A review fix that changes a spec assertion follows item 4. Run the changed
-   test against the code before the fix. It must fail on the changed assertion.
-   Add this line to Verification Results:
-   `Red baseline, step <id>, review round <r>: <command>: <k> failed, <m> passed`.
-
-## Commits
-
-1. Commit each step on the linked branch when its proof passes, as
-   `commit-discipline` says. Each commit must pass the focused tests, the type
-   check, and the lint for its files. When a commit hook fails, follow the
-   contract's Repository hooks.
-2. When you split finished work into commits, check each commit in a temporary
-   worktree: `git worktree add --detach <path> <sha>`, run the checks, then
-   `git worktree remove -- <path>` and `git worktree prune`. `<path>` is
-   `${XDG_DATA_HOME:-$HOME/.local/share}/agent-worktrees/<repository-name>/check-<short-sha>`.
-   Do not put it under `/tmp` or inside `.git`.
-3. Commit the candidate before each code-review round, as the contract's
-   Code-review rounds says. Leave no staged, unstaged, or untracked change of
-   the candidate.
-4. Add each review fix as a new commit. Do not amend, squash, or rebase.
-5. The reviewed head is `HEAD` after the last passing code-review round.
-
-## Checks that fail outside the goal
-
-When a required check fails on files that the plan does not change:
-
-1. Run `git fetch origin <default>`. Then run the same check on
-   `origin/<default>` in a temporary worktree, as Commits item 2 says.
-2. When it fails the same way there, it is a baseline failure. Record the
-   command, the failing files, and the default-branch result in Verification
-   Results. Do not fix it unless the Goal covers it.
-3. When it passes there, this change causes the failure. Fix it in this plan.
-
-A repository hook that fails, such as a pre-push hook, is a required check too.
-Follow the contract's Repository hooks for it. A hook failure that blocks the
-plan stops the run, as the hook row of the contract's Yolo runs table says.
+A repository hook failure that blocks the plan stops the run, as the hook row
+of the contract's Yolo runs table says.
 
 ## Review loops
 
@@ -277,29 +162,9 @@ instructions. Post one comment per round: the blocks of the round, then the
 manager response to the previous round, as the contract's review loop says.
 That comment counts as one round of the ceiling.
 
-Dispatch code review round 1 first. While it runs, run the `code-review`
-self-review as one self-review per lens of the code-review panel:
-`correctness`, `spec-and-tests`, and `text-and-safety`. Run the three at the
-same time, or one after another when the runtime cannot. Give each one the
-full candidate diff and its lens scope from the `code-reviewer` skill, and
-apply `code-clarity` in each. Post their findings as one issue comment whose
-first line is `Self-review`, with one section per lens; write `No findings.`
-for a lens that finds nothing. The helper does not read that comment as a
-review, so it does not count as a round of the ceiling. In the plugin's
-benchmark, one self-review per lens found more known defects than one
-self-review (0.67 against 0.50 per run) in about the same time, but also more
-wrong findings. Reproduce each one before you fix it, and reject a wrong one
-with evidence.
-
-After round 1 returns, fix the self-review findings together with the findings
-of round 1. Use `fix-workflow`, and commit the fixes. List the self-review
-findings, named by lens, in the manager response to round 1 with the findings
-of round 1.
-When the self-review found anything, review again, also when round 1 passed.
-That round is a `delta` round when the contract's Code-review rounds allows it.
-
-While any round runs, do the work that does not depend on its verdict, such as
-the acceptance records and the run summary draft.
+Dispatch code review round 1 first, and run the practices Self-review in code
+review while it runs. Its `Self-review` comment does not count as a round of
+the ceiling. While any round runs, do the practices Work during a round.
 
 Review plan edits after `plan=pass` as the contract's Phases and review
 comments says. The helper advises when an edit needs that round.
@@ -336,14 +201,8 @@ The contract's Round ceiling also says this.
    and run a code-review round on the result. Commit each repair.
 3. Push the linked branch with a normal push. When a repository hook fails,
    follow the contract's Repository hooks. Never skip the hook.
-4. Write the run summary from `references/run-summary.md` to a file in the
-   review scratch directory. The run summary is the whole pull request
-   description; do not add the `commit-discipline` description sections. Write
-   `pending` for the pull request URL and the checks. Include Kept resources,
-   as the template says. Fill its `## Checklist` section as the contract's
-   Pull requests says: tick an item only with its evidence on the reviewed
-   head, and end each unticked item with its reason. End the file with
-   `Closes #<n>` on its own line.
+4. Write the run summary from `../plan-manager/references/run-summary.md`, as
+   the practices Run summary says.
 5. When `gh pr list --repo <owner/repo> --head <branch> --state open` shows a
    pull request, update its body with `gh pr edit <pr> --repo <owner/repo>
    --body-file <file>`. Otherwise open the pull request with `gh pr create
@@ -358,10 +217,9 @@ The contract's Round ceiling also says this.
    contract's Round ceiling, as its Checks and merge says.
 7. Confirm that `gh pr view <pr> --repo <owner/repo> --json headRefOid` shows
    the reviewed head. Write the pull request URL and the check result into the
-   summary file. Then update the body with `gh pr edit <pr> --repo <owner/repo>
-   --body-file <file>`. Run the landing self-check in the contract's Checks and
-   merge: untick each item without evidence, add its reason, and update the
-   body again.
+   summary file, as the practices Run summary says. Run the landing self-check
+   in the contract's Checks and merge: untick each item without evidence, add
+   its reason, and update the body again.
 8. Print the run summary. In the same response, state
    `<k> of <n> checklist items ticked`, list each unticked item with its
    reason, and ask one question:
@@ -382,23 +240,9 @@ The contract's Round ceiling also says this.
     run, finish this run first. On `Merge now`, follow step 9. On any other
     answer, follow step 10. Then start the new run.
 
-## Run summary
-
-Use the template in [`references/run-summary.md`](references/run-summary.md).
-
 ## Recover after compaction
 
-The issue is the run record. Run `show <n>` for the status and verdicts. Run
-`gh issue develop <n> --list --repo <owner/repo>` for the branch. After the pull
-request exists, GitHub lists no branch there. Then read the pull request number
-from `gh issue view <n> --repo <owner/repo> --json closedByPullRequestsReferences`,
-and read the branch from `gh pr view <pr> --repo <owner/repo> --json headRefName`.
-Run `git worktree list` for a worktree. Count review rounds from round
-comments: a comment whose first line names the review kind. One round comment
-can hold several lens blocks and the manager response to the previous round.
-A `Self-review` comment, or a comment that holds only a pending manager
-response, is not a round. For a parent, `show <n>` lists each child; run
-`show <c>` for each child to find the one that this run works on.
+Follow the practices Recover after compaction.
 
 ## BAD / GOOD
 

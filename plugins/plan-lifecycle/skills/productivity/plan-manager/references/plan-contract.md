@@ -1080,9 +1080,9 @@ and report.
 ### Merge question
 
 After checks pass, run the landing self-check in Checks and merge, and print the
-run summary that the `yolo` skill defines. Then ask the question in Checks and
-merge, with the checklist line. Each step after the landing merge needs its
-own question.
+run summary from [`run-summary.md`](run-summary.md). Then ask the question in
+Checks and merge, with the checklist line. Each step after the landing merge
+needs its own question.
 
 ### Published text
 
