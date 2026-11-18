@@ -1067,6 +1067,19 @@ at once and needs no plan-review round. To delegate again on that child, the
 user's own message gives a new grant for it: a new child grant event and a new
 line, which need the child's plan-review round, as any new grant does.
 
+### Grant check
+
+A run that acts under a grant reads the latest authority events of the plan
+and of its parent at the start of each phase and before each delegated
+decision. The grant has ended after a newer revocation on the plan, a newer
+narrowing of a yolo grant (Grant and revocation), or any newer parent event
+(Authority events). Then a yolo run stops as Ended grant in Yolo runs says.
+Another run continues with no grant, and asks each question that the grant
+answered. A narrowed `Delegated:` grant on the plan itself continues as the
+narrower grant. A later run on a plan whose grant has ended is a
+`plan-manager` run with no grant, unless the user's own message gives a new
+grant.
+
 ### Answered and kept questions
 
 The grant answers only these questions:
@@ -1246,6 +1259,15 @@ ask, because the helper does not move a blocked plan back to `drafting` or
 check three more fix attempts. On `Leave plan blocked`, or without an answer,
 set the status to `blocked` with the stall reason, run Teardown's exit without
 a merge, and report.
+
+### Ended grant
+
+When the Grant check of Delegated decisions finds that the grant has ended,
+the yolo run stops at once and decides nothing more. Commit and push current
+work to the linked branch first, when code exists, and when the pull request
+is open, update its body as Checklist says, as a stall does. Post one issue
+comment that names the ending event, keep the plan status unchanged, and
+report. Do not ask the merge question.
 
 ### Merge question
 

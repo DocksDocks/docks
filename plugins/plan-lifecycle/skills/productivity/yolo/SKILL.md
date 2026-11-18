@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "09aa636b60e14f769aa994116bc934e45cbbab38087babf06da51654c1a911d1"
+  content_hash: "34576e2ec81453e2dad01ba2d7eb511db627934e4faddef3fee45fd6fcbeec78"
 ---
 
 # Yolo
@@ -75,6 +75,10 @@ practice.
 | Implement | Follow plan-manager phase 5 and Implement below | Verification Results hold real results, and the candidate is committed |
 | Code review | Run Review loops below | `show <n>` reads `code=pass` |
 | Land | Follow Landing below | The merge question has an answer, or no answer is possible |
+
+At the start of each phase, and before each delegated decision, run the Grant
+check of the contract's Delegated decisions. When the grant has ended, stop as
+the contract's Ended grant (Yolo runs) says.
 
 ## Existing plans and incomplete requests
 
@@ -149,6 +153,7 @@ experiment; do not ask. This run holds the grant of the contract's Delegated
 decisions through its grant event: decide each question that the practices
 send to the user as that section says, with a deliberation record. Open
 questions holds only a `Blocked:` line, as the contract's Delegation line says.
+Run the Grant check before each delegated decision, as Run order says.
 
 ## Implement
 
