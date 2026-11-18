@@ -24,7 +24,9 @@ The skill lives at `.agents/skills/verify/SKILL.md`. The symlink `.claude/skills
 - Make each command fast. Prefer a command that finishes in seconds over a full test suite.
 - Wait on a readiness signal: an open port, a health URL that returns 200, or a log line. Do not wait with a fixed `sleep`.
 - Name the expected observable result: an exit code, an output line, an HTTP status and body field, element text, or a screenshot detail.
-- Run each command once after you write the skill. Replace each expected result with the real output.
+- Write each expected result as `not observed: expect <result>` until a run shows it. This covers each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
+- After you write the skill, run the check command of each Prerequisites row, then Start, every flow in order, and Stop. Compare each output with the `expect <result>` part of its mark, and remove the mark only after the command shows that result. A failed command keeps its expected result and gets the failure after it: `not observed: expect <result>; got <first line of the failure>`. The commands after it keep their marks.
+- A `not observed:` line is a command that has not shown its expected result: it failed, or no run finished it. Before a later run, write `not observed: expect <result>` again on each result that holds no mark. Then run every command again in order, not only the marked rows, because a flow can depend on an earlier flow.
 - Use test data, test accounts, and local ports only. Never point a command at production.
 - Name each secret by its environment variable. Do not write a secret value into the skill, and do not print it.
 - Stop every process that a command starts. Remove temporary files and free the ports.
@@ -33,7 +35,7 @@ The skill lives at `.agents/skills/verify/SKILL.md`. The symlink `.claude/skills
 
 ## Template
 
-Replace each `<...>` value. Delete a row or a section that does not apply to the project.
+Replace each `<...>` value. Delete a row or a section that does not apply to the project. Keep each `not observed: expect` mark until a run of the command shows that result.
 
 ````markdown
 ---
@@ -51,8 +53,8 @@ metadata:
 
 | Need | Check command | Expected result |
 |---|---|---|
-| <tool and minimum version> | `<command>` | <output> |
-| <environment variable> holds <what> | `test -n "$<VAR>" && echo set` | `set` |
+| <tool and minimum version> | `<command>` | not observed: expect <output> |
+| <environment variable> holds <what> | `test -n "$<VAR>" && echo set` | not observed: expect `set` |
 
 ## Start
 
@@ -66,14 +68,14 @@ echo $! > "$run/verify.pid"
 
 The Stop block reads `$run`. If the shell does not keep variables between blocks, set `run` to the printed folder before you stop.
 
-Ready when: <the readiness command exits 0 | the log shows "<line>">.
+Ready when: not observed: expect <the readiness command exits 0 | the log shows "<line>">.
 
 ## Drive and inspect
 
 | Id | Flow | Command or tool action | Expected result |
 |---|---|---|---|
-| V1 | <main flow> | `<command>` | <observable result> |
-| V2 | <error path> | `<command>` | <observable result> |
+| V1 | <main flow> | `<command>` | not observed: expect <observable result> |
+| V2 | <error path> | `<command>` | not observed: expect <observable result> |
 
 ## Stop and clean up
 
@@ -82,7 +84,7 @@ kill "$(cat "$run/verify.pid")"
 rm -r "$run"
 ```
 
-Clean when: `<command>` shows no process and no open port.
+Clean when: not observed: expect `<command>` shows no process and no open port.
 
 ## Failure signs
 
@@ -107,7 +109,7 @@ Pick the row for each surface that the project has. Copy its commands into Start
 
 ## Worked example
 
-A project `notes-api` is a Node HTTP service. Its `package.json` defines `npm start`, and it listens on the port in `PORT`. The filled skill:
+A project `notes-api` is a Node HTTP service. Its `package.json` defines `npm start`, and it listens on the port in `PORT`. The filled skill after a full run, in which each command showed its expected result, so it holds no `not observed:` mark:
 
 ````markdown
 ---

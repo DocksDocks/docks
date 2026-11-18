@@ -1591,11 +1591,13 @@ const isPhaseLabel = (name) => token(name).startsWith('plan:') && PLAN_STATUSES.
 // One write request reopens the plan, posts `comment`, and claims an unassigned plan. It changes no label that the plan
 // holds, so a label that someone adds meanwhile survives. Only when the read right before the write shows no phase
 // label, as after a finished archive, does the same request add `plan:ongoing`. GitHub labels have no compare-and-set,
-// so a phase label can still change around the write: the read after it must show exactly one phase label, and any
-// other result is refused with the repair through `status`. A reopen compares no body, so the pre-write read is its
-// last ownership check: an owner that appeared after the snapshot is refused, and the claim follows that read. The
-// last field returns the stored state, which shows whether GitHub left the plan stuck.
-function writeReopen({ issue, login, viewerId, labelIds }, comment) {
+// so a phase label can still change around the write: the read after it must show an open plan with exactly one phase
+// label. A plan that reads closed again was closed by someone after the write, and the refusal names `command`, whose
+// rerun reads that close and decides again. An open plan with no phase label or with more than one is refused with the
+// repair through `status`. A reopen compares no body, so the pre-write read is its last ownership check: an owner that
+// appeared after the snapshot is refused, and the claim follows that read. The last field returns the stored state,
+// which shows whether GitHub left the plan stuck.
+function writeReopen({ issue, login, viewerId, labelIds }, comment, command) {
   const { id, assignees } = ownedPreWriteIssue(issue.number, login);
   const claims = assignees.length === 0;
   const restoresPhase = !readSnapshot(issue.number).issue.labels.some((label) => isPhaseLabel(label.name));
@@ -1639,6 +1641,8 @@ function writeReopen({ issue, login, viewerId, labelIds }, comment) {
   const current = readSnapshot(issue.number).issue,
     status = statusFromIssue(current);
   refuseStuck(current);
+  if (isClosed({ issue: current }))
+    fail(`plan #${issue.number} closed again after the reopen; run ${command} again`);
   if (!PLAN_STATUSES.has(status))
     fail(
       `plan issue state differs after reopen; run status ${issue.number} ongoing to repair the phase labels`,
@@ -1717,7 +1721,7 @@ function settleAndReopen({ observed, read, command, stillReopenable, comment }) 
   if (isClosed(current) && (current.status !== 'finished' || !sameClose))
     fail(`plan #${current.issue.number} changed during the settle wait; run ${command} again`);
   if (!isClosed(current)) return current;
-  writeReopen(current, comment);
+  writeReopen(current, comment, command);
   return undefined;
 }
 function main([command, ...args]) {

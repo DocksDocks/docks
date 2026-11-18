@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "c0c3c9e7e69ad617641c00a57fd61da3cb43c3bd807ead215671556823fc647c"
+  content_hash: "20cb1b7797cf1c04e0164fc542e9643a7db100448f908a00ba51d56003621534"
 ---
 
 # Plan Manager
@@ -155,65 +155,45 @@ root and in each parent folder of a changed path. The changed paths are the
 paths of the full diff and, in a later round, also the paths of the delta diff.
 A file that the branch added and a repair then deleted is in the delta diff
 only. Set `prev` to the previous round's reviewed head, or leave it empty in
-round 1. A symlink gives the text of its target in the merge-base tree, under
-the path of the link. A link whose target is missing, outside the tree, or more
-than 8 links away is absent. The folder's `MANIFEST` lists each checked path as
-`copied <path>` or `absent <path>`. When a git command fails, the block writes
-no `MANIFEST`, prints an error, and exits with a non-zero status. Then do not
-dispatch the round; a git failure is not an absent file:
+round 1. Put the folder of this skill, which holds `scripts/plan.mjs`, in place
+of `<skill-dir>`. Its `scripts/base-blob.sh` reads each file. A symlink, also a
+folder link on the path, gives the text of its target in the merge-base tree,
+under the path of the link. A path is absent when it is missing or names a
+folder, or when a link on it has a target outside the tree or more than 40
+links away. The folder's `MANIFEST` lists each checked path as `copied <path>`
+or `absent <path>`. When git or the script fails, the block writes no
+`MANIFEST`, prints an error, and exits with a non-zero status. Then do not
+dispatch the round; a failed read is not an absent file:
 
 ```bash
 inst="$scratch/code-review-<n>-round-<k>-base-instructions"
 prev="<previous-reviewed-head or empty>"
-# Prints the blob id of $1 at $base; a link resolves from its folder in the tree.
-# Status 1: absent. Status 2: a git command failed.
-base_blob() {
-  f=$1 n=0
-  while entry=$(git --literal-pathspecs ls-tree --full-tree "$base" -- "$f"); do
-    set -- $entry
-    [ "$2" = blob ] || return 1
-    [ "$1" = 120000 ] || { printf '%s\n' "$3"; return 0; }
-    n=$((n + 1)); [ "$n" -le 8 ] || return 1
-    to=$(git cat-file blob "$3") || return 2
-    case $to in /*) return 1 ;; esac
-    f=$(set -f; IFS=/; out= p=$(dirname "$f")/$to
-      for seg in $p; do
-        case $seg in
-          '' | .) ;;
-          ..) [ -n "$out" ] || exit 1; case $out in */*) out=${out%/*} ;; *) out= ;; esac ;;
-          *) out=${out:+$out/}$seg ;;
-        esac
-      done
-      [ -n "$out" ] && printf '%s\n' "$out") || return 1
-  done
-  return 2
-}
 rm -rf "$inst" && mkdir -p "$inst" && (
   set -o pipefail
   { git diff --name-only --no-renames -z "$base" &&
       { [ -z "$prev" ] || git diff --name-only --no-renames -z "$prev"; } &&
       git ls-files --others --exclude-standard -z; } |
   while IFS= read -r -d '' path; do
-    dir=$(dirname "$path")
-    while :; do
+    dir=$path
+    while [ "$dir" != . ]; do
+      case $dir in */*) dir=${dir%/*} ;; *) dir=. ;; esac
       for name in AGENTS.md CLAUDE.md REVIEW.md; do
         if [ "$dir" = . ]; then printf '%s\0' "$name"; else printf '%s\0' "$dir/$name"; fi
       done
-      [ "$dir" = . ] && break
-      dir=$(dirname "$dir")
     done
   done | sort -zu |
   while IFS= read -r -d '' file; do
-    oid=$(base_blob "$file")
+    oid=$(sh "<skill-dir>/scripts/base-blob.sh" "$base" "$file")
     case $? in
-      0) mkdir -p "$inst/$(dirname "$file")" && git cat-file blob "$oid" > "$inst/$file" || exit 1
+      0) copy="$inst/$file"
+        mkdir -p "${copy%/*}" && git cat-file blob "$oid" > "$copy" || exit 1
         printf 'copied %s\n' "$file" ;;
       1) printf 'absent %s\n' "$file" ;;
       *) exit 1 ;;
     esac
   done > "$inst/MANIFEST.part"
 ) && mv "$inst/MANIFEST.part" "$inst/MANIFEST" ||
-  { echo "base instructions: a git command failed; $inst has no MANIFEST" >&2; false; }
+  { echo "base instructions: a read failed; $inst has no MANIFEST" >&2; false; }
 ```
 
 Name the folder in every dispatch, because the reviewer reads instruction files

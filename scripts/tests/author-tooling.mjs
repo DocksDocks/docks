@@ -403,10 +403,10 @@ function testSkillsGuardReportSection() {
   }
 }
 
-// A shared reference ships in two plugins with the same bytes. The guard reads the files from its own repository, so
-// the cases run the guard of a copy of the scripts and plugins, and change the copy of the reference there. The target
+// A shared file ships in two plugins with the same bytes. The guard reads the files from its own repository, so the
+// cases run the guard of a copy of the scripts and plugins, and change the copy of the shared file there. The target
 // is the plan-lifecycle skills, and the copy is in the docks plugin: the check runs whatever the target folder is.
-function testSkillsGuardSharedReferences() {
+function testSkillsGuardSharedFiles() {
   const canonical = 'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/pull-request-template.md';
   const copy = 'plugins/docks/skills/productivity/agent-first-setup/references/pull-request-template.md';
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-shared-'));
@@ -433,23 +433,23 @@ function testSkillsGuardSharedReferences() {
     assertStarted(changed);
     assert.equal(changed.status, 1);
     assert.match(changed.stderr, failLine(`differs from ${escapeRegExp(canonical)}; copy that file over it`));
-    assert.match(changed.stderr, /Guard FAILED: 1 shared reference file\(s\) do not match their canonical file\n$/);
+    assert.match(changed.stderr, /Guard FAILED: 1 shared file\(s\) do not match their canonical file\n$/);
 
     fs.rmSync(copyFile);
     const missing = runNode(guard, [target]);
     assertStarted(missing);
     assert.equal(missing.status, 1);
-    assert.match(missing.stderr, failLine('cannot read the shared reference \\(ENOENT\\)'));
+    assert.match(missing.stderr, failLine('cannot read the shared file \\(ENOENT\\)'));
 
-    // The repository lists its shared references in a config file. Without that file the guard checks none, so the
-    // missing copy no longer fails, and the guard prints nothing about shared references.
+    // The repository lists its shared files in a config file. Without that file the guard checks none, so the
+    // missing copy no longer fails, and the guard prints nothing about shared files.
     const config = path.join(fixtureRoot, 'scripts/config/shared-references.json');
     const configFail = (reason) => new RegExp(`^FAIL: scripts/config/shared-references\\.json: ${reason}`, 'm');
     fs.rmSync(config);
     const noConfig = runNode(guard, [target]);
     assertStarted(noConfig);
     assert.equal(noConfig.status, 0, noConfig.stderr);
-    assert.doesNotMatch(`${noConfig.stdout}\n${noConfig.stderr}`, /shared reference/);
+    assert.doesNotMatch(`${noConfig.stdout}\n${noConfig.stderr}`, /shared file/);
 
     // An entry without its copies has the wrong shape.
     fs.writeFileSync(config, `${JSON.stringify([{ canonical }])}\n`);
@@ -473,7 +473,7 @@ testCombinedSkillValidation();
 testTreeGuardOperationalFailures();
 testSkillsGuardSpawnFailure();
 testSkillsGuardReportSection();
-testSkillsGuardSharedReferences();
+testSkillsGuardSharedFiles();
 testTestContractToolchains();
 testShebangInterpreter();
 testValidatorTable();

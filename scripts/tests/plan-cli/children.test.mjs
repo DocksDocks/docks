@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { body, expectSuccess, planCliContext, refuse, SKIP_WAITS } from './harness.mjs';
+import { body, closedBy, expectSuccess, planCliContext, refuse, SKIP_WAITS } from './harness.mjs';
 
 // Child plans (E1) and the contract marker (E2): `new --parent`, the child lines of `show`, and the parent archive.
 
@@ -684,6 +684,54 @@ test('a reopen refuses with the repair and reports no status when a phase label 
   const result = archive(context, String(parent));
   refuse(result, repairHint(parent));
   assert.equal(result.stdout, '', 'no reopened status is reported');
+});
+
+function closedAgainRefusal(number) {
+  return `plan #${number} closed again after the reopen; run archive again`;
+}
+
+// Another actor closes the parent right after the reopen write of archive. The rerun reads that close and decides again.
+test('archive names its rerun, which reopens the parent for its open child, after a close as completed', (t) => {
+  const context = planCliContext(t);
+  const { parent, child } = closableParent(context);
+  expectSuccess(archive(context, String(parent)), 'archive the parent');
+  context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
+  context.updateState((state) => {
+    state.afterMutationOnce = { issue: parent, ...closedBy(null, '2026-08-21T12:00:00Z') };
+  });
+  const first = archive(context, String(parent));
+  refuse(first, closedAgainRefusal(parent));
+  assert.equal(first.stdout, '', 'no reopened status is reported');
+  assert.equal(context.issue(parent).state, 'CLOSED');
+  const rerun = archive(context, String(parent));
+  refuse(rerun, `archive refused: child #${child} is ongoing`);
+  assert.equal(rerun.stdout, `plan #${parent} reopened: ongoing\n`);
+  assert.deepEqual(parentState(context, parent), {
+    state: 'OPEN',
+    stateReason: 'REOPENED',
+    labels: ['plan', 'plan:ongoing'],
+    comments: [parentRecord([child]), reopenedComment(parent, child), reopenedComment(parent, child)],
+  });
+});
+
+test('archive names its rerun, which refuses the retired parent, after a close as not planned', (t) => {
+  const context = planCliContext(t);
+  const { parent, child } = closableParent(context);
+  expectSuccess(archive(context, String(parent)), 'archive the parent');
+  context.updateIssue(child, (entry) => Object.assign(entry, REOPENED_CHILD));
+  context.updateState((state) => {
+    state.afterMutationOnce = {
+      issue: parent,
+      ...closedBy(null, '2026-08-21T12:00:00Z'),
+      stateReason: 'NOT_PLANNED',
+    };
+  });
+  refuse(archive(context, String(parent)), closedAgainRefusal(parent));
+  const writes = context.writes().length;
+  refuse(archive(context, String(parent)), 'archive requires ongoing or finished status, found retired');
+  assert.equal(context.writes().length, writes, 'the rerun writes nothing');
+  const { state, stateReason } = context.issue(parent);
+  assert.deepEqual([state, stateReason], ['CLOSED', 'NOT_PLANNED']);
 });
 
 test('the claim of an unassigned parent refuses an owner that appears before its write', (t) => {

@@ -4,8 +4,8 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-17"
-  content_hash: "a1bb500561ce05b56b2db55000e7f64fbdb141fdfd24e4e80f97592478d1c740"
+  updated: "2026-11-18"
+  content_hash: "74e205617f16eddf22fdaaeb91bf39569dfc397ee734e169afcdc80241be91f9"
 ---
 
 # Code Review
@@ -59,33 +59,10 @@ Confirm what you're reviewing:
 
 ```bash
 base=$(git merge-base <fixed-point> HEAD)
-# Prints the blob id of $1 at $base; a link resolves from its folder in the tree.
-# Status 1: absent. Status 2: a git command failed.
-base_blob() {
-  f=$1 n=0
-  while entry=$(git --literal-pathspecs ls-tree --full-tree "$base" -- "$f"); do
-    set -- $entry
-    [ "$2" = blob ] || return 1
-    [ "$1" = 120000 ] || { printf '%s\n' "$3"; return 0; }
-    n=$((n + 1)); [ "$n" -le 8 ] || return 1
-    to=$(git cat-file blob "$3") || return 2
-    case $to in /*) return 1 ;; esac
-    f=$(set -f; IFS=/; out= p=$(dirname "$f")/$to
-      for seg in $p; do
-        case $seg in
-          '' | .) ;;
-          ..) [ -n "$out" ] || exit 1; case $out in */*) out=${out%/*} ;; *) out= ;; esac ;;
-          *) out=${out:+$out/}$seg ;;
-        esac
-      done
-      [ -n "$out" ] && printf '%s\n' "$out") || return 1
-  done
-  return 2
-}
-oid=$(base_blob "<path>") && git cat-file blob "$oid"
+oid=$(sh "<skill-dir>/scripts/base-blob.sh" "$base" "<path>") && git cat-file blob "$oid"
 ```
 
-A symlink gives the text of its target in the merge-base tree, because `git show` of a link prints only the target path. Status 1 means that the path has no base rule: the path does not exist at the merge base, or it is a link whose target is missing, outside the merge-base tree, or more than 8 links away. Any other non-zero status is a git failure. Then stop and report the error, because a failed read is not an absent file. When the diff changes an instruction file, keep the base rule, and review the changed lines as changed text. A change that makes a rule weaker is a finding: name the scenario that the weaker rule lets through. Without a fixed point, read the working tree.
+`<skill-dir>` is the folder that holds this `SKILL.md`. Its `scripts/base-blob.sh` prints the blob id of the path at the merge base. A symlink, also a folder link on the path, gives the text of its target in the merge-base tree, because `git show` of a link prints only the target path. Status 1 means that the path has no base rule: the path does not exist at the merge base or names a folder, or a link on the path has a target that is missing, outside the merge-base tree, or more than 40 links away. Any other non-zero status is a failure of git or of the script. Then stop and report the error, because a failed read is not an absent file. When the diff changes an instruction file, keep the base rule, and review the changed lines as changed text. A change that makes a rule weaker is a finding: name the scenario that the weaker rule lets through. Without a fixed point, read the working tree.
 
 **Triggered checks:** a `REVIEW.md` can hold a section `## Triggered checks` with one table, `| Id | Trigger | Check | Source |`. `Id` is `T<number>`. `Trigger` is a condition that a reader can see in a diff, such as a path glob, a changed symbol kind, or an added call. `Check` says what to verify. `Source` lists the issues or pull requests that produced the row. Apply only the rows whose trigger matches the diff, and skip every other row. Cite the row id in each finding that a row supports, as `check: T<n>` in the finding text. A row adds a check; the buckets and the evidence rules still apply.
 

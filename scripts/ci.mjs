@@ -22,7 +22,7 @@ import {
   PLUGINS,
   presentPlugins,
   REPO_WIDE_JAVASCRIPT_QUALITY,
-  shellHooks,
+  shellScripts,
 } from './lib/plugins.mjs';
 import { eachSkillCandidateDir } from './lib/skills-walk.mjs';
 
@@ -328,22 +328,22 @@ if (authorChecks.has('idempotency')) {
     : fail('skill-maintainer idempotency failed (run: bun tests/idempotency.mjs)');
 }
 
-// shell lint — shellHooks(p) collects each plugin's hooks/*.sh plus a rust
-// capability's sh launcher. No plugin ships either today, so the set is empty and
-// the phase stands as the guard that lints the first shell script added back.
+// shell lint — shellScripts(p) collects each selected plugin's hooks/*.sh, its
+// bundled skill scripts (skills/**/scripts/*.sh), and a rust capability's sh
+// launcher, so every shipped shell script of a target is linted.
 if (targets.length > 0) {
   section('shell lint');
-  const bashFiles = targets.flatMap(shellHooks);
-  if (bashFiles.length === 0) ok('no bash to lint (all tooling is .mjs)');
+  const shellFiles = targets.flatMap(shellScripts);
+  if (shellFiles.length === 0) ok('no shell script to lint');
   else {
     const shellcheck = runCommand(
-      `shellcheck -S warning ${bashFiles.join(' ')}`,
-      ['shellcheck', '-S', 'warning', ...bashFiles],
+      `shellcheck -S warning ${shellFiles.join(' ')}`,
+      ['shellcheck', '-S', 'warning', ...shellFiles],
       { encoding: 'utf8' },
     );
     if (shellcheck.error) fail('shellcheck could not run — shell lint not validated');
-    else if ((shellcheck.status ?? 1) === 0) ok(`shellcheck -S warning clean (${bashFiles.length} hook(s))`);
-    else fail(`shellcheck warnings (run: shellcheck -S warning ${bashFiles.join(' ')})`);
+    else if ((shellcheck.status ?? 1) === 0) ok(`shellcheck -S warning clean: ${shellFiles.join(', ')}`);
+    else fail(`shellcheck warnings (run: shellcheck -S warning ${shellFiles.join(' ')})`);
   }
 }
 

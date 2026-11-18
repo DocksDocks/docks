@@ -128,16 +128,22 @@ export function manifestCategories(manifest) {
     .filter(Boolean);
 }
 
-// Shell files to lint: hook scripts (*.sh) under a plugin's hooks/ dir, plus
-// the rust capability's sh launcher (bin/<binName>) when present.
-export function shellHooks(p) {
-  const dir = path.join(p.root, 'hooks');
-  const out = fs.existsSync(dir)
-    ? fs
-        .readdirSync(dir)
-        .filter((f) => f.endsWith('.sh'))
-        .map((f) => path.join(dir, f))
-    : [];
+// Shell files to lint: hook scripts (*.sh) under a plugin's hooks/ dir, the
+// bundled skill scripts (skills/**/scripts/*.sh), and the rust capability's sh
+// launcher (bin/<binName>) when present.
+export function shellScripts(p) {
+  const shFiles = (dir, keep) =>
+    fs.existsSync(dir)
+      ? fs
+          .readdirSync(dir, { recursive: true })
+          .filter((f) => f.endsWith('.sh') && keep(f))
+          .sort()
+          .map((f) => path.join(dir, f))
+      : [];
+  const out = [
+    ...shFiles(path.join(p.root, 'hooks'), (f) => !f.includes(path.sep)),
+    ...shFiles(path.join(p.root, 'skills'), (f) => path.basename(path.dirname(f)) === 'scripts'),
+  ];
   if (p.rust) {
     const launcher = path.join(p.root, 'bin', p.rust.binName);
     if (fs.existsSync(launcher)) out.push(launcher);
