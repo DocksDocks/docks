@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "c3acf5477130380802ba9f3c782082922a262196388c9eb5563061247dcd9e24"
+  content_hash: "20cb1b7797cf1c04e0164fc542e9643a7db100448f908a00ba51d56003621534"
 ---
 
 # Plan Manager
@@ -174,19 +174,19 @@ rm -rf "$inst" && mkdir -p "$inst" && (
       { [ -z "$prev" ] || git diff --name-only --no-renames -z "$prev"; } &&
       git ls-files --others --exclude-standard -z; } |
   while IFS= read -r -d '' path; do
-    dir=$(dirname "$path")
-    while :; do
+    dir=$path
+    while [ "$dir" != . ]; do
+      case $dir in */*) dir=${dir%/*} ;; *) dir=. ;; esac
       for name in AGENTS.md CLAUDE.md REVIEW.md; do
         if [ "$dir" = . ]; then printf '%s\0' "$name"; else printf '%s\0' "$dir/$name"; fi
       done
-      [ "$dir" = . ] && break
-      dir=$(dirname "$dir")
     done
   done | sort -zu |
   while IFS= read -r -d '' file; do
     oid=$(sh "<skill-dir>/scripts/base-blob.sh" "$base" "$file")
     case $? in
-      0) mkdir -p "$inst/$(dirname "$file")" && git cat-file blob "$oid" > "$inst/$file" || exit 1
+      0) copy="$inst/$file"
+        mkdir -p "${copy%/*}" && git cat-file blob "$oid" > "$copy" || exit 1
         printf 'copied %s\n' "$file" ;;
       1) printf 'absent %s\n' "$file" ;;
       *) exit 1 ;;

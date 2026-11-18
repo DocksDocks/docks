@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "4ed71222d9c0e2c3b78a0bacdeff5a750abab34ed5e6c1c4ad624821da43a353"
+  content_hash: "fb8841a0b76155b99f8e4db4fae7809ebc443fb06d6a7c6962f7f5c34a385a55"
 ---
 
 # Agent-First Setup
@@ -88,7 +88,7 @@ grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's/^/ve
 
 Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored. In the same shell, also run the detection block of [references/pull-request-template.md](references/pull-request-template.md) word for word: it defines the `pr_templates` function and prints its `pull-request template:` lines. It tells a usable template from an unusable entry, such as a broken symlink or an empty template folder, and prints `pull-request template: none` when no usable template exists. It needs git; outside git, its last line prints `ERROR`. Report that error. An error is not a missing template.
 
-If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that has not shown its expected result: it failed, or no run reached it. Step 2b then reruns every command. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
+If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that has not shown its expected result: it failed (its mark ends in `; got <failure>`), or no run finished it. Step 2b then marks every result again and reruns every command. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
 
 ### Step 1 — Run `multi-tool-bridge`
 
@@ -108,7 +108,7 @@ In `audit` mode, run `context-tree audit` only.
 
 A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. The template, the surface recipes, and a worked example are in [references/verify-skill-template.md](references/verify-skill-template.md).
 
-1. If `.agents/skills/verify/SKILL.md` exists and Step 0 printed no `verify unverified:` line, make no change and go to Step 2c. If Step 0 printed a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, ask for approval through the harness question tool to run every command again and update the results, and then run step 7 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow.
+1. If `.agents/skills/verify/SKILL.md` exists and Step 0 printed no `verify unverified:` line, make no change and go to Step 2c. If Step 0 printed a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, and ask for approval through the harness question tool to mark every result again and run every command again. After approval, and before any command runs, write `not observed: expect <result>` on each result that holds no mark: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`. An older mark with no `expect <result>` part lost its expected result: take that result from the git history of the skill or ask the user, and write `not observed: expect <result>; got <the old failure line>`. Then run step 7 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow.
 2. Find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of the template's "Surface recipes" table.
 3. If the repository has no runnable surface, write nothing. Record "no runnable surface" for the report and go to Step 2c.
 4. Fill the template for each surface. Use only commands that the repository defines or that the recipes name. Ask the user through the harness question tool for a missing start command, port, or test account. No run has shown a result yet, so write each expected result as `not observed: expect <result>`: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
@@ -121,9 +121,9 @@ A project `verify` skill tells an agent how to run the real product the way a us
    test -f .claude/skills/verify/SKILL.md && echo "verify skill: linked" || echo "BROKEN: .claude/skills/verify"
    ```
 
-7. Run each command of the new skill once, in order: the check command of each Prerequisites row, Start, every flow, and Stop. Replace a `not observed:` mark with the observed result only after the command shows that result. If a command fails or shows another result:
+7. Run each command of the new skill once, in order: the check command of each Prerequisites row, Start, every flow, and Stop. Compare the output of each command with the `expect <result>` part of its mark. Only after the command shows that result, remove the mark, so that the expected result stays. If a command fails or shows another result:
    1. If Start ran, run the Stop and cleanup commands of the skill at once, before you report or ask. No process, port, or temporary folder from this run stays.
-   2. Keep the failed command in the skill. Do not remove it. In place of its mark, write `not observed: <first line of the failure>`. The commands after it keep their `not observed: expect` marks.
+   2. Keep the failed command in the skill. Do not remove it. Keep the expected part of its mark and put the failure after it: `not observed: expect <result>; got <first line of the failure>`. A `got` part from an earlier run gets the new line. The commands after it keep their marks.
    3. Do not report the skill as verified. Name the failed command and its output in the report.
    4. Ask the user through the harness question tool for the fix, for example a missing service, dependency, or test account. If the harness has no such tool, end the turn and report Step 2b as blocked.
 
@@ -233,7 +233,7 @@ done
 if test -f .agents/skills/verify/SKILL.md; then
   test -f .claude/skills/verify/SKILL.md || echo "FAIL C9 .claude/skills/verify does not resolve to .agents/skills/verify"
 else echo "FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)"; fi
-# C9 every command of the verify skill showed its expected result (a `not observed:` entry is a command that failed or that no run reached)
+# C9 every command of the verify skill showed its expected result (a `not observed:` entry is a command that failed or that no run finished)
 grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's|^|FAIL C9 unverified command (rerun every command in Step 2b): .agents/skills/verify/SKILL.md:|'
 # C10 a usable pull-request template exists (pr_templates from Step 0; each unusable entry is named; an error is not a missing template)
 if t=$(pr_templates); then printf '%s\n' "$t" | sed -n 's/^pull-request template: unusable /FINDING C10 unusable pull-request template: /p'; case "$t" in *"pull-request template: none"*) echo "FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)";; esac; else echo "ERROR C10 pull-request template check failed (see the message above)"; fi
@@ -293,7 +293,7 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 | `audit` mode finds a fixable problem | Fix it in the same run | Report it; the user runs the default mode or the owning skill |
 | The `verify` skill lists only the unit-test command | Accept it as verification | A unit test does not drive the product. Add a row that starts the surface, drives a main flow, and names the observable result |
 | The `verify` skill waits with `sleep 5` | Raise the sleep until the run passes | Wait on a readiness signal: an open port, a health URL, or a log line |
-| A `verify` command fails because a service or a dependency is not available | Remove the command from the skill, ask the user while the server still runs, or on a later run rerun only the marked rows | Run Stop and cleanup first. Keep the command and mark it `not observed: <first line of the failure>`; the commands after it keep their `expect` marks. Report the failure and ask the user for the fix. A later run reruns every command in order, because a flow can depend on an earlier flow. Step 2b stays open until each command shows its expected result |
+| A `verify` command fails because a service or a dependency is not available | Remove the command from the skill, overwrite its expected result with the failure, ask the user while the server still runs, or on a later run rerun only the marked rows | Run Stop and cleanup first. Keep the command and mark it `not observed: expect <result>; got <first line of the failure>`; the commands after it keep their `expect` marks. Report the failure and ask the user for the fix. A later run first marks every result again, then reruns every command in order, because a flow can depend on an earlier flow. Step 2b stays open until each command shows its expected result |
 
 ## Anti-Hallucination Checks
 

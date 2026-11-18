@@ -39,7 +39,8 @@ while [ -n "$rest" ]; do
   esac
   entry=$(git --literal-pathspecs ls-tree --full-tree "$commit" -- "${dir:+$dir/}$part") || exit 2
   [ -n "$entry" ] || exit 1
-  # An entry is `<mode> <type> <object id><tab><path>`.
+  # An entry is `<mode> <type> <object id><tab><path>`. Only the part before the tab
+  # is read, and git quotes a path with a newline, so no byte of a name is lost.
   meta=${entry%%"$tab"*}
   oid=${meta##* }
   case ${meta%% *} in
@@ -47,7 +48,9 @@ while [ -n "$rest" ]; do
     120000)
       links=$((links + 1))
       [ "$links" -le 40 ] || exit 1
-      target=$(git cat-file blob "$oid") || exit 2
+      # The x keeps the trailing newlines of the target, which are part of its name.
+      target=$(git cat-file blob "$oid" && echo x) || exit 2
+      target=${target%x}
       case $target in '' | /*) exit 1 ;; esac
       rest=$target${rest:+/$rest} ;;
     100644 | 100755)

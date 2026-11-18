@@ -25,8 +25,8 @@ The skill lives at `.agents/skills/verify/SKILL.md`. The symlink `.claude/skills
 - Wait on a readiness signal: an open port, a health URL that returns 200, or a log line. Do not wait with a fixed `sleep`.
 - Name the expected observable result: an exit code, an output line, an HTTP status and body field, element text, or a screenshot detail.
 - Write each expected result as `not observed: expect <result>` until a run shows it. This covers each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
-- After you write the skill, run the check command of each Prerequisites row, then Start, every flow in order, and Stop. Replace a mark with the real output only after the command shows that result. A failed command gets `not observed: <first line of the failure>`, and the commands after it keep their marks.
-- A `not observed:` line is a command that has not shown its expected result: it failed, or no run reached it. On a later run, run every command again in order, not only the marked rows, because a flow can depend on an earlier flow.
+- After you write the skill, run the check command of each Prerequisites row, then Start, every flow in order, and Stop. Compare each output with the `expect <result>` part of its mark, and remove the mark only after the command shows that result. A failed command keeps its expected result and gets the failure after it: `not observed: expect <result>; got <first line of the failure>`. The commands after it keep their marks.
+- A `not observed:` line is a command that has not shown its expected result: it failed, or no run finished it. Before a later run, write `not observed: expect <result>` again on each result that holds no mark. Then run every command again in order, not only the marked rows, because a flow can depend on an earlier flow.
 - Use test data, test accounts, and local ports only. Never point a command at production.
 - Name each secret by its environment variable. Do not write a secret value into the skill, and do not print it.
 - Stop every process that a command starts. Remove temporary files and free the ports.

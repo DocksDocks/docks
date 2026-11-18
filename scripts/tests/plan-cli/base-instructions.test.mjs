@@ -211,6 +211,40 @@ function folderRepo(t) {
   return { root, repo, base };
 }
 
+// Names that end in a newline. Each pair of names, with and without the newline, holds different rules, so a read
+// that drops the newline gives the wrong rules. AGENTS.md links to `rules.md\n`, the folder link docs links to the
+// folder `src\n`, and CLAUDE.md links to docs/REVIEW.md. The working tree adds a file in the folder `lib\n`.
+const NEWLINE_RULES = '# Rules of the name that ends in a newline\n';
+const PLAIN_RULES = '# Rules of the name without the newline\n';
+const NEWLINE_EXPECTED = new Map([
+  ['AGENTS.md', NEWLINE_RULES],
+  ['CLAUDE.md', NEWLINE_RULES],
+  ['REVIEW.md', null],
+  ['lib\n/AGENTS.md', NEWLINE_RULES],
+  ['lib\n/CLAUDE.md', null],
+  ['lib\n/REVIEW.md', null],
+]);
+
+function newlineRepo(t) {
+  const { root, repo } = newRepo(t);
+  for (const [plain, newline] of [
+    ['rules.md', 'rules.md\n'],
+    ['src/REVIEW.md', 'src\n/REVIEW.md'],
+    ['lib/AGENTS.md', 'lib\n/AGENTS.md'],
+  ]) {
+    put(repo, plain, PLAIN_RULES);
+    put(repo, newline, NEWLINE_RULES);
+  }
+  link(repo, 'AGENTS.md', 'rules.md\n');
+  link(repo, 'docs', 'src\n');
+  link(repo, 'CLAUDE.md', 'docs/REVIEW.md');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'base');
+  const base = git(repo, 'rev-parse', 'HEAD').trim();
+  put(repo, 'lib\n/x.mjs', 'export const x = 1;\n');
+  return { root, repo, base };
+}
+
 // The deep/ chains are outside every changed folder, so only the code-review read checks them.
 const FIXTURES = [
   {
@@ -233,6 +267,16 @@ const FIXTURES = [
       ['la/AGENTS.md', null],
       ['mod', null],
       ['docs', null],
+    ],
+  },
+  {
+    name: 'names that end in a newline',
+    make: newlineRepo,
+    expected: NEWLINE_EXPECTED,
+    extra: [
+      ['docs/REVIEW.md', NEWLINE_RULES],
+      ['src/REVIEW.md', PLAIN_RULES],
+      ['rules.md', PLAIN_RULES],
     ],
   },
 ];
