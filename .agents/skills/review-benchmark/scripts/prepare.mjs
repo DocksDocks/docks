@@ -21,7 +21,8 @@
 //
 // ../SKILL.md describes the case schema, the configurations, the arms, the workspace layout, the review loop, and the
 // manager stage. The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun. Its one fetch
-// is in `case`: the head of the pull request of a case (`pull`) when a case commit is missing (see caseCommits).
+// is in `case`: the head of the pull request of a case (`pull`) when a case commit is missing or no ref keeps it (see
+// caseCommits).
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -931,29 +932,47 @@ function caseSources(caseData, caseFolder, keys) {
 
 // The case fields that name a commit.
 const COMMIT_FIELDS = ['base', 'head', 'delta_base', 'repo_ref'];
-// `case` saves the head of the pull request `<n>` of a case (`pull`) at `${PULL_REF}<n>`. git fetch --prune removes no
+// The refs of the benchmark. `case` saves the head of the pull request `<n>` of a case (`pull`) at `${PULL_REF}<n>`, and
+// a person saves it at `${MANUAL_REF}<n>-<time>` with the command of manualFetchCommand. git fetch --prune removes no
 // ref outside the fetch refspecs, git gc keeps every object that a ref reaches, and the script never moves a saved ref,
-// so every commit that the ref reached stays in the repository.
-const PULL_REF = 'refs/review-bench/pull/';
+// so every commit that the refs reach stays in the repository.
+const BENCH_REFS = 'refs/review-bench/';
+const PULL_REF = `${BENCH_REFS}pull/`;
+const MANUAL_REF = `${BENCH_REFS}manual/`;
 // The ref that one `case` run fetches into, before it saves the head at PULL_REF. The process id keeps a parallel run
 // from changing what this run saves.
-const INCOMING_REF = 'refs/review-bench/incoming/';
+const INCOMING_REF = `${BENCH_REFS}incoming/`;
+const MAIN_REF = 'refs/remotes/origin/main';
 const FORK_NOTE = 'when origin is a fork, use the remote of DocksDocks/docks instead of origin';
 
-// The commits of the case fields that name one. When a commit is missing and the case has `pull`, the head of that pull
-// request holds it: `case` fetches the head once (see fetchPull) and resolves every commit again. A missing commit
-// stops the script before it writes a workspace file.
+// The commits of the case fields that name one. For a case with `pull`, git gc keeps a case commit only when
+// origin/main or a ref under refs/review-bench/ reaches it. When a commit of such a case is missing or no such ref
+// keeps it, the head of that pull request holds it: `case` fetches the head once (see fetchPull) and checks every
+// commit again. A commit that is still missing or not kept stops the script before it writes a workspace file. This
+// also stops a run after a parallel run saved an older head first: the losing run deletes its incoming ref, and its
+// commit then stays only as an object that no ref reaches.
 function caseCommits(repo, caseData) {
   const fields = COMMIT_FIELDS.filter((field) => caseData[field]);
   const resolve = () => Object.fromEntries(fields.map((field) => [field, commitOf(repo, caseData[field])]));
   let commits = resolve();
-  if (caseData.pull && fields.some((field) => !commits[field])) {
+  const open = () => fields.filter((field) => !commits[field] || !isKept(repo, commits[field]));
+  let notKept = caseData.pull ? open() : [];
+  if (notKept.length) {
     fetchPull(repo, caseData);
     commits = resolve();
+    notKept = open();
   }
   const missing = fields.find((field) => !commits[field]);
   if (missing) fail(missingCommitMessage(caseData, missing));
+  if (notKept.length) fail(notKeptMessage(caseData, notKept[0], commits[notKept[0]]));
   return commits;
+}
+
+// Whether origin/main or a ref under refs/review-bench/ reaches `commit`.
+function isKept(repo, commit) {
+  if (runGit(repo, ['merge-base', '--is-ancestor', commit, MAIN_REF]).status === 0) return true;
+  const refs = git(repo, ['for-each-ref', '--count=1', '--format=%(refname)', '--contains', commit, BENCH_REFS]);
+  return refs.length > 0;
 }
 
 // Saves the head of the pull request `pull` of a case at refs/review-bench/pull/<pull>, unless that ref exists. The
@@ -967,7 +986,7 @@ function fetchPull(repo, { id, pull }) {
   const fetched = runGit(repo, fetchArgs);
   if (fetched.status !== 0) {
     fail(
-      `case ${id}: git ${fetchArgs.join(' ')} failed: ${fetched.stderr.toString().trim()}; fetch the head of pull request ${pull} yourself: ${pullFetchCommand(pull)} (${FORK_NOTE})`,
+      `case ${id}: git ${fetchArgs.join(' ')} failed: ${fetched.stderr.toString().trim()}; fetch the head of pull request ${pull} yourself: ${manualFetchCommand(pull)} (${FORK_NOTE})`,
     );
   }
   let created;
@@ -981,16 +1000,30 @@ function fetchPull(repo, { id, pull }) {
   }
 }
 
-const pullFetchCommand = (pull) => `git fetch origin pull/${pull}/head:${PULL_REF}${pull}`;
+// The command that saves the head of the pull request `pull` at a new ref under refs/review-bench/manual/. The time
+// (UTC, to the second) makes the ref new at each stop, so the command never moves a saved ref.
+function manualFetchCommand(pull) {
+  const time = new Date()
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d+Z$/, 'Z');
+  return `git fetch --no-tags origin +refs/pull/${pull}/head:${MANUAL_REF}${pull}-${time}`;
+}
 
 // The stop message of a case commit that the repository does not hold.
 function missingCommitMessage(caseData, field) {
   const { id, pull } = caseData;
   const head = `case ${id}: ${field} ${caseData[field]} is not a commit in this repository`;
   if (!pull) {
-    return `${head}; give the case a pull field that names the pull request whose head holds the commit, so that case fetches it, or fetch that head yourself: ${pullFetchCommand('<n>')} (${FORK_NOTE})`;
+    return `${head}; give the case a pull field that names the pull request whose head holds the commit, so that case fetches it, or fetch that head yourself: ${manualFetchCommand('<n>')} (${FORK_NOTE})`;
   }
-  return `${head}, and ${PULL_REF}${pull} does not hold it; check that pull names the pull request whose head holds the commit, or fetch that head yourself: ${pullFetchCommand(pull)} (${FORK_NOTE})`;
+  return `${head}, and ${PULL_REF}${pull} does not hold it; check that pull names the pull request whose head holds the commit, or fetch that head yourself: ${manualFetchCommand(pull)} (${FORK_NOTE})`;
+}
+
+// The stop message of a case commit that the repository holds, but that neither origin/main nor a ref under
+// refs/review-bench/ reaches, so that git gc can remove it.
+function notKeptMessage({ id, pull }, field, commit) {
+  return `case ${id}: ${field} ${commit} is a commit that neither origin/main nor a ref under ${BENCH_REFS} reaches, and ${PULL_REF}${pull} does not hold it, so git gc can remove it; check that pull names the pull request whose head holds the commit, or fetch that head yourself: ${manualFetchCommand(pull)} (${FORK_NOTE})`;
 }
 
 // Reads the reviewed tree of a case into the index of `env`: the head commit (for a plan kind, the repo_ref commit)

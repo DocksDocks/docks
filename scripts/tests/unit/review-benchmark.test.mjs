@@ -2716,17 +2716,34 @@ function pullFixture(t) {
     return { case: path.join(cases, 'dev', 'code-7.json'), arms: 'C1', runs: '1', out: ws, configs: 'low', project };
   };
   const refs = (prefix) => gitIn(clone, 'for-each-ref', '--format=%(refname) %(objectname)', prefix).trim();
-  return { ...fixture, clone, ws, cases, caseDir: path.join(ws, 'code-7'), caseOptions, refs };
+  return { ...fixture, remote, clone, ws, cases, caseDir: path.join(ws, 'code-7'), caseOptions, refs };
 }
 const FORK_NOTE = '(when origin is a fork, use the remote of DocksDocks/docks instead of origin)';
+// The recovery command of a stop: it fetches the head of pull request `pull` into a new ref under
+// refs/review-bench/manual/, named with the UTC time of the stop.
+const manualFetch = (pull) =>
+  `${escapeRegExp(`git fetch --no-tags origin +refs/pull/${pull}/head:refs/review-bench/manual/${pull}-`)}\\d{8}T\\d{6}Z ${escapeRegExp(FORK_NOTE)}`;
 const missingHead = (head, pull) =>
   new RegExp(
-    escapeRegExp(
-      pull
-        ? `case code-7: head ${head} is not a commit in this repository, and refs/review-bench/pull/${pull} does not hold it; check that pull names the pull request whose head holds the commit, or fetch that head yourself: git fetch origin pull/${pull}/head:refs/review-bench/pull/${pull} ${FORK_NOTE}`
-        : `case code-7: head ${head} is not a commit in this repository; give the case a pull field that names the pull request whose head holds the commit, so that case fetches it, or fetch that head yourself: git fetch origin pull/<n>/head:refs/review-bench/pull/<n> ${FORK_NOTE}`,
-    ),
+    pull
+      ? `${escapeRegExp(`case code-7: head ${head} is not a commit in this repository, and refs/review-bench/pull/${pull} does not hold it; check that pull names the pull request whose head holds the commit, or fetch that head yourself: `)}${manualFetch(pull)}`
+      : `${escapeRegExp(`case code-7: head ${head} is not a commit in this repository; give the case a pull field that names the pull request whose head holds the commit, so that case fetches it, or fetch that head yourself: `)}${manualFetch('<n>')}`,
   );
+// Runs `case`, which must stop with a message that matches `pattern`. No command of the message fetches into
+// refs/review-bench/pull/, so a stop never leads a person to move the ref that case saves. The result is the message.
+const caseStops = (options, clone, pattern) => {
+  let message;
+  assert.throws(
+    () => prepare.prepareCase(options, clone),
+    (error) => {
+      message = error.message;
+      return true;
+    },
+  );
+  assert.match(message, pattern);
+  assert.doesNotMatch(message, /:refs\/review-bench\/pull\//);
+  return message;
+};
 
 test('case fetches the head of the pull request of a missing commit into refs/review-bench/pull/<n>', (t) => {
   const { clone, head, caseDir, caseOptions, refs } = pullFixture(t);
@@ -2740,27 +2757,72 @@ test('case fetches the head of the pull request of a missing commit into refs/re
 
 test('case stops on a missing commit of a case without pull, gives the fetch command, and writes no case folder', (t) => {
   const { clone, head, caseDir, caseOptions, refs } = pullFixture(t);
-  assert.throws(() => prepare.prepareCase(caseOptions({ pull: undefined }), clone), missingHead(head));
+  caseStops(caseOptions({ pull: undefined }), clone, missingHead(head));
   assert.equal(fs.existsSync(caseDir), false);
   assert.equal(refs('refs/review-bench'), '');
 });
 
 test('case stops when the head of the pull request of pull lacks the commit and writes no case folder', (t) => {
   const { clone, base, head, caseDir, caseOptions, refs } = pullFixture(t);
-  assert.throws(() => prepare.prepareCase(caseOptions({ pull: 8 }), clone), missingHead(head, 8));
+  caseStops(caseOptions({ pull: 8 }), clone, missingHead(head, 8));
   assert.equal(fs.existsSync(caseDir), false);
   // The run keeps the fetched head and removes its incoming ref.
   assert.equal(refs('refs/review-bench'), `refs/review-bench/pull/8 ${base}`);
 });
 
-test('case with pull runs no fetch when the repository holds every case commit', (t) => {
-  const { root, clone, caseDir, caseOptions, refs } = pullFixture(t);
-  gitIn(clone, 'fetch', '-q', 'origin', 'refs/pull/7/head:refs/heads/topic');
+test('case stops on a failed fetch with the git error and the recovery command, and writes no case folder', (t) => {
+  const { clone, caseDir, caseOptions, refs } = pullFixture(t);
+  // The remote has no refs/pull/9/head.
+  const failed = escapeRegExp(
+    `case code-7: git fetch --no-tags --no-write-fetch-head origin +refs/pull/9/head:refs/review-bench/incoming/9-${process.pid} failed: `,
+  );
+  const recovery = `; fetch the head of pull request 9 yourself: ${manualFetch(9)}`;
+  caseStops(caseOptions({ pull: 9 }), clone, new RegExp(`${failed}[^;]*refs/pull/9/head${recovery}`));
+  assert.equal(fs.existsSync(caseDir), false);
+  assert.equal(refs('refs/review-bench'), '');
+});
+
+test('case with pull runs no fetch when a ref under refs/review-bench/manual/ keeps every case commit', (t) => {
+  const { root, clone, head, caseDir, caseOptions, refs } = pullFixture(t);
+  const manual = 'refs/review-bench/manual/7-20261118T120000Z';
+  gitIn(clone, 'fetch', '-q', '--no-tags', 'origin', `+refs/pull/7/head:${manual}`);
   // A fetch from the remote would now fail.
   gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
   prepare.prepareCase(caseOptions(), clone);
   assert.equal(readText(path.join(caseDir, 'snapshot', 'src', 'sync.mjs')), SYNC_HEAD);
-  assert.equal(refs('refs/review-bench'), '');
+  assert.equal(refs('refs/review-bench'), `${manual} ${head}`);
+});
+
+test('case fetches the head of pull when only a ref outside refs/review-bench/ keeps a case commit', (t) => {
+  const { clone, head, caseDir, caseOptions, refs } = pullFixture(t);
+  gitIn(clone, 'fetch', '-q', 'origin', 'refs/pull/7/head:refs/heads/topic');
+  prepare.prepareCase(caseOptions(), clone);
+  assert.equal(refs('refs/review-bench'), `refs/review-bench/pull/7 ${head}`);
+  assert.equal(readText(path.join(caseDir, 'snapshot', 'src', 'sync.mjs')), SYNC_HEAD);
+});
+
+test('case stops on a case commit that only an object outside every ref holds, and the recovery command keeps it', (t) => {
+  const { root, remote, clone, base, head, caseDir, caseOptions, refs } = pullFixture(t);
+  // A run that lost the create of refs/review-bench/pull/7 to a run with an older head deletes its incoming ref, so
+  // the head stays only as an object that no ref reaches.
+  gitIn(clone, 'fetch', '-q', '--no-write-fetch-head', 'origin', 'refs/pull/7/head:refs/heads/topic');
+  gitIn(clone, 'update-ref', '-d', 'refs/heads/topic');
+  gitIn(clone, 'update-ref', 'refs/review-bench/pull/7', base);
+  assert.equal(spawnSync('git', ['cat-file', '-e', `${head}^{commit}`], { cwd: clone }).status, 0);
+  gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
+  const notKept = escapeRegExp(
+    `case code-7: head ${head} is a commit that neither origin/main nor a ref under refs/review-bench/ reaches, and refs/review-bench/pull/7 does not hold it, so git gc can remove it; check that pull names the pull request whose head holds the commit, or fetch that head yourself: `,
+  );
+  const message = caseStops(caseOptions(), clone, new RegExp(`${notKept}${manualFetch(7)}`));
+  assert.equal(fs.existsSync(caseDir), false);
+  assert.equal(refs('refs/review-bench'), `refs/review-bench/pull/7 ${base}`);
+  // The recovery command of the message saves the head at a new ref, and case then prepares the workspace.
+  gitIn(clone, 'remote', 'set-url', 'origin', remote);
+  const [, refspec] = message.match(/git fetch --no-tags origin (\S+)/);
+  gitIn(clone, 'fetch', '-q', '--no-tags', 'origin', refspec);
+  prepare.prepareCase(caseOptions(), clone);
+  assert.equal(readText(path.join(caseDir, 'snapshot', 'src', 'sync.mjs')), SYNC_HEAD);
+  assert.match(refs('refs/review-bench/manual'), new RegExp(`^refs/review-bench/manual/7-\\d{8}T\\d{6}Z ${head}$`));
 });
 
 test('case does not fetch again or move an existing refs/review-bench/pull/<n> that lacks the commit of pull', (t) => {
@@ -2768,7 +2830,7 @@ test('case does not fetch again or move an existing refs/review-bench/pull/<n> t
   gitIn(clone, 'update-ref', 'refs/review-bench/pull/7', base);
   // A fetch would fail with a git error instead of the message of the missing commit.
   gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
-  assert.throws(() => prepare.prepareCase(caseOptions(), clone), missingHead(head, 7));
+  caseStops(caseOptions(), clone, missingHead(head, 7));
   assert.equal(fs.existsSync(caseDir), false);
   assert.equal(refs('refs/review-bench'), `refs/review-bench/pull/7 ${base}`);
 });
@@ -2806,7 +2868,8 @@ test('loop round 1 resolves the head that case fetched from the pull request of 
 });
 
 // A case commit that origin/main does not reach, such as a commit of a squash-merged pull request, is missing from a
-// fresh clone, so its case needs `pull`. The test reads only the commit fields, `pull`, and `id` of each case file.
+// fresh clone, so its case needs `pull`; a `pull` that is not a positive integer counts as missing. The test reads only
+// the commit fields, `pull`, and `id` of each case file.
 test('every case with a commit that origin/main does not reach names its pull request in pull', () => {
   const live = path.join(import.meta.dirname, '../../..');
   const liveGit = (...args) => spawnSync('git', args, { cwd: live, encoding: 'utf8' });
@@ -2834,13 +2897,14 @@ test('every case with a commit that origin/main does not reach names its pull re
     for (const name of caseFiles.sort()) {
       const { id, base, head, delta_base: deltaBase, repo_ref: repoRef, pull } = readJson(path.join(dir, name));
       const commits = [base, head, deltaBase, repoRef].filter(Boolean);
-      if (pull === undefined && commits.some((commit) => !reaches(commit))) unreached.push(id);
+      const hasPull = Number.isInteger(pull) && pull > 0;
+      if (!hasPull && commits.some((commit) => !reaches(commit))) unreached.push(id);
     }
   }
   assert.deepEqual(
     unreached,
     [],
-    `these cases name a commit that origin/main does not reach and have no pull field: ${unreached.join(', ')}`,
+    `these cases name a commit that origin/main does not reach and have no pull field that is a positive integer: ${unreached.join(', ')}`,
   );
 });
 
