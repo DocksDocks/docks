@@ -149,7 +149,7 @@ test('new --parent refuses a parent that is not an open plan of the acting login
   );
 });
 
-test('show lists each child with its status after the reviews line, and a plan without children lists none', (t) => {
+test('show lists each child with its status after the grant line, and a plan without children lists none', (t) => {
   const context = planCliContext(t);
   const parent = ongoingParent(context);
   const first = context.createChild('first child', parent).number;
@@ -159,8 +159,9 @@ test('show lists each child with its status after the reviews line, and a plan w
   closeChild(context, third, 'NOT_PLANNED');
   const shown = context.run('show', String(parent));
   expectSuccess(shown, 'show a parent');
-  assert.deepEqual(shown.stdout.split('\n').slice(1, 5), [
+  assert.deepEqual(shown.stdout.split('\n').slice(1, 6), [
     'reviews: plan=none code=none',
+    'grant: none',
     `child #${first} · drafting · first child`,
     `child #${second} · finished · second child`,
     `child #${third} · retired · third child`,
