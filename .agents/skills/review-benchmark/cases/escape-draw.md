@@ -4,9 +4,10 @@
 
 - Cutoff (exclusive): 2026-11-18T03:58:00.000Z
 - Script commit: 841e5a0752721613e45b496708e079b5687f6309
+- Draw script commit: 67d54713d039cd72f52ee41b31b1c94e3ea64f1a
 - Seed (JSON): "146-2026-11-18-2"
 - Source snapshot SHA-256: 9f8de17b39e9cf2d103e564cb552b80462a438c72ae356690316465d94bbb22b
-- Restricted frozen record SHA-256: e7a620cb461847c000aa6cf3a108f5b2792f1ddac191fe27dc3110e35855dcb9
+- Restricted frozen record SHA-256: d8f8186c776d5292eb6b3c3a6192a366fb8bdac888cf4f0d50b9bb056609ad1c
 
 | Split | Kind | Units |
 |---|---|---:|
@@ -14,9 +15,9 @@
 | dev | code-delta | 4 |
 | dev | plan | 6 |
 | dev | plan-delta | 2 |
-| heldout | code | 14 |
+| heldout | code | 13 |
 | heldout | code-delta | 8 |
-| heldout | plan | 9 |
+| heldout | plan | 8 |
 | heldout | plan-delta | 4 |
 
 ### Dev units
@@ -53,7 +54,7 @@ Reasons: (a) the finding is on lines that the missed round did not see; (b) no l
 | Split | Units | Taken | Rejected (a) | Rejected (b) | Rejected (c) | Rejected (d) | Rejected (e) | Pending |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | dev | 20 | 5 | 5 | 0 | 0 | 9 | 1 | 0 |
-| heldout | 35 | 16 | 15 | 0 | 0 | 4 | 0 | 0 |
+| heldout | 33 | 15 | 14 | 0 | 0 | 4 | 0 | 0 |
 
 ### Dev outcomes
 
