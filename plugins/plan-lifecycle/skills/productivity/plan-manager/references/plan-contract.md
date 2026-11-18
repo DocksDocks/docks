@@ -1070,8 +1070,11 @@ line, which need the child's plan-review round, as any new grant does.
 ### Grant check
 
 A run that acts under a grant reads the latest authority events of the plan
-and of its parent at the start of each phase and before each delegated
-decision. The grant has ended after a newer revocation on the plan, a newer
+and of its parent at the start of each phase after its grant event, and before
+each delegated decision from then on. Before a yolo run posts its grant event,
+the user's invoking message in this session is the authority, and the run
+makes only the delegated decisions that the yolo skill's Decide and Draft
+steps name. The grant has ended after a newer revocation on the plan, a newer
 narrowing of a yolo grant (Grant and revocation), or any newer parent event
 (Authority events). Then a yolo run stops as Ended grant in Yolo runs says.
 Another run continues with no grant, and asks each question that the grant

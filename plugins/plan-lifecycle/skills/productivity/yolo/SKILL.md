@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "34576e2ec81453e2dad01ba2d7eb511db627934e4faddef3fee45fd6fcbeec78"
+  content_hash: "1790d8be734fe1cd349d07ee757b885212e0ba5691ce093d29f7b07e00cee16c"
 ---
 
 # Yolo
@@ -76,9 +76,12 @@ practice.
 | Code review | Run Review loops below | `show <n>` reads `code=pass` |
 | Land | Follow Landing below | The merge question has an answer, or no answer is possible |
 
-At the start of each phase, and before each delegated decision, run the Grant
-check of the contract's Delegated decisions. When the grant has ended, stop as
-the contract's Ended grant (Yolo runs) says.
+Until the run posts its grant event (Draft step 4, or adoption step 2), the
+user's invoking message is the authority, and the run makes only the
+delegated decisions that Decide and Draft name. From the first phase after
+that event, at the start of each phase and before each delegated decision, run
+the Grant check of the contract's Delegated decisions. When the grant has
+ended, stop as the contract's Ended grant (Yolo runs) says.
 
 ## Existing plans and incomplete requests
 
