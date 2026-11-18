@@ -15,13 +15,17 @@
 //                         [--configs <list>] [--keys <dir>] [--loop] [--extend] [--project <dir>]
 //   node prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>]
 //                         [--fixer-patch <file>]
+//   node prepare.mjs pin --case <case.json>
 //   node prepare.mjs manager --ws <ws>
 //   node prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
 //   node prepare.mjs clean [--project <dir>]
 //
 // ../SKILL.md describes the case schema, the configurations, the arms, the workspace layout, the review loop, and the
-// manager stage. The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun.
+// manager stage. The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun. Only `case`
+// and `pin` fetch: the head of the pull request of a case (`pull`), when a case commit is missing (see caseCommits),
+// or on request (see preparePin).
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -431,6 +435,9 @@ export function validateCase(caseData) {
   if (Object.hasOwn(caseData, 'control') && typeof caseData.control !== 'boolean') {
     fail(`case ${id}: control must be true or false`);
   }
+  // The pull request whose head holds a case commit that origin/main does not reach (see caseCommits).
+  if (Object.hasOwn(caseData, 'pull') && (!Number.isInteger(caseData.pull) || caseData.pull < 1))
+    fail(`case ${id}: pull must be a positive integer`);
   if (split === 'heldout') {
     if (Object.hasOwn(caseData, 'known')) fail(`held-out case ${id} lists known defects; move them to ${id}.key.json`);
     // A reviewer can search the checkout, and the protected decisions show what the case tests, so they stay with the
@@ -683,12 +690,18 @@ function repoRoot() {
   return git(path.dirname(SCRIPT_PATH), ['rev-parse', '--show-toplevel']).toString().trim();
 }
 
-function resolveCommit(repo, ref, label) {
+// The commit of `ref`, or null when `ref` names no commit in `repo`.
+function commitOf(repo, ref) {
   const result = runGit(repo, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
-  if (result.status !== 0) {
+  return result.status === 0 ? result.stdout.toString().trim() : null;
+}
+
+function resolveCommit(repo, ref, label) {
+  const commit = commitOf(repo, ref);
+  if (!commit) {
     fail(`${label} ${ref} is not a commit in this repository; fetch it first, for example: git fetch origin ${ref}`);
   }
-  return result.stdout.toString().trim();
+  return commit;
 }
 
 const DIFF_FLAGS = [
@@ -919,13 +932,163 @@ function caseSources(caseData, caseFolder, keys) {
   return sources;
 }
 
-// The commits of the case fields that name one.
-function caseCommits(repo, caseData) {
-  const commits = {};
-  for (const field of ['base', 'head', 'delta_base', 'repo_ref']) {
-    if (caseData[field]) commits[field] = resolveCommit(repo, caseData[field], `${caseData.id} ${field}`);
+// The case fields that name a commit.
+const COMMIT_FIELDS = ['base', 'head', 'delta_base', 'repo_ref'];
+// The refs of the benchmark. `case` saves the head of the pull request `<n>` of a case (`pull`) at `${PULL_REF}<n>`,
+// and `case` and `pin` pin a commit at `${KEPT_REF}<sha>`. git fetch --prune removes no ref outside the fetch refspecs,
+// git gc keeps every object that a ref reaches, and the script never moves a saved ref, so every commit that the refs
+// reach stays in the repository.
+const BENCH_REFS = 'refs/review-bench/';
+const PULL_REF = `${BENCH_REFS}pull/`;
+const KEPT_REF = `${BENCH_REFS}kept/`;
+// The refs that one `case` run or one `pin` run fetches into. The process id of a `case` run, and the process id and
+// the random suffix of a `pin` run, keep a parallel run from changing what this run saves.
+const INCOMING_REF = `${BENCH_REFS}incoming/`;
+const MAIN_REF = 'refs/remotes/origin/main';
+const FORK_NOTE = 'case and pin fetch from origin; when origin is a fork, set origin to the remote of DocksDocks/docks';
+
+// Quotes `text` for a POSIX shell: single quotes keep each character as it is, and `'\''` gives a single quote.
+function shellQuote(text) {
+  return `'${text.replaceAll("'", "'\\''")}'`;
+}
+
+// The command that fetches the head of the pull request of a case and pins the case commits (see preparePin). Both
+// paths are quoted, so the command runs as printed.
+function pinCommand(casePath) {
+  return `node ${shellQuote(SCRIPT_PATH)} pin --case ${shellQuote(casePath)}`;
+}
+
+// The commits of the case fields that name one. When a commit of a case with `pull` is missing, the head of that pull
+// request holds it: `case` fetches the head once (see fetchPull) and resolves every commit again. A commit that is
+// still missing stops the script before it writes a workspace file. A commit that the repository holds needs no fetch,
+// whatever holds it: a local branch, a pin of `pin`, or only an object that a run left when it lost the create of the
+// saved ref to a parallel run. `case` then pins each case commit that origin/main does not reach (see keepCommit), so
+// git gc keeps every commit that the workspace uses.
+function caseCommits(repo, caseData, casePath) {
+  const fields = COMMIT_FIELDS.filter((field) => caseData[field]);
+  const resolve = () => Object.fromEntries(fields.map((field) => [field, commitOf(repo, caseData[field])]));
+  let commits = resolve();
+  const firstMissing = () => fields.find((field) => !commits[field]);
+  if (caseData.pull && firstMissing()) {
+    fetchPull(repo, caseData, firstMissing(), casePath);
+    commits = resolve();
   }
+  const missing = firstMissing();
+  if (missing) fail(missingCommitMessage(caseData, missing, casePath));
+  for (const commit of new Set(Object.values(commits))) keepCommit(repo, caseData, commit);
   return commits;
+}
+
+// Pins `commit` at `${KEPT_REF}<commit>` when origin/main does not reach it, and gives that ref, or null when
+// origin/main reaches the commit. The ref name is the commit itself, so an existing pin is the same pin, and
+// `git update-ref` with an empty old value never moves a ref.
+function keepCommit(repo, { id }, commit) {
+  if (runGit(repo, ['merge-base', '--is-ancestor', commit, MAIN_REF]).status === 0) return null;
+  const kept = `${KEPT_REF}${commit}`;
+  const created = runGit(repo, ['update-ref', kept, commit, '']);
+  if (created.status !== 0 && commitOf(repo, kept) !== commit) {
+    fail(`case ${id}: git update-ref ${kept} ${commit} failed: ${created.stderr.toString().trim()}`);
+  }
+  return kept;
+}
+
+// Saves the head of the pull request `pull` of a case at refs/review-bench/pull/<pull>, unless that ref exists. The
+// fetch goes to a ref of this run only, and `git update-ref` with an empty old value creates the saved ref only when
+// it does not exist, so a saved ref never moves. When a parallel run saved the ref first, this run deletes its incoming
+// ref; the fetched objects stay, and caseCommits pins the commits that the case uses. `field` is a case field whose
+// commit is missing; the stop message of a failed fetch names it.
+function fetchPull(repo, caseData, field, casePath) {
+  const { id, pull } = caseData;
+  const saved = `${PULL_REF}${pull}`;
+  if (runGit(repo, ['show-ref', '--verify', '--quiet', saved]).status === 0) return;
+  const incoming = `${INCOMING_REF}${pull}-${process.pid}`;
+  const fetchArgs = ['fetch', '--no-tags', '--no-write-fetch-head', 'origin', `+refs/pull/${pull}/head:${incoming}`];
+  const fetched = runGit(repo, fetchArgs);
+  if (fetched.status !== 0) {
+    fail(
+      `${notACommit(caseData, field)}, and git ${fetchArgs.join(' ')} failed: ${fetched.stderr.toString().trim()}; to fetch the head of pull request ${pull} and pin the case commits, run ${pinCommand(casePath)} (${FORK_NOTE})`,
+    );
+  }
+  let created;
+  try {
+    created = runGit(repo, ['update-ref', saved, git(repo, ['rev-parse', '--verify', incoming]).toString().trim(), '']);
+  } finally {
+    git(repo, ['update-ref', '-d', incoming]);
+  }
+  if (created.status !== 0 && !commitOf(repo, saved)) {
+    fail(`case ${id}: git update-ref ${saved} failed: ${created.stderr.toString().trim()}`);
+  }
+}
+
+// The start of the stop message of a case commit that the repository does not hold.
+function notACommit(caseData, field) {
+  return `case ${caseData.id}: ${field} ${caseData[field]} is not a commit in this repository`;
+}
+
+// The stop message of a case commit that the repository does not hold.
+function missingCommitMessage(caseData, field, casePath) {
+  const { pull } = caseData;
+  const head = notACommit(caseData, field);
+  if (!pull) {
+    return `${head}; give the case a pull field that names the pull request whose head holds the commit, then run case again, which fetches that head, or run ${pinCommand(casePath)}, which fetches that head and pins the case commits (${FORK_NOTE})`;
+  }
+  return `${head}, and ${PULL_REF}${pull} does not hold it; check that pull names the pull request whose head holds the commit, then fetch that head and pin the case commits: ${pinCommand(casePath)} (${FORK_NOTE})`;
+}
+
+// `pin` fetches the head of the pull request `pull` of a case and pins each case commit that this head reaches and
+// that origin/main does not reach at `${KEPT_REF}<sha>` (see keepCommit). It recovers a case whose saved ref
+// `${PULL_REF}<n>` lacks a commit, and it never writes that ref. The fetch goes to a ref that only this run writes: the
+// process id and 8 random hex characters make its name new. The run reads the commit of that ref once. When the head
+// does not reach a case commit that origin/main does not reach, the run pins nothing and deletes the ref. Otherwise it
+// deletes the ref only when every pin exists, so a failed pin leaves the fetched head on that ref.
+export function preparePin(options, repo) {
+  if (!options.case) fail('pin needs --case <path to case.json>');
+  const caseData = validateCase(readJson(path.resolve(options.case)));
+  const { id, pull } = caseData;
+  if (!pull) {
+    fail(`pin ${id}: the case has no pull field; give it the number of the pull request whose head holds the commits`);
+  }
+  const incoming = `${INCOMING_REF}${pull}-${process.pid}-${randomBytes(4).toString('hex')}`;
+  const fetchArgs = ['fetch', '--no-tags', '--no-write-fetch-head', 'origin', `+refs/pull/${pull}/head:${incoming}`];
+  const fetched = runGit(repo, fetchArgs);
+  if (fetched.status !== 0) {
+    // A failed fetch writes no ref; the delete makes sure that no temporary ref stays.
+    runGit(repo, ['update-ref', '-d', incoming]);
+    fail(`pin ${id}: git ${fetchArgs.join(' ')} failed: ${fetched.stderr.toString().trim()} (${FORK_NOTE})`);
+  }
+  const fetchedHead = git(repo, ['rev-parse', '--verify', `${incoming}^{commit}`])
+    .toString()
+    .trim();
+  const reaches = (commit, ref) => runGit(repo, ['merge-base', '--is-ancestor', commit, ref]).status === 0;
+  const reached = new Set();
+  const unreached = [];
+  for (const field of COMMIT_FIELDS.filter((name) => caseData[name])) {
+    const commit = commitOf(repo, caseData[field]);
+    if (commit && reaches(commit, fetchedHead)) reached.add(commit);
+    else if (!commit || !reaches(commit, MAIN_REF)) unreached.push(`${field} ${caseData[field]}`);
+  }
+  if (unreached.length) {
+    git(repo, ['update-ref', '-d', incoming, fetchedHead]);
+    fail(
+      `pin ${id}: the head ${fetchedHead} of pull request ${pull} does not reach ${unreached.join(', ')}, and origin/main does not reach it either; pin wrote no ref; check that pull names the pull request whose head holds the case commits`,
+    );
+  }
+  const pins = [];
+  try {
+    for (const commit of reached) {
+      const kept = keepCommit(repo, caseData, commit);
+      if (kept) pins.push(kept);
+    }
+  } catch (error) {
+    if (!(error instanceof UsageError)) throw error;
+    fail(
+      `${error.message}; the temporary ref ${incoming} keeps the fetched head ${fetchedHead}; delete it after a run of pin succeeds`,
+    );
+  }
+  git(repo, ['update-ref', '-d', incoming, fetchedHead]);
+  console.log(
+    pins.length ? `pin ${id}: ${pins.join(', ')}` : `pin ${id}: origin/main reaches every case commit; no pin needed`,
+  );
 }
 
 // Reads the reviewed tree of a case into the index of `env`: the head commit (for a plan kind, the repo_ref commit)
@@ -1239,7 +1402,7 @@ export function prepareCase(options, repo) {
     );
   }
   const sources = caseSources(caseData, path.dirname(casePath), keys);
-  const commits = caseCommits(repo, caseData);
+  const commits = caseCommits(repo, caseData, casePath);
   const hidden = hiddenPathspec(repo, caseData);
 
   const runFolders = [];
@@ -2375,6 +2538,7 @@ const COMMANDS = {
       ...PROJECT_OPTION,
     },
   },
+  pin: { run: preparePin, options: { case: { type: 'string' } } },
   loop: {
     run: prepareLoop,
     options: {
@@ -2439,6 +2603,7 @@ const USAGE = `usage:
   prepare.mjs case --case <case.json> --arms <list> (--runs <k> | --sequential) --out <ws> [--configs <list>]
                    [--keys <dir>] [--loop] [--extend] [--project <dir>]
   prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>] [--fixer-patch <file>]
+  prepare.mjs pin --case <case.json>
   prepare.mjs manager --ws <ws>
   prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
   prepare.mjs clean [--project <dir>]`;
