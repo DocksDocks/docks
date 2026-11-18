@@ -10976,13 +10976,15 @@ function gpgHome(t, ...names) {
   return { root, env, gpg, keys };
 }
 
-// A fake keys folder: a source snapshot, a restricted record, and a held-out key with its fix patch.
+// A fake keys folder: a source snapshot, a restricted record, a held-out key with its fix patch, and a note whose name
+// has spaces and quotes.
 function keysFixture(root, name = 'keys') {
   const keys = path.join(root, name);
   put(keys, 'escape-draw-source.json', { version: 1, cutoff: '2026-01-01T00:00:00.000Z' });
   put(keys, 'escape-draw.json', escapes.frozenJson({ frozen: { version: 1, units: [] }, outcomes: [] }));
   put(keys, 'heldout/code-1.key.json', [{ id: 'K1', title: 'Hidden' }]);
   put(keys, 'heldout/code-1-K1.patch', 'diff --git a/x b/x\n');
+  put(keys, `heldout/note "it's" here.txt`, 'a note\n');
   fs.chmodSync(keys, 0o700);
   fs.chmodSync(path.join(keys, 'heldout/code-1.key.json'), 0o600);
   return keys;
@@ -11084,7 +11086,7 @@ test('the tar step gives the same bytes for the same folder, whatever the file t
       .filter(Boolean)
       .map((line) => line.slice(66))
       .join(','),
-    'escape-draw-source.json,escape-draw.json,heldout/code-1-K1.patch,heldout/code-1.key.json',
+    `escape-draw-source.json,escape-draw.json,heldout/code-1-K1.patch,heldout/code-1.key.json,heldout/note "it's" here.txt`,
   );
   fs.writeFileSync(path.join(other, 'heldout/code-1-K1.patch'), 'diff --git a/y b/y\n');
   assert.ok(!keyBackup.archiveBytes(other).equals(first));
@@ -11207,6 +11209,13 @@ test('backup stops and writes nothing when a file changes between the manifest a
   const beforeTar = () => fs.writeFileSync(path.join(keys, 'heldout/code-1-K1.patch'), 'diff --git a/y b/y\n');
   assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env, beforeTar }), {
     message: 'the tar does not match MANIFEST.sha256: changed file heldout/code-1-K1.patch',
+  });
+  assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
+  // The tar check also finds a changed file whose name has spaces and quotes.
+  const note = `heldout/note "it's" here.txt`;
+  const changeNote = () => fs.writeFileSync(path.join(keys, note), 'another note\n');
+  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env, beforeTar: changeNote }), {
+    message: `the tar does not match MANIFEST.sha256: changed file ${note}`,
   });
   assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
 });

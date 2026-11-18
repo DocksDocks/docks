@@ -26,6 +26,9 @@ const REPRODUCIBLE_TAR = [
   '--numeric-owner',
   '--pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime',
 ];
+// The command that GNU tar runs for each regular file member, with the bytes of the member on its stdin. It writes the
+// name and the size of the member, each with a NUL byte after it, and then the bytes of the member.
+const MEMBER_COMMAND = 'printf "%s\\0%s\\0" "$TAR_FILENAME" "$TAR_SIZE" && exec cat';
 // The two hashes of the frozen part of `cases/escape-draw.md`, and the keys-folder file of each.
 const CHECKS = [
   {
@@ -168,23 +171,44 @@ export function tarBytes(keys, manifest) {
   }
 }
 
+// The name and the bytes of each regular file member of the tar `bytes`, in tar order, from one tar run.
+function membersOf(bytes) {
+  const output = run('tar', ['-x', '-f', '-', `--to-command=${MEMBER_COMMAND}`], {
+    input: bytes,
+    env: { ...process.env, LC_ALL: 'C' },
+  });
+  const members = [];
+  let at = 0;
+  const field = () => {
+    const end = output.indexOf(0, at);
+    if (end < 0) fail('tar gave a member field without a NUL byte');
+    const value = output.subarray(at, end).toString('utf8');
+    at = end + 1;
+    return value;
+  };
+  while (at < output.length) {
+    const name = field();
+    const size = field();
+    if (!/^\d+$/.test(size) || at + Number(size) > output.length) fail(`tar gave a bad size for the member ${name}`);
+    members.push({ name, bytes: output.subarray(at, at + Number(size)) });
+    at += Number(size);
+  }
+  return members;
+}
+
 // Checks the members of the tar `bytes` against `manifest`: the manifest member must equal `manifest`, and the bytes of
 // each other file member, read from the tar itself, must have the SHA-256 of the manifest. So a file that changes
 // between the manifest and the tar stops the backup.
 function verifyTar(bytes, manifest) {
-  const tar = (...args) => run('tar', args, { input: bytes, env: { ...process.env, LC_ALL: 'C' } });
-  const member = (name) => tar('-x', '-O', '--no-wildcards', '-f', '-', '--', name);
-  const files = tar('-t', '--quoting-style=literal', '-f', '-')
-    .toString('utf8')
-    .split('\n')
-    .filter((name) => name && !name.endsWith('/'));
+  const members = membersOf(bytes);
+  const hashes = new Map(members.map((member) => [member.name, sha256(member.bytes)]));
   const problems = mismatches(
     parseManifest(manifest),
-    files.filter((name) => name !== MANIFEST),
-    (name) => sha256(member(name)),
+    members.map((member) => member.name).filter((name) => name !== MANIFEST),
+    (name) => hashes.get(name),
   );
-  if (!files.includes(MANIFEST) || !member(MANIFEST).equals(Buffer.from(manifest)))
-    problems.unshift(`changed file ${MANIFEST}`);
+  const own = members.find((member) => member.name === MANIFEST);
+  if (!own?.bytes.equals(Buffer.from(manifest))) problems.unshift(`changed file ${MANIFEST}`);
   if (problems.length) fail(`the tar does not match ${MANIFEST}: ${problems.join('; ')}`);
 }
 
