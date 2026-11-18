@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "7805c7f851fdd874d3002589c193ea2fe175097696339d3149c44295620ecf28"
+  content_hash: "8c53ee8a68d0925853cc69aac320d8cce9ce2071008f49811f0bf5aa10e93b44"
 ---
 
 # Yolo
@@ -76,7 +76,7 @@ practice.
 | Code review | Run Review loops below | `show <n>` reads `code=pass` |
 | Land | Follow Landing below | The merge question has an answer, or no answer is possible |
 
-Until the run posts its grant event (Draft step 4, or adoption step 2), the
+Until the run posts its grant event (Draft step 4, or adoption step 3), the
 user's invoking message is the authority, and the run makes only the
 delegated decisions that Decide and Draft name. From then on, run the Grant
 check of the contract's Delegated decisions right before each delegated
@@ -102,19 +102,22 @@ To adopt a plan:
    (the contract's Record and mode), adopt it with steps 2 to 4 and skip
    step 5. Then get a plan pass that covers the current parent body: when
    `show <n>` does not read `plan=pass`, run Research and Plan review on the
-   parent; when step 3 changed the parent after `plan=pass`, run the re-review
+   parent; when step 4 changed the parent after `plan=pass`, run the re-review
    round that step 4 names, and wait for its pass. The earlier pass does not
    cover the edited body. After that pass, adopt the child that the contract's
    Yolo runs table names with these steps.
-2. Export the plan. Add the delegation line to Goal when it is missing, and set
-   `Mode: plan-and-implement`. Post the grant event of this invocation,
-   `Delegation grant: yolo: <quote>`, as the contract's Authority events says.
-3. Run the Grant check. Then replace each Goal or Do not touch line that
-   conflicts with this run, such as "leave the pull request open". Record a
-   request correction whose `Asked:` part quotes the old line.
-4. When steps 2 or 3 changed the export, publish it with `edit`. After
-   `plan=pass`, a change from step 3 needs a plan-review round, and step 2
-   needs none, as the contract's Phases and review comments says.
+2. Export the plan. Add the delegation line to Goal when it is missing, set
+   `Mode: plan-and-implement`, and publish that edit with `edit` at once. It
+   needs no plan-review round, as the contract's Phases and review comments
+   says.
+3. Post the grant event of this invocation, `Delegation grant: yolo: <quote>`,
+   as the contract's Authority events says.
+4. Run the Grant check; the published line now matches the event. Then
+   replace each Goal or Do not touch line that conflicts with this run, such as
+   "leave the pull request open". Record a request correction whose `Asked:`
+   part quotes the old line, and publish the change with `edit`. After
+   `plan=pass`, this change needs a plan-review round, as the contract's Phases
+   and review comments says.
 5. Reuse the branch that `gh issue develop <n> --list` shows, or the head branch
    of the open pull request. When neither exists, use the contract's Linked
    branch steps.
