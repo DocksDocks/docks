@@ -502,8 +502,10 @@ async function testFocusedCiCommandSelection() {
     'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts',
   ];
   // Each selected plugin lints its shipped shell scripts, also the bundled skill scripts: plan-manager ships
-  // base-blob.sh, and docks code-review ships a copy of it.
+  // base-blob.sh and checkout-state.sh, and docks code-review ships a copy of base-blob.sh.
   const planLifecycleShell = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/base-blob.sh';
+  const planLifecycleCheckoutState =
+    'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/checkout-state.sh';
   const docksShell = 'plugins/docks/skills/engineering/code-review/scripts/base-blob.sh';
   const shellcheckArgv = (...files) => ['-S', 'warning', ...files];
   // The repo lane owns exactly the paths no plugin claims. Derived from the registry so
@@ -530,10 +532,10 @@ async function testFocusedCiCommandSelection() {
     }
     assert.equal(countToolInvocation(targeted.calls, 'bun', planLifecycleBiomeCiArgv), 1);
     for (const [label, selected, files] of [
-      ['Plan Lifecycle-targeted', targeted, [planLifecycleShell]],
+      ['Plan Lifecycle-targeted', targeted, [planLifecycleShell, planLifecycleCheckoutState]],
       ['Docks-targeted', docksTargeted, [docksShell]],
-      ['core', core, [docksShell, planLifecycleShell]],
-      ['full', untargeted, [docksShell, planLifecycleShell]],
+      ['core', core, [docksShell, planLifecycleShell, planLifecycleCheckoutState]],
+      ['full', untargeted, [docksShell, planLifecycleShell, planLifecycleCheckoutState]],
     ]) {
       assert.equal(
         countToolInvocation(selected.calls, 'shellcheck', shellcheckArgv(...files)),

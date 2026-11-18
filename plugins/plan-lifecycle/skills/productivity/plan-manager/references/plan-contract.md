@@ -421,7 +421,7 @@ prefixed with `#`. The header strip is `#<n> · <status> · <title> · <url>`.
 | Command | Result on stdout |
 |---|---|
 | `new --title <t> --goal <g> [--mode <m>] [--label <name>]... [--parent <n>]` | `plan created: #<n> <url>`; assigns @me and labels plan plus drafting; with `--parent`, adds the plan as a sub-issue of `<n>`, an open plan that you own |
-| `show <n> [--body]` | Header strip, then `reviews: plan=<verdict> code=<verdict>`, then one `child #<c> · <status> · <title>` line per child, then advice |
+| `show <n> [--body]` | Header strip, then `reviews: plan=<verdict> code=<verdict>`, then one `grant:` line (Delegated decisions, Grant check), then one `child #<c> · <status> · <title>` line per child, then advice |
 | `export <n>` | Absolute path to `plan-<n>.md` in the scratch directory |
 | `edit <n> --file <path>` | Header strip, `changed: <k> line(s)`, `-old` and `+new` lines, then advice |
 | `status <n> <status> [--reason <text>]` | `plan #<n> status: <old> -> <new>` |
@@ -432,7 +432,7 @@ prefixed with `#`. The header strip is `#<n> · <status> · <title> · <url>`.
 | `retire <n> --reason <t>` | `plan #<n> retired`; closes as not planned and removes phase labels |
 | `reopen <n> --pr <pr>` | Contract v3 and v4 only: `plan #<n> reopened: <status>`; `plan #<n> is open: <status>` when the plan is already open again; `pull request #<pr> does not close plan #<n>; nothing to reopen` when that pull request does not close the plan |
 
-With `show --body`, only the body goes to stdout; both metadata lines go to stderr.
+With `show --body`, only the body goes to stdout; all metadata lines go to stderr.
 Render a body for the user only when they name the plan and ask to see it.
 After a write, report the header strip and changed lines, not the full body.
 
@@ -492,7 +492,10 @@ plans. The scope advice of a started v5 plan is in Status, ownership, and
 frozen state. `show` and `edit` advise `split into child plans: <reason>` when
 the body passes 50,000 bytes, the Steps table passes 20 rows, or the issue holds
 more than 60 comments. GitHub refuses an issue body or a comment above 262,144
-characters. Advice is not approval.
+characters. When a parent event ended a child's grant and the child's Goal
+still holds a delegation line, `show` advises
+`parent #<p> comment <id> ended the grant; remove the delegation line from Goal, with no new event`
+(Authority events). Advice is not approval.
 
 Refusals exit 1. These stderr strings are exact, with angle brackets replaced:
 
@@ -1034,6 +1037,13 @@ An authority event is an issue comment whose first line is one of these:
 - `Delegation revoked`: a revocation. When the user's message has words to
   quote, the quote is on the next line.
 
+A grant event's first line must be exactly one of the two grant forms, so a
+quoted, indented, or decorated grant line is not an event. A revocation is read
+leniently, because a user may type it by hand: its first non-blank line counts
+after the removal of spaces at its ends and of emphasis and code marks (`*`,
+`_`, and `` ` ``), in any letter case, so `**Delegation revoked**` is a
+revocation. Each misreading ends a grant and never starts one.
+
 Each quote follows the quote rules above. Post each event as the plan's
 assignee: a grant event when a `Delegated:` grant starts or narrows and when a
 yolo invocation starts, and a revocation event when the user revokes the grant.
@@ -1045,7 +1055,9 @@ The latest trusted authority event of a plan decides, ordered by `createdAt`.
 A grant is in force only when that event is a grant. The Goal line only
 mirrors it: a `Delegated:` line holds the quote of a
 `Delegation grant: <quote>` event, and the fixed yolo line goes with a
-`Delegation grant: yolo: <quote>` event. When the line and the deciding event
+`Delegation grant: yolo: <quote>` event. The Goal holds exactly one such line
+outside fenced and indented code, and quotes compare after trimming and without
+one pair of surrounding double quotes. When the line and the deciding event
 disagree, or no trusted event exists, treat the plan as having no grant, and
 say so once in the first report. So a restored line without a newer grant
 event has no authority. When a resumed session finds a grant in force, its
@@ -1058,14 +1070,17 @@ with the parent's quote at that time, which the child's plan review covers, or
 a later event from the user's own message for that child.
 
 A child grant event posted at the child's creation copies a parent grant
-event, and its second line names it: `Parent event: <comment id>`. Such a grant
-holds only while the parent's latest trusted event is the named parent event;
-any other parent event ends it, whatever the order of the timestamps. Before
-the run posts a child grant event, it reads the parent's latest trusted event.
-When that is not the event that it copies, it posts no child grant, and the
-grant has ended as Grant check says. A grant from the user's own message for
-that child has no `Parent event:` line, and any parent event newer than it
-ends it.
+event, and its second line names it: `Parent event: <comment id>`. A
+`<comment id>` is the number after `#issuecomment-` in the comment URL, the
+comment's GraphQL `fullDatabaseId`. Such a grant holds only while the parent's
+latest trusted event is the named parent event; any other parent event ends
+it, whatever the order of the timestamps. Before a run that acts under a grant
+creates a child or posts a child grant event, it reads the parent's `grant:`
+line (Grant check), and goes on only when that line reads `in force` by the
+comment that it copies. Otherwise it creates no child and posts no child
+grant, and the grant has ended as Grant check says. A grant from the user's
+own message for that child has no `Parent event:` line, and any parent event
+that is not older than it ends it.
 
 A child's line must match the child's own latest grant event, and holds only
 while that grant holds. The child keeps no partial grant after a parent
@@ -1082,13 +1097,26 @@ does.
 Before a yolo run posts its grant event, the user's invoking message in this
 session is the authority, and the run makes only the delegated decisions that
 the yolo skill's Decide and Draft steps name. From the moment the grant event
-exists, a run that acts under a grant reads the latest authority events of the
-plan and of its parent right before each delegated decision and right before
-each write that relies on the grant: a body edit, the creation of a child
-issue, a child grant event, a step state change that a delegated decision
-makes, and each push of a delegated change. The grant has ended after a newer
-revocation on the plan, a newer narrowing of a yolo grant (Grant and
-revocation), or a parent event that ends a child grant (Authority events).
+exists, a run that acts under a grant runs `show <n>` and reads its `grant:`
+line right before each delegated decision and right before each write that
+relies on the grant: a body edit, the creation of a child issue, a child grant
+event, a step state change that a delegated decision makes, and each push of a
+delegated change. `show <n>` applies the rules of Authority events in that
+line, to the plan's events and, for a child, to its parent's events. The line
+is one of these:
+
+- `grant: in force (delegated) by comment <id>` or
+  `grant: in force (yolo) by comment <id>`: the grant holds.
+- `grant: ended by revocation comment <id>` or
+  `grant: ended by parent #<p> comment <id>`: that event ended the grant.
+- `grant: none` or `grant: none; <reason>`: no grant is in force. The reason
+  names a delegation line without a trusted event, a line that does not match
+  comment `<id>`, or a parent that the helper cannot read or check.
+
+A run acts under the grant only while the line reads `in force`, and a yolo
+run only while it reads `in force (yolo)`. Otherwise the grant has ended, as
+after a newer revocation on the plan, a newer narrowing of a yolo grant (Grant
+and revocation), or a parent event that ends a child grant (Authority events).
 Then a yolo run stops as Ended grant in Yolo runs says. Another run continues
 with no grant, and asks each question that
 the grant answered. A narrowed `Delegated:` grant on the plan itself continues

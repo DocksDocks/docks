@@ -18,7 +18,9 @@ const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (the GraphQL 
 const PAGE_INFO = 'pageInfo{hasNextPage endCursor}';
 const PULL_REQUEST_FIELDS = 'number url state mergedAt baseRefName repository{nameWithOwner}';
 const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
-const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name id}`).join(' ');
+const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name id}`).join(
+  ' ',
+);
 // The pre-write read returns the body to compare and the node ids that the write mutation needs.
 const PRE_WRITE_FIELDS = 'id,body,updatedAt,assignees';
 // The last field of a write mutation returns the stored state that the post-write checks read.
@@ -106,6 +108,8 @@ function parseJson(output, command) {
 // The snapshot pages every issue label with its node id, so a write removes labels from the complete list.
 const ISSUE_LABEL_FIELDS = 'name id';
 const ASSIGNEE_FIELDS = '... on Actor{login}';
+// `fullDatabaseId` is the number after `#issuecomment-` in the comment URL, the id that an authority event names.
+const COMMENT_FIELDS = 'fullDatabaseId body createdAt author{login}';
 const LABELED_EVENT_FIELDS = '... on LabeledEvent{label{name}}';
 const CLOSED_EVENT_FIELDS = `... on ClosedEvent{createdAt closer{__typename ... on PullRequest{${PULL_REQUEST_FIELDS}} ... on Commit{oid associatedPullRequests(first:100){${PULL_REQUEST_CONNECTION}}}}}`;
 
@@ -213,6 +217,7 @@ function readSnapshot(
     defaultBranch = false,
     closure = false,
     children = false,
+    parent = false,
   } = {},
 ) {
   const issueFields =
@@ -222,12 +227,13 @@ function readSnapshot(
           'number title body state stateReason url createdAt updatedAt',
           issueConnectionSelection('labels', ISSUE_LABEL_FIELDS),
           issueConnectionSelection('assignedActors', ASSIGNEE_FIELDS),
-          comments ? issueConnectionSelection('comments', 'body createdAt author{login}') : '',
+          comments ? issueConnectionSelection('comments', COMMENT_FIELDS) : '',
           history
             ? issueConnectionSelection('history:timelineItems', LABELED_EVENT_FIELDS, ',itemTypes:[LABELED_EVENT]')
             : '',
           closure ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}` : '',
           children ? issueConnectionSelection('subIssues', ISSUE_SUMMARY_FIELDS) : '',
+          parent ? 'parent{number repository{nameWithOwner}}' : '',
         ].join(' ');
   const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${defaultBranch ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
   const data = graphql(query, number === undefined ? {} : { number });
@@ -283,12 +289,14 @@ function readSnapshot(
   )
     fail('gh api graphql returned malformed plan issue labels or assignees');
   if (comments) {
-    issue.comments = issueNodes(number, issue.comments, 'comments', 'body createdAt author{login}');
+    issue.comments = issueNodes(number, issue.comments, 'comments', COMMENT_FIELDS);
     if (
       issue.comments.some(
         (comment) =>
           typeof comment.body !== 'string' ||
           !Number.isFinite(Date.parse(comment.createdAt)) ||
+          typeof comment.fullDatabaseId !== 'string' ||
+          !/^[1-9]\d*$/.test(comment.fullDatabaseId) ||
           (comment.author !== null && typeof comment.author?.login !== 'string'),
       )
     )
@@ -328,6 +336,12 @@ function readSnapshot(
       issueNodes(number, issue.subIssues, 'subIssues', ISSUE_SUMMARY_FIELDS),
       'sub-issues',
     );
+  if (
+    parent &&
+    issue.parent !== null &&
+    (!Number.isInteger(issue.parent?.number) || typeof issue.parent.repository?.nameWithOwner !== 'string')
+  )
+    fail('gh api graphql returned malformed parent issue');
   return { issue, login, viewerId, labelIds };
 }
 function parseIssueNumber(value, kind = 'plan issue') {
@@ -680,7 +694,12 @@ const dependencyStep = (steps, entry) =>
   steps.find((step) => step.display === entry) ?? steps.find((step) => step.id === stepId(entry));
 // The paths of a Files cell.
 const filePaths = (cell) =>
-  new Set(cell.split(',').map((part) => unquoteCode(part.trim()).trim()).filter((part) => part && part !== '-'));
+  new Set(
+    cell
+      .split(',')
+      .map((part) => unquoteCode(part.trim()).trim())
+      .filter((part) => part && part !== '-'),
+  );
 // Steps that edit the same path need a Depends order, or parallel work collides (#78).
 function sharedFilesAdvice(rows) {
   const paths = rows.map((row) => filePaths(row[3]));
@@ -688,9 +707,7 @@ function sharedFilesAdvice(rows) {
   const dependencies = new Map(
     rows.map((row) => [
       row[0],
-      row[4] === '-'
-        ? []
-        : row[4].split(',').map((part) => dependencyStep(steps, part.trim())?.display ?? part.trim()),
+      row[4] === '-' ? [] : row[4].split(',').map((part) => dependencyStep(steps, part.trim())?.display ?? part.trim()),
     ]),
   );
   const reaches = (from, to, seen = new Set()) => {
@@ -797,21 +814,23 @@ function researchFilled(plan) {
 }
 function printAdvice(text, status, extra = [], options = {}) {
   const result = normalizePlan(text, options);
-  if (status !== 'drafting' && !researchFilled(parsePlan(text))) result.advice.push('Research is not filled after drafting.');
+  if (status !== 'drafting' && !researchFilled(parsePlan(text)))
+    result.advice.push('Research is not filled after drafting.');
   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
 }
 // A plan-review pass covers the body that the reviewer read (#78). In a yolo plan, the Mode line and the
 // delegation line record what the yolo invocation decided, not reviewed work, so they need no new round (#111).
 const PLANNED_WORK_SECTIONS = ['Goal', 'Research', 'Steps', 'Acceptance', 'Do not touch'];
 const YOLO_DELEGATION_LINE = 'Yolo: the user delegated every decision except the merge to the agent.';
+// The trimmed live lines of Goal text with their indexes: a fenced or indented code line is example text.
+const liveGoalLines = (goal) =>
+  blankFencedRegions(goal)
+    .split('\n')
+    .flatMap((line, index) => (/^(?: {4}|\t)/.test(line) ? [] : [{ index, text: line.trim() }]));
 // The indexes of the live delegation lines of Goal text. A fenced or indented code line that quotes the delegation
 // line is example text, so it stays reviewed work.
 const liveDelegationLines = (goal) =>
-  new Set(
-    blankFencedRegions(goal)
-      .split('\n')
-      .flatMap((line, index) => (!/^(?: {4}|\t)/.test(line) && line.trim() === YOLO_DELEGATION_LINE ? [index] : [])),
-  );
+  new Set(liveGoalLines(goal).flatMap(({ index, text }) => (text === YOLO_DELEGATION_LINE ? [index] : [])));
 // Normalization ends Goal with its one canonical Mode line. The comparison removes each live delegation line with the
 // blank line that separated it from the text before it, the blank lines that a leading delegation line leaves at the
 // start, and the blank lines at the end. Every other blank line and indentation stays, because example text can
@@ -932,6 +951,86 @@ function archiveKind(issue) {
   }
   return kind;
 }
+// Authority events (contract, Delegated decisions). The parsing is not symmetric because each misreading must fail
+// closed: a wrong `in force` gives the agent authority that the user did not give, and a wrong end only sends the
+// questions back to the user. So a grant's first line must be exact, and a quoted or decorated grant is no event;
+// a revocation's first line is read through emphasis, code marks, and case, so a hand-typed revocation still ends
+// the grant; and a parent that the helper cannot read or check gives no grant.
+const GRANT_EVENT = /^Delegation grant: (?:(yolo): )?(.*\S)$/;
+const PARENT_EVENT = /^Parent event:(.*)$/;
+const DELEGATED_LINE = /^Delegated: the user delegated the design and tradeoff decisions to the agent\. User: (.*)$/;
+// A quote compares after trimming and without one pair of surrounding double quotes.
+function delegationQuote(quote) {
+  const text = quote.trim();
+  return /^".*"$/s.test(text) ? text.slice(1, -1) : text;
+}
+function authorityEvent(comment) {
+  const { fullDatabaseId: id, createdAt, body } = comment;
+  const revocation = body.trim().split(/\r?\n/)[0].replace(/[*_`]/g, '').trim().toLowerCase();
+  if (revocation === 'delegation revoked') return { id, createdAt, kind: 'revocation' };
+  const [first, second = ''] = body.split(/\r?\n/);
+  const grant = GRANT_EVENT.exec(first);
+  if (!grant) return undefined;
+  // A malformed `Parent event:` value still counts as a link, and it never matches a parent event.
+  const parentEvent = PARENT_EVENT.exec(second)?.[1].trim();
+  return { id, createdAt, kind: grant[1] ? 'yolo' : 'delegated', quote: grant[2], parentEvent };
+}
+const authorityEvents = (issue) => trustedComments(issue).map(authorityEvent).filter(Boolean);
+// The `grant:` line of `show` and its advice. The plan's latest trusted event decides. A child's grant then holds only
+// while its parent allows it, and the parent is read only for a child whose latest event is a grant. Last, the one
+// live delegation line of Goal must match the deciding event in kind and quote.
+function grantState(issue, goal) {
+  const latest = authorityEvents(issue).at(-1);
+  const lines = liveGoalLines(goal)
+    .map(({ text }) => text)
+    .filter((text) => text === YOLO_DELEGATION_LINE || DELEGATED_LINE.test(text));
+  const none = (reason) => ({ line: reason ? `grant: none; ${reason}` : 'grant: none', advice: [] });
+  if (!latest) return none(lines.length ? 'the Goal delegation line has no trusted authority event' : undefined);
+  if (latest.kind === 'revocation') return { line: `grant: ended by revocation comment ${latest.id}`, advice: [] };
+  const { parent } = issue;
+  if (!parent && latest.parentEvent !== undefined)
+    return none(`comment ${latest.id} names a parent event, but the plan has no parent`);
+  if (parent) {
+    if (parent.repository.nameWithOwner !== repository.nameWithOwner)
+      return none(`parent #${parent.number} is in another repository (${parent.repository.nameWithOwner})`);
+    let parentLatest;
+    try {
+      parentLatest = authorityEvents(readSnapshot(parent.number, { comments: true }).issue).at(-1);
+    } catch {
+      return none(`parent #${parent.number} cannot be read`);
+    }
+    // A linked grant holds only while the named event is the parent's latest, whatever the timestamps say; an
+    // unlinked grant ends at any parent event that is not older than it. Equal timestamps cannot prove the order, so
+    // a parent event with the same time ends the grant too (fail closed).
+    const ended =
+      latest.parentEvent === undefined
+        ? parentLatest !== undefined && Date.parse(parentLatest.createdAt) >= Date.parse(latest.createdAt)
+        : parentLatest?.id !== latest.parentEvent;
+    if (ended && !parentLatest) return none(`parent #${parent.number} has no trusted authority event`);
+    if (ended)
+      return {
+        line: `grant: ended by parent #${parent.number} comment ${parentLatest.id}`,
+        advice: lines.length
+          ? [
+              `parent #${parent.number} comment ${parentLatest.id} ended the grant; remove the delegation line from Goal, with no new event`,
+            ]
+          : [],
+      };
+  }
+  if (lines.length !== 1)
+    return none(
+      lines.length
+        ? `the Goal has ${lines.length} delegation lines for comment ${latest.id}`
+        : `the Goal has no delegation line for comment ${latest.id}`,
+    );
+  const quote = DELEGATED_LINE.exec(lines[0])?.[1];
+  const matches =
+    latest.kind === 'yolo'
+      ? lines[0] === YOLO_DELEGATION_LINE
+      : quote !== undefined && delegationQuote(quote) === delegationQuote(latest.quote);
+  if (!matches) return none(`the Goal delegation line does not match comment ${latest.id}`);
+  return { line: `grant: in force (${latest.kind}) by comment ${latest.id}`, advice: [] };
+}
 function readPlanIssue(value, forWrite = false, connections = {}) {
   const { issue, login, viewerId, labelIds } = readSnapshot(parseIssueNumber(value), {
     acting: forWrite,
@@ -984,8 +1083,7 @@ function createPlan(args) {
   if (!options['--title']?.trim() || !options['--goal']?.trim()) fail('new requires --title and --goal');
   const extras = options['--label'] ?? [];
   for (const label of extras) if (/^plan(?::|$)/i.test(label)) fail(`reserved label namespace: ${label}`);
-  const parent =
-    options['--parent'] === undefined ? undefined : parseIssueNumber(options['--parent'], 'parent issue');
+  const parent = options['--parent'] === undefined ? undefined : parseIssueNumber(options['--parent'], 'parent issue');
   const { issue: parentIssue, login, labelIds } = readSnapshot(parent, { acting: true, labelLookup: true });
   if (parent !== undefined && !openPlanOf(parentIssue, login)) fail(`parent #${parent} is not an open plan`);
   for (const [label, id] of labelIds)
@@ -1040,11 +1138,14 @@ function showPlan(args) {
   const [value, ...flags] = args;
   if (!value || flags.length > 1 || flags.some((flag) => flag !== '--body'))
     fail('show requires an issue and optional --body');
-  const { issue, parsed, status } = readPlanIssue(value, false, { comments: true, closure: true, children: true }),
-    reviews = reviewVerdicts(issue);
+  const connections = { comments: true, closure: true, children: true, parent: true };
+  const { issue, parsed, status } = readPlanIssue(value, false, connections);
+  const reviews = reviewVerdicts(issue);
+  const grant = grantState(issue, parsed.sections.get('Goal'));
   const metadata = [
     headerStrip(issue, status),
     `reviews: plan=${reviews.plan ?? 'none'} code=${reviews.code ?? 'none'}`,
+    grant.line,
     ...issue.children.map((child) => `child #${child.number} · ${statusFromIssue(child)} · ${child.title}`),
   ].join('\n');
   if (flags.length) {
@@ -1060,7 +1161,7 @@ function showPlan(args) {
       : [];
     if (stuckClosed(issue)) extra.push(STUCK_ADVICE);
     if (status === 'finished') extra.push(...closedChildAdvice(issue, parsed));
-    extra.push(...budgetAdvice(issue.body, parsed, issue.comments.length));
+    extra.push(...budgetAdvice(issue.body, parsed, issue.comments.length), ...grant.advice);
     printAdvice(issue.body, status, extra);
   }
 }
@@ -1079,7 +1180,8 @@ function closedChildAdvice(issue, parsed) {
   for (const child of named)
     if (!statuses.has(child))
       advice.push(`plan names child #${child}, which is not linked; relink it or edit the row; ${recovery}`);
-  if (noNamedChildFinished(named, statuses)) advice.push(`plan is closed as completed but no child finished; ${recovery}`);
+  if (noNamedChildFinished(named, statuses))
+    advice.push(`plan is closed as completed but no child finished; ${recovery}`);
   return advice;
 }
 // Each budget that a plan passes gets one advice line (E4).
@@ -1417,16 +1519,7 @@ function archiveParent(number) {
     refuseChangedBeforeClose(plan);
     // gh posts the comment before it closes, so the record of a close that failed after it is not posted again.
     const comment = recorded(plan.issue, record) ? [] : ['--comment', record];
-    runGh([
-      'issue',
-      'close',
-      String(number),
-      '--reason',
-      'completed',
-      ...comment,
-      '--repo',
-      repository.nameWithOwner,
-    ]);
+    runGh(['issue', 'close', String(number), '--reason', 'completed', ...comment, '--repo', repository.nameWithOwner]);
     checkAfterOwnClose(number, children);
   } else postRecordOnce(plan, record);
   writeIssueIfUnchanged(plan.issue, { remove: labelsToRemove(plan.issue) });
@@ -1641,12 +1734,9 @@ function writeReopen({ issue, login, viewerId, labelIds }, comment, command) {
   const current = readSnapshot(issue.number).issue,
     status = statusFromIssue(current);
   refuseStuck(current);
-  if (isClosed({ issue: current }))
-    fail(`plan #${issue.number} closed again after the reopen; run ${command} again`);
+  if (isClosed({ issue: current })) fail(`plan #${issue.number} closed again after the reopen; run ${command} again`);
   if (!PLAN_STATUSES.has(status))
-    fail(
-      `plan issue state differs after reopen; run status ${issue.number} ongoing to repair the phase labels`,
-    );
+    fail(`plan issue state differs after reopen; run status ${issue.number} ongoing to repair the phase labels`);
   console.log(`plan #${issue.number} reopened: ${status}`);
 }
 // A v5 plan lands each pull request through a child plan with `Closes #<child>`, so a partial pull request never
