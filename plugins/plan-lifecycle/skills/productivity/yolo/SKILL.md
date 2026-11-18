@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "ee42df3f132de7b52b1caa4d3aed466b2c5847320d287e43f58970b785e421a7"
+  content_hash: "09aa636b60e14f769aa994116bc934e45cbbab38087babf06da51654c1a911d1"
 ---
 
 # Yolo
@@ -132,11 +132,12 @@ Yolo: the user delegated every decision except the merge to the agent.
    parent, and it gets no linked branch. Create one child per pull request with
    `new --title <t> --goal <g> --mode plan-and-implement --parent <n>`, with the
    delegation line in each goal. Post each child's grant event once, at its
-   creation, with the parent's quote; later parent events apply to every child,
-   as the contract's Authority events says. Give the parent one Steps row per
-   child, as the contract's Record and mode says. Run Research and Plan review
-   on the parent. After that pass, start the child that the contract's Yolo
-   runs table names: set up its linked branch, and run Research to Land on it.
+   creation, with the parent's quote; a later parent event ends the grant of
+   every child, as the contract's Authority events says. Give the parent one
+   Steps row per child, as the contract's Record and mode says. Run Research
+   and Plan review on the parent. After that pass, start the child that the
+   contract's Yolo runs table names: set up its linked branch, and run
+   Research to Land on it.
 6. Otherwise set up the linked branch now, as the contract's Yolo runs section
    says.
 
