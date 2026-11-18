@@ -23,7 +23,6 @@
 // manager stage. The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun. Its one fetch
 // is in `case`: the head of the pull request of a case (`pull`) when a case commit is missing (see caseCommits).
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -933,15 +932,13 @@ function caseSources(caseData, caseFolder, keys) {
 // The case fields that name a commit.
 const COMMIT_FIELDS = ['base', 'head', 'delta_base', 'repo_ref'];
 // The refs of the benchmark. `case` saves the head of the pull request `<n>` of a case (`pull`) at `${PULL_REF}<n>`,
-// a person saves it at a new ref under MANUAL_REF with the command of manualFetchCommand, and `case` pins each case
-// commit that origin/main does not reach at `${KEPT_REF}<sha>`. git fetch --prune removes no ref outside the fetch
-// refspecs, git gc keeps every object that a ref reaches, and the script never moves a saved ref, so every commit that
-// the refs reach stays in the repository.
+// and `case` and the recovery command of manualFetchCommand pin a commit at `${KEPT_REF}<sha>`. git fetch --prune
+// removes no ref outside the fetch refspecs, git gc keeps every object that a ref reaches, and the script never moves
+// a saved ref, so every commit that the refs reach stays in the repository.
 const BENCH_REFS = 'refs/review-bench/';
 const PULL_REF = `${BENCH_REFS}pull/`;
-const MANUAL_REF = `${BENCH_REFS}manual/`;
 const KEPT_REF = `${BENCH_REFS}kept/`;
-// The ref that one `case` run fetches into, before it saves the head at PULL_REF. The process id keeps a parallel run
+// The refs that one `case` run or one shell of the recovery command fetches into. The process id keeps a parallel run
 // from changing what this run saves.
 const INCOMING_REF = `${BENCH_REFS}incoming/`;
 const MAIN_REF = 'refs/remotes/origin/main';
@@ -950,9 +947,9 @@ const FORK_NOTE = 'when origin is a fork, use the remote of DocksDocks/docks ins
 // The commits of the case fields that name one. When a commit of a case with `pull` is missing, the head of that pull
 // request holds it: `case` fetches the head once (see fetchPull) and resolves every commit again. A commit that is
 // still missing stops the script before it writes a workspace file. A commit that the repository holds needs no fetch,
-// whatever holds it: a local branch, a manual ref, or only an object that a run left when it lost the create of the
-// saved ref to a parallel run. `case` then pins each case commit that origin/main does not reach (see keepCommit), so
-// git gc keeps every commit that the workspace uses.
+// whatever holds it: a local branch, a pin of the recovery command, or only an object that a run left when it lost the
+// create of the saved ref to a parallel run. `case` then pins each case commit that origin/main does not reach (see
+// keepCommit), so git gc keeps every commit that the workspace uses.
 function caseCommits(repo, caseData) {
   const fields = COMMIT_FIELDS.filter((field) => caseData[field]);
   const resolve = () => Object.fromEntries(fields.map((field) => [field, commitOf(repo, caseData[field])]));
@@ -1004,14 +1001,13 @@ function fetchPull(repo, { id, pull }) {
   }
 }
 
-// The command that saves the head of the pull request `pull` at a new ref under refs/review-bench/manual/. The UTC
-// time and 8 random hex characters make the ref new at each stop, so the command never moves a saved ref.
+// The command that fetches the head of the pull request `pull` and pins it at `${KEPT_REF}<sha>`, the ref that
+// keepCommit uses. The shell fetches into a ref that only it writes (`$$` is its process id), reads the object id once
+// from that ref, and uses that id for the name and the value of the pin. `git update-ref` with an empty old value fails
+// when the pin exists, so a second run of the command never moves a ref. The command then deletes its fetch ref.
+// `case` then finds the commit present and pinned.
 function manualFetchCommand(pull) {
-  const time = new Date()
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace(/\.\d+Z$/, 'Z');
-  return `git fetch --no-tags origin +refs/pull/${pull}/head:${MANUAL_REF}${pull}-${time}-${randomBytes(4).toString('hex')}`;
+  return `t=${INCOMING_REF}manual-$$ && git fetch --no-tags --no-write-fetch-head origin +refs/pull/${pull}/head:$t && sha=$(git rev-parse "$t") && git update-ref "${KEPT_REF}$sha" "$sha" ""; git update-ref -d "$t"`;
 }
 
 // The stop message of a case commit that the repository does not hold.

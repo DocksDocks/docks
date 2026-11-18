@@ -2719,12 +2719,14 @@ function pullFixture(t) {
   return { ...fixture, remote, clone, ws, cases, caseDir: path.join(ws, 'code-7'), caseOptions, refs };
 }
 const FORK_NOTE = '(when origin is a fork, use the remote of DocksDocks/docks instead of origin)';
-// The recovery command of a stop: it fetches the head of pull request `pull` into a new ref under
-// refs/review-bench/manual/, named with the UTC time of the stop and 8 random hex characters.
-const manualFetch = (pull) =>
-  `${escapeRegExp(`git fetch --no-tags origin +refs/pull/${pull}/head:refs/review-bench/manual/${pull}-`)}\\d{8}T\\d{6}Z-[0-9a-f]{8} ${escapeRegExp(FORK_NOTE)}`;
-// The ref that the recovery command of a stop message fetches into.
-const manualRef = (message) => message.match(/git fetch --no-tags origin \S+:(refs\/review-bench\/manual\/\S+)/)[1];
+// The recovery command of a stop: it fetches the head of pull request `pull` into a ref of its shell and pins that head
+// at refs/review-bench/kept/<sha>.
+const recoveryCommand = (pull) =>
+  `t=refs/review-bench/incoming/manual-$$ && git fetch --no-tags --no-write-fetch-head origin +refs/pull/${pull}/head:$t && sha=$(git rev-parse "$t") && git update-ref "refs/review-bench/kept/$sha" "$sha" ""; git update-ref -d "$t"`;
+const manualFetch = (pull) => escapeRegExp(`${recoveryCommand(pull)} ${FORK_NOTE}`);
+// Runs the recovery command of a stop message through `sh -c` in `repo`.
+const runRecovery = (repo, message) =>
+  spawnSync('sh', ['-c', message.match(/yourself: (.+) \(when origin is a fork/)[1]], { cwd: repo, encoding: 'utf8' });
 const missingHead = (head, pull) =>
   new RegExp(
     pull
@@ -2829,38 +2831,47 @@ test('case pins its fetched commit under refs/review-bench/kept/ when a parallel
   assert.equal(readText(path.join(caseDir, 'snapshot', 'src', 'sync.mjs')), SYNC_HEAD);
 });
 
-test('case does not fetch again or move an existing refs/review-bench/pull/<n> that lacks the commit of pull, and the manual command of the stop recovers', (t) => {
-  const { root, remote, clone, base, head, caseDir, caseOptions, refs } = pullFixture(t);
+// Stops case with the head of pull request 7 missing, while an existing refs/review-bench/pull/7 holds only the base.
+// The result is the stop message.
+const stopOnStalePull = ({ root, remote, clone, base, head, caseDir, caseOptions, refs }) => {
   gitIn(clone, 'update-ref', 'refs/review-bench/pull/7', base);
   // A fetch would fail with a git error instead of the message of the missing commit.
   gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
   const message = caseStops(caseOptions(), clone, missingHead(head, 7));
   assert.equal(fs.existsSync(caseDir), false);
   assert.equal(refs('refs/review-bench'), `refs/review-bench/pull/7 ${base}`);
-  // The recovery command of the message saves the head at a new ref, and case then pins the head and prepares the
-  // workspace with no fetch.
   gitIn(clone, 'remote', 'set-url', 'origin', remote);
-  const [, refspec] = message.match(/git fetch --no-tags origin (\S+)/);
-  gitIn(clone, 'fetch', '-q', '--no-tags', 'origin', refspec);
+  return message;
+};
+
+test('case does not fetch again or move an existing refs/review-bench/pull/<n> that lacks the commit of pull, and the recovery command of the stop recovers', (t) => {
+  const fixture = pullFixture(t);
+  const { root, clone, base, head, caseDir, caseOptions, refs } = fixture;
+  const message = stopOnStalePull(fixture);
+  // The recovery command of the message pins the head, and case then finds the pin and prepares the workspace with no
+  // fetch.
+  const recovered = runRecovery(clone, message);
+  assert.equal(recovered.status, 0, recovered.stderr);
   gitIn(clone, 'remote', 'set-url', 'origin', path.join(root, 'missing.git'));
   prepare.prepareCase(caseOptions(), clone);
   assert.equal(readText(path.join(caseDir, 'snapshot', 'src', 'sync.mjs')), SYNC_HEAD);
   assert.equal(
     refs('refs/review-bench'),
-    [
-      `refs/review-bench/kept/${head} ${head}`,
-      `${manualRef(message)} ${head}`,
-      `refs/review-bench/pull/7 ${base}`,
-    ].join('\n'),
+    [`refs/review-bench/kept/${head} ${head}`, `refs/review-bench/pull/7 ${base}`].join('\n'),
   );
 });
 
-test('the manual fetch commands of two stops of one case name different refs', (t) => {
-  const { clone, head, caseOptions } = pullFixture(t);
-  const options = caseOptions({ pull: undefined });
-  const first = manualRef(caseStops(options, clone, missingHead(head)));
-  const second = manualRef(caseStops(options, clone, missingHead(head)));
-  assert.notEqual(first, second);
+test('a second run of the recovery command of a stop moves no ref', (t) => {
+  const fixture = pullFixture(t);
+  const { clone, base, head, refs } = fixture;
+  const message = stopOnStalePull(fixture);
+  const pinned = [`refs/review-bench/kept/${head} ${head}`, `refs/review-bench/pull/7 ${base}`].join('\n');
+  const first = runRecovery(clone, message);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(refs('refs/review-bench'), pinned);
+  // The pin exists, so the update-ref of the second run fails, and the second run then deletes its fetch ref.
+  runRecovery(clone, message);
+  assert.equal(refs('refs/review-bench'), pinned);
 });
 
 test('validateCase takes pull only as a positive integer, on every kind', () => {
