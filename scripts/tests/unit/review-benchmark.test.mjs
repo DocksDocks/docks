@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import * as escapes from '../../../.agents/skills/review-benchmark/scripts/escapes.mjs';
 import * as keyBackup from '../../../.agents/skills/review-benchmark/scripts/keys.mjs';
@@ -11438,13 +11439,13 @@ function recipientsOf(gnupg, file) {
   return ids;
 }
 
-test('key backup writes only an encrypted copy to the vault, and restore gives a byte-identical 0700 folder', (t) => {
+test('key backup writes only an encrypted copy to the vault, and restore gives a byte-identical 0700 folder', async (t) => {
   const gnupg = gpgHome(t, 'bench test');
   const { fingerprint, file, secret } = gnupg.keys['bench test'];
   const keys = keysFixture(gnupg.root);
   const before = treeOf(keys);
   const vault = vaultFor(gnupg, fingerprint, file);
-  const output = keyBackup.main(['backup', '--keys', keys, '--out', vault], gnupg.env);
+  const output = await keyBackup.main(['backup', '--keys', keys, '--out', vault], gnupg.env);
   const names = fs.readdirSync(vault).sort();
   assert.equal(names.length, 3);
   assert.deepEqual(names.slice(0, 2), ['.git', 'README.md']);
@@ -11455,7 +11456,10 @@ test('key backup writes only an encrypted copy to the vault, and restore gives a
   assert.deepEqual(treeOf(keys), before);
   const restored = path.join(gnupg.root, 'restored', 'keys');
   assert.equal(
-    keyBackup.main(['restore', '--archive', path.join(vault, names[2]), '--key', secret, '--out', restored], gnupg.env),
+    await keyBackup.main(
+      ['restore', '--archive', path.join(vault, names[2]), '--key', secret, '--out', restored],
+      gnupg.env,
+    ),
     `restore: verified every file in ${restored}\n`,
   );
   assert.equal(fs.statSync(restored).mode & 0o777, 0o700);
@@ -11503,7 +11507,7 @@ test('the tar step gives the same bytes for the same folder, whatever the file t
   assert.ok(!keyBackup.archiveBytes(other).equals(first));
 });
 
-test('restore refuses an existing folder and a folder inside a git checkout, and writes nothing', (t) => {
+test('restore refuses an existing folder and a folder inside a git checkout, and writes nothing', async (t) => {
   const gnupg = gpgHome(t, 'bench test');
   const { fingerprint, file } = gnupg.keys['bench test'];
   const archive = keyBackup.backup({
@@ -11514,7 +11518,7 @@ test('restore refuses an existing folder and a folder inside a git checkout, and
   const existing = path.join(gnupg.root, 'existing');
   put(existing, 'mine.txt', 'kept\n');
   const key = gnupg.keys['bench test'].secret;
-  assert.throws(() => keyBackup.restore({ archive, key, out: existing, env: gnupg.env }), {
+  await assert.rejects(keyBackup.restore({ archive, key, out: existing, env: gnupg.env }), {
     message: `${existing} exists; restore needs a new folder`,
   });
   assert.deepEqual(fs.readdirSync(existing), ['mine.txt']);
@@ -11522,13 +11526,13 @@ test('restore refuses an existing folder and a folder inside a git checkout, and
   fs.mkdirSync(repository);
   assert.equal(spawnSync('git', ['init', '-q', repository]).status, 0);
   const inside = path.join(repository, 'sub', 'restored');
-  assert.throws(() => keyBackup.restore({ archive, key, out: inside, env: gnupg.env }), {
+  await assert.rejects(keyBackup.restore({ archive, key, out: inside, env: gnupg.env }), {
     message: `${inside} is inside a git checkout; restore outside every checkout`,
   });
   assert.ok(!fs.existsSync(path.join(repository, 'sub')));
 });
 
-test('restore and backup stop with the folder and the git error when git cannot check the folder', (t) => {
+test('restore and backup stop with the folder and the git error when git cannot check the folder', async (t) => {
   const root = scratch(t);
   const repository = path.join(root, 'checkout');
   assert.equal(spawnSync('git', ['init', '-q', repository]).status, 0);
@@ -11541,7 +11545,7 @@ test('restore and backup stop with the folder and the git error when git cannot 
   };
   const out = path.join(repository, 'sub', 'restored');
   const archive = path.join(root, 'none.tar.gpg');
-  assert.throws(() => keyBackup.restore({ archive, key: path.join(root, 'none.asc'), out, env }), {
+  await assert.rejects(keyBackup.restore({ archive, key: path.join(root, 'none.asc'), out, env }), {
     message: new RegExp(`^git cannot check the folder ${escapeRegExp(repository)}: fatal: detected dubious ownership`),
   });
   assert.ok(!fs.existsSync(path.join(repository, 'sub')));
@@ -11553,7 +11557,7 @@ test('restore and backup stop with the folder and the git error when git cannot 
   assert.deepEqual(fs.readdirSync(repository), ['.git']);
 });
 
-test('restore names each file that does not match the manifest of the archive and leaves no folder', (t) => {
+test('restore names each file that does not match the manifest of the archive and leaves no folder', async (t) => {
   const gnupg = gpgHome(t, 'bench test');
   const keys = keysFixture(gnupg.root);
   const archive = path.join(gnupg.root, 'tampered.tar.gpg');
@@ -11566,7 +11570,7 @@ test('restore names each file that does not match the manifest of the archive an
     .join('\n');
   keyBackup.encrypt(keyBackup.tarBytes(keys, manifest), gnupg.keys['bench test'].file, archive, gnupg.env);
   const out = path.join(gnupg.root, 'bad', 'restored');
-  assert.throws(() => keyBackup.restore({ archive, key: gnupg.keys['bench test'].secret, out, env: gnupg.env }), {
+  await assert.rejects(keyBackup.restore({ archive, key: gnupg.keys['bench test'].secret, out, env: gnupg.env }), {
     message:
       'the restore does not match MANIFEST.sha256: missing file heldout/gone.json; ' +
       'extra file heldout/code-1-K1.patch; changed file heldout/code-1.key.json',
@@ -11584,7 +11588,7 @@ function encryptTree(gnupg, dir, archive) {
   keyBackup.encrypt(tar.stdout, gnupg.keys['bench test'].file, archive, gnupg.env);
 }
 
-test('restore refuses a MANIFEST.sha256 that is a link or a folder, shows no manifest text, and leaves no folder', (t) => {
+test('restore refuses a MANIFEST.sha256 that is a link or a folder, shows no manifest text, and leaves no folder', async (t) => {
   const gnupg = gpgHome(t, 'bench test');
   const secret = 'outside-secret-text-4711';
   put(gnupg.root, 'secret.txt', `${secret}\n`);
@@ -11609,7 +11613,7 @@ test('restore refuses a MANIFEST.sha256 that is a link or a folder, shows no man
   put(folder, 'MANIFEST.sha256/inner.txt', 'inner\n');
   const folderArchive = path.join(gnupg.root, 'folder.tar.gpg');
   encryptTree(gnupg, folder, folderArchive);
-  assert.throws(() => keyBackup.restore({ archive: folderArchive, key, out, env: gnupg.env }), {
+  await assert.rejects(keyBackup.restore({ archive: folderArchive, key, out, env: gnupg.env }), {
     message: 'the MANIFEST.sha256 of the archive is not a regular file',
   });
   assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
@@ -11618,13 +11622,13 @@ test('restore refuses a MANIFEST.sha256 that is a link or a folder, shows no man
   put(badLine, 'MANIFEST.sha256', `${keyBackup.manifestOf(badLine).split('\n')[0]}\n${secret}\n`);
   const badLineArchive = path.join(gnupg.root, 'bad-line.tar.gpg');
   encryptTree(gnupg, badLine, badLineArchive);
-  assert.throws(() => keyBackup.restore({ archive: badLineArchive, key, out, env: gnupg.env }), {
+  await assert.rejects(keyBackup.restore({ archive: badLineArchive, key, out, env: gnupg.env }), {
     message: 'MANIFEST.sha256 has a bad line 2',
   });
   assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
 });
 
-test('restore refuses an archive with a symbolic link or a hard link member, names each member, and writes nothing', (t) => {
+test('restore refuses an archive with a symbolic link or a hard link member, names each member, and writes nothing', async (t) => {
   const gnupg = gpgHome(t, 'bench test');
   const keys = keysFixture(gnupg.root);
   put(keys, 'MANIFEST.sha256', keyBackup.manifestOf(keys));
@@ -11633,11 +11637,38 @@ test('restore refuses an archive with a symbolic link or a hard link member, nam
   const archive = path.join(gnupg.root, 'links.tar.gpg');
   encryptTree(gnupg, keys, archive);
   const out = path.join(gnupg.root, 'bad', 'restored');
-  assert.throws(() => keyBackup.restore({ archive, key: gnupg.keys['bench test'].secret, out, env: gnupg.env }), {
+  await assert.rejects(keyBackup.restore({ archive, key: gnupg.keys['bench test'].secret, out, env: gnupg.env }), {
     message: 'the archive has a member that is neither a file nor a folder: heldout/copy; heldout/link',
   });
   assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
 });
+
+// The path of the first executable file `name` on PATH, so a shim can give a call to the real command.
+function realCommand(name) {
+  const found = process.env.PATH.split(path.delimiter)
+    .filter((dir) => path.isAbsolute(dir))
+    .map((dir) => path.join(dir, name))
+    .find((candidate) => {
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return fs.statSync(candidate).isFile();
+      } catch {
+        return false;
+      }
+    });
+  assert.ok(found && !found.includes("'"), `no usable ${name} on PATH: ${found}`);
+  return found;
+}
+
+// Writes the shell script `lines` as the command `name` into the shim folder of `gnupg`, and gives a PATH with the
+// shim folder first. A script can put paths of `gnupg.root` into single quotes.
+function shimPath(gnupg, name, lines) {
+  assert.ok(!gnupg.root.includes("'"), `the test folder ${gnupg.root} has a quote`);
+  const shim = path.join(gnupg.root, 'shim');
+  fs.mkdirSync(shim, { recursive: true });
+  fs.writeFileSync(path.join(shim, name), ['#!/bin/sh', ...lines, ''].join('\n'), { mode: 0o755 });
+  return `${shim}${path.delimiter}${process.env.PATH}`;
+}
 
 // Runs `keys.mjs restore` in a child process with a `gpg` shim first on PATH. The shim prints a version text with
 // `libgcrypt <libgcrypt>` for `--version`, fails each `--decrypt` with "Bad secret key", and gives every other call to
@@ -11648,54 +11679,25 @@ function restoreWithGpgShim(t, libgcrypt) {
   const keys = keysFixture(gnupg.root);
   const archive = path.join(gnupg.root, 'keys.tar.gpg');
   keyBackup.encrypt(keyBackup.tarBytes(keys, keyBackup.manifestOf(keys)), file, archive, gnupg.env);
-  const realGpg = process.env.PATH.split(path.delimiter)
-    .filter((dir) => path.isAbsolute(dir))
-    .map((dir) => path.join(dir, 'gpg'))
-    .find((candidate) => {
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return fs.statSync(candidate).isFile();
-      } catch {
-        return false;
-      }
-    });
-  assert.ok(realGpg && !realGpg.includes("'"), `no usable gpg on PATH: ${realGpg}`);
-  const shim = path.join(gnupg.root, 'shim');
-  fs.mkdirSync(shim);
-  fs.writeFileSync(
-    path.join(shim, 'gpg'),
-    [
-      '#!/bin/sh',
-      'if [ "$1" = --version ]; then',
-      `  printf '%s\\n' 'gpg (GnuPG) 2.4.8' 'libgcrypt ${libgcrypt}' 'Home: ~/.gnupg'`,
-      '  exit 0',
-      'fi',
-      'for arg in "$@"; do',
-      '  if [ "$arg" = --decrypt ]; then',
-      "    echo 'gpg: decryption failed: Bad secret key' >&2",
-      '    exit 2',
-      '  fi',
-      'done',
-      `exec '${realGpg}' "$@"`,
-      '',
-    ].join('\n'),
-    { mode: 0o755 },
-  );
-  const tmp = path.join(gnupg.root, 'tmp');
-  fs.mkdirSync(tmp);
+  const PATH = shimPath(gnupg, 'gpg', [
+    'if [ "$1" = --version ]; then',
+    `  printf '%s\\n' 'gpg (GnuPG) 2.4.8' 'libgcrypt ${libgcrypt}' 'Home: ~/.gnupg'`,
+    '  exit 0',
+    'fi',
+    'for arg in "$@"; do',
+    '  if [ "$arg" = --decrypt ]; then',
+    "    echo 'gpg: decryption failed: Bad secret key' >&2",
+    '    exit 2',
+    '  fi',
+    'done',
+    `exec '${realCommand('gpg')}' "$@"`,
+  ]);
   const out = path.join(gnupg.root, 'bad', 'restored');
-  const cli = spawnSync(
-    process.execPath,
-    [KEYS_SCRIPT, 'restore', '--archive', archive, '--key', secret, '--out', out],
-    {
-      env: { ...gnupg.env, PATH: `${shim}${path.delimiter}${process.env.PATH}`, TMPDIR: tmp },
-      encoding: 'utf8',
-    },
-  );
+  const cli = restoreCli(gnupg, ['--archive', archive, '--key', secret, '--out', out], { ...gnupg.env, PATH });
   assert.equal(cli.status, 1, cli.stderr);
   assert.equal(cli.stdout, '');
   assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
-  assert.deepEqual(fs.readdirSync(tmp), []);
+  assert.deepEqual(restoreLeftovers(gnupg), { homes: [], processes: [] });
   return cli.stderr;
 }
 
@@ -11712,7 +11714,7 @@ test('restore gives no T8094 line for a failed decrypt with libgcrypt 1.12.1', (
   assert.equal(restoreWithGpgShim(t, '1.12.1'), 'keys.mjs: gpg failed: gpg: decryption failed: Bad secret key\n');
 });
 
-test('backup stores each hard-linked file as a regular member, and restore gives byte-identical files', (t) => {
+test('backup stores each hard-linked file as a regular member, and restore gives byte-identical files', async (t) => {
   const gnupg = gpgHome(t, 'bench test');
   const { fingerprint, file, secret } = gnupg.keys['bench test'];
   const keys = keysFixture(gnupg.root);
@@ -11725,7 +11727,7 @@ test('backup stores each hard-linked file as a regular member, and restore gives
   assert.ok(keyBackup.archiveBytes(keys).equals(keyBackup.archiveBytes(copies)));
   const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint, file), env: gnupg.env });
   const restored = path.join(gnupg.root, 'restored', 'keys');
-  assert.equal(keyBackup.restore({ archive, key: secret, out: restored, env: gnupg.env }), restored);
+  assert.equal(await keyBackup.restore({ archive, key: secret, out: restored, env: gnupg.env }), restored);
   assert.deepEqual(treeOf(restored), before);
   assert.equal(fs.statSync(path.join(restored, 'heldout/code-1-K1 copy.patch')).nlink, 1);
 });
@@ -11761,11 +11763,17 @@ test('restore --key gives the same folder on each of 10 runs, whatever GNUPGHOME
   const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint, file), env: gnupg.env });
   // Each run has the wrong GPG_TTY `not a tty` of a shell without a terminal; the restore removes it. On each second
   // run, GNUPGHOME also names a folder that does not exist. The restore never reads it, so the result stays the same,
-  // and gpg does not make the folder.
+  // and gpg does not make the folder. A `gpg` shim writes the GPG_TTY of each call, or `unset`, into a log and gives the
+  // call to the real gpg.
+  const log = path.join(gnupg.root, 'gpg-tty.log');
+  const PATH = shimPath(gnupg, 'gpg', [
+    `printf '%s\\n' "\${GPG_TTY-unset}" >> '${log}'`,
+    `exec '${realCommand('gpg')}' "$@"`,
+  ]);
   const missing = path.join(gnupg.root, 'no-gnupg');
   for (let index = 0; index < 10; index += 1) {
     const out = path.join(gnupg.root, `restored-${index}`, 'keys');
-    const env = { ...gnupg.env, GPG_TTY: 'not a tty', ...(index % 2 ? { GNUPGHOME: missing } : {}) };
+    const env = { ...gnupg.env, PATH, GPG_TTY: 'not a tty', ...(index % 2 ? { GNUPGHOME: missing } : {}) };
     const cli = restoreCli(gnupg, ['--archive', archive, '--key', secret, '--out', out], env);
     assert.equal(cli.status, 0, cli.stderr);
     assert.equal(cli.stdout, `restore: verified every file in ${out}\n`);
@@ -11775,9 +11783,134 @@ test('restore --key gives the same folder on each of 10 runs, whatever GNUPGHOME
     assert.deepEqual(restoreLeftovers(gnupg), { homes: [], processes: [] });
   }
   assert.ok(!fs.existsSync(missing));
+  // The shim saw the import and the decrypt of each run. The stdin of the test has no terminal, so no call got a GPG_TTY,
+  // and no call saw `not a tty`.
+  const seen = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean);
+  assert.equal(seen.length, 20);
+  assert.ok(!seen.includes('not a tty'));
+  assert.deepEqual([...new Set(seen)], ['unset']);
 });
 
-test('restore without --key or with a key file that it cannot read stops before it writes anything', (t) => {
+// Stops the process `pid` when `ps` shows that it is still a gpg-agent of the `tmp` folder of `gnupg`, and waits until
+// no process names that folder.
+async function stopAgent(gnupg, pid) {
+  const ps = spawnSync('ps', ['-p', pid, '-o', 'args='], { encoding: 'utf8' });
+  if (ps.status === 0 && ps.stdout.includes('gpg-agent') && ps.stdout.includes(path.join(gnupg.root, 'tmp')))
+    process.kill(Number(pid));
+  for (let wait = 0; wait < 100 && restoreLeftovers(gnupg).processes.length; wait += 1) await sleep(50);
+}
+
+test('restore removes the private GnuPG home when gpgconf cannot stop its agent, and names the pid of the agent', {
+  timeout: 30_000,
+}, async (t) => {
+  const gnupg = gpgHome(t, 'bench test', 'bench other');
+  const { fingerprint, file, secret } = gnupg.keys['bench test'];
+  const archive = keyBackup.backup({
+    keys: keysFixture(gnupg.root),
+    out: vaultFor(gnupg, fingerprint, file),
+    env: gnupg.env,
+  });
+  // The `gpgconf` shim fails each `--kill`, after it asks the agent for its pid; it gives every other call to the real
+  // gpgconf.
+  const pidFile = path.join(gnupg.root, 'agent-pid');
+  const PATH = shimPath(gnupg, 'gpgconf', [
+    'if [ "$3" = --kill ]; then',
+    `  gpg-connect-agent --homedir "$2" --no-autostart 'getinfo pid' /bye > '${pidFile}'`,
+    "  echo 'gpgconf: cannot stop the agent' >&2",
+    '  exit 1',
+    'fi',
+    `exec '${realCommand('gpgconf')}' "$@"`,
+  ]);
+  const tmp = path.join(gnupg.root, 'tmp');
+  // A good key gives only the line of the agent; the key of another pair keeps the gpg error first.
+  for (const [key, first] of [
+    [secret, /^keys\.mjs: restore stopped before it wrote the folder\n/],
+    [gnupg.keys['bench other'].secret, /^keys\.mjs: gpg failed: gpg: [\s\S]*\ngpg: decryption failed: No secret key\n/],
+  ]) {
+    const out = path.join(gnupg.root, 'bad', 'restored');
+    const cli = restoreCli(gnupg, ['--archive', archive, '--key', key, '--out', out], { ...gnupg.env, PATH });
+    const pid = fs.readFileSync(pidFile, 'utf8').match(/^D (\d+)$/m)?.[1];
+    assert.ok(pid, 'the shim got no pid from the agent');
+    assert.equal(cli.status, 1, cli.stderr);
+    assert.equal(cli.stdout, '');
+    const home = `${escapeRegExp(tmp)}/keys-restore-gnupg-[^ /]+`;
+    const agent = new RegExp(
+      `\\nthe gpg-agent of the private GnuPG home (${home}) did not stop: \`gpgconf --homedir \\1 --kill gpg-agent\` ` +
+        'failed: gpgconf: cannot stop the agent\\. The home is removed all the same, so that command cannot stop the ' +
+        `agent now; stop it with \`kill ${pid}\`\\n$`,
+    );
+    assert.match(cli.stderr, first);
+    assert.match(cli.stderr, agent);
+    assert.equal(cli.stderr.split('\n').filter((line) => line.startsWith('the gpg-agent')).length, 1);
+    assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+    assert.deepEqual(fs.readdirSync(tmp), []);
+    await stopAgent(gnupg, pid);
+    assert.deepEqual(restoreLeftovers(gnupg), { homes: [], processes: [] });
+  }
+});
+
+test('restore stops at SIGHUP, SIGINT, and SIGTERM during the decrypt with the exit code of the signal and leaves nothing', {
+  timeout: 30_000,
+}, async (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const { fingerprint, file, secret } = gnupg.keys['bench test'];
+  const archive = keyBackup.backup({
+    keys: keysFixture(gnupg.root),
+    out: vaultFor(gnupg, fingerprint, file),
+    env: gnupg.env,
+  });
+  // The `gpg` shim marks the start of each `--decrypt` and then sleeps, as gpg does at the passphrase prompt; it gives
+  // every other call to the real gpg, so the import is real and starts the agent of the private home.
+  const mark = path.join(gnupg.root, 'decrypting');
+  const PATH = shimPath(gnupg, 'gpg', [
+    'for arg in "$@"; do',
+    '  if [ "$arg" = --decrypt ]; then',
+    `    : > '${mark}'`,
+    '    exec sleep 30',
+    '  fi',
+    'done',
+    `exec '${realCommand('gpg')}' "$@"`,
+  ]);
+  const tmp = path.join(gnupg.root, 'tmp');
+  fs.mkdirSync(tmp);
+  for (const [signal, code] of [
+    ['SIGHUP', 129],
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ]) {
+    fs.rmSync(mark, { force: true });
+    const out = path.join(gnupg.root, 'bad', 'restored');
+    const child = spawn(
+      process.execPath,
+      [KEYS_SCRIPT, 'restore', '--archive', archive, '--key', secret, '--out', out],
+      {
+        env: { ...gnupg.env, PATH, TMPDIR: tmp },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    const output = { stdout: '', stderr: '' };
+    child.stdout.on('data', (chunk) => (output.stdout += chunk));
+    child.stderr.on('data', (chunk) => (output.stderr += chunk));
+    const exit = new Promise((resolve) => child.on('close', (status, killed) => resolve({ status, killed })));
+    for (let wait = 0; wait < 200 && !fs.existsSync(mark); wait += 1) await sleep(50);
+    assert.ok(fs.existsSync(mark), `the decrypt did not start: ${output.stderr}`);
+    // The decrypt waits, and the private home and its agent exist.
+    const during = restoreLeftovers(gnupg);
+    assert.equal(during.homes.length, 1);
+    assert.ok(
+      during.processes.some((line) => line.startsWith('gpg-agent')),
+      `no agent: ${during.processes}`,
+    );
+    child.kill(signal);
+    assert.deepEqual(await exit, { status: code, killed: null });
+    assert.equal(output.stdout, '');
+    assert.equal(output.stderr, `keys.mjs: restore stopped by ${signal} before it wrote the folder\n`);
+    assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+    assert.deepEqual(restoreLeftovers(gnupg), { homes: [], processes: [] });
+  }
+});
+
+test('restore without --key or with a key file that it cannot read stops before it writes anything', async (t) => {
   const gnupg = gpgHome(t, 'bench test');
   const { fingerprint, file } = gnupg.keys['bench test'];
   const archive = keyBackup.backup({
@@ -11801,7 +11934,7 @@ test('restore without --key or with a key file that it cannot read stops before 
     assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
     assert.deepEqual(restoreLeftovers(gnupg), { homes: [], processes: [] });
   }
-  assert.throws(() => keyBackup.restore({ archive, out, env: gnupg.env }), {
+  await assert.rejects(keyBackup.restore({ archive, out, env: gnupg.env }), {
     message: 'restore needs --archive <file> --key <secret-key export> --out <new dir>',
   });
 });
@@ -11898,7 +12031,7 @@ test('an encrypt-to line of the gpg options file adds no recipient to a backup',
   assert.deepEqual(recipientsOf(gnupg, archive), [subkey]);
 });
 
-test('keys check passes for a folder that matches escape-draw.md and names each field that differs', (t) => {
+test('keys check passes for a folder that matches escape-draw.md and names each field that differs', async (t) => {
   const root = scratch(t);
   const keys = keysFixture(root);
   const cases = path.join(root, 'cases');
@@ -11910,7 +12043,7 @@ test('keys check passes for a folder that matches escape-draw.md and names each 
     `- Restricted frozen record SHA-256: ${record}\n`;
   put(cases, 'escape-draw.md', manifest(source, frozen));
   const passed = 'check: Source snapshot SHA-256 and Restricted frozen record SHA-256 match escape-draw.md\n';
-  assert.equal(keyBackup.main(['check', '--keys', keys, '--cases', cases]), passed);
+  assert.equal(await keyBackup.main(['check', '--keys', keys, '--cases', cases]), passed);
   // Outcomes are no part of the frozen hash, so a record with outcomes still passes.
   put(keys, 'escape-draw.json', escapes.frozenJson({ frozen: { version: 1, units: [] }, outcomes: [{ unit: 'u1' }] }));
   assert.equal(keyBackup.check({ keys, cases }), passed);

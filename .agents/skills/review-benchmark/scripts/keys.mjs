@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Encrypted off-machine copies of the held-out keys folder (see Cases, Key backup). A backup needs only the public key;
 // a restore needs an export of the secret key. No plaintext ever goes into the vault checkout.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -66,18 +66,13 @@ function fail(message) {
   throw new Error(message);
 }
 
-// Runs a command to completion and gives its stdout as bytes; a start error or a non-zero exit stops. When `stdio`
-// gives the stderr of the command to the terminal, the error names only the exit code, because the command wrote its
-// own message there.
-function run(command, args, { input, env = process.env, cwd, stdio } = {}) {
-  const result = spawnSync(command, args, { input, env, cwd, stdio, maxBuffer: MAX_OUTPUT });
+// Runs a command to completion and gives its stdout as bytes; a start error or a non-zero exit stops.
+function run(command, args, { input, env = process.env, cwd } = {}) {
+  const result = spawnSync(command, args, { input, env, cwd, maxBuffer: MAX_OUTPUT });
   if (result.error) fail(`${command} failed: ${result.error.message}`);
+  const text = result.stderr.toString('utf8').trim();
   if (result.status !== 0)
-    fail(
-      result.stderr
-        ? `${command} failed: ${result.stderr.toString('utf8').trim()}`
-        : `${command} failed with exit code ${result.status}`,
-    );
+    fail(text ? `${command} failed: ${text}` : `${command} failed with exit code ${result.status}`);
   return result.stdout;
 }
 
@@ -352,22 +347,117 @@ function insideGit(dir, env) {
 // The line that a failed decrypt gets with libgcrypt 1.12.0. Its bug T8094 makes the agent fail at random, by memory
 // layout (for example the length of the home path or the size of the environment), when it first uses an imported
 // ECC key, such as the cv25519 subkey of a default GnuPG key. Plan #162 saw it with GnuPG 2.4.8; an RSA key did not
-// fail. With a terminal, gpg writes its error there, so the exit code alone also gets the line.
+// fail. When the stderr of gpg is the terminal, gpg writes its error there, so the exit code alone also gets the line.
 const T8094_NOTE =
   'libgcrypt 1.12.0 has the bug T8094 (https://dev.gnupg.org/T8094), which can give "Bad secret key" or "Bad ' +
   'passphrase" for an ECC key; libgcrypt 1.12.1 or later fixes it. A new run uses a new GnuPG home and can pass, ' +
   'most of all with another TMPDIR, which gives the home path another length.';
+
+// The signals that stop a restore while its private GnuPG home exists. The exit code for each is 128 plus the number
+// of the signal, as in a shell: 129 for SIGHUP, 130 for SIGINT, and 143 for SIGTERM.
+const STOP_SIGNALS = ['SIGHUP', 'SIGINT', 'SIGTERM'];
+
+// Runs a command as a child process and gives its stdout as bytes, as `run` does, but without a block of the event
+// loop, so a signal handler can stop the child. `track` gets the child when it starts. `stdio` sets the stdin and the
+// stderr of the child; `input` goes to a piped stdin. A start error, a non-zero exit, or a signal stops.
+function runChild(command, args, { input, env, stdio = ['pipe', 'pipe', 'pipe'] }, track) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { env, stdio });
+    track(child);
+    const stdout = [];
+    const stderr = [];
+    let settled = false;
+    const settle = (error) => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve(Buffer.concat(stdout));
+    };
+    child.stdout.on('data', (chunk) => stdout.push(chunk));
+    child.stderr?.on('data', (chunk) => stderr.push(chunk));
+    child.on('error', (error) => settle(new Error(`${command} failed: ${error.message}`)));
+    child.on('close', (code, signal) => {
+      const text = Buffer.concat(stderr).toString('utf8').trim();
+      if (signal) settle(new Error(`${command} stopped by ${signal}`));
+      else if (code !== 0)
+        settle(new Error(text ? `${command} failed: ${text}` : `${command} failed with exit code ${code}`));
+      else settle();
+    });
+    if (child.stdin) {
+      // A child that exits before it reads all of its stdin closes the pipe; its exit code tells the result.
+      child.stdin.on('error', () => {});
+      child.stdin.end(input);
+    }
+  });
+}
+
+// The pids of the running gpg-agent processes of the GnuPG home `home`, from the `--homedir <home>` argument that gpg
+// gives to the agent that it starts, or the reason why `ps` cannot tell.
+function agentPids(home) {
+  const ps = spawnSync('ps', ['-e', '-o', 'pid=,args='], { encoding: 'utf8' });
+  if (ps.error || ps.status !== 0) return { reason: ps.error?.message ?? ps.stderr.trim() };
+  const pids = ps.stdout.split('\n').flatMap((line) => {
+    const match = line.match(/^\s*(\d+)\s+(.*)$/);
+    return match && /\bgpg-agent\b/.test(match[2]) && `${match[2]} `.includes(`--homedir ${home} `) ? [match[1]] : [];
+  });
+  return { pids };
+}
+
+// Stops the agent of the private GnuPG home `home`, removes the socket folder of the home, and removes the home. It
+// does each step also when a step before it fails, and gives one line for each step that fails. When the agent does
+// not stop, the home goes all the same, because that is the safer choice: the imported secret key leaves the disk at
+// once, and on Linux, gpg-agent stops itself when its home goes (GnuPG 2.4 watches the home with inotify). A kept home
+// keeps the key on the disk until a person removes it. After the home goes, `gpgconf --homedir <home> --kill
+// gpg-agent` cannot find the agent, so the line names the pid that `ps` shows for the agent of the home, for `kill`.
+function removeHome(home, env) {
+  const problems = [];
+  const gpgconf = (...args) => {
+    const result = spawnSync('gpgconf', ['--homedir', home, ...args], { env, encoding: 'utf8' });
+    if (result.error) return { reason: result.error.message };
+    if (result.status !== 0) return { reason: result.stderr.trim() || `exit code ${result.status}` };
+    return { stdout: result.stdout.trim() };
+  };
+  const kill = gpgconf('--kill', 'gpg-agent');
+  if (kill.reason) {
+    const { pids, reason } = agentPids(home);
+    const stop = pids?.length
+      ? `stop it with \`kill ${pids.join(' ')}\``
+      : pids
+        ? '`ps` shows no gpg-agent of the home'
+        : `\`ps\` cannot find the agent: ${reason}`;
+    problems.push(
+      `the gpg-agent of the private GnuPG home ${home} did not stop: \`gpgconf --homedir ${home} --kill gpg-agent\` ` +
+        `failed: ${kill.reason}. The home is removed all the same, so that command cannot stop the agent now; ${stop}`,
+    );
+  }
+  const sockets = gpgconf('--remove-socketdir');
+  if (sockets.reason) {
+    const dir = gpgconf('--list-dirs', 'socketdir').stdout;
+    problems.push(
+      `\`gpgconf --homedir ${home} --remove-socketdir\` failed: ${sockets.reason}; ` +
+        `remove the socket folder ${dir || 'of the home'} by hand`,
+    );
+  }
+  try {
+    fs.rmSync(home, { recursive: true, force: true });
+  } catch (error) {
+    problems.push(`cannot remove the private GnuPG home ${home}: ${error.message}; remove it by hand`);
+  }
+  return problems;
+}
 
 // The decrypted bytes of `archive`, with the secret key of the export `keyBytes` imported into a new private GnuPG
 // home (`mkdtemp` gives it mode 0700). gpg gets `--homedir` and no GNUPGHOME, so it never reads the key ring or the
 // agent of the caller. GPG_TTY names the terminal of the stdin of the caller, or is removed when the stdin is not a
 // terminal, so a wrong GPG_TTY of the caller never gets to the agent. The import has `--batch`, so it never asks for a
 // passphrase, and a protected key stays protected. The decrypt has no `--batch` and uses the loopback mode, so gpg asks
-// for the passphrase of a protected key itself in the terminal, also over SSH, and no pinentry window opens. With a
-// terminal, the stdin and the stderr of the decrypt go to it; the stdout stays bytes. The decrypt runs at once with the
-// agent of the import, and the agent stops only at the end. In every case, the agent stops and the home and its socket
-// folder go.
-function decryptWithKey(archive, keyBytes, env) {
+// for the passphrase of a protected key itself in the terminal, also over SSH, and no pinentry window opens. The
+// decrypt runs at once with the agent of the import, and the agent stops only at the end. In every case, the agent
+// stops and the home and its socket folder go (see `removeHome`); a failed step of that adds a line to the error, or
+// gives the error when the decrypt passed. SIGHUP, SIGINT (for example Ctrl-C at the passphrase prompt), and SIGTERM
+// stop the gpg child; then the home goes, and the error has the exit code of the signal. The handlers exist only while
+// the home exists.
+async function decryptWithKey(archive, keyBytes, env) {
   const gpgEnv = { ...env };
   delete gpgEnv.GNUPGHOME;
   delete gpgEnv.GPG_TTY;
@@ -377,31 +467,57 @@ function decryptWithKey(archive, keyBytes, env) {
   }
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'keys-restore-gnupg-'));
   const gpg = ['--homedir', home, '--pinentry-mode', 'loopback'];
+  let child;
+  let signal;
+  const stop = (name) => {
+    signal ??= name;
+    child?.kill('SIGTERM');
+  };
+  for (const name of STOP_SIGNALS) process.on(name, stop);
+  const gpgChild = (args, options) => {
+    if (signal) fail(`stopped by ${signal}`);
+    return runChild('gpg', args, { env: gpgEnv, ...options }, (started) => {
+      child = started;
+    });
+  };
+  let bytes;
+  let failure;
   try {
-    run('gpg', [...gpg, '--batch', '--import'], { input: keyBytes, env: gpgEnv });
-    const terminal = process.stdin.isTTY && process.stderr.isTTY;
+    await gpgChild([...gpg, '--batch', '--import'], { input: keyBytes });
+    // The stdin of the decrypt is the terminal when the stdin of the caller is one, also when the stderr of the
+    // caller goes to a file or a pipe, because the terminal input does not depend on the place of the messages. Its
+    // stderr is the terminal only when the stderr of the caller is one, so the messages of gpg show there; else the
+    // stderr is captured, so the error has the gpg text. The stdout always stays bytes.
+    const stdio = [process.stdin.isTTY ? 'inherit' : 'ignore', 'pipe', process.stderr.isTTY ? 'inherit' : 'pipe'];
     try {
-      return run('gpg', [...gpg, '--decrypt', archive], {
-        env: gpgEnv,
-        stdio: terminal ? ['inherit', 'pipe', 'inherit'] : undefined,
-      });
+      bytes = await gpgChild([...gpg, '--decrypt', archive], { stdio });
     } catch (error) {
-      const version = spawnSync('gpg', ['--version'], { env: gpgEnv, encoding: 'utf8' }).stdout ?? '';
-      if (/Bad secret key|Bad passphrase|exit code/.test(error.message) && /^libgcrypt 1\.12\.0$/m.test(version))
-        error.message += `\n${T8094_NOTE}`;
+      const version = () => spawnSync('gpg', ['--version'], { env: gpgEnv, encoding: 'utf8' }).stdout ?? '';
+      const bad = /Bad secret key|Bad passphrase|exit code/.test(error.message);
+      if (!signal && bad && /^libgcrypt 1\.12\.0$/m.test(version())) error.message += `\n${T8094_NOTE}`;
       throw error;
     }
-  } finally {
-    spawnSync('gpgconf', ['--homedir', home, '--kill', 'gpg-agent'], { env: gpgEnv });
-    spawnSync('gpgconf', ['--homedir', home, '--remove-socketdir'], { env: gpgEnv });
-    fs.rmSync(home, { recursive: true, force: true });
+  } catch (error) {
+    failure = error;
   }
+  const problems = removeHome(home, gpgEnv);
+  for (const name of STOP_SIGNALS) process.off(name, stop);
+  if (signal) {
+    failure = new Error(`restore stopped by ${signal} before it wrote the folder`);
+    failure.exitCode = 128 + os.constants.signals[signal];
+  }
+  if (problems.length) {
+    failure ??= new Error('restore stopped before it wrote the folder');
+    failure.message += `\n${problems.join('\n')}`;
+  }
+  if (failure) throw failure;
+  return bytes;
 }
 
 // Decrypts `archive` with the secret-key export `key` into the new folder `out` (mode 0700) and verifies it. A missing
 // or unreadable key file stops the restore before it writes anything, and so does an archive member that is not a
 // regular file or a folder. A failure leaves no folder.
-export function restore({ archive, key, out, env = process.env }) {
+export async function restore({ archive, key, out, env = process.env }) {
   if (!archive || !key || !out) fail('restore needs --archive <file> --key <secret-key export> --out <new dir>');
   const target = path.resolve(out);
   if (fs.existsSync(target) || isSymlink(target)) fail(`${out} exists; restore needs a new folder`);
@@ -414,7 +530,7 @@ export function restore({ archive, key, out, env = process.env }) {
   } catch (error) {
     fail(`cannot read the key file ${key}: ${error.message}`);
   }
-  const bytes = decryptWithKey(path.resolve(archive), keyBytes, env);
+  const bytes = await decryptWithKey(path.resolve(archive), keyBytes, env);
   checkMemberTypes(bytes);
   const created = fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   fs.mkdirSync(target, { mode: 0o700 });
@@ -454,7 +570,7 @@ export function check({ keys, cases = SKILL_CASES }) {
   return `check: ${CHECKS.map(({ field }) => field).join(' and ')} match escape-draw.md\n`;
 }
 
-export function main(argv, env = process.env) {
+export async function main(argv, env = process.env) {
   const [command, ...args] = argv;
   const options = {
     backup: { keys: { type: 'string' }, out: { type: 'string' } },
@@ -465,17 +581,19 @@ export function main(argv, env = process.env) {
   const { values } = parseArgs({ args, options, strict: true });
   if (command === 'backup') return `backup: wrote ${backup({ keys: values.keys, out: values.out, env })}\n`;
   if (command === 'restore') {
-    const restored = restore({ archive: values.archive, key: values.key, out: values.out, env });
+    const restored = await restore({ archive: values.archive, key: values.key, out: values.out, env });
     return `restore: verified every file in ${restored}\n`;
   }
   return check({ keys: values.keys, ...(values.cases ? { cases: path.resolve(values.cases) } : {}) });
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try {
-    process.stdout.write(main(process.argv.slice(2)));
-  } catch (error) {
-    console.error(`keys.mjs: ${error.message}`);
-    process.exitCode = 1;
-  }
+  // An error of a signal has the exit code of the signal; every other error has exit code 1.
+  main(process.argv.slice(2)).then(
+    (text) => process.stdout.write(text),
+    (error) => {
+      console.error(`keys.mjs: ${error.message}`);
+      process.exitCode = error.exitCode ?? 1;
+    },
+  );
 }
