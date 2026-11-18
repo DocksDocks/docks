@@ -11752,6 +11752,31 @@ function restoreLeftovers(gnupg) {
   return { homes: fs.readdirSync(tmp), processes: ps.stdout.split('\n').filter((line) => line.includes(tmp)) };
 }
 
+// Writes a `gpg` shim that adds one line for each call to the log `log` and gives the call to the real gpg, and gives a
+// PATH with the shim first. The line names the operation (`import`, `decrypt`, or `other`), tells whether the stdin is
+// a terminal (`[ -t 0 ]`) and whether `--batch` is an argument, and gives GPG_TTY, or `unset`.
+function gpgCallLog(gnupg, log) {
+  return shimPath(gnupg, 'gpg', [
+    'op=other',
+    'batch=no',
+    'for arg in "$@"; do',
+    '  case "$arg" in',
+    '    --import) op=import ;;',
+    '    --decrypt) op=decrypt ;;',
+    '    --batch) batch=yes ;;',
+    '  esac',
+    'done',
+    'if [ -t 0 ]; then stdin=tty; else stdin=notty; fi',
+    `printf '%s stdin=%s batch=%s GPG_TTY=%s\\n' "$op" "$stdin" "$batch" "\${GPG_TTY-unset}" >> '${log}'`,
+    `exec '${realCommand('gpg')}' "$@"`,
+  ]);
+}
+
+// The lines of the log of `gpgCallLog`.
+function gpgCalls(log) {
+  return fs.readFileSync(log, 'utf8').split('\n').filter(Boolean);
+}
+
 // Ten runs take about 0.5 s each and more on a loaded runner, so the 5 s default timeout of bun is too short.
 test('restore --key gives the same folder on each of 10 runs, whatever GNUPGHOME and GPG_TTY of the caller say', {
   timeout: 60_000,
@@ -11763,13 +11788,9 @@ test('restore --key gives the same folder on each of 10 runs, whatever GNUPGHOME
   const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint, file), env: gnupg.env });
   // Each run has the wrong GPG_TTY `not a tty` of a shell without a terminal; the restore removes it. On each second
   // run, GNUPGHOME also names a folder that does not exist. The restore never reads it, so the result stays the same,
-  // and gpg does not make the folder. A `gpg` shim writes the GPG_TTY of each call, or `unset`, into a log and gives the
-  // call to the real gpg.
-  const log = path.join(gnupg.root, 'gpg-tty.log');
-  const PATH = shimPath(gnupg, 'gpg', [
-    `printf '%s\\n' "\${GPG_TTY-unset}" >> '${log}'`,
-    `exec '${realCommand('gpg')}' "$@"`,
-  ]);
+  // and gpg does not make the folder. A `gpg` shim logs each call and gives it to the real gpg.
+  const log = path.join(gnupg.root, 'gpg-calls.log');
+  const PATH = gpgCallLog(gnupg, log);
   const missing = path.join(gnupg.root, 'no-gnupg');
   for (let index = 0; index < 10; index += 1) {
     const out = path.join(gnupg.root, `restored-${index}`, 'keys');
@@ -11783,12 +11804,67 @@ test('restore --key gives the same folder on each of 10 runs, whatever GNUPGHOME
     assert.deepEqual(restoreLeftovers(gnupg), { homes: [], processes: [] });
   }
   assert.ok(!fs.existsSync(missing));
-  // The shim saw the import and the decrypt of each run. The stdin of the test has no terminal, so no call got a GPG_TTY,
-  // and no call saw `not a tty`.
-  const seen = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean);
-  assert.equal(seen.length, 20);
-  assert.ok(!seen.includes('not a tty'));
-  assert.deepEqual([...new Set(seen)], ['unset']);
+  // The shim saw the import and the decrypt of each run. The stdin of the test has no terminal, so no call got a GPG_TTY
+  // or a terminal stdin, and no call saw `not a tty`. The decrypt has `--batch`, so gpg never opens /dev/tty for the
+  // loopback prompt.
+  const importCall = 'import stdin=notty batch=yes GPG_TTY=unset';
+  const decryptCall = 'decrypt stdin=notty batch=yes GPG_TTY=unset';
+  assert.deepEqual(gpgCalls(log), Array.from({ length: 10 }, () => [importCall, decryptCall]).flat());
+});
+
+// The command `script` of util-linux, which runs a command under a new pseudo-terminal.
+function scriptCommand() {
+  const version = spawnSync('script', ['--version'], { encoding: 'utf8' });
+  const reason = version.error?.message ?? (version.stdout || version.stderr).trim();
+  assert.ok(
+    version.status === 0 && version.stdout.includes('util-linux'),
+    `this test needs the command \`script\` of util-linux to make a pseudo-terminal: ${reason}`,
+  );
+  return 'script';
+}
+
+test('restore with a terminal on stdin decrypts without --batch, with the terminal as stdin and as GPG_TTY', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const { fingerprint, file, secret } = gnupg.keys['bench test'];
+  const keys = keysFixture(gnupg.root);
+  const before = treeOf(keys);
+  const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint, file), env: gnupg.env });
+  const log = path.join(gnupg.root, 'gpg-calls.log');
+  const PATH = gpgCallLog(gnupg, log);
+  const out = path.join(gnupg.root, 'restored', 'keys');
+  const tmp = path.join(gnupg.root, 'tmp');
+  fs.mkdirSync(tmp, { recursive: true });
+  // `script -qec` runs the command under a new pseudo-terminal, so the stdin of the restore is a terminal. The command
+  // writes the name of that terminal, and the stdout and the stderr of the restore go to files, so the stderr of the
+  // restore is no terminal.
+  const files = Object.fromEntries(['tty', 'stdout', 'stderr'].map((name) => [name, path.join(gnupg.root, name)]));
+  const quote = (text) => {
+    assert.ok(!text.includes("'"), `the path ${text} has a quote`);
+    return `'${text}'`;
+  };
+  const restore = [process.execPath, KEYS_SCRIPT, 'restore', '--archive', archive, '--key', secret, '--out', out];
+  const redirect = `> ${quote(files.stdout)} 2> ${quote(files.stderr)}`;
+  const command = `tty > ${quote(files.tty)} && exec ${restore.map(quote).join(' ')} ${redirect}`;
+  const cli = spawnSync(scriptCommand(), ['-qec', command, '/dev/null'], {
+    env: { ...gnupg.env, PATH, TMPDIR: tmp, SHELL: '/bin/sh', GPG_TTY: 'not a tty' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  const stderr = fs.existsSync(files.stderr) ? fs.readFileSync(files.stderr, 'utf8') : '';
+  assert.equal(cli.status, 0, `${cli.error?.message ?? ''}${cli.stderr}${stderr}`);
+  assert.equal(stderr, '');
+  assert.equal(fs.readFileSync(files.stdout, 'utf8'), `restore: verified every file in ${out}\n`);
+  assert.deepEqual(treeOf(out), before);
+  assert.deepEqual(restoreLeftovers(gnupg), { homes: [], processes: [] });
+  const pty = fs.readFileSync(files.tty, 'utf8').trim();
+  assert.match(pty, /^\/dev\/pts\/\d+$/);
+  // The import reads the export from a pipe and has `--batch`; the decrypt has the terminal as stdin and no `--batch`,
+  // so gpg can ask for a passphrase there. Both calls get the terminal as GPG_TTY, not the `not a tty` of the caller.
+  assert.deepEqual(gpgCalls(log), [
+    `import stdin=notty batch=yes GPG_TTY=${pty}`,
+    `decrypt stdin=tty batch=no GPG_TTY=${pty}`,
+  ]);
 });
 
 // Stops the process `pid` when `ps` shows that it is still a gpg-agent of the `tmp` folder of `gnupg`, and waits until

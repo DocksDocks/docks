@@ -55,7 +55,8 @@ const USAGE = [
   '  restore --archive <file> --key <secret-key export> --out <new dir>',
   '      Imports the key into a new private GnuPG home (never GNUPGHOME), decrypts there into a new mode-0700',
   '      folder outside every git checkout, and verifies every file against the manifest of the archive. For a',
-  '      passphrase-protected key, gpg asks for the passphrase in the terminal. The private home goes at the end.',
+  '      passphrase-protected key, gpg asks for the passphrase in the terminal; when the stdin is no terminal, such a',
+  '      key stops the restore with the gpg error. The private home goes at the end.',
   '  check --keys <dir> [--cases <cases dir>]',
   '      Compares the source snapshot and the frozen record of the folder with cases/escape-draw.md.',
 ].join('\n');
@@ -450,13 +451,15 @@ function removeHome(home, env) {
 // home (`mkdtemp` gives it mode 0700). gpg gets `--homedir` and no GNUPGHOME, so it never reads the key ring or the
 // agent of the caller. GPG_TTY names the terminal of the stdin of the caller, or is removed when the stdin is not a
 // terminal, so a wrong GPG_TTY of the caller never gets to the agent. The import has `--batch`, so it never asks for a
-// passphrase, and a protected key stays protected. The decrypt has no `--batch` and uses the loopback mode, so gpg asks
-// for the passphrase of a protected key itself in the terminal, also over SSH, and no pinentry window opens. The
-// decrypt runs at once with the agent of the import, and the agent stops only at the end. In every case, the agent
-// stops and the home and its socket folder go (see `removeHome`); a failed step of that adds a line to the error, or
-// gives the error when the decrypt passed. SIGHUP, SIGINT (for example Ctrl-C at the passphrase prompt), and SIGTERM
-// stop the gpg child; then the home goes, and the error has the exit code of the signal. The handlers exist only while
-// the home exists.
+// passphrase, and a protected key stays protected. The decrypt uses the loopback mode, so no pinentry window opens.
+// When the stdin of the caller is a terminal, the decrypt has no `--batch`, so gpg asks for the passphrase of a
+// protected key itself in the terminal, also over SSH. Else the decrypt has `--batch`, because without it the
+// loopback prompt of gpg can open `/dev/tty` also when its stdin is not a terminal; so a protected key stops the
+// decrypt at once with the gpg error, and a key without a passphrase decrypts all the same. The decrypt runs at once
+// with the agent of the import, and the agent stops only at the end. In every case, the agent stops and the home and
+// its socket folder go (see `removeHome`); a failed step of that adds a line to the error, or gives the error when the
+// decrypt passed. SIGHUP, SIGINT (for example Ctrl-C at the passphrase prompt), and SIGTERM stop the gpg child; then
+// the home goes, and the error has the exit code of the signal. The handlers exist only while the home exists.
 async function decryptWithKey(archive, keyBytes, env) {
   const gpgEnv = { ...env };
   delete gpgEnv.GNUPGHOME;
@@ -490,7 +493,8 @@ async function decryptWithKey(archive, keyBytes, env) {
     // stderr is captured, so the error has the gpg text. The stdout always stays bytes.
     const stdio = [process.stdin.isTTY ? 'inherit' : 'ignore', 'pipe', process.stderr.isTTY ? 'inherit' : 'pipe'];
     try {
-      bytes = await gpgChild([...gpg, '--decrypt', archive], { stdio });
+      const batch = process.stdin.isTTY ? [] : ['--batch'];
+      bytes = await gpgChild([...gpg, ...batch, '--decrypt', archive], { stdio });
     } catch (error) {
       const version = () => spawnSync('gpg', ['--version'], { env: gpgEnv, encoding: 'utf8' }).stdout ?? '';
       const bad = /Bad secret key|Bad passphrase|exit code/.test(error.message);
