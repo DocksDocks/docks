@@ -15,6 +15,7 @@ holds that grant. Each practice names the question that the grant answers.
 - [Red baseline](#red-baseline)
 - [Commits](#commits)
 - [Checks that fail outside the goal](#checks-that-fail-outside-the-goal)
+- [Delegated work](#delegated-work)
 - [Self-review in code review](#self-review-in-code-review)
 - [Work during a round](#work-during-a-round)
 - [Run summary](#run-summary)
@@ -247,6 +248,58 @@ When a required check fails on files that the plan does not change:
 A repository hook that fails, such as a pre-push hook, is a required check too.
 Follow the contract's Repository hooks for it.
 
+## Delegated work
+
+Follow this practice for each subagent that the run dispatches, in every phase.
+
+1. Give each subagent the absolute path of the plan worktree. Require an
+   absolute path in each read and edit, and `cd <worktree> &&` at the start of
+   each shell command, so that redirects and later commands also run there.
+   `git -C <worktree>` moves git only, not a redirect. Require a report of the
+   absolute path of each file that the subagent changed.
+2. Items 3 to 8 apply only when the session checkout and the plan worktree are
+   different folders, as the contract's Linked branch says. When the session
+   checkout holds the plan branch, plan work changes it by design.
+3. Before a dispatch, or before a group of dispatches that run at the same
+   time, write the listing of the session checkout. Use one `<label>` per
+   group. `<checkout>` is the absolute path of the session checkout, and
+   `<skill-dir>` is the folder of the `plan-manager` skill. The script
+   [`../scripts/checkout-state.sh`](../scripts/checkout-state.sh) prints one
+   line per tracked or untracked path with the raw state on disk, so a dirty
+   checkout or a filter does not hide a change. It does not list ignored files.
+
+   ```sh
+   dir=$(git -C <checkout> rev-parse --path-format=absolute --git-path docks-review)
+   mkdir -p -m 0700 "$dir"
+   sh <skill-dir>/scripts/checkout-state.sh <checkout> > "$dir/checkout-state-<n>-<label>.txt"
+   ```
+
+4. After each agent of the group returns, write the listing again and compare
+   it with the first listing of the group. Each changed line names a path that
+   changed during the group. The user can edit the checkout at the same time,
+   so a change is a signal to inspect, not proof. Also check each path that the
+   subagent reported: a path outside the worktree is a stray edit, also when
+   the listing did not change.
+
+   ```sh
+   now=$(sh <skill-dir>/scripts/checkout-state.sh <checkout>) &&
+     printf '%s\n' "$now" | diff "$dir/checkout-state-<n>-<label>.txt" -
+   ```
+
+5. Undo nothing in the session checkout: no edit tool, no `git restore`, no
+   shell redirect from `HEAD`, and no trash. Redo in the worktree, with
+   absolute paths, each reported change that the subagent made outside the
+   worktree and that the worktree still lacks.
+6. Report each changed path to the user in the first report after the group,
+   and in the run summary under Kept resources, with the subagent that reported
+   it, if any. The user decides what to do with it.
+7. Keep each listing until Teardown. In Teardown, compare each listing again as
+   item 4 says and report each new path as item 6 says. Then remove this plan's
+   listing files, `checkout-state-<n>-*`, and no other file.
+8. When the script fails, the check has no result. Undo nothing, check each
+   reported path as item 4 says, and report the failure and each change that
+   this leaves under Kept resources.
+
 ## Self-review in code review
 
 Dispatch code review round 1 first. While it runs, review your own candidate
@@ -313,3 +366,9 @@ is not a round. Check the latest trusted authority event, as the contract's
 Delegated decisions says, before you act on a grant. For a parent, `show <n>`
 lists each child; run `show <c>` for each child to find the one that this run
 works on.
+
+When the review scratch folder of the session checkout holds listing files of
+this plan, `checkout-state-<n>-*.txt`, write the listing again for each one and
+compare the two, as Delegated work item 4 says. Report each changed path and
+leave it, as Delegated work says. Keep each listing, and compare it again in
+Teardown, because an agent that still runs can change the checkout later.

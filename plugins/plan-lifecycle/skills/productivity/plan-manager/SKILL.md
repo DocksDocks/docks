@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "733a2d6f64c75989eb9cf5db266203b4c15cc4cd4fa56567a20b53f590c71897"
+  content_hash: "c77dfa8dbdc1dd741c35f16c13804d0079b209299454e46f18e9698bcdb2825d"
 ---
 
 # Plan Manager
@@ -112,14 +112,14 @@ Done when: `show <n>` reports `plan=pass`.
 Move the plan to ongoing. Set up the linked branch with the contract's Linked
 branch steps before you change code. Set each step in-flight, implement or
 delegate it, run its proof, then mark it done. Honor the Effect confirmation
-gate. Follow the practices Engineering standards, Red baseline, Commits, and
-Checks that fail outside the goal. When the project has a `verify` skill, for
-example `.agents/skills/verify/SKILL.md`, use it to run the changed surface
-before you mark acceptance. Run all acceptance commands and record real results
-in Verification Results through the export/edit flow. Review plan edits after
-the pass as the contract's Phases and review comments says. Once work starts,
-put new work into a child plan, and act on split advice, as the contract's
-Status, ownership, and frozen state says.
+gate. Follow the practices Engineering standards, Red baseline, Commits,
+Checks that fail outside the goal, and Delegated work. When the project has a
+`verify` skill, for example `.agents/skills/verify/SKILL.md`, use it to run the
+changed surface before you mark acceptance. Run all acceptance commands and
+record real results in Verification Results through the export/edit flow.
+Review plan edits after the pass as the contract's Phases and review comments
+says. Once work starts, put new work into a child plan, and act on split
+advice, as the contract's Status, ownership, and frozen state says.
 
 Every commit that you make, also each candidate and repair commit, carries a
 `Verified:` trailer. The `commit-discipline` skill owns the trailer format. List
@@ -212,7 +212,8 @@ outside the Steps Files cells. Post one comment per round: the blocks of the
 round, then the manager response to the previous round, as the contract's
 review loop says. Write the reviewer's repair record and rejection files from
 that response. While round 1 runs, run the practices Self-review in code
-review. While any round runs, do the practices Work during a round.
+review. While any round runs, do the practices Work during a round. Follow the
+practices Delegated work for each dispatch of a round and of its repairs.
 
 Before the next round, fix or reject every finding of the round, as the
 contract's Repairs says. A pass can carry MEDIUM and LOW findings. The posted
