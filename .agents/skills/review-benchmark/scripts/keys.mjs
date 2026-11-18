@@ -16,7 +16,8 @@ const MAX_OUTPUT = 1024 * 1024 * 1024;
 const MANIFEST = 'MANIFEST.sha256';
 const MANIFEST_LINE = /^([0-9a-f]{64}) {2}(.+)$/;
 const FINGERPRINT_LINE = /^Fingerprint:\s*([0-9A-Fa-f][0-9A-Fa-f ]*)$/gm;
-// GNU tar options that make the same folder give the same bytes: name order, no times, no owners, no pax times.
+// GNU tar options that make the same folder give the same bytes: name order, no times, no owners, no pax times, and
+// each hard link as a regular file member with its own bytes.
 const REPRODUCIBLE_TAR = [
   '--format=posix',
   '--sort=name',
@@ -24,8 +25,11 @@ const REPRODUCIBLE_TAR = [
   '--owner=0',
   '--group=0',
   '--numeric-owner',
+  '--hard-dereference',
   '--pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime',
 ];
+// The type characters of a `tar -tv` line that restore accepts: a regular file and a folder.
+const RESTORE_TYPES = new Set(['-', 'd']);
 // The command that GNU tar runs for each regular file member, with the bytes of the member on its stdin. It writes the
 // name and the size of the member, each with a NUL byte after it, and then the bytes of the member.
 const MEMBER_COMMAND = 'printf "%s\\0%s\\0" "$TAR_FILENAME" "$TAR_SIZE" && exec cat';
@@ -131,14 +135,16 @@ export function manifestOf(keys) {
     .join('');
 }
 
-// The SHA-256 of each path of the manifest text `text`.
+// The SHA-256 of each path of the manifest text `text`. An error names the line number only, never the text of the
+// line.
 function parseManifest(text) {
   const expected = new Map();
-  for (const line of text.split('\n').filter(Boolean)) {
+  text.split('\n').forEach((line, index) => {
+    if (!line) return;
     const match = line.match(MANIFEST_LINE);
-    if (!match) fail(`${MANIFEST} has a bad line: ${JSON.stringify(line)}`);
+    if (!match) fail(`${MANIFEST} has a bad line ${index + 1}`);
     expected.set(match[2], match[1]);
-  }
+  });
   return expected;
 }
 
@@ -284,11 +290,29 @@ export function backup({ keys, out, env = process.env, now = new Date(), beforeT
   return output;
 }
 
+// Stops unless each member of the tar `bytes` is a regular file or a folder, so no link and no special file of a
+// changed archive gets to the disk. GNU tar lists the members two times in the same order: `-t` gives the name of each
+// member, and the first character of each `-tv` line gives its type.
+function checkMemberTypes(bytes) {
+  const list = (args) =>
+    run('tar', [...args, '--quoting-style=escape', '-f', '-'], { input: bytes, env: { ...process.env, LC_ALL: 'C' } })
+      .toString('utf8')
+      .split('\n')
+      .filter(Boolean);
+  const names = list(['-t']);
+  const types = list(['-t', '-v']).map((line) => line[0]);
+  if (names.length !== types.length) fail('tar gave a different number of members for the names and the types');
+  const refused = names.filter((_, index) => !RESTORE_TYPES.has(types[index]));
+  if (refused.length) fail(`the archive has a member that is neither a file nor a folder: ${refused.join('; ')}`);
+}
+
 // Checks a restored folder against its `MANIFEST.sha256` and removes the manifest, so the folder equals the keys
-// folder.
+// folder. The manifest must be a regular file, so a link never makes the restore read a file outside the folder.
 function verifyRestore(dir) {
   const manifestFile = path.join(dir, MANIFEST);
-  if (!fs.existsSync(manifestFile)) fail(`the archive has no ${MANIFEST}`);
+  const stat = fs.lstatSync(manifestFile, { throwIfNoEntry: false });
+  if (!stat) fail(`the archive has no ${MANIFEST}`);
+  if (!stat.isFile()) fail(`the ${MANIFEST} of the archive is not a regular file`);
   const problems = mismatches(
     parseManifest(fs.readFileSync(manifestFile, 'utf8')),
     filesOf(dir).filter((name) => name !== MANIFEST),
@@ -317,7 +341,8 @@ function insideGit(dir, env) {
   return (revParse(dir, ['--is-inside-work-tree', '--is-inside-git-dir'], env) ?? []).includes('true');
 }
 
-// Decrypts `archive` into the new folder `out` (mode 0700) and verifies it. A failure leaves no folder.
+// Decrypts `archive` into the new folder `out` (mode 0700) and verifies it. An archive member that is not a regular
+// file or a folder stops the restore before it writes anything. A failure leaves no folder.
 export function restore({ archive, out, env = process.env }) {
   if (!archive || !out) fail('restore needs --archive <file> --out <new dir>');
   const target = path.resolve(out);
@@ -326,6 +351,7 @@ export function restore({ archive, out, env = process.env }) {
   while (!fs.existsSync(parent)) parent = path.dirname(parent);
   if (insideGit(parent, env)) fail(`${out} is inside a git checkout; restore outside every checkout`);
   const bytes = run('gpg', ['--batch', '--decrypt', path.resolve(archive)], { env });
+  checkMemberTypes(bytes);
   const created = fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   fs.mkdirSync(target, { mode: 0o700 });
   try {

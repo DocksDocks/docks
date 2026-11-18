@@ -11161,6 +11161,88 @@ test('restore names each file that does not match the manifest of the archive an
   assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
 });
 
+const KEYS_SCRIPT = path.join(import.meta.dirname, '../../../.agents/skills/review-benchmark/scripts/keys.mjs');
+
+// Encrypts a plain GNU tar of the entries of `dir`, in name order and with no link changes, into `archive`: an archive
+// that `backup` did not make.
+function encryptTree(gnupg, dir, archive) {
+  const tar = spawnSync('tar', ['-c', '-f', '-', '--format=posix', '--sort=name', '-C', dir, ...fs.readdirSync(dir)]);
+  assert.equal(tar.status, 0, tar.stderr?.toString());
+  keyBackup.encrypt(tar.stdout, gnupg.keys['bench test'].file, archive, gnupg.env);
+}
+
+test('restore refuses a MANIFEST.sha256 that is a link or a folder, shows no manifest text, and leaves no folder', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const secret = 'outside-secret-text-4711';
+  put(gnupg.root, 'secret.txt', `${secret}\n`);
+  // An archive whose MANIFEST.sha256 is a symbolic link to a file outside the folder.
+  const linked = keysFixture(gnupg.root, 'linked');
+  fs.symlinkSync(path.join(gnupg.root, 'secret.txt'), path.join(linked, 'MANIFEST.sha256'));
+  const archive = path.join(gnupg.root, 'linked.tar.gpg');
+  encryptTree(gnupg, linked, archive);
+  const out = path.join(gnupg.root, 'bad', 'restored');
+  const cli = spawnSync(process.execPath, [KEYS_SCRIPT, 'restore', '--archive', archive, '--out', out], {
+    env: gnupg.env,
+    encoding: 'utf8',
+  });
+  assert.equal(cli.status, 1);
+  assert.equal(cli.stdout, '');
+  assert.equal(cli.stderr, 'keys.mjs: the archive has a member that is neither a file nor a folder: MANIFEST.sha256\n');
+  assert.ok(!`${cli.stdout}${cli.stderr}`.includes(secret));
+  assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+  // A MANIFEST.sha256 folder passes the member check, but restore reads only a regular manifest file.
+  const folder = keysFixture(gnupg.root, 'folder');
+  put(folder, 'MANIFEST.sha256/inner.txt', 'inner\n');
+  const folderArchive = path.join(gnupg.root, 'folder.tar.gpg');
+  encryptTree(gnupg, folder, folderArchive);
+  assert.throws(() => keyBackup.restore({ archive: folderArchive, out, env: gnupg.env }), {
+    message: 'the MANIFEST.sha256 of the archive is not a regular file',
+  });
+  assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+  // A bad manifest line stops with its line number and without its text.
+  const badLine = keysFixture(gnupg.root, 'bad-line');
+  put(badLine, 'MANIFEST.sha256', `${keyBackup.manifestOf(badLine).split('\n')[0]}\n${secret}\n`);
+  const badLineArchive = path.join(gnupg.root, 'bad-line.tar.gpg');
+  encryptTree(gnupg, badLine, badLineArchive);
+  assert.throws(() => keyBackup.restore({ archive: badLineArchive, out, env: gnupg.env }), {
+    message: 'MANIFEST.sha256 has a bad line 2',
+  });
+  assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+});
+
+test('restore refuses an archive with a symbolic link or a hard link member, names each member, and writes nothing', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const keys = keysFixture(gnupg.root);
+  put(keys, 'MANIFEST.sha256', keyBackup.manifestOf(keys));
+  fs.symlinkSync('../escape-draw.json', path.join(keys, 'heldout/link'));
+  fs.linkSync(path.join(keys, 'heldout/code-1-K1.patch'), path.join(keys, 'heldout/copy'));
+  const archive = path.join(gnupg.root, 'links.tar.gpg');
+  encryptTree(gnupg, keys, archive);
+  const out = path.join(gnupg.root, 'bad', 'restored');
+  assert.throws(() => keyBackup.restore({ archive, out, env: gnupg.env }), {
+    message: 'the archive has a member that is neither a file nor a folder: heldout/copy; heldout/link',
+  });
+  assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+});
+
+test('backup stores each hard-linked file as a regular member, and restore gives byte-identical files', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const { fingerprint, file } = gnupg.keys['bench test'];
+  const keys = keysFixture(gnupg.root);
+  const patch = path.join(keys, 'heldout/code-1-K1.patch');
+  fs.linkSync(patch, path.join(keys, 'heldout/code-1-K1 copy.patch'));
+  const before = treeOf(keys);
+  // Two separate copies of the file give the same tar bytes, so the tar has no hard link member.
+  const copies = keysFixture(gnupg.root, 'copies');
+  put(copies, 'heldout/code-1-K1 copy.patch', fs.readFileSync(patch, 'utf8'));
+  assert.ok(keyBackup.archiveBytes(keys).equals(keyBackup.archiveBytes(copies)));
+  const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint, file), env: gnupg.env });
+  const restored = path.join(gnupg.root, 'restored', 'keys');
+  assert.equal(keyBackup.restore({ archive, out: restored, env: gnupg.env }), restored);
+  assert.deepEqual(treeOf(restored), before);
+  assert.equal(fs.statSync(path.join(restored, 'heldout/code-1-K1 copy.patch')).nlink, 1);
+});
+
 test('backup refuses a recipient key that the vault README does not name, and writes nothing', (t) => {
   const gnupg = gpgHome(t, 'bench test', 'bench other');
   const keys = keysFixture(gnupg.root);
