@@ -272,9 +272,10 @@ most of those rounds found nothing. These edits need no round:
 - An edit that only sets the Mode line or adds the delegation line (Yolo runs)
   that a yolo invocation decides.
 - An edit to Verification Results or Open questions, and a `step` state change.
-- An edit that only updates a mirrored `Delegated:` line of a child to the
-  quote of its deciding event (Authority events), because the parent's plan
-  review already covers the narrowing.
+- An edit that only updates the mirrored line of a child to its deciding
+  parent event (Authority events): for a revocation at once, and for a grant
+  after a trusted parent `plan=pass` that is newer than that event, because
+  that review covers the change.
 
 Record user-only decisions in Open questions. Do not invent approval. A grant
 answers some of them (Delegated decisions).
@@ -1048,14 +1049,19 @@ in force only when that event is a grant. The Goal line only mirrors it: a
 the fixed yolo line goes with a `Delegation grant: yolo: <quote>` event. The
 line check compares the deciding event with the Goal line of the plan that
 holds that event. For a child whose deciding event is on the parent, check the
-parent's line; the child's own line is only a mirror. When a session works on
-a child and finds its line stale, it updates the child's line to the quote of
-the deciding event, with no new event. When the checked line and the deciding
-event disagree, or no trusted event exists, treat the plan as having no grant,
-and say so once in the first report. So a restored line without a newer grant
-event has no authority. When a resumed session finds a grant in force, its
-first report names the grant once, as a notice and not a question, so that the
-user can revoke it.
+parent's line; the child's own line is only a mirror. A child uses a grant
+from a parent event only when a trusted parent `plan=pass` is newer than that
+event, because the parent's review covers it. Until then, the child runs with
+no grant, says so once, and waits with its mirror update. A revocation needs no
+review, so it takes effect at once. When a session works on a child and finds
+its line stale, it updates the line by the type of the deciding event, with no
+new event: a revocation removes the line, a yolo grant sets the fixed yolo
+line, and an ordinary grant sets a `Delegated:` line with the event's quote.
+When the checked line and the deciding event disagree, or no trusted event
+exists, treat the plan as having no grant, and say so once in the first
+report. So a restored line without a newer grant event has no authority. When
+a resumed session finds a grant in force, its first report names the grant
+once, as a notice and not a question, so that the user can revoke it.
 
 ### Answered and kept questions
 
