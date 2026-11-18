@@ -1423,12 +1423,14 @@ Plan #135 step 8 replaced the decision rule after this pilot (decision F13 of th
 | code-reviewer | 14 | 23 |
 | plan-reviewer | 19 | 44 |
 
-Smallest number of cases with known defects at which at least 80% of 1000 seeded neutral simulations pass the not-worse betting test. A simulated case draws its known defects from the 100 corpus cases with known defects, and each defect draws its detection rate from the 30 pilot defects:
+Deciding corpus of the simulation: the 23 held-out `code-reviewer` cases with known defects, because the pilot cases are code cases. The cell is the smallest number of cases with known defects at which at least 80% of 1000 seeded neutral paths pass the not-worse betting test. A simulated case draws its known defects from a case of the deciding corpus, and each defect draws its detection rate from the 30 pilot defects. The sample of n cases is the first n cases of each path, so the pass share does not fall as n grows:
 
 | Margin per 50 known | Cases at 1 run | Cases at 2 runs | Cases at 3 runs | Cases at 4 runs |
 |---:|---:|---:|---:|---:|
-| 2 | 175 | 109 | 101 | 97 |
-| 4 | 51 | 47 | 46 | 44 |
+| 2 | 143 | 104 | 97 | 96 |
+| 4 | 51 | 47 | 45 | 45 |
+
+With `--reviewer plan-reviewer` (the 44 held-out `plan-reviewer` cases, with the code pilot's detection rates), the table is 165, 110, 100, and 96 cases at margin 2, and 54, 48, 45, and 45 cases at margin 4.
 
 `score.mjs report <ws> --arms C3-high,AC3-high --reference C3-high --margin 4`, the rows of `AC3-high` against `C3-high` that F13 adds:
 
@@ -1443,8 +1445,9 @@ Smallest number of cases with known defects at which at least 80% of 1000 seeded
 | Neutral-data limit at 4 per 50 known (information) | neutral-data limit: 8 of 36 cases with known defects |
 
 - The rows before them did not change: W 34.26 and 32.76, the W interval [-2.50, 0.00], 1 case with an escaped difference, and the Poisson p values 0.3877 and 0.6875. No row gives the result of the old gate.
-- Batch drift: `AC3-high` against `C3-high`, 12 shared cases, N -0.52, two-sided capital 0.31, `not shown to leave ±4`.
+- Batch drift: `AC3-high` against `C3-high`, 12 shared cases, 8 of them with known defects, N -0.52, two-sided capital 0.31, `not shown to leave ±4`.
+- The second judge answered 139 of the 139 items of its sample, so the decision rows are not held.
 - The pilot has 8 cases with known defects, below the neutral-data limit of 36. A pair that differs this little cannot pass on so few cases, and the betting row gives no pass with the capital 1.97. The fixed-corpus check passes, but it covers only these 8 cases and is no ship decision.
-- The size table agrees with the research of the plan: about 48 cases at 2 runs and 45 at 4 runs at margin 4. The 23 held-out `code-reviewer` cases are below the neutral-data limit, and the 44 `plan-reviewer` cases reach the 80% line only at 4 runs.
+- The size table agrees with the research of the plan: about 48 cases at 2 runs and 45 at 4 runs at margin 4. The 23 held-out `code-reviewer` cases are below the neutral-data limit, and the 44 `plan-reviewer` cases are just below the 80% line at margin 4 even with 4 runs.
 - `score.mjs` cuts the bet of the not-worse side at 0.9 / (1 - m), as Waudby-Smith and Ramdas do, so one case keeps at least 0.1 of the capital. At margin 4, cases without a difference then pass from 40 cases, and cases with e = -1 from 5 cases; the unit tests pin both counts. The research simulation of the plan cut that side at 0.9 / m, which gives capitals of about 10.2 for 36 cases without a difference and 13.0 for 4 cases with e = -1.
 - Limits: the detection rates come from the 30 defects of 12 dev code cases. The simulation applies them to the plan cases too [INFERENCE: plan detection rates are like code detection rates].

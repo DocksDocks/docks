@@ -8815,6 +8815,8 @@ const EQUIVALENT =
 const FIXED_CORPUS = 'Not worse than B0 by 4 on these cases, run noise only: a check, not a ship decision';
 const NEUTRAL_LIMIT = 'Neutral-data limit at 4 per 50 known (information)';
 const N_ROW = 'Escaped per 50 known difference from B0, each case weighs 1 (N)';
+// The not-worse row and the equivalence row of a decision table, without the fixed-corpus check.
+const DECISION_ROW = /^\| (Not worse than \S+ by [\d.]+ escaped|Equivalent to)/;
 
 test('the not-worse row decides on N, so a loss in one heavy case weighs as one case, and W stays information', () => {
   // 60 cases with one known defect that both arms find, and code-61 with 14 known defects, of which C1 escapes 7.
@@ -8919,18 +8921,31 @@ test('the report prints the batch drift of each A/A control arm with the two-sid
   const scores = scoreRuns(gridFixture(cases, runs));
   const drift = (report, split) => tableAfter(report, `### Batch drift: ${split}`);
   const header = [
-    '| Control | Baseline | Cases shared | Cases with a difference | Escaped per 50 known difference, 90% interval | N | Two-sided capital | Drift |',
-    '| --- | --- | ---: | ---: | --- | ---: | ---: | --- |',
+    '| Control | Baseline | Cases shared | Cases with known defects | Cases with a difference | Escaped per 50 known difference, 90% interval | N | Two-sided capital | Drift |',
+    '| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |',
   ];
   const withMargin = renderReport(scores, { margin: 4 });
   assert.deepEqual(drift(withMargin, 'dev'), [
     ...header,
-    '| AB3-xhigh-fast | B3-xhigh-fast | 6 | 0 | [0.00, 0.00] | 0.00 | 0.33 | not shown to leave ±4 |',
+    '| AB3-xhigh-fast | B3-xhigh-fast | 6 | 6 | 0 | [0.00, 0.00] | 0.00 | 0.33 | not shown to leave ±4 |',
   ]);
-  // Five shared cases are too few for a drift check.
+  // Five shared cases with known defects are too few for a drift check.
   assert.match(
     drift(withMargin, 'heldout')[2],
-    /^\| AB3-xhigh-fast \| B3-xhigh-fast \| 5 \| 3 \| \[.*\] \| .* \| too few cases \(5 of 6\) \|$/,
+    /^\| AB3-xhigh-fast \| B3-xhigh-fast \| 5 \| 5 \| 3 \| \[.*\] \| .* \| too few cases with known defects \(5 of 6\) \|$/,
+  );
+  // Six shared cases are too few when five of them are controls without known defects: they give the test no value.
+  const controls = {
+    ...Object.fromEntries(Array.from({ length: 5 }, (_, index) => [`code-${index + 1}`, { split: 'dev', known: [] }])),
+    'code-6': { split: 'dev', known: ['D1'] },
+  };
+  const onlyLast = (index) => index === 5;
+  const mostlyControls = scoreRuns(
+    gridFixture(controls, [...singleRuns('B3', 6, 1, onlyLast), ...singleRuns('AB3', 6, 1, onlyLast)]),
+  );
+  assert.match(
+    drift(renderReport(mostlyControls, { margin: 4 }), 'dev')[2],
+    /^\| AB3-xhigh-fast \| B3-xhigh-fast \| 6 \| 1 \| 0 \| .* \| too few cases with known defects \(1 of 6\) \|$/,
   );
   // Without a margin, the report gives the drift values and no check.
   assert.match(drift(renderReport(scores), 'dev')[2], /\| \[0\.00, 0\.00\] \| 0\.00 \| - \| no margin \|$/);
@@ -8944,7 +8959,7 @@ test('the report prints the batch drift of each A/A control arm with the two-sid
   const stop = (0.5 * (1 + (0.9 / 0.54) * 0.46) ** 7).toFixed(2);
   assert.equal(
     drift(renderReport(drifting, { margin: 4 }), 'dev')[2],
-    `| AB3-xhigh-fast | B3-xhigh-fast | 8 | 8 | [50.00, 50.00] | 50.00 | ${stop} | leaves ±4 |`,
+    `| AB3-xhigh-fast | B3-xhigh-fast | 8 | 8 | 8 | [50.00, 50.00] | 50.00 | ${stop} | leaves ±4 |`,
   );
   // A workspace without a control arm has no drift section.
   const withoutControl = renderReport(scoreRuns(gridFixture(oneKnownCases(6), runs.slice(0, 6))));
@@ -8953,22 +8968,32 @@ test('the report prints the batch drift of each A/A control arm with the two-sid
 
 test('each sequential look runs the betting test at the error that it spends, with the threshold 1 / error', (t) => {
   const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
-  const looks = (candidate, reference) => {
+  const looks = (candidate, reference, options = { sequential: true }) => {
     const fixture = gridFixture(oneKnownCases(60), [
       ...singleRuns('B0', 60, 4, reference),
       ...singleRuns('C1', 60, 4, candidate),
     ]);
-    const report = renderReport(scoreRuns(fixture), { arms, reference: 'B0-xhigh-fast', margin: 4, sequential: true });
-    return tableAfter(report, '### Sequential looks: dev')
+    const report = renderReport(scoreRuns(fixture), { arms, reference: 'B0-xhigh-fast', margin: 4, ...options });
+    const decision = tableAfter(report, '### Decision: dev').filter((row) => DECISION_ROW.test(row));
+    if (!options.sequential) return { decision };
+    const rows = tableAfter(report, '### Sequential looks: dev')
       .slice(2)
       .map((row) => row.slice(2, -2).split(' | '));
+    return { decision, rows };
   };
   const always = () => true;
   const never = () => false;
   // Equal arms: each look has 60 cases without a difference. Their capital grows by 1 + 0.9 * 0.04 / 0.46 per case,
   // to about 92 after 60 cases: below the thresholds 11290 and 182 of looks 1 and 2. Look 3 has the threshold 55.4 and
   // stops after ceil(ln 55.4 / ln(1 + 0.9 * 0.04 / 0.46)) = 54 cases with a pass.
-  const equal = looks(always, always);
+  const { decision, rows: equal } = looks(always, always);
+  // The sequential looks are the decision: the decision rows give no pass of their own at the threshold 20, which the
+  // same data reach without --sequential.
+  assert.deepEqual(
+    decision.map((row) => row.split(' | ').at(-1)),
+    ['see sequential looks |', 'see sequential looks |'],
+  );
+  assert.match(looks(always, always, {}).decision[0], /\| pass \(capital [\d.]+; threshold 20\) \|$/);
   assert.deepEqual(
     equal.map((row) => [row[1], row[2], row[3], row[4], row[5], row[9]]),
     [
@@ -8984,7 +9009,7 @@ test('each sequential look runs the betting test at the error that it spends, wi
   assert.equal(stopAt, 54);
   assert.equal(equal[2][7], (factor ** stopAt).toFixed(2));
   // A candidate that escapes D1 in every run of every case has e = 1: the worse test reaches 11290 at look 1.
-  const worse = looks(never, always);
+  const { rows: worse } = looks(never, always);
   assert.deepEqual(
     worse.map((row) => [row[1], row[6], row[9]]),
     [
@@ -9006,6 +9031,77 @@ test('each sequential look runs the betting test at the error that it spends, wi
   });
 });
 
+test('a sequential look decides only when each planned case has valid runs 1 to k in both columns', () => {
+  // 60 equal cases with 4 runs per column, which pass at look 3 when complete. C1 has no run 3 of code-5, and run 2
+  // of B0 in code-9 is invalid: it has no transcript facts.
+  const always = () => true;
+  const runs = [...singleRuns('B0', 60, 4, always), ...singleRuns('C1', 60, 4, always)].filter(
+    (run) => !(run.arm === 'C1' && run.case === 'code-5' && run.run === 3),
+  );
+  const fixture = gridFixture(oneKnownCases(60), runs);
+  fixture.metas['code-9/B0-xhigh-fast/run-2'].reviewers = {};
+  const scores = scoreRuns(fixture);
+  const invalidRun = scores.runs.find(
+    (run) => run.case === 'code-9' && run.arm === 'B0-xhigh-fast' && run.run === 'run-2',
+  );
+  assert.ok(invalidRun.invalid.length > 0);
+  const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
+  const report = renderReport(scores, { arms, reference: 'B0-xhigh-fast', margin: 4, sequential: true });
+  const rows = tableAfter(report, '### Sequential looks: dev')
+    .slice(2)
+    .map((row) => row.slice(2, -2).split(' | '));
+  assert.deepEqual(
+    rows.map((row) => [row[1], row[2], row[9]]),
+    [
+      ['1', '60 / 60', 'continue'],
+      ['2', '120 / 119', 'incomplete look (code-9 B0-xhigh-fast run-2)'],
+      ['3', '179 / 179', 'incomplete look (code-5 C1-xhigh-fast run-3, code-9 B0-xhigh-fast run-2)'],
+      ['4', '239 / 239', 'incomplete look (code-5 C1-xhigh-fast run-3, code-9 B0-xhigh-fast run-2)'],
+    ],
+  );
+});
+
+test('a deciding report holds its decisions until the second judge answers every item of its sample', (t) => {
+  // 40 equal cases pass the not-worse test at margin 4. Every run finds D1, so the sample holds 80 match answers.
+  const ws = path.join(scratch(t), 'ws');
+  const always = () => true;
+  const fixture = gridFixture(oneKnownCases(40), [
+    ...singleRuns('B0', 40, 1, always),
+    ...singleRuns('C1', 40, 1, always),
+  ]);
+  writeFixture(ws, fixture);
+  const cli = ['report', ws, '--arms', 'B0-xhigh-fast,C1-xhigh-fast', '--reference', 'B0-xhigh-fast', '--margin', '4'];
+  const cells = () =>
+    tableAfter(readText(path.join(ws, 'report.md')), '### Decision: dev')
+      .filter((row) => DECISION_ROW.test(row))
+      .map((row) => row.split(' | ').at(-1).slice(0, -2));
+  // No judgments-second.json: the sample is the one that `sample` writes with its default seed.
+  main(cli);
+  assert.deepEqual(cells(), ['second judge incomplete (0 of 80)', 'second judge incomplete (0 of 80)']);
+  // A second judge that answers one item of the sample.
+  main(['sample', ws]);
+  const sample = readJson(path.join(ws, 'second-sample.json'));
+  const answer = (pair) => fixture.judgments.matches.find((entry) => entry.finding === pair.finding);
+  put(ws, 'judgments-second.json', { matches: [answer(sample.pairs[0])] });
+  main(cli);
+  assert.deepEqual(cells(), ['second judge incomplete (1 of 80)', 'second judge incomplete (1 of 80)']);
+  // The sequential looks wait for the second judge too.
+  main([...cli, '--sequential']);
+  const look = tableAfter(readText(path.join(ws, 'report.md')), '### Sequential looks: dev')[2];
+  assert.match(look, /\| second judge incomplete \(1 of 80\) \|$/);
+  // A complete second judge lets the tests decide.
+  put(ws, 'judgments-second.json', { matches: sample.pairs.map(answer) });
+  main(cli);
+  assert.match(cells()[0], /^pass \(capital /);
+  assert.ok(
+    readText(path.join(ws, 'report.md')).includes('The second judge answered 80 of the 80 items of its sample.'),
+  );
+  // Without a margin, the report decides nothing, so it needs no second judge.
+  put(ws, 'judgments-second.json', { matches: [] });
+  main(cli.slice(0, -2));
+  assert.deepEqual(cells(), []);
+});
+
 test('power prints the noise, the neutral-data limit, the corpus cases per reviewer, and a seeded size table', (t) => {
   // B3 escapes D1 in code-1 and its control copy AB3 in code-2, so the differences of AB3 are -1, 1, 0, and 0.
   const root = scratch(t);
@@ -9024,30 +9120,47 @@ test('power prints the noise, the neutral-data limit, the corpus cases per revie
   ]);
   assert.ok(Math.abs(noise.se - (50 * Math.sqrt((4 / 3) * 2)) / 3) < 1e-9);
   assert.deepEqual([noise.withKnown, noise.normalized], [3, 0]);
-  // A corpus: dev has a code case with 1 known defect, a plan case with 2, and a control; heldout has a code-delta
-  // case with a key list of 3, a plan-delta case with a key object of 2, a plan case without a key file, and a file
-  // that is no case.
+  // A corpus: dev has a code case with 1 known defect, a plan case with 2, and a control. heldout has a code-delta
+  // case with a key list of 3, a code case whose key is only in the keys folder, a plan-delta case with a key object of
+  // 2, a plan case with a key of 14, a plan case without a key file, and a file that is no case.
   const cases = path.join(root, 'cases');
+  const keys = path.join(root, 'keys');
   const known = (count) => Array.from({ length: count }, (_, index) => ({ id: `K${index + 1}`, title: 'Hidden' }));
   put(cases, 'dev/code-1.json', { id: 'code-1', kind: 'code', split: 'dev', known: known(1) });
   put(cases, 'dev/plan-2.json', { id: 'plan-2', kind: 'plan', split: 'dev', known: known(2) });
   put(cases, 'dev/code-3.json', { id: 'code-3', kind: 'code', split: 'dev', control: true, known: [] });
-  put(cases, 'heldout/code-4.json', { id: 'code-4', kind: 'code-delta', split: 'heldout' });
-  put(cases, 'heldout/code-4.key.json', known(3));
+  put(cases, 'heldout/code-14.json', { id: 'code-14', kind: 'code-delta', split: 'heldout' });
+  put(cases, 'heldout/code-14.key.json', known(3));
+  put(cases, 'heldout/code-17.json', { id: 'code-17', kind: 'code', split: 'heldout' });
   put(cases, 'heldout/plan-5.json', { id: 'plan-5', kind: 'plan-delta', split: 'heldout' });
   put(cases, 'heldout/plan-5.key.json', { known: known(2) });
   put(cases, 'heldout/plan-6.json', { id: 'plan-6', kind: 'plan', split: 'heldout' });
+  put(cases, 'heldout/plan-8.json', { id: 'plan-8', kind: 'plan', split: 'heldout' });
+  put(cases, 'heldout/plan-8.key.json', known(14));
   put(cases, 'heldout/notes.json', { text: 'no case' });
   assert.deepEqual(score.corpusCounts(cases), {
     rows: [
       { reviewer: 'code-reviewer', dev: 1, heldout: 1 },
-      { reviewer: 'plan-reviewer', dev: 1, heldout: 1 },
+      { reviewer: 'plan-reviewer', dev: 1, heldout: 2 },
     ],
-    missingKeys: 1,
-    knownCounts: [1, 2, 3, 2],
+    missingKeys: 2,
+    knownCounts: { code: { dev: [1], heldout: [3] }, plan: { dev: [2], heldout: [2, 14] } },
   });
-  // The detection rates of the 4 pilot defects are 0.5, 0.5, 1, and 1 (one run of each arm per case), and the corpus
-  // gives the known counts 1, 2, 3, and 2. The seeded simulation then gives the same table each time.
+  // With a keys folder, every held-out key comes from it, as for pairs and report: the key of code-17 exists only
+  // there. The pilot cases have no key in it, so `--keys` also leaves the pilot as it is.
+  put(keys, 'code-14.key.json', known(3));
+  put(keys, 'code-17.key.json', known(1));
+  assert.deepEqual(score.corpusCounts(cases, { keys }), {
+    rows: [
+      { reviewer: 'code-reviewer', dev: 1, heldout: 2 },
+      { reviewer: 'plan-reviewer', dev: 1, heldout: 0 },
+    ],
+    missingKeys: 3,
+    knownCounts: { code: { dev: [1], heldout: [3, 1] }, plan: { dev: [2], heldout: [] } },
+  });
+  // The pilot cases are code cases, so the simulation draws from the held-out code-reviewer cases only: the plan case
+  // with 14 known defects stays out. The detection rates of the 4 pilot defects are 0.5, 0.5, 1, and 1 (one run of
+  // each arm per case). The seeded simulation gives the same table each time.
   const lines = main(['power', ws, '--cases', cases]).replace(cases, '<cases>').split('\n');
   assert.deepEqual(lines, [
     'A/A comparison: AB3-xhigh-fast against B3-xhigh-fast, 4 cases, 1.0 runs per arm and case, 4 known defects',
@@ -9065,17 +9178,34 @@ test('power prints the noise, the neutral-data limit, the corpus cases per revie
     '| Reviewer | Dev cases with known defects | Held-out cases with known defects |',
     '|---|---:|---:|',
     '| code-reviewer | 1 | 1 |',
-    '| plan-reviewer | 1 | 1 |',
+    '| plan-reviewer | 1 | 2 |',
     '',
-    'The cases of the corpus <cases>, by count only. Held-out cases without a key file: 1.',
+    'The cases of the corpus <cases>, by count only. Held-out cases without a key file: 2.',
+    '',
+    'Deciding corpus of the simulation: the held-out code-reviewer cases of the corpus, 1 with known defects.',
     '',
     '| Margin per 50 known | Cases at 1 run | Cases at 2 runs | Cases at 3 runs | Cases at 4 runs |',
     '|---:|---:|---:|---:|---:|',
-    '| 2 | > 400 | > 400 | > 400 | 313 |',
-    '| 4 | > 400 | 160 | 98 | 82 |',
+    '| 2 | > 400 | 356 | 227 | 174 |',
+    '| 4 | 177 | 85 | 66 | 58 |',
     '',
-    'A cell gives the smallest number of cases with known defects at which at least 80% of 1000 seeded neutral simulations pass the not-worse betting test at that margin. A simulated case draws its known defects from the 4 cases with known defects of the corpus, and each of its defects draws its detection rate from the 4 known defects of the A/A comparison, the same for both arms.',
+    'A cell gives the smallest number of cases with known defects at which at least 80% of 1000 seeded neutral paths pass the not-worse betting test at that margin. A simulated case draws its known defects from a case of the deciding corpus, and each of its defects draws its detection rate from the 4 known defects of the A/A comparison, the same for both arms. The sample of n cases is the first n cases of each path, so a path that passes at n also passes at more cases.',
   ]);
+  assert.deepEqual(score.powerCommand(ws, { cases }).knownCounts, [3]);
+  assert.deepEqual(score.powerCommand(ws, { cases, keys }).knownCounts, [3, 1]);
+  assert.deepEqual(score.powerCommand(ws, { cases, reviewer: 'plan-reviewer' }).knownCounts, [2, 14]);
+  const dev = main(['power', ws, '--cases', cases, '--split', 'dev', '--margins', '4']);
+  assert.ok(
+    dev.includes('Deciding corpus of the simulation: the dev code-reviewer cases of the corpus, 1 with known defects.'),
+  );
+  const empty = path.join(root, 'empty');
+  put(empty, 'dev/code-1.json', { id: 'code-1', kind: 'code', split: 'dev', known: known(1) });
+  assert.throws(() => main(['power', ws, '--cases', empty]), {
+    message: `power finds no held-out code-reviewer case with known defects in ${empty}; give --keys for keys outside the repository, or another --split or --reviewer`,
+  });
+  assert.throws(() => main(['power', ws, '--cases', cases, '--reviewer', 'judge']), {
+    message: 'power --reviewer takes code-reviewer or plan-reviewer, not judge',
+  });
   const explicit = main(['power', ws, '--arms', 'B3-xhigh-fast,AB3-xhigh-fast', '--margins', '3', '--cases', cases]);
   assert.ok(explicit.split('\n').includes('| 3 | 49 |'));
   assert.throws(() => main(['power', ws, '--margins', '0']), { message: '--margins needs margins above 0' });
@@ -9085,6 +9215,20 @@ test('power prints the noise, the neutral-data limit, the corpus cases per revie
   const always = () => true;
   writeFixture(plain, gridFixture(oneKnownCases(4), singleRuns('B3', 4, 1, always)));
   assert.throws(() => main(['power', plain]), /^Error: power needs one A\/A pair of a control arm A<folder>/);
+});
+
+test('the power simulation couples its sample sizes, so the pass share never falls as the cases grow', () => {
+  // Each path draws its cases once, and the sample of n cases is the first n cases of each path, so a path that passes
+  // at n passes at every larger n.
+  const options = { rates: [0.5, 0.5, 1, 1], knownCounts: [1, 2, 3], runs: 2, margin: 4, simulations: 300 };
+  const shares = score.neutralPassShares(options);
+  assert.equal(shares.length, score.MAX_SIMULATED_CASES);
+  for (let index = 1; index < shares.length; index += 1) assert.ok(shares[index] >= shares[index - 1]);
+  assert.ok(shares.at(-1) >= 0.8);
+  // The size of the table is the first sample size that reaches 80%, and the seed fixes it.
+  const [{ cases }] = score.simulatedSampleSizes({ ...options, margins: [4] });
+  assert.equal(cases[1], shares.findIndex((share) => share >= 0.8) + 1);
+  assert.deepEqual(score.neutralPassShares(options), shares);
 });
 
 test('the second-judge sample holds every match answer and a seeded tenth of the other answers, without answers', (t) => {
