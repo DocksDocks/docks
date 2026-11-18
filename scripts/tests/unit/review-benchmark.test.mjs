@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import * as escapes from '../../../.agents/skills/review-benchmark/scripts/escapes.mjs';
+import * as keyBackup from '../../../.agents/skills/review-benchmark/scripts/keys.mjs';
 import * as outcomes from '../../../.agents/skills/review-benchmark/scripts/outcomes.mjs';
 import * as prepare from '../../../.agents/skills/review-benchmark/scripts/prepare.mjs';
 import { focusesForPath } from '../../../.agents/skills/review-benchmark/scripts/prepare.mjs';
@@ -11276,4 +11277,419 @@ test('escape draw takes a --commit only when the running draw code is the code o
     },
   );
   assert.ok(head.stdout.includes(`- Draw script commit: ${commit}-dirty\n`));
+});
+
+// A throwaway GnuPG home with one key pair (no passphrase) for each user id, so no test touches the key ring of the
+// user. `env` also points XDG_STATE_HOME into the folder, so `backup` reads its recipient file from there.
+function gpgHome(t, ...names) {
+  const version = spawnSync('gpg', ['--version'], { encoding: 'utf8' });
+  if (version.error || version.status !== 0) assert.fail('gpg is missing: the key backup tests need GnuPG 2 on PATH');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'keys-test-'));
+  const home = path.join(root, 'gnupg');
+  fs.mkdirSync(home, { mode: 0o700 });
+  const env = { ...process.env, GNUPGHOME: home, XDG_STATE_HOME: path.join(root, 'state') };
+  t.after(() => {
+    spawnSync('gpgconf', ['--kill', 'gpg-agent'], { env });
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const gpg = (args) => {
+    const result = spawnSync('gpg', args, { env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout;
+  };
+  const keys = {};
+  for (const name of names) {
+    gpg([
+      '--batch',
+      '--pinentry-mode',
+      'loopback',
+      '--passphrase',
+      '',
+      '--quick-generate-key',
+      name,
+      'default',
+      'default',
+      'never',
+    ]);
+    const colons = gpg(['--with-colons', '--list-keys', `=${name}`]).split('\n');
+    const file = path.join(root, `${name.replaceAll(' ', '-')}.asc`);
+    const fingerprint = colons.find((line) => line.startsWith('fpr:')).split(':')[9];
+    fs.writeFileSync(file, gpg(['--armor', '--export', fingerprint]));
+    keys[name] = { fingerprint, subkey: colons.find((line) => line.startsWith('sub:')).split(':')[4], file };
+  }
+  return { root, env, gpg, keys };
+}
+
+// A fake keys folder: a source snapshot, a restricted record, a held-out key with its fix patch, and a note whose name
+// has spaces and quotes.
+function keysFixture(root, name = 'keys') {
+  const keys = path.join(root, name);
+  put(keys, 'escape-draw-source.json', { version: 1, cutoff: '2026-01-01T00:00:00.000Z' });
+  put(keys, 'escape-draw.json', escapes.frozenJson({ frozen: { version: 1, units: [] }, outcomes: [] }));
+  put(keys, 'heldout/code-1.key.json', [{ id: 'K1', title: 'Hidden' }]);
+  put(keys, 'heldout/code-1-K1.patch', 'diff --git a/x b/x\n');
+  put(keys, `heldout/note "it's" here.txt`, 'a note\n');
+  fs.chmodSync(keys, 0o700);
+  fs.chmodSync(path.join(keys, 'heldout/code-1.key.json'), 0o600);
+  return keys;
+}
+
+// Every entry under `root` with its mode and, for a file, its bytes.
+function treeOf(root) {
+  const entries = {};
+  const walk = (relative) => {
+    for (const name of fs.readdirSync(path.join(root, relative)).sort()) {
+      const item = path.join(relative, name);
+      const stat = fs.lstatSync(path.join(root, item));
+      entries[item] = stat.isDirectory()
+        ? { mode: stat.mode & 0o7777 }
+        : { mode: stat.mode & 0o7777, bytes: fs.readFileSync(path.join(root, item)).toString('base64') };
+      if (stat.isDirectory()) walk(item);
+    }
+  };
+  walk('');
+  return entries;
+}
+
+// A vault checkout (the root folder of a new git repository) whose README names `fingerprint`, and the D4 recipient
+// file set to `keyFile`.
+function vaultFor(gnupg, fingerprint, keyFile) {
+  const vault = path.join(gnupg.root, 'vault');
+  put(vault, 'README.md', `# Held-out keys vault\n\nFingerprint: ${fingerprint}\n`);
+  assert.equal(spawnSync('git', ['init', '-q', vault]).status, 0);
+  const recipient = keyBackup.recipientFile(gnupg.env);
+  fs.mkdirSync(path.dirname(recipient), { recursive: true });
+  fs.copyFileSync(keyFile, recipient);
+  return vault;
+}
+
+// The key ids of the public-key packets of an encrypted file: one per recipient.
+function recipientsOf(gnupg, file) {
+  const result = spawnSync('gpg', ['--batch', '--list-packets', file], { env: gnupg.env, encoding: 'utf8' });
+  const ids = [...result.stdout.matchAll(/^:pubkey enc packet: .*keyid ([0-9A-F]{16})$/gm)].map((match) => match[1]);
+  assert.ok(ids.length > 0, result.stderr);
+  return ids;
+}
+
+test('key backup writes only an encrypted copy to the vault, and restore gives a byte-identical 0700 folder', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const { fingerprint, file } = gnupg.keys['bench test'];
+  const keys = keysFixture(gnupg.root);
+  const before = treeOf(keys);
+  const vault = vaultFor(gnupg, fingerprint, file);
+  const output = keyBackup.main(['backup', '--keys', keys, '--out', vault], gnupg.env);
+  const names = fs.readdirSync(vault).sort();
+  assert.equal(names.length, 3);
+  assert.deepEqual(names.slice(0, 2), ['.git', 'README.md']);
+  assert.match(names[2], /^keys-\d{8}T\d{6}Z\.tar\.gpg$/);
+  assert.equal(output, `backup: wrote ${path.join(fs.realpathSync(vault), names[2])}\n`);
+  assert.ok(!fs.readFileSync(path.join(vault, names[2])).includes('escape-draw-source.json'));
+  // The backup leaves the keys folder as it was: the manifest goes only into the archive.
+  assert.deepEqual(treeOf(keys), before);
+  const restored = path.join(gnupg.root, 'restored', 'keys');
+  assert.equal(
+    keyBackup.main(['restore', '--archive', path.join(vault, names[2]), '--out', restored], gnupg.env),
+    `restore: verified every file in ${restored}\n`,
+  );
+  assert.equal(fs.statSync(restored).mode & 0o777, 0o700);
+  assert.deepEqual(treeOf(restored), before);
+  // Two copies in one second would get one name; the second backup refuses and keeps the first copy.
+  const now = new Date('2030-01-01T00:00:00.000Z');
+  const first = keyBackup.backup({ keys, out: vault, env: gnupg.env, now });
+  assert.equal(path.basename(first), 'keys-20300101T000000Z.tar.gpg');
+  const bytes = fs.readFileSync(first);
+  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env, now }), { message: /exists/ });
+  assert.ok(fs.readFileSync(first).equals(bytes));
+  assert.throws(() => keyBackup.backup({ keys, out: keys, env: gnupg.env }), {
+    message: 'the vault and the keys folder must not hold each other',
+  });
+});
+
+test('the tar step gives the same bytes for the same folder, whatever the file times and creation order', (t) => {
+  const root = scratch(t);
+  const keys = keysFixture(root);
+  const first = keyBackup.archiveBytes(keys);
+  assert.ok(keyBackup.archiveBytes(keys).equals(first));
+  // The same files, made in the reverse order and with other times, give the same bytes.
+  const other = path.join(root, 'other');
+  for (const name of Object.keys(treeOf(keys)).reverse()) {
+    const source = path.join(keys, name);
+    const target = path.join(other, name);
+    if (fs.statSync(source).isDirectory()) fs.mkdirSync(target, { recursive: true });
+    else put(other, name, fs.readFileSync(source, 'utf8'));
+    fs.chmodSync(target, fs.statSync(source).mode & 0o7777);
+    fs.utimesSync(target, 1234, 5678);
+  }
+  fs.chmodSync(other, 0o700);
+  assert.ok(keyBackup.archiveBytes(other).equals(first));
+  // The manifest holds the SHA-256 and the path of every file, and a changed file changes the bytes.
+  assert.equal(
+    keyBackup
+      .manifestOf(keys)
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => line.slice(66))
+      .join(','),
+    `escape-draw-source.json,escape-draw.json,heldout/code-1-K1.patch,heldout/code-1.key.json,heldout/note "it's" here.txt`,
+  );
+  fs.writeFileSync(path.join(other, 'heldout/code-1-K1.patch'), 'diff --git a/y b/y\n');
+  assert.ok(!keyBackup.archiveBytes(other).equals(first));
+});
+
+test('restore refuses an existing folder and a folder inside a git checkout, and writes nothing', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const { fingerprint, file } = gnupg.keys['bench test'];
+  const archive = keyBackup.backup({
+    keys: keysFixture(gnupg.root),
+    out: vaultFor(gnupg, fingerprint, file),
+    env: gnupg.env,
+  });
+  const existing = path.join(gnupg.root, 'existing');
+  put(existing, 'mine.txt', 'kept\n');
+  assert.throws(() => keyBackup.restore({ archive, out: existing, env: gnupg.env }), {
+    message: `${existing} exists; restore needs a new folder`,
+  });
+  assert.deepEqual(fs.readdirSync(existing), ['mine.txt']);
+  const repository = path.join(gnupg.root, 'checkout');
+  fs.mkdirSync(repository);
+  assert.equal(spawnSync('git', ['init', '-q', repository]).status, 0);
+  const inside = path.join(repository, 'sub', 'restored');
+  assert.throws(() => keyBackup.restore({ archive, out: inside, env: gnupg.env }), {
+    message: `${inside} is inside a git checkout; restore outside every checkout`,
+  });
+  assert.ok(!fs.existsSync(path.join(repository, 'sub')));
+});
+
+test('restore and backup stop with the folder and the git error when git cannot check the folder', (t) => {
+  const root = scratch(t);
+  const repository = path.join(root, 'checkout');
+  assert.equal(spawnSync('git', ['init', '-q', repository]).status, 0);
+  // Git takes the repository for one of another owner. No safe.directory line of a user or system config can allow it.
+  const env = {
+    ...process.env,
+    GIT_TEST_ASSUME_DIFFERENT_OWNER: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  const out = path.join(repository, 'sub', 'restored');
+  assert.throws(() => keyBackup.restore({ archive: path.join(root, 'none.tar.gpg'), out, env }), {
+    message: new RegExp(`^git cannot check the folder ${escapeRegExp(repository)}: fatal: detected dubious ownership`),
+  });
+  assert.ok(!fs.existsSync(path.join(repository, 'sub')));
+  assert.throws(() => keyBackup.backup({ keys: keysFixture(root), out: repository, env }), {
+    message: new RegExp(
+      `^git cannot check the folder ${escapeRegExp(fs.realpathSync(repository))}: fatal: detected dubious ownership`,
+    ),
+  });
+  assert.deepEqual(fs.readdirSync(repository), ['.git']);
+});
+
+test('restore names each file that does not match the manifest of the archive and leaves no folder', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const keys = keysFixture(gnupg.root);
+  const archive = path.join(gnupg.root, 'tampered.tar.gpg');
+  const manifest = keyBackup
+    .manifestOf(keys)
+    .split('\n')
+    .filter((line) => line && !line.endsWith('  heldout/code-1-K1.patch'))
+    .map((line) => (line.endsWith('  heldout/code-1.key.json') ? `${'0'.repeat(64)}${line.slice(64)}` : line))
+    .concat(`${'1'.repeat(64)}  heldout/gone.json`, '')
+    .join('\n');
+  keyBackup.encrypt(keyBackup.tarBytes(keys, manifest), gnupg.keys['bench test'].file, archive, gnupg.env);
+  const out = path.join(gnupg.root, 'bad', 'restored');
+  assert.throws(() => keyBackup.restore({ archive, out, env: gnupg.env }), {
+    message:
+      'the restore does not match MANIFEST.sha256: missing file heldout/gone.json; ' +
+      'extra file heldout/code-1-K1.patch; changed file heldout/code-1.key.json',
+  });
+  assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+});
+
+const KEYS_SCRIPT = path.join(import.meta.dirname, '../../../.agents/skills/review-benchmark/scripts/keys.mjs');
+
+// Encrypts a plain GNU tar of the entries of `dir`, in name order and with no link changes, into `archive`: an archive
+// that `backup` did not make.
+function encryptTree(gnupg, dir, archive) {
+  const tar = spawnSync('tar', ['-c', '-f', '-', '--format=posix', '--sort=name', '-C', dir, ...fs.readdirSync(dir)]);
+  assert.equal(tar.status, 0, tar.stderr?.toString());
+  keyBackup.encrypt(tar.stdout, gnupg.keys['bench test'].file, archive, gnupg.env);
+}
+
+test('restore refuses a MANIFEST.sha256 that is a link or a folder, shows no manifest text, and leaves no folder', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const secret = 'outside-secret-text-4711';
+  put(gnupg.root, 'secret.txt', `${secret}\n`);
+  // An archive whose MANIFEST.sha256 is a symbolic link to a file outside the folder.
+  const linked = keysFixture(gnupg.root, 'linked');
+  fs.symlinkSync(path.join(gnupg.root, 'secret.txt'), path.join(linked, 'MANIFEST.sha256'));
+  const archive = path.join(gnupg.root, 'linked.tar.gpg');
+  encryptTree(gnupg, linked, archive);
+  const out = path.join(gnupg.root, 'bad', 'restored');
+  const cli = spawnSync(process.execPath, [KEYS_SCRIPT, 'restore', '--archive', archive, '--out', out], {
+    env: gnupg.env,
+    encoding: 'utf8',
+  });
+  assert.equal(cli.status, 1);
+  assert.equal(cli.stdout, '');
+  assert.equal(cli.stderr, 'keys.mjs: the archive has a member that is neither a file nor a folder: MANIFEST.sha256\n');
+  assert.ok(!`${cli.stdout}${cli.stderr}`.includes(secret));
+  assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+  // A MANIFEST.sha256 folder passes the member check, but restore reads only a regular manifest file.
+  const folder = keysFixture(gnupg.root, 'folder');
+  put(folder, 'MANIFEST.sha256/inner.txt', 'inner\n');
+  const folderArchive = path.join(gnupg.root, 'folder.tar.gpg');
+  encryptTree(gnupg, folder, folderArchive);
+  assert.throws(() => keyBackup.restore({ archive: folderArchive, out, env: gnupg.env }), {
+    message: 'the MANIFEST.sha256 of the archive is not a regular file',
+  });
+  assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+  // A bad manifest line stops with its line number and without its text.
+  const badLine = keysFixture(gnupg.root, 'bad-line');
+  put(badLine, 'MANIFEST.sha256', `${keyBackup.manifestOf(badLine).split('\n')[0]}\n${secret}\n`);
+  const badLineArchive = path.join(gnupg.root, 'bad-line.tar.gpg');
+  encryptTree(gnupg, badLine, badLineArchive);
+  assert.throws(() => keyBackup.restore({ archive: badLineArchive, out, env: gnupg.env }), {
+    message: 'MANIFEST.sha256 has a bad line 2',
+  });
+  assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+});
+
+test('restore refuses an archive with a symbolic link or a hard link member, names each member, and writes nothing', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const keys = keysFixture(gnupg.root);
+  put(keys, 'MANIFEST.sha256', keyBackup.manifestOf(keys));
+  fs.symlinkSync('../escape-draw.json', path.join(keys, 'heldout/link'));
+  fs.linkSync(path.join(keys, 'heldout/code-1-K1.patch'), path.join(keys, 'heldout/copy'));
+  const archive = path.join(gnupg.root, 'links.tar.gpg');
+  encryptTree(gnupg, keys, archive);
+  const out = path.join(gnupg.root, 'bad', 'restored');
+  assert.throws(() => keyBackup.restore({ archive, out, env: gnupg.env }), {
+    message: 'the archive has a member that is neither a file nor a folder: heldout/copy; heldout/link',
+  });
+  assert.ok(!fs.existsSync(path.join(gnupg.root, 'bad')));
+});
+
+test('backup stores each hard-linked file as a regular member, and restore gives byte-identical files', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const { fingerprint, file } = gnupg.keys['bench test'];
+  const keys = keysFixture(gnupg.root);
+  const patch = path.join(keys, 'heldout/code-1-K1.patch');
+  fs.linkSync(patch, path.join(keys, 'heldout/code-1-K1 copy.patch'));
+  const before = treeOf(keys);
+  // Two separate copies of the file give the same tar bytes, so the tar has no hard link member.
+  const copies = keysFixture(gnupg.root, 'copies');
+  put(copies, 'heldout/code-1-K1 copy.patch', fs.readFileSync(patch, 'utf8'));
+  assert.ok(keyBackup.archiveBytes(keys).equals(keyBackup.archiveBytes(copies)));
+  const archive = keyBackup.backup({ keys, out: vaultFor(gnupg, fingerprint, file), env: gnupg.env });
+  const restored = path.join(gnupg.root, 'restored', 'keys');
+  assert.equal(keyBackup.restore({ archive, out: restored, env: gnupg.env }), restored);
+  assert.deepEqual(treeOf(restored), before);
+  assert.equal(fs.statSync(path.join(restored, 'heldout/code-1-K1 copy.patch')).nlink, 1);
+});
+
+test('backup refuses a recipient key that the vault README does not name, and writes nothing', (t) => {
+  const gnupg = gpgHome(t, 'bench test', 'bench other');
+  const keys = keysFixture(gnupg.root);
+  const { fingerprint } = gnupg.keys['bench test'];
+  const other = gnupg.keys['bench other'];
+  const vault = vaultFor(gnupg, fingerprint, other.file);
+  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env }), {
+    message: `the recipient key ${other.fingerprint} differs from the fingerprint ${fingerprint} of the vault README.md`,
+  });
+  fs.writeFileSync(path.join(vault, 'README.md'), '# Held-out keys vault\n');
+  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env }), {
+    message: `the README.md of ${fs.realpathSync(vault)} must have exactly one "Fingerprint: <hex>" line`,
+  });
+  fs.rmSync(keyBackup.recipientFile(gnupg.env));
+  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env }), {
+    message: /recipient key file .* missing/,
+  });
+  assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
+});
+
+test('backup refuses an --out that is no git checkout or that is inside another checkout, and writes nothing', (t) => {
+  const root = scratch(t);
+  const keys = keysFixture(root);
+  const plain = path.join(root, 'plain');
+  put(plain, 'README.md', '# Held-out keys vault\n');
+  assert.throws(() => keyBackup.backup({ keys, out: plain }), {
+    message: `${plain} is no git checkout; --out must be the root folder of the vault clone`,
+  });
+  assert.deepEqual(fs.readdirSync(plain), ['README.md']);
+  const checkout = path.join(root, 'checkout');
+  assert.equal(spawnSync('git', ['init', '-q', checkout]).status, 0);
+  const inner = path.join(checkout, 'vault');
+  put(inner, 'README.md', '# Held-out keys vault\n');
+  const inside = `${inner} is inside the git checkout ${fs.realpathSync(checkout)}`;
+  assert.throws(() => keyBackup.backup({ keys, out: inner }), {
+    message: `${inside}; --out must be the root folder of the vault clone`,
+  });
+  assert.deepEqual(fs.readdirSync(inner), ['README.md']);
+});
+
+test('backup stops and writes nothing when a file changes between the manifest and the tar', (t) => {
+  const gnupg = gpgHome(t, 'bench test');
+  const { fingerprint, file } = gnupg.keys['bench test'];
+  const keys = keysFixture(gnupg.root);
+  const vault = vaultFor(gnupg, fingerprint, file);
+  const beforeTar = () => fs.writeFileSync(path.join(keys, 'heldout/code-1-K1.patch'), 'diff --git a/y b/y\n');
+  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env, beforeTar }), {
+    message: 'the tar does not match MANIFEST.sha256: changed file heldout/code-1-K1.patch',
+  });
+  assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
+  // The tar check also finds a changed file whose name has spaces and quotes.
+  const note = `heldout/note "it's" here.txt`;
+  const changeNote = () => fs.writeFileSync(path.join(keys, note), 'another note\n');
+  assert.throws(() => keyBackup.backup({ keys, out: vault, env: gnupg.env, beforeTar: changeNote }), {
+    message: `the tar does not match MANIFEST.sha256: changed file ${note}`,
+  });
+  assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
+});
+
+test('an encrypt-to line of the gpg options file adds no recipient to a backup', (t) => {
+  const gnupg = gpgHome(t, 'bench test', 'bench other');
+  const { fingerprint, file, subkey } = gnupg.keys['bench test'];
+  fs.writeFileSync(path.join(gnupg.env.GNUPGHOME, 'gpg.conf'), `encrypt-to ${gnupg.keys['bench other'].fingerprint}\n`);
+  // Without --no-options, the line adds the other key, so the check below can see a second recipient.
+  const plain = path.join(gnupg.root, 'plain.gpg');
+  gnupg.gpg(['--batch', '--trust-model', 'always', '--recipient-file', file, '--output', plain, '--encrypt', file]);
+  assert.deepEqual(recipientsOf(gnupg, plain).sort(), [subkey, gnupg.keys['bench other'].subkey].sort());
+  const archive = keyBackup.backup({
+    keys: keysFixture(gnupg.root),
+    out: vaultFor(gnupg, fingerprint, file),
+    env: gnupg.env,
+  });
+  assert.deepEqual(recipientsOf(gnupg, archive), [subkey]);
+});
+
+test('keys check passes for a folder that matches escape-draw.md and names each field that differs', (t) => {
+  const root = scratch(t);
+  const keys = keysFixture(root);
+  const cases = path.join(root, 'cases');
+  const hash = (text) => createHash('sha256').update(text).digest('hex');
+  const source = hash(fs.readFileSync(path.join(keys, 'escape-draw-source.json')));
+  const frozen = hash(escapes.frozenJson(readJson(path.join(keys, 'escape-draw.json')).frozen));
+  const manifest = (snapshot, record) =>
+    `# Escape draw\n\n## Frozen\n\n- Source snapshot SHA-256: ${snapshot}\n` +
+    `- Restricted frozen record SHA-256: ${record}\n`;
+  put(cases, 'escape-draw.md', manifest(source, frozen));
+  const passed = 'check: Source snapshot SHA-256 and Restricted frozen record SHA-256 match escape-draw.md\n';
+  assert.equal(keyBackup.main(['check', '--keys', keys, '--cases', cases]), passed);
+  // Outcomes are no part of the frozen hash, so a record with outcomes still passes.
+  put(keys, 'escape-draw.json', escapes.frozenJson({ frozen: { version: 1, units: [] }, outcomes: [{ unit: 'u1' }] }));
+  assert.equal(keyBackup.check({ keys, cases }), passed);
+  put(cases, 'escape-draw.md', manifest('0'.repeat(64), frozen));
+  assert.throws(() => keyBackup.check({ keys, cases }), {
+    message: 'the keys folder differs from escape-draw.md in: Source snapshot SHA-256',
+  });
+  put(cases, 'escape-draw.md', manifest(source, frozen));
+  put(keys, 'escape-draw.json', escapes.frozenJson({ frozen: { version: 2, units: [] }, outcomes: [] }));
+  assert.throws(() => keyBackup.check({ keys, cases }), {
+    message: 'the keys folder differs from escape-draw.md in: Restricted frozen record SHA-256',
+  });
+  fs.rmSync(path.join(keys, 'escape-draw-source.json'));
+  assert.throws(() => keyBackup.check({ keys, cases }), {
+    message:
+      'the keys folder differs from escape-draw.md in: Source snapshot SHA-256, Restricted frozen record SHA-256',
+  });
 });

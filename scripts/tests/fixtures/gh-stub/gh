@@ -611,6 +611,8 @@ function commentJson(comment, issue) {
   const login = typeof comment.author === 'string' ? comment.author : comment.author?.login ?? comment.user?.login;
   return {
     id: comment.id,
+    // GitHub's IssueComment.fullDatabaseId: the number after `#issuecomment-` in the comment URL, as a string.
+    fullDatabaseId: String(comment.id),
     body: comment.body,
     author: login ? { login } : null,
     createdAt: comment.createdAt,
@@ -807,6 +809,8 @@ if (group === 'api' && command === 'graphql') {
   if (issueSelection.length) {
     const requestedNumber = graphqlValue(issueSelection[0].args.get('number'), variables);
     const issue = issueByNumber(Number(requestedNumber));
+    // `readError` fails every GraphQL read that selects the issue, as a read that GitHub refuses.
+    if (issue.readError) die(issue.readError);
     if (stage === 'snapshot') observeIssue(issue);
     readIssue(issue);
     const payload = {
@@ -847,6 +851,15 @@ if (group === 'api' && command === 'graphql') {
         graphqlPage(children, selection, variables, ['first', 'after']),
         selection.fields,
       );
+    }
+    // Issue.parent: the issue whose sub-issues hold this one, or null. A fixture `foreignParent` ({ number,
+    // nameWithOwner }) stands for a parent in another repository.
+    if (/\bparent\s*\{/.test(issueSelection[0].fields)) {
+      const linked = state.issues.find((entry) => (entry.subIssues ?? []).includes(issue.number));
+      const parent = issue.foreignParent
+        ? { number: issue.foreignParent.number, repository: { nameWithOwner: issue.foreignParent.nameWithOwner } }
+        : linked && { number: linked.number, repository: { nameWithOwner: state.repo.nameWithOwner } };
+      Object.assign(payload, selectFields({ parent: parent ?? null }, issueSelection[0].fields));
     }
     for (const selection of graphqlSelections(query, 'timelineItems')) {
       const types = selection.args.get('itemTypes');
