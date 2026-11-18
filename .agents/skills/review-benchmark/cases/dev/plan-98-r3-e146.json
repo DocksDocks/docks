@@ -4,6 +4,7 @@
   "split": "dev",
   "issue": 98,
   "round": 3,
+  "cycle": 1,
   "repo_ref": "e09d273fa2d020352337e5d97d8d47edbb4b7c80",
   "plan": "plan-98-r3-e146-body.md",
   "seeded": false,

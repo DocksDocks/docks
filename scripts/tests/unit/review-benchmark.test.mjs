@@ -10581,8 +10581,15 @@ function outcomeFixture(t) {
     manifest,
   ]);
   const cases = path.join(root, 'cases');
-  put(cases, 'dev/plan-20-r1.json', { id: 'plan-20-r1', kind: 'plan', split: 'dev', issue: 20, round: 1 });
-  put(cases, 'heldout/code-10-r1.json', { id: 'code-10-r1', kind: 'code', split: 'heldout', issue: 10, round: 1 });
+  put(cases, 'dev/plan-20-r1.json', { id: 'plan-20-r1', kind: 'plan', split: 'dev', issue: 20, round: 1, cycle: 1 });
+  put(cases, 'heldout/code-10-r1.json', {
+    id: 'code-10-r1',
+    kind: 'code',
+    split: 'heldout',
+    issue: 10,
+    round: 1,
+    cycle: 1,
+  });
   const units = readJson(record).frozen.units;
   const outcome = (unit, extra) => ({
     unit: unit.id,
@@ -10779,7 +10786,7 @@ test('escape follow-ups check every landing pull request of a plan before the pl
   assert.deepEqual(owners, ['10 heldout']);
 });
 
-test('escape outcomes refuse a case of another kind, round, or cycle, and a case that two units name', (t) => {
+test('escape outcomes refuse a case of another kind, round, or cycle, a case without a cycle, and a case that two units name', (t) => {
   const fixture = outcomeFixture(t);
   const [held1] = fixture.units.filter((unit) => unit.split === 'heldout');
   const apply = (bodies, recordText = readText(fixture.record), manifestText = readText(fixture.manifest)) =>
@@ -10791,18 +10798,22 @@ test('escape outcomes refuse a case of another kind, round, or cycle, and a case
     });
   const heldCase = (id, extra) =>
     put(fixture.cases, `heldout/${id}.json`, { id, kind: 'code', split: 'heldout', issue: 10, round: 1, ...extra });
-  heldCase('code-10-r2', { round: 2 });
-  heldCase('plan-10-r1', { kind: 'plan' });
+  heldCase('code-10-r2', { round: 2, cycle: 1 });
+  heldCase('plan-10-r1', { kind: 'plan', cycle: 1 });
   heldCase('code-10-c2-r1', { cycle: 2 });
-  heldCase('code-10-c1-r1', { cycle: 1 });
+  heldCase('code-10-nocycle-r1', {});
   const taken = (id) => fixture.outcome(held1, { outcome: 'taken', case: id });
   for (const id of ['code-10-r2', 'plan-10-r1']) {
     assert.throws(() => apply([taken(id)]), { message: /is a (code|plan) case of round \d, not the code round 1/ }, id);
   }
   assert.throws(() => apply([taken('code-10-c2-r1')]), { message: /is a case of cycle 2, not cycle 1 of the unit/ });
-  // One cycle holds this round, so a case without a cycle, or with the right one, stands for the unit.
-  assert.equal(apply([taken('code-10-c1-r1')]).outcomes.length, 1);
-  // Two cycles give two units of the same issue, kind, and round: then each case must record its cycle.
+  // A round number can repeat in a cycle that gives no unit, so every taken case records its cycle, even when the draw
+  // holds one unit of this round.
+  assert.throws(() => apply([taken('code-10-nocycle-r1')]), {
+    message: `outcome ${held1.id}.json: case code-10-nocycle-r1 records no cycle; give the case "cycle": 1`,
+  });
+  assert.equal(apply([taken('code-10-r1')]).outcomes.length, 1);
+  // Two cycles give two units of the same issue, kind, and round; each case names the cycle of its own unit.
   const root = scratch(t);
   const source = escapeFixture();
   source.repository.issues = [];
@@ -10834,15 +10845,12 @@ test('escape outcomes refuse a case of another kind, round, or cycle, and a case
   const outcomesOf = (caseIds) =>
     cycles.map((unit, index) => fixture.outcome(unit, { outcome: 'taken', case: caseIds[index] }));
   const [first, second] = cycles;
-  assert.throws(() => apply(outcomesOf(['code-10-r1', 'code-10-r1']), readText(record), readText(manifest)), {
-    message: `outcome ${first.id}.json: case code-10-r1 records no cycle, and the draw has this round in more than one cycle; give the case "cycle": 1`,
-  });
   // Swapped cycles are refused; matching cycles are accepted.
-  assert.throws(() => apply(outcomesOf(['code-10-c2-r1', 'code-10-c1-r1']), readText(record), readText(manifest)), {
+  assert.throws(() => apply(outcomesOf(['code-10-c2-r1', 'code-10-r1']), readText(record), readText(manifest)), {
     message: /is a case of cycle 2, not cycle 1 of the unit/,
   });
   assert.equal(
-    apply(outcomesOf(['code-10-c1-r1', 'code-10-c2-r1']), readText(record), readText(manifest)).outcomes.length,
+    apply(outcomesOf(['code-10-r1', 'code-10-c2-r1']), readText(record), readText(manifest)).outcomes.length,
     2,
   );
   // A case named by two units is refused. The draw gives each unit its own cycle and round, so this needs a record that
