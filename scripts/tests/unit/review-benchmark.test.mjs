@@ -10632,7 +10632,8 @@ test('escape outcomes refuse outcome files that do not match the frozen draw, an
     [[{ body: { ...taken, outcome: 'rejected' } }], /a rejected unit has no case/],
     [[{ body: { ...taken, outcome: 'maybe' } }], /outcome must be taken or rejected/],
     [[{ body: { ...taken, decided: 'soon' } }], /decided must be an ISO time/],
-    [[{ body: { ...taken, note: 'x' } }], /unknown fields: note/],
+    [[{ body: { ...taken, remark: 'x' } }], /unknown fields: remark/],
+    [[{ body: { ...taken, note: 3 } }], /note must be a string/],
   ];
   for (const [files, message] of cases) assert.throws(() => apply(files), { message }, String(message));
   // A case file of another issue does not count for this unit.
@@ -10653,4 +10654,24 @@ test('escape outcomes refuse outcome files that do not match the frozen draw, an
   assert.throws(() => escapes.main(fixture.args), { message: /a taken unit has no reason/ });
   assert.equal(readText(fixture.record), recordText);
   assert.equal(readText(fixture.manifest), manifestText);
+});
+
+test('escape outcomes keep a note in the restricted record and never print it in the manifest', (t) => {
+  const fixture = outcomeFixture(t);
+  const notes = { 0: 'HELD_NOTE: the defect sits in a helper', 2: 'DEV_NOTE: the fix is two rounds later' };
+  for (const [index, note] of Object.entries(notes)) {
+    const item = { ...fixture.decided[index], note };
+    put(fixture.dir, `${item.unit}.json`, item);
+  }
+  escapes.main(fixture.args);
+  const kept = Object.fromEntries(
+    readJson(fixture.record)
+      .outcomes.filter((item) => item.note)
+      .map((item) => [item.unit, item.note]),
+  );
+  assert.deepEqual(kept, {
+    [fixture.decided[0].unit]: notes[0],
+    [fixture.decided[2].unit]: notes[2],
+  });
+  assert.doesNotMatch(readText(fixture.manifest), /HELD_NOTE|DEV_NOTE|helper|two rounds later/);
 });

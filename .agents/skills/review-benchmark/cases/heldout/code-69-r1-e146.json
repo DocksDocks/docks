@@ -1,0 +1,13 @@
+{
+  "id": "code-69-r1-e146",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 69,
+  "round": 1,
+  "base": "beccf57f96afb4a400771b16946be5387412c672",
+  "head": "5e49a9dc3fe5262208bfa7d52189d155217a11f9",
+  "plan": "code-69-r1-e146-plan.md",
+  "external": [
+    "plan"
+  ]
+}

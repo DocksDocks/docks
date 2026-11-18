@@ -1,0 +1,50 @@
+{
+  "id": "code-98-r3-e146",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 98,
+  "round": 3,
+  "base": "e09d273fa2d020352337e5d97d8d47edbb4b7c80",
+  "delta_base": "2b4cd0cf11f18c50a8b78968f15f9ba3c6512f1c",
+  "head": "7f7fdbe6ae48f755a68ecd29e87e149429c6dc14",
+  "plan": "code-98-r3-e146-plan.md",
+  "previous_review": "code-98-r3-e146-previous-review.md",
+  "show_benchmark": true,
+  "body_revision": "UCE_lAHODGt7ls8AAAABZadH188AAAABEVu6oQ",
+  "review_comment": 6371512163,
+  "known": [
+    {
+      "id": "F98-1",
+      "title": "The full, focus, and delta diffs keep the benchmark folder, so a replay whose range changes it gives reviewers the held-out answer keys",
+      "locator": ".agents/skills/review-benchmark/scripts/prepare.mjs:281-290; .agents/skills/review-benchmark/scripts/prepare.mjs:292-299; .agents/skills/review-benchmark/scripts/prepare.mjs:367-374",
+      "severity": "MEDIUM",
+      "category": "code",
+      "source": "missed-by-round",
+      "comment": 6371986753,
+      "summary": "checkoutSnapshot leaves the benchmark skill folder out of the snapshot (prepare.mjs:292-299), because its held-out answer keys must never reach a reviewer. But treeDiff and changedPaths (prepare.mjs:281-290) diff the whole tree, and prepareCase writes the full diff, the lens focus diffs, and the delta diff from them (prepare.mjs:367-374). When the base..head or delta_base..head range of a replayed case changes `.agents/skills/review-benchmark/`, as a replay of #98 itself does, the reviewer-facing diffs hold the held-out case and key files, so the isolation boundary leaks and later measurements are contaminated. The same exclusion must apply to the snapshot, the changed-path list, and every diff.",
+      "fix": "code-98-r3-e146.F98-1.fix.patch"
+    },
+    {
+      "id": "F98-2",
+      "title": "Scoring never checks that the judge answered every candidate pair, so an omitted pair reads as a miss and a valid extra with nothing unjudged",
+      "locator": ".agents/skills/review-benchmark/scripts/score.mjs:330-357; .agents/skills/review-benchmark/scripts/score.mjs:410-422",
+      "severity": "MEDIUM",
+      "category": "code",
+      "source": "missed-by-round",
+      "comment": 6371986753,
+      "summary": "readJudgments (score.mjs:330-357) records only the match answers that judgments.json contains, and scoreRuns (score.mjs:410-422) never compares them with the candidate pairs of pairs.json. When the judge leaves out a candidate pair of a finding and a known defect and rates that finding `valid`, a one-finding, one-defect run reports recall 0, one valid extra, and zero unjudged, unresolved, or unknown pairs. Incomplete matching then looks complete, which biases arm comparisons; plan decision 6 asks that the report gives unresolved judgments. The scorer must refuse, or report, every candidate pair without an answer.",
+      "fix": "code-98-r3-e146.F98-2.fix.patch"
+    },
+    {
+      "id": "F98-3",
+      "title": "The dispatch prompt allows reads only in the snapshot and the named files, which forbids the candidate reviewer's own skill and reference files",
+      "locator": ".agents/skills/review-benchmark/scripts/prepare.mjs:179; .agents/skills/review-benchmark/scripts/prepare.mjs:466-473",
+      "severity": "MEDIUM",
+      "category": "code",
+      "source": "missed-by-round",
+      "comment": 6371986753,
+      "summary": "buildOpening tells every reviewer to read files only under the snapshot root and the files that the message names (prepare.mjs:179). The candidate agents are written with the working-tree plugin as their plugin root (prepare.mjs:466-473), and the candidate `code-reviewer` agent loads its skill and lens references from there, outside the snapshot and the named inputs. The two instructions conflict, so a reviewer that obeys the read rule can skip the candidate instructions that the benchmark measures. The rule must keep the evidence boundary and allow the reviewer's own instructions and the skill and reference files that they load.",
+      "fix": "code-98-r3-e146.F98-3.fix.patch"
+    }
+  ]
+}

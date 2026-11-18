@@ -1,0 +1,28 @@
+{
+  "id": "code-98-r5-e146",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 98,
+  "round": 5,
+  "base": "e09d273fa2d020352337e5d97d8d47edbb4b7c80",
+  "delta_base": "db2f2a39ec0d3d72405e99595346a6750f2f2528",
+  "head": "4db65007b85591d8d1671c59a3877e391dc70e9c",
+  "plan": "code-98-r5-e146-plan.md",
+  "previous_review": "code-98-r5-e146-previous-review.md",
+  "show_benchmark": true,
+  "body_revision": "UCE_lAHODGt7ls8AAAABZadH188AAAABEWWKoA",
+  "review_comment": 6372100724,
+  "known": [
+    {
+      "id": "F98-4",
+      "title": "A review block that quotes an earlier round opens a block of its own, so the quoted verdict wins",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:746-750; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:759; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:764-767; plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md:190-196",
+      "severity": "MEDIUM",
+      "category": "code",
+      "source": "follow-up",
+      "item": 101,
+      "summary": "parseReviewComment maps every line through `reviewText` (plan.mjs:759), which removes blockquote, list, and emphasis marks, and only then tests each line with REVIEW_BLOCK_HEADING (plan.mjs:750, 764-767) to start a new block. So a passing block that quotes an earlier round (`> ### Code review round 1` followed by `> Code-review: fixes-required`, or the same lines as list items) opens a block of its own, its quoted verdict counts, and the most severe verdict makes the round read as fixes-required (repair for a plan review). The contract text (plan-contract.md:190-196) states the same rule, a block starts at any heading line after the marks are removed. Only an unquoted heading line, `#` after at most three spaces, may start a block.",
+      "fix": "code-98-r5-e146.F98-4.fix.patch"
+    }
+  ]
+}

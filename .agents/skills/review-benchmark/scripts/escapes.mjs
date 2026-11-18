@@ -397,6 +397,7 @@ const OUTCOME_FIELDS = new Set([
   'findings',
   'inputs',
   'decided',
+  'note',
 ]);
 const OUTCOMES_HEADING = '## Outcomes';
 const FROZEN_HASH_LINE = /^- Restricted frozen record SHA-256: ([0-9a-f]{64})$/m;
@@ -424,6 +425,8 @@ function checkOutcome(name, outcome, unit, casesDir) {
   if (typeof outcome.decided !== 'string' || !Number.isFinite(time(outcome.decided)))
     fail(`${where}: decided must be an ISO time`);
   if (outcome.findings !== undefined && !Array.isArray(outcome.findings)) fail(`${where}: findings must be a list`);
+  // A note explains a judgment call. It stays in the restricted record only: a held-out note can name a defect.
+  if (outcome.note !== undefined && typeof outcome.note !== 'string') fail(`${where}: note must be a string`);
   if (outcome.outcome === 'taken') {
     if (outcome.reason !== undefined && outcome.reason !== null) fail(`${where}: a taken unit has no reason`);
     if (typeof outcome.case !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(outcome.case))

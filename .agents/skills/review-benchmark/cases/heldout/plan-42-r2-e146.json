@@ -1,0 +1,13 @@
+{
+  "id": "plan-42-r2-e146",
+  "kind": "plan",
+  "split": "heldout",
+  "issue": 42,
+  "round": 2,
+  "repo_ref": "f431ef39d2b8879b90c20b1ca63773482d3ef8af",
+  "plan": "plan-42-r2-e146-body.md",
+  "seeded": false,
+  "external": [
+    "plan"
+  ]
+}
