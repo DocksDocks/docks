@@ -104,6 +104,10 @@ const OMP_RETIRED_KEYS: ReadonlyArray<string> = ["providers.webSearchOrder"];
  * served the id as an empty stub. The catalog now publishes the same limits,
  * prices, and ladder. The block's `defaultLevel: high` applied only to a bare
  * selector, and every kit selector names its level.
+ *
+ * `gpt-6-astra` carried the kit's worked ladder override while the `astra`
+ * role ran GPT-6 Astra. The role moved to GPT-6.2 Astra, and the override
+ * moved with it to the `gpt-6.2-astra` key, so no role uses this block.
  */
 const OMP_RETIRED_MODEL_BLOCKS: ReadonlyArray<readonly [string, unknown]> = [
   [
@@ -119,6 +123,16 @@ const OMP_RETIRED_MODEL_BLOCKS: ReadonlyArray<readonly [string, unknown]> = [
         mode: "effort",
         efforts: ["low", "medium", "high", "xhigh", "max"],
         defaultLevel: "high",
+      },
+    },
+  ],
+  [
+    "providers.openai-codex.modelOverrides.gpt-6-astra",
+    {
+      thinking: {
+        mode: "effort",
+        efforts: ["low", "medium", "high", "xhigh", "max"],
+        defaultLevel: "xhigh",
       },
     },
   ],

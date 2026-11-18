@@ -34,7 +34,7 @@ describe("SoT omp tree", () => {
   it("declares the full Astra thinking ladder through models.yml", () => {
     const models = parse(readSot("models.yml")) as unknown;
     expect(models).toHaveProperty(
-      ["providers", "openai-codex", "modelOverrides", "gpt-6-astra", "thinking"],
+      ["providers", "openai-codex", "modelOverrides", "gpt-6.2-astra", "thinking"],
       {
         mode: "effort",
         efforts: ["low", "medium", "high", "xhigh", "max"],
@@ -76,13 +76,13 @@ describe("SoT omp tree", () => {
   it("keeps visible Astra and Fable roles at the end of the model switcher", () => {
     const config = ompConfig();
     expect(config["cycleOrder"]).toEqual(["smol", "default", "slow", "fable", "astra"]);
-    expect(config["modelRoles"]).toHaveProperty("astra", "openai-codex/gpt-6-astra:xhigh");
+    expect(config["modelRoles"]).toHaveProperty("astra", "openai-codex/gpt-6.2-astra:xhigh");
     expect(config["modelRoles"]).toHaveProperty("fable", "anthropic/claude-fable-5-2:medium");
     expect(config["modelRoles"]).toHaveProperty(
       "switch_fable",
       "anthropic/claude-fable-5-2:medium",
     );
-    expect(config["modelTags"]).toHaveProperty(["astra", "name"], "GPT-6 Astra");
+    expect(config["modelTags"]).toHaveProperty(["astra", "name"], "GPT-6.2 Astra");
     expect(config["modelTags"]).toHaveProperty(["fable", "name"], "Fable 5.2");
     expect(config["modelTags"]).toHaveProperty(["switch_fable", "hidden"], true);
   });
@@ -92,12 +92,28 @@ describe("SoT omp tree", () => {
   it("keeps cross-vendor retries without routing Astra or Fable through the default chain", () => {
     const retry = ompConfig()["retry"] as Record<string, unknown>;
     const chains = retry["fallbackChains"] as Record<string, ReadonlyArray<string>>;
-    expect(chains["default"]).toEqual(["openai-codex/gpt-6.1-sol:high"]);
-    expect(chains["vision"]).toEqual(["openai-codex/gpt-6.1-sol:medium"]);
+    expect(chains["default"]).toEqual(["openai-codex/gpt-6.2-sol:high"]);
+    expect(chains["vision"]).toEqual(["openai-codex/gpt-6.2-sol:medium"]);
     expect(chains["astra"]).toEqual(["anthropic/claude-fable-5-2:medium"]);
-    expect(chains["fable"]).toEqual(["openai-codex/gpt-6-astra:xhigh"]);
+    expect(chains["fable"]).toEqual(["openai-codex/gpt-6.2-astra:xhigh"]);
     expect(chains["switch_fable"]).toEqual([]);
-    expect(chains["task"]).toEqual(["openai-codex/gpt-6.1-sol:high"]);
+    expect(chains["task"]).toEqual(["openai-codex/gpt-6.2-sol:high"]);
+  });
+
+  // GPT-6.1 Sol and GPT-6 Astra moved to GPT-6.2 at the same levels. A leftover
+  // selector would keep one role or retry on the previous generation.
+  it("never selects the previous GPT-6.1 Sol or GPT-6 Astra ids", () => {
+    const config = ompConfig();
+    const roles = config["modelRoles"] as Record<string, string>;
+    const chains = (config["retry"] as Record<string, unknown>)["fallbackChains"] as Record<
+      string,
+      Array<string>
+    >;
+    expect(
+      [...Object.values(roles), ...Object.values(chains).flat()].filter((selector) =>
+        /\/gpt-6\.1-sol(?::|$)|\/gpt-6-astra(?::|$)/.test(selector),
+      ),
+    ).toEqual([]);
   });
 
   it("keeps Astra off subagents and routes every reviewer through the hidden Terra reviewer role", () => {
@@ -111,7 +127,7 @@ describe("SoT omp tree", () => {
       reviewer: "openai-codex/gpt-6.1-terra:high",
     });
     for (const [role, selector] of Object.entries(roles)) {
-      if (role !== "astra") expect(selector).not.toContain("gpt-6-astra");
+      if (role !== "astra") expect(selector).not.toContain("gpt-6.2-astra");
     }
     expect(config["modelTags"]).toHaveProperty(["reviewer", "hidden"], true);
     const chains = (config["retry"] as Record<string, unknown>)["fallbackChains"];

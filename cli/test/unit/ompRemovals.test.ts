@@ -532,6 +532,19 @@ const SHIPPED_OPUS_BLOCK = `      claude-opus-5-5:
           defaultLevel: high
 `;
 
+/** The gpt-6-astra ladder override exactly as SoT/.omp/models.yml shipped it. */
+const SHIPPED_GPT_6_ASTRA_BLOCK = `      gpt-6-astra:
+        thinking:
+          mode: effort
+          efforts:
+            - low
+            - medium
+            - high
+            - xhigh
+            - max
+          defaultLevel: xhigh
+`;
+
 function deployModels(content: string): { file: string; root: string } {
   const { file: configFile, root } = deployConfig("");
   const file = join(configFile, "..", "models.yml");
@@ -560,6 +573,42 @@ describe("retired omp models.yml blocks", () => {
     expect(syncOmpModelRemovals(testCtx(root), file, false)).toBe(0);
     expect(parse(readFileSync(file, "utf8"))).toHaveProperty(
       ["providers", "anthropic", "modelOverrides", "claude-opus-5-5", "thinking", "defaultLevel"],
+      "max",
+    );
+  });
+
+  it("prunes the shipped GPT-6 Astra ladder override and keeps the GPT-6.2 Astra override beside it", () => {
+    const { file, root } = deployModels(
+      `providers:\n  openai-codex:\n    modelOverrides:\n${SHIPPED_GPT_6_ASTRA_BLOCK}${SHIPPED_GPT_6_ASTRA_BLOCK.replace("gpt-6-astra:", "gpt-6.2-astra:")}`,
+    );
+
+    expect(syncOmpModelRemovals(testCtx(root), file, false)).toBe(1);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({
+      providers: {
+        "openai-codex": {
+          modelOverrides: {
+            "gpt-6.2-astra": {
+              thinking: {
+                mode: "effort",
+                efforts: ["low", "medium", "high", "xhigh", "max"],
+                defaultLevel: "xhigh",
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps a GPT-6 Astra ladder override the user edited", () => {
+    const edited = SHIPPED_GPT_6_ASTRA_BLOCK.replace("defaultLevel: xhigh", "defaultLevel: max");
+    const { file, root } = deployModels(
+      `providers:\n  openai-codex:\n    modelOverrides:\n${edited}`,
+    );
+
+    expect(syncOmpModelRemovals(testCtx(root), file, false)).toBe(0);
+    expect(parse(readFileSync(file, "utf8"))).toHaveProperty(
+      ["providers", "openai-codex", "modelOverrides", "gpt-6-astra", "thinking", "defaultLevel"],
       "max",
     );
   });
