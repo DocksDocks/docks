@@ -272,10 +272,9 @@ most of those rounds found nothing. These edits need no round:
 - An edit that only sets the Mode line or adds the delegation line (Yolo runs)
   that a yolo invocation decides.
 - An edit to Verification Results or Open questions, and a `step` state change.
-- An edit that only updates the mirrored line of a child to its deciding
-  parent event (Authority events): for a revocation at once, and for a grant
-  after a trusted parent `plan=pass` that is newer than that event, because
-  that review covers the change.
+- An edit that only reduces the mirrored line of a child after a newer parent
+  event (Authority events): it removes the line or sets the parent's narrower
+  `Delegated:` line, so it only removes authority.
 
 Record user-only decisions in Open questions. Do not invent approval. A grant
 answers some of them (Delegated decisions).
@@ -1010,7 +1009,8 @@ best durable solution when you have a question". Permission to begin, or a
 wish for speed, is not a grant. When the message is not clear, write no line,
 and the questions stay. A new or narrowed line is not one of the edits that
 need no plan-review round (Phases and review comments): review it after
-`plan=pass` with the decisions that it brings.
+`plan=pass` with the decisions that it brings. Only the mirror update of a
+child that reduces its line is exempt (Authority events).
 
 The grant counts as the user's in-session answer to each question that it
 answers. A later user message wins over the grant. When it narrows the grant,
@@ -1042,35 +1042,39 @@ An event is trusted as a review comment is (Phases and review comments): trust
 requires exactly one issue assignee and a comment author login equal to that
 assignee.
 
-For a child plan, the latest trusted event among the parent's events and the
-child's events decides. So a revocation or a narrowing posted on the parent
-applies to every child at once, and no event is copied to each child. A child
-copies the line of its parent when it is created. It posts its own grant event
-only then, with the quote of the parent's latest grant, or when the user's own
-message grants something for that child. A child grant event never widens the
-parent's latest grant. A child's older grant event can never restore broader
-authority, because only the latest event among the parent's and the child's
-events decides.
+The latest trusted authority event of a plan decides, ordered by `createdAt`.
+A grant is in force only when that event is a grant. The Goal line only
+mirrors it: a `Delegated:` line holds the quote of a
+`Delegation grant: <quote>` event, and the fixed yolo line goes with a
+`Delegation grant: yolo: <quote>` event. When the line and the deciding event
+disagree, or no trusted event exists, treat the plan as having no grant, and
+say so once in the first report. So a restored line without a newer grant
+event has no authority. When a resumed session finds a grant in force, its
+first report names the grant once, as a notice and not a question, so that the
+user can revoke it.
 
-The latest trusted authority event decides, ordered by `createdAt`. A grant is
-in force only when that event is a grant. The Goal line only mirrors it: a
-`Delegated:` line holds the quote of a `Delegation grant: <quote>` event, and
-the fixed yolo line goes with a `Delegation grant: yolo: <quote>` event. The
-line check compares the deciding event with the Goal line of the plan that
-holds that event. For a child whose deciding event is on the parent, check the
-parent's line; the child's own line is only a mirror. A child uses a grant
-from a parent event only when a trusted parent `plan=pass` is newer than that
-event, because the parent's review covers it. Until then, the child runs with
-no grant, says so once, and waits with its mirror update. A revocation needs no
-review, so it takes effect at once. When a session works on a child and finds
-its line stale, it updates the line by the type of the deciding event, with no
-new event: a revocation removes the line, a yolo grant sets the fixed yolo
-line, and an ordinary grant sets a `Delegated:` line with the event's quote.
-When the checked line and the deciding event disagree, or no trusted event
-exists, treat the plan as having no grant, and say so once in the first
-report. So a restored line without a newer grant event has no authority. When
-a resumed session finds a grant in force, its first report names the grant
-once, as a notice and not a question, so that the user can revoke it.
+A parent event can only reduce the authority of a child, never grant it. A
+child's grant comes only from its own grant events: the event posted at its
+creation, with the parent's quote at that time, which the child's plan review
+covers, or a later event from the user's own message for that child, which is
+a new line and needs the child's plan-review round (Grant and revocation). A
+child grant event never widens the parent's latest grant. The child's
+effective grant is its own latest grant, limited by each parent event that is
+newer than it:
+
+- A parent revocation removes the child's grant.
+- A parent narrowing limits the child to the parent's narrower quote.
+- A yolo parent narrows by revoke and grant (Grant and revocation), so for a
+  yolo child it acts as a revocation plus a narrower limit: the child's grant
+  ends, and a new child grant event holds at most the narrower quote.
+
+The child's line mirrors its effective grant. When a session works on a child
+and finds that a newer parent event reduces its line, it updates the line with
+no new event: it removes the line after a revocation, or sets a `Delegated:`
+line with the parent's narrower quote. These updates only remove authority,
+so they take effect at once and need no plan-review round. Any other
+disagreement between the child's line and its effective grant means that the
+child has no grant.
 
 ### Answered and kept questions
 
