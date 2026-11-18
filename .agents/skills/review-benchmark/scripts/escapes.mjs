@@ -438,8 +438,9 @@ function manifestFrozenPart(text) {
 }
 
 // Checks one outcome file against its frozen unit: the same identity fields, `taken` with an existing case of the
-// unit's issue and split, or `rejected` with a reason letter of C3.
-function checkOutcome(name, outcome, unit, casesDir) {
+// unit's issue, split, kind, and round, or `rejected` with a reason letter of C3. `ambiguous` is true when the draw
+// holds another unit of the same issue, split, kind, and round in another cycle: then the case must record the cycle.
+function checkOutcome(name, outcome, unit, casesDir, ambiguous) {
   const where = `outcome ${name}`;
   if (outcome === null || typeof outcome !== 'object' || Array.isArray(outcome)) fail(`${where} holds no object`);
   const extra = Object.keys(outcome).filter((key) => !OUTCOME_FIELDS.has(key));
@@ -465,16 +466,19 @@ function checkOutcome(name, outcome, unit, casesDir) {
     const caseData = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (caseData.id !== outcome.case || caseData.issue !== unit.issue || caseData.split !== unit.split)
       fail(`${where}: case ${outcome.case} is not a ${unit.split} case of issue #${unit.issue}`);
-    // The case reviews the missed round of the unit: its kind, its round, and its cycle when the case records one.
-    if (
-      caseData.kind !== unit.kind ||
-      caseData.round !== unit.missed_round ||
-      (Object.hasOwn(caseData, 'cycle') && caseData.cycle !== unit.cycle)
-    ) {
+    // The case reviews the missed round of the unit: its kind and its round.
+    if (caseData.kind !== unit.kind || caseData.round !== unit.missed_round) {
       fail(
         `${where}: case ${outcome.case} is a ${caseData.kind} case of round ${caseData.round}, not the ${unit.kind} round ${unit.missed_round} of the unit`,
       );
     }
+    // And its cycle: a case that records one must match, and a round that two cycles share needs one.
+    if (Object.hasOwn(caseData, 'cycle') && caseData.cycle !== unit.cycle)
+      fail(`${where}: case ${outcome.case} is a case of cycle ${caseData.cycle}, not cycle ${unit.cycle} of the unit`);
+    if (ambiguous && !Object.hasOwn(caseData, 'cycle'))
+      fail(
+        `${where}: case ${outcome.case} records no cycle, and the draw has this round in more than one cycle; give the case "cycle": ${unit.cycle}`,
+      );
   } else if (outcome.outcome === 'rejected') {
     if (outcome.case !== undefined && outcome.case !== null) fail(`${where}: a rejected unit has no case`);
     if (!Object.hasOwn(REASONS, outcome.reason)) fail(`${where}: a rejected unit needs a reason letter a to e`);
@@ -495,6 +499,9 @@ export function applyOutcomes({ recordText, manifestText, files, casesDir = SKIL
   if (frozenManifest.match(FROZEN_HASH_LINE)?.[1] !== frozenHash)
     fail('the manifest names another frozen record than this record');
   const order = new Map(record.frozen.units.map((unit, index) => [unit.id, index]));
+  const identity = (unit) => [unit.issue, unit.split, unit.kind, unit.missed_round].join('|');
+  const identities = new Map();
+  for (const unit of record.frozen.units) identities.set(identity(unit), (identities.get(identity(unit)) ?? 0) + 1);
   const decided = new Map();
   // Each case stands for one unit, so no two units name one case.
   const cases = new Map();
@@ -504,7 +511,8 @@ export function applyOutcomes({ recordText, manifestText, files, casesDir = SKIL
     if (!order.has(id)) fail(`outcome ${name} names no unit of the draw: ${JSON.stringify(id)}`);
     if (name !== `${id}.json`) fail(`outcome ${name} must be named ${id}.json`);
     if (decided.has(id)) fail(`unit ${id} has two outcome files`);
-    checkOutcome(name, outcome, record.frozen.units[order.get(id)], casesDir);
+    const unit = record.frozen.units[order.get(id)];
+    checkOutcome(name, outcome, unit, casesDir, identities.get(identity(unit)) > 1);
     if (outcome.outcome === 'taken') {
       const key = `${outcome.split}/${outcome.case}`;
       if (cases.has(key)) fail(`case ${outcome.case} is named by units ${cases.get(key)} and ${id}`);

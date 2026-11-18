@@ -9362,7 +9362,10 @@ test('a match that the first judge adds after the second judge answered its samp
   assert.match(notWorse(), /^pass \(capital /);
 });
 
-test('power prints the noise, the neutral-data limit, the corpus cases per reviewer, and a seeded size table', (t) => {
+// The seeded power simulation takes about 2 s alone and more on a loaded runner, so the 5 s default timeout of bun is too short.
+test('power prints the noise, the neutral-data limit, the corpus cases per reviewer, and a seeded size table', {
+  timeout: 60_000,
+}, (t) => {
   // B3 escapes D1 in code-1 and its control copy AB3 in code-2, so the differences of AB3 are -1, 1, 0, and 0.
   const root = scratch(t);
   const ws = path.join(root, 'ws');
@@ -10345,6 +10348,26 @@ test('plan cases validate seeded as a boolean while code cases use patch', () =>
   });
 });
 
+test('a case may record the review cycle of its round as a positive integer', () => {
+  const code = {
+    id: 'code-5',
+    kind: 'code',
+    split: 'dev',
+    issue: 5,
+    round: 2,
+    plan: 'p.md',
+    base: 'a',
+    head: 'b',
+    known: [],
+  };
+  assert.equal(prepare.validateCase({ ...code, cycle: 2 }).cycle, 2);
+  for (const cycle of [0, 1.5, '2', null]) {
+    assert.throws(() => prepare.validateCase({ ...code, cycle }), {
+      message: 'case code-5: cycle must be a positive integer',
+    });
+  }
+});
+
 test('the seeded-share report counts seeded plan cases and keeps older plan status unknown', (t) => {
   const ws = path.join(scratch(t), 'ws');
   const runs = [...singleRuns('B0', 2, 1, () => true), ...singleRuns('C1', 2, 1, () => true)];
@@ -10773,11 +10796,13 @@ test('escape outcomes refuse a case of another kind, round, or cycle, and a case
   heldCase('code-10-c2-r1', { cycle: 2 });
   heldCase('code-10-c1-r1', { cycle: 1 });
   const taken = (id) => fixture.outcome(held1, { outcome: 'taken', case: id });
-  for (const id of ['code-10-r2', 'plan-10-r1', 'code-10-c2-r1']) {
+  for (const id of ['code-10-r2', 'plan-10-r1']) {
     assert.throws(() => apply([taken(id)]), { message: /is a (code|plan) case of round \d, not the code round 1/ }, id);
   }
+  assert.throws(() => apply([taken('code-10-c2-r1')]), { message: /is a case of cycle 2, not cycle 1 of the unit/ });
+  // One cycle holds this round, so a case without a cycle, or with the right one, stands for the unit.
   assert.equal(apply([taken('code-10-c1-r1')]).outcomes.length, 1);
-  // Two cycles give two units of the same issue, kind, and round; one case without a cycle cannot stand for both.
+  // Two cycles give two units of the same issue, kind, and round: then each case must record its cycle.
   const root = scratch(t);
   const source = escapeFixture();
   source.repository.issues = [];
@@ -10806,9 +10831,31 @@ test('escape outcomes refuse a case of another kind, round, or cycle, and a case
       [1, 2],
     ],
   );
-  const bodies = cycles.map((unit) => fixture.outcome(unit, { outcome: 'taken', case: 'code-10-r1' }));
-  assert.throws(() => apply(bodies, readText(record), readText(manifest)), {
-    message: `case code-10-r1 is named by units ${cycles[0].id} and ${cycles[1].id}`,
+  const outcomesOf = (caseIds) =>
+    cycles.map((unit, index) => fixture.outcome(unit, { outcome: 'taken', case: caseIds[index] }));
+  const [first, second] = cycles;
+  assert.throws(() => apply(outcomesOf(['code-10-r1', 'code-10-r1']), readText(record), readText(manifest)), {
+    message: `outcome ${first.id}.json: case code-10-r1 records no cycle, and the draw has this round in more than one cycle; give the case "cycle": 1`,
+  });
+  // Swapped cycles are refused; matching cycles are accepted.
+  assert.throws(() => apply(outcomesOf(['code-10-c2-r1', 'code-10-c1-r1']), readText(record), readText(manifest)), {
+    message: /is a case of cycle 2, not cycle 1 of the unit/,
+  });
+  assert.equal(
+    apply(outcomesOf(['code-10-c1-r1', 'code-10-c2-r1']), readText(record), readText(manifest)).outcomes.length,
+    2,
+  );
+  // A case named by two units is refused. The draw gives each unit its own cycle and round, so this needs a record that
+  // holds two units with one identity.
+  const twin = { ...first, id: `${first.id}-twin`, cycle: second.cycle };
+  const crafted = { frozen: { units: [{ ...first, cycle: 2 }, twin] }, outcomes: [] };
+  const craftedText = escapes.frozenJson(crafted);
+  const craftedManifest = `- Restricted frozen record SHA-256: ${createHash('sha256').update(escapes.frozenJson(crafted.frozen)).digest('hex')}\n`;
+  const twinOutcomes = crafted.frozen.units.map((unit) =>
+    fixture.outcome(unit, { outcome: 'taken', case: 'code-10-c2-r1' }),
+  );
+  assert.throws(() => apply(twinOutcomes, craftedText, craftedManifest), {
+    message: `case code-10-c2-r1 is named by units ${first.id} and ${twin.id}`,
   });
 });
 

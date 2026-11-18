@@ -419,6 +419,9 @@ export function validateCase(caseData) {
   if (Object.hasOwn(caseData, 'show_benchmark') && typeof caseData.show_benchmark !== 'boolean') {
     fail(`case ${id}: show_benchmark must be true or false`);
   }
+  // The review cycle of the round, for an escape case whose round number repeats in another cycle of its plan.
+  if (Object.hasOwn(caseData, 'cycle') && (!Number.isInteger(caseData.cycle) || caseData.cycle < 1))
+    fail(`case ${id}: cycle must be a positive integer`);
   if (Object.hasOwn(caseData, 'seeded')) {
     if (!isPlanKind(kind)) fail(`case ${id}: only plan cases take seeded; code cases use patch`);
     if (typeof caseData.seeded !== 'boolean') fail(`case ${id}: seeded must be true or false`);

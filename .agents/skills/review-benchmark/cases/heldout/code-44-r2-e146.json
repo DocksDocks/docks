@@ -4,6 +4,7 @@
   "split": "heldout",
   "issue": 44,
   "round": 2,
+  "cycle": 1,
   "base": "996db4197b56680d628b889bd636ce2817a796b5",
   "head": "8a7c47419ab9e9729ef83fda27d7aa4dc6a201db",
   "plan": "code-44-r2-e146-plan.md",
