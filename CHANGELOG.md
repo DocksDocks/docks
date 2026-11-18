@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-11-18 - docks-kit 0.22.28: Codex pin moves to GPT-6.2 Sol
+
+### Changed
+
+- `SoT/.codex/config.toml` pins Codex to `gpt-6.2-sol` instead of
+  `gpt-6.1-sol`. The reasoning settings are unchanged. The project Codex
+  reviewer agents (`.codex/agents/plan-reviewer.toml` and
+  `code-reviewer.toml`) use the same model.
+- The curated Codex model list in `SoT/models.json` (verified 2026-11-18)
+  starts with `gpt-6.2-sol` and adds `gpt-6.2-astra`. It keeps `gpt-6.1-sol`
+  and `gpt-6-astra` as the previous releases, because the list is the
+  fallback when the live Codex list is unavailable and a user pin can still
+  name them.
+- The kit did not run Codex against `gpt-6.2-sol`, because the Codex CLI is
+  not installed on the release machine. OpenAI's Codex model page lists the
+  model, and omp served it through the `openai-codex` provider on 2026-11-18.
+- The `bun audit` and macOS CI failures on the 0.22.26 and 0.22.27 pull
+  requests needed no code change: GitHub withdrew GHSA-fc5q-39xc-vjpf, and the
+  macOS runner was unavailable for a time.
+
 ## 2026-11-18 - docks-kit 0.22.27: omp roles move to GPT-6.2 Sol and GPT-6.2 Astra
 
 ### Changed
