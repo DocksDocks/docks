@@ -1451,3 +1451,50 @@ With `--reviewer plan-reviewer` (the 44 held-out `plan-reviewer` cases, with the
 - The size table agrees with the research of the plan: about 48 cases at 2 runs and 45 at 4 runs at margin 4. The 23 held-out `code-reviewer` cases are below the neutral-data limit, and the 44 `plan-reviewer` cases are just below the 80% line at margin 4 even with 4 runs.
 - `score.mjs` cuts the bet of the not-worse side at 0.9 / (1 - m), as Waudby-Smith and Ramdas do, so one case keeps at least 0.1 of the capital. At margin 4, cases without a difference then pass from 40 cases, and cases with e = -1 from 5 cases; the unit tests pin both counts. The research simulation of the plan cut that side at 0.9 / m, which gives capitals of about 10.2 for 36 cases without a difference and 13.0 for 4 cases with e = -1.
 - Limits: the detection rates come from the 30 defects of 12 dev code cases. The simulation applies them to the plan cases too [INFERENCE: plan detection rates are like code detection rates].
+
+## Run 2026-11-18: plan #146 corpus growth
+
+Plan DocksDocks/docks#146 grew the held-out corpus to the decision floor of 48 cases with known defects for each reviewer. It drew production escapes first, by the rules C1 to C9 of `SKILL.md` (Cases), and filled the remaining `code-reviewer` gap with seeded cases (C6). No reviewer ran on a candidate.
+
+### Draw
+
+From the frozen part of `cases/escape-draw.md`:
+
+- Cutoff (exclusive): 2026-11-18T03:58:00.000Z
+- Seed: `146-2026-11-18-2`
+- Script commit of `escapes.mjs`: `841e5a0752721613e45b496708e079b5687f6309`
+- Source snapshot SHA-256: `9f8de17b39e9cf2d103e564cb552b80462a438c72ae356690316465d94bbb22b`
+- Restricted frozen record SHA-256: `e7a620cb461847c000aa6cf3a108f5b2792f1ddac191fe27dc3110e35855dcb9`
+- Units: 20 dev (8 `code`, 4 `code-delta`, 6 `plan`, 2 `plan-delta`) and 35 held-out (14 `code`, 8 `code-delta`, 9 `plan`, 4 `plan-delta`).
+
+### Outcomes
+
+From the `## Outcomes` section of the manifest. Reasons (C3): (a) the finding is on lines that the missed round did not see; (b) no later round confirms the fix; (c) the base, head, or plan body of the round cannot be rebuilt; (d) a case for the round existed before the cutoff; (e) a follow-up item that is no defect of this plan.
+
+| Split | Units | Taken | Rejected (a) | Rejected (b) | Rejected (c) | Rejected (d) | Rejected (e) | Pending |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| dev | 20 | 5 | 5 | 0 | 0 | 9 | 1 | 0 |
+| heldout | 35 | 16 | 15 | 0 | 0 | 4 | 0 | 0 |
+
+The manifest gives each dev outcome in full. Seeded cases (C6): 13 new held-out `code` cases, with 37 planted known defects in all, 2 or 3 per case. No seeded plan case was needed.
+
+### Corpus
+
+`node .agents/skills/review-benchmark/scripts/score.mjs corpus --cases .agents/skills/review-benchmark/cases --keys <keys folder>`:
+
+| Reviewer | Split | Cases with known defects | Distinct plans |
+|---|---|---:|---:|
+| code-reviewer | dev | 18 | 11 |
+| code-reviewer | held-out | 48 | 30 |
+| plan-reviewer | dev | 20 | 11 |
+| plan-reviewer | held-out | 48 | 38 |
+
+- Seeded share of the held-out `code-reviewer` cases with known defects: 21 of 48 (0.44), the 8 earlier seeded cases and the 13 new ones. A code case is seeded when its `patch` plants its defects.
+- Seeded share of the held-out `plan-reviewer` cases with known defects: no new plan case is seeded, and the 4 new ones carry `seeded: false`. The 44 earlier plan cases do not carry the field, so the report gives `-` for a table that includes them.
+
+### Limits
+
+- C9 exception of this draw: the manager and the case builder read the candidates of the first draw before the follow-up rule of `escapes.mjs` was fixed, and the rule that gives each follow-up item to one plan was written after that reading. No unit was chosen by its outcome, but this draw does not keep the full rule that no candidate is read before the draw is fixed. Later draws keep the full rule.
+- Assumption S has two known limits (C4): the cases of one plan are related rounds and need not be independent draws (30 and 38 distinct plans hold the 48 cases of each reviewer), and the 12 plans that are in both splits stay there, because the held-out set is frozen.
+- No new `power` table: `score.mjs power` needs an A/A workspace, and the size table waits for the first A/A pilot on the grown corpus. The table of the plan #135 pilot assumed the detection rates of its dev code cases.
+- The held-out keys, the source snapshot, and the restricted draw record stay in the keys folder (`$XDG_STATE_HOME/docks/review-bench/keys/`), outside the repository, until the first decision on the new held-out set. A later plan then publishes them, and the hashes above make them checkable.
