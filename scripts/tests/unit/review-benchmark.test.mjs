@@ -8978,18 +8978,26 @@ test('the report prints the batch drift of each A/A control arm with the two-sid
   assert.equal(withoutControl.includes('## Batch drift'), false);
 });
 
-// The run plan of the cases `caseIds` with the arm folders `folders` ([folder, configuration name]) and the runs 1 to
-// `runs` each, as readRunPlan reads it from the folders that prepare.mjs wrote.
-const runPlanOf = (caseIds, folders, runs, split = 'dev') =>
+// The keys of a run-plan.json for the cases `caseIds`, the arms and configurations `arms` ([arm, configuration name])
+// and the runs 1 to `runs` of each, one run per look, as `prepare.mjs case --sequential` writes them.
+const runPlanOf = (caseIds, arms, runs, split = 'dev') =>
   caseIds.flatMap((caseId) =>
-    folders.map(([folder, config]) => ({
-      case: caseId,
-      split,
-      folder,
-      config,
-      runs: Array.from({ length: runs }, (_, index) => index + 1),
-    })),
+    arms.flatMap(([arm, config]) =>
+      Array.from({ length: runs }, (_, index) => ({
+        case: caseId,
+        split,
+        arm,
+        folder: `${arm}-${config}`,
+        config,
+        run: index + 1,
+        look: index + 1,
+      })),
+    ),
   );
+const B0_C1 = [
+  ['B0', 'xhigh-fast'],
+  ['C1', 'xhigh-fast'],
+];
 const caseIdsOf = (count) => Array.from({ length: count }, (_, index) => `code-${index + 1}`);
 // The cells of the rows of a sequential table.
 const lookRows = (report, split = 'dev') =>
@@ -8999,11 +9007,7 @@ const lookRows = (report, split = 'dev') =>
 
 test('each sequential look runs the betting test at the error that it spends, with the threshold 1 / error', (t) => {
   const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
-  const runPlan = runPlanOf(
-    caseIdsOf(60),
-    arms.map((folder) => [folder, 'xhigh-fast']),
-    4,
-  );
+  const runPlan = runPlanOf(caseIdsOf(60), B0_C1, 4);
   const looks = (candidate, reference, options = { sequential: true }) => {
     const fixture = gridFixture(oneKnownCases(60), [
       ...singleRuns('B0', 60, 4, reference),
@@ -9067,21 +9071,32 @@ test('each sequential look runs the betting test at the error that it spends, wi
       ['4', '-50.00', 'after the stop at look 1', 'after the stop at look 1'],
     ],
   );
-  // The command line takes --sequential as a switch with --reference and --margin, and reads the run plan from the
-  // run folders of the workspace.
+  // The command line takes --sequential as a switch with --reference and --margin. The workspace has no
+  // run-plan.json, so no look decides.
   const ws = path.join(scratch(t), 'ws');
   const cliRuns = [...singleRuns('B0', 12, 2, always), ...singleRuns('C1', 12, 2, always)];
   writeFixture(ws, gridFixture(oneKnownCases(12), cliRuns));
   const cli = ['report', ws, '--arms', arms.join(','), '--reference', 'B0-xhigh-fast'];
   assert.equal(main([...cli, '--sequential', '--margin', '4']), 'report.md: 48 runs');
-  assert.equal(tableAfter(readText(path.join(ws, 'report.md')), '### Sequential looks: dev').length, 4);
+  const noFile = lookRows(readText(path.join(ws, 'report.md')));
+  assert.deepEqual(
+    noFile.map((row) => [row[1], row[11], row[12]]),
+    [
+      ['1', 'incomplete look (no run-plan.json)', 'incomplete look (no run-plan.json)'],
+      ['2', 'incomplete look (no run-plan.json)', 'incomplete look (no run-plan.json)'],
+    ],
+  );
   assert.throws(() => main([...cli, '--sequential']), {
     message: 'report --sequential needs --reference and --margin',
   });
-  const noPlan = scoreRuns(gridFixture(oneKnownCases(12), cliRuns));
-  assert.throws(() => renderReport(noPlan, { arms, reference: arms[0], margin: 4, sequential: true }), {
-    message: 'report --sequential needs the run plan of the workspace (the case, arm, and run folders of prepare.mjs)',
+  // Scores without a run plan hold every look too.
+  const noPlan = renderReport(scoreRuns(gridFixture(oneKnownCases(12), cliRuns)), {
+    arms,
+    reference: arms[0],
+    margin: 4,
+    sequential: true,
   });
+  assert.ok(lookRows(noPlan).every((row) => row[11] === 'incomplete look (no run-plan.json)'));
 });
 
 test('a sequential look decides only when each run of the run plan has a valid run', (t) => {
@@ -9094,11 +9109,7 @@ test('a sequential look decides only when each run of the run plan has a valid r
   const fixture = gridFixture(oneKnownCases(60), runs);
   fixture.metas['code-9/B0-xhigh-fast/run-2'].reviewers = {};
   const arms = ['B0-xhigh-fast', 'C1-xhigh-fast'];
-  const runPlan = runPlanOf(
-    caseIdsOf(60),
-    arms.map((folder) => [folder, 'xhigh-fast']),
-    4,
-  );
+  const runPlan = runPlanOf(caseIdsOf(60), B0_C1, 4);
   const scores = { ...scoreRuns(fixture), runPlan };
   const invalidRun = scores.runs.find(
     (run) => run.case === 'code-9' && run.arm === 'B0-xhigh-fast' && run.run === 'run-2',
@@ -9135,9 +9146,9 @@ test('a sequential look decides only when each run of the run plan has a valid r
   const configPlan = runPlanOf(
     caseIdsOf(60),
     [
-      ['B0-xhigh-fast', 'xhigh-fast'],
-      ['B0-high', 'high'],
-      ['C1-high', 'high'],
+      ['B0', 'xhigh-fast'],
+      ['B0', 'high'],
+      ['C1', 'high'],
     ],
     2,
   );
@@ -9155,19 +9166,40 @@ test('a sequential look decides only when each run of the run plan has a valid r
       ['high', '2', 'incomplete look (code-5 C1-high run-2)'],
     ],
   );
-  // On a workspace, report reads the run plan from the run folders that prepare.mjs wrote: here the run folder of
-  // code-3/C1-xhigh-fast/run-2 exists without a run of the scores, so look 2 is incomplete.
+  // A run without a configuration in its meta.json holds the look, also when the plan has a key for it.
+  const singles = [...singleRuns('B0', 12, 1, always), ...singleRuns('C1', 12, 1, always)];
+  const unconfigured = gridFixture(oneKnownCases(12), singles);
+  delete unconfigured.metas['code-4/C1-xhigh-fast/run-1'].config;
+  const unconfiguredReport = renderReport(
+    { ...scoreRuns(unconfigured), runPlan: runPlanOf(caseIdsOf(12), B0_C1, 1) },
+    { arms, reference: arms[0], margin: 4, sequential: true },
+  );
+  const noConfig = 'incomplete look (code-4 C1-xhigh-fast run-1 has no configuration)';
+  assert.equal(lookRows(unconfiguredReport)[0][11], noConfig);
+  // On a workspace, report reads the keys of run-plan.json only. C1 has no arm folder in code-7 and no run 2 of
+  // code-3; the plan expects both, so look 1 and look 2 are incomplete.
   const ws = path.join(scratch(t), 'ws');
   const cliRuns = [...singleRuns('B0', 12, 2, always), ...singleRuns('C1', 12, 2, always)];
-  const cliFixture = gridFixture(
-    oneKnownCases(12),
-    cliRuns.filter((run) => !(run.arm === 'C1' && run.case === 'code-3' && run.run === 2)),
-  );
-  writeFixture(ws, cliFixture);
-  put(ws, 'code-3/C1-xhigh-fast/run-2/meta.json', { config: CONFIGS['xhigh-fast'] });
+  const skipped = (run) => run.arm === 'C1' && (run.case === 'code-7' || (run.case === 'code-3' && run.run === 2));
+  const kept = cliRuns.filter((run) => !skipped(run));
+  writeFixture(ws, gridFixture(oneKnownCases(12), kept));
+  assert.equal(fs.existsSync(path.join(ws, 'code-7', 'C1-xhigh-fast')), false);
+  put(ws, 'run-plan.json', { keys: runPlanOf(caseIdsOf(12), B0_C1, 2) });
   main(['report', ws, '--arms', arms.join(','), '--reference', arms[0], '--margin', '4', '--sequential']);
-  const cliRows = lookRows(readText(path.join(ws, 'report.md')));
-  assert.equal(cliRows[1][11], 'incomplete look (code-3 C1-xhigh-fast run-2)');
+  assert.deepEqual(
+    lookRows(readText(path.join(ws, 'report.md'))).map((row) => row[11]),
+    [
+      'incomplete look (code-7 C1-xhigh-fast run-1)',
+      'incomplete look (code-3 C1-xhigh-fast run-2, code-7 C1-xhigh-fast run-1, code-7 C1-xhigh-fast run-2)',
+    ],
+  );
+  // A run that the plan does not name holds the look too.
+  put(ws, 'run-plan.json', { keys: runPlanOf(caseIdsOf(12), B0_C1, 2).filter((key) => key.case !== 'code-1') });
+  main(['report', ws, '--arms', arms.join(','), '--reference', arms[0], '--margin', '4', '--sequential']);
+  assert.match(
+    lookRows(readText(path.join(ws, 'report.md')))[0][11],
+    /^incomplete look \(code-1 B0-xhigh-fast run-1 not in run-plan\.json, code-1 C1-xhigh-fast run-1 not in run-plan\.json, code-7 C1-xhigh-fast run-1\)$/,
+  );
 });
 
 test('a deciding report holds its decisions until the second judge answers every item of its sample', (t) => {
@@ -9194,7 +9226,8 @@ test('a deciding report holds its decisions until the second judge answers every
   put(ws, 'judgments-second.json', { matches: [answer(sample.pairs[0])] });
   main(cli);
   assert.deepEqual(cells(), ['second judge incomplete (1 of 80)', 'second judge incomplete (1 of 80)']);
-  // The sequential looks wait for the second judge too.
+  // The sequential looks wait for the second judge too, also with a complete run plan.
+  put(ws, 'run-plan.json', { keys: runPlanOf(caseIdsOf(40), B0_C1, 1) });
   main([...cli, '--sequential']);
   const look = tableAfter(readText(path.join(ws, 'report.md')), '### Sequential looks: dev')[2];
   assert.match(look, /\| second judge incomplete \(1 of 80\) \|$/);
@@ -9547,6 +9580,24 @@ test('case --sequential builds look 1 and adds one run per look up to 4, also to
     // Each run of the overlay arm gets a contract copy of its own.
     assert.equal(readText(path.join(caseDir, 'Va-low', `run-${run}`, 'plan-contract.md')), '# Plan contract A\n');
   }
+  // Each look records its keys in run-plan.json before it writes its runs, and keeps the keys of the earlier looks.
+  const planFile = path.join(ws, 'run-plan.json');
+  const split = readJson(options('plan-3', 'P1').case).split ?? null;
+  assert.deepEqual(
+    readJson(planFile).keys,
+    [1, 2, 3, 4].flatMap((run) =>
+      ['P1', 'AP1', 'Va'].map((arm) => ({
+        case: 'plan-3',
+        split,
+        arm,
+        folder: `${arm}-low`,
+        config: 'low',
+        run,
+        look: run,
+      })),
+    ),
+  );
+  assert.deepEqual(score.readRunPlan(ws), readJson(planFile).keys);
   // A sequential decision takes at most 4 looks.
   assert.throws(() => look(), { message: `${caseDir} holds 4 looks, the most that a sequential decision takes` });
   assert.throws(() => look('P1,AP1,Va', { runs: '2' }), {
@@ -9562,10 +9613,24 @@ test('case --sequential builds look 1 and adds one run per look up to 4, also to
   assert.throws(() => prepare.prepareCase({ ...fresh('plan-4'), arms: 'P0' }, repo), {
     message: `${path.join(other, 'P0-low')} does not exist; case --sequential adds a look to the arm folders of the first look, so give the arms and configurations of that look`,
   });
+  // A later look needs the arm folders that run-plan.json plans for the earlier look; a look of fewer arms would leave
+  // the keys of the others without runs, so the call refuses it and keeps the file.
+  const planText = readText(planFile);
+  assert.throws(() => prepare.prepareCase({ ...fresh('plan-4'), arms: 'Pd' }, repo), {
+    message: `${planFile} plans look 1 of plan-4 for the arm folders Pd-low, V16-low; case --sequential adds look 2 for the same arm folders, not Pd-low`,
+  });
+  assert.equal(readText(planFile), planText);
+  assert.equal(fs.existsSync(path.join(other, 'Pd-low', 'run-2')), false);
   fs.cpSync(path.join(other, 'V16-low', 'run-1'), path.join(other, 'V16-low', 'run-2'), { recursive: true });
   assert.throws(() => prepare.prepareCase(fresh('plan-4'), repo), {
     message: `the arm folders of ${other} hold different numbers of runs: 1, 2`,
   });
+  // A first look plans a case once: a new case folder of a case that run-plan.json plans is refused.
+  fs.rmSync(other, { recursive: true });
+  assert.throws(() => prepare.prepareCase(fresh('plan-4'), repo), {
+    message: `${planFile} already plans plan-4; a first look plans a case once, so choose another --out`,
+  });
+  assert.equal(readText(planFile), planText);
   // An A/A control copy of a control copy is no arm.
   assert.throws(() => prepare.prepareCase(options('plan-5', 'AAP1'), repo), {
     message: 'arm AAP1 does not apply to plan cases; use P0, P1, V16, Va',

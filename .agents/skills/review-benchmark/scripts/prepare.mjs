@@ -40,7 +40,9 @@ import {
   MANAGER_NAME,
   MANAGER_VERDICTS,
   MAX_LOOKS,
+  RUN_PLAN,
   readKnown,
+  readRunPlan,
   reviewerPluginRoots,
   runLabel,
   SELF_REVIEW_AGENT_PREFIX,
@@ -1057,6 +1059,46 @@ function nextLook(caseDir, armDirs) {
   return looks[0] + 1;
 }
 
+// The run plan after a `case --sequential` call that writes the runs `firstRun` to `lastRun` of the arms `arms` at the
+// configurations `configs` for the case `caseData`, in the workspace `ws`: `file` (`<ws>/run-plan.json`), its text
+// before the call (`previous`, null without the file), and `keys`, the keys of the file and one key per case, arm,
+// configuration, and run (see score.mjs readRunPlan; one run per look, so a run has its own look). The update keeps
+// every earlier key. It refuses a first look of a case that the file plans, and a later look of a case whose earlier
+// looks the file does not plan with the same arm folders: such a look would leave the earlier keys without runs.
+function runPlanUpdate(ws, { caseData, arms, configs, firstRun, lastRun }) {
+  const file = path.join(ws, RUN_PLAN);
+  const previous = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  const earlier = fromScore(() => readRunPlan(ws)) ?? [];
+  const additions = configs.flatMap((config) =>
+    arms.flatMap((arm) =>
+      Array.from({ length: lastRun - firstRun + 1 }, (_, index) => ({
+        case: caseData.id,
+        split: caseData.split ?? null,
+        arm,
+        folder: armFolder(arm, config.name),
+        config: config.name,
+        run: firstRun + index,
+        look: firstRun + index,
+      })),
+    ),
+  );
+  const ofCase = earlier.filter((key) => key.case === caseData.id);
+  const folders = (keys) => [...new Set(keys.map((key) => key.folder))].sort();
+  if (firstRun === 1 && ofCase.length) {
+    fail(`${file} already plans ${caseData.id}; a first look plans a case once, so choose another --out`);
+  }
+  if (firstRun > 1) {
+    const before = folders(ofCase.filter((key) => key.look === firstRun - 1));
+    const now = folders(additions);
+    if (before.join(',') !== now.join(',')) {
+      fail(
+        `${file} plans look ${firstRun - 1} of ${caseData.id} for the arm folders ${before.join(', ') || 'none'}; case --sequential adds look ${firstRun} for the same arm folders, not ${now.join(', ')}`,
+      );
+    }
+  }
+  return { file, previous, keys: [...earlier, ...additions] };
+}
+
 // The `case` command. `repo` is the git repository of the case commits. With `loop`, each run starts a review loop
 // in `run-<k>/round-1/`, whose mode the round policy of the arm picks, and the meta.json of the run records that
 // policy. `prepareLoop` builds the later rounds with the policy that this meta.json records. With `extend`, the case
@@ -1122,6 +1164,10 @@ export function prepareCase(options, repo) {
     if (existing) fail(`${existing} exists; leave its arm out of --arms`);
   }
   const lastRun = firstRun + runs - 1;
+  // A sequential decision records the keys of its runs in run-plan.json before it writes them (see runPlanUpdate).
+  const planUpdate = options.sequential
+    ? runPlanUpdate(path.resolve(options.out), { caseData, arms, configs, firstRun, lastRun })
+    : null;
   const sources = caseSources(caseData, path.dirname(casePath), keys);
   const commits = caseCommits(repo, caseData);
   const hidden = hiddenPathspec(repo, caseData);
@@ -1137,6 +1183,7 @@ export function prepareCase(options, repo) {
   // then writes it and removes it again when it stops.
   const addBase = extending && !isPlanKind(caseData.kind) && !fs.existsSync(paths.baseInstructions);
   try {
+    if (planUpdate) writeJson(planUpdate.file, { keys: planUpdate.keys });
     let tree = null;
     if (!extending) {
       tree = buildCaseWorkspace({ repo, caseData, commits, hidden, casePath, sources, caseDir, paths });
@@ -1199,6 +1246,9 @@ export function prepareCase(options, repo) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
     removeIfEmpty(judgeContracts);
+    // The run plan goes back to its content before this call.
+    if (planUpdate?.previous === null) fs.rmSync(planUpdate.file, { force: true });
+    else if (planUpdate) fs.writeFileSync(planUpdate.file, planUpdate.previous);
     throw error;
   }
   const prompts = runFolders.reduce((sum, run) => sum + run.prompts.length, 0);
