@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "0e3c03a076df40e28db4095313bca49e409569bbb705a2a7ba466d338436b5b7"
+  content_hash: "e248e20ab14768e5d23cdd51aa45bff4af05333a86266f4fbcd369decd8e8c3c"
 ---
 
 # Yolo
@@ -110,9 +110,11 @@ To adopt a plan:
 2. Export the plan. Add the yolo delegation line to Goal when it is missing.
    When Goal has a live `Delegated:` line, replace that line with the yolo
    line, so Goal keeps exactly one delegation line. Set
-   `Mode: plan-and-implement`, and publish that edit with `edit` at once. It
-   needs no plan-review round, as the contract's Phases and review comments
-   says.
+   `Mode: plan-and-implement`, and publish that edit with `edit` at once. An
+   edit that only sets the Mode line or adds the yolo line needs no
+   plan-review round, as the contract's Phases and review comments says.
+   After `plan=pass`, a replaced `Delegated:` line needs that round; the
+   helper advises it.
 3. Post the grant event of this invocation, `Delegation grant: yolo: <quote>`,
    as the contract's Authority events says.
 4. Run the Grant check: `show <n>` now reads
