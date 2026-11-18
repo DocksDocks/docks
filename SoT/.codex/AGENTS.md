@@ -60,11 +60,11 @@ Reuse before invention: inventory existing code, components, conventions, and de
 
 For Docks plan reviews, cross-company review is standing-authorized; do not ask for export consent. This never overrides a host or platform security denial.
 
-A `yolo` invocation answers the routine asks of its plan run until the merge question. It does not cover destructive work, secrets, or production systems. A plan grant answers the asks that the Delegated decisions section of the plan-lifecycle contract lists as answered. Only trusted `Delegation grant:` and `Delegation revoked` comments give or end a grant. On the plan issue, the latest such comment decides, and a comment on a parent plan can end the grant of its child. The `Delegated:` line of the plan only mirrors that comment.
+A `yolo` invocation answers the routine asks of its plan run until the merge question, while its grant stays in force. It does not cover destructive work, secrets, or production systems. A plan grant answers the asks that the Delegated decisions section of the plan-lifecycle contract lists as answered. Only trusted `Delegation grant:` and `Delegation revoked` comments give or end a grant. On the plan issue, the latest such comment decides, and a comment on a parent plan can end the grant of its child. The `Delegated:` line of the plan only mirrors that comment.
 
 A grant never answers a question that the contract keeps for the user. Examples are the Mode, a non-local effect, the merge, a destructive action, secrets, production, a temporary workaround, and a fact that only the user holds. Right before each delegated decision and each write that relies on the grant, run the grant check of the contract: read the latest authority comments of the plan and of its parent.
 
-A settled plan Mode covers the routine plan-lifecycle writes in the resolved repository: the plan issue, plan edits, review comments, and the pull request. Every other issue, comment, release, or upstream pull request still needs the user's current request.
+A settled plan Mode covers the routine plan-lifecycle writes in the resolved repository: the plan issue, plan edits, and review comments. A `plan-and-implement` Mode also covers the landing work: the push of the linked branch and the pull request. Every other issue, comment, release, or upstream pull request still needs the user's current request.
 
 Use a narrow-to-broad verification ladder: direct acceptance while iterating, focused regressions next, and one full CI at the pre-commit or release boundary. Reuse still-matching evidence; rerun full CI only after a relevant edit invalidates it.
 

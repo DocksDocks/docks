@@ -17,15 +17,18 @@
   holds (#172).
 - The rules also say that a settled plan Mode covers the routine
   plan-lifecycle writes in the resolved repository: the plan issue, plan
-  edits, review comments, and the pull request. Before this change, the omp
-  ask list asked before every issue or comment, so a literal reading asked
-  before each review comment. Every other issue, comment, release, or
-  upstream pull request still needs an ask.
-- The Codex and Claude rules now carry the `yolo` sentence of the omp rules:
-  a `yolo` invocation answers the routine asks of its plan run until the merge
-  question, and never covers destructive work, secrets, or production systems.
-  Their rule that treats probe, production access, publish, push, release,
-  and deploy as literal current-request effects is unchanged.
+  edits, and review comments. A `plan-and-implement` Mode also covers the
+  landing work: the push of the linked branch and the pull request. Before
+  this change, the omp ask list asked before every issue or comment, so a
+  literal reading asked before each review comment. Every other issue,
+  comment, release, or upstream pull request still needs an ask.
+- The Codex and Claude rules now carry the `yolo` sentence of the omp rules,
+  and all three files limit it to a grant in force: a `yolo` invocation
+  answers the routine asks of its plan run until the merge question, while
+  its grant stays in force, and never covers destructive work, secrets, or
+  production systems. The Codex and Claude rule that treats probe,
+  production access, publish, push, release, and deploy as literal
+  current-request effects is unchanged.
 
 ## 2026-11-16 - docks-kit 0.22.25: omp file-removal rule teaches the git folder form
 
