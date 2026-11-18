@@ -201,7 +201,7 @@ test('a child grant with a Parent event link holds only while that event is the 
   assert.equal(grantLine(context, urlLink), `grant: ended by parent #${parent} comment ${newGrant}`);
 });
 
-test('a child grant without a Parent event link ends only at a newer parent event', (t) => {
+test('a child grant without a Parent event link ends at a parent event that is not older', (t) => {
   const context = planCliContext(t);
   const parent = context.createPlan('parent plan', withGoal(YOLO_LINE));
   post(context, parent, 'Delegation grant: yolo: go');
@@ -216,6 +216,9 @@ test('a child grant without a Parent event link ends only at a newer parent even
   assert.equal(grantLine(context, child), `grant: ended by parent #${parent} comment ${revoked}`, 'a newer event');
   setCreatedAt(context, parent, revoked, at(Number(childGrant) - 0.5));
   assert.equal(grantLine(context, child), `grant: in force (yolo) by comment ${childGrant}`, 'an older timestamp');
+  // Equal timestamps cannot prove the order, so the parent event ends the grant (fail closed).
+  setCreatedAt(context, parent, revoked, at(Number(childGrant)));
+  assert.equal(grantLine(context, child), `grant: ended by parent #${parent} comment ${revoked}`, 'an equal timestamp');
 });
 
 test('a Parent event line on a plan without a parent gives no grant', (t) => {

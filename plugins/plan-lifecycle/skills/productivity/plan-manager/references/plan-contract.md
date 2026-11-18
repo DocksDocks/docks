@@ -1080,7 +1080,7 @@ line (Grant check), and goes on only when that line reads `in force` by the
 comment that it copies. Otherwise it creates no child and posts no child
 grant, and the grant has ended as Grant check says. A grant from the user's
 own message for that child has no `Parent event:` line, and any parent event
-newer than it ends it.
+that is not older than it ends it.
 
 A child's line must match the child's own latest grant event, and holds only
 while that grant holds. The child keeps no partial grant after a parent

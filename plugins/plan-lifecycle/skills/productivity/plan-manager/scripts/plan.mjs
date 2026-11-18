@@ -1000,10 +1000,11 @@ function grantState(issue, goal) {
       return none(`parent #${parent.number} cannot be read`);
     }
     // A linked grant holds only while the named event is the parent's latest, whatever the timestamps say; an
-    // unlinked grant ends at any parent event newer than it.
+    // unlinked grant ends at any parent event that is not older than it. Equal timestamps cannot prove the order, so
+    // a parent event with the same time ends the grant too (fail closed).
     const ended =
       latest.parentEvent === undefined
-        ? parentLatest !== undefined && Date.parse(parentLatest.createdAt) > Date.parse(latest.createdAt)
+        ? parentLatest !== undefined && Date.parse(parentLatest.createdAt) >= Date.parse(latest.createdAt)
         : parentLatest?.id !== latest.parentEvent;
     if (ended && !parentLatest) return none(`parent #${parent.number} has no trusted authority event`);
     if (ended)

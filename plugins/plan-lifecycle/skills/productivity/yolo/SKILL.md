@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "98ecb8569141801eeaf018cb676194de22d310f8791ca19c005fc1651f0f6fa5"
+  content_hash: "0e3c03a076df40e28db4095313bca49e409569bbb705a2a7ba466d338436b5b7"
 ---
 
 # Yolo
@@ -107,7 +107,9 @@ To adopt a plan:
    round that step 4 names, and wait for its pass. The earlier pass does not
    cover the edited body. After that pass, adopt the child that the contract's
    Yolo runs table names with these steps.
-2. Export the plan. Add the delegation line to Goal when it is missing, set
+2. Export the plan. Add the yolo delegation line to Goal when it is missing.
+   When Goal has a live `Delegated:` line, replace that line with the yolo
+   line, so Goal keeps exactly one delegation line. Set
    `Mode: plan-and-implement`, and publish that edit with `edit` at once. It
    needs no plan-review round, as the contract's Phases and review comments
    says.
