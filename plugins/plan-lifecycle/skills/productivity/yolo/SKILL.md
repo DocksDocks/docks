@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "05d4dbc615b6519e945f76422ff962a35452d5b3fc66aecf3a230c14b4479d39"
+  content_hash: "efac528dcb966c66117141f3d920dfbcbebb14d0676b52950b0d6356bf500b54"
 ---
 
 # Yolo
@@ -174,8 +174,8 @@ Run the Grant check before each delegated decision, as Run order says.
 
 ## Implement
 
-Follow the practices Engineering standards, Red baseline, Commits, and Checks
-that fail outside the goal.
+Follow the practices Engineering standards, Red baseline, Commits, Checks that
+fail outside the goal, and Delegated work.
 
 A wrong spec test follows the grant, as the practices Red baseline item 4 and
 the contract's Delegated decisions say.
@@ -194,7 +194,8 @@ That comment counts as one round of the ceiling.
 
 Dispatch code review round 1 first, and run the practices Self-review in code
 review while it runs. Its `Self-review` comment does not count as a round of
-the ceiling. While any round runs, do the practices Work during a round.
+the ceiling. While any round runs, do the practices Work during a round. Follow
+the practices Delegated work for each dispatch of a round and of its repairs.
 
 Review plan edits after `plan=pass` as the contract's Phases and review
 comments says. The helper advises when an edit needs that round.

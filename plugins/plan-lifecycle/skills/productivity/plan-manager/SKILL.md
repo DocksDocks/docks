@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "20b2f0a33769416ae3d8d81233c1453cee71ebbbfe223d7ee884d0f63a95671c"
+  content_hash: "981ef2d41a64aba78572465371dc7dab160cdc95310243a00982e04bc33ff9d0"
 ---
 
 # Plan Manager
@@ -98,7 +98,9 @@ Run the contract's review loop with `plan-reviewer`. For each round, export fres
 input and dispatch `plan-reviewer` with the issue number, export path, and round
 number. A re-review round after a repair may use the plan `delta` mode, as the
 contract's review loop allows. If no wrapper exists, dispatch a fresh read-only
-reviewer with the `plan-reviewer` skill. Route a user-only decision through Open
+reviewer with the `plan-reviewer` skill. Each reviewer dispatch of a round or a
+re-review round follows the practices Delegated work; item 1 uses the session
+checkout until the plan worktree exists. Route a user-only decision through Open
 questions and `ask`, unless a grant answers it (the contract's Delegated
 decisions; its Grant check reads the `grant:` line of `show <n>`).
 Never implement a repaired plan that has not passed review.
@@ -113,14 +115,14 @@ Done when: `show <n>` reports `plan=pass`.
 Move the plan to ongoing. Set up the linked branch with the contract's Linked
 branch steps before you change code. Set each step in-flight, implement or
 delegate it, run its proof, then mark it done. Honor the Effect confirmation
-gate. Follow the practices Engineering standards, Red baseline, Commits, and
-Checks that fail outside the goal. When the project has a `verify` skill, for
-example `.agents/skills/verify/SKILL.md`, use it to run the changed surface
-before you mark acceptance. Run all acceptance commands and record real results
-in Verification Results through the export/edit flow. Review plan edits after
-the pass as the contract's Phases and review comments says. Once work starts,
-put new work into a child plan, and act on split advice, as the contract's
-Status, ownership, and frozen state says.
+gate. Follow the practices Engineering standards, Red baseline, Commits,
+Checks that fail outside the goal, and Delegated work. When the project has a
+`verify` skill, for example `.agents/skills/verify/SKILL.md`, use it to run the
+changed surface before you mark acceptance. Run all acceptance commands and
+record real results in Verification Results through the export/edit flow.
+Review plan edits after the pass as the contract's Phases and review comments
+says. Once work starts, put new work into a child plan, and act on split
+advice, as the contract's Status, ownership, and frozen state says.
 
 Every commit that you make, also each candidate and repair commit, carries a
 `Verified:` trailer. The `commit-discipline` skill owns the trailer format. List
@@ -213,7 +215,8 @@ outside the Steps Files cells. Post one comment per round: the blocks of the
 round, then the manager response to the previous round, as the contract's
 review loop says. Write the reviewer's repair record and rejection files from
 that response. While round 1 runs, run the practices Self-review in code
-review. While any round runs, do the practices Work during a round.
+review. While any round runs, do the practices Work during a round. Follow the
+practices Delegated work for each dispatch of a round and of its repairs.
 
 Before the next round, fix or reject every finding of the round, as the
 contract's Repairs says. A pass can carry MEDIUM and LOW findings. The posted
