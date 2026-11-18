@@ -103,10 +103,11 @@ Choose the depth of the record:
   a choice that the user would otherwise own; each delegated decision; and each
   `Redesigned` entry.
 
-Put the record in Research decisions, or in the `Redesigned` entry of a manager
-response. The run summary lists each delegated decision with the locator of its
-record. Write each part as short bullets. A long record pushes the body toward
-the split advice of the contract's Normalization, advice, and refusals.
+Put the record in Research decisions, in the `Redesigned` entry of a manager
+response, or, for a wrong spec test (Red baseline item 4), in a Verification
+Results entry. The run summary lists each delegated decision with the locator
+of its record. Write each part as short bullets. A long record pushes the body
+toward the split advice of the contract's Normalization, advice, and refusals.
 
 A full record:
 
@@ -206,9 +207,10 @@ is not installed. A subagent can write the spec tests.
    and ask the user, as `tdd-workflow` also says. Record the answer and the
    reason in Verification Results, fix the test, and run the baseline again.
    When the Goal holds a grant (the contract's Delegated decisions), do not
-   ask: record the reason in Verification Results, fix the test, and run the
-   baseline again. That record replaces the user escalation that
-   `tdd-workflow` asks for.
+   ask: write the full deliberation record in a Verification Results entry,
+   fix the test, run the baseline again, and list the decision under
+   Delegated decisions in the run summary. That record replaces the user
+   escalation that `tdd-workflow` asks for.
 5. A review fix that changes a spec assertion follows item 4. Run the changed
    test against the code before the fix. It must fail on the changed assertion.
    Add this line to Verification Results:

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-18"
-  content_hash: "8c12eda646a29b94c15ca84e1823a21af8542bf59a477bb774ac9c5c63f1b1d0"
+  content_hash: "9c8df3839eb57d6d346a6cfd02f62a6a27c92d65d34f4a8a4b2f46c5c10f9217"
 ---
 
 # Plan Manager
@@ -271,9 +271,8 @@ on `Merge now`. Write the description from `references/run-summary.md`, as the
 practices Run summary says. Build the `## Checklist` section and run the landing
 self-check as the contract's Checklist and Checks and merge say. After each push,
 rebuild the ticks and update the body before any wait for checks. The merge
-question states `<k> of <n> checklist items ticked` and lists each unticked item
-with its reason. The `Merge now` option states the teardown, as the contract's
-Checks and merge says. A v5 plan has no partial merge; each part lands as a child
+question and its `Merge now` option state what the contract's Checks and merge
+lists. A v5 plan has no partial merge; each part lands as a child
 plan. Only a v4 plan whose work started runs `reopen <n> --pr <pr>` after a
 partial merge, as the contract states. After the landing merge, run each step that
 runs after the merge. Once every step is terminal, run `archive <n> --pr <pr>`

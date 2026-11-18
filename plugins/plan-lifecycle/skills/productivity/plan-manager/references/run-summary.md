@@ -14,7 +14,7 @@ Pull request: <url>. Checks: <state>. Reviewed head: `<sha>`.
 - <decision or request correction, with its evidence>
 
 ### Delegated decisions
-- <question>: <choice>. Rejected: <option, with its reason>. Reversibility: <how to undo it>. Record: <Research decision or `Redesigned` entry>; or none
+- <question>: <choice>. Rejected: <option, with its reason>. Reversibility: <how to undo it>. Record: <Research decision, `Redesigned` entry, or Verification Results entry>; or none
 
 ### Reviews
 Plan review passed in round <k>. Code review passed in round <k>.

@@ -210,16 +210,18 @@ Run this review loop for plan review and for code review:
    Then start the next round.
 5. When a finding returns after a repair, do not repeat its approach. Research
    the defect class again, pick a different approach, and record it under
-   `Redesigned`. A phase stalls when the same finding returns after two
-   different approaches, round 10 ends without a pass, or dispatch fails twice
-   without a relevant change. Without a grant (Delegated decisions), ask the
-   user to continue or block only for a fix that needs a tradeoff the user
-   owns (accepting a known limit, changing the Goal or the scope, or a
-   non-local effect), or on a stall. If no answer is available, record the
-   reason and block. Under a grant, decide the tradeoff as Delegated decisions
-   says, and ask only for a non-local effect; a yolo run settles that effect by
-   the effect table of Yolo runs. On a stall under a grant, apply the Stall
-   rule of Delegated decisions.
+   `Redesigned`. The ceiling of a phase is 10 rounds, plus 10 for each
+   extension. A phase stalls when the same finding returns after two
+   different approaches, the last round of the phase's ceiling ends without a
+   pass, or dispatch fails twice without a relevant change. Without a grant
+   (Delegated decisions), ask the user to continue or block only for a fix
+   that needs a tradeoff the user owns (accepting a known limit, changing the
+   Goal or the scope, or a non-local effect), or on a stall. A continue answer
+   on a stall extends the ceiling. If no answer is available, record the
+   reason and block. Under a grant, decide each tradeoff that the answered
+   list of Delegated decisions holds, and ask each question of its kept list,
+   as that section says. On a stall under a grant, apply the Stall rule of
+   Delegated decisions.
 
 Each round adds one issue comment. The manager response to round k starts with
 the heading line `#### Manager response to round <k>`, exactly so, and holds
@@ -993,30 +995,44 @@ Write the line only from the user's own message in the session. That message
 hands the decisions to the agent, for example "decide yourself" or "go for the
 best durable solution when you have a question". Permission to begin, or a
 wish for speed, is not a grant. When the message is not clear, write no line,
-and the questions stay. A child plan copies the line of its parent. The line
-is not one of the edits that need no plan-review round (Phases and review
-comments): review it after `plan=pass` with the decisions that it brings.
+and the questions stay. The line is not one of the edits that need no
+plan-review round (Phases and review comments): review it after `plan=pass`
+with the decisions that it brings.
+
+When the grant starts, post one issue comment whose first line is
+`Delegation grant: <quote>`, with the quote of the Goal line, as the plan's
+assignee. A yolo run posts the same comment with a quote of the message that
+invokes it, under the same quote rules. A child plan copies the line of its
+parent and posts its own comment. The comment is trusted as a review comment
+is (Phases and review comments): trust requires exactly one issue assignee and
+a comment author login equal to that assignee. The latest trusted grant
+comment wins.
 
 The grant counts as the user's in-session answer to each question that it
-answers. A later user message wins over the grant: when it narrows or revokes
-the grant, edit or remove the line. When a user instruction names a question
-that the grant does not answer, ask that question. In a later session, the
-line keeps the grant for the same plan. The first report of a resumed session
-names the grant once, as a notice and not a question, so that the user can
-revoke it.
+answers. A later user message wins over the grant: when it narrows the grant,
+edit the line and post a new grant comment; when it revokes the grant, remove
+the line. When a user instruction names a question that the grant does not
+answer, ask that question.
+
+In a later session, a `Delegated:` line counts only when the latest trusted
+grant comment exists and the line holds its quote. The same check applies to
+the yolo line as a grant outside the session that invokes yolo. Otherwise treat
+the plan as having no grant, and say so once in the first report. When the
+check passes, the first report of the resumed session names the grant once, as
+a notice and not a question, so that the user can revoke it.
 
 ### Answered and kept questions
 
-The grant answers these questions:
+The grant answers only these questions:
 
 - A decision that the practices send to the user.
 - A request flaw: record a request correction and do the durable alternative.
-- A plan-review `blocked` verdict: decide it, record the decision, and review
-  again.
+- A plan-review `blocked` verdict whose decision is on this list: decide it,
+  record the decision, and review again.
 - A tradeoff of review loop item 5: accept a known limit, or change the Goal
   or the scope.
-- Red baseline item 4 of the practices: record the reason, fix the test, and
-  run the baseline again.
+- Red baseline item 4 of the practices: write the full deliberation record in
+  a Verification Results entry, fix the test, and run the baseline again.
 - The first stall (Stall rule).
 
 The grant does not answer these questions. Ask each one as this contract says:
@@ -1032,14 +1048,20 @@ The grant does not answer these questions. Ask each one as this contract says:
   or the target account.
 - The dirty-checkout question of Linked branch.
 
-A yolo run settles some of these questions by the rules of Yolo runs.
+When a question matches both lists, the kept list wins; ask it.
+
+In a yolo run, ask none of the kept questions before the merge. Yolo runs
+settles the path, the Mode, the effects, and the dirty checkout. A production
+cleanup keeps its own question after the merge. For every other kept question,
+do not take the action. When the repository cannot settle a fact that only the
+user holds, write a `Blocked:` line in Open questions and block the run.
 
 ### Delegated records
 
 Record each delegated decision with the full deliberation record of the
-practices (`practices.md`, Deliberation record), in Research or under
-`Redesigned`. List it under Delegated decisions in the run summary
-(`run-summary.md`).
+practices (`practices.md`, Deliberation record), in Research, under
+`Redesigned`, or in a Verification Results entry. List it under Delegated
+decisions in the run summary (`run-summary.md`).
 Plan reviewers and code reviewers treat the choice
 of a recorded decision as settled, and report a false premise or a broken
 effect.
@@ -1053,9 +1075,14 @@ delegated decision:
 
 1. Research the class again. Choose an approach that has not run and that has
    evidence. For two failed dispatches, the new approach is a different
-   dispatch path, such as a fresh read-only agent with the reviewer skill.
+   dispatch path that keeps the reviewer agent of the phase, such as a fresh
+   dispatch with smaller focus diffs or the other round mode. Code review
+   keeps the `code-reviewer` agent, as Code-review rounds says. A fresh
+   read-only agent with the reviewer skill applies only where no wrapper
+   exists, as plan-manager phase 4 and the yolo Review loops allow.
 2. Record the approach under `Redesigned` with the full deliberation record.
-3. Continue with 10 more rounds, or with three more fix attempts of the check.
+3. Extend the ceiling of the phase by 10 rounds (review loop item 5), or give
+   the check three more fix attempts.
 
 When no untried approach has evidence, do not extend: ask the stall question
 at once. The next stall also asks the stall question. In a yolo run, the stall
@@ -1137,10 +1164,10 @@ durable records.
 
 ### Round ceiling
 
-Each review phase gets 10 rounds without a question. In code review, fix every
-reproduced finding of every severity before the next round. A code-review pass
-lands with open findings only in the two cases below. Reject a finding only
-with evidence, posted as the review loop says.
+Each review phase gets its ceiling (review loop item 5) without a question. In
+code review, fix every reproduced finding of every severity before the next
+round. A code-review pass lands with open findings only in the two cases below.
+Reject a finding only with evidence, posted as the review loop says.
 
 From code-review round 3, a pass whose open findings are all unreached LOW
 findings lands. The code reviewer marks such a finding `Unreached:` when no
@@ -1155,11 +1182,11 @@ this rule to every LOW finding, not only to unreached ones, removed at most 3
 of 73 rounds in one arm and 0 to 2 rounds in the others, and no known defect
 escaped.
 
-A phase stalls as review loop item 5 says: round 10 ends without a pass, the
-same finding returns after two different approaches, or dispatch fails twice
-without a relevant change. Landing stalls when the same pull-request check
-still fails after the third fix attempt, as Checks and merge says. When round
-10 ends on a
+A phase stalls as review loop item 5 says: the last round of the phase's
+ceiling ends without a pass, the same finding returns after two different
+approaches, or dispatch fails twice without a relevant change. Landing stalls
+when the same pull-request check still fails after the third fix attempt, as
+Checks and merge says. When the last round of the phase's ceiling ends on a
 code-review pass that still lists MEDIUM or LOW findings, land, and list those
 findings in the run summary.
 
@@ -1169,7 +1196,7 @@ When the pull request is open, update its body as Checklist says. A hook that
 refuses them follows Repository hooks. Then ask once, with the options
 `Continue yolo` and `Leave plan blocked`. Keep the status unchanged while you
 ask, because the helper does not move a blocked plan back to `drafting` or
-`planned`. `Continue yolo` gives the phase 10 more rounds, or gives a failing
+`planned`. `Continue yolo` extends the ceiling of the phase, or gives a failing
 check three more fix attempts. On `Leave plan blocked`, or without an answer,
 set the status to `blocked` with the stall reason, run Teardown's exit without
 a merge, and report.

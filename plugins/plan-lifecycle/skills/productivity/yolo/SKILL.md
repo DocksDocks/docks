@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   pattern: pipeline
   updated: "2026-11-18"
-  content_hash: "1fb4530aaf4c1e211af8c3f8d63815a2291759a2dab4dcaecc54741c443a3764"
+  content_hash: "1a5d4798fdaad42077fee5da8009f10aecb3bc459da194a3fa7768716a20c3c1"
 ---
 
 # Yolo
@@ -100,7 +100,8 @@ To adopt a plan:
    cover the edited body. After that pass, adopt the child that the contract's
    Yolo runs table names with these steps.
 2. Export the plan. Add the delegation line to Goal when it is missing, and set
-   `Mode: plan-and-implement`.
+   `Mode: plan-and-implement`. Post the grant comment of this invocation, as
+   the contract's Delegated decisions says.
 3. Replace each Goal or Do not touch line that conflicts with this run, such as
    "leave the pull request open". Record a request correction whose `Asked:`
    part quotes the old line.
@@ -125,13 +126,15 @@ Yolo: the user delegated every decision except the merge to the agent.
 ```
 
 4. Create the issue with `new --title <t> --goal <g> --mode plan-and-implement`.
+   Post its grant comment, as the contract's Delegated decisions says.
 5. When the request needs more than one landing pull request, that issue is the
    parent, and it gets no linked branch. Create one child per pull request with
    `new --title <t> --goal <g> --mode plan-and-implement --parent <n>`, with the
-   delegation line in each goal, and give the parent one Steps row per child,
-   as the contract's Record and mode says. Run Research and Plan review on the
-   parent. After that pass, start the child that the contract's Yolo runs table
-   names: set up its linked branch, and run Research to Land on it.
+   delegation line and a grant comment in each child, and give the parent one
+   Steps row per child, as the contract's Record and mode says. Run Research
+   and Plan review on the parent. After that pass, start the child that the
+   contract's Yolo runs table names: set up its linked branch, and run
+   Research to Land on it.
 6. Otherwise set up the linked branch now, as the contract's Yolo runs section
    says.
 
