@@ -60,7 +60,9 @@ subagent, so an `AGENTS.md` there fails validation).
 The explicit-only `yolo` skill is a user entry point. It runs `plan-manager`'s
 six phases under the contract's Yolo runs section and asks only the merge
 question. `disable-model-invocation` keeps Claude Code and omp from loading it
-on their own, and its `agents/openai.yaml` does the same for Codex.
+on their own, and its `agents/openai.yaml` does the same for Codex. It holds
+only the autonomy rules: it points to `plan-manager/references/practices.md`
+for each practice, and keeps each autonomy replacement next to its pointer.
 
 ## Plan-skill contract sync
 
@@ -68,6 +70,11 @@ on their own, and its `agents/openai.yaml` does the same for Codex.
 workspace templates, project routing, and reviewer wrappers point to it rather
 than repeat record grammar. Keep the six phases in the manager and the finding
 vocabulary in the read-only reviewers.
+
+`plan-manager/references/practices.md` owns the methods of every run, such as
+the research order, the commits, and the self-review; the contract owns the
+rules. `plan-manager/references/run-summary.md` owns the pull request
+description template. `plan-manager` and `yolo` point to both and copy neither.
 
 Coordinate edits across those surfaces when concepts change. Refresh content
 hashes after all reference edits finish. `scripts/tests/plan-cli.mjs` exercises
