@@ -32,9 +32,9 @@ metadata:
     - path: cli/src/commands/omp.ts
       lines: "1-426"
     - path: cli/src/engine-native/syncDispatch.ts
-      lines: "1-321"
+      lines: "1-290"
     - path: cli/src/engine-native/parseArgs.ts
-      lines: "1-184"
+      lines: "1-93"
     - path: cli/src/engine-native/atomicWrite.ts
       lines: "1-123"
     - path: cli/src/engine-native/ompFastMode.ts
@@ -42,8 +42,8 @@ metadata:
     - path: cli/src/engine-native/ompChild.ts
       lines: "1-26"
     - path: cli/src/commands/harnesses.ts
-      lines: "1-79"
-  updated: "2026-11-16"
+      lines: "1-77"
+  updated: "2026-11-19"
 ---
 
 # omp Sync Context

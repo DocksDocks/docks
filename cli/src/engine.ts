@@ -1,12 +1,7 @@
 import { CliError } from "effect/cli";
 import { Console, Effect } from "effect";
-import { spawnSync } from "node:child_process";
 import { runEngineNative } from "./engine-native";
-import { ENV_GLOBAL_KEYS } from "./engine-native/engineCtx";
-import { ExitError } from "./engine-native/parseArgs";
-import { makeEngineServices } from "./engine-native/services";
 import { targetForHost } from "./engine-native/os/targets";
-import { kitHome } from "./kitHome";
 import { DependencyManagerService, LoggerService, PlatformService } from "./services";
 
 /**
@@ -31,17 +26,6 @@ const requireSupportedHost = () => {
 // Node, where the `Bun` global is absent; only a Bun-hosted standalone
 // executable can be compiled, so absence means false.
 export const compiled: boolean = typeof Bun !== "undefined" && Bun.isStandaloneExecutable === true;
-
-export class EngineCaptureError extends ExitError {
-  constructor(
-    readonly diagnostic: string,
-    code: number,
-  ) {
-    super(code);
-    this.name = "EngineCaptureError";
-    this.message = diagnostic;
-  }
-}
 
 const failureMessage = (error: unknown): string => {
   if (error instanceof Error && error.message !== "") return error.message;
@@ -68,65 +52,6 @@ export const engine = (args: ReadonlyArray<string>) =>
     if (code !== 0) {
       return yield* Effect.sync(() => process.exit(code));
     }
-  });
-
-// The capture child must not inherit the env globals or a caller's channel
-// selection in any spelling.
-const CAPTURE_DROPPED_KEYS: ReadonlyArray<string> = [...ENV_GLOBAL_KEYS, "DOCKS_KIT_ENGINE"];
-
-/**
- * Build the capture child environment. Windows environment names are
- * case-insensitive, so a key such as `claude_compact_window` also matches
- * there. POSIX names stay case-sensitive.
- */
-const captureChildEnv = (): NodeJS.ProcessEnv => {
-  const foldCase = process.platform === "win32";
-  const env: NodeJS.ProcessEnv = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value === undefined) continue;
-    if (CAPTURE_DROPPED_KEYS.includes(foldCase ? name.toUpperCase() : name)) continue;
-    env[name] = value;
-  }
-  env["DOCKS_KIT_ENGINE"] = "native-capture";
-  return env;
-};
-
-/** Run the engine capturing stdout (engine logs/warns go to stderr and pass through). */
-export const engineCapture = (args: ReadonlyArray<string>) =>
-  Effect.gen(function* () {
-    yield* requireSupportedHost();
-    if (bashEngineRequested()) {
-      return yield* bail(bashRemovedMessage, 2);
-    }
-    // The child runs the native-capture channel, which ignores env globals even
-    // when Bun reloads them from a project `.env`. The child environment also
-    // omits them, so a captured public command behaves like an in-process one.
-    const childEnv = captureChildEnv();
-    const res = yield* Effect.sync(() =>
-      // Child process (capture channel): runEngineNative writes straight to
-      // process.stdout, so in-process capture is not possible.
-      spawnSync(
-        process.execPath,
-        compiled ? [...args] : [`${kitHome()}/cli/src/main.ts`, ...args],
-        {
-          env: childEnv,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "inherit"],
-        },
-      ),
-    );
-    if (res.error !== undefined || res.status !== 0) {
-      const reasons = new Array<string>();
-      if (typeof res.status === "number") reasons.push(`exit ${res.status}`);
-      if (res.signal !== null) reasons.push(`signal ${res.signal}`);
-      if (res.error !== undefined) reasons.push(`spawn error: ${res.error.message}`);
-      if (reasons.length === 0) reasons.push("no child status");
-      const diagnostic = `engine capture failed for '${args.join(" ") || "default"}': ${reasons.join("; ")}`;
-      makeEngineServices().logger.err(diagnostic);
-      const code = typeof res.status === "number" && res.status !== 0 ? res.status : 1;
-      return yield* Effect.fail(new EngineCaptureError(diagnostic, code));
-    }
-    return res.stdout ?? "";
   });
 
 /** Print a message to stderr and exit — for CLI-side validation failures. */

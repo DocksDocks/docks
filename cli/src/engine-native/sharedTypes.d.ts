@@ -4,39 +4,9 @@
  * structurally identical anonymous types. Types only — no runtime code.
  */
 import type { Json } from "./jq";
-import type { ModifierFlag } from "./engineCtx";
 
 /** Manifest-record object: the `{ [key]: Json }` shape redeclared across manifest readers. */
 export type JsonObject = { [key: string]: Json };
-
-export type CatalogTool = "claude" | "omp";
-export type CatalogSource = "anthropic-api" | "omp-cli" | "curated";
-
-export interface ResolvedCatalog {
-  readonly tool: CatalogTool;
-  readonly source: CatalogSource;
-  readonly verified: string;
-  readonly fetchedAt?: string;
-  readonly fallbackReason?: string;
-  readonly models: ReadonlyArray<{
-    readonly id: string;
-    readonly kind: "alias" | "id";
-    readonly note?: string;
-  }>;
-}
-
-/**
- * Shared core of settings-edit descriptors (the Claude JSON modifiers). A
- * caller narrows `key` to its own vocabulary and keeps caller-only fields
- * (such as Claude's dry-run preview) on its local extension.
- */
-export interface SettingEdit<TKey extends string> {
-  readonly tag: string;
-  readonly key: TKey;
-  readonly value: string | undefined;
-  readonly changed: string;
-  readonly unchanged: string;
-}
 
 /**
  * omp session model (moved from harnesses.ts, which re-exports it so existing
@@ -48,16 +18,6 @@ export interface OmpSessionModel {
   // invented level ever reaches a selector that omp must resolve.
   readonly thinking?: string;
 }
-
-/**
- * Scalar modifier flags: the ModifierFlag subset taking a value through
- * setModifier. Derived by exclusion so a new ModifierFlag forces an explicit
- * scalar/non-scalar decision here.
- */
-export type ScalarModifierFlag = Exclude<
-  ModifierFlag,
-  "--claude-compact-window" | "--claude-permissive" | "--claude-plugin"
->;
 
 /** Injected HTTP client: the subset of fetch the network lookups call. */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;

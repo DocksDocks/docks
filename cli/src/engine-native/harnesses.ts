@@ -1,17 +1,17 @@
 /**
  * Per-machine harness selection and omp session model, stored in ~/.docks-kit/kit.db (kitDb.ts).
- * The selection keeps the omp harness opt-in. A missing or unreadable store is
- * represented by undefined so callers resolve it to LEGACY_SELECTION.
+ * A missing or unreadable store is represented by undefined so callers
+ * resolve it to DEFAULT_SELECTION.
  */
 import { homedir } from "node:os";
 
 import { inTransaction, isNonBlankString, nonBlankOrNull, withKitDb } from "./kitDb";
 import type { OmpSessionModel } from "./sharedTypes";
 
-export type Harness = "claude" | "agents" | "omp";
+export type Harness = "agents" | "omp";
 
-export const HARNESSES: ReadonlyArray<Harness> = ["claude", "agents", "omp"];
-export const LEGACY_SELECTION: ReadonlyArray<Harness> = ["claude", "agents"];
+export const HARNESSES: ReadonlyArray<Harness> = ["agents", "omp"];
+export const DEFAULT_SELECTION: ReadonlyArray<Harness> = ["agents", "omp"];
 
 export type { OmpSessionModel };
 
@@ -21,7 +21,7 @@ export const DEFAULT_OMP_SESSION_MODEL: OmpSessionModel = {
 };
 
 function isHarness(value: unknown): value is Harness {
-  return value === "claude" || value === "agents" || value === "omp";
+  return value === "agents" || value === "omp";
 }
 
 function normalizeHarnesses(selection: ReadonlyArray<unknown>): Array<Harness> {

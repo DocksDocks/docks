@@ -7,31 +7,88 @@ part of that change until the release.
 
 ### Removed
 
-- Codex support. `docks-kit sync codex`, `docks-kit model codex`, and
-  `docks-kit models codex` are gone, and so are the flags `--codex-model`,
-  `--codex-effort`, and `--skip-bubblewrap` and the bubblewrap bootstrap. Each
-  removed name now fails as an unknown target, tool, or flag with exit 2.
+- Codex support. `docks-kit sync codex` is gone, and so are the flags
+  `--codex-model`, `--codex-effort`, and `--skip-bubblewrap` and the
+  bubblewrap bootstrap. Each removed target or flag now fails with exit 2.
+  `docks-kit model codex` and `docks-kit models codex` went with the `model`
+  and `models` commands (see Claude Code support below).
 - A stored harness selection that lists `codex` drops it and syncs the other
-  harnesses. A selection that lists only `codex` falls back to the default
-  selection, `claude` and `agents`. Run `docks-kit harnesses` to choose again.
+  harnesses. A selection that lists only removed harnesses falls back to the
+  default selection, `agents` and `omp`. Run `docks-kit harnesses` to choose
+  again.
 - `SoT/.codex/`, the project `.codex/agents/` wrappers, the
   `codex-config-merge-context` skill, and the `codex` and `bwrap` toolchain
   rows.
+- Claude Code support. `docks-kit sync claude`, `docks-kit model`,
+  `docks-kit plugins`, `docks-kit models`, `docks-kit status`, and
+  `docks-kit toolchain upgrade` are gone, and so are `--reconcile`, the flags
+  `--claude-model`, `--claude-effort`, `--claude-advisor`,
+  `--claude-compact-window`, `--claude-permissive`, and `--claude-plugin`, and
+  the old hints `--claude`, `--force`, `--680k`, `--permissive`,
+  `--supabase`, and `--n8n`. A removed target, flag, or `toolchain upgrade`
+  fails with exit 2; a removed command fails as an unknown subcommand with
+  exit 1. `docks-kit omp --model` sets the omp session model, `omp models`
+  lists models, and `docks-kit toolchain check` shows the toolchain.
+- A flag-less sync with no stored selection now syncs `agents` and `omp`
+  (before: `claude` and `agents`). A stored selection that lists `claude`
+  drops it, so a stored `claude, agents` selection now syncs only `agents`.
+  Run `docks-kit harnesses` and tick `omp`.
+- `SoT/.claude/`, `SoT/models.json`, `notification.mp3`, the project
+  `.claude/` folder (rules, settings, wrapper agents, and skill links), the
+  `settings-merge-context` and `plugin-bootstrap-context` skills, the
+  `plugins`, `modifiers`, and `models` docs topics, and the `claude`,
+  `ffplay`, `intelephense`, `typescript-language-server`, `tsc`, and
+  `rust-analyzer` toolchain rows.
 
 ### Files that stay on your machine
 
-Sync no longer reads or writes these files, and it does not remove them.
-Delete them by hand when you no longer use Codex:
+Sync no longer reads or writes these files, and it does not remove them; the
+last item of the list is the one exception. Some of them can hold your own
+settings or entries. Open each file before you delete it, and keep or move
+what you added yourself.
+
+Codex:
 
 - In the Codex home folder (`$CODEX_HOME`, by default `~/.codex`):
-  `config.toml` and its `config.toml.bak`, `AGENTS.md`, `rules/docks.rules`
-  and a `docks.rules.bak` when one exists, `.kit-managed-rules`, and the sync
-  lock `.docks-kit-sync-lock.db`.
-- The personal Codex marketplace file `~/.agents/plugins/marketplace.json`.
+  `config.toml` and its `config.toml.bak` (both can hold your own settings,
+  because sync merged the kit tables into your file), `AGENTS.md`,
+  `rules/docks.rules` and a `docks.rules.bak` when one exists,
+  `.kit-managed-rules`, and the sync lock `.docks-kit-sync-lock.db`.
+- The personal Codex marketplace file `$AGENTS_DIR/plugins/marketplace.json`
+  (by default `~/.agents/plugins/marketplace.json`). It can hold your own
+  marketplace entries, because sync kept them.
 - The Codex plugins that sync installed (`docks@docks`,
   `plan-lifecycle@docks`): remove them with the Codex CLI's plugin commands.
 - The `bubblewrap` system package, when the kit installed it only for the
   Codex Linux sandbox.
+
+Claude Code:
+
+- `~/.claude/settings.json` and its `settings.json.bak` (both can hold your
+  own settings, because sync merged the kit keys into your file).
+- `~/.claude/CLAUDE.md` and a `CLAUDE.md.bak` when one exists.
+- `~/.claude/bin/statusline.mjs`, `session-start.mjs`, and `notify.mjs`, and
+  `~/.claude/notification.mp3`. The `statusLine` setting and the hooks in
+  `settings.json` call these programs, so remove that setting and those hooks
+  before you delete the programs.
+- The `showTurnDuration` key that sync set in `~/.claude.json`. Sync also
+  merged an empty `mcpServers` object into that file, so every server under
+  `mcpServers` is your own: keep them. The file holds your own Claude Code
+  state, so edit only `showTurnDuration`.
+- The `ENABLE_CLAUDEAI_MCP_SERVERS=false` setting that turned off the
+  claude.ai cloud connectors. On Linux and macOS, sync added it with a
+  `# docks-kit:` comment line to your shell profile, such as `~/.bashrc`. On
+  Windows, sync stored it in your user environment with `setx`. Check the
+  value before you remove it, because you can have set it yourself.
+- The Claude Code plugins and marketplaces that sync installed: remove them
+  with the Claude Code CLI's plugin commands.
+- The language servers that sync installed with `npm install -g`
+  (`intelephense`, `typescript-language-server`, `typescript`) and with
+  `rustup component add rust-analyzer`.
+- The exception: the `~/.claude/skills/<name>` links of universal skills.
+  `docks-kit sync agents` still repairs them, and `--prune` still removes the
+  links of kit-owned skills that SoT no longer lists, until a later part of
+  this release removes universal skills.
 
 ## 2026-11-19 - docks-kit 0.22.29: omp 19.0.0 support
 

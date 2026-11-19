@@ -31,24 +31,12 @@ interface DryRunCaseGolden {
   readonly output: string;
 }
 
-const FIXTURES = ["home-fresh", "home-drift", "home-invalid-json"];
+const FIXTURES = ["home-fresh", "home-drift"];
 const COMMANDS: Array<Array<string>> = [
   ["sync", "--dry-run"],
-  ["sync", "claude", "--dry-run"],
   ["sync", "agents", "--dry-run"],
   ["sync", "omp", "--dry-run"],
-  ["sync", "--dry-run", "--reconcile", "--prune"],
-  [
-    "sync",
-    "claude",
-    "--dry-run",
-    "--claude-model=opus",
-    "--claude-effort=low",
-    "--claude-advisor=on",
-    "--claude-compact-window=680k",
-    "--claude-permissive",
-  ],
-  ["sync", "claude", "--dry-run", "--claude-plugin=supabase"],
+  ["sync", "--dry-run", "--prune"],
 ];
 
 /**
@@ -61,20 +49,15 @@ const PUBLIC_COMMANDS: Array<Array<string>> = [
   ["--help"],
   ["--version"],
   ["docs"],
-  ["models"],
-  ["plugins", "list"],
   ["skills", "list"],
   ["update", "--help"],
-  // Read-only success contracts: machine-readable status, per-tool catalogs,
-  // stored harness selection, and the toolchain doctor table.
-  ["status", "--json"],
-  ["models", "claude"],
+  // Read-only success contracts: stored harness selection and the toolchain
+  // doctor table.
   ["harnesses"],
   ["toolchain", "check"],
   // These rows pin the kit's argument-rejection diagnostics so they cannot drift.
-  ["status", "--no-json"],
   ["update", "--no-no-sync"],
-  ["sync", "--bogus", "--claude-model", "opus"],
+  ["sync", "--bogus"],
   ["docs", "constructor"],
 ];
 interface DryRunMatrixRow {
@@ -85,7 +68,6 @@ interface DryRunMatrixRow {
 
 const MATRIX: Array<DryRunMatrixRow> = [
   ...FIXTURES.flatMap((fixture) => COMMANDS.map((cmd) => ({ fixture, cmd }))),
-  { fixture: "home-drift", cmd: ["model", "claude"] },
   ...PUBLIC_COMMANDS.map((cmd) => ({ fixture: "home-fresh", cmd, public: true })),
 ];
 
@@ -94,7 +76,7 @@ const options = parseArgs(process.argv);
 const hostExecutableSuffixes = hostOs().executableSuffixes;
 if (hostExecutableSuffixes.length !== 1 || !hostExecutableSuffixes.includes("")) {
   console.error(
-    "golden-dryrun: unsupported host: snapshots are Linux-canonical and run only in the Linux snapshot lane. On Windows, run `bun run typecheck`, `bun run test:unit`, `bun run test:runtime:windows`, and `bun run smoke:native` instead.",
+    "golden-dryrun: unsupported host: snapshots are Linux-canonical and run only in the Linux snapshot lane. On Windows, run `bun run typecheck`, `bun run test:unit`, and `bun run smoke:native` instead.",
   );
   process.exit(2);
 }

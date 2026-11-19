@@ -29,49 +29,8 @@ describe("Darwin host OS", () => {
         args: ["/tmp/bun/install.sh", "bun-v1.4.0"],
       },
     });
-    const setting = host.environmentSetting("ENABLE_CLAUDEAI_MCP_SERVERS", "false");
-    expect(setting.kind).toBe("profile");
-    if (setting.kind !== "profile") throw new Error("expected a profile environment setting");
-    expect(setting.candidates).toEqual([
-      ".zshrc",
-      ".bashrc",
-      ".bash_profile",
-      ".bash_login",
-      ".profile",
-      ".zshenv",
-    ]);
-    const none = (): boolean => false;
-    expect(setting.target(undefined, none)).toBe(".bash_profile");
-    expect(setting.target("/bin/zsh", none)).toBe(".zshrc");
-    expect(setting.target("/usr/local/bin/bash", none)).toBe(".bash_profile");
-    expect(setting.target("/bin/fish", none)).toBe(".profile");
-    expect(setting.line).toBe("export ENABLE_CLAUDEAI_MCP_SERVERS=false");
-    expect(
-      host.statusLineCommand("/Users/test/.bun/bin/bun", "/Users/test/.claude/bin/statusline.mjs"),
-    ).toBe(
-      "test -x '/Users/test/.bun/bin/bun' && test -f '/Users/test/.claude/bin/statusline.mjs' && exec '/Users/test/.bun/bin/bun' '/Users/test/.claude/bin/statusline.mjs' || true",
-    );
-    expect(host.failureHookCommand("echo '{\"ok\":true}'")).toBe("echo '{\"ok\":true}'");
     expect(host.installHint("git")).toBe("brew install git");
     expect(host.installHint("jq")).toBe("brew install jq");
     expect(host.installHint("curl")).toBe("brew install curl");
-    expect(host.installHint("ffplay")).toBe("brew install ffmpeg");
-    expect(host.installHint("claude")).toBe(
-      'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o "$tmp" && bash "$tmp"',
-    );
-  });
-
-  it.each<[ReadonlyArray<string>, string]>([
-    [[], ".bash_profile"],
-    [[".profile"], ".profile"],
-    [[".bash_login", ".profile"], ".bash_login"],
-    [[".bash_profile", ".bash_login", ".profile"], ".bash_profile"],
-    [[".bashrc"], ".bash_profile"],
-  ])("writes a login-shell bash setting to the first existing file of %j", (existing, target) => {
-    const setting = hostOs("darwin").environmentSetting("ENABLE_CLAUDEAI_MCP_SERVERS", "false");
-    if (setting.kind !== "profile") throw new Error("expected a profile environment setting");
-    const exists = (file: string): boolean => existing.includes(file);
-    expect(setting.target("/bin/bash", exists)).toBe(target);
-    expect(setting.target("/bin/zsh", exists)).toBe(".zshrc");
   });
 });

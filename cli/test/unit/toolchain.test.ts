@@ -16,15 +16,17 @@ describe("toolchain report", () => {
   it(
     "reports a present tool with an unreadable version as unknown instead of ok",
     () => {
+      // omp is not installed on the CI runners, so the stub is the only omp on
+      // PATH; a Windows runner's own git would shadow a git stub.
       const stubs = makeStubDir({
-        claude: `if (args[0] === "--version") process.exitCode = 9`,
+        omp: `if (args[0] === "--version") process.exitCode = 9`,
       });
       const run = runPublicCli(["toolchain", "check"], "home-fresh", stubs);
 
       try {
         expect(run.exitCode).toBe(0);
-        const claude = run.stdout.split("\n").find((line) => line.startsWith("claude"));
-        expect(claude).toMatch(/^claude\s+check\s+\?\s+2\.1\.280\s+-\s+unknown$/);
+        const omp = run.stdout.split("\n").find((line) => line.startsWith("omp "));
+        expect(omp).toMatch(/^omp\s+check\s+\?\s+19\.0\.0\s+19\.0\.0\s+unknown$/);
       } finally {
         rmSync(run.home, { recursive: true, force: true });
       }
@@ -45,7 +47,7 @@ describe("public toolchain operands", () => {
         expect(run.exitCode).toBe(2);
         expect(run.stdout).toBe("");
         expect(run.stderr).toContain(
-          "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+          "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
         );
       } finally {
         rmSync(run.home, { recursive: true, force: true });
@@ -195,23 +197,19 @@ describe("engine toolchain argument errors", () => {
   it.each([
     {
       args: ["invalid-op"],
-      diagnostic:
-        "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+      diagnostic: "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
     },
     {
       args: ["check", "extra"],
-      diagnostic:
-        "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+      diagnostic: "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
     },
     {
       args: ["outdated", "extra"],
-      diagnostic:
-        "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+      diagnostic: "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
     },
     {
       args: ["ensure", "bun", "extra"],
-      diagnostic:
-        "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+      diagnostic: "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
     },
     {
       args: ["ensure", "not-managed"],

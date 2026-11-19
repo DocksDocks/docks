@@ -1,21 +1,9 @@
 import { spawnSync } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  AUTHORING_EXCLUSIONS,
-  PAYLOAD_PATHS,
-  inventoryAuthoringPaths,
-} from "../../scripts/generate-sot-payload";
+import { PAYLOAD_PATHS, inventoryAuthoringPaths } from "../../scripts/generate-sot-payload";
 import { payloadDisplayPath } from "../../src/payload";
 
 const REPO_DIR = resolve(import.meta.dirname, "..", "..", "..");
@@ -24,7 +12,6 @@ const GENERATOR = join(REPO_DIR, "cli", "scripts", "generate-sot-payload.ts");
 function copyGeneratorRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "docks-payload-"));
   cpSync(join(REPO_DIR, "SoT"), join(root, "SoT"), { recursive: true });
-  cpSync(join(REPO_DIR, "notification.mp3"), join(root, "notification.mp3"));
   cpSync(join(REPO_DIR, "docks-kit"), join(root, "docks-kit"));
   cpSync(join(REPO_DIR, "install.sh"), join(root, "install.sh"));
   cpSync(join(REPO_DIR, "docks-kit.ps1"), join(root, "docks-kit.ps1"));
@@ -44,23 +31,20 @@ function check(root: string) {
 }
 
 describe("generated SoT payload", () => {
-  it("makes every live SoT file an allowlist or explicit exclusion", () => {
-    const expected = [
-      ...PAYLOAD_PATHS.filter((path) => path.startsWith("SoT/")),
-      ...AUTHORING_EXCLUSIONS.filter((path) => existsSync(join(REPO_DIR, ...path.split("/")))),
-    ].sort();
+  it("embeds every live SoT file in the payload", () => {
+    const expected = PAYLOAD_PATHS.filter((path) => path.startsWith("SoT/")).sort();
     expect(inventoryAuthoringPaths(REPO_DIR)).toEqual(expected);
   });
 
   it("labels generated payload sources as embedded", () => {
-    expect(payloadDisplayPath("SoT/models.json")).toBe("embedded:SoT/models.json");
+    expect(payloadDisplayPath("SoT/toolchain.json")).toBe("embedded:SoT/toolchain.json");
   });
 
-  it("fails --check when notification.mp3 changes", () => {
+  it("fails --check when an embedded SoT file changes", () => {
     const root = copyGeneratorRoot();
     try {
-      const path = join(root, "notification.mp3");
-      writeFileSync(path, Buffer.concat([readFileSync(path), Buffer.from([0])]));
+      const path = join(root, "SoT", ".agents", "skills.txt");
+      writeFileSync(path, `${readFileSync(path, "utf8")}# changed\n`);
       const result = check(root);
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(

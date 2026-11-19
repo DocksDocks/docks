@@ -23,7 +23,7 @@ bypasses an ignored stale build.
 bun add -g docks-kit@latest
 docks-kit sync
 # or one-shot, no install:
-bunx docks-kit status
+bunx docks-kit toolchain check
 ```
 
 The npm package bundles the CLI and its generated in-memory payload — releases
@@ -159,8 +159,7 @@ sync/config reads.
 ## Prerequisites
 
 - Bun for source/global installs; release binaries embed the runtime
-- Node/npm for npm-global LSP servers
-- rustup is optional and needed only for the Rust language server
+- Node/npm for `npx` (the skills CLI) and for an npm-installed kit
 - jq is optional doctor/test tooling; sync has no jq runtime dependency
 - curl is needed only to download Bun's upstream installer when Bun is absent:
   by the POSIX `docks-kit` launcher, by the POSIX `install.sh`, and by sync's

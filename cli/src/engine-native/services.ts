@@ -2,8 +2,7 @@
  * Shared service factory — the single construction point for the engine's
  * injectable capabilities (Output Policy in DESIGN.md). The Effect rim wraps
  * these in Layers (cli/src/services.ts); the harness-private native-raw entry
- * and engineCapture's parent-side warn call it directly, so every execution
- * path shares one implementation.
+ * calls it directly, so every execution path shares one implementation.
  */
 import {
   DEPENDENCIES,

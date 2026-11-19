@@ -3,9 +3,9 @@ import { Console, Effect } from "effect";
 import { checklistPrompt } from "../checklistPrompt";
 import { bail } from "../engine";
 import {
+  DEFAULT_SELECTION,
   engineHome,
   HARNESSES,
-  LEGACY_SELECTION,
   loadHarnessSelection,
   writeHarnessSelection,
   type Harness,
@@ -13,7 +13,6 @@ import {
 import { kitDbFile } from "../engine-native/kitDb";
 
 const DESCRIPTIONS: Record<Harness, string> = {
-  claude: "Claude Code user configuration",
   agents: "Universal agent skills",
   omp: "Oh My Pi user configuration",
 };
@@ -26,12 +25,12 @@ export const harnessesCommand = Command.make("harnesses", {}, () =>
       return yield* bail(`Cannot read ${kitDbFile(home)}: ${loaded.reason}`, 1);
     }
     const stored = loaded.kind === "stored" ? loaded.selection : undefined;
-    const selection = stored ?? LEGACY_SELECTION;
+    const selection = stored ?? DEFAULT_SELECTION;
     const names = selection.join(", ");
 
     if (stored === undefined) {
       yield* Console.log(
-        `Harness selection: ${names} (no selection is stored yet; the legacy default applies)`,
+        `Harness selection: ${names} (no selection is stored yet; the default applies)`,
       );
     } else {
       yield* Console.log(`Harness selection: ${names}`);
@@ -50,10 +49,9 @@ export const harnessesCommand = Command.make("harnesses", {}, () =>
         value: harness,
         label: harness,
         description: DESCRIPTIONS[harness],
-        // With no stored selection, pre-tick every harness, omp included, so a
-        // new machine opts out of omp instead of opting in. A flag-less sync
-        // keeps LEGACY_SELECTION until this picker saves a selection.
-        checked: (stored ?? HARNESSES).includes(harness),
+        // With no stored selection, pre-tick the default selection that a
+        // flag-less sync uses until this picker saves a selection.
+        checked: selection.includes(harness),
       })),
       emptySelectionError: "Tick at least one harness.",
     });

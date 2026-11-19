@@ -1,5 +1,5 @@
 import { Argument, Command, Flag } from "effect/cli";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { bail, engine } from "../engine";
@@ -35,10 +35,10 @@ export const updateNudge = (logger: Logger): void => {
   }
 };
 
-const VALID_TARGETS = ["claude", "agents", "omp"];
+const VALID_TARGETS = ["agents", "omp"];
 
 const targets: Argument.Argument<ReadonlyArray<string>> = Argument.String("target").pipe(
-  Argument.withDescription("Sync targets: claude, agents, omp (default: selected harnesses)"),
+  Argument.withDescription("Sync targets: agents, omp (default: selected harnesses)"),
   Argument.variadic(),
 );
 
@@ -46,16 +46,8 @@ const dryRun = Flag.Boolean("dry-run").pipe(
   Flag.withDescription("Preview without applying"),
   Flag.withDefault(false),
 );
-const reconcile = Flag.Boolean("reconcile").pipe(
-  Flag.withDescription(
-    "Reconcile kit-owned settings with SoT (SoT keys win; user-only keys preserved; permissions arrays replaced)",
-  ),
-  Flag.withDefault(false),
-);
 const prune = Flag.Boolean("prune").pipe(
-  Flag.withDescription(
-    "Uninstall kit-managed installs not in SoT (plugins, marketplaces, universal skills)",
-  ),
+  Flag.withDescription("Remove kit-managed universal skills not in SoT/.agents/skills.txt"),
   Flag.withDefault(false),
 );
 const skipPluginRefresh = Flag.Boolean("skip-plugin-refresh").pipe(
@@ -69,56 +61,15 @@ const verbose = Flag.Boolean("verbose").pipe(
   Flag.withDescription("Also print no-op confirmations (already in sync, up to date, left as-is)"),
   Flag.withDefault(false),
 );
-const claudeModel = Flag.String("claude-model").pipe(
-  Flag.withDescription(
-    "Deploy-time modifier: set deployed Claude model (see `docks-kit models claude`)",
-  ),
-  Flag.optional,
-);
-const claudeEffort = Flag.String("claude-effort").pipe(
-  Flag.withDescription(
-    "Deploy-time modifier: set Claude effortLevel (bare flag shows valid levels)",
-  ),
-  Flag.optional,
-);
-const claudeAdvisor = Flag.String("claude-advisor").pipe(
-  Flag.withDescription("Deploy-time modifier: set Claude advisor on/off/default"),
-  Flag.optional,
-);
-const claudeCompactWindow = Flag.String("claude-compact-window").pipe(
-  Flag.withDescription(
-    "Deploy-time modifier: set deployed autocompact window in tokens (e.g. 680000 or 680k)",
-  ),
-  Flag.optional,
-);
-const claudePermissive = Flag.Boolean("claude-permissive").pipe(
-  Flag.withDescription(
-    "Deploy-time modifier: empty permissions.ask/deny in deployed settings (sandboxes)",
-  ),
-  Flag.withDefault(false),
-);
-const claudePlugin = Flag.String("claude-plugin").pipe(
-  Flag.withDescription(
-    "Sticky opt-in plugin(s); repeatable and/or comma-separated (known: supabase, n8n)",
-  ),
-  Flag.atLeast(0),
-);
 
 export const syncCommand = Command.make(
   "sync",
   {
     targets,
     dryRun,
-    reconcile,
     prune,
     skipPluginRefresh,
     verbose,
-    claudeModel,
-    claudeEffort,
-    claudeAdvisor,
-    claudeCompactWindow,
-    claudePermissive,
-    claudePlugin,
   },
   (config) =>
     Effect.gen(function* () {
@@ -131,26 +82,9 @@ export const syncCommand = Command.make(
 
       const args: Array<string> = ["sync", ...config.targets];
       if (config.dryRun) args.push("--dry-run");
-      if (config.reconcile) args.push("--reconcile");
       if (config.prune) args.push("--prune");
       if (config.skipPluginRefresh) args.push("--skip-plugin-refresh");
       if (config.verbose) args.push("--verbose");
-      if (config.claudePermissive) args.push("--claude-permissive");
-      Option.map(config.claudeModel, (m) => args.push(`--claude-model=${m}`));
-      Option.map(config.claudeEffort, (level) => args.push(`--claude-effort=${level}`));
-      Option.map(config.claudeAdvisor, (state) => args.push(`--claude-advisor=${state}`));
-      Option.map(config.claudeCompactWindow, (w) => args.push(`--claude-compact-window=${w}`));
-      for (const occurrence of config.claudePlugin) {
-        const names = occurrence
-          .split(",")
-          .map((p) => p.trim())
-          .filter((p) => p.length > 0);
-        if (names.length === 0) {
-          args.push("--claude-plugin=");
-          continue;
-        }
-        for (const name of names) args.push(`--claude-plugin=${name}`);
-      }
 
       // Not on --dry-run: the nudge's git fetch writes FETCH_HEAD/remote
       // refs, and a preview command must not mutate the checkout.
@@ -160,8 +94,4 @@ export const syncCommand = Command.make(
       }
       yield* engine(args);
     }),
-).pipe(
-  Command.withDescription(
-    "Deploy the SoT to this machine with EngineNative. Deploy-time modifiers touch deployed config only; a later flag-less sync reverts them to SoT.",
-  ),
-);
+).pipe(Command.withDescription("Deploy the SoT to this machine with EngineNative."));

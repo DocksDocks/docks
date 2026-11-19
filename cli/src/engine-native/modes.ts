@@ -1,107 +1,12 @@
 /**
- * Direct modes for `model` and `toolchain`. Same public argv vocabulary,
- * golden-tested messages, same exit codes.
+ * Direct mode for `toolchain`. Same public argv vocabulary, golden-tested
+ * messages, same exit codes.
  */
-import { p } from "./exec";
-import { readFileSync } from "node:fs";
-import { payloadText } from "../payload";
-
-import { syncClaudeModel } from "./claudeSettingsModifiers";
 import type { Ctx } from "./index";
-import { isObject, parseJson, type Json } from "./jq";
-import { printModels, validateClaudeModel } from "./models";
-import { defaultLiveInputs, resolveCatalog } from "./liveModels";
 import { bunBootstrap } from "./bun";
-import { withSyncLock } from "./syncDispatch";
-import { upgradeLspServers } from "./claudeLsp";
 import { belowFloor, field, installedVersion, outdatedReport, present, report } from "./toolchain";
 
-export async function modeModel(ctx: Ctx, args: ReadonlyArray<string>): Promise<number> {
-  const { err } = ctx.services.logger;
-  let toolGiven = false;
-  let value = "";
-  for (const arg of args) {
-    if (arg === "--dry-run") ctx.dryRun = true;
-    else if (arg === "--verbose") {
-      ctx.verbose = true;
-    } else if (arg === "claude") toolGiven = true;
-    else if (arg.startsWith("-")) {
-      err(`Unknown flag for model: ${arg}`);
-      return 2;
-    } else value = arg;
-  }
-  if (!toolGiven) {
-    err("Usage: model <claude> [value] [--dry-run]");
-    return 2;
-  }
-  if (value === "") return await showModel(ctx);
-  // A write does the same read-modify-write of settings.json as a sync.
-  return await withSyncLock(ctx, args, () => writeModel(ctx, value));
-}
-
-/** Print the deployed Claude model, the SoT model, and the Claude model catalog. */
-async function showModel(ctx: Ctx): Promise<number> {
-  const { echo, err, warn } = ctx.services.logger;
-  const catalog = await resolveCatalog("claude", defaultLiveInputs(ctx.home));
-  const deployed = p(ctx.home, ".claude", "settings.json");
-  const result = readConfig(deployed);
-  if (result.kind === "missing") {
-    warn("~/.claude/settings.json missing");
-    return 0;
-  }
-  if (result.kind === "read-error") {
-    err(`Failed to read ~/.claude/settings.json: ${String(result.error)}`);
-    return 1;
-  }
-  echo(`deployed: ${jsonModelText(result.data)}`);
-  echo(`SoT:      ${jsonModelText(payloadText("SoT/.claude/settings.json"))}`);
-  printModels(ctx, catalog);
-  return 0;
-}
-
-/** Validate `value` against the Claude model catalog, then write it. */
-async function writeModel(ctx: Ctx, value: string): Promise<number> {
-  const { err } = ctx.services.logger;
-  const catalog = await resolveCatalog("claude", defaultLiveInputs(ctx.home));
-  if (!validateClaudeModel(ctx, value, catalog)) {
-    printModels(ctx, catalog);
-    err(`Invalid Claude model '${value}'`);
-    return 2;
-  }
-  syncClaudeModel(ctx, value);
-  return 0;
-}
-
-type ConfigReadResult =
-  | { readonly kind: "missing" }
-  | { readonly kind: "read-error"; readonly error: unknown }
-  | { readonly kind: "data"; readonly data: string };
-
-function readConfig(file: string): ConfigReadResult {
-  try {
-    return { kind: "data", data: readFileSync(file, "utf8") };
-  } catch (error) {
-    const code =
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      typeof error.code === "string"
-        ? error.code
-        : undefined;
-    return code === "ENOENT" ? { kind: "missing" } : { kind: "read-error", error };
-  }
-}
-
-function jsonModelText(text: string): string {
-  const doc = parseJson(text);
-  if (doc === undefined) return "";
-  const v: Json | undefined = isObject(doc) ? doc["model"] : undefined;
-  if (v === undefined || v === null || v === false) return "default (unset)";
-  return typeof v === "string" ? v : JSON.stringify(v);
-}
-
-const TOOLCHAIN_USAGE =
-  "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]";
+const TOOLCHAIN_USAGE = "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]";
 
 export async function modeToolchain(ctx: Ctx, args: ReadonlyArray<string>): Promise<number> {
   const { echo, err, verbose, warn } = ctx.services.logger;
@@ -125,7 +30,6 @@ export async function modeToolchain(ctx: Ctx, args: ReadonlyArray<string>): Prom
     await outdatedReport(ctx, { refresh: args.includes("--refresh") });
     return 0;
   }
-  if (op === "upgrade") return await upgradeLspServers(ctx);
   if (op !== "ensure") {
     err(TOOLCHAIN_USAGE);
     return 2;

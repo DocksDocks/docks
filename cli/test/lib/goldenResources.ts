@@ -2,10 +2,8 @@
  * Filesystem resources shared by the golden regression suites.
  */
 import {
-  cpSync,
   chmodSync,
   lstatSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -204,7 +202,6 @@ const STUB_BODIES: Record<string, string> = {
   node: `if (args[0] === "--version") console.log("v22.23.1")`,
   git: `if (args[0] === "--version") console.log("git version 2.43.0")`,
   jq: `if (args[0] === "--version") console.log("jq-1.7.1")`,
-  claude: `if (args[0] === "--version") console.log("2.1.204 (Claude Code)")`,
   // The inventory stays empty on every call, so a replay row pins the install
   // path rather than the already-installed path; ompSync's present-detection
   // is covered by cli/test/unit/ompPluginInventory.test.ts instead.
@@ -214,22 +211,9 @@ const STUB_BODIES: Record<string, string> = {
   console.log('{"npm":[],"marketplace":[]}')
 }`,
   npx: ``,
-  npm: `if (args[0] === "view") {
-  console.log("0.0.1")
-} else if (args[0] === "ls") {
-  console.log('{"dependencies":{"intelephense":{"version":"1.18.5"}}}')
-}`,
+  npm: `if (args[0] === "view") console.log("0.0.1")`,
   bun: `if (args[0] === "--version") console.log("1.4.4")`,
   curl: ``,
-  intelephense: ``,
-  "typescript-language-server": `if (args[0] === "--version") console.log("6.0.0")`,
-  tsc: `if (args[0] === "--version") console.log("Version 6.0.3")`,
-  // PATH falls through to the real host binary when a name is neither stubbed
-  // nor masked, so both Rust tools are pinned here to keep the LSP pass from
-  // reading the recording machine's toolchain.
-  "rust-analyzer": `if (args[0] === "--version") console.log("rust-analyzer 1.92.0 (0d1f2e3a4 2026-08-31)")`,
-  rustup: `if (args[0] === "--version") console.log("rustup 1.29.0 (2026-05-12)")`,
-  ffplay: `if (args[0] === "-version") console.log("ffplay version 6.1.1-3ubuntu5 Copyright (c) 2003-2023 the FFmpeg developers")`,
   // Windows user-environment persistence. A real `setx` writes HKCU and then
   // broadcasts WM_SETTINGCHANGE, which blocks for seconds on a headless runner
   // and mutates the machine outside the fixture home; `reg` reports the value
@@ -329,26 +313,6 @@ default: throw new Error(\`unknown golden stub: \${String(name)}\`)
       writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${runnerPath}" "${name}" "$@"\n`);
       chmodSync(path, 0o755);
     }
-  }
-  return dir;
-}
-
-/**
- * Write a fixture home variant on the fly (used by unit tests).
- * A `null` value deletes the path instead of writing it, so a case can opt out
- * of fixture artifacts that are noise for the invariant it asserts.
- */
-export function materializeVariant(base: string, files: Record<string, string | null>): string {
-  const dir = temporaryDir("golden-fixture-");
-  rmSync(dir, { recursive: true });
-  cpSync(join(FIXTURES_DIR, base), dir, { recursive: true });
-  for (const [relative, content] of Object.entries(files)) {
-    if (content === null) {
-      rmSync(join(dir, relative), { force: true });
-      continue;
-    }
-    mkdirSync(dirname(join(dir, relative)), { recursive: true });
-    writeFileSync(join(dir, relative), content);
   }
   return dir;
 }

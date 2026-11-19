@@ -11,27 +11,11 @@ import { isAbsolute } from "node:path";
 
 import { capture, captureWithin, commandExists, p, which, type CaptureOutcome } from "./exec";
 import { engineHome } from "./harnesses";
-import { isObject, parseJson } from "./jq";
 import { hostOs, platformName, rawPlatform } from "./os";
 import type { Invocation } from "./os/types";
 import { field } from "./toolchain";
 
-export type ToolId =
-  | "git"
-  | "jq"
-  | "curl"
-  | "node"
-  | "npm"
-  | "npx"
-  | "claude"
-  | "omp"
-  | "bun"
-  | "ffplay"
-  | "intelephense"
-  | "typescript-language-server"
-  | "tsc"
-  | "rust-analyzer"
-  | "rustup";
+export type ToolId = "git" | "jq" | "curl" | "node" | "npm" | "npx" | "omp" | "bun";
 
 export type ProbeResult =
   | { readonly state: "present"; readonly path?: string }
@@ -56,7 +40,8 @@ export type VersionReading =
 
 /**
  * The longest wait for a `<tool> --version` answer. A cold rust-analyzer start
- * took 20 s on a macOS runner (#114), so the limit must let that pass.
+ * once took 20 s on a macOS runner (#114), so the limit leaves room for slow
+ * first starts.
  */
 export const VERSION_PROBE_LIMIT_MS = 60_000;
 
@@ -74,7 +59,6 @@ export interface DependencySpec {
 }
 
 interface SpecOptions {
-  readonly versionArgs?: ReadonlyArray<string>;
   readonly resolve?: (exec: ProbeExecutor, platform: NodeJS.Platform) => ProbeResult;
   readonly version?: (exec: ProbeExecutor) => Promise<string>;
 }
@@ -85,7 +69,7 @@ const spec = (
   options: SpecOptions = {},
 ): DependencySpec => ({
   id,
-  versionArgs: options.versionArgs ?? ["--version"],
+  versionArgs: ["--version"],
   installHint,
   resolve: options.resolve,
   version: options.version,
@@ -129,9 +113,9 @@ const pathProbe =
   };
 
 /**
- * The resolved path gets persisted into global direct-exec hooks, so a
+ * Callers run the resolved path outside the sync working directory, so a
  * relative `which` hit (relative PATH entry, relative BUN_INSTALL) would
- * break outside the sync working directory.
+ * break there.
  */
 const findBun = (exec: ProbeExecutor): { command: string; path: string } | undefined => {
   const onPath = exec.which("bun");
@@ -154,35 +138,6 @@ const resolveBun = (exec: ProbeExecutor): ProbeResult => {
   return bun === undefined ? { state: "missing" } : { state: "present", path: bun.path };
 };
 
-const npmGlobalCache = new WeakMap<ProbeExecutor, Promise<{ [k: string]: string }>>();
-
-/** npm-global package name → version, from `npm ls -g`; memoized per executor. */
-export const npmGlobalVersions = (exec: ProbeExecutor): Promise<{ [k: string]: string }> => {
-  const hit = npmGlobalCache.get(exec);
-  if (hit !== undefined) return hit;
-  const pending = (async (): Promise<{ [k: string]: string }> => {
-    const out: { [k: string]: string } = {};
-    if (exec.commandExists("npm")) {
-      const doc = parseJson(await exec.capture("npm", ["ls", "-g", "--depth=0", "--json"]));
-      const deps =
-        doc !== undefined && isObject(doc) && isObject(doc["dependencies"])
-          ? doc["dependencies"]
-          : {};
-      for (const [name, value] of Object.entries(deps)) {
-        if (isObject(value) && typeof value["version"] === "string") out[name] = value["version"];
-      }
-    }
-    return out;
-  })();
-  npmGlobalCache.set(exec, pending);
-  return pending;
-};
-
-const versionNpmGlobal =
-  (pkg: string) =>
-  async (exec: ProbeExecutor): Promise<string> =>
-    (await npmGlobalVersions(exec))[pkg] ?? "";
-
 export const defaultProbeExecutor: ProbeExecutor = { commandExists, capture, captureWithin, which };
 
 export const DEPENDENCIES: Record<ToolId, DependencySpec> = {
@@ -198,7 +153,6 @@ export const DEPENDENCIES: Record<ToolId, DependencySpec> = {
     "npx",
     () => "ships with Node.js — install via https://nodejs.org (or your package manager)",
   ),
-  claude: spec("claude", (pf = rawPlatform()) => hostOs(platformName(pf)).installHint("claude")),
   omp: spec(
     "omp",
     () =>
@@ -216,28 +170,6 @@ export const DEPENDENCIES: Record<ToolId, DependencySpec> = {
       return await exec.capture(bun.command, ["--version"]);
     },
   }),
-  ffplay: spec("ffplay", (pf = rawPlatform()) => hostOs(platformName(pf)).installHint("ffplay"), {
-    versionArgs: ["-version"],
-    resolve: pathProbe("ffplay"),
-  }),
-  intelephense: spec("intelephense", () => "npm install -g intelephense", {
-    resolve: pathProbe("intelephense"),
-    version: versionNpmGlobal("intelephense"),
-  }),
-  "typescript-language-server": spec(
-    "typescript-language-server",
-    () => "npm install -g typescript-language-server typescript",
-    {
-      resolve: pathProbe("typescript-language-server"),
-    },
-  ),
-  tsc: spec("tsc", () => "npm install -g typescript", {
-    resolve: pathProbe("tsc"),
-  }),
-  "rust-analyzer": spec("rust-analyzer", () => "rustup component add rust-analyzer", {
-    resolve: pathProbe("rust-analyzer"),
-  }),
-  rustup: spec("rustup", () => "install the Rust toolchain from https://rustup.rs"),
 };
 
 export function resolveDependency(

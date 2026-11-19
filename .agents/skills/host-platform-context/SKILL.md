@@ -1,26 +1,26 @@
 ---
 name: host-platform-context
-description: "Use when modifying cli/src/engine-native/exec.ts spawnHost, spawnProcess, capture, captureWithin, which, writeTextIfChanged; os/*.ts HostOs facts (invoke, executableSuffixes, environmentSetting, statusLineCommand, failureHookCommand, bunInstaller) or os/targets.ts HOST_TARGETS; deps.ts DEPENDENCIES, findBun, npmGlobalVersions, resolveVersionReading; services.ts makeDependencyManager or the cli/src/services.ts Effect layers; atomicWrite.ts replaceFile or removeStaleTemporaries; processes.ts processExited; or logger.ts terminal lease. Covers Windows cmd-shim encoding, pathless-spawn refusal, bounded process-group kills, version-probe time limits, symlink-preserving atomic writes and the cleanup of their killed-write leftovers, and the host support matrix. Not for golden harness rules (use engine-native-context) or toolchain pins and the doctor table (use toolchain-context)."
+description: "Use when modifying cli/src/engine-native/exec.ts spawnHost, spawnProcess, capture, captureWithin, which; os/*.ts HostOs facts (invoke, executableSuffixes, directoryLinkKinds, installHint, bunInstaller) or os/targets.ts HOST_TARGETS; deps.ts DEPENDENCIES, findBun, resolveVersionReading; services.ts makeDependencyManager or the cli/src/services.ts Effect layers; atomicWrite.ts replaceFile, replaceTextIfChanged, or removeStaleTemporaries; processes.ts processExited; or logger.ts terminal lease. Covers Windows cmd-shim encoding, pathless-spawn refusal, bounded process-group kills, version-probe time limits, symlink-preserving atomic writes and the cleanup of their killed-write leftovers, and the host support matrix. Not for golden harness rules (use engine-native-context) or toolchain pins and the doctor table (use toolchain-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
   source_files:
     - path: cli/src/engine-native/exec.ts
-      lines: "1-363"
+      lines: "1-346"
     - path: cli/src/engine-native/deps.ts
-      lines: "1-297"
+      lines: "1-229"
     - path: cli/src/engine-native/os/types.ts
-      lines: "1-73"
+      lines: "1-44"
     - path: cli/src/engine-native/os/index.ts
       lines: "1-41"
     - path: cli/src/engine-native/os/posix.ts
-      lines: "1-77"
+      lines: "1-39"
     - path: cli/src/engine-native/os/linux.ts
-      lines: "1-14"
+      lines: "1-12"
     - path: cli/src/engine-native/os/darwin.ts
-      lines: "1-15"
+      lines: "1-12"
     - path: cli/src/engine-native/os/windows.ts
-      lines: "1-181"
+      lines: "1-135"
     - path: cli/src/engine-native/os/targets.ts
       lines: "1-77"
     - path: cli/src/engine-native/atomicWrite.ts
@@ -30,10 +30,10 @@ metadata:
     - path: cli/src/engine-native/logger.ts
       lines: "1-196"
     - path: cli/src/engine-native/services.ts
-      lines: "1-89"
+      lines: "1-88"
     - path: cli/src/services.ts
       lines: "1-42"
-  updated: "2026-11-07"
+  updated: "2026-11-19"
 ---
 
 # Host Platform Layer
@@ -69,7 +69,7 @@ Output channels, change detection, the missing-dependency warn shape, and the li
 | Async child | `spawnProcess(cmd, args, { stdio, cwd, env, host, timeoutMs })` | `exec.ts` — `spawnProcess` — default stdio discards stderr; pass `["ignore","pipe","pipe"]` when the caller prints `processFailureSummary`; `env` replaces the child environment, else the child gets the environment of the process |
 | Bounded probe | `captureWithin(cmd, args, ms)` → `output`/`failed`/`timed-out` | `exec.ts` — `captureWithin`, `killProcessTree` — POSIX children lead their own group (`detached`) and die by negative pid; Windows runs `taskkill /T /F` from `SystemRoot\System32` (`C:\Windows` when unset; unlike `commandInterpreter`, the value is not checked for an absolute path) |
 | Version read | `deps.resolveVersionReading` | `cli/src/engine-native/deps.ts` — `VERSION_PROBE_LIMIT_MS` — keeps "no answer in time" apart from "no version" (verify: `grep -n VERSION_PROBE_LIMIT_MS cli/src/engine-native/deps.ts`) |
-| Presence | `ctx.services.deps.probe(id)` | `deps.ts` — `pathProbe`, `findBun` — Bun must resolve to an absolute path because it is persisted into hooks |
+| Presence | `ctx.services.deps.probe(id)` | `deps.ts` — `pathProbe`, `findBun` — Bun must resolve to an absolute path because callers run it outside the sync working directory |
 | Missing tool warning | `ctx.services.deps.warnMissing(id, logger, context)` | `cli/src/engine-native/services.ts` — `makeDependencyManager` — one warning per tool per manager |
 | Host fact | `hostOs(ctx.services.platform.name())` | `cli/src/engine-native/os/types.ts` — `HostOs` — facts that cannot be probed only |
 | Supported host | `HOST_TARGETS` | `cli/src/engine-native/os/targets.ts` — `HOST_TARGETS` — adding a row adds a host. `hostTargets.test.ts` checks the table against the Bash and PowerShell launcher maps, the default build target list, and the artifact names in `.github/workflows/release-cli.yml` (verify: `bunx vitest run cli/test/unit/hostTargets.test.ts -t "keeps the Bash launcher aligned with every POSIX host target"`; verify: `bunx vitest run cli/test/unit/hostTargets.test.ts -t "keeps the PowerShell launcher aligned with every Windows host target"`; verify: `bunx vitest run cli/test/unit/hostTargets.test.ts -t "builds exactly the four supported host targets by default"`; verify: `bunx vitest run cli/test/unit/hostTargets.test.ts -t "names every HOST_TARGETS artifact in release-cli.yml"`) |
@@ -85,10 +85,6 @@ Output channels, change detection, the missing-dependency warn shape, and the li
 - `%`, CR, and LF cannot be escaped on a cmd line. The encoder throws. `spawnHost` then exits the process with code 2, while `spawnProcess` returns `{ error }`.
 - The interpreter path is always absolute (`ComSpec` when absolute, else `SystemRoot\System32\cmd.exe`).
 
-### Host-specific startup files
-
-`os/posix.ts` — `environmentSetting, target` — zsh writes `.zshrc`, bash writes the first existing `bashTargets` entry (Linux `.bashrc`; macOS `.bash_profile`, `.bash_login`, `.profile`), any other shell writes `.profile`. Windows persists with `setx` after a `reg query` probe.
-
 ## Key Decisions
 
 - Host modules contribute the order of a fallback chain, never the outcome; the runtime tries and falls back (`os/types.ts` header).
@@ -100,7 +96,7 @@ Output channels, change detection, the missing-dependency warn shape, and the li
 
 | Good | Bad | Why |
 |---|---|---|
-| `spawnHost("git", ...)` | `spawnSync("git", ...)` | A pathless name lets Windows search the current directory first; `commands/sync.ts updateNudge` starts `git` through `spawnHost`, and `engine.ts engineCapture` spawns the absolute `process.execPath` (verify, prints nothing: `git grep -n 'spawnSync("' cli/src`; verify: `bunx vitest run cli/test/unit/syncUpdateNudge.test.ts -t "runs git through spawnHost"`) |
+| `spawnHost("git", ...)` | `spawnSync("git", ...)` | A pathless name lets Windows search the current directory first; `commands/sync.ts updateNudge` starts `git` through `spawnHost` (verify, prints nothing: `git grep -n 'spawnSync("' cli/src`; verify: `bunx vitest run cli/test/unit/syncUpdateNudge.test.ts -t "runs git through spawnHost"`) |
 | `replaceFile(path, text, { mode: 0o600 })` | `writeFileSync(tmp); renameSync(tmp, path)` | The rename replaces a symlink with a regular file; `ompFastMode.ts toggleDeployedOpenAiFast` calls `replaceFile`, so a symlinked `config.yml` stays a link (verify: `bunx vitest run cli/test/unit/ompFastMode.test.ts -t "keeps a symlinked config.yml a link"`) |
 | `removeStaleTemporaries(dir, owns)` with an `owns` that accepts only the targets the caller writes | A sweep of `*.tmp` by age, or of every dead-PID `*.tmp` in the folder | Another tool can use the same folder and a similar name; only the writer of a target knows which temporary names are its own |
 | `p` used inside a function body in `os/windows.ts` | a top-level `p(...)` call in any `os/*.ts` module | `exec.ts` imports `./os`; `os/posix.ts` avoids importing `../exec` for this reason |

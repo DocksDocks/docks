@@ -12,7 +12,7 @@ const root = Command.make("docks-kit", {}, () =>
     yield* Console.log("docks-kit — portable AI coding agent config kit");
     yield* Console.log("");
     yield* Console.log(
-      "  docks-kit sync [claude|agents|omp]        deploy the SoT to this machine",
+      "  docks-kit sync [agents|omp]               deploy the SoT to this machine",
     );
     yield* Console.log(
       "  docks-kit harnesses                       choose the flag-less sync selection",
@@ -20,13 +20,7 @@ const root = Command.make("docks-kit", {}, () =>
     yield* Console.log(
       "  docks-kit update [--no-sync]              self-update the kit, then sync",
     );
-    yield* Console.log("  docks-kit model <claude> [value]           get/set the deployed model");
-    yield* Console.log("  docks-kit models [tool] [--refresh]        live model lists per harness");
-    yield* Console.log(
-      "  docks-kit toolchain [check|ensure|outdated|upgrade] verified-version floors",
-    );
-    yield* Console.log("  docks-kit status                           deployed-vs-SoT doctor view");
-    yield* Console.log("  docks-kit plugins list                     plugin tri-state");
+    yield* Console.log("  docks-kit toolchain [check|ensure|outdated] verified-version floors");
     yield* Console.log("  docks-kit skills list                      universal skills");
     yield* Console.log("  docks-kit docs [topic]                     self-documentation");
     yield* Console.log("  docks-kit omp [--model|--pick] [...]       free-model omp session");
@@ -44,7 +38,7 @@ const root = Command.make("docks-kit", {}, () =>
   }),
 ).pipe(
   Command.withDescription(
-    "Portable AI coding agent config kit — SoT sync engine + helpers for Claude Code and universal agent skills.",
+    "Portable AI coding agent config kit — SoT sync engine + helpers for Oh My Pi and universal agent skills.",
   ),
   Command.withSubcommands(COMMANDS),
 );
@@ -57,28 +51,22 @@ const bareVersionFormatter: CliOutput.Formatter = {
   formatVersion: (_name, version) => `${version}\n`,
 };
 
-// Harness-private raw channels:
+// Harness-private raw channel:
 // `DOCKS_KIT_ENGINE=native-raw` bypasses effect/cli and hands the raw engine
 // argv to EngineNative so golden tests drive the internal vocabulary directly.
 // Only this channel honors the unprefixed env globals (DRY_RUN, PRUNE, and so on).
-// `DOCKS_KIT_ENGINE=native-capture` is the engine.ts engineCapture child. It takes
-// the same raw argv but ignores the env globals. Bun can reload those globals from
-// a project `.env` file, so removing them from the child environment is not enough.
 // PUBLIC engine execution lives at the engine.ts seam after the CLI has
 // parsed/normalized pickers, --flag value forms, and non-engine commands.
-const rawChannel = process.env["DOCKS_KIT_ENGINE"];
-if (rawChannel === "native-raw" || rawChannel === "native-capture") {
+if (process.env["DOCKS_KIT_ENGINE"] === "native-raw") {
   const rawArgs = process.argv.slice(2);
   const rawOperation = rawArgs.join(" ") || "default";
-  // The raw channels bypass BunRuntime.runMain, which turns a signal into
+  // The raw channel bypasses BunRuntime.runMain, which turns a signal into
   // process.exit. Without a handler a signal ends the process without the
   // `exit` event, and exec.ts then cannot end its bounded probes.
   process.once("SIGINT", () => process.exit(130));
   process.once("SIGTERM", () => process.exit(143));
   try {
-    process.exit(
-      await runEngineNative(rawArgs, undefined, { envGlobals: rawChannel === "native-raw" }),
-    );
+    process.exit(await runEngineNative(rawArgs, undefined, { envGlobals: true }));
   } catch (error) {
     let detail = "unknown error";
     if (error instanceof Error && error.message !== "") detail = error.message;

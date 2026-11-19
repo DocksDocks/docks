@@ -6,84 +6,51 @@ options (verify: `grep -n 'case "--' cli/src/engine-native/parseArgs.ts`).
 
 ## Critical Constraints
 
-- `--reconcile` and `--prune` are orthogonal layers.
-- Targets are positional words: `claude`, `agents`, `omp`.
-- Unknown flags and renamed legacy flags exit 2 before mutation.
-- Bare value flags such as `--claude-model` exit 2 on both layers. The public
-  CLI takes `--flag value` or `--flag=value`; the engine parser takes only
-  `--flag=value`.
-  (verify: `bunx vitest run cli/test/unit/targetGrammar.test.ts -t "prints the catalog and exits 2 for a bare"` and `bunx vitest run cli/test/unit/argv.test.ts -t "rejects Claude model followed by another flag with a catalog and value grammar"`)
+- Targets are positional words: `agents`, `omp`. Any other word exits 2
+  (`Unknown sync target(s)` on the public CLI, `Unknown arg` in the engine).
+- Unknown flags and renamed legacy flags (`parseArgs.ts LEGACY_FLAG_HINTS`)
+  exit 2 before mutation.
+- Every sync flag is a boolean. A value such as `--prune no` or
+  `--dry-run=false` exits 2 on the public CLI; the engine parser has no
+  `--flag=value` arm, so it exits 2 with `Unknown arg`.
+  (verify: `bunx vitest run cli/test/unit/argv.test.ts -t "rejects a separate boolean literal after the prune boolean"` and `bunx vitest run cli/test/unit/targetGrammar.test.ts -t "reports the unknown positional target"`)
 
 ## Full Truth Table
 
-| `--reconcile` | `--prune` | `--dry-run` | `claude` only | Effect |
-|---------------|-----------|-------------|---------------|--------|
-| 0 | 0 | 0 | 0 | Additive sync for the default target selection. |
-| 0 | 0 | 1 | 0 | Preview the default target selection. |
-| 1 | 0 | 0 | 0 | Reconcile settings layer; keep user-only keys. |
-| 0 | 1 | 0 | 0 | Remove user-scope plugins and extra marketplaces not in SoT, and kit-managed skills not in the manifest. |
-| 1 | 1 | 0 | 0 | Reconcile settings, then prune as in the row above. |
-| 0 | 0 | 0 | 1 | Sync Claude only. |
-| 1 | 0 | 0 | 1 | Reconcile Claude settings only. |
-| 0 | 1 | 0 | 1 | Prune Claude plugin/marketplace layer only. |
-| 1 | 0 | 1 | 0 | Preview reconcile without writes. |
+| `--prune` | `--dry-run` | Effect |
+|-----------|-------------|--------|
+| 0 | 0 | Sync the selected targets. |
+| 0 | 1 | Preview the selected targets. |
+| 1 | 0 | Sync, then remove kit-owned universal skills that the manifest no longer lists (`agents` selected only). |
+| 1 | 1 | Preview the sync and the removals without writes. |
 
 ## Flags
 
 | Flag | `Ctx` field | Consumer | Notes |
 |------|-------------|----------|-------|
-| `--dry-run` | `ctx.dryRun` | every step | Preview only. |
+| `--dry-run` | `ctx.dryRun` | every step | Preview only. Also skips the sync lock and the folder locks. |
 | `--verbose` | `ctx.verbose` | `index.ts runEngineNative` logger | Also prints no-op confirmations. The public `sync` command also accepts `-v`. |
-| `--reconcile` | `ctx.reconcile` | `claudeSettings.ts prepareClaudeSettings` | Settings layer only. |
-| `--prune` | `ctx.prune` | `claudePluginPasses.ts syncPlugins` passes 5-6, `skillsSync.ts skillsSync` | See § Layer Scope By Flag. |
-| `--skip-plugin-refresh` | `ctx.skipPluginRefresh` | Claude and omp plugin passes | Installs missing plugins but skips refresh-only calls. No command passes it automatically: `commands/update.ts updateSyncArgs` chains a flag-less sync. |
-| `--claude-compact-window=<n\|Nk>` | `ctx.claudeCompactWindow` | `claudeSettings.ts syncCompactWindow` | Sets `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW`. `parseCompactWindow` accepts digits or digits plus `k`/`K`; anything else exits 2. |
-| `--claude-permissive` | `ctx.claudePermissive` | `claudeSettings.ts syncPermissive` | Empties deployed `permissions.ask` and `permissions.deny`. |
-| `--claude-plugin=<name>` | `ctx.claudePlugins` | `claudeOptionalPlugins.ts syncOptionalPlugins` | Repeatable. Values: `parseModifiers.ts KNOWN_CLAUDE_OPTIN_PLUGINS`; any other value exits 2. See § Sticky Opt-Ins. |
-| `--claude-model=<m>` | `ctx.claudeModel` | `claudeSettingsModifiers.ts syncClaudeModel` | Sets deployed `.model`; `default` deletes it. Validated before sync mutations. |
-| `--claude-effort=<level>` | `ctx.claudeEffort` | `claudeSettingsModifiers.ts syncClaudeEffort` | Sets deployed `.effortLevel`; `default` sets the SoT level. Levels: `efforts.ts CLAUDE_EFFORT_LEVELS`. |
-| `--claude-advisor=<state>` | `ctx.claudeAdvisor` | `claudeSettingsModifiers.ts syncClaudeAdvisor` | `on` sets deployed `.advisorModel` to `opus`; `off` and `default` delete it. States: `efforts.ts CLAUDE_ADVISOR_STATES`. |
+| `--prune` | `ctx.prune` | `skillsSync.ts skillsSync` -> `skillsPrune.ts reconcileRemovals` | See § Layer Scope By Flag. |
+| `--skip-plugin-refresh` | `ctx.skipPluginRefresh` | `ompMarketplace.ts syncMarketplace`, `ompPlugins.ts syncPlugins` | Installs missing omp plugins but skips refresh-only calls. No command passes it automatically: `commands/update.ts updateSyncArgs` chains a flag-less sync. |
 | target word present | `ctx.targetFilterSet` | `parseArgs.ts applyDefaultSelection` | Once any target word appears, only named targets run. |
 
-(verify: `bunx vitest run cli/test/unit/targetGrammar.test.ts -t "rejects invalid native modifier"` and `bunx vitest run cli/test/unit/engine-di.test.ts -t "turns the deployed advisor on and removes it for off and default without losing user keys"`)
+(verify: `bunx vitest run cli/test/unit/engine-di.test.ts -t "lists the agents and omp targets and the global flags in sync help"` and `bunx vitest run cli/test/unit/ompPluginInventory.test.ts -t "skips every refresh of present plugins under --skip-plugin-refresh"`)
 
 Default target behavior: when no target word is present, `parseArgs.ts
 applyDefaultSelection` selects the stored kit.db harness selection. When no
-selection is stored, it selects `harnesses.ts LEGACY_SELECTION`.
-
-Model-flag validation rules live in
-`.agents/skills/sync-orchestration-context/SKILL.md` § Model Validation.
+selection is stored, it selects `harnesses.ts DEFAULT_SELECTION` (agents and
+omp).
 
 ## Layer Scope By Flag
 
-| Layer | `--reconcile` | `--prune` | Default |
-|-------|---------------|-----------|---------|
-| `~/.claude/settings.json` | SoT keys win; permissions arrays replaced | No effect | Additive merge; permissions unioned |
-| Claude plugins/marketplaces | No effect | Remove user-scope plugins and extra marketplaces absent from SoT, including hand-installed ones (`claudePluginPasses.ts syncPlugins`, passes 5-6) | Additive install/update |
-| `~/.agents/skills/` | No effect | Remove slugs in `~/.agents/.kit-owned-skills` that the manifest no longer lists; keep legacy `.kit-managed-skills` entries with a `keep` line | Additive install and symlink heal; record kit installs in `.kit-owned-skills` |
+| Layer | `--prune` | Default |
+|-------|-----------|---------|
+| `~/.agents/skills/` | Remove slugs in `~/.agents/.kit-owned-skills` that the manifest no longer lists; keep legacy `.kit-managed-skills` entries with a `keep` line | Additive install and symlink heal; record kit installs in `.kit-owned-skills` |
+| omp agent folder and plugins | No effect | `omp-sync-context` owns the merge, removal, and plugin rules |
 
-(verify: `bunx vitest run cli/test/unit/pluginRefresh.test.ts -t "keeps marketplaces used by project-scoped plugins during prune"`)
-
-## Deploy-Time Modifiers
-
-These § Flags entries are deploy-time modifiers: `--claude-compact-window`,
-`--claude-permissive`, `--claude-model`, `--claude-effort`, and
-`--claude-advisor`. They mutate deployed config away from
-the SoT. A later flag-less sync restores SoT values. `--claude-plugin` is not a
-deploy-time modifier, because it is a sticky opt-in (§ Sticky Opt-Ins). It is
-still an `engineCtx.ts ModifierFlag`, and `parseModifiers.ts addClaudePlugin`
-records it for `MODIFIER_METADATA` validation.
-
-`claudeSync` runs its modifiers after the base deploy.
-
-## Sticky Opt-Ins
-
-Optional Claude plugins are absent from the SoT. Once installed by
-`--claude-plugin=<name>`, they persist through flag-less syncs and are removed
-only by `--prune`. `claudeOptionalPlugins.ts syncOptionalPlugins` maps each
-`KNOWN_CLAUDE_OPTIN_PLUGINS` value to its plugin ID and, where needed, its
-marketplace (verify: `grep -n KNOWN_CLAUDE_OPTIN_PLUGINS cli/src/engine-native/parseModifiers.ts`).
+(verify: `bunx vitest run cli/test/unit/skillsDurability.test.ts -t "keeps a dropped slug tracked through a plain sync until a prune removes it"`)
 
 ## Gotchas
 
-- Combining `--dry-run --reconcile --prune` previews both destructive layers.
+- `--dry-run --prune` previews the removals; a dry-run sync can still migrate
+  `kit.db`.

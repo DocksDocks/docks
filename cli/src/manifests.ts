@@ -1,60 +1,9 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { pluginUserScopeInstalled } from "./engine-native/claudePluginPasses";
 import { engineHome } from "./engine-native/harnesses";
-import { isObject, readJsonFile } from "./engine-native/jq";
-import type { JsonObject } from "./engine-native/sharedTypes";
 import { skillBase } from "./engine-native/skillsManifest";
 import { COPY_MARKER } from "./engine-native/skillsSync";
 import { payloadText } from "./payload";
-
-export type Tool = "claude";
-
-const readJson = (path: string): any => JSON.parse(readFileSync(path, "utf8"));
-const readJsonText = (text: string): any => JSON.parse(text);
-
-/** SoT settings (claude) — model/effort/env for drift display. */
-export const sotClaudeSettings = (): any => readJsonText(payloadText("SoT/.claude/settings.json"));
-
-export const deployedClaudeSettings = (): any | undefined => {
-  const p = join(engineHome(), ".claude", "settings.json");
-  return existsSync(p) ? readJson(p) : undefined;
-};
-
-const installedPluginsPath = (): string =>
-  join(engineHome(), ".claude", "plugins", "installed_plugins.json");
-
-/** Read the user-scope plugin records; a missing or malformed file yields `undefined`. */
-const readInstalledPlugins = (path: string): JsonObject | undefined => {
-  const doc = readJsonFile(path);
-  if (doc === undefined || !isObject(doc)) return undefined;
-  const plugins = doc["plugins"];
-  return plugins !== undefined && isObject(plugins) ? plugins : undefined;
-};
-
-/** State of ~/.claude/plugins/installed_plugins.json: missing, an object with object `plugins`, or not. */
-export const installedPluginsState = (): "absent" | "valid" | "malformed" => {
-  const path = installedPluginsPath();
-  if (!existsSync(path)) return "absent";
-  return readInstalledPlugins(path) === undefined ? "malformed" : "valid";
-};
-
-/** Installed plugins (user scope) vs SoT enabledPlugins tri-state. */
-export const pluginsView = (): Array<{
-  plugin: string;
-  sot: "true" | "false" | "absent";
-  installed: boolean;
-}> => {
-  const sot: Record<string, boolean> = sotClaudeSettings().enabledPlugins ?? {};
-  const installedPath = installedPluginsPath();
-  const installed: Record<string, unknown> = readInstalledPlugins(installedPath) ?? {};
-  const names = new Set([...Object.keys(sot), ...Object.keys(installed)]);
-  return [...names].sort().map((plugin) => ({
-    plugin,
-    sot: plugin in sot ? (sot[plugin] ? "true" : "false") : "absent",
-    installed: pluginUserScopeInstalled(installedPath, plugin),
-  }));
-};
 
 /** Universal skills: SoT manifest slugs vs ~/.agents/skills contents. */
 export const skillsView = (): Array<{

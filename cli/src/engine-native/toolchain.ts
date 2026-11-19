@@ -38,8 +38,8 @@ export function isNewer(a: string, b: string): boolean {
 
 /**
  * A readable installed version strictly older than the manifest floor. The
- * doctor row and the LSP install gate must agree on that judgement, so both
- * ask here rather than re-deriving it.
+ * doctor row and `toolchain ensure` must agree on that judgement, so both ask
+ * here rather than re-deriving it.
  */
 export function belowFloor(installed: string, floor: string): boolean {
   return installed !== "" && floor !== "" && isNewer(floor, installed);
@@ -57,8 +57,6 @@ function firstLineField(out: string, index: number): string {
 export async function installedVersion(ctx: Ctx, tool: ToolId): Promise<string> {
   const version = () => ctx.services.deps.version(tool);
   switch (tool) {
-    case "claude":
-      return firstLineField(await version(), 0);
     case "git":
       return firstLineField(await version(), 2);
     case "node":
@@ -66,20 +64,11 @@ export async function installedVersion(ctx: Ctx, tool: ToolId): Promise<string> 
     case "jq":
       return (await version()).replace(/^jq-/, "");
     case "curl":
-    case "tsc":
-    // `rust-analyzer --version` prints "rust-analyzer <version>", where the
-    // version tail also carries a commit and a date in parentheses.
-    case "rust-analyzer":
       return firstLineField(await version(), 1);
     case "bun":
     case "omp":
     case "npm":
       return await version();
-    case "ffplay":
-      return firstLineField(await version(), 2).replace(/-.*$/, "");
-    case "intelephense":
-    case "typescript-language-server":
-      return (await version()).trim();
     default:
       return "";
   }
@@ -148,9 +137,8 @@ function upstreamSpec(tool: string): JsonObject | undefined {
 }
 
 function upstreamLabel(spec: JsonObject): string {
-  const { npm, github, line } = spec;
-  if (typeof npm === "string")
-    return typeof line === "string" ? `npm ${npm} (${line}.x)` : `npm ${npm}`;
+  const { npm, github } = spec;
+  if (typeof npm === "string") return `npm ${npm}`;
   return typeof github === "string" ? `github ${github}` : "-";
 }
 
@@ -172,26 +160,7 @@ async function lookupUpstream(
   fetchImpl: FetchLike,
   env: NodeJS.ProcessEnv,
 ): Promise<UpstreamResult> {
-  const { npm, line, github, tagPrefix } = spec;
-  if (typeof npm === "string" && typeof line === "string") {
-    // The registry rejects ranges, so read the packument and pick the newest release on the line.
-    const result = await fetchJson(fetchImpl, `https://registry.npmjs.org/${npm}`, {
-      Accept: "application/vnd.npm.install-v1+json",
-    });
-    if (!result.ok) return result;
-    const versions = result.body["versions"];
-    if (versions === undefined || !isObject(versions))
-      return { ok: false, reason: "invalid response" };
-    if (!/^\d+$/.test(line)) return { ok: false, reason: `invalid line ${line}` };
-    const pattern = new RegExp(`^${line}\\.\\d+\\.\\d+$`);
-    let newest = "";
-    for (const version of Object.keys(versions)) {
-      if (pattern.test(version) && (newest === "" || isNewer(version, newest))) newest = version;
-    }
-    return newest === ""
-      ? { ok: false, reason: `no ${line}.x release` }
-      : { ok: true, version: newest };
-  }
+  const { npm, github, tagPrefix } = spec;
   if (typeof npm === "string") {
     const result = await fetchJson(fetchImpl, `https://registry.npmjs.org/${npm}/latest`, {
       Accept: "application/json",

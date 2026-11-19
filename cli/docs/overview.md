@@ -9,13 +9,11 @@ AI-assisted dev environment on every machine.
 
 | Piece | Role |
 |-------|------|
-| `SoT/.claude/` | Claude Code config (settings template, Bun runtime programs, CLAUDE.md) |
 | `SoT/.agents/` | Universal agent skills manifest (agentskills.io standard) |
 | `SoT/.omp/` | omp config deployed to `~/.omp/agent/` (AGENTS.md, config.yml, models.yml, mcp.json) plus `intercom.json` for pi intercom, plus the `plugin/` tree, deployed to `~/.docks-kit/omp-plugin` and linked as the `docks-kit-omp` omp plugin |
-| `SoT/models.json` | Curated Claude aliases, notes, and offline fallback for the live model lists (see `docks-kit docs models`) |
 | `SoT/toolchain.json` | Verified-version floors for external tools (see `docks-kit docs toolchain`) |
 | `cli/src/generated/sotPayload.ts` | Deterministic generated payload embedded in standalone/npm execution |
-| `cli/src/engine-native/` | EngineNative mutation logic for sync/model/toolchain and the `docks-kit omp` session overlay |
+| `cli/src/engine-native/` | EngineNative mutation logic for sync/toolchain and the `docks-kit omp` session overlay |
 | `cli/` | This CLI (Effect 4 on Bun) plus bundled docs |
 | `docks-kit` / `docks-kit.ps1` | POSIX and Windows launchers: version-matching compiled binary → Bun-from-source, with Bun auto-install |
 
@@ -26,20 +24,15 @@ AI-assisted dev environment on every machine.
   (with a platform-correct install command when a tool is missing), and the
   summary; `--verbose` / `-v` also prints the no-op confirmations.
 - **Additive by default**: user-only keys/plugins/skills survive a plain sync.
-  Reconciliation toward the SoT is explicit: `--reconcile` (settings) and
-  `--prune` (plugins/marketplaces/skills).
-- **Deploy-time modifiers** mutate deployed config only — the SoT never
-  changes, and a later flag-less sync reverts them (`docks-kit docs modifiers`).
+  Removing kit-managed universal skills that left the SoT is explicit:
+  `--prune`.
 - **Engine/CLI split**: the CLI adds UX (typed flags, pickers, docs, JSON);
   EngineNative owns mutation. No-Bun recovery is a platform release binary.
 - **Authoring/runtime split**: changes begin in `SoT/`; build/prepack freshness
   checks keep the generated in-memory payload byte-identical for every runtime.
-- **Native Claude runtime**: three dependency-free Bun `.mjs` programs own the
-  statusline, SessionStart, and Notification. Quotas come only from native
-  `rate_limits`; missing Bun defers cutover without deleting legacy fallbacks.
 
 ## Where to go next
 
 - `docks-kit docs sync-layers` — what a sync actually touches
 - `docks-kit docs flags` — full flag reference + old→new renames
-- `docks-kit status` — live doctor view of this machine
+- `docks-kit toolchain` — doctor view of this machine's external tools

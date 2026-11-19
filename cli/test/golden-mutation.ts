@@ -11,7 +11,7 @@
  *   bun cli/test/golden-mutation.ts
  *   bun cli/test/golden-mutation.ts --prove-red
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { hostOs } from "../src/engine-native/os";
@@ -23,8 +23,8 @@ import {
   runEngineSplit,
   runPublicCli,
 } from "./lib/goldenExecution";
-import { LEGACY_CLAUDE_FILES, MATRIX, REPLAYS } from "./lib/goldenMutationCatalog";
-import { FIXTURES_DIR, REPO_DIR, makeStubDir, materializeVariant } from "./lib/goldenResources";
+import { MATRIX, REPLAYS } from "./lib/goldenMutationCatalog";
+import { REPO_DIR, makeStubDir } from "./lib/goldenResources";
 import {
   diffText,
   diffTrees,
@@ -52,7 +52,7 @@ const options = parseArgs(process.argv);
 const hostExecutableSuffixes = hostOs().executableSuffixes;
 if (hostExecutableSuffixes.length !== 1 || !hostExecutableSuffixes.includes("")) {
   console.error(
-    "golden-mutation: unsupported host: snapshots are Linux-canonical and run only in the Linux snapshot lane. On Windows, run `bun run typecheck`, `bun run test:unit`, `bun run test:runtime:windows`, and `bun run smoke:native` instead.",
+    "golden-mutation: unsupported host: snapshots are Linux-canonical and run only in the Linux snapshot lane. On Windows, run `bun run typecheck`, `bun run test:unit`, and `bun run smoke:native` instead.",
   );
   process.exit(2);
 }
@@ -89,11 +89,7 @@ function runCase(
   }
 }
 
-function runReplayCase(
-  fixture: string,
-  cmd: ReadonlyArray<string>,
-  cmd2?: ReadonlyArray<string>,
-): MutationCaseGolden {
+function runReplayCase(fixture: string, cmd: ReadonlyArray<string>): MutationCaseGolden {
   const first = runEngine(cmd, fixture, defaultStubs);
   try {
     if (first.exitCode !== 0) {
@@ -104,10 +100,9 @@ function runReplayCase(
     if (!first.output.includes("--- Sync complete ---")) {
       throw new Error(`first replay for '${cmd.join(" ")}' produced no sync completion summary`);
     }
-    const secondCmd = cmd2 ?? cmd;
-    const second = runEngine(secondCmd, fixture, defaultStubs, { reuseHome: first.home });
+    const second = runEngine(cmd, fixture, defaultStubs, { reuseHome: first.home });
     return {
-      command: [...secondCmd],
+      command: [...cmd],
       exitCode: second.exitCode,
       tree: snapshotTree(second.home),
       argvLog: readArgvLog(second),
@@ -115,155 +110,6 @@ function runReplayCase(
     };
   } finally {
     cleanup([first]);
-  }
-}
-
-function runLegacyMigrationCase(): MutationCaseGolden & { readonly problems: Array<string> } {
-  const fixture = materializeVariant("home-fresh", LEGACY_CLAUDE_FILES);
-  try {
-    const run = runEngine(["sync", "claude"], fixture, defaultStubs);
-    try {
-      const problems: Array<string> = [];
-      for (const relative of [
-        ".claude/statusline.sh",
-        ".claude/fetch-usage.sh",
-        ".claude/hooks/notify.sh",
-      ]) {
-        if (existsSync(join(run.home, relative)))
-          problems.push(`  migration: legacy file survived: ${relative}`);
-      }
-      for (const relative of [
-        ".claude/bin/statusline.mjs",
-        ".claude/bin/session-start.mjs",
-        ".claude/bin/notify.mjs",
-        ".claude/notification.mp3",
-      ]) {
-        if (!existsSync(join(run.home, relative)))
-          problems.push(`  migration: runtime file missing: ${relative}`);
-      }
-      const settingsText = readFileSync(join(run.home, ".claude", "settings.json"), "utf8");
-      const settings = JSON.parse(settingsText) as Record<string, unknown>;
-      const hooks = settings["hooks"] as Record<string, unknown> | undefined;
-      if (hooks?.["Stop"] !== undefined)
-        problems.push("  migration: hooks.Stop survived ready cutover");
-      if (settingsText.includes("__DOCKS_KIT_"))
-        problems.push("  migration: deployed settings contain a sentinel");
-      if (
-        !run.output.includes(
-          "Pruned stale artifacts (hooks: 0, files: 0, settings keys: 0, claude.json keys: 0, retired hook handlers: 1, preserved as backup: 3 (hooks/notify.sh.bak, statusline.sh.bak, fetch-usage.sh.bak))",
-        )
-      ) {
-        problems.push("  migration: aggregate readiness-gated prune line missing");
-      }
-      return {
-        command: ["sync", "claude"],
-        exitCode: run.exitCode,
-        tree: snapshotTree(run.home),
-        argvLog: readArgvLog(run),
-        output: run.output,
-        problems,
-      };
-    } finally {
-      cleanup([run]);
-    }
-  } finally {
-    rmSync(fixture, { recursive: true, force: true });
-  }
-}
-
-type AdvisorMigrationState = "flagless" | "on" | "off" | "default";
-
-function runAdvisorMigrationCase(
-  state: AdvisorMigrationState,
-): MutationCaseGolden & { readonly problems: Array<string> } {
-  const sourceSettings = JSON.parse(
-    readFileSync(join(FIXTURES_DIR, "home-drift", ".claude", "settings.json"), "utf8"),
-  ) as Record<string, unknown>;
-  // The seed is the retired `fable` value, so `on` must migrate it to `opus`.
-  sourceSettings["advisorModel"] = "fable";
-  // Retirement cleanups (the stale relay command, its enablement key) fire on
-  // every state and would mask which mechanism owns advisorModel, so this case
-  // drops them from its variant.
-  const enabledPlugins = sourceSettings["enabledPlugins"];
-  if (enabledPlugins !== null && typeof enabledPlugins === "object") {
-    delete (enabledPlugins as Record<string, unknown>)["session-relay@docks"];
-  }
-  const fixture = materializeVariant("home-drift", {
-    ".claude/settings.json": stableStringify(sourceSettings),
-    ".local/bin/session-relay": null,
-  });
-  try {
-    const command = [
-      "sync",
-      "claude",
-      ...(state === "flagless" ? [] : [`--claude-advisor=${state}`]),
-    ];
-    const first = runEngine(command, fixture, defaultStubs);
-    try {
-      if (first.exitCode !== 0) {
-        throw new Error(
-          `first advisor migration run failed for '${command.join(" ")}' with exit code ${first.exitCode}`,
-        );
-      }
-      if (!first.output.includes("--- Sync complete ---")) {
-        throw new Error(
-          `first advisor migration run for '${command.join(" ")}' produced no sync completion summary`,
-        );
-      }
-      const second = runEngine(command, fixture, defaultStubs, { reuseHome: first.home });
-      const problems: Array<string> = [];
-      const firstChangedByRemoval = first.output.includes("Pruned stale artifacts");
-      const firstChangedByModifier = first.output.includes(
-        "Advisor: deployed settings advisorModel",
-      );
-      if (state === "flagless" && !firstChangedByRemoval) {
-        problems.push(
-          "  advisor migration: flag-less run did not delete advisorModel through removals",
-        );
-      }
-      if (state !== "flagless" && firstChangedByRemoval) {
-        problems.push(`  advisor migration: explicit ${state} run let removals own advisorModel`);
-      }
-      if ((state === "off" || state === "default") && !firstChangedByModifier) {
-        problems.push(
-          `  advisor migration: explicit ${state} run did not delete advisorModel through the modifier`,
-        );
-      }
-
-      const settings = JSON.parse(
-        readFileSync(join(second.home, ".claude", "settings.json"), "utf8"),
-      ) as Record<string, unknown>;
-      if (state === "on" && settings["advisorModel"] !== "opus") {
-        problems.push("  advisor migration: explicit on did not write advisorModel=opus");
-      }
-      if (state !== "on" && Object.prototype.hasOwnProperty.call(settings, "advisorModel")) {
-        problems.push(`  advisor migration: ${state} left advisorModel deployed`);
-      }
-      if (
-        second.output.includes("Pruned stale artifacts") ||
-        second.output.includes("Advisor: deployed settings advisorModel")
-      ) {
-        problems.push(`  advisor migration: repeated ${state} state was not a true no-op`);
-      }
-      if (second.output.includes("Restart Claude Code for hook/env-var changes to take effect.")) {
-        problems.push(
-          `  advisor migration: repeated ${state} state retriggered Claude restart advice`,
-        );
-      }
-
-      return {
-        command,
-        exitCode: second.exitCode,
-        tree: snapshotTree(second.home),
-        argvLog: readArgvLog(second),
-        output: second.output,
-        problems,
-      };
-    } finally {
-      cleanup([first]);
-    }
-  } finally {
-    rmSync(fixture, { recursive: true, force: true });
   }
 }
 
@@ -276,20 +122,20 @@ function channelInvariantProblems(): Array<string> {
   const problems: Array<string> = [];
   const logPrefixes = ["[ok]", "[warn]", "[err]"];
 
-  const syncSplit = runEngineSplit(["sync", "claude"], "home-fresh", defaultStubs);
+  const syncSplit = runEngineSplit(["sync", "omp"], "home-fresh", defaultStubs);
   if (syncSplit.exitCode !== 0) {
-    problems.push(`  channel: sync claude exited ${syncSplit.exitCode}; expected 0`);
+    problems.push(`  channel: sync omp exited ${syncSplit.exitCode}; expected 0`);
   }
   if (!syncSplit.stdout.includes("--- Sync complete ---")) {
-    problems.push("  channel: summary block missing from stdout (sync claude)");
+    problems.push("  channel: summary block missing from stdout (sync omp)");
   }
   for (const prefix of logPrefixes) {
     if (syncSplit.stdout.includes(prefix)) {
-      problems.push(`  channel: '${prefix}' log prefix leaked to stdout (sync claude)`);
+      problems.push(`  channel: '${prefix}' log prefix leaked to stdout (sync omp)`);
     }
   }
   if (syncSplit.stderr.includes("--- Sync complete ---")) {
-    problems.push("  channel: summary block leaked to stderr (sync claude)");
+    problems.push("  channel: summary block leaked to stderr (sync omp)");
   }
 
   // Dry-run under verbose env: the report must stay a complete stdout
@@ -312,52 +158,19 @@ function channelInvariantProblems(): Array<string> {
   // A warn-emitting run (masked git): warns must land on stderr, never stdout.
   // The fully-stubbed cases above emit no warns, so without this leg a
   // stdout-routed warn would pass every channel check.
-  const warnSplit = runEngineSplit(["sync", "claude"], "home-fresh", makeStubDir({ git: null }), {
+  const warnSplit = runEngineSplit(["sync", "omp"], "home-fresh", makeStubDir({ git: null }), {
     maskTools: ["git"],
   });
   if (warnSplit.stdout.includes("[warn]")) {
-    problems.push("  channel: '[warn]' leaked to stdout (git-masked sync claude)");
+    problems.push("  channel: '[warn]' leaked to stdout (git-masked sync omp)");
   }
   if (!warnSplit.stderr.includes("git not installed —")) {
-    problems.push("  channel: expected git warn missing from stderr (git-masked sync claude)");
-  }
-
-  // Model catalog rows are stdout data, not logs. Pin this separately from
-  // merged goldens, which cannot distinguish the two channels.
-  const modelSplit = runEngineSplit(["model", "claude"], "home-drift", defaultStubs);
-  if (!modelSplit.stdout.includes("Available claude models")) {
-    problems.push("  channel: model catalog missing from stdout (model claude)");
-  }
-  if (modelSplit.stderr.includes("Available claude models")) {
-    problems.push("  channel: model catalog leaked to stderr (model claude)");
-  }
-
-  for (const [flag, catalog, error] of [
-    [
-      "--claude-effort",
-      "Available claude effort levels",
-      "--claude-effort requires a value: --claude-effort=<low|medium|high|xhigh|default>",
-    ],
-    [
-      "--claude-advisor",
-      "Available claude advisor states",
-      "--claude-advisor requires a value: --claude-advisor=<on|off|default>",
-    ],
-  ] as const) {
-    const bare = runPublicCli(["sync", flag], "home-fresh", defaultStubs);
-    if (bare.exitCode !== 2 || !bare.stderr.includes(catalog) || !bare.stderr.includes(error)) {
-      problems.push(`  modifiers: public bare ${flag} lost catalog/error/exit-2 behavior`);
-    }
-    if (bare.stdout !== "")
-      problems.push(`  modifiers: public bare ${flag} wrote catalog data to stdout`);
-    rmSync(bare.home, { recursive: true, force: true });
+    problems.push("  channel: expected git warn missing from stderr (git-masked sync omp)");
   }
 
   for (const [flag, hint] of [
-    ["--force", "--force was renamed to --reconcile"],
-    ["--supabase", "--supabase was renamed to --claude-plugin=supabase"],
-    ["--680k", "--680k was renamed to --claude-compact-window=680k"],
-    ["--claude", "--claude was renamed: pass the target as a word, e.g. 'sync claude'"],
+    ["--omp", "--omp was renamed: pass the target as a word, e.g. 'sync omp'"],
+    ["--remove-plugins", "--remove-plugins was renamed to --prune"],
   ] as const) {
     const bare = runPublicCli(["sync", flag], "home-fresh", defaultStubs);
     if (bare.exitCode !== 2 || !bare.stderr.includes(hint)) {
@@ -375,16 +188,6 @@ function channelInvariantProblems(): Array<string> {
       "negated toolchain option --no-verbose",
     ],
     [["sync", "-x"], "unknown flag -x for 'sync'", "single-dash unknown flag -x"],
-    [
-      ["sync", "--bogus", "--claude-model", "opus"],
-      "unknown flag --bogus for 'sync'",
-      "head-position unknown before value flag",
-    ],
-    [
-      ["sync", "--claude-compact-window", "-1"],
-      "--claude-compact-window expects a token count",
-      "dash-leading compact-window value",
-    ],
     [
       ["sync", "--prune", "--prune"],
       "flag --prune was given more than once",
@@ -424,68 +227,11 @@ function channelInvariantProblems(): Array<string> {
     rmSync(bare.home, { recursive: true, force: true });
   }
 
-  for (const [target, flag, catalog, error] of [
-    ["claude", "--claude-effort", "Available claude effort levels", "Invalid Claude effort ''"],
-    [
-      "claude",
-      "--claude-advisor",
-      "Available claude advisor states",
-      "Invalid Claude advisor state ''",
-    ],
-    ["claude", "--claude-model", "Available claude models", "Invalid Claude model ''"],
-  ] as const) {
-    for (const args of [[`${flag}=`], [flag, ""]]) {
-      const empty = runPublicCli(["sync", target, ...args], "home-fresh", defaultStubs);
-      if (
-        empty.exitCode !== 2 ||
-        !empty.stdout.includes(catalog) ||
-        !empty.stderr.includes(error) ||
-        empty.stdout.includes("--- Sync complete ---")
-      ) {
-        problems.push(
-          `  modifiers: public explicit-empty ${args.length === 1 ? `${flag}=` : `${flag} ""`} lost catalog-first invalid-value behavior`,
-        );
-      }
-      rmSync(empty.home, { recursive: true, force: true });
-    }
-  }
-
-  const modifierForwarding = runPublicCli(
-    ["sync", "agents", "--dry-run", "--claude-effort=low", "--claude-advisor=on"],
-    "home-fresh",
-    defaultStubs,
-  );
-  if (
-    modifierForwarding.exitCode !== 0 ||
-    !modifierForwarding.stderr.includes("--claude-effort ignored: claude target not selected") ||
-    !modifierForwarding.stderr.includes("--claude-advisor ignored: claude target not selected")
-  ) {
-    problems.push(
-      "  modifiers: public valued options did not reach EngineNative target-ignore validation",
-    );
-  }
-
-  const status = runPublicCli(["status", "--json"], "home-drift", defaultStubs, {
-    env: { DOCKS_KIT_VERBOSE: "1" },
-  });
-  if (status.exitCode !== 0) {
-    problems.push(
-      `  channel: status --json exited ${status.exitCode} (stderr: ${status.stderr.slice(0, 200)})`,
-    );
-  } else {
-    try {
-      JSON.parse(status.stdout);
-    } catch {
-      problems.push("  channel: status --json stdout is not valid JSON");
-    }
-  }
-
   // Verbosity contract: default second run is quiet about the status quo;
   // --verbose (public flag, short alias, and raw-channel env) brings it back.
   // Exact demoted no-op shapes — NOT a loose /already/ match: change lines
   // may legitimately embed count phrasing like "(+1 new, 0 already present)".
-  const NOOP_RE =
-    /already in sync|already initialized|already set|already opted in|already empty|up to date|\bpresent \(|LSP server binaries present|model already |left as-is/;
+  const NOOP_RE = /already in sync|up to date|\bpresent \(|left as-is/;
   const first = runEngineSplit(["sync"], "home-fresh", defaultStubs);
   const second = runEngineSplit(["sync"], "home-fresh", defaultStubs, { reuseHome: first.home });
   if (NOOP_RE.test(second.stderr)) {
@@ -502,24 +248,6 @@ function channelInvariantProblems(): Array<string> {
   // EngineNative's verbosity gate — a known verbose-only line must land on
   // stderr (an exit-0 check alone would pass a forwarding regression).
   const pubFirst = runPublicCli(["sync"], "home-fresh", defaultStubs);
-  // Settle the one-time settings canonicalization so the in-loop model calls
-  // hit the verbose already-unset branch instead of a formatting rewrite.
-  runPublicCli(["model", "claude", "default"], "home-fresh", defaultStubs, {
-    reuseHome: pubFirst.home,
-  });
-  // Model legs run before the sync replays: a flag-less sync re-merges
-  // settings into merge ordering, which would turn the model no-op back
-  // into a canonicalization write.
-  for (const flag of ["--verbose", "-v"]) {
-    const model = runPublicCli(["model", "claude", "default", flag], "home-fresh", defaultStubs, {
-      reuseHome: pubFirst.home,
-    });
-    if (!/deployed settings model already unset/.test(model.stderr)) {
-      problems.push(
-        `  verbosity: public 'model claude default ${flag}' shows no verbose no-op line`,
-      );
-    }
-  }
   for (const flag of ["--verbose", "-v"]) {
     const replay = runPublicCli(["sync", flag], "home-fresh", defaultStubs, {
       reuseHome: pubFirst.home,
@@ -536,10 +264,7 @@ function channelInvariantProblems(): Array<string> {
 
   rmSync(syncSplit.home, { recursive: true, force: true });
   rmSync(warnSplit.home, { recursive: true, force: true });
-  rmSync(modelSplit.home, { recursive: true, force: true });
-  rmSync(modifierForwarding.home, { recursive: true, force: true });
   rmSync(drySplit.home, { recursive: true, force: true });
-  rmSync(status.home, { recursive: true, force: true });
   rmSync(second.home, { recursive: true, force: true }); // first/second/secondVerbose share one home
   rmSync(pubFirst.home, { recursive: true, force: true }); // all public forwarding legs reuse this home
   return problems;
@@ -581,37 +306,12 @@ function collectCases(): {
     cases[label] = runCase(cmd, fixture, stubDir, maskTools);
   }
 
-  for (const { fixture, cmd, cmd2 } of REPLAYS) {
-    const label = `fixture=${fixture} cmd=${(cmd2 ?? cmd).join(" ")} replay=2nd`;
+  for (const { fixture, cmd } of REPLAYS) {
+    const label = `fixture=${fixture} cmd=${cmd.join(" ")} replay=2nd`;
     if (label in cases) throw new Error(`duplicate replay label ${label}`);
     if (!labelSelected(label, options.filter)) continue;
     selectedChecks++;
-    cases[label] = runReplayCase(fixture, cmd, cmd2);
-  }
-
-  const migrationLabel = "migration=legacy-claude-hook-scripts";
-  if (labelSelected(migrationLabel, options.filter)) {
-    selectedChecks++;
-    const { problems, ...golden } = runLegacyMigrationCase();
-    cases[migrationLabel] = golden;
-    if (problems.length > 0) {
-      invariantFailures++;
-      banner("CLAUDE MIGRATION INVARIANT FAILURE");
-      for (const problem of problems) console.log(problem);
-    }
-  }
-
-  for (const state of ["flagless", "on", "off", "default"] as const) {
-    const advisorLabel = `advisor-migration=prior-kit-settings state=${state}`;
-    if (!labelSelected(advisorLabel, options.filter)) continue;
-    selectedChecks++;
-    const { problems, ...golden } = runAdvisorMigrationCase(state);
-    cases[advisorLabel] = golden;
-    if (problems.length > 0) {
-      invariantFailures++;
-      banner(`ADVISOR MIGRATION INVARIANT FAILURE state=${state}`);
-      for (const problem of problems) console.log(problem);
-    }
+    cases[label] = runReplayCase(fixture, cmd);
   }
 
   if (labelSelected("channel-invariants", options.filter)) {

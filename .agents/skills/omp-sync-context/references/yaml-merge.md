@@ -60,7 +60,7 @@ The merges are additive, so a key or rule removed from `SoT/.omp/config.yml`
 or `SoT/.omp/models.yml` stays in the deployed file.
 `ompSync.ts ompSync` runs `ompRemovals.ts syncOmpRemovals` after the
 `config.yml` merge and `syncOmpModelRemovals` after the `models.yml` merge,
-on every sync, without `--reconcile`.
+on every sync, with no flag.
 Each pass deletes only entries from the inventories in `ompRemovals.ts`:
 `OMP_RETIRED_VALUES` (only while the deployed value still equals the value
 the kit shipped), `OMP_RETIRED_KEYS`, the retired `bash.patterns` rules in

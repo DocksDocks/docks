@@ -2,10 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../docs/overview.md", () => ({ default: "" }));
 vi.mock("../../docs/flags.md", () => ({ default: "" }));
-vi.mock("../../docs/modifiers.md", () => ({ default: "" }));
-vi.mock("../../docs/models.md", () => ({ default: "" }));
 vi.mock("../../docs/toolchain.md", () => ({ default: "" }));
-vi.mock("../../docs/plugins.md", () => ({ default: "" }));
 vi.mock("../../docs/sync-layers.md", () => ({ default: "" }));
 vi.mock("../../docs/install.md", () => ({ default: "" }));
 vi.mock("../../docs/platforms.md", () => ({ default: "" }));
@@ -20,11 +17,7 @@ const REGISTERED_SUBCOMMANDS = [
   "sync",
   "harnesses",
   "update",
-  "model",
-  "models",
   "toolchain",
-  "status",
-  "plugins",
   "skills",
   "docs",
   "omp",
@@ -35,24 +28,19 @@ const REGISTERED_SUBCOMMANDS = [
 describe("argument validation", () => {
   it.each([
     [
-      "joins a dash-leading compact-window value for Effect 4",
-      ["sync", "--claude-compact-window", "-1"],
-      ["sync", "--claude-compact-window=-1"],
+      "joins a dash-leading repo value for Effect 4",
+      ["tidy", "--repo", "-1"],
+      ["tidy", "--repo=-1"],
     ],
     [
       "joins multiple dash-leading values during one normalization walk",
-      ["sync", "--claude-compact-window", "-1", "--claude-model", "-x"],
-      ["sync", "--claude-compact-window=-1", "--claude-model=-x"],
+      ["tidy", "--repo", "-1", "--log-level", "-2"],
+      ["tidy", "--repo=-1", "--log-level=-2"],
     ],
     [
-      "joins an unknown dash-leading model value while preserving later flags",
-      ["sync", "--claude-model", "--bogus", "--dry-run"],
-      ["sync", "--claude-model=--bogus", "--dry-run"],
-    ],
-    [
-      "accepts repeated uses of the repeatable plugin flag",
-      ["sync", "--claude-plugin", "a", "--claude-plugin", "b"],
-      ["sync", "--claude-plugin", "a", "--claude-plugin", "b"],
+      "joins an unknown dash-leading repo value while preserving later flags",
+      ["tidy", "--repo", "--bogus", "--apply"],
+      ["tidy", "--repo=--bogus", "--apply"],
     ],
     ["accepts a command-local short alias", ["sync", "-v"], ["sync", "-v"]],
     ["accepts the global version short alias at the root", ["-v"], ["-v"]],
@@ -78,8 +66,8 @@ describe("argument validation", () => {
     ],
     [
       "accepts a target word after a boolean flag",
-      ["sync", "--dry-run", "claude"],
-      ["sync", "--dry-run", "claude"],
+      ["sync", "--dry-run", "omp"],
+      ["sync", "--dry-run", "omp"],
     ],
   ] as const)("%s", (_name, input, args) => {
     expect(prepareArgv(input)).toEqual({ kind: "accept", args });
@@ -87,39 +75,9 @@ describe("argument validation", () => {
 
   it.each([
     [
-      "rejects legacy --force with its reconcile rename hint",
-      "--force",
-      "--force was renamed to --reconcile",
-    ],
-    [
       "rejects legacy --remove-plugins with its prune rename hint",
       "--remove-plugins",
-      "--remove-plugins was renamed to --prune (it also removes marketplaces + kit-managed skills)",
-    ],
-    [
-      "rejects legacy --680k with its compact-window rename hint",
-      "--680k",
-      "--680k was renamed to --claude-compact-window=680k",
-    ],
-    [
-      "rejects legacy --permissive with its claude-permissive rename hint",
-      "--permissive",
-      "--permissive was renamed to --claude-permissive",
-    ],
-    [
-      "rejects legacy --supabase with its plugin rename hint",
-      "--supabase",
-      "--supabase was renamed to --claude-plugin=supabase",
-    ],
-    [
-      "rejects legacy --n8n with its plugin rename hint",
-      "--n8n",
-      "--n8n was renamed to --claude-plugin=n8n",
-    ],
-    [
-      "rejects legacy --claude with its positional-target rename hint",
-      "--claude",
-      "--claude was renamed: pass the target as a word, e.g. 'sync claude'",
+      "--remove-plugins was renamed to --prune",
     ],
     [
       "rejects legacy --agents with its positional-target rename hint",
@@ -162,15 +120,15 @@ describe("argument validation", () => {
       "sync",
     ],
     [
-      "rejects an undeclared status negation and names its scope",
-      ["status", "--no-json"],
-      "--no-json",
-      "status",
+      "rejects an undeclared tidy negation and names its scope",
+      ["tidy", "--no-apply"],
+      "--no-apply",
+      "tidy",
     ],
     [
       "rejects a sync legacy flag as unknown outside the sync scope",
-      ["docs", "--claude"],
-      "--claude",
+      ["docs", "--agents"],
+      "--agents",
       "docs",
     ],
     [
@@ -183,6 +141,18 @@ describe("argument validation", () => {
       "rejects --codex as unknown now that the codex target is gone",
       ["sync", "--codex"],
       "--codex",
+      "sync",
+    ],
+    [
+      "rejects --claude as unknown now that the claude target is gone",
+      ["sync", "--claude"],
+      "--claude",
+      "sync",
+    ],
+    [
+      "rejects --force as unknown now that its reconcile rename hint is gone",
+      ["sync", "--force"],
+      "--force",
       "sync",
     ],
   ] as const)("%s", (_name, input, flag, command) => {
@@ -236,7 +206,7 @@ describe("argument validation", () => {
       "--dry-run",
     ],
     ["rejects an inline value for the sync prune boolean", ["sync", "--prune=true"], "--prune"],
-    ["rejects an inline value for the status JSON boolean", ["status", "--json=false"], "--json"],
+    ["rejects an inline value for the tidy apply boolean", ["tidy", "--apply=false"], "--apply"],
     [
       "rejects a separate boolean literal after the sync dry-run boolean",
       ["sync", "--dry-run", "false"],
@@ -244,7 +214,7 @@ describe("argument validation", () => {
     ],
     [
       "rejects a separate numeric literal after a target and the dry-run boolean",
-      ["sync", "claude", "--dry-run", "0"],
+      ["sync", "omp", "--dry-run", "0"],
       "--dry-run",
     ],
     [
@@ -273,8 +243,8 @@ describe("argument validation", () => {
     ],
     [
       "rejects duplicate uses of a non-repeatable value flag",
-      ["sync", "--claude-model", "a", "--claude-model", "b"],
-      "--claude-model",
+      ["tidy", "--repo", "a", "--repo", "b"],
+      "--repo",
     ],
     [
       "treats a short alias and its canonical spelling as the same flag",
@@ -293,63 +263,6 @@ describe("argument validation", () => {
       exitCode: 2,
     });
   });
-
-  it.each([
-    [
-      "rejects a compact-window modifier missing its value",
-      ["sync", "--claude-compact-window"],
-      "--claude-compact-window requires a value: --claude-compact-window=<tokens> (e.g. 680k)",
-    ],
-    [
-      "rejects a Claude plugin modifier missing its value",
-      ["sync", "--claude-plugin"],
-      "--claude-plugin requires a value: --claude-plugin=<supabase|n8n>",
-    ],
-  ] as const)("%s", (_name, input, message) => {
-    expect(prepareArgv(input)).toEqual({ kind: "reject", message, exitCode: 2 });
-  });
-
-  it.each([
-    [
-      "missing Claude effort",
-      ["sync", "--claude-effort"],
-      "Available claude effort levels",
-      "  high",
-      "--claude-effort requires a value: --claude-effort=<low|medium|high|xhigh|default>",
-    ],
-    [
-      "Claude model followed by another flag",
-      ["sync", "--claude-model", "--dry-run"],
-      "Available claude models",
-      "  opus  —",
-      "--claude-model requires a value: --claude-model=<model>",
-    ],
-    [
-      "Claude model followed by the delimiter",
-      ["sync", "--claude-model", "--"],
-      "Available claude models",
-      "  opus  —",
-      "--claude-model requires a value: --claude-model=<model>",
-    ],
-    [
-      "missing Claude advisor",
-      ["sync", "--claude-advisor"],
-      "Available claude advisor states",
-      "  off  —",
-      "--claude-advisor requires a value: --claude-advisor=<on|off|default>",
-    ],
-  ] as const)(
-    "rejects %s with a catalog and value grammar",
-    (_name, input, heading, option, grammar) => {
-      const outcome = prepareArgv(input);
-      expect(outcome.kind).toBe("reject");
-      if (outcome.kind !== "reject") return;
-      expect(outcome.exitCode).toBe(2);
-      expect(outcome.message.split("\n")[0]).toContain(heading);
-      expect(outcome.message).toContain(`\n${option}`);
-      expect(outcome.message.split("\n").at(-1)).toBe(grammar);
-    },
-  );
 });
 
 describe("omp passthrough boundary", () => {
@@ -404,7 +317,7 @@ describe("subcommand resolution", () => {
       "sync",
     ],
     ["skips an inline global flag value and resolves sync", ["--log-level=debug", "sync"], "sync"],
-    ["uses the first positional word as the subcommand", ["model", "claude", "sync"], "model"],
+    ["uses the first positional word as the subcommand", ["docs", "sync"], "docs"],
     ["returns no subcommand for an empty invocation", [], undefined],
     ["returns no subcommand for a root global flag", ["--help"], undefined],
   ] as const)("%s", (_name, input, expected) => {

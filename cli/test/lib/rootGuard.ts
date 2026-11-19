@@ -13,7 +13,7 @@ import { resolve } from "node:path";
  *
  * The guard snapshots `git status --porcelain -z --untracked-files=all` before
  * and after the run, and fails the run when an entry appeared. A top-level
- * name list missed a nested write such as `SoT/.claude/settings.json`, an edit
+ * name list missed a nested write such as `SoT/.omp/config.yml`, an edit
  * to a tracked file, and an overwritten golden. The porcelain form reports all
  * three, and it skips `cli/dist-test/` because git already ignores that
  * directory. Entries are listed per file, so a new file inside a directory

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -12,20 +12,6 @@ const env = { ...process.env, HOME: home, AGENTS_DIR: join(home, ".agents") };
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 describe("removed workflow configuration surface", () => {
-  it(
-    "rejects the former workflow model selector with a usable tool list",
-    () => {
-      const result = spawnSync("bun", [CLI, "models", "workflow"], {
-        encoding: "utf8",
-        env,
-        timeout: SPAWN_TIMEOUT_MS,
-      });
-      expect(result.status).toBe(2);
-      expect(result.stderr).toContain("Unknown tool 'workflow' (valid: claude, omp)");
-    },
-    SPAWN_TIMEOUT_MS,
-  );
-
   it(
     "rejects retired root overrides before creating prompt files",
     () => {
@@ -43,7 +29,7 @@ describe("removed workflow configuration surface", () => {
         });
         expect(result.status, flag).toBe(2);
         expect(result.stderr, flag).toContain(`unknown flag ${flag}`);
-        expect(existsSync(join(home, ".claude", "CLAUDE.md")), flag).toBe(false);
+        expect(readdirSync(home), flag).toEqual([]);
       }
     },
     SPAWN_TIMEOUT_MS,
@@ -59,7 +45,8 @@ describe("removed workflow configuration surface", () => {
       });
       expect(result.status).toBe(2);
       expect(`${result.stdout}\n${result.stderr}`).toContain("Unknown arg: workflow");
-      expect(existsSync(join(home, ".claude", "CLAUDE.md"))).toBe(false);
+      // The sync lock under `.cache` is the only write before the argument check.
+      expect(readdirSync(home).filter((name) => name !== ".cache")).toEqual([]);
     },
     SPAWN_TIMEOUT_MS,
   );

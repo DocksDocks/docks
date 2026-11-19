@@ -81,12 +81,7 @@ const ENV_KEYS = [
   "DOCKS_KIT_INTERACTIVE",
   "DOCKS_KIT_SYNC_CONCURRENCY",
   "DOCKS_KIT_SYNC_LOCK_WAIT_MS",
-  "RECONCILE",
   "PRUNE",
-  "CLAUDE_COMPACT_WINDOW",
-  "CLAUDE_PERMISSIVE",
-  "CLAUDE_PLUGINS",
-  "CLAUDE_MODEL",
   "PI_CODING_AGENT_DIR",
   "OMP_PROFILE",
   "PI_PROFILE",
@@ -241,14 +236,11 @@ async function holdingFolderLock(
 describe("sync under the sync lock", () => {
   it("exits 1 with the held line and leaves HOME unchanged while another sync holds the lock", async () => {
     await withHome(async (home) => {
-      mkdirSync(p(home, ".claude"), { recursive: true });
-      writeFileSync(p(home, ".claude", "settings.json"), '{"model":"sonnet"}\n');
-
       await holdingLock(home, async () => {
         const before = snapshot(home);
         const records: Array<string> = [];
 
-        expect(await runEngineNative(["sync", "claude"], recordingServices(records))).toBe(1);
+        expect(await runEngineNative(["sync", "agents"], recordingServices(records))).toBe(1);
 
         expect(records).toContain(heldLine(home));
         expect(snapshot(home)).toEqual(before);
@@ -263,7 +255,7 @@ describe("sync under the sync lock", () => {
       mkdirSync(p(home, ".docks-kit"), { recursive: true });
       writeFileSync(
         p(home, ".docks-kit", "state.json"),
-        `${JSON.stringify({ version: 1, harnesses: ["claude"] })}\n`,
+        `${JSON.stringify({ version: 1, harnesses: ["agents"] })}\n`,
       );
 
       await holdingLock(home, async () => {
@@ -284,7 +276,7 @@ describe("sync under the sync lock", () => {
         const records: Array<string> = [];
 
         expect(
-          await runEngineNative(["sync", "claude", "--dry-run"], recordingServices(records)),
+          await runEngineNative(["sync", "agents", "--dry-run"], recordingServices(records)),
         ).toBe(0);
 
         expect(records).not.toContain(heldLine(home));
@@ -304,7 +296,7 @@ describe("sync under the sync lock", () => {
 
           // Only the raw channel reads the env globals.
           expect(
-            await runEngineNative(["sync", "claude", "omp"], recordingServices(records), {
+            await runEngineNative(["sync", "agents", "omp"], recordingServices(records), {
               envGlobals: true,
             }),
           ).toBe(0);
@@ -319,15 +311,13 @@ describe("sync under the sync lock", () => {
   it("waits for the lock when the DRY_RUN env global is 1 but the run reads no env globals", async () => {
     await withHome(async (home) => {
       process.env["DRY_RUN"] = "1";
-      mkdirSync(p(home, ".claude"), { recursive: true });
-      writeFileSync(p(home, ".claude", "settings.json"), '{"model":"sonnet"}\n');
 
       await holdingLock(home, async () => {
         const before = snapshot(home);
         const records: Array<string> = [];
 
         // The public CLI ignores DRY_RUN, so this run writes and must wait.
-        expect(await runEngineNative(["sync", "claude"], recordingServices(records))).toBe(1);
+        expect(await runEngineNative(["sync", "agents"], recordingServices(records))).toBe(1);
 
         expect(records).toContain(heldLine(home));
         expect(snapshot(home)).toEqual(before);
@@ -354,7 +344,7 @@ describe("sync under the sync lock", () => {
       process.env["DOCKS_KIT_SYNC_CONCURRENCY"] = "7";
       const failed: Array<string> = [];
 
-      expect(await runEngineNative(["sync", "claude"], recordingServices(failed))).toBe(2);
+      expect(await runEngineNative(["sync", "agents"], recordingServices(failed))).toBe(2);
 
       expect(failed).toContain(CONCURRENCY_ERROR);
       expect(await probe(home)).toBe("acquired");
@@ -363,7 +353,7 @@ describe("sync under the sync lock", () => {
       await holdingLock(home, async () => {
         const blocked: Array<string> = [];
 
-        expect(await runEngineNative(["sync", "claude"], recordingServices(blocked))).toBe(1);
+        expect(await runEngineNative(["sync", "agents"], recordingServices(blocked))).toBe(1);
 
         expect(blocked).toContain(heldLine(home));
         expect(blocked).not.toContain(CONCURRENCY_ERROR);
@@ -373,90 +363,17 @@ describe("sync under the sync lock", () => {
 
   it("exits 2 when the lock wait is not a non-negative safe integer", async () => {
     await withHome(async (home) => {
-      mkdirSync(p(home, ".claude"), { recursive: true });
-      writeFileSync(p(home, ".claude", "settings.json"), '{"model":"sonnet"}\n');
+      const before = snapshot(home);
       // `Number` makes the first value Infinity and rounds the second.
       for (const waitMs of ["9".repeat(400), String(Number.MAX_SAFE_INTEGER + 1)]) {
         process.env["DOCKS_KIT_SYNC_LOCK_WAIT_MS"] = waitMs;
         const records: Array<string> = [];
 
-        expect(
-          await runEngineNative(["model", "claude", "default"], recordingServices(records)),
-        ).toBe(2);
+        expect(await runEngineNative(["sync", "agents"], recordingServices(records))).toBe(2);
 
         expect(records).toContain(WAIT_ERROR);
-        expect(readFileSync(p(home, ".claude", "settings.json"), "utf8")).toBe(
-          '{"model":"sonnet"}\n',
-        );
-      }
-    });
-  });
-});
-
-describe("model under the sync lock", () => {
-  it("exits 1 with the held line and leaves HOME unchanged while another sync holds the lock", async () => {
-    await withHome(async (home) => {
-      mkdirSync(p(home, ".claude"), { recursive: true });
-      writeFileSync(p(home, ".claude", "settings.json"), '{"model":"sonnet"}\n');
-
-      await holdingLock(home, async () => {
-        const before = snapshot(home);
-        const records: Array<string> = [];
-
-        expect(
-          await runEngineNative(["model", "claude", "default"], recordingServices(records)),
-        ).toBe(1);
-
-        expect(records).toContain(heldLine(home));
         expect(snapshot(home)).toEqual(before);
-      });
-    });
-  });
-
-  it("takes no lock with --dry-run", async () => {
-    await withHome(async (home) => {
-      mkdirSync(p(home, ".claude"), { recursive: true });
-      writeFileSync(p(home, ".claude", "settings.json"), '{"model":"sonnet"}\n');
-
-      await holdingLock(home, async () => {
-        const records: Array<string> = [];
-
-        expect(
-          await runEngineNative(
-            ["model", "claude", "default", "--dry-run"],
-            recordingServices(records),
-          ),
-        ).toBe(0);
-
-        expect(records).not.toContain(heldLine(home));
-        expect(readFileSync(p(home, ".claude", "settings.json"), "utf8")).toBe(
-          '{"model":"sonnet"}\n',
-        );
-      });
-    });
-  });
-
-  it("takes no lock when the DRY_RUN env global is 1", async () => {
-    await withHome(async (home) => {
-      process.env["DRY_RUN"] = "1";
-      mkdirSync(p(home, ".claude"), { recursive: true });
-      writeFileSync(p(home, ".claude", "settings.json"), '{"model":"sonnet"}\n');
-
-      await holdingLock(home, async () => {
-        const records: Array<string> = [];
-
-        // Only the raw channel reads the env globals.
-        expect(
-          await runEngineNative(["model", "claude", "default"], recordingServices(records), {
-            envGlobals: true,
-          }),
-        ).toBe(0);
-
-        expect(records).not.toContain(heldLine(home));
-        expect(readFileSync(p(home, ".claude", "settings.json"), "utf8")).toBe(
-          '{"model":"sonnet"}\n',
-        );
-      });
+      }
     });
   });
 });

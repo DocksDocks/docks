@@ -3,10 +3,7 @@ import { Console, Effect, Option } from "effect";
 import { bail } from "../engine";
 import overview from "../../docs/overview.md" with { type: "text" };
 import flags from "../../docs/flags.md" with { type: "text" };
-import modifiers from "../../docs/modifiers.md" with { type: "text" };
-import models from "../../docs/models.md" with { type: "text" };
 import toolchain from "../../docs/toolchain.md" with { type: "text" };
-import plugins from "../../docs/plugins.md" with { type: "text" };
 import syncLayers from "../../docs/sync-layers.md" with { type: "text" };
 import install from "../../docs/install.md" with { type: "text" };
 import platforms from "../../docs/platforms.md" with { type: "text" };
@@ -17,23 +14,14 @@ import commandGuards from "../../docs/command-guards.md" with { type: "text" };
 const TOPICS: Record<string, { summary: string; body: string }> = {
   overview: { summary: "What docks-kit is and how the pieces fit", body: overview },
   "sync-layers": {
-    summary: "The three sync targets (claude, agents, omp) and additive-by-default semantics",
+    summary: "The two sync targets (agents, omp) and additive-by-default semantics",
     body: syncLayers,
   },
   flags: { summary: "Full flag reference incl. the old→new rename table", body: flags },
-  modifiers: {
-    summary: "Deploy-time modifiers and the flag-less-sync-reverts contract",
-    body: modifiers,
-  },
-  models: {
-    summary: "Live model lists, the curated overlay, validation, model get/set",
-    body: models,
-  },
   toolchain: {
     summary: "Verified-version floors, the doctor table, and the upstream outdated report",
     body: toolchain,
   },
-  plugins: { summary: "enabledPlugins tri-state + optional plugin opt-ins", body: plugins },
   install: {
     summary: "Install paths: repo checkout, bun add -g, POSIX/Windows installers",
     body: install,
@@ -51,7 +39,7 @@ const TOPICS: Record<string, { summary: string; body: string }> = {
     body: ompContext,
   },
   "command-guards": {
-    summary: "Deny, ask, and allow tiers for destructive shell commands in omp and Claude",
+    summary: "Deny and allow rules for destructive shell commands in omp",
     body: commandGuards,
   },
 };

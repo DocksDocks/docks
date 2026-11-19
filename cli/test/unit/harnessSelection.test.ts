@@ -59,13 +59,25 @@ describe("harness selection state", () => {
   }
 
   it("drops a codex row stored by an older kit and keeps the other harnesses", () => {
-    storeRawSelection(["claude", "codex", "agents"]);
+    storeRawSelection(["codex", "agents"]);
 
-    expect(readHarnessSelection(home)).toEqual(["claude", "agents"]);
+    expect(readHarnessSelection(home)).toEqual(["agents"]);
   });
 
   it("reads a codex-only selection stored by an older kit as missing", () => {
     storeRawSelection(["codex"]);
+
+    expect(loadHarnessSelection(home)).toEqual({ kind: "missing" });
+  });
+
+  it("drops claude and codex rows stored by an older kit and keeps agents and omp", () => {
+    storeRawSelection(["claude", "codex", "agents", "omp"]);
+
+    expect(readHarnessSelection(home)).toEqual(["agents", "omp"]);
+  });
+
+  it("reads a claude-only selection stored by an older kit as missing", () => {
+    storeRawSelection(["claude"]);
 
     expect(loadHarnessSelection(home)).toEqual({ kind: "missing" });
   });
@@ -91,7 +103,7 @@ describe("harness selection state", () => {
     writeLegacyState(
       JSON.stringify({
         version: 1,
-        harnesses: ["claude"],
+        harnesses: ["omp"],
         ompSession: { selector: "provider/old", thinking: "low" },
       }),
     );
@@ -150,7 +162,7 @@ describe("harness selection state", () => {
   });
 
   it("refuses a store from a newer schema", () => {
-    writeHarnessSelection(home, ["claude"]);
+    writeHarnessSelection(home, ["agents"]);
     const db = new DatabaseSync(kitDbFile(home));
     db.exec("PRAGMA user_version = 99");
     db.close();
@@ -167,14 +179,14 @@ describe("harness selection state", () => {
     const rows = after.prepare("SELECT harness FROM harness_selection").all();
     after.close();
     expect(version).toBe(99);
-    expect(rows).toEqual([{ harness: "claude" }]);
+    expect(rows).toEqual([{ harness: "agents" }]);
   });
 
   it("records the schema migration and preserves rows across opens", () => {
-    writeHarnessSelection(home, ["agents", "claude"]);
+    writeHarnessSelection(home, ["omp", "agents"]);
     writeOmpSessionModel(home, { selector: "a/b" });
 
-    expect(readHarnessSelection(home)).toEqual(["claude", "agents"]);
+    expect(readHarnessSelection(home)).toEqual(["agents", "omp"]);
     const db = new DatabaseSync(kitDbFile(home), { readOnly: true });
     const version = db.prepare("PRAGMA user_version").get()?.["user_version"];
     db.close();
@@ -183,7 +195,7 @@ describe("harness selection state", () => {
   });
 
   it("normalizes a selection and removes harnesses excluded by a later write", () => {
-    writeHarnessSelection(home, ["omp", "claude", "omp", "agents"]);
+    writeHarnessSelection(home, ["omp", "agents", "omp"]);
     expect(readHarnessSelection(home)).toEqual(HARNESSES);
 
     writeHarnessSelection(home, ["omp"]);
@@ -191,10 +203,10 @@ describe("harness selection state", () => {
   });
 
   it("refuses an empty selection without erasing stored harnesses", () => {
-    writeHarnessSelection(home, ["claude"]);
+    writeHarnessSelection(home, ["agents"]);
 
     expect(() => writeHarnessSelection(home, [])).toThrow(/empty harness selection/i);
-    expect(readHarnessSelection(home)).toEqual(["claude"]);
+    expect(readHarnessSelection(home)).toEqual(["agents"]);
   });
 
   it("refuses unknown harness names without erasing stored harnesses", () => {
@@ -206,7 +218,7 @@ describe("harness selection state", () => {
   });
 
   it("creates a private store and directory under the selected home", () => {
-    writeHarnessSelection(home, ["claude"]);
+    writeHarnessSelection(home, ["agents"]);
 
     const stateFile = kitDbFile(home);
     expect(existsSync(stateFile)).toBe(true);
@@ -277,13 +289,13 @@ describe("omp session model state", () => {
   it("keeps a stored ompSession when a harness selection is written", () => {
     writeOmpSessionModel(home, { selector: "provider/model-free", thinking: "xhigh" });
 
-    writeHarnessSelection(home, ["claude"]);
+    writeHarnessSelection(home, ["agents"]);
 
     expect(readOmpSessionModel(home)).toEqual({
       selector: "provider/model-free",
       thinking: "xhigh",
     });
-    expect(readHarnessSelection(home)).toEqual(["claude"]);
+    expect(readHarnessSelection(home)).toEqual(["agents"]);
   });
 
   it("keeps stored harnesses when an omp session model is written", () => {
