@@ -2740,7 +2740,7 @@ const missingHead = (head, caseFile, pull, script) =>
 const copyPrepare = (repo) => {
   const live = path.join(import.meta.dirname, '../../..');
   const scripts = '.agents/skills/review-benchmark/scripts';
-  const helper = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+  const helper = 'plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
   for (const file of [`${scripts}/prepare.mjs`, `${scripts}/score.mjs`, helper]) {
     put(repo, file, readText(path.join(live, file)));
   }
@@ -6489,7 +6489,7 @@ test('a case with show_benchmark gets the benchmark skill folder without its cas
   // The scripts hide the skill folder of the repository that holds them, so this test runs a copy of them in a
   // repository with a benchmark skill folder. score.mjs imports the plan helper of plan-lifecycle.
   const skill = '.agents/skills/review-benchmark';
-  const helper = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+  const helper = 'plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
   const live = path.join(import.meta.dirname, '../../..');
   for (const file of [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`, helper]) {
     put(repo, file, readText(path.join(live, file)));
@@ -7155,8 +7155,8 @@ test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of 
   // As in the snapshot test above, a copy of the scripts runs in a repository with a benchmark skill folder. A code
   // case also runs the base-instructions reader of that repository.
   const skill = '.agents/skills/review-benchmark';
-  const helper = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
-  const reader = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/base-blob.sh';
+  const helper = 'plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
+  const reader = 'plugins/plan-lifecycle/skills/plan-manager/scripts/base-blob.sh';
   const live = path.join(import.meta.dirname, '../../..');
   for (const file of [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`, helper, reader]) {
     put(repo, file, readText(path.join(live, file)));

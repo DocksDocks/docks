@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseReviewComment } from '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+import { parseReviewComment } from '../../../plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
 import { body, expectSuccess, planCliContext, refuse } from './harness.mjs';
 
 test('review parsing accepts flexible prose, and a severe finding turns a code pass into fixes-required', () => {

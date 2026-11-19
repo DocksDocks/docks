@@ -11,10 +11,10 @@ import path from 'node:path';
 import { afterEach, describe, test } from 'node:test';
 
 const PLUGINS = path.resolve(import.meta.dirname, '../../../plugins');
-const PR_TEMPLATE = path.join(PLUGINS, 'plan-lifecycle/skills/productivity/plan-workspace/scripts/pr-template.mjs');
-const VERIFY = path.join(PLUGINS, 'plan-lifecycle/skills/productivity/plan-workspace/scripts/verify-skill.mjs');
-const AGENT_FIRST = path.join(PLUGINS, 'docks/skills/productivity/agent-first-setup/scripts/agent-first-check.mjs');
-const BRIDGE = path.join(PLUGINS, 'docks/skills/productivity/multi-tool-bridge/scripts/bridge-check.mjs');
+const PR_TEMPLATE = path.join(PLUGINS, 'plan-lifecycle/skills/plan-workspace/scripts/pr-template.mjs');
+const VERIFY = path.join(PLUGINS, 'plan-lifecycle/skills/plan-workspace/scripts/verify-skill.mjs');
+const AGENT_FIRST = path.join(PLUGINS, 'docks/skills/agent-first-setup/scripts/agent-first-check.mjs');
+const BRIDGE = path.join(PLUGINS, 'docks/skills/multi-tool-bridge/scripts/bridge-check.mjs');
 
 // A mode-0 file or folder blocks nobody when the tests run as root.
 const IS_ROOT = process.getuid?.() === 0;

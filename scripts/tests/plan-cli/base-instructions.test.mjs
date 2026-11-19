@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 // phase 6 and the base read of code-review. Both call the base-blob.sh of their skill, and both must give a symlink
 // the text of its target in the base tree.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const PLAN_MANAGER_DIR = path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-manager');
-const CODE_REVIEW_DIR = path.join(ROOT, 'plugins/docks/skills/engineering/code-review');
+const PLAN_MANAGER_DIR = path.join(ROOT, 'plugins/plan-lifecycle/skills/plan-manager');
+const CODE_REVIEW_DIR = path.join(ROOT, 'plugins/docks/skills/code-review');
 const PLAN_MANAGER = path.join(PLAN_MANAGER_DIR, 'SKILL.md');
 const CODE_REVIEW = path.join(CODE_REVIEW_DIR, 'SKILL.md');
 const GIT_ENV = {

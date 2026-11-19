@@ -5,7 +5,7 @@ import {
   normalizePlan,
   parsePlan,
   parseReviewComment,
-} from '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+} from '../../../plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
 
 // Property tests for the pure parsers of the plan helper (#133, D3). fast-check prints the seed and the
 // shrunk counterexample of a failing run; pass that seed to fc.assert to replay it. With 2000 runs, the

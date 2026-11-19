@@ -21,7 +21,7 @@ assert.ok(
   Number.isInteger(compatibility.minimum_docks_major) && compatibility.minimum_docks_major >= 0,
   'minimum_docks_major must be a non-negative integer',
 );
-const docksVersion = readJson('plugins/docks/.claude-plugin/plugin.json').version;
+const docksVersion = readJson('plugins/docks/package.json').version;
 const docksMajor = Number.parseInt(docksVersion.split('.')[0], 10);
 assert.ok(Number.isInteger(docksMajor), `docks version ${docksVersion} must parse a major`);
 assert.ok(
@@ -29,40 +29,33 @@ assert.ok(
   `docks major ${docksMajor} must meet minimum_docks_major ${compatibility.minimum_docks_major}`,
 );
 
-// ---- manifest/catalog agreement --------------------------------------------
-const claudeMarket = readJson('.claude-plugin/marketplace.json');
-const codexMarket = readJson('.agents/plugins/marketplace.json');
-const marketVersion = (name) => {
-  const entries = claudeMarket.plugins.filter((plugin) => plugin.name === name);
-  assert.equal(entries.length, 1, `${name} must have exactly one Claude marketplace entry`);
-  return entries[0].version;
-};
+// ---- package/catalog agreement ---------------------------------------------
+const catalog = readJson('.omp-plugin/marketplace.json');
+const catalogEntries = catalog.plugins.filter((plugin) => plugin.name === 'plan-lifecycle');
+assert.equal(catalogEntries.length, 1, 'plan-lifecycle must have exactly one entry in .omp-plugin/marketplace.json');
+const [catalogEntry] = catalogEntries;
+assert.equal(catalogEntry.source, './plugins/plan-lifecycle');
 
-const claudeManifest = readJson('plugins/plan-lifecycle/.claude-plugin/plugin.json');
-const codexManifest = readJson('plugins/plan-lifecycle/.codex-plugin/plugin.json');
-assert.equal(claudeManifest.name, 'plan-lifecycle');
-assert.equal(codexManifest.name, 'plan-lifecycle');
+const pluginPackage = readJson('plugins/plan-lifecycle/package.json');
+assert.equal(pluginPackage.name, 'plan-lifecycle');
 assert.equal(
-  claudeManifest.version,
-  codexManifest.version,
-  `plan-lifecycle manifests must agree (claude=${claudeManifest.version} codex=${codexManifest.version})`,
+  pluginPackage.version,
+  catalogEntry.version,
+  `plan-lifecycle package.json and catalog entry must agree (package=${pluginPackage.version} catalog=${catalogEntry.version})`,
 );
-assert.equal(claudeManifest.version, marketVersion('plan-lifecycle'), 'plan-lifecycle catalog entry must agree');
+assert.ok(
+  pluginPackage.omp !== null && typeof pluginPackage.omp === 'object' && !Array.isArray(pluginPackage.omp),
+  'plan-lifecycle package.json must declare an omp object',
+);
 
-// ---- single ownership: both catalogs and the author registry ---------------
-const codexEntries = codexMarket.plugins.filter((plugin) => plugin.name === 'plan-lifecycle');
-assert.equal(codexEntries.length, 1, 'plan-lifecycle must have exactly one Codex marketplace entry');
-assert.equal(codexEntries[0].source?.path, './plugins/plan-lifecycle');
-const claudeEntry = claudeMarket.plugins.find((plugin) => plugin.name === 'plan-lifecycle');
-assert.equal(claudeEntry.source, './plugins/plan-lifecycle');
-
+// ---- single ownership: the catalog and the author registry -----------------
 const { PLUGINS } = await import(new URL('../../../scripts/lib/plugins.mjs', import.meta.url));
 const registered = PLUGINS.filter((plugin) => plugin.name === 'plan-lifecycle');
 assert.equal(registered.length, 1, 'the author registry must contain exactly one plan-lifecycle descriptor');
 assert.equal(registered[0].root, 'plugins/plan-lifecycle');
 
 console.log(
-  `plan-lifecycle self-test PASSED: manifest/catalog agreement (${claudeManifest.version}), ` +
-    'registry and both catalogs hold exactly one entry, ' +
+  `plan-lifecycle self-test PASSED: package/catalog agreement (${pluginPackage.version}), ` +
+    'registry and catalog hold exactly one entry, ' +
     `minimum_docks_major ${compatibility.minimum_docks_major} met by docks major ${docksMajor}`,
 );

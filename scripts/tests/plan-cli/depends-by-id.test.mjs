@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizePlan } from '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+import { normalizePlan } from '../../../plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
 import { body, expectSuccess, planCliContext } from './harness.mjs';
 
 // The display `1, a` holds a comma, so normalization keeps the Depends entry `fix_parser` as an id. Each consumer

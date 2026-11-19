@@ -30,19 +30,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 const tool = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
-if (tool === 'claude') process.stdout.write('Validation passed\\n');
+// The native gate runs no claude command, so a claude call fails the gate here.
+if (tool === 'claude') process.exit(97);
 if (tool === 'bun' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
-if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
+if (tool === 'node' && args[0] === 'plugins/docks/skills/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
   const root = args.at(-1);
   const rows = [];
-  for (const category of fs.readdirSync(root).sort()) {
-    const categoryPath = path.join(root, category);
-    if (!fs.statSync(categoryPath).isDirectory()) continue;
-    for (const skill of fs.readdirSync(categoryPath).sort()) {
-      const skillPath = path.join(categoryPath, skill);
-      if (fs.statSync(skillPath).isDirectory() && fs.existsSync(path.join(skillPath, 'SKILL.md'))) {
-        rows.push(\`\${category}/\${skill} 14\`);
-      }
+  for (const skill of fs.readdirSync(root).sort()) {
+    const skillPath = path.join(root, skill);
+    if (fs.statSync(skillPath).isDirectory() && fs.existsSync(path.join(skillPath, 'SKILL.md'))) {
+      rows.push(\`\${skill} 14\`);
     }
   }
   if (rows.length) process.stdout.write(\`\${rows.join('\\n')}\\n\`);
