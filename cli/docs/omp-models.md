@@ -102,6 +102,15 @@ Terra and no GPT-6.2 Luna. To recheck, run `omp models openai-codex`; the
 without a catalog check. On an omp release without these ids, omp can resolve
 them by fuzzy match to another model without a warning, as on 2026-09-22.
 
+On 2026-11-19, omp 19.0.0 became the toolchain floor and verified pin. Its
+`omp models --json` catalog listed each of the 12 model selectors of
+`modelRoles` and `retry.fallbackChains` (the `web/` entries left out) as an
+exact `provider/id` row, so no role depends on a fuzzy match. This check read
+the catalog only; it ran no model request. The rows also carry the fields that
+the free launcher reads (`ompOverlay.ts parseFreeModels`): a string
+`selector`, a `cost` object with numeric `input` and `output`, a numeric
+`contextWindow`, and a `thinking` ladder array or `null`.
+
 What omp's settings catalog establishes about these roles:
 
 - `cycleOrder` lists the roles the model switcher cycles. `fable` is the
