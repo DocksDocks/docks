@@ -939,6 +939,29 @@ const NATIVE_GATE_CASES = [
     /\bomp\b/,
   ],
   [
+    'an omp.extensions entry that does not exist',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-missing.ts'];
+      }),
+    /extensions\/zz-missing\.ts/,
+  ],
+  [
+    // The module has a default export and a function export, but its default export is not a function.
+    'an omp.extensions entry without a default function export',
+    (tree) => {
+      writeTreeFile(
+        tree,
+        'plugins/docks/extensions/zz-no-default.ts',
+        'export const register = () => undefined;\nexport default { register };\n',
+      );
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-no-default.ts'];
+      });
+    },
+    /extensions\/zz-no-default\.ts/,
+  ],
+  [
     'a catalog without owner.name',
     (tree) =>
       editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
