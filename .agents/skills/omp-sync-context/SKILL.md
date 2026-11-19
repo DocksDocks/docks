@@ -144,11 +144,21 @@ The buffer is the argument JSON text, and the intent field `i` can come
 before or after `command`.
 A provider can put JSON white space around the colon, as in
 `{"command": "ls"}`.
-Start each condition with the lookbehind
-`(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)` before its first command
-token, so that the match starts inside the `command` or `code` string.
+Start each condition, after an optional inline flag group, with the forward
+key prefix that `cli/docs/command-guards.md` shows:
+`"(?:command|code)"\s*:\s*"[^"\\]*?` and an escape loop that takes up to 8
+escape pairs per step.
+So the match starts at the `command` or `code` key and stays inside that
+string, and omp's `Matched:` excerpt starts at that key.
 Make each scan read an escape pair (`\"`, `\\`) as one unit and stop at an
 unescaped `"` and at a newline (`\n`).
+Never start a condition with an unbounded lookbehind.
+omp tests each condition on its main thread.
+A leading lookbehind walks back over the whole buffer from each position, so
+a 20 KB call froze the session for seconds, and past the JavaScriptCore match
+limit the rule did not fire.
+Use a lookbehind with `*`, `+`, or `{n,}` only as the last element, right
+after a `(?=...)` trigger lookahead.
 Write shell white space as `(?:\s|\\t)`, because a tab is `\t` in the buffer.
 Make each scan that looks for an option stop at a ` -- ` word.
 Add a wrong row for each new condition or branch, and a correct row for each
@@ -158,6 +168,9 @@ rule has another repeat mode.
 The `bash.patterns` denies in `config.yml` still enforce.
 
 Verify the conditions: `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`.
+It runs the shape guard and the Bun backstop
+(`cli/test/lib/ompTriggerBackstop.ts`), which times each condition in
+JavaScriptCore.
 
 Under a named profile (`OMP_PROFILE` or `PI_PROFILE`), use the profile `agentDir` from `ompPaths`.
 omp exports `PI_CODING_AGENT_DIR` as that profile `agentDir`, and `pi-intercom` reads that variable.

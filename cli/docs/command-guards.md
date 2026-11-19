@@ -204,20 +204,53 @@ command before they decide, because `-n` or `--staged` can come last.
 The buffer is the argument JSON text, and omp's schema puts the intent field
 `i` before `command`. A call can also put `i` after `command`, and a provider
 can stream JSON with white space, such as `{"command": "ls"}`. Each condition
-has the lookbehind `(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)` before
-its first command token, so a match starts only inside the `command` or
-`code` string, with or without JSON white space around the colon. omp 18.21.0
-accepts this variable-length lookbehind. A scan reads an escape pair, such as
-`\"` or `\\`, as one unit. It stops at an unescaped `"`, which ends the
-command string, and at a newline (`\n`), which ends the command line. So the
-intent text and the next line do not fire a rule. A tab in a command is `\t`
-in the buffer, so each condition reads `\t` as shell white space, as it reads
-a space. A scan that looks for an option also stops at a ` -- ` word, also
-with a tab, because each later word is a path. So `git clean -fd -- -n`
-fires, and `git rm -- -f` stays quiet. In the `git push` conditions for `$`,
-a backtick, and a chain, a scan also stops at `)` and at a backtick, which end
-a JavaScript `` sh`…` `` or `sh("…")` call. A backtick counts as a command
+starts its match with the forward key prefix, after an optional inline flag
+group:
+
+```text
+"(?:command|code)"\s*:\s*"[^"\\]*?(?:\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?)*?(?:\\.[^"\\]*?){0,7}?
+```
+
+The prefix matches the `command` or `code` key, with or without JSON white
+space around the colon. Then it walks the string body forward and steps over
+one escape pair, such as `\"` or `\\`, as one unit. Each loop step takes up to
+8 escape pairs. So the JavaScriptCore regex JIT handles about 8 times more
+escapes before it falls back to its slower interpreter. The walk never passes
+an unescaped `"`, so a match starts at the key and stays inside that string.
+A scan stops at an unescaped `"`, which ends the command string, and at a
+newline (`\n`), which ends the command line. So the intent text and the next
+line do not fire a rule. A tab in a command is `\t` in the buffer, so each
+condition reads `\t` as shell white space, as it reads a space. A scan that
+looks for an option also stops at a ` -- ` word, also with a tab, because
+each later word is a path. So `git clean -fd -- -n` fires, and
+`git rm -- -f` stays quiet. In the `git push` conditions for `$`, a backtick,
+and a chain, a scan also stops at `)` and at a backtick, which end a
+JavaScript `` sh`…` `` or `sh("…")` call. A backtick counts as a command
 substitution only when a word follows it.
+Because the match starts at the key, omp's `Matched:` excerpt starts at the
+`"command"` or `"code"` key.
+
+omp 19.0.0 tests every condition on the whole buffer at each streamed delta,
+on its main thread, in JavaScriptCore. From 0.22.24 to 0.22.29, each
+condition started with a variable-length lookbehind over the key and the
+string body. A leading unbounded lookbehind walks back over the buffer from
+every position. On a 20 KB tool call, one scan took seconds and froze the omp
+session. Past JavaScriptCore's match limit, the scan also reported no match,
+so the rule did not fire. Write each new condition by these rules:
+
+- Start the match with the forward key prefix. Never start a condition with
+  an unbounded lookbehind.
+- Use a lookbehind with `*`, `+`, or `{n,}` only as the last element of the
+  condition, right after a `(?=...)` trigger lookahead. omp then runs the
+  lookbehind only where the trigger matched, and the lookbehind walks back
+  only to the first word before the trigger that is not a `KEY=value` word.
+  Four conditions use this form, because their head allows wrapper words,
+  such as `sudo` or `env`, or `KEY=value` words before the command, as in
+  `LC_ALL=C rm`. In these four, the `Matched:` excerpt also ends at the
+  trigger.
+- Run `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`. It runs the
+  shape guard and the Bun backstop.
+
 `cli/test/unit/ompTriggerRules.test.ts` runs each shell row through bash,
 Python `sh("…")`, JavaScript `` sh`…` ``, and JavaScript `sh("…");`. It runs
 every row in the compact JSON layout (`{"command":"ls"}`) and in the spaced
@@ -225,7 +258,13 @@ layout (`{"command": "ls"}`), and some rows in the pretty layout, with a
 newline and an indent. Other rows put trigger words in the intent field,
 before or after the command, or put a tab in the command. The test checks
 that each correct form stays quiet on each prefix, that each condition has a
-wrong row that fires it, and that each rule has `repeatMode: always`.
+wrong row that fires it, and that each rule has `repeatMode: always`. Its
+shape guard checks the two rules above. Its backstop runs
+`cli/test/lib/ompTriggerBackstop.ts` under Bun, because the unit tests run on
+V8, which does not show the JavaScriptCore cost. The backstop checks that one
+pass of all conditions over a 20 KB buffer stays under 250 ms, that
+`git reset --hard` at the end of a 20 KB cell fires, and that no condition
+grows faster than linear with the buffer size.
 
 ## Why omp denies instead of asking
 
