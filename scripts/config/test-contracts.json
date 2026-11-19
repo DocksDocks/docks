@@ -154,6 +154,25 @@
       "skips": []
     },
     {
+      "id": "unit-agent-docs-scripts",
+      "version": 1,
+      "title": "Agent-first-setup, multi-tool-bridge, and plan-workspace check script contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/agent-docs-scripts.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/agent-docs-scripts.test.mjs",
+        "expected_min": 37
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["bun-1"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
       "id": "unit-agent-score-vacuity",
       "version": 1,
       "title": "Agent score gate vacuity contracts",
