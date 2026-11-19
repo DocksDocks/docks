@@ -28,8 +28,8 @@
 //   Paths are relative to the repository root, without a leading `./`. No listing enters
 //   node_modules. The CLAUDE.local.md listing, and every listing outside git, walks the
 //   folder and skips each .git, node_modules, vendor, dist, build, out, target, and .next
-//   folder. The legacy and personal listings keep only regular files, as `find -type f`
-//   does; the AGENTS.md node listings keep symlinks.
+//   folder. Each walk of CLAUDE.md and CLAUDE.local.md keeps only regular files, as the
+//   Step 2 `find -type f` does. A git listing and the AGENTS.md node walk keep symlinks.
 //
 // Exit status: 2 after an ERROR line, 1 for a usage error, otherwise 0.
 import fs from 'node:fs';
@@ -68,7 +68,8 @@ const AUDIT_ENTRIES = [
 const listing = (repo) => ({ root: repo.root, prune: BRIDGE_PRUNE, inGit: repo.inGit });
 
 // Every CLAUDE.md and .claude/CLAUDE.md, root and nested; gitignored build output is skipped. The
-// Step 2 `find` commands listed regular files only; the node listings of Step 6 keep symlinks.
+// walk outside git keeps only regular files, as the Step 2 `find -type f` did; the git listing
+// keeps symlinks, as `git ls-files` did.
 function legacyFiles(repo) {
   const pathspecs = [':(glob)**/CLAUDE.md', EXCLUDE_NODE_MODULES];
   return listFiles({ ...listing(repo), pathspecs, excludeStandard: true, filesOnly: true });
