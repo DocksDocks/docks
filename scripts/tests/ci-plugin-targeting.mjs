@@ -493,14 +493,17 @@ async function testFocusedCiCommandSelection() {
   ];
   const planLifecycleBiomeCiArgv = ['run', 'biome', 'ci', 'plugins/plan-lifecycle/test'];
   const coreBiomeCiArgv = ['run', 'biome', 'ci', 'scripts', 'plugins/docks/hooks', 'plugins/plan-lifecycle/test'];
-  const docksBiomeLintArgv = ['run', 'biome', 'lint', 'plugins/docks/skills/productivity/write-skill/scripts'];
-  const coreBiomeLintArgv = [
-    'run',
-    'biome',
-    'lint',
+  const docksSkillScripts = [
     'plugins/docks/skills/productivity/write-skill/scripts',
-    'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts',
+    'plugins/docks/skills/productivity/agent-first-setup/scripts',
+    'plugins/docks/skills/productivity/multi-tool-bridge/scripts',
   ];
+  const planLifecycleSkillScripts = [
+    'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts',
+    'plugins/plan-lifecycle/skills/productivity/plan-workspace/scripts',
+  ];
+  const docksBiomeLintArgv = ['run', 'biome', 'lint', ...docksSkillScripts];
+  const coreBiomeLintArgv = ['run', 'biome', 'lint', ...docksSkillScripts, ...planLifecycleSkillScripts];
   // Each selected plugin lints its shipped shell scripts, also the bundled skill scripts: plan-manager ships
   // base-blob.sh and checkout-state.sh, and docks code-review ships a copy of base-blob.sh.
   const planLifecycleShell = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/base-blob.sh';

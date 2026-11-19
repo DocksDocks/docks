@@ -55,7 +55,11 @@ export const PLUGINS = [
     ciLane: 'core',
     javascriptQuality: {
       ci: ['scripts', 'plugins/docks/hooks'],
-      lint: ['plugins/docks/skills/productivity/write-skill/scripts'],
+      lint: [
+        'plugins/docks/skills/productivity/write-skill/scripts',
+        'plugins/docks/skills/productivity/agent-first-setup/scripts',
+        'plugins/docks/skills/productivity/multi-tool-bridge/scripts',
+      ],
     },
     skills: 'plugins/docks/skills',
     agents: null,
@@ -77,7 +81,10 @@ export const PLUGINS = [
     ciLane: 'core',
     javascriptQuality: {
       ci: ['plugins/plan-lifecycle/test'],
-      lint: ['plugins/plan-lifecycle/skills/productivity/plan-manager/scripts'],
+      lint: [
+        'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts',
+        'plugins/plan-lifecycle/skills/productivity/plan-workspace/scripts',
+      ],
     },
     skills: 'plugins/plan-lifecycle/skills',
     agents: 'plugins/plan-lifecycle/agents',
