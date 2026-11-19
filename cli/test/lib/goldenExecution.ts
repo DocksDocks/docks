@@ -56,10 +56,10 @@ export interface SplitRun {
  * PATH with every directory holding one of `names` replaced by a shadow
  * dir mirroring its other entries — the "tool missing" half of a `null`
  * stub override. Omitting the stub alone is NOT absence: PATH search falls
- * through to the real binary on the host (observed: a claude:null row ran
- * the REAL claude CLI, which cloned a marketplace into the temp HOME and
- * diverged on git internals). Shadowing (not dropping) the dir keeps its
- * unrelated tools reachable — the real claude may live beside jq/git in
+ * through to the real binary on the host (observed: a null-stub row without
+ * masking ran the REAL harness CLI, which cloned a marketplace into the temp
+ * HOME and diverged on git internals). Shadowing (not dropping) the dir keeps its
+ * unrelated tools reachable — the real omp may live beside jq/git in
  * /usr/local/bin, and hiding those would fail the run for the wrong reason.
  */
 function maskedPath(names: ReadonlyArray<string>): string {

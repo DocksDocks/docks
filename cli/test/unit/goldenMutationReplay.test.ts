@@ -39,18 +39,13 @@ vi.mock("../lib/goldenExecution", () => ({
 }));
 
 vi.mock("../lib/goldenMutationCatalog", () => ({
-  LEGACY_CLAUDE_FILES: {},
   MATRIX: [],
   REPLAYS: [{ fixture: "home-fresh", cmd: ["sync"] }],
 }));
 
 vi.mock("../lib/goldenResources", () => ({
-  FIXTURES_DIR: harness.root,
   REPO_DIR: harness.root,
   makeStubDir: vi.fn(() => harness.root),
-  // The advisor case removes its materialized fixture, so hand it a disposable
-  // subdirectory instead of the shared root that holds the goldens.
-  materializeVariant: vi.fn(() => `${harness.root}/variant`),
 }));
 
 vi.mock("../lib/goldenSnapshot", () => ({
@@ -128,63 +123,6 @@ describe("golden mutation replay anchors", () => {
 
     await expect(import("../golden-mutation")).rejects.toThrow(
       "first replay for 'sync' produced no sync completion summary",
-    );
-  });
-});
-
-describe("golden mutation advisor migration anchors", () => {
-  const advisorLabel = "advisor-migration=prior-kit-settings state=off";
-  const advisorCommand = ["sync", "claude", "--claude-advisor=off"];
-  // A clean repeated run: no prune line, no advisor modifier line, no restart advice.
-  const noOpOutput = "Nothing to change\n--- Sync complete ---\n";
-  // Satisfies the off-state modifier check, so only the first-run guard can fail the case.
-  const advisorRemovedLine = "Advisor: deployed settings advisorModel removed\n";
-
-  beforeEach(() => {
-    harness.secondOutput = noOpOutput;
-    process.env["GOLDEN_FILTER"] = `^${advisorLabel}$`;
-
-    // Neither settings file carries advisorModel, so every content check passes
-    // and the second run alone would match the seeded golden.
-    const settings = JSON.stringify({ enabledPlugins: {} });
-    const sourceClaudeDir = join(harness.root, "home-drift", ".claude");
-    mkdirSync(sourceClaudeDir, { recursive: true });
-    writeFileSync(join(sourceClaudeDir, "settings.json"), settings);
-    const deployedClaudeDir = join(harness.root, ".claude");
-    mkdirSync(deployedClaudeDir, { recursive: true });
-    writeFileSync(join(deployedClaudeDir, "settings.json"), settings);
-
-    writeFileSync(
-      join(harness.root, "cli", "test", "goldens", "mutation.json"),
-      JSON.stringify({
-        version: 1,
-        cases: {
-          [advisorLabel]: {
-            command: advisorCommand,
-            exitCode: 0,
-            tree: {},
-            argvLog: "argv",
-            output: noOpOutput,
-          },
-        },
-      }),
-    );
-  });
-
-  it("rejects a failed first advisor run even when the second run matches its golden", async () => {
-    harness.firstExitCode = 7;
-    harness.firstOutput = `${advisorRemovedLine}--- Sync complete ---\n`;
-
-    await expect(import("../golden-mutation")).rejects.toThrow(
-      "first advisor migration run failed for 'sync claude --claude-advisor=off' with exit code 7",
-    );
-  });
-
-  it("rejects a first advisor run without a sync summary even when the second run matches its golden", async () => {
-    harness.firstOutput = advisorRemovedLine;
-
-    await expect(import("../golden-mutation")).rejects.toThrow(
-      "first advisor migration run for 'sync claude --claude-advisor=off' produced no sync completion summary",
     );
   });
 });
