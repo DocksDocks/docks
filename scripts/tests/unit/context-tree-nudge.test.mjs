@@ -201,3 +201,80 @@ test('a path outside any git repository gets no nudge', async (t) => {
   });
   assert.equal(result, undefined);
 });
+
+// A write to xd://resolve whose inner result is not the apply of an ast_edit, with files inside nodes.
+const resolveWrite = (inner) => ({
+  toolName: 'write',
+  input: { path: 'xd://resolve', content: '' },
+  details: {
+    xdev: {
+      inner: { ...inner, sourceResultDetails: { applied: true, files: ['sub/a.txt', 'other/w.txt'], scopePath: '.' } },
+    },
+  },
+});
+
+test('a write to xd://resolve that discards an ast_edit gets no nudge', async (t) => {
+  const dirs = fixture(t);
+  const result = await runNudge(dirs, resolveWrite({ action: 'discard', sourceToolName: 'ast_edit' }));
+  assert.equal(result, undefined);
+});
+
+test('a write to xd://resolve that applies another tool than ast_edit gets no nudge', async (t) => {
+  const dirs = fixture(t);
+  const result = await runNudge(dirs, resolveWrite({ action: 'apply', sourceToolName: 'edit' }));
+  assert.equal(result, undefined);
+});
+
+test('a path in a folder that no longer exists names the node of the nearest existing folder', async (t) => {
+  const dirs = fixture(t);
+  const result = await runNudge(dirs, { toolName: 'edit', details: { path: path.join(dirs.main, 'sub/gone/x.txt') } });
+  assert.deepEqual(nudgeNodes(result), ['sub']);
+});
+
+test('a path through a symbolic link names the node of the real folder', async (t) => {
+  const dirs = fixture(t);
+  const link = path.join(dirs.root, 'link');
+  fs.symlinkSync(dirs.main, link);
+  const result = await runNudge(dirs, { toolName: 'edit', details: { path: path.join(link, 'sub/a.txt') } });
+  assert.deepEqual(nudgeNodes(result), ['sub']);
+});
+
+// Record each write to stdout and stderr and each console call while `action` runs.
+async function captureOutput(action) {
+  const printed = [];
+  const streams = [process.stdout, process.stderr];
+  const writes = streams.map((stream) => stream.write);
+  const consoleMethods = ['log', 'info', 'warn', 'error', 'debug'];
+  const consoleOriginals = consoleMethods.map((name) => console[name]);
+  for (const stream of streams) {
+    stream.write = (chunk, ...rest) => {
+      printed.push(String(chunk));
+      const callback = rest.find((value) => typeof value === 'function');
+      callback?.();
+      return true;
+    };
+  }
+  for (const name of consoleMethods) console[name] = (...args) => printed.push(args.join(' '));
+  try {
+    return { result: await action(), printed };
+  } finally {
+    for (const [index, stream] of streams.entries()) stream.write = writes[index];
+    for (const [index, name] of consoleMethods.entries()) console[name] = consoleOriginals[index];
+  }
+}
+
+test('an internal error adds no nudge and prints nothing', async (t) => {
+  const dirs = fixture(t);
+  const handler = await toolResultHandler();
+  // A details field that throws when the handler reads it stands for any internal error.
+  const details = {
+    get perFileResults() {
+      throw new Error('details read failed');
+    },
+  };
+  const event = { type: 'tool_result', toolName: 'edit', toolCallId: 'call_1', input: {}, content: [], details };
+  const ctx = { cwd: dirs.main, sessionManager: { getSessionId: () => 's1' } };
+  const { result, printed } = await captureOutput(() => handler(event, ctx));
+  assert.equal(result, undefined);
+  assert.deepEqual(printed, []);
+});

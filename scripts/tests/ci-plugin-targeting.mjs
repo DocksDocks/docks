@@ -487,7 +487,7 @@ async function testFocusedCiCommandSelection() {
     'scripts/tests/test-contracts.mjs',
   ];
   const planLifecycleBiomeCiArgv = ['run', 'biome', 'ci', 'plugins/plan-lifecycle/test'];
-  const coreBiomeCiArgv = ['run', 'biome', 'ci', 'scripts', 'plugins/docks/hooks', 'plugins/plan-lifecycle/test'];
+  const coreBiomeCiArgv = ['run', 'biome', 'ci', 'scripts', 'plugins/docks/extensions', 'plugins/plan-lifecycle/test'];
   const docksSkillScripts = [
     'plugins/docks/skills/write-skill/scripts',
     'plugins/docks/skills/agent-first-setup/scripts',
@@ -599,7 +599,7 @@ async function testFocusedCiCommandSelection() {
       } else {
         assert.equal(countToolInvocation(selected.calls, 'bun', ['run', 'check:js']), 0);
         assert.equal(
-          countToolInvocation(selected.calls, 'bun', ['run', 'biome', 'ci', 'scripts', 'plugins/docks/hooks']),
+          countToolInvocation(selected.calls, 'bun', ['run', 'biome', 'ci', 'scripts', 'plugins/docks/extensions']),
           1,
         );
         assert.equal(countToolInvocation(selected.calls, 'bun', docksBiomeLintArgv), 1);

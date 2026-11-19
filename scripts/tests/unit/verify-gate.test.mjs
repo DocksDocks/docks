@@ -277,7 +277,10 @@ test('the gate reads DOCKS_VERIFY_GATE and XDG_STATE_HOME again on each call', a
   assert.equal(await runGate({ state: second, mode: 'off', command: UNVERIFIED }), undefined);
   await runGate({ state: second, mode: 'observe', command: UNVERIFIED });
   assert.equal(logLines(first).length, 1);
-  assert.deepEqual(logLines(second).map((line) => line.mode), ['observe']);
+  assert.deepEqual(
+    logLines(second).map((line) => line.mode),
+    ['observe'],
+  );
 });
 
 test('--amend without a new message reads the HEAD message', async (t) => {

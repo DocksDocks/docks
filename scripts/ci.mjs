@@ -8,6 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { beginCommand, startTask, summarizeCommands } from './lib/ci-background-task.mjs';
 import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
 import { changedScopes, computeGateKey, lookupMemo, memoRoot, recordMemo, renderGateCost } from './lib/gate-memo.mjs';
@@ -340,9 +341,9 @@ if (authorChecks.has('idempotency')) {
     : fail('skill-maintainer idempotency failed (run: bun tests/idempotency.mjs)');
 }
 
-// shell lint — shellScripts(p) collects each selected plugin's hooks/*.sh, its
-// bundled skill scripts (skills/**/scripts/*.sh), and a rust capability's sh
-// launcher, so every shipped shell script of a target is linted.
+// shell lint — shellScripts(p) collects each selected plugin's bundled skill
+// scripts (skills/**/scripts/*.sh) and a rust capability's sh launcher, so every
+// shipped shell script of a target is linted.
 if (targets.length > 0) {
   section('shell lint');
   const shellFiles = targets.flatMap(shellScripts);
@@ -391,7 +392,7 @@ if (planAuthorChecks) {
     : fail('plan CLI contract failed (run: node scripts/tests/plan-cli.mjs)');
 }
 
-for (const plugin of targets) gatePlugin(plugin);
+for (const plugin of targets) await gatePlugin(plugin);
 if (javascriptQualityTasks.length > 0) {
   section('javascript quality');
   const javascriptQualityPassed = (await Promise.all(javascriptQualityTasks)).every(Boolean);
@@ -402,9 +403,10 @@ if (javascriptQualityTasks.length > 0) {
   }
 }
 
-function gatePlugin(p) {
+async function gatePlugin(p) {
   section(`plugin: ${p.name}`);
   gatePackage(p);
+  await gateExtensions(p);
   for (const leftover of LEFTOVER_PLUGIN_PATHS.map((name) => `${p.root}/${name}`)) {
     if (fs.existsSync(leftover)) fail(`${p.name}: ${leftover} is a leftover of another plugin format; remove it`);
   }
@@ -606,6 +608,28 @@ function gatePackage(p) {
   else if (source !== p.root) fail(`${p.name} catalog source ${entry.source} is not ./${p.root}`);
   else if (!fs.existsSync(source)) fail(`${p.name} catalog source ${entry.source} does not exist`);
   else ok(`${p.name} catalog source ${entry.source} exists`);
+}
+
+// Each `omp.extensions` entry of the plugin package.json is a module with a default function export, the factory
+// that omp calls. omp skips a missing entry without a message, and install checks no entry, so the gate checks them.
+// The gate imports the module itself and nothing from omp: an extension declares its own types and imports no omp
+// package. A module that throws at import stops the gate with its error.
+async function gateExtensions(p) {
+  const extensions = readJSON(pluginPackageJson(p))?.omp?.extensions ?? [];
+  let extensionsOk = true;
+  for (const entry of extensions) {
+    const modulePath = path.resolve(p.root, entry);
+    let problem = null;
+    if (!fs.statSync(modulePath, { throwIfNoEntry: false })?.isFile()) problem = 'does not exist';
+    else if (typeof (await import(pathToFileURL(modulePath).href)).default !== 'function')
+      problem = 'has no default function export';
+    if (problem !== null) {
+      fail(`${p.name} omp.extensions entry ${entry} ${problem}`);
+      extensionsOk = false;
+    }
+  }
+  if (extensionsOk && extensions.length > 0)
+    ok(`${p.name} omp.extensions entries have a default function export (${extensions.length})`);
 }
 
 // Each agent file loads as an omp task agent: it has a name and a description, no `model` key (a Claude Code alias

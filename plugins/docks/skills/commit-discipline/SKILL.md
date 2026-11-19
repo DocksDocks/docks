@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-19"
-  content_hash: "4282d43e7c400cbb6c9be98ceffedaea1b31eefe994af1820fec09bdf559934f"
+  content_hash: "f4387e615286caf51e4e4992e3fa73a756e723365f5abe8d9f7a95e48d473f8f"
 ---
 
 # Commit & PR Discipline
@@ -148,13 +148,15 @@ Verified: bun test src/session; bun run lint
 - Put the trailer in the last paragraph, alone or with other `Token: value` trailers. Git reads no trailers from a paragraph that also holds a `Closes #482` line, so put that line in a paragraph above. A `Verified:` subject line is not a trailer either. `git interpret-trailers --parse` shows the trailers that git reads.
 - A squash merge writes one new message from the pull request, as the repository settings choose. That message can drop the trailers of the branch commits. Put the `Verified:` line in the pull-request description too, and check that the squash message keeps it.
 
-The docks plugin ships the `verify-gate` hook for Claude Code and Codex. It runs before each `git commit` that the agent runs.
-The `DOCKS_VERIFY_GATE` environment variable selects its mode. `observe` is the default: the hook allows the commit and
+The docks plugin ships the `verify-gate` omp extension. It checks each `git commit` that runs through the bash tool, before
+the command runs. A commit that another tool makes does not pass through the gate. After an upgrade of docks, restart omp:
+omp loads extensions only when a session starts.
+The `DOCKS_VERIFY_GATE` environment variable of omp selects its mode. `observe` is the default: the gate allows the commit and
 appends one JSON line for each commit without the trailer to `${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl`.
 The line holds metadata only: `time`, `session_id`, `cwd`, `mode`, and `message_sources` (for example `-m`, `-F`,
 `--amend`, or `none`). An `enforce` line also holds `allowed_after_denials`. No line holds the command or the message text.
-`enforce` denies a commit without the trailer. After two denials in one session, it allows the next commit and logs it.
-`off` turns the hook off.
+`enforce` blocks a commit without the trailer. After two blocks in one session, it allows the next commit and logs it.
+`off` turns the gate off.
 
 ## Fixup / autosquash — clean up before review, not after
 

@@ -259,7 +259,7 @@
       "selection": {
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/context-tree-nudge.test.mjs",
-        "expected_min": 10
+        "expected_min": 15
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["bun-1"],

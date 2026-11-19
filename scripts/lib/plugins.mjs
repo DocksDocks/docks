@@ -23,7 +23,7 @@
 //                 paths; `prebuilt` owns immutable release target/asset naming.
 //                 No plugin declares it today; the shape stays documented so a
 //                 future Rust plugin needs one descriptor and no tooling edit.
-//   extraJson     additional JSON configs to validate (hooks/mcp/etc.)
+//   extraJson     additional JSON configs to validate (mcp etc.)
 //   authorChecks  repository author suites owned by this plugin
 //   releaseContracts additional release-state/evidence contract tests
 //   sourceChecks  ordered source/process/smoke checks
@@ -65,7 +65,7 @@ export const PLUGINS = [
     root: 'plugins/docks',
     ciLane: 'core',
     javascriptQuality: {
-      ci: ['scripts', 'plugins/docks/hooks'],
+      ci: ['scripts', 'plugins/docks/extensions'],
       lint: [
         'plugins/docks/skills/write-skill/scripts',
         'plugins/docks/skills/agent-first-setup/scripts',
@@ -76,7 +76,7 @@ export const PLUGINS = [
     agents: null,
     selftest: null,
     rust: null,
-    extraJson: ['plugins/docks/hooks/hooks.json'],
+    extraJson: [],
     authorChecks: ['idempotency', 'plan-reviewer'],
     releaseContracts: [],
     transformGuard: true,
@@ -124,22 +124,17 @@ export const byName = (name) => PLUGINS.find((p) => p.name === name) || null;
 // Plugins actually present on disk (a descriptor may outlive its files mid-edit).
 export const presentPlugins = () => PLUGINS.filter((p) => fs.existsSync(p.root));
 
-// Shell files to lint: hook scripts (*.sh) under a plugin's hooks/ dir, the
-// bundled skill scripts (skills/**/scripts/*.sh), and the rust capability's sh
-// launcher (bin/<binName>) when present.
+// Shell files to lint: the bundled skill scripts (skills/**/scripts/*.sh) and
+// the rust capability's sh launcher (bin/<binName>) when present.
 export function shellScripts(p) {
-  const shFiles = (dir, keep) =>
-    fs.existsSync(dir)
-      ? fs
-          .readdirSync(dir, { recursive: true })
-          .filter((f) => f.endsWith('.sh') && keep(f))
-          .sort()
-          .map((f) => path.join(dir, f))
-      : [];
-  const out = [
-    ...shFiles(path.join(p.root, 'hooks'), (f) => !f.includes(path.sep)),
-    ...shFiles(path.join(p.root, 'skills'), (f) => path.basename(path.dirname(f)) === 'scripts'),
-  ];
+  const skills = path.join(p.root, 'skills');
+  const out = fs.existsSync(skills)
+    ? fs
+        .readdirSync(skills, { recursive: true })
+        .filter((f) => f.endsWith('.sh') && path.basename(path.dirname(f)) === 'scripts')
+        .sort()
+        .map((f) => path.join(skills, f))
+    : [];
   if (p.rust) {
     const launcher = path.join(p.root, 'bin', p.rust.binName);
     if (fs.existsSync(launcher)) out.push(launcher);

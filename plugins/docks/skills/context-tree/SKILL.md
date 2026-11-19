@@ -4,8 +4,8 @@ description: "Use when a repo's root AGENTS.md grew too large and per-area conve
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-10-23"
-  content_hash: "82b38008dd692113158159672e844c46d6dce3c62e1d616f16fb1805c342ccaa"
+  updated: "2026-11-19"
+  content_hash: "eaa467f7354f44657fd9b7dbef56967efe9627497945453bbf2a7f2c0e1ec744"
 ---
 
 # Context Tree — lazy per-folder AGENTS.md
@@ -120,7 +120,7 @@ scripts/AGENTS.md
 ## Workflow — `refresh` / `audit`
 
 - `audit` first lists every legacy CLAUDE.md (`CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, root or nested) as a `legacy-claude-md` finding. A file without an `@AGENTS.md` import is a defect: Claude reads it instead of AGENTS.md. A stub that holds only `@AGENTS.md` / `@../AGENTS.md` is redundant: it still delivers AGENTS.md through the import. For both, the fix owner is `multi-tool-bridge`; `audit` and `refresh` never edit or delete a CLAUDE.md. Then `audit` walks tracked nodes and verifies every source-anchored claim (path, symbol, snippet, identifier, and any live `path:NN` line anchor, which is itself a `line-anchor` finding: convert to the durable form, don't just re-point the number) against **current source** — content, not just existence — re-derived from disk and ignoring git history; it reports drift with the count of claims checked, and never writes. The same pass reports the durable-docs findings, each with its fix: `volatile-value` (a line number, live count/version/size/date, or "currently" / "now has" — replace with identity + rule + `verify:` command), `duplicated-fact` (a fact restated from its owning file — replace with a backticked path to the owner), `dead-pointer` (a backticked repo path that does not resolve — re-locate the owner by its stated purpose and fix the path, or cut the pointer), `unchecked-list` (a hand-kept enumeration of changing things with no check against disk — replace with the rule + the `find`/`grep` command that lists them), `eager-import` (a bare `@path` outside backticks and fences in any AGENTS.md, root included — Claude loads that file into every session; put it in backticks unless the target must always be in context). After the per-claim pass it runs the cross-node **graph Lint**: contradictions between nodes (two nodes asserting incompatible rules), orphan nodes with no inbound link (unreferenced by the root `## Context tree` table or any sibling), concepts mentioned but lacking a node, missing cross-references, and web-fillable data gaps. Full procedure: [`references/conflict-resolution.md`](references/conflict-resolution.md). Use it to decide whether a `refresh` is warranted.
-- `refresh <folder>` regenerates one node only if the maintainer's content predicate says something semantic changed (avoids hook write-loops). `refresh` (no arg) re-runs the full convention across every node behind the intent-aware manager handoff.
+- `refresh <folder>` regenerates one node only if the maintainer's content predicate says something semantic changed (avoids nudge write-loops). `refresh` (no arg) re-runs the full convention across every node behind the intent-aware manager handoff.
 
 Drift handling, existing-file merges, and the already-a-node detection live in [`references/conflict-resolution.md`](references/conflict-resolution.md).
 
@@ -158,7 +158,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore root from `"$SOURCE_BEFORE"`,
 | Relocated a section into a node but left it in root too | Duplicated context loads twice. Delete from root when you move it; leave only a breadcrumb. |
 | Pruned a section from root before it was written to a node | Content lost. Two-phase only: write nodes (Phase A) + the node check, prune root LAST (Phase B). |
 | Used a byte-% "didn't shrink more than X%" as the loss check | Backwards for a split — scaffolding inflates output. Use per-section presence; byte-delta is only a net-shrink tripwire. |
-| Hook fires `refresh` on every edit and rewrites unchanged nodes | `refresh <folder>` must first re-derive whether anything semantic changed and no-op when nothing did. |
+| The nudge leads to `refresh` after every edit, and `refresh` rewrites unchanged nodes | `refresh <folder>` must first re-derive whether anything semantic changed and no-op when nothing did. |
 | `audit` passed a node as "no drift" on a file-exists check | Existence ≠ accuracy — a renamed validator or changed rule sails through. `audit` verifies every claim's content against current source and states the count checked. |
 | Node cites a live `path:NN` line anchor | It rots on the next edit. Convert to the durable form — `` `path` — `symbol` — purpose (verify: `command`) `` — and keep line numbers only on fictional example paths. |
 | AGENTS.md grew past 500 lines | Past the node-body ceiling (kit policy, enforced by the kit's checks; not an Anthropic doc limit). Split the folder or tighten to keep every node ≤500 lines. |

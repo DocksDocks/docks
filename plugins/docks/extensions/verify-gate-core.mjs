@@ -1,7 +1,6 @@
-#!/usr/bin/env node
-// PreToolUse hook (Claude Code + Codex): check that each `git commit` that the
-// agent runs carries a `Verified:` git trailer, the record of how the commit was
-// verified. Format: `Verified: <command>[; <command>]` or `Verified: none - <reason>`.
+// The host-neutral core of the verify-gate omp extension (`verify-gate.ts`): check that each
+// `git commit` in a shell command carries a `Verified:` git trailer, the record of how the
+// commit was verified. Format: `Verified: <command>[; <command>]` or `Verified: none - <reason>`.
 //
 // Mode comes from DOCKS_VERIFY_GATE:
 //   off      allow every commit and write nothing.
@@ -12,14 +11,13 @@
 //            because a command or a message can hold a secret.
 //   enforce  deny a commit without the trailer. After two denials in one session,
 //            allow the next commit, log it, and start the count again.
+//   An unknown value works as observe.
 //
-// The hook reads the PreToolUse JSON from stdin. Claude Code filters with
-// `if: "Bash(git commit*)"`; Codex ignores `if` and runs the hook for every Bash
-// call, so the hook finds the commit itself. An allow exits 0 with no output; a
-// deny prints the hookSpecificOutput shape that both runtimes accept. Any internal
-// error allows the command and writes a note to stderr: a hook must never break
-// the session.
-import { spawnSync } from 'node:child_process';
+// The core finds each commit in the command itself, so the adapter gives it every bash
+// command. The git calls are asynchronous, so a check does not hold the event loop of omp.
+// The core reads and writes nothing on stdout or stderr: the adapter allows the command
+// when the core throws.
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +26,8 @@ const MODES = new Set(['off', 'observe', 'enforce']);
 const DENIALS_BEFORE_ALLOW = 2;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TRAILER_FORMAT = '`Verified: <command>[; <command>]` or `Verified: none - <reason>`';
+// Each git call stops after this time; omp blocks a tool call whose handler runs longer than 30 s.
+const GIT_TIMEOUT_MS = 5000;
 
 // ---------- shell tokenizer ----------
 
@@ -349,16 +349,24 @@ function parseCommitArgs(args) {
   return options;
 }
 
-function git(cwd, args, input) {
-  const result = spawnSync('git', args, { cwd, input, encoding: 'utf8', timeout: 5000 });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
-  return result.stdout;
+// Run git in `cwd` with `input` on stdin, and resolve with its stdout. A non-zero exit,
+// the timeout, or a spawn failure rejects.
+function git(cwd, args, input = '') {
+  return new Promise((resolve, reject) => {
+    const child = execFile('git', args, { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS }, (error, stdout, stderr) => {
+      if (error) reject(new Error(`git ${args.join(' ')} failed: ${String(stderr).trim() || error.message}`));
+      else resolve(stdout);
+    });
+    // git can exit before it reads stdin. The callback above reports that failure; without this
+    // listener the EPIPE error event would throw in the omp process.
+    child.stdin.on('error', () => {});
+    child.stdin.end(input);
+  });
 }
 
 // Build the message that the commit records. Returns null when it has no source,
 // which means git would open an editor.
-function commitMessage(commit, options) {
+async function commitMessage(commit, options) {
   const parts = options.messages.map(expandCatHeredocs);
   for (const file of options.files) {
     if (file === '-') parts.push(commit.stdin ?? '');
@@ -366,15 +374,15 @@ function commitMessage(commit, options) {
   }
   let base = null;
   if (parts.length > 0) base = parts.join('\n\n');
-  else if (options.reuse) base = git(commit.cwd, ['log', '-1', '--format=%B', options.reuse, '--']);
-  else if (options.amend) base = git(commit.cwd, ['log', '-1', '--format=%B']);
+  else if (options.reuse) base = await git(commit.cwd, ['log', '-1', '--format=%B', options.reuse, '--']);
+  else if (options.amend) base = await git(commit.cwd, ['log', '-1', '--format=%B']);
   if (options.trailers.length === 0) return base;
   return `${base ?? ''}\n\n${options.trailers.join('\n')}\n`;
 }
 
 // True when the message ends with a valid `Verified:` git trailer.
-function hasVerifiedTrailer(message, cwd) {
-  const trailers = git(cwd, ['interpret-trailers', '--parse'], message);
+async function hasVerifiedTrailer(message, cwd) {
+  const trailers = await git(cwd, ['interpret-trailers', '--parse'], message);
   return trailers.split('\n').some((line) => {
     const match = /^Verified:\s*(.*)$/iu.exec(line);
     if (!match) return false;
@@ -398,21 +406,22 @@ function messageSources(options) {
 
 // ---------- state ----------
 
-function stateDir() {
-  const base = process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state');
+function stateDir(env) {
+  const base = env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state');
   const dir = path.join(base, 'docks');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
-function appendLog(entry) {
-  fs.appendFileSync(path.join(stateDir(), 'verify-gate.jsonl'), `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+function appendLog(env, entry) {
+  fs.appendFileSync(path.join(stateDir(env), 'verify-gate.jsonl'), `${JSON.stringify(entry)}\n`, { mode: 0o600 });
 }
 
 // Record one denial for the session and return the count of earlier denials.
-// After DENIALS_BEFORE_ALLOW denials the count starts again at zero.
-function countDenial(sessionId) {
-  const file = path.join(stateDir(), 'verify-gate-denials.json');
+// After DENIALS_BEFORE_ALLOW denials the count starts again at zero. The function is
+// synchronous on purpose: two checks in one omp process cannot interleave inside it.
+function countDenial(env, sessionId) {
+  const file = path.join(stateDir(env), 'verify-gate-denials.json');
   let state = {};
   try {
     state = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -431,72 +440,49 @@ function countDenial(sessionId) {
   return previous;
 }
 
-// ---------- main ----------
+// ---------- check ----------
 
-function deny(reason) {
-  process.stdout.write(
-    `${JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: reason,
-      },
-    })}\n`,
-  );
-}
+const DENY_REASON =
+  `verify-gate: the commit message has no Verified: trailer. ` +
+  `Add a last paragraph with ${TRAILER_FORMAT}. ` +
+  `Name the checks that you ran, or say why none ran.`;
 
-function run() {
-  const rawMode = (process.env.DOCKS_VERIFY_GATE || 'observe').trim().toLowerCase();
-  if (rawMode === 'off') return;
-  if (!MODES.has(rawMode)) process.stderr.write(`verify-gate: unknown DOCKS_VERIFY_GATE "${rawMode}"; using observe\n`);
+// Check one shell command before it runs. `cwd` is the folder where the command starts,
+// `sessionId` keys the denial count, and `env` gives DOCKS_VERIFY_GATE and XDG_STATE_HOME.
+// Returns the deny reason, or null to allow the command.
+export async function checkCommand({ command, cwd, sessionId, env }) {
+  const rawMode = (env.DOCKS_VERIFY_GATE || 'observe').trim().toLowerCase();
+  if (rawMode === 'off') return null;
   const mode = MODES.has(rawMode) ? rawMode : 'observe';
-
-  const payload = JSON.parse(fs.readFileSync(0, 'utf8'));
-  if (payload.tool_name !== undefined && payload.tool_name !== 'Bash') return;
-  const command = payload.tool_input?.command;
-  if (typeof command !== 'string') return;
-  const baseCwd = typeof payload.cwd === 'string' && payload.cwd ? payload.cwd : process.cwd();
 
   // The message sources of the first commit without the trailer, or null when each commit has it.
   let unverifiedSources = null;
-  for (const commit of findCommits(command, baseCwd)) {
+  for (const commit of findCommits(command, cwd)) {
     const options = parseCommitArgs(commit.args);
     if (options.dryRun) continue;
-    const message = commitMessage(commit, options);
-    if (message !== null && hasVerifiedTrailer(message, commit.cwd)) continue;
+    const message = await commitMessage(commit, options);
+    if (message !== null && (await hasVerifiedTrailer(message, commit.cwd))) continue;
     unverifiedSources = messageSources(options);
     break;
   }
-  if (!unverifiedSources) return;
+  if (!unverifiedSources) return null;
 
-  const sessionId = typeof payload.session_id === 'string' && payload.session_id ? payload.session_id : 'unknown';
   // Log metadata only. The command and the message can hold a secret, so no text of them goes to the log.
   const entry = {
     time: new Date().toISOString(),
     session_id: sessionId,
-    cwd: baseCwd,
+    cwd,
     mode,
     message_sources: unverifiedSources,
   };
   if (mode === 'observe') {
-    appendLog(entry);
-    return;
+    appendLog(env, entry);
+    return null;
   }
-  const previous = countDenial(sessionId);
+  const previous = countDenial(env, sessionId);
   if (previous >= DENIALS_BEFORE_ALLOW) {
-    appendLog({ ...entry, allowed_after_denials: previous });
-    return;
+    appendLog(env, { ...entry, allowed_after_denials: previous });
+    return null;
   }
-  deny(
-    `verify-gate: the commit message has no Verified: trailer. ` +
-      `Add a last paragraph with ${TRAILER_FORMAT}. ` +
-      `Name the checks that you ran, or say why none ran.`,
-  );
+  return DENY_REASON;
 }
-
-try {
-  run();
-} catch (error) {
-  process.stderr.write(`verify-gate: internal error, allowing the command: ${error?.message ?? error}\n`);
-}
-process.exitCode = 0;

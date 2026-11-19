@@ -16,6 +16,15 @@ omp plugin marketplace update docks
 omp plugin upgrade docks@docks
 ```
 
+Restart omp after an update. omp loads the docks extensions only when a session starts, so an open session keeps the old ones.
+
+## Extensions
+
+The plugin ships two omp extensions:
+
+- `verify-gate` checks each `git commit` that runs through the bash tool for a `Verified:` trailer. A commit that another tool makes does not pass through the gate. The `DOCKS_VERIFY_GATE` environment variable of omp selects the mode: `observe` (default), `enforce`, or `off`. The `commit-discipline` skill describes the trailer and the modes.
+- `context-tree-nudge` adds a message after a file edit inside a context-tree node (a folder below the repository root with its own `AGENTS.md`). The message asks the agent to refresh that node.
+
 ## Platform support
 
 The `docks` plugin supports Linux and macOS only.
