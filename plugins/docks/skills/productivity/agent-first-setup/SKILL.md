@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-19"
-  content_hash: "fb45c1cf5984924d3cac16e3b3f250607529b5fc3beea334a09eb33abd43e199"
+  content_hash: "f07f4055fa4e642176e5ba2251c200f9a9b657be4603f7c5fbe593e8fc995cb1"
 ---
 
 # Agent-First Setup
@@ -84,9 +84,9 @@ git ls-files -co --exclude-standard -- ':(glob)**/AGENTS.md' | grep -v '^AGENTS\
 find .claude/skills -mindepth 1 -maxdepth 1 ! -type l 2>/dev/null | sed 's/^/not-a-symlink: /'
 ```
 
-Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored. In the same shell, also run the detection block of [references/pull-request-template.md](references/pull-request-template.md) word for word: it defines the `pr_templates` function and prints its `pull-request template:` lines. It tells a usable template from an unusable entry, such as a broken symlink or an empty template folder, and prints `pull-request template: none` when no usable template exists. It needs git; outside git, its last line prints `ERROR`. Report that error. An error is not a missing template. Also run the Detect block of [references/verify-skill-template.md](references/verify-skill-template.md) word for word: it prints `verify skill: present` or `verify skill: missing`, and one `verify unverified:` line for each result that no run has shown.
+Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored. In the same shell, also run the detection block of [references/pull-request-template.md](references/pull-request-template.md) word for word: it defines the `pr_templates` function and prints its `pull-request template:` lines. It tells a usable template from an unusable entry, such as a broken symlink or an empty template folder, and prints `pull-request template: none` when no usable template exists. It needs git; outside git, its last line prints `ERROR`. Report that error. An error is not a missing template. Also run the Detect block of [references/verify-skill-template.md](references/verify-skill-template.md) word for word. It prints a `verify skill:` line, a `verify link:` line for `.claude/skills/verify`, and one `verify unverified:` line for each result that no run has shown. It prints an `ERROR` line when it cannot read the skill; report that error.
 
-If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line; on a `verify unverified:` line, Step 2b verifies the skill again. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
+If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when Step 0 shows `verify skill: present`, `verify link: present`, and no `verify unverified:` or `ERROR` line. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
 
 ### Step 1 — Run `multi-tool-bridge`
 
@@ -104,12 +104,12 @@ In `audit` mode, run `context-tree audit` only.
 
 ### Step 2b — Create the project `verify` skill
 
-A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. Follow [references/verify-skill-template.md](references/verify-skill-template.md): Step 0 already ran its Detect block, so run its Create or re-verify section with that output. Ask each question of that section through the harness question tool (see "Asking the user"). If the harness has no such tool, end the turn and report Step 2b as blocked.
+A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. Follow the Create or re-verify section of [references/verify-skill-template.md](references/verify-skill-template.md). It runs the Detect block again first, because Step 1 can move `.claude/skills/verify` to `.agents/skills/verify`. Ask each question of that section through the harness question tool (see "Asking the user"). If the harness has no such tool, end the turn and report Step 2b as blocked.
 
-- When the section makes no change, or reports "no runnable surface", record that for the report and go to Step 2c.
+- When the section stops without a write, record its reason for the report, for example "no runnable surface" or an occupied `.claude/skills/verify`, and go to Step 2c.
 - Step 2b is complete only when the section leaves the skill verified: each command ran and showed its expected result, and the skill holds no `not observed:` entry. A failed command stays in the report with its output.
 
-In `audit` mode, use the Step 0 output and run only step 3 and step 4 of that section, which write nothing. Record whether the skill exists, each `verify unverified:` row, or the surface that needs it.
+In `audit` mode, use the Step 0 output and run only step 4 and step 5 of that section, which write nothing. Record whether the skill exists, its link state, each `verify unverified:` or `ERROR` line, or the surface that needs the skill.
 
 ### Step 2c — Offer the pull-request template
 
@@ -211,10 +211,14 @@ ls_repo ':(glob)**/AGENTS.md' | while IFS= read -r f; do
 done
 # C9 project verify skill: .agents/skills/verify/SKILL.md exists, and .claude/skills/verify resolves to it
 if test -f .agents/skills/verify/SKILL.md; then
-  test -f .claude/skills/verify/SKILL.md || echo "FAIL C9 .claude/skills/verify does not resolve to .agents/skills/verify"
+  [ .claude/skills/verify/SKILL.md -ef .agents/skills/verify/SKILL.md ] || echo "FAIL C9 .claude/skills/verify does not resolve to .agents/skills/verify"
 else echo "FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)"; fi
 # C9 every command of the verify skill showed its expected result (a `not observed:` entry is a command that failed or that no run finished)
-grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's|^|FAIL C9 unverified command (rerun every command in Step 2b): .agents/skills/verify/SKILL.md:|'
+if test -f .agents/skills/verify/SKILL.md; then
+  marks=$(grep -n 'not observed:' .agents/skills/verify/SKILL.md); s=$?
+  if [ "$s" -eq 0 ]; then printf '%s\n' "$marks" | sed 's|^|FAIL C9 unverified command (rerun every command in Step 2b): .agents/skills/verify/SKILL.md:|'
+  elif [ "$s" -gt 1 ]; then echo "ERROR C9 cannot read .agents/skills/verify/SKILL.md"; fi
+fi
 # C10 a usable pull-request template exists (pr_templates from Step 0; each unusable entry is named; an error is not a missing template)
 if t=$(pr_templates); then printf '%s\n' "$t" | sed -n 's/^pull-request template: unusable /FINDING C10 unusable pull-request template: /p'; case "$t" in *"pull-request template: none"*) echo "FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)";; esac; else echo "ERROR C10 pull-request template check failed (see the message above)"; fi
 ```

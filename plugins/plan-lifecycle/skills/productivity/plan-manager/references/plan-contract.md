@@ -745,10 +745,13 @@ a template item or a default item already covers it, so that no check and no
 review shows twice.
 
 A template item that covers local or end-to-end testing, such as "Tested
-locally end to end", covers item 3. It is the tested-locally item: keep its
-text as written, and add ` (<ids>)` after it, as item 3 does. Add this suffix
-to no other template item. When no Acceptance row runs a driven surface, keep
-the template item unticked with the reason `the change touches no driven surface`.
+locally end to end", covers item 3. It is the tested-locally item. Keep its
+text as written, and add ` (<ids>)` after it. `<ids>` lists the rows of item
+3. When no Acceptance row runs a driven surface, `<ids>` lists each Acceptance
+row that proves the text of the item, such as a run of a project `verify`
+skill flow. Add this suffix to no other template item. When no row proves the
+item, add no suffix, and keep the item unticked with the reason
+`the change touches no driven surface`.
 
 Tick an item (`- [x]`) only when its evidence is for the reviewed head that you
 push now:
@@ -768,9 +771,9 @@ push now:
 
 Otherwise keep the item unticked, and end its line with ` - <reason>`, for
 example ``- [ ] Tested locally end to end - the change touches no driven surface``.
-A template item that names the `verify` skill, after rows that ran without
-the skill, gets the reason `<ids> ran without the verify skill`, where `<ids>`
-lists those rows.
+When a named row ran without the `verify` skill, keep a template item that
+names that skill unticked. Give it the reason
+`<ids> ran without the verify skill`, where `<ids>` lists those rows.
 A template item without proof gets the reason `not checked by the plan`.
 After each push to the linked branch while the pull request is open, also a
 push of current work before a block or a stall, build every tick again from

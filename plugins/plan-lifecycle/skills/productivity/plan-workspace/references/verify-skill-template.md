@@ -5,7 +5,7 @@
 | Section | What it holds |
 |---|---|
 | [Purpose](#purpose) | What a project `verify` skill does and when to create it |
-| [Detect](#detect) | The read-only check for the skill and its unverified commands |
+| [Detect](#detect) | The read-only check for the skill, its `.claude/skills` link, and its unverified commands |
 | [Create or re-verify](#create-or-re-verify) | The steps that write, verify, or extend the skill |
 | [Rules for each command](#rules-for-each-command) | Speed, readiness, expected results, cleanup |
 | [Template](#template) | The fill-in `SKILL.md` |
@@ -26,38 +26,70 @@ The skill lives at `.agents/skills/verify/SKILL.md`. The symlink `.claude/skills
 Run this block from the repository root. It only reads files:
 
 ```bash
-test -f .agents/skills/verify/SKILL.md && echo "verify skill: present" || echo "verify skill: missing"
-grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's/^/verify unverified: /'
+f=.agents/skills/verify/SKILL.md
+if test -f "$f"; then
+  echo "verify skill: present"
+  marks=$(grep -n 'not observed:' "$f"); s=$?
+  if [ "$s" -eq 0 ]; then printf '%s\n' "$marks" | sed 's/^/verify unverified: /'
+  elif [ "$s" -gt 1 ]; then echo "ERROR verify skill check failed: cannot read $f"; fi
+else
+  echo "verify skill: missing"
+fi
+l=.claude/skills/verify
+if ! test -e "$l" && ! test -L "$l"; then echo "verify link: missing"
+elif [ "$l/SKILL.md" -ef "$f" ]; then echo "verify link: present"
+else echo "verify link: occupied"; fi
 ```
 
-A `verify unverified:` line is a command that has not shown its expected result: it failed (its mark ends in `; got <failure>`), or no run finished it. The skill is verified when the block prints `verify skill: present` and no `verify unverified:` line.
+Read the lines as follows:
+
+- A `verify unverified:` line is a command that has not shown its expected result: it failed (its mark ends in `; got <failure>`), or no run finished it.
+- `verify link: present` means that `.claude/skills/verify/SKILL.md` is the same file as the skill, through a symlink of the folder or of `.claude/skills`.
+- `verify link: occupied` means that another entry is at `.claude/skills/verify`, for example a separate folder or a link to another place.
+- An `ERROR` line is a failed check, not a verified skill.
+
+The skill is verified when the block prints `verify skill: present`, `verify link: present`, and no `verify unverified:` or `ERROR` line.
 
 ## Create or re-verify
 
-Run these steps from the repository root, after the Detect block. Ask each question with the question tool of the harness. An error, an empty result, or a default result is not an answer. When the harness has no question tool, stop at the question and report the skill as blocked. When a plan step runs these steps, the decision that the plan recorded for that step is the approval of each write and each run that they ask for. It does not answer a question about a missing fact, such as a start command or a test account.
+Run these steps from the repository root. Run the Detect block right before step 1, also when an earlier step of the run printed its output, because that step can have moved files. Ask each question with the question tool of the harness. An error, an empty result, or a default result is not an answer. When the harness has no question tool, stop at the question, and report the skill as blocked.
 
-1. On `verify skill: present` and no `verify unverified:` line, make no change. To add a flow, go to step 9.
-2. On a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, and ask for approval to mark every result again and run every command again. After approval, and before any command runs, write `not observed: expect <result>` on each result that holds no mark: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`. An older mark with no `expect <result>` part lost its expected result: take that result from the git history of the skill or ask the user, and write `not observed: expect <result>; got <the old failure line>`. When neither supplies the expected result, leave the mark as it is, so the skill stays unverified, and report the row. Then run step 8 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow.
-3. On `verify skill: missing`, find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of [Surface recipes](#surface-recipes).
-4. If the repository has no runnable surface, write nothing, and report "no runnable surface".
-5. Fill the [Template](#template) for each surface. Use only commands that the repository defines or that the recipes name. Ask the user for a missing start command, port, or test account. No run has shown a result yet, so write each expected result as `not observed: expect <result>`: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
-6. Print the draft `SKILL.md`, with its `not observed: expect` marks, and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval. The approval covers the write and one run of each command, the prerequisite checks included.
-7. After approval, write `.agents/skills/verify/SKILL.md`. Then create the symlink and check it:
+A plan step that runs these steps has the approval that the plan recorded for that step. That approval covers each write and each run. It does not answer a question about a missing fact, such as a start command or a test account.
+
+1. On an `ERROR` line, report it, write nothing, and stop. On `verify link: occupied`, report the entry at `.claude/skills/verify`, write nothing, and stop. The user resolves it.
+2. On `verify skill: present` with a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, and ask for approval to mark every result again and run every command again. After approval, and before any command runs, write `not observed: expect <result>` on each result that holds no mark: each Prerequisites row, `Ready when:`, each flow, and `Clean when:`. An older mark with no `expect <result>` part lost its expected result: take that result from the git history of the skill or ask the user, and write `not observed: expect <result>; got <the old failure line>`. When neither supplies the expected result, leave the mark as it is, so the skill stays unverified, and report the row. Then run step 9 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow. Go to step 10 to add a flow; otherwise stop.
+3. On `verify skill: present` with no `verify unverified:` line, the skill is verified. On `verify link: missing`, ask for approval, and run the link block of step 8. Go to step 10 to add a flow; otherwise stop.
+4. Steps 4 to 9 run only on `verify skill: missing`. Find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of [Surface recipes](#surface-recipes).
+5. If the repository has no runnable surface, write nothing, report "no runnable surface", and stop.
+6. Fill the [Template](#template) for each surface. Use only commands that the repository defines or that the recipes name. Ask the user for a missing start command, port, or test account. No run has shown a result yet, so write each expected result as `not observed: expect <result>`: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
+7. Print the draft `SKILL.md`, with its `not observed: expect` marks, and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval. The approval covers the write and one run of each command, the prerequisite checks included.
+8. After approval, run this gate right before the write. Write only when it prints nothing. On a `target occupied` line, report it, write nothing, and stop.
+
+   ```bash
+   for p in .agents .agents/skills; do
+     if test -L "$p"; then echo "target occupied: $p is a symlink"; fi
+   done
+   for p in .agents/skills/verify .claude/skills/verify; do
+     if test -e "$p" || test -L "$p"; then echo "target occupied: $p exists"; fi
+   done
+   ```
+
+   Write `.agents/skills/verify/SKILL.md`. Then run the link block. It creates `.claude/skills/verify` only when no entry is there; when `.claude/skills` is a symlink to `.agents/skills`, the skill is already there.
 
    ```bash
    mkdir -p .claude/skills
-   ln -s ../../.agents/skills/verify .claude/skills/verify
-   test -f .claude/skills/verify/SKILL.md && echo "verify skill: linked" || echo "BROKEN: .claude/skills/verify"
+   { test -e .claude/skills/verify || test -L .claude/skills/verify; } || ln -s ../../.agents/skills/verify .claude/skills/verify
+   [ .claude/skills/verify/SKILL.md -ef .agents/skills/verify/SKILL.md ] && echo "verify skill: linked" || echo "BROKEN: .claude/skills/verify"
    ```
 
-8. Run each command of the skill once, in order: the check command of each Prerequisites row, Start, every flow, and Stop. Compare the output of each command with the `expect <result>` part of its mark. Only after the command shows that result, remove the mark, so that the expected result stays. If a command fails or shows another result:
+9. Run each command of the skill once, in order: the check command of each Prerequisites row, Start, every flow, and Stop. Compare the output of each command with the `expect <result>` part of its mark. Only after the command shows that result, remove the mark, so that the expected result stays. If a command fails or shows another result:
    1. If Start ran, run the Stop and cleanup commands of the skill at once, before you report or ask. No process, port, or temporary folder from this run stays.
    2. Keep the failed command in the skill. Do not remove it. Keep the expected part of its mark and put the failure after it: `not observed: expect <result>; got <first line of the failure>`. A `got` part from an earlier run gets the new line. The commands after it keep their marks.
    3. Do not report the skill as verified. Name the failed command and its output in the report.
    4. Ask the user for the fix, for example a missing service, dependency, or test account.
 
-   The skill is verified only when each command ran and showed its expected result, and the skill holds no `not observed:` entry.
-9. To add a flow, for example the end-to-end check of a plan, print the new Drive and inspect row with the mark `not observed: expect <result>`, and ask for approval. After approval, add the row, and run step 8 in full.
+   The skill is verified only when each command ran and showed its expected result, and the skill holds no `not observed:` entry. Go to step 10 to add a flow; otherwise stop.
+10. To add a flow, for example the end-to-end check of a plan, write it in the format of the skill: a row of its Drive and inspect table, or a section like its other flows. Give it a command and the mark `not observed: expect <result>`. Keep each script that the flow runs in the repository, for example in `.agents/skills/verify/scripts/`, not in a temporary folder. Print the new flow, and ask for approval. After approval, write `not observed: expect <result>` on each result of the skill that holds no mark, as step 2 says. Then add the flow, and run step 9 in full.
 
 ## Rules for each command
 
@@ -65,8 +97,7 @@ Run these steps from the repository root, after the Detect block. Ask each quest
 - Wait on a readiness signal: an open port, a health URL that returns 200, or a log line. Do not wait with a fixed `sleep`.
 - Name the expected observable result: an exit code, an output line, an HTTP status and body field, element text, or a screenshot detail.
 - Write each expected result as `not observed: expect <result>` until a run shows it. This covers each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
-- After you write the skill, run the check command of each Prerequisites row, then Start, every flow in order, and Stop. Compare each output with the `expect <result>` part of its mark, and remove the mark only after the command shows that result. A failed command keeps its expected result and gets the failure after it: `not observed: expect <result>; got <first line of the failure>`. The commands after it keep their marks.
-- A `not observed:` line is a command that has not shown its expected result: it failed, or no run finished it. Before a later run, write `not observed: expect <result>` again on each result that holds no mark. Then run every command again in order, not only the marked rows, because a flow can depend on an earlier flow.
+- Run, compare, and mark each command only as steps 2 and 9 of [Create or re-verify](#create-or-re-verify) say.
 - Use test data, test accounts, and local ports only. Never point a command at production.
 - Name each secret by its environment variable. Do not write a secret value into the skill, and do not print it.
 - Stop every process that a command starts. Remove temporary files and free the ports.
