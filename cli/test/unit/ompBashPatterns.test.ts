@@ -2,9 +2,9 @@
  * Policy outcomes of the kit's omp `bash.patterns`, resolved by the ported omp
  * approval path in `../lib/ompBashPatterns`: pattern selection, the critical
  * command check, and the kit's `tools.approvalMode: yolo`. Under yolo, a command
- * no rule matches runs, and a critical command that only a prompt rule matches
- * runs too. omp rejects a prompt in a subagent, because a subagent has no
- * interactive UI.
+ * no rule matches runs, a critical command that no rule matches runs too, and
+ * a prompt rule asks, also on a critical command (omp 19.0.0 order). omp
+ * rejects a prompt in a subagent, because a subagent has no interactive UI.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -93,7 +93,7 @@ const DENIED = [
   "git rm -r dir",
   "git rm -r --cached dist",
   "xargs rm --recursive",
-  // Shapes omp's critical check flags: a prompt would become an allow.
+  // Shapes omp's critical check flags: without a deny, yolo would run them.
   "rm -rf /*",
   "rm -rf /home/docks/projects/cache",
   "rm -f /tmp/x.json",
@@ -359,10 +359,32 @@ describe("omp bash.patterns policy under yolo", () => {
     expect(critical.filter((command) => ompApproval(KIT_RULES, command) !== "deny")).toEqual([]);
   });
 
-  it("models the override: a prompt rule alone lets a critical command run", () => {
+  it("models the 19.0.0 order: a prompt rule on a critical command forces a prompt", () => {
     const promptOnly: Array<OmpBashRule> = [{ match: "rm *", approval: "prompt" }];
-    expect(ompYoloOutcome(promptOnly, "rm -rf /home/docks/projects/cache")).toBe("allow");
+    expect(ompYoloOutcome(promptOnly, "rm -rf /home/docks/projects/cache")).toBe("prompt");
     expect(ompYoloOutcome(promptOnly, "rm -rf build")).toBe("prompt");
+    // The critical check still replaces an allow, and nothing replaces no match.
+    expect(ompYoloOutcome([{ match: "rm *", approval: "allow" }], "rm -rf /")).toBe("allow");
+    expect(ompYoloOutcome([], "shutdown -h now")).toBe("allow");
+  });
+
+  it("lets a deny in any segment win over an earlier prompt rule", () => {
+    const rules: Array<OmpBashRule> = [
+      { match: "echo *", approval: "prompt" },
+      { match: "git push *", approval: "deny" },
+    ];
+    expect(ompApproval(rules, "echo a; git push origin main")).toBe("deny");
+    expect(ompApproval(rules, "echo a && echo b")).toBe("prompt");
+  });
+
+  it("matches a restriction after leading environment assignments", () => {
+    const rules: Array<OmpBashRule> = [{ match: "git push *", approval: "deny" }];
+    expect(ompApproval(rules, "GIT_TRACE=1 git push origin main")).toBe("deny");
+    expect(ompApproval(rules, "A[0]=1 B+=2 git push origin main")).toBe("deny");
+    // An allow rule never strips an assignment: the kit sets no bash.allowedEnvVars.
+    expect(ompApproval([{ match: "git status", approval: "allow" }], "FOO=1 git status")).toBe(
+      undefined,
+    );
   });
 
   // A subagent rejects every prompt, so the kit ships none. First match wins,

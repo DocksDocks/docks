@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-11-19 - docks-kit 0.22.29: omp 19.0.0 support
+
+### Changed
+
+- The omp toolchain floor and verified pin move from 18.22.2 to 19.0.0.
+  `docks-kit toolchain check` reports an older omp as `below-floor`. On
+  2026-11-19, omp 19.0.0 listed every model selector of the kit roles exactly,
+  accepted every key of `SoT/.omp/config.yml`, and kept the JSON shapes that
+  the kit parses from `omp plugin list --json` and `omp models --json`.
+- omp 19.0.0 checks a bash `prompt` rule before its critical-command patterns.
+  In 18.17.0, the release that the kit oracle ported before, a prompt rule on
+  a critical command such as `rm -rf /x` let the command run under `yolo`; in
+  19.0.0 it asks. For a command with `;` or `|`, each segment takes its first
+  matching deny or prompt rule, and a deny chosen for one segment now wins
+  over a prompt chosen for another segment. A segment also matches without
+  its leading `NAME=value` words. The kit ships no
+  prompt rule, so no kit rule changes its outcome. A prompt rule that you
+  added now also asks on a critical command.
+- The test oracle `cli/test/lib/ompBashPatterns.ts` ports the omp 19.0.0
+  approval source. `AGENTS.md`, the `command-guards` topic, and the
+  `bash.patterns` comment describe the 19.0.0 order. The upstream doc
+  `omp://approval-mode.md` still describes the 18.17.0 order.
+- New project skill `.agents/skills/verify` holds the end-to-end checks of
+  the CLI: `./docks-kit sync omp --dry-run`, `./docks-kit toolchain check`,
+  and the dry-run goldens.
+
 ## 2026-11-18 - docks-kit 0.22.28: Codex pin moves to GPT-6.2 Sol
 
 ### Changed

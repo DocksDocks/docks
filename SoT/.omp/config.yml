@@ -151,8 +151,9 @@ bash:
   # that the user added matches it: a plain rm, git rm, git worktree remove,
   # gio trash, docks-kit scratch remove, git clean, git reset --hard, and
   # every git push that the denies below do not stop.
-  # omp's critical-command check turns a prompt into an allow under yolo, so
-  # every rm shape it can flag is a deny.
+  # omp checks deny, then prompt, then its critical-command patterns, then
+  # allow. A critical command that no deny or prompt rule matches runs under
+  # yolo, so every rm shape that the critical check can flag is a deny.
   patterns:
     # Deny: rm of the home directory or the filesystem root, sudo before rm,
     # rm with an r or f option before an absolute path, recursive rm (bare, by
