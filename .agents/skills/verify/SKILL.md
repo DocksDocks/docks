@@ -1,10 +1,10 @@
 ---
 name: verify
-description: "Use when checking a change to this docks repository end to end: validate both plugins and the marketplace with the Claude Code CLI, drive the plan helper against the fake gh, run each docks hook with sample stdin, and run the plan-lifecycle self-test. Not for the full CI gate (run bun scripts/ci.mjs), reviewer benchmarks (use review-benchmark), or plugin release."
+description: "Use when checking a change to this docks repository end to end: validate both plugins and the marketplace with the Claude Code CLI, drive the plan helper against the fake gh, run each docks hook with sample stdin, run the plan-lifecycle self-test, and run the agent-first-setup and multi-tool-bridge check scripts. Not for the full CI gate (run bun scripts/ci.mjs), reviewer benchmarks (use review-benchmark), or plugin release."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-17"
+  updated: "2026-11-19"
 ---
 
 # Verify docks
@@ -14,7 +14,7 @@ This skill runs the surfaces of this repository the way a user or a host program
 This skill does not replace the gate. The gate choice is in the root `AGENTS.md` (Tool-agnostic rules).
 
 <constraint>
-Report a check as passed only when you ran its command in this session and saw the expected result. A unit-test run does not replace V1 to V5.
+Report a check as passed only when you ran its command in this session and saw the expected result. A unit-test run does not replace V1 to V6.
 </constraint>
 
 <constraint>
@@ -113,6 +113,37 @@ bun plugins/plan-lifecycle/test/selftest.mjs; echo "exit=$?"
 ```
 
 Expected: `plan-lifecycle self-test PASSED: manifest/catalog agreement (<version>), ...`, then `exit=0`.
+
+## V6 — Run the agent-first-setup and multi-tool-bridge check scripts
+
+The skills run these read-only scripts with `node`. The block runs them in this repository and in a new fixture repository that holds only a `CLAUDE.md`.
+
+```bash
+root=$PWD
+afs=$root/plugins/docks/skills/productivity/agent-first-setup/scripts/agent-first-check.mjs
+mtb=$root/plugins/docks/skills/productivity/multi-tool-bridge/scripts/bridge-check.mjs
+node "$afs" detect | grep -E '^(root AGENTS.md|pull-request template|verify)'; echo "exit=${PIPESTATUS[0]}"
+node "$afs" check | grep -E '^(FAIL|ERROR)'; echo "exit=${PIPESTATUS[0]}"
+node "$mtb" verify; echo "exit=$?"
+fixture=$(mktemp -d)
+git -C "$fixture" init -q
+printf '# Rules\n' > "$fixture/CLAUDE.md"
+(cd "$fixture" && node "$afs" detect | tail -n +2; echo "exit=${PIPESTATUS[0]}")
+(cd "$fixture" && node "$afs" check; echo "exit=$?")
+(cd "$fixture" && node "$mtb" verify; echo "exit=${PIPESTATUS[0]}")
+rm -r "$fixture"
+```
+
+Expected, in order:
+
+| Call | Expected result |
+|---|---|
+| `detect` here | `root AGENTS.md: present`, `pull-request template: .github/pull_request_template.md (file)`, `verify skill: present`, `verify link: present`, then `exit=0` |
+| `check` here | No `FAIL` or `ERROR` line, then `exit=0` |
+| `verify` here | No output, then `exit=0` |
+| `detect` in the fixture | `root AGENTS.md: missing`, `.agents/skills: missing`, `.claude/skills: missing`, `legacy: CLAUDE.md`, `pull-request template: none`, `verify skill: missing`, `verify link: missing`, then `exit=0` |
+| `check` in the fixture | `FAIL C1 root AGENTS.md missing`, `FAIL C3 CLAUDE.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md: CLAUDE.md`, `FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)`, `FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)`, then `exit=0` |
+| `verify` in the fixture | `BROKEN: AGENTS.md missing`, `BROKEN: legacy CLAUDE.md still present: CLAUDE.md`, then `exit=0` |
 
 ## Failure signs
 

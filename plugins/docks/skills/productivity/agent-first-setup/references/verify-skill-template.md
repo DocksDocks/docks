@@ -23,23 +23,13 @@ The skill lives at `.agents/skills/verify/SKILL.md`. The symlink `.claude/skills
 
 ## Detect
 
-Run this block from the repository root. It only reads files:
+`<skill-dir>` is the folder of the skill that holds this reference. Run this command from the repository root. It only reads files:
 
 ```bash
-f=.agents/skills/verify/SKILL.md
-if test -f "$f"; then
-  echo "verify skill: present"
-  marks=$(grep -n 'not observed:' "$f"); s=$?
-  if [ "$s" -eq 0 ]; then printf '%s\n' "$marks" | sed 's/^/verify unverified: /'
-  elif [ "$s" -gt 1 ]; then echo "ERROR verify skill check failed: cannot read $f"; fi
-else
-  echo "verify skill: missing"
-fi
-l=.claude/skills/verify
-if ! test -e "$l" && ! test -L "$l"; then echo "verify link: missing"
-elif [ "$l/SKILL.md" -ef "$f" ]; then echo "verify link: present"
-else echo "verify link: occupied"; fi
+node <skill-dir>/scripts/verify-skill.mjs detect
 ```
+
+It prints `verify skill: present` or `verify skill: missing`, one `verify unverified: <n>:<line>` line for each line of the skill that holds `not observed:`, and `verify link: missing`, `verify link: present`, or `verify link: occupied`. When it cannot read the skill, it prints `ERROR verify skill check failed: cannot read .agents/skills/verify/SKILL.md` and exits with status 2.
 
 Read the lines as follows:
 
@@ -48,52 +38,40 @@ Read the lines as follows:
 - `verify link: occupied` means that another entry is at `.claude/skills/verify`, for example a separate folder or a link to another place.
 - An `ERROR` line is a failed check, not a verified skill.
 
-The skill is verified when the block prints `verify skill: present`, `verify link: present`, and no `verify unverified:` or `ERROR` line.
+The skill is verified when the command prints `verify skill: present`, `verify link: present`, and no `verify unverified:` or `ERROR` line.
 
 ## Create or re-verify
 
-Run these steps from the repository root. Run the Detect block right before step 1, also when an earlier step of the run printed its output, because that step can have moved files. Ask each question with the question tool of the harness. An error, an empty result, or a default result is not an answer. When the harness has no question tool, stop at the question, and report the skill as blocked.
+Run these steps from the repository root. Run the Detect command right before step 1, also when an earlier step of the run printed its output, because that step can have moved files. Ask each question with the question tool of the harness. An error, an empty result, or a default result is not an answer. When the harness has no question tool, stop at the question, and report the skill as blocked.
 
 A plan step that runs these steps has the approval that the plan recorded for that step. That approval covers each write and each run. It does not answer a question about a missing fact, such as a start command or a test account.
 
-Define this write gate in the same shell. Right before each write of these steps, run `write_gate` with each path that the step writes, and write only when it prints nothing. On a `target occupied` line, report it, write nothing, and stop.
+Right before each write of these steps, run the write gate with each path that the step writes. Write only when the gate prints nothing and exits 0. A gate that prints a line or exits with a status other than 0 blocks the write: report the line or the status, write nothing, and stop.
 
 ```bash
-write_gate() {
-  root=$(pwd -P)
-  for p in "$@"; do
-    if test -L "$p"; then echo "target occupied: $p is a symlink"; continue; fi
-    d=$(dirname -- "$p")
-    while ! test -d "$d"; do d=$(dirname -- "$d"); done
-    r=$(cd "$d" && pwd -P) || { echo "target occupied: cannot resolve the folder of $p"; continue; }
-    case $r/ in "$root"/*) ;; *) echo "target occupied: $p resolves outside the repository";; esac
-  done
-}
+node <skill-dir>/scripts/verify-skill.mjs write-gate <path>...
 ```
 
-The gate refuses a path that is a symlink, and a path whose nearest existing folder resolves outside the repository. It accepts `.claude/skills` as a symlink to `.agents/skills`, because that folder resolves inside the repository.
+The gate refuses a path that is a symlink, and a path that holds a `..` segment. It also refuses a path whose nearest existing folder cannot be entered, or resolves outside the repository through symlinks. It accepts `.claude/skills` as a symlink to `.agents/skills`, because that folder resolves inside the repository.
 
 1. On an `ERROR` line, report it, write nothing, and stop. On `verify link: occupied`, report the entry at `.claude/skills/verify`, write nothing, and stop. The user resolves it.
-2. On `verify skill: present` with a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, and ask for approval to mark every result again and run every command again. After approval, run `write_gate .agents/skills/verify/SKILL.md`. Before any command runs, write `not observed: expect <result>` on each result that holds no mark: each Prerequisites row, `Ready when:`, each flow, and `Clean when:`. An older mark with no `expect <result>` part lost its expected result: take that result from the git history of the skill or ask the user, and write `not observed: expect <result>; got <the old failure line>`. When neither supplies the expected result, leave the mark as it is, so the skill stays unverified, and report the row. Then run step 9 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow. Then go to step 3.
-3. On `verify skill: present` and `verify link: missing`, ask for approval, run `write_gate .claude/skills/verify`, and run the link block of step 8. Then go to step 10 to add a flow; otherwise stop.
+2. On `verify skill: present` with a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, and ask for approval to mark every result again and run every command again. After approval, run the write gate with `.agents/skills/verify/SKILL.md`. Before any command runs, write `not observed: expect <result>` on each result that holds no mark: each Prerequisites row, `Ready when:`, each flow, and `Clean when:`. An older mark with no `expect <result>` part lost its expected result: take that result from the git history of the skill or ask the user, and write `not observed: expect <result>; got <the old failure line>`. When neither supplies the expected result, leave the mark as it is, so the skill stays unverified, and report the row. Then run step 9 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow. Then go to step 3.
+3. On `verify skill: present` and `verify link: missing`, ask for approval, run the write gate with `.claude/skills/verify`, and run the link command of step 8. Then go to step 10 to add a flow; otherwise stop.
 4. Steps 4 to 9 run only on `verify skill: missing`. Find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of [Surface recipes](#surface-recipes).
 5. If the repository has no runnable surface, write nothing, report "no runnable surface", and stop.
 6. Fill the [Template](#template) for each surface. Use only commands that the repository defines or that the recipes name. Ask the user for a missing start command, port, or test account. No run has shown a result yet, so write each expected result as `not observed: expect <result>`: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
 7. Print the draft `SKILL.md`, with its `not observed: expect` marks, and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval. The approval covers the write and one run of each command, the prerequisite checks included.
-8. After approval, run `write_gate .agents/skills/verify/SKILL.md .claude/skills/verify` and this entry gate right before the write. Write only when both print nothing. On a `target occupied` line, report it, write nothing, and stop. The entry gate checks that a new skill overwrites nothing:
+8. After approval, run the write gate with `.agents/skills/verify/SKILL.md` and `.claude/skills/verify`, and run this entry gate right before the write. Write only when both gates print nothing and exit 0. A gate that prints a line, for example a `target occupied` line, or exits with a status other than 0 blocks the write: report the line or the status, write nothing, and stop. The entry gate checks that a new skill overwrites nothing. It prints `target occupied: <path> exists` for `.agents/skills/verify` and for `.claude/skills/verify` when an entry is there, a dangling symlink included:
 
    ```bash
-   for p in .agents/skills/verify .claude/skills/verify; do
-     if test -e "$p" || test -L "$p"; then echo "target occupied: $p exists"; fi
-   done
+   node <skill-dir>/scripts/verify-skill.mjs write-gate .agents/skills/verify/SKILL.md .claude/skills/verify
+   node <skill-dir>/scripts/verify-skill.mjs entry-gate
    ```
 
-   Write `.agents/skills/verify/SKILL.md`. Then run the link block. It creates `.claude/skills/verify` only when no entry is there; when `.claude/skills` is a symlink to `.agents/skills`, the skill is already there.
+   Write `.agents/skills/verify/SKILL.md`. Then run the link command. It makes the `.claude/skills` folder and creates the relative symlink `.claude/skills/verify` → `../../.agents/skills/verify` only when no entry is there; when `.claude/skills` is a symlink to `.agents/skills`, the skill is already there. It prints `verify skill: linked` or `BROKEN: .claude/skills/verify`.
 
    ```bash
-   mkdir -p .claude/skills
-   { test -e .claude/skills/verify || test -L .claude/skills/verify; } || ln -s ../../.agents/skills/verify .claude/skills/verify
-   [ .claude/skills/verify/SKILL.md -ef .agents/skills/verify/SKILL.md ] && echo "verify skill: linked" || echo "BROKEN: .claude/skills/verify"
+   node <skill-dir>/scripts/verify-skill.mjs link
    ```
 
 9. Run each command of the skill once, in order: the check command of each Prerequisites row, Start, every flow, and Stop. Compare the output of each command with the `expect <result>` part of its mark. Only after the command shows that result, remove the mark, so that the expected result stays. If a command fails or shows another result:
@@ -103,7 +81,7 @@ The gate refuses a path that is a symlink, and a path whose nearest existing fol
    4. Ask the user for the fix, for example a missing service, dependency, or test account.
 
    The skill is verified only when each command ran and showed its expected result, and the skill holds no `not observed:` entry. Go to step 10 to add a flow; otherwise stop.
-10. To add a flow, for example the end-to-end check of a plan, write it in the format of the skill: a row of its Drive and inspect table, or a section like its other flows. Give it a command and the mark `not observed: expect <result>`. Keep each script that the flow runs in the repository, for example in `.agents/skills/verify/scripts/`, not in a temporary folder. Print the new flow, and ask for approval. After approval, run `write_gate` with `.agents/skills/verify/SKILL.md` and the path of each script. Then write `not observed: expect <result>` on each result of the skill that holds no mark, as step 2 says. Then add the flow, and run step 9 in full.
+10. To add a flow, for example the end-to-end check of a plan, write it in the format of the skill: a row of its Drive and inspect table, or a section like its other flows. Give it a command and the mark `not observed: expect <result>`. Keep each script that the flow runs in the repository, for example in `.agents/skills/verify/scripts/`, not in a temporary folder. Print the new flow, and ask for approval. After approval, run the write gate with `.agents/skills/verify/SKILL.md` and the path of each script. Then write `not observed: expect <result>` on each result of the skill that holds no mark, as step 2 says. Then add the flow, and run step 9 in full.
 
 ## Rules for each command
 

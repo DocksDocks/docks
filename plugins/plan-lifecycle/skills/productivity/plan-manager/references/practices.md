@@ -57,8 +57,11 @@ unit-test command that only calls internal functions does not. A change to
 prose or skill text alone needs no such row. The contract's Steps, acceptance,
 and effects states the rule.
 
-When the plan has such a row, run the Detect block of the `plan-workspace`
-skill's `references/verify-skill-template.md`. Record its output in Research.
+When the plan has such a row, run
+`node <plan-workspace-dir>/scripts/verify-skill.mjs detect` from the
+repository root, where `<plan-workspace-dir>` is the folder of the installed
+`plan-workspace` skill. Its `references/verify-skill-template.md` describes
+the lines. Record the output in Research.
 A flow of the project `verify` skill is the preferred way to run such a row,
 because the next plan can reuse it. A plan step can run the Create or
 re-verify section of that reference. Such a step creates the skill, verifies
