@@ -9,6 +9,8 @@ metadata:
 
 docks-kit is a CLI that a user runs from the checkout (`./docks-kit`) or from the global install. Each flow below runs it from the repository root and reads its exit code and output. No flow writes to the home folder: `sync --dry-run` plans the deploy only, and the golden suite runs each case in its own temporary home.
 
+Hosts: the commands below are POSIX shell for Linux and macOS. On Windows, run `.\docks-kit.ps1` in place of `./docks-kit` for V1 and V4 and read the exit code from `$LASTEXITCODE`; for V2, read the omp row of `.\docks-kit.ps1 toolchain check`. V3 does not run on Windows: `cli/test/golden-dryrun.ts` exits 2 on a host whose executables need a suffix, because the snapshots are Linux-canonical. On Windows, run `bun run typecheck` and `bun run test:unit` instead, as its message says.
+
 ## Prerequisites
 
 | Need | Check command | Expected result |

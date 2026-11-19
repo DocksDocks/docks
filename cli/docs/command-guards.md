@@ -293,8 +293,10 @@ the home directory, and no glob can express "inside the temporary directory".
     and similar operators, with quotes and escapes removed. So
     `rm -rf "$HOME"` matches `rm * $HOME`. A segment also matches without its
     leading `NAME=value` words.
-  - For a line with shell control, a deny that matches any segment wins over
-    a prompt rule that comes first.
+  - For a line with shell control, each segment takes its first matching deny
+    or prompt rule. A deny chosen for one segment wins over a prompt chosen
+    for another segment; within one segment, a prompt rule that comes first
+    wins over a later deny.
   - Allow rules apply only to a simple command.
   - The kit ships no prompt rule. It lists rules as deny, then the `trash *`
     allow.

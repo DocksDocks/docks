@@ -7,7 +7,7 @@
  * `CRITICAL_BASH_PATTERNS`, `BashTool.approval`) and `src/tools/shell-tokenize.ts`
  * (`tokenizeShellSegments`, `isShellEnvironmentAssignment`), plus the yolo
  * resolver of `src/tools/approval.ts`. The upstream doc `omp://approval-mode.md`
- * still describes the 18.17.0 order; the code is what runs.
+ * still describes the order of omp 18; the code is what runs.
  *
  * - Whitespace runs in the rule and the command collapse to one space.
  * - `*` matches any text, spaces included. No escape spells a literal `*`.
@@ -21,7 +21,8 @@
  * - A command with shell control, such as `;`, `|`, `$`, or a redirection,
  *   never matches an allow rule. A deny that matches only the whole command
  *   wins first; next, each segment takes its first matching deny or prompt
- *   rule, and a deny in any segment wins over a prompt.
+ *   rule, and a deny chosen for one segment wins over a prompt chosen for
+ *   another segment.
  * - Order: deny, then prompt, then the critical patterns, then allow. A
  *   critical command gets a bare safety override, which replaces only an
  *   allow or no match. In `yolo` mode, omp ignores a bare override, so that
@@ -198,7 +199,7 @@ export function ompApproval(
   return rule?.approval;
 }
 
-/** `CRITICAL_BASH_PATTERNS` in omp 19.0.0 `src/tools/bash.ts`, verbatim (unchanged since 18.17.0). */
+/** `CRITICAL_BASH_PATTERNS` in omp 19.0.0 `src/tools/bash.ts`, verbatim (the same list as in omp 18). */
 const CRITICAL_BASH_PATTERNS: ReadonlyArray<RegExp> = [
   /\brm\s+(?:-\S+\s+)*(?:-[a-z]*[rRfF][a-z]*|--recursive|--force)\s+(?:-\S+\s+)*\//i,
   /\brm\s+(?:-\S+\s+)*--no-preserve-root\b/i,

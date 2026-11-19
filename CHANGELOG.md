@@ -12,9 +12,10 @@
 - omp 19.0.0 checks a bash `prompt` rule before its critical-command patterns.
   In 18.17.0, the release that the kit oracle ported before, a prompt rule on
   a critical command such as `rm -rf /x` let the command run under `yolo`; in
-  19.0.0 it asks. A deny in any segment of a
-  command with `;` or `|` now wins over an earlier prompt rule, and a segment
-  also matches without its leading `NAME=value` words. The kit ships no
+  19.0.0 it asks. For a command with `;` or `|`, each segment takes its first
+  matching deny or prompt rule, and a deny chosen for one segment now wins
+  over a prompt chosen for another segment. A segment also matches without
+  its leading `NAME=value` words. The kit ships no
   prompt rule, so no kit rule changes its outcome. A prompt rule that you
   added now also asks on a critical command.
 - The test oracle `cli/test/lib/ompBashPatterns.ts` ports the omp 19.0.0
