@@ -18,14 +18,22 @@
  *   first, so a live buffer can start with `{"i":"<intent>",`. The model is
  *   expected to write the keys in schema order, but a call can also put `i`
  *   last. A provider can also stream JSON with white space, such as
- *   `{"command": "ls"}`. So each condition starts with a lookbehind that puts
- *   the match inside the `command` or `code` string, with optional JSON white
- *   space around the colon, and its scans stop at the end of that string.
- *   omp 18.21.0 accepts this variable-length lookbehind.
+ *   `{"command": "ls"}`. So each condition starts with the forward key
+ *   prefix: the `command` or `code` key, optional JSON white space around the
+ *   colon, and a lazy walk over the string body that steps over each `\`
+ *   escape and never over an unescaped `"`. The match therefore starts at the
+ *   key and stays inside that string. `conditionShapeFaults` enforces it.
+ * - omp 19.0.0 tests every condition on the whole buffer at each streamed
+ *   delta, on its main thread, in JavaScriptCore. A leading variable-length
+ *   lookbehind, the earlier form of the key anchor, walks back from every
+ *   buffer position there: seconds per scan on a 20 KB call, which froze omp
+ *   sessions, and past JavaScriptCore's match limit the scan reports no match
+ *   (plan issue #187). `ompTriggerBackstop.ts` measures that cost under Bun.
  * - A match is case-sensitive. omp compiles a condition with no flags, so
  *   there is no `u` flag and `\q` is an identity escape. `^` and `$` are the
  *   start and end of the buffer.
- * - One leading `(?i)`, `(?m)`, or `(?s)` group becomes the JavaScript flag.
+ * - A leading inline flag group with one or more of `i`, `m`, and `s`, such
+ *   as `(?i)` or `(?is)`, becomes the JavaScript flags, as in omp 19.0.0.
  * - `scope` limits the stream surfaces. With `tool:<name>` tokens only, prose
  *   never matches. With no `scope`, omp watches prose and every tool.
  *
@@ -68,6 +76,8 @@ export interface TriggerScope {
 export interface TriggerRule {
   readonly name: string;
   readonly conditions: ReadonlyArray<RegExp>;
+  /** The condition texts as the rule file writes them, inline flag group included. */
+  readonly conditionSources: ReadonlyArray<string>;
   readonly scope: TriggerScope;
   readonly repeatMode: RepeatMode | undefined;
 }
@@ -100,7 +110,7 @@ export type TriggerToolCall = TriggerArgumentForm &
       }
   );
 
-const INLINE_FLAG_GROUP = /^\(\?([ims])\)/u;
+const INLINE_FLAG_GROUP = /^\(\?([ims]+)\)/u;
 const PER_TOOL_PATH_GLOB = /^tool:[\w-]+\(/u;
 const FILE_GLOB_CONDITION = /^[\w./*-]*\*[\w./*-]*$/u;
 
@@ -128,10 +138,10 @@ function compileCondition(name: string, source: string): RegExp {
     throw new Error(`${name}: condition ${JSON.stringify(source)} is a file glob, not ported`);
   }
   const flagGroup = INLINE_FLAG_GROUP.exec(source);
-  const flag = flagGroup?.[1] ?? "";
+  const flags = flagGroup?.[1] ?? "";
   const pattern = flagGroup === null ? source : source.slice(flagGroup[0].length);
   try {
-    return new RegExp(pattern, flag);
+    return new RegExp(pattern, flags);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`${name}: condition ${JSON.stringify(source)} does not compile: ${reason}`, {
@@ -174,11 +184,11 @@ function parseRepeatMode(name: string, value: unknown): RepeatMode | undefined {
 export function parseTriggerRule(name: string, text: string): TriggerRule {
   const data = frontmatter(name, text);
   if (data.condition === undefined) throw new Error(`${name}: no condition`);
+  const conditionSources = stringList(name, "condition", data.condition);
   return {
     name,
-    conditions: stringList(name, "condition", data.condition).map((source) =>
-      compileCondition(name, source),
-    ),
+    conditions: conditionSources.map((source) => compileCondition(name, source)),
+    conditionSources,
     scope: parseScope(name, data.scope),
     repeatMode: parseRepeatMode(name, data.repeatMode),
   };
@@ -187,6 +197,119 @@ export function parseTriggerRule(name: string, text: string): TriggerRule {
 /** Loads a kit rule from the embedded payload, which sync deploys to the kit plugin. */
 export function kitTriggerRule(name: TriggerRuleName): TriggerRule {
   return parseTriggerRule(name, payloadText(`SoT/.omp/plugin/rules/${name}.md`));
+}
+
+// The key, then the first run of plain characters; each escape step that
+// follows consumes one `\` escape and the plain run after it, so the walk
+// never passes an unescaped `"` and stays inside the string.
+const KEY_PREFIX_START = String.raw`"(?:command|code)"\s*:\s*"[^"\\]*?`;
+const ESCAPE_STEP = String.raw`\\.[^"\\]*?`;
+const UNROLLED_ESCAPES = 8;
+
+/** The forward key prefix `P0` of plan #187: one loop step per escape. */
+export const FORWARD_KEY_PREFIX = `${KEY_PREFIX_START}(?:${ESCAPE_STEP})*?`;
+
+/**
+ * `P0` with 8 escapes per loop step, the form the kit rules use. It matches
+ * the same positions as `P0`. JavaScriptCore's regex JIT keeps one backtrack
+ * frame per loop step and falls back to its 25 times slower interpreter past
+ * about 16 K frames, which `P0` reaches at about 50 KB of escape-dense text.
+ * 8 escapes per step move that point 8 times further out.
+ */
+export const UNROLLED_KEY_PREFIX =
+  `${KEY_PREFIX_START}(?:${ESCAPE_STEP.repeat(UNROLLED_ESCAPES)})*?` +
+  `(?:${ESCAPE_STEP}){0,${UNROLLED_ESCAPES - 1}}?`;
+
+interface RegexGroup {
+  /** Offset of the opening `(`. */
+  readonly start: number;
+  /** Offset just past the closing `)`. */
+  readonly end: number;
+  /** Number of groups that enclose this one. */
+  readonly depth: number;
+}
+
+/** The parenthesized groups of a regex pattern, skipping escapes and character classes. */
+function regexGroups(pattern: string): Array<RegexGroup> {
+  const groups: Array<RegexGroup> = [];
+  const openings: Array<number> = [];
+  let inClass = false;
+  for (let at = 0; at < pattern.length; at++) {
+    const char = pattern[at];
+    if (char === "\\") {
+      at++;
+    } else if (inClass) {
+      if (char === "]") inClass = false;
+    } else if (char === "[") {
+      inClass = true;
+    } else if (char === "(") {
+      openings.push(at);
+    } else if (char === ")") {
+      const start = openings.pop();
+      if (start !== undefined) groups.push({ start, end: at + 1, depth: openings.length });
+    }
+  }
+  return groups;
+}
+
+const UNBOUNDED_BRACE = /^\{\d+,\}/u;
+
+/** True when a regex fragment holds `*`, `+`, or `{n,}` outside a character class. */
+function hasUnboundedQuantifier(fragment: string): boolean {
+  let inClass = false;
+  for (let at = 0; at < fragment.length; at++) {
+    const char = fragment[at];
+    if (char === "\\") {
+      at++;
+    } else if (inClass) {
+      if (char === "]") inClass = false;
+    } else if (char === "[") {
+      inClass = true;
+    } else if (char === "*" || char === "+") {
+      return true;
+    } else if (char === "{" && UNBOUNDED_BRACE.test(fragment.slice(at))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Why a condition breaks the shape that keeps omp's scans linear, or an empty
+ * list. After an optional inline flag group the condition must start with the
+ * forward key prefix, so each scan walks the buffer forward once. An unbounded
+ * lookbehind may appear only as the last element, right after a `(?=...)`
+ * trigger lookahead: it then walks back only where the trigger matched, and it
+ * stops at the word before the trigger.
+ */
+export function conditionShapeFaults(source: string): Array<string> {
+  const flagGroup = INLINE_FLAG_GROUP.exec(source);
+  const pattern = flagGroup === null ? source : source.slice(flagGroup[0].length);
+  const faults: Array<string> = [];
+  if (!pattern.startsWith(FORWARD_KEY_PREFIX) && !pattern.startsWith(UNROLLED_KEY_PREFIX)) {
+    faults.push("does not start with the forward key prefix");
+  }
+  const groups = regexGroups(pattern);
+  for (const lookbehind of groups) {
+    const opener = pattern.slice(lookbehind.start, lookbehind.start + 4);
+    if (opener !== "(?<=" && opener !== "(?<!") continue;
+    if (!hasUnboundedQuantifier(pattern.slice(lookbehind.start + 4, lookbehind.end - 1))) continue;
+    const trailsTriggerLookahead =
+      lookbehind.depth === 0 &&
+      lookbehind.end === pattern.length &&
+      groups.some(
+        (group) =>
+          group.depth === 0 &&
+          group.end === lookbehind.start &&
+          pattern.startsWith("(?=", group.start),
+      );
+    if (!trailsTriggerLookahead) {
+      faults.push(
+        `has an unbounded lookbehind at offset ${lookbehind.start} that is not the last element after a trigger lookahead`,
+      );
+    }
+  }
+  return faults;
 }
 
 /** The argument JSON text that omp matches, with the key order of the measured snippets. */

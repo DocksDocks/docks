@@ -8,13 +8,24 @@
  * spaced JSON layout, and some rows use the pretty layout. A correct form
  * must also stay quiet on each partial buffer, because omp tests the buffer
  * after each streamed delta.
+ *
+ * Two guards keep the conditions from freezing omp, which tests every
+ * condition on the whole buffer at each delta, on its main thread (plan issue
+ * #187). The shape case rejects a condition that does not start with the
+ * forward key prefix, or that has an unbounded lookbehind anywhere but right
+ * after its trigger lookahead. The backstop case runs `ompTriggerBackstop.ts`
+ * under Bun, because V8 hides the JavaScriptCore cost that froze omp.
  */
+import { spawnSync } from "node:child_process";
 import { basename } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { payloadPaths } from "../../src/payload";
+import { BUN_RUNTIME } from "../lib/cliEntry";
 import {
   TRIGGER_RULE_NAMES,
+  conditionShapeFaults,
   kitTriggerRule,
   ruleTriggers,
   ruleTriggersWhileStreaming,
@@ -22,6 +33,7 @@ import {
   type TriggerRuleName,
   type TriggerToolCall,
 } from "../lib/ompTriggerRules";
+import { SPAWN_TIMEOUT_MS } from "../lib/spawnTimeout";
 
 interface RuleCases {
   /** Shell commands that must fire the rule. */
@@ -493,6 +505,41 @@ it("lists every rule file of the kit plugin", () => {
   expect([...TRIGGER_RULE_NAMES].sort()).toEqual([...files].sort());
 });
 
+it("starts each condition at the forward key prefix and keeps unbounded lookbehinds after a trigger lookahead", () => {
+  const faults = TRIGGER_RULE_NAMES.flatMap((name) =>
+    kitTriggerRule(name).conditionSources.flatMap((source, index) => {
+      const conditionFaults = conditionShapeFaults(source);
+      return conditionFaults.length === 0
+        ? []
+        : [`${name}.md#${index}: ${conditionFaults.join("; ")}`];
+    }),
+  );
+  expect(faults).toEqual([]);
+});
+
+const BACKSTOP_SCRIPT = fileURLToPath(new URL("../lib/ompTriggerBackstop.ts", import.meta.url));
+/**
+ * The rewritten rules pass in about 3 s and the old rules fail in about 20 s
+ * on a developer machine; the rest is room for a busy runner.
+ */
+const BACKSTOP_TIMEOUT_MS = 2 * SPAWN_TIMEOUT_MS;
+/** Time left after the script's own timeout to report its output. */
+const BACKSTOP_REPORT_MS = 5_000;
+
+it(
+  "keeps every condition within budget, firing, and linear under JavaScriptCore",
+  () => {
+    const run = spawnSync(BUN_RUNTIME, [BACKSTOP_SCRIPT], {
+      encoding: "utf8",
+      timeout: BACKSTOP_TIMEOUT_MS - BACKSTOP_REPORT_MS,
+    });
+    const failures = run.stdout.split("\n").filter((line) => line.startsWith("FAIL"));
+    expect(failures).toEqual([]);
+    expect(run.status, `${run.error?.message ?? ""}\n${run.stdout}${run.stderr}`).toBe(0);
+  },
+  BACKSTOP_TIMEOUT_MS,
+);
+
 describe.each(TRIGGER_RULE_NAMES)("omp trigger rule %s", (name) => {
   const rule = kitTriggerRule(name);
   const cases = CASES[name];
@@ -512,14 +559,6 @@ describe.each(TRIGGER_RULE_NAMES)("omp trigger rule %s", (name) => {
 
   it("fires again on each later wrong form, with repeatMode always", () => {
     expect(rule.repeatMode).toBe("always");
-  });
-
-  it("starts each match inside the command or code string", () => {
-    const fieldAnchor = String.raw`(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)`;
-    const unanchored = rule.conditions.flatMap((condition, index) =>
-      condition.source.includes(fieldAnchor) ? [] : [index],
-    );
-    expect(unanchored).toEqual([]);
   });
 
   it("has a wrong row that fires each condition", () => {
