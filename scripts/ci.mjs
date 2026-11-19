@@ -617,7 +617,9 @@ function gatePackage(p) {
 // The gate imports the module itself and nothing from omp: an extension declares its own types and imports no omp
 // package.
 async function gateExtensions(p) {
-  const extensions = readJSON(pluginPackageJson(p))?.omp?.extensions ?? [];
+  // An absent property means no extensions. A property that is present, also with the value null, must be a list.
+  const omp = Object(readJSON(pluginPackageJson(p))?.omp);
+  const extensions = Object.hasOwn(omp, 'extensions') ? omp.extensions : [];
   if (!Array.isArray(extensions) || extensions.some((entry) => typeof entry !== 'string')) {
     fail(`${p.name} omp.extensions must be an array of strings`);
     return;
@@ -635,17 +637,20 @@ async function gateExtensions(p) {
 }
 
 // The problem of one `omp.extensions` entry, or null when omp can load it. The install copies only the plugin
-// folder, so an entry outside it is missing after install. A folder entry loads its first `index.*` file, as omp
-// does. A module that throws at import gives a problem, so the gate goes on to its summary.
+// folder, so an entry outside it is missing after install: the entry path, and the real path of the file that omp
+// loads, with each symbolic link resolved, must be inside the real plugin folder. A folder entry loads its first
+// `index.*` file, as omp does. A module that throws at import gives a problem, so the gate goes on to its summary.
 async function extensionProblem(pluginRoot, entry) {
+  const outside = (root, file) => path.relative(root, file).split(path.sep)[0] === '..';
   const target = path.resolve(pluginRoot, entry);
-  if (path.relative(path.resolve(pluginRoot), target).split(path.sep)[0] === '..')
-    return 'is outside the plugin folder';
+  if (outside(path.resolve(pluginRoot), target)) return 'is outside the plugin folder';
   const isFile = (file) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
   const modulePath = fs.statSync(target, { throwIfNoEntry: false })?.isDirectory()
     ? (EXTENSION_INDEX_FILES.map((name) => path.join(target, name)).find(isFile) ?? target)
     : target;
   if (!isFile(modulePath)) return `is not a file (a folder entry needs one of ${EXTENSION_INDEX_FILES.join(', ')})`;
+  if (outside(fs.realpathSync(pluginRoot), fs.realpathSync(modulePath)))
+    return 'is outside the plugin folder after symbolic links resolve';
   let module;
   try {
     module = await import(pathToFileURL(modulePath).href);

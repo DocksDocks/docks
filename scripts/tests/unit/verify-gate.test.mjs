@@ -449,6 +449,91 @@ test('a check that runs past its deadline rejects, stops its git calls, and writ
   assert.equal(fs.existsSync(path.join(state, 'docks')), false);
 });
 
+test('a check that passes its deadline during a state write writes no denial and no log line', async (t) => {
+  const state = tempDir('state-deadline', t);
+  const denials = path.join(state, 'docks', 'verify-gate-denials.json');
+  fs.mkdirSync(path.dirname(denials), { recursive: true });
+  // Two denials of s1 make this commit the allowed third one, which resets the count and appends a log line.
+  const before = JSON.stringify({ s1: { count: 2, time: Date.now() } });
+  fs.writeFileSync(denials, before);
+  // The core writes the new state to this temporary file first. As a FIFO without a reader, it holds the write
+  // in its open until the deadline passes.
+  const temp = `${denials}.${process.pid}.tmp`;
+  execFileSync('mkfifo', [temp]);
+  const { checkCommand } = await import(CORE);
+  await assert.rejects(
+    checkCommand({
+      command: 'git commit',
+      cwd: state,
+      sessionId: 's1',
+      env: { XDG_STATE_HOME: state, DOCKS_VERIFY_GATE: 'enforce' },
+      deadlineMs: 500,
+    }),
+    /the check ran longer than 500 ms/u,
+  );
+  // A reader lets the held write go on now, after the deadline. Read until the writer closes the FIFO.
+  const reader = fs.openSync(temp, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+  let received = '';
+  for (const until = Date.now() + 3000; Date.now() < until; ) {
+    const buffer = Buffer.alloc(4096);
+    let bytes = 0;
+    try {
+      bytes = fs.readSync(reader, buffer);
+    } catch (error) {
+      if (error.code !== 'EAGAIN') throw error;
+    }
+    if (bytes > 0) received += buffer.toString('utf8', 0, bytes);
+    else if (received !== '') break;
+    else await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  fs.closeSync(reader);
+  assert.match(received, /"s1":\{"count":0/u, 'the write of the new state must have gone on after the deadline');
+  // Give a rename and a log append time to run, if the check did not stop.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.ok(fs.lstatSync(denials).isFile(), 'the denial file must not be replaced');
+  assert.equal(fs.readFileSync(denials, 'utf8'), before);
+  assert.deepEqual(logLines(state), []);
+});
+
+test('a denial file that is not a regular file allows the command in enforce mode at once', async (t) => {
+  const state = tempDir('denial-fifo', t);
+  const denials = path.join(state, 'docks', 'verify-gate-denials.json');
+  fs.mkdirSync(path.dirname(denials), { recursive: true });
+  execFileSync('mkfifo', [denials]);
+  // A read that waits for a writer of the FIFO would keep the test process alive. A writer that opens and closes
+  // the FIFO ends such a read; without a reader the open fails, and nothing waits.
+  t.after(() => {
+    try {
+      fs.closeSync(fs.openSync(denials, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK));
+    } catch {
+      // No reader waits on the FIFO.
+    }
+  });
+  const started = Date.now();
+  const { result, printed } = await captureOutput(() => runGate({ state, mode: 'enforce', command: UNVERIFIED }));
+  assert.equal(result, undefined);
+  assert.deepEqual(printed, []);
+  assert.ok(Date.now() - started < 3000, `the check took ${Date.now() - started} ms`);
+  assert.ok(fs.lstatSync(denials).isFIFO(), 'the check must not replace the FIFO');
+  assert.deepEqual(logLines(state), []);
+});
+
+test('two checks of one session at the same time count two denials', async (t) => {
+  const state = tempDir('concurrent', t);
+  const handler = await toolCallHandler();
+  // `git commit` without a message source starts no git call, so both checks reach the denial state at once.
+  const event = { type: 'tool_call', toolName: 'bash', toolCallId: 'call_1', input: { command: 'git commit' } };
+  const ctx = sessionContext(state, 's1');
+  const results = await withEnv({ XDG_STATE_HOME: state, DOCKS_VERIFY_GATE: 'enforce' }, () =>
+    Promise.all([handler(event, ctx), handler(event, ctx)]),
+  );
+  for (const result of results) assertDenied(result);
+  const saved = JSON.parse(fs.readFileSync(path.join(state, 'docks', 'verify-gate-denials.json'), 'utf8'));
+  assert.equal(saved.s1.count, 2);
+  // After the two denials, the third commit is allowed.
+  assert.equal(await runGate({ state, mode: 'enforce', command: 'git commit', handler }), undefined);
+});
+
 test('a denial count older than seven days expires, and the denial file drops it', async (t) => {
   const state = tempDir('expiry', t);
   const denials = path.join(state, 'docks', 'verify-gate-denials.json');

@@ -807,6 +807,11 @@ const writeTreeFile = (tree, relative, text) => {
   fs.mkdirSync(path.dirname(path.join(tree, relative)), { recursive: true });
   fs.writeFileSync(path.join(tree, relative), text);
 };
+// A symbolic link at `relative` in the tree that points to `target`, a path relative to the folder of the link.
+const linkTreeFile = (tree, relative, target) => {
+  fs.mkdirSync(path.dirname(path.join(tree, relative)), { recursive: true });
+  fs.symlinkSync(target, path.join(tree, relative));
+};
 const editTreeText = (tree, relative, change) => {
   const file = path.join(tree, relative);
   const before = fs.readFileSync(file, 'utf8');
@@ -970,6 +975,15 @@ const NATIVE_GATE_CASES = [
     /docks omp\.extensions must be an array of strings$/,
   ],
   [
+    // An explicit null is not an absent property: the gate must not read it as an empty list.
+    'an omp.extensions value of null',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = null;
+      }),
+    /docks omp\.extensions must be an array of strings$/,
+  ],
+  [
     // The module loads, so only the folder rule refuses the entry: the install copies only the plugin folder.
     'an omp.extensions entry outside the plugin folder',
     (tree) => {
@@ -979,6 +993,30 @@ const NATIVE_GATE_CASES = [
       });
     },
     /entry \.\.\/zz-outside\.ts is outside the plugin folder$/,
+  ],
+  [
+    // The entry path is inside the plugin folder, but the file is a link to a module outside it.
+    'an omp.extensions entry that is a symbolic link to a module outside the plugin folder',
+    (tree) => {
+      writeTreeFile(tree, 'plugins/zz-outside-module.ts', 'export default () => undefined;\n');
+      linkTreeFile(tree, 'plugins/docks/extensions/zz-link.ts', '../../zz-outside-module.ts');
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-link.ts'];
+      });
+    },
+    /entry \.\/extensions\/zz-link\.ts is outside the plugin folder after symbolic links resolve$/,
+  ],
+  [
+    // The folder entry is inside the plugin folder, but the index.ts that omp loads is a link to a file outside it.
+    'an omp.extensions folder entry whose index.ts is a symbolic link outside the plugin folder',
+    (tree) => {
+      writeTreeFile(tree, 'plugins/zz-outside-index.ts', 'export default () => undefined;\n');
+      linkTreeFile(tree, 'plugins/docks/extensions/zz-linked-folder/index.ts', '../../../zz-outside-index.ts');
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-linked-folder'];
+      });
+    },
+    /entry \.\/extensions\/zz-linked-folder is outside the plugin folder after symbolic links resolve$/,
   ],
   [
     // The gate must record one failure line for the module and go on to its summary.

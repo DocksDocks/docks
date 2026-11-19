@@ -14,13 +14,13 @@
 //   An unknown value works as observe.
 //
 // The core finds each commit in the command itself, so the adapter gives it every bash
-// command. The git calls and the reads of a message file are asynchronous, so a check does
-// not hold the event loop of omp. Only the small state files are written synchronously.
-// The core never reads the stdin of omp: `-F -`, `-F /dev/stdin`, and `-F /dev/fd/0` take
-// the heredoc text of the command, and a `-F` path that is not a regular file (a FIFO or a
-// device can block a read without end) makes the check throw. A check stops at its deadline,
-// and the git calls and file reads of that check stop with it. The core reads and writes
-// nothing on stdout or stderr: the adapter allows the command when the core throws.
+// command. Each git call and each file operation is asynchronous, so a check does not hold
+// the event loop of omp. The core never reads the stdin of omp: `-F -`, `-F /dev/stdin`, and
+// `-F /dev/fd/0` take the heredoc text of the command. A `-F` path or a denial file that is not
+// a regular file (a FIFO or a device can block a read without end) makes the check throw. A
+// check stops at its deadline: the git calls and file reads of that check stop with it, and the
+// check writes no state after it. The core reads and writes nothing on stdout or stderr: the
+// adapter allows the command when the core throws.
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -425,28 +425,49 @@ function messageSources(options) {
 
 // ---------- state ----------
 
-function stateDir(env) {
+// Run one write of state, unless the check passed its deadline: a check writes no state after it.
+function writeState(signal, write) {
+  signal.throwIfAborted();
+  return write();
+}
+
+async function stateDir(env, signal) {
   const base = env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state');
   const dir = path.join(base, 'docks');
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  await writeState(signal, () => fs.promises.mkdir(dir, { recursive: true, mode: 0o700 }));
   return dir;
 }
 
-function appendLog(env, entry) {
-  fs.appendFileSync(path.join(stateDir(env), 'verify-gate.jsonl'), `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+async function appendLog(env, entry, signal) {
+  const file = path.join(await stateDir(env, signal), 'verify-gate.jsonl');
+  await writeState(signal, () => fs.promises.appendFile(file, `${JSON.stringify(entry)}\n`, { mode: 0o600 }));
 }
 
-// Record one denial for the session and return the count of earlier denials.
-// After DENIALS_BEFORE_ALLOW denials the count starts again at zero. The function is
-// synchronous on purpose: two checks in one omp process cannot interleave inside it.
-function countDenial(env, sessionId) {
-  const file = path.join(stateDir(env), 'verify-gate-denials.json');
-  let state = {};
+// The denial counts of the state file. A missing file or a file that is not valid JSON counts
+// as empty. A file that is not a regular file throws, because a read of a FIFO can wait without end.
+async function readDenials(file, signal) {
+  let stat;
   try {
-    state = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    state = {};
+    stat = await fs.promises.stat(file);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return {};
+    throw error;
   }
+  if (!stat.isFile()) throw new Error(`${file} is not a regular file`);
+  const text = await fs.promises.readFile(file, { encoding: 'utf8', signal });
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
+// Record one denial for the session and return the count of earlier denials. After
+// DENIALS_BEFORE_ALLOW denials the count starts again at zero. The new state goes to a temporary
+// file first, and a rename puts it in place, so a reader never sees a part of a file.
+async function updateDenials(env, sessionId, signal) {
+  const file = path.join(await stateDir(env, signal), 'verify-gate-denials.json');
+  const state = await readDenials(file, signal);
   const now = Date.now();
   for (const [id, entry] of Object.entries(state)) {
     if (!entry || now - entry.time > SESSION_TTL_MS) delete state[id];
@@ -454,9 +475,26 @@ function countDenial(env, sessionId) {
   const previous = state[sessionId]?.count ?? 0;
   state[sessionId] = previous >= DENIALS_BEFORE_ALLOW ? { count: 0, time: now } : { count: previous + 1, time: now };
   const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(state), { mode: 0o600 });
-  fs.renameSync(temp, file);
+  await writeState(signal, () => fs.promises.writeFile(temp, JSON.stringify(state), { mode: 0o600 }));
+  await writeState(signal, () => fs.promises.rename(temp, file));
   return previous;
+}
+
+// The end of the last queued denial update of this omp process. Each update waits for the one
+// before it, so two checks cannot both read the old count and lose a denial. An update that does
+// not end frees the queue at the deadline of its check, because it then writes no more state.
+let denialQueue = Promise.resolve();
+
+const whenAborted = (signal) =>
+  new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    else signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+
+function countDenial(env, sessionId, signal) {
+  const update = denialQueue.then(() => updateDenials(env, sessionId, signal));
+  denialQueue = Promise.race([update, whenAborted(signal)]).catch(() => {});
+  return update;
 }
 
 // ---------- check ----------
@@ -510,12 +548,12 @@ async function gateCommand({ command, cwd, sessionId, env }, signal) {
     message_sources: unverifiedSources,
   };
   if (mode === 'observe') {
-    appendLog(env, entry);
+    await appendLog(env, entry, signal);
     return null;
   }
-  const previous = countDenial(env, sessionId);
+  const previous = await countDenial(env, sessionId, signal);
   if (previous >= DENIALS_BEFORE_ALLOW) {
-    appendLog(env, { ...entry, allowed_after_denials: previous });
+    await appendLog(env, { ...entry, allowed_after_denials: previous }, signal);
     return null;
   }
   return DENY_REASON;
