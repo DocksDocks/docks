@@ -166,6 +166,8 @@ const LEFTOVER_REPO_PATHS = ['.claude-plugin', '.agents/plugins', '.codex'];
 const LEFTOVER_PLUGIN_PATHS = ['.claude-plugin', '.codex-plugin'];
 // The string fields of each plugin package.json; it also declares `private: true`, `type: "module"`, and `omp`.
 const PACKAGE_FIELDS = ['name', 'version', 'description', 'license'];
+// The files that omp loads for an `omp.extensions` entry that names a folder, in its order.
+const EXTENSION_INDEX_FILES = ['index.ts', 'index.js', 'index.mjs', 'index.cjs'];
 // A `${...}` variable. omp sets no plugin root variable for an agent, so the text would stay literal.
 const TEXT_VARIABLE = /\$\{[^}\s]*\}/gu;
 // The frontmatter block of a markdown file, and the keys of its top-level lines.
@@ -613,16 +615,16 @@ function gatePackage(p) {
 // Each `omp.extensions` entry of the plugin package.json is a module with a default function export, the factory
 // that omp calls. omp skips a missing entry without a message, and install checks no entry, so the gate checks them.
 // The gate imports the module itself and nothing from omp: an extension declares its own types and imports no omp
-// package. A module that throws at import stops the gate with its error.
+// package.
 async function gateExtensions(p) {
   const extensions = readJSON(pluginPackageJson(p))?.omp?.extensions ?? [];
+  if (!Array.isArray(extensions) || extensions.some((entry) => typeof entry !== 'string')) {
+    fail(`${p.name} omp.extensions must be an array of strings`);
+    return;
+  }
   let extensionsOk = true;
   for (const entry of extensions) {
-    const modulePath = path.resolve(p.root, entry);
-    let problem = null;
-    if (!fs.statSync(modulePath, { throwIfNoEntry: false })?.isFile()) problem = 'does not exist';
-    else if (typeof (await import(pathToFileURL(modulePath).href)).default !== 'function')
-      problem = 'has no default function export';
+    const problem = await extensionProblem(p.root, entry);
     if (problem !== null) {
       fail(`${p.name} omp.extensions entry ${entry} ${problem}`);
       extensionsOk = false;
@@ -630,6 +632,27 @@ async function gateExtensions(p) {
   }
   if (extensionsOk && extensions.length > 0)
     ok(`${p.name} omp.extensions entries have a default function export (${extensions.length})`);
+}
+
+// The problem of one `omp.extensions` entry, or null when omp can load it. The install copies only the plugin
+// folder, so an entry outside it is missing after install. A folder entry loads its first `index.*` file, as omp
+// does. A module that throws at import gives a problem, so the gate goes on to its summary.
+async function extensionProblem(pluginRoot, entry) {
+  const target = path.resolve(pluginRoot, entry);
+  if (path.relative(path.resolve(pluginRoot), target).split(path.sep)[0] === '..')
+    return 'is outside the plugin folder';
+  const isFile = (file) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
+  const modulePath = fs.statSync(target, { throwIfNoEntry: false })?.isDirectory()
+    ? (EXTENSION_INDEX_FILES.map((name) => path.join(target, name)).find(isFile) ?? target)
+    : target;
+  if (!isFile(modulePath)) return `is not a file (a folder entry needs one of ${EXTENSION_INDEX_FILES.join(', ')})`;
+  let module;
+  try {
+    module = await import(pathToFileURL(modulePath).href);
+  } catch (error) {
+    return `throws at import: ${String(error?.message ?? error).replace(/\s+/gu, ' ')}`;
+  }
+  return typeof module.default === 'function' ? null : 'has no default function export';
 }
 
 // Each agent file loads as an omp task agent: it has a name and a description, no `model` key (a Claude Code alias

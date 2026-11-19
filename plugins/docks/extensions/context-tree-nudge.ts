@@ -75,7 +75,7 @@ export default function contextTreeNudge(pi: ExtensionApi): void {
     if (event.isError) return undefined;
     try {
       const files = editedPaths(event).map((file) => path.resolve(ctx.cwd, file));
-      const text = await nudgeText(files);
+      const text = await nudgeText(files, ctx.cwd);
       return text === null ? undefined : { additionalContext: text };
     } catch {
       return undefined;

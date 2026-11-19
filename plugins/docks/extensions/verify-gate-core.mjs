@@ -14,9 +14,13 @@
 //   An unknown value works as observe.
 //
 // The core finds each commit in the command itself, so the adapter gives it every bash
-// command. The git calls are asynchronous, so a check does not hold the event loop of omp.
-// The core reads and writes nothing on stdout or stderr: the adapter allows the command
-// when the core throws.
+// command. The git calls and the reads of a message file are asynchronous, so a check does
+// not hold the event loop of omp. Only the small state files are written synchronously.
+// The core never reads the stdin of omp: `-F -`, `-F /dev/stdin`, and `-F /dev/fd/0` take
+// the heredoc text of the command, and a `-F` path that is not a regular file (a FIFO or a
+// device can block a read without end) makes the check throw. A check stops at its deadline,
+// and the git calls and file reads of that check stop with it. The core reads and writes
+// nothing on stdout or stderr: the adapter allows the command when the core throws.
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -26,8 +30,13 @@ const MODES = new Set(['off', 'observe', 'enforce']);
 const DENIALS_BEFORE_ALLOW = 2;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TRAILER_FORMAT = '`Verified: <command>[; <command>]` or `Verified: none - <reason>`';
-// Each git call stops after this time; omp blocks a tool call whose handler runs longer than 30 s.
+// Each git call stops after this time.
 const GIT_TIMEOUT_MS = 5000;
+// A whole check stops after this time, below the 30 s after which omp blocks a tool call
+// whose handler still runs.
+const CHECK_DEADLINE_MS = 20_000;
+// These `-F` names are the stdin of the command, that is its heredoc text, not the stdin of omp.
+const STDIN_NAMES = new Set(['-', '/dev/stdin', '/dev/fd/0']);
 
 // ---------- shell tokenizer ----------
 
@@ -350,13 +359,18 @@ function parseCommitArgs(args) {
 }
 
 // Run git in `cwd` with `input` on stdin, and resolve with its stdout. A non-zero exit,
-// the timeout, or a spawn failure rejects.
-function git(cwd, args, input = '') {
+// the timeout, the abort of `signal`, or a spawn failure rejects.
+function git(cwd, args, signal, input = '') {
   return new Promise((resolve, reject) => {
-    const child = execFile('git', args, { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS }, (error, stdout, stderr) => {
-      if (error) reject(new Error(`git ${args.join(' ')} failed: ${String(stderr).trim() || error.message}`));
-      else resolve(stdout);
-    });
+    const child = execFile(
+      'git',
+      args,
+      { cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, signal },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error(`git ${args.join(' ')} failed: ${String(stderr).trim() || error.message}`));
+        else resolve(stdout);
+      },
+    );
     // git can exit before it reads stdin. The callback above reports that failure; without this
     // listener the EPIPE error event would throw in the omp process.
     child.stdin.on('error', () => {});
@@ -364,25 +378,30 @@ function git(cwd, args, input = '') {
   });
 }
 
+// Read one `-F` message source of the commit.
+async function messageFile(commit, file, signal) {
+  if (STDIN_NAMES.has(file)) return commit.stdin ?? '';
+  const full = path.resolve(commit.cwd, file);
+  if (!(await fs.promises.stat(full)).isFile()) throw new Error(`${file} is not a regular file`);
+  return fs.promises.readFile(full, { encoding: 'utf8', signal });
+}
+
 // Build the message that the commit records. Returns null when it has no source,
 // which means git would open an editor.
-async function commitMessage(commit, options) {
+async function commitMessage(commit, options, signal) {
   const parts = options.messages.map(expandCatHeredocs);
-  for (const file of options.files) {
-    if (file === '-') parts.push(commit.stdin ?? '');
-    else parts.push(fs.readFileSync(path.resolve(commit.cwd, file), 'utf8'));
-  }
+  for (const file of options.files) parts.push(await messageFile(commit, file, signal));
   let base = null;
   if (parts.length > 0) base = parts.join('\n\n');
-  else if (options.reuse) base = await git(commit.cwd, ['log', '-1', '--format=%B', options.reuse, '--']);
-  else if (options.amend) base = await git(commit.cwd, ['log', '-1', '--format=%B']);
+  else if (options.reuse) base = await git(commit.cwd, ['log', '-1', '--format=%B', options.reuse, '--'], signal);
+  else if (options.amend) base = await git(commit.cwd, ['log', '-1', '--format=%B'], signal);
   if (options.trailers.length === 0) return base;
   return `${base ?? ''}\n\n${options.trailers.join('\n')}\n`;
 }
 
 // True when the message ends with a valid `Verified:` git trailer.
-async function hasVerifiedTrailer(message, cwd) {
-  const trailers = await git(cwd, ['interpret-trailers', '--parse'], message);
+async function hasVerifiedTrailer(message, cwd, signal) {
+  const trailers = await git(cwd, ['interpret-trailers', '--parse'], signal, message);
   return trailers.split('\n').some((line) => {
     const match = /^Verified:\s*(.*)$/iu.exec(line);
     if (!match) return false;
@@ -449,8 +468,23 @@ const DENY_REASON =
 
 // Check one shell command before it runs. `cwd` is the folder where the command starts,
 // `sessionId` keys the denial count, and `env` gives DOCKS_VERIFY_GATE and XDG_STATE_HOME.
-// Returns the deny reason, or null to allow the command.
-export async function checkCommand({ command, cwd, sessionId, env }) {
+// Returns the deny reason, or null to allow the command. It rejects when the check runs longer
+// than `deadlineMs`; the abort then stops the git calls and the file reads of the check, so the
+// check writes no state after its deadline.
+export async function checkCommand({ command, cwd, sessionId, env, deadlineMs = CHECK_DEADLINE_MS }) {
+  const controller = new AbortController();
+  const expired = new Promise((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
+  });
+  const timer = setTimeout(() => controller.abort(new Error(`the check ran longer than ${deadlineMs} ms`)), deadlineMs);
+  try {
+    return await Promise.race([gateCommand({ command, cwd, sessionId, env }, controller.signal), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function gateCommand({ command, cwd, sessionId, env }, signal) {
   const rawMode = (env.DOCKS_VERIFY_GATE || 'observe').trim().toLowerCase();
   if (rawMode === 'off') return null;
   const mode = MODES.has(rawMode) ? rawMode : 'observe';
@@ -460,8 +494,8 @@ export async function checkCommand({ command, cwd, sessionId, env }) {
   for (const commit of findCommits(command, cwd)) {
     const options = parseCommitArgs(commit.args);
     if (options.dryRun) continue;
-    const message = await commitMessage(commit, options);
-    if (message !== null && (await hasVerifiedTrailer(message, commit.cwd))) continue;
+    const message = await commitMessage(commit, options, signal);
+    if (message !== null && (await hasVerifiedTrailer(message, commit.cwd, signal))) continue;
     unverifiedSources = messageSources(options);
     break;
   }

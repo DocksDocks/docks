@@ -42,19 +42,37 @@ function nearestNode(root, dir) {
   return null;
 }
 
+// A node name made only of these characters goes into the text as it is. Any other name goes in as
+// a JSON string, so that a newline or an instruction in a folder name cannot start a new line of
+// the added context.
+const PLAIN_NAME = /^[A-Za-z0-9._/@+-]+$/u;
+
+const nodeName = (name) => (PLAIN_NAME.test(name) ? name : JSON.stringify(name));
+
 // The nudge text for the absolute paths of the edited files, or null when no file is inside a
 // node. Each path finds its own repository root, because an agent can edit files in another
-// repository than its session folder. The text has one sentence for each root, and each
-// sentence lists its nodes once, in the order of the paths.
-export async function nudgeText(files) {
+// repository than its session folder `cwd`. A node in the repository of `cwd` is named relative
+// to its root; a node in another repository is named by its absolute path, so that the agent
+// refreshes the right folder. The text has one line for each root, in the order of the first
+// path of each root, and each line lists its nodes once, in the order of the paths. The root of
+// each folder is found once for each call, so that many files in one folder start one git call.
+export async function nudgeText(files, cwd) {
+  const roots = new Map();
+  const rootOf = (dir) => {
+    if (!roots.has(dir)) roots.set(dir, repositoryRoot(dir));
+    return roots.get(dir);
+  };
+  let sessionRoot;
   const nodesByRoot = new Map();
   for (const file of files) {
     const dir = existingFolder(file);
-    const root = await repositoryRoot(dir);
+    const root = await rootOf(dir);
     const node = nearestNode(root, dir);
     if (node === null) continue;
+    sessionRoot ??= await rootOf(fs.realpathSync(cwd));
+    const name = nodeName(root === sessionRoot ? node : path.join(root, node));
     const nodes = nodesByRoot.get(root) ?? [];
-    if (!nodes.includes(node)) nodes.push(node);
+    if (!nodes.includes(name)) nodes.push(name);
     nodesByRoot.set(root, nodes);
   }
   if (nodesByRoot.size === 0) return null;

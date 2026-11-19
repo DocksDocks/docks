@@ -6,8 +6,24 @@ import path from 'node:path';
 import test from 'node:test';
 
 const EXTENSION = path.resolve(import.meta.dirname, '../../../plugins/docks/extensions/verify-gate.ts');
+const CORE = path.resolve(import.meta.dirname, '../../../plugins/docks/extensions/verify-gate-core.mjs');
 const UNVERIFIED = 'git commit -m "fix: handle empty input"';
 const VERIFIED = 'git commit -m "fix: handle empty input" -m "Verified: bun test scripts/tests/unit"';
+const DENY_REASON =
+  'verify-gate: the commit message has no Verified: trailer. Add a last paragraph with ' +
+  '`Verified: <command>[; <command>]` or `Verified: none - <reason>`. Name the checks that you ran, or say why none ran.';
+
+// Each test gives its calls their own state folder. This folder holds XDG_STATE_HOME for the whole run, so a call
+// without its own folder cannot write into the real user log.
+const SUITE_STATE = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'verify-gate-suite-')));
+process.env.XDG_STATE_HOME = SUITE_STATE;
+process.on('exit', () => fs.rmSync(SUITE_STATE, { recursive: true, force: true }));
+
+// The git file that the PATH of the test process names first.
+const REAL_GIT = (process.env.PATH ?? '')
+  .split(path.delimiter)
+  .map((dir) => path.join(dir, 'git'))
+  .find((file) => fs.existsSync(file));
 
 function tempDir(label, t) {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `verify-gate-${label}-`)));
@@ -45,9 +61,10 @@ async function withEnv(values, action) {
 
 const sessionContext = (cwd, session) => ({ cwd, sessionManager: { getSessionId: () => session } });
 
-// Drive the tool_call handler once with a bash call. `ctx` replaces the default session context.
+// Drive a tool_call handler once with a bash call. `ctx` replaces the default session context, and `handler`
+// replaces a new handler. A call without `state` uses the state folder of the suite.
 async function runGate({
-  state,
+  state = SUITE_STATE,
   mode,
   command,
   cwd = os.tmpdir(),
@@ -55,11 +72,24 @@ async function runGate({
   session = 's1',
   toolName = 'bash',
   ctx = sessionContext(cwd, session),
+  handler,
 }) {
-  const handler = await toolCallHandler();
+  const toolCall = handler ?? (await toolCallHandler());
   const input = inputCwd === undefined ? { command } : { command, cwd: inputCwd };
   const event = { type: 'tool_call', toolName, toolCallId: 'call_1', input };
-  return withEnv({ XDG_STATE_HOME: state, DOCKS_VERIFY_GATE: mode }, () => handler(event, ctx));
+  return withEnv({ XDG_STATE_HOME: state, DOCKS_VERIFY_GATE: mode }, () => toolCall(event, ctx));
+}
+
+// A git repository with one commit whose message carries the trailer, and a second commit without it.
+function gitRepo(label, t) {
+  const repo = tempDir(label, t);
+  const git = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 'verify-gate@example.test');
+  git('config', 'user.name', 'Verify Gate Test');
+  git('commit', '-q', '--allow-empty', '-m', 'chore: seed', '-m', 'Verified: none - empty seed commit');
+  git('commit', '-q', '--allow-empty', '-m', 'chore: second');
+  return repo;
 }
 
 function logLines(state) {
@@ -72,11 +102,9 @@ function logLines(state) {
     .map((line) => JSON.parse(line));
 }
 
+// A deny gives the unchanged reason text of the old hook.
 function assertDenied(result) {
-  assert.equal(result?.block, true, `expected a block, got ${JSON.stringify(result)}`);
-  assert.match(result.reason, /no Verified: trailer/u);
-  assert.match(result.reason, /Verified: <command>/u);
-  assert.match(result.reason, /Verified: none - <reason>/u);
+  assert.deepEqual(result, { block: true, reason: DENY_REASON });
 }
 
 // Record each write to stdout and stderr and each console call while `action` runs.
@@ -121,7 +149,9 @@ test('observe mode is the default, allows the commit, and appends one log line',
   assert.deepEqual(lines[0].message_sources, ['-m']);
   assert.equal(lines[0].session_id, 's1');
   assert.equal(lines[0].cwd, cwd);
+  assert.equal(new Date(lines[0].time).toISOString(), lines[0].time);
   assert.equal(fs.statSync(path.join(state, 'docks')).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(path.join(state, 'docks', 'verify-gate.jsonl')).mode & 0o777, 0o600);
 });
 
 test('enforce mode denies twice in a session, then allows and logs the third commit', async (t) => {
@@ -256,31 +286,58 @@ test('input.cwd of the bash call sets the commit base folder below ctx.cwd', asy
   assert.equal(lines[0].cwd, sub);
 });
 
-test('a context without a session manager logs the session id unknown', async (t) => {
+test('a context without a session id logs the session id unknown', async (t) => {
   const state = tempDir('no-session', t);
   const cwd = tempDir('no-session-cwd', t);
-  assert.equal(await runGate({ state, mode: 'observe', command: UNVERIFIED, ctx: { cwd } }), undefined);
+  const contexts = [
+    { cwd },
+    { cwd, sessionManager: { getSessionId: () => undefined } },
+    { cwd, sessionManager: { getSessionId: () => '' } },
+  ];
+  for (const ctx of contexts) {
+    assert.equal(await runGate({ state, mode: 'observe', command: UNVERIFIED, ctx }), undefined);
+  }
   const lines = logLines(state);
-  assert.equal(lines.length, 1);
-  assert.equal(lines[0].session_id, 'unknown');
+  assert.deepEqual(
+    lines.map((line) => line.session_id),
+    ['unknown', 'unknown', 'unknown'],
+  );
   assert.equal(lines[0].cwd, cwd);
 });
 
-test('the gate reads DOCKS_VERIFY_GATE and XDG_STATE_HOME again on each call', async (t) => {
+test('one handler reads DOCKS_VERIFY_GATE and XDG_STATE_HOME again on each call', async (t) => {
   const first = tempDir('env-first', t);
   const second = tempDir('env-second', t);
-  assert.equal(await runGate({ state: first, mode: 'off', command: UNVERIFIED }), undefined);
+  // omp keeps one handler for the whole session, so each call goes to the same handler.
+  const handler = await toolCallHandler();
+  const gate = (state, mode) => runGate({ handler, state, mode, command: UNVERIFIED });
+  assert.equal(await gate(first, 'off'), undefined);
   assert.equal(fs.existsSync(path.join(first, 'docks')), false);
-  assert.equal(await runGate({ state: first, mode: 'observe', command: UNVERIFIED }), undefined);
+  assert.equal(await gate(first, 'observe'), undefined);
   assert.equal(logLines(first).length, 1);
-  assertDenied(await runGate({ state: second, mode: 'enforce', command: UNVERIFIED }));
-  assert.equal(await runGate({ state: second, mode: 'off', command: UNVERIFIED }), undefined);
-  await runGate({ state: second, mode: 'observe', command: UNVERIFIED });
-  assert.equal(logLines(first).length, 1);
+  assertDenied(await gate(second, 'enforce'));
+  assert.equal(await gate(second, 'off'), undefined);
+  assert.equal(await gate(second, 'observe'), undefined);
+  assert.equal(await gate(first, undefined), undefined);
+  assert.equal(logLines(first).length, 2);
   assert.deepEqual(
     logLines(second).map((line) => line.mode),
     ['observe'],
   );
+});
+
+test('an unknown mode works as observe and prints nothing; a known mode is read without case and space', async (t) => {
+  const state = tempDir('unknown-mode', t);
+  const { result, printed } = await captureOutput(() => runGate({ state, mode: ' Bogus ', command: UNVERIFIED }));
+  assert.equal(result, undefined);
+  assert.deepEqual(printed, []);
+  assert.deepEqual(
+    logLines(state).map((line) => line.mode),
+    ['observe'],
+  );
+  assertDenied(await runGate({ state, mode: ' Enforce ', command: UNVERIFIED }));
+  assert.equal(await runGate({ state, mode: 'OFF', command: UNVERIFIED }), undefined);
+  assert.equal(logLines(state).length, 1);
 });
 
 test('--amend without a new message reads the HEAD message', async (t) => {
@@ -325,4 +382,159 @@ test('an internal error allows the command and prints nothing', async (t) => {
     assert.deepEqual(unwritable.printed, [], mode);
   }
   assert.equal(logLines(state).length, 0);
+});
+
+test('-F /dev/stdin and -F /dev/fd/0 read the heredoc of the command, not the stdin of omp', async (t) => {
+  const state = tempDir('dev-stdin', t);
+  for (const name of ['/dev/stdin', '/dev/fd/0']) {
+    const heredoc = (body) => [`git commit -F ${name} <<'EOF'`, 'fix: x', '', body, 'EOF'].join('\n');
+    assert.equal(await runGate({ state, mode: 'enforce', command: heredoc('Verified: bun test') }), undefined, name);
+    assertDenied(await runGate({ state, mode: 'enforce', command: heredoc('Body only.'), session: name }));
+  }
+});
+
+test('a -F path that is not a regular file allows the command at once and prints nothing', async (t) => {
+  const state = tempDir('fifo', t);
+  const cwd = tempDir('fifo-cwd', t);
+  const fifo = path.join(cwd, 'message.fifo');
+  execFileSync('mkfifo', [fifo]);
+  // A read that waits for a writer of the FIFO would keep the test process alive. A writer that opens and closes
+  // the FIFO ends such a read; without a reader the open fails, and nothing waits.
+  t.after(() => {
+    try {
+      fs.closeSync(fs.openSync(fifo, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK));
+    } catch {
+      // No reader waits on the FIFO.
+    }
+  });
+  for (const command of ['git commit -F message.fifo', 'git commit --file=.']) {
+    const started = Date.now();
+    const { result, printed } = await captureOutput(() => runGate({ state, mode: 'enforce', cwd, command }));
+    assert.equal(result, undefined, command);
+    assert.deepEqual(printed, [], command);
+    assert.ok(Date.now() - started < 3000, `${command} took ${Date.now() - started} ms`);
+  }
+  assert.equal(fs.existsSync(path.join(state, 'docks')), false);
+});
+
+test('a check that runs past its deadline rejects, stops its git calls, and writes no state', async (t) => {
+  const state = tempDir('deadline', t);
+  const bin = tempDir('deadline-bin', t);
+  const finished = path.join(bin, 'finished.txt');
+  // Each git call takes 400 ms, so each call is quick, but three commits take longer than the deadline.
+  fs.writeFileSync(
+    path.join(bin, 'git'),
+    `#!/bin/sh\nsleep 0.4\necho done >> '${finished}'\nexec '${REAL_GIT}' "$@"\n`,
+    { mode: 0o755 },
+  );
+  const { checkCommand } = await import(CORE);
+  const command = [VERIFIED, VERIFIED, UNVERIFIED].join(' && ');
+  const started = Date.now();
+  await withEnv({ PATH: `${bin}${path.delimiter}${process.env.PATH}` }, () =>
+    assert.rejects(
+      checkCommand({
+        command,
+        cwd: state,
+        sessionId: 's1',
+        env: { XDG_STATE_HOME: state, DOCKS_VERIFY_GATE: 'enforce' },
+        deadlineMs: 1000,
+      }),
+      /the check ran longer than 1000 ms/u,
+    ),
+  );
+  assert.ok(Date.now() - started < 1300, `the check rejected after ${Date.now() - started} ms`);
+  // The third git call ends after the deadline unless the deadline stops it, and then it would count a denial.
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  assert.equal(fs.readFileSync(finished, 'utf8'), 'done\ndone\n');
+  assert.equal(fs.existsSync(path.join(state, 'docks')), false);
+});
+
+test('a denial count older than seven days expires, and the denial file drops it', async (t) => {
+  const state = tempDir('expiry', t);
+  const denials = path.join(state, 'docks', 'verify-gate-denials.json');
+  fs.mkdirSync(path.dirname(denials), { recursive: true });
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  fs.writeFileSync(
+    denials,
+    JSON.stringify({
+      s1: { count: 2, time: now - 8 * day },
+      old: { count: 1, time: now - 8 * day },
+      recent: { count: 1, time: now - 6 * day },
+    }),
+  );
+  // Two denials of s1 would allow this commit, but they expired, so this is the first denial of a new count.
+  assertDenied(await runGate({ state, mode: 'enforce', command: UNVERIFIED }));
+  const saved = JSON.parse(fs.readFileSync(denials, 'utf8'));
+  assert.deepEqual(Object.keys(saved).sort(), ['recent', 's1']);
+  assert.equal(saved.s1.count, 1);
+  assert.deepEqual(saved.recent, { count: 1, time: now - 6 * day });
+  assert.equal(fs.statSync(denials).mode & 0o777, 0o600);
+});
+
+test('a denial file that is not valid JSON counts as empty', async (t) => {
+  const state = tempDir('corrupt', t);
+  const denials = path.join(state, 'docks', 'verify-gate-denials.json');
+  fs.mkdirSync(path.dirname(denials), { recursive: true });
+  fs.writeFileSync(denials, '{not json');
+  assertDenied(await runGate({ state, mode: 'enforce', command: UNVERIFIED }));
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(denials, 'utf8'))), ['s1']);
+});
+
+test('the Verified key has any case, and an empty value or an empty none reason does not count', async (t) => {
+  const state = tempDir('trailer-rules', t);
+  const gate = (trailer, session) =>
+    runGate({ state, mode: 'enforce', command: `git commit -m "fix: x" -m "${trailer}"`, session });
+  for (const trailer of ['verified: bun test', 'VERIFIED: none - docs only']) {
+    assert.equal(await gate(trailer, 's1'), undefined, trailer);
+  }
+  for (const trailer of ['Verified:', 'Verified:   ', 'Verified: none - ', 'Verified: none -']) {
+    assertDenied(await gate(trailer, trailer));
+  }
+});
+
+test('-C <rev> and --amend read the message of that commit, and the log names their source', async (t) => {
+  const state = tempDir('reuse', t);
+  const repo = gitRepo('reuse-repo', t);
+  for (const command of ['git commit -C HEAD~1', 'git commit --reuse-message=HEAD~1', 'git commit -c HEAD~1']) {
+    assert.equal(await runGate({ state, mode: 'enforce', cwd: repo, command }), undefined, command);
+  }
+  assertDenied(await runGate({ state, mode: 'enforce', cwd: repo, command: 'git commit -C HEAD' }));
+  await runGate({ state, mode: 'observe', cwd: repo, command: 'git commit -C HEAD' });
+  await runGate({ state, mode: 'observe', cwd: repo, command: 'git commit --amend --no-edit' });
+  assert.deepEqual(
+    logLines(state).map((line) => line.message_sources),
+    [['-C'], ['--amend']],
+  );
+});
+
+test('the log names the sources of the first commit without the trailer', async (t) => {
+  const state = tempDir('first-unverified', t);
+  const command = `${VERIFIED} && git commit -m "fix: a" && git commit -F - <<EOF\nfix: b\nEOF`;
+  assert.equal(await runGate({ state, mode: 'observe', command }), undefined);
+  assert.deepEqual(
+    logLines(state).map((line) => line.message_sources),
+    [['-m']],
+  );
+});
+
+test('the shell parser follows cd and git -C, skips an environment prefix, and sees a git path', async (t) => {
+  const state = tempDir('parser', t);
+  const cwd = tempDir('parser-cwd', t);
+  fs.mkdirSync(path.join(cwd, 'sub'));
+  // The same file name holds no trailer in the start folder and a trailer in sub.
+  fs.writeFileSync(path.join(cwd, 'message.txt'), 'fix: x\n\nBody only.\n');
+  fs.writeFileSync(path.join(cwd, 'sub', 'message.txt'), 'fix: x\n\nVerified: bun test\n');
+  for (const command of ['cd sub && git commit -F message.txt', 'git -C sub commit -F message.txt']) {
+    assert.equal(await runGate({ state, mode: 'enforce', cwd, command }), undefined, command);
+  }
+  const unverified = [
+    'FOO=1 git commit -m "fix: x"',
+    '/usr/bin/git commit -m "fix: x"',
+    // `-S` takes the rest of the word as its key, so the `F` is no -F option.
+    'git commit -SFkey -m "fix: x"',
+  ];
+  for (const command of unverified) {
+    assertDenied(await runGate({ state, mode: 'enforce', cwd, command, session: command }));
+  }
 });

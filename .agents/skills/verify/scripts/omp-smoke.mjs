@@ -10,7 +10,7 @@
 // Usage: bun .agents/skills/verify/scripts/omp-smoke.mjs [hooks] [--repo <path>]
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -30,7 +30,8 @@ const SCRIPTED_PROMPT = "Do the scripted steps.";
 const SCRATCH_LABEL = "omp-smoke";
 // Registry files of the real omp state; the smoke run must not touch them.
 const REAL_REGISTRY_FILES = ["marketplaces.json", "plugins/installed_plugins.json", "plugins/omp-plugins.lock.json"];
-// The real user log of the verify-gate; the smoke run must not touch it.
+// The real user log of the verify-gate. Other omp sessions can add lines to it during a smoke run;
+// a new line with a `cwd` inside the smoke scratch folder shows that the smoke run wrote to it.
 const REAL_GATE_LOG = join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "docks", "verify-gate.jsonl");
 const COMMANDS = ["hooks"];
 
@@ -244,19 +245,39 @@ function readCatalog(failures) {
   }
 }
 
-// Modification times of the real omp registry files and of the real verify-gate log.
-function realStateMtimes() {
+// A snapshot of the real state: the modification times of the real omp registry files, and the size of the
+// real verify-gate log, so that the check reads only the lines that come after it.
+function realStateSnapshot() {
   const root = join(homedir(), process.env.PI_CONFIG_DIR || ".omp");
-  const files = [...REAL_REGISTRY_FILES.map((file) => join(root, file)), REAL_GATE_LOG];
-  return new Map(files.map((file) => [file, existsSync(file) ? statSync(file).mtimeMs : null]));
+  const registry = new Map(REAL_REGISTRY_FILES.map((file) => join(root, file)).map((file) => [file, existsSync(file) ? statSync(file).mtimeMs : null]));
+  return { registry, gateLogSize: existsSync(REAL_GATE_LOG) ? statSync(REAL_GATE_LOG).size : 0 };
+}
+
+// The lines added to the real verify-gate log after a size. If the file is now shorter, a different file
+// replaced it, and all its lines count as new.
+function newGateLogLines(size) {
+  if (!existsSync(REAL_GATE_LOG)) return [];
+  const bytes = readFileSync(REAL_GATE_LOG);
+  return (bytes.length >= size ? bytes.subarray(size) : bytes).toString("utf8").split("\n").filter(Boolean);
 }
 
 function realStateChanges(before) {
   const changes = [];
-  for (const [file, mtime] of before) {
+  for (const [file, mtime] of before.registry) {
     const after = existsSync(file) ? statSync(file).mtimeMs : null;
     if (after !== mtime) changes.push(`real state changed: ${file}`);
   }
+  if (!scratch) return changes;
+  const roots = [...new Set([scratch, realpathSync(scratch)])];
+  const inScratch = (cwd) => typeof cwd === "string" && roots.some((root) => cwd === root || cwd.startsWith(root + sep));
+  const smokeLines = newGateLogLines(before.gateLogSize).filter((line) => {
+    try {
+      return inScratch(JSON.parse(line).cwd);
+    } catch {
+      return false;
+    }
+  });
+  if (smokeLines.length) changes.push(`real state changed: ${REAL_GATE_LOG} has ${smokeLines.length} new line(s) with a cwd in the scratch folder`);
   return changes;
 }
 
@@ -401,7 +422,7 @@ async function smoke() {
     return { lines: [], failures };
   }
   const catalog = readCatalog(failures);
-  const realBefore = realStateMtimes();
+  const realBefore = realStateSnapshot();
   const run = await install(failures);
   const skillList = parseJson((await run.omp(["skill", "list", "--json"])).stdout, "omp skill list --json", failures);
   await run.omp(["-p", "--mode", "json", "--model", `${MODEL_PROVIDER}/${MODEL_ID}`, "--no-title", "--no-session", SESSION_PROMPT]);
@@ -529,7 +550,7 @@ async function hooks() {
     check("install", `repository ${repo} does not exist`);
     return checks;
   }
-  const realBefore = realStateMtimes();
+  const realBefore = realStateSnapshot();
   const installFailures = [];
   const run = await install(installFailures);
   check("install", installFailures.join("; "));

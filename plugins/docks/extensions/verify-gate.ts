@@ -4,9 +4,11 @@
 // answer of the core into an omp result. The gate sees only commits that run through the
 // bash tool (also through `xd://bash` and `eval` `tool.bash`).
 //
-// omp blocks a tool call when its handler throws or runs too long. But an internal error of
-// the gate must not stop the work of the agent, so the handler catches each error and allows
-// the command. It prints nothing, because output of the omp process goes to the user's terminal.
+// omp blocks a tool call when its handler throws or runs longer than 30 s. But an internal error
+// of the gate must not stop the work of the agent, so the handler catches each error and allows
+// the command. The core throws when a check runs longer than its 20 s deadline, so a slow check
+// also allows the command. The handler prints nothing, because output of the omp process goes to
+// the user's terminal.
 import path from 'node:path';
 import { checkCommand } from './verify-gate-core.mjs';
 

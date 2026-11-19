@@ -52,7 +52,7 @@ GOOD — The agent reads every line and the exit code. A `FAIL` line or a
 bun .agents/skills/verify/scripts/omp-smoke.mjs; echo "exit=$?"
 ```
 
-Expected, in order: `docks@docks <version>` and `plan-lifecycle@docks <version>`, where each version equals its entry in `.omp-plugin/marketplace.json`; then `skills: 33`, `agents: code-reviewer,plan-reviewer`, `warnings: 0`, and `exit=0`. A `FAIL <reason>` line and `exit=1` mean that the install or the discovery failed, or that omp reported a warning about the plugins. A `Failed to load extension` record of omp for a plugin file counts as a warning, and the `FAIL` line names the file and the error. `FAIL could not remove scratch folder <path>` and `exit=1` mean that the folder stays; remove it with `docks-kit scratch remove <path>`.
+Expected, in order: `docks@docks <version>` and `plan-lifecycle@docks <version>`, where each version equals its entry in `.omp-plugin/marketplace.json`; then `skills: 33`, `agents: code-reviewer,plan-reviewer`, `warnings: 0`, and `exit=0`. A `FAIL <reason>` line and `exit=1` mean that the install or the discovery failed, or that omp reported a warning about the plugins. A `Failed to load extension` record of omp for a plugin file counts as a warning, and the `FAIL` line names the file and the error. `FAIL real state changed: <file>` means that the run changed a real omp registry file, or added a line with a `cwd` inside the scratch folder to the real `verify-gate.jsonl`. `FAIL could not remove scratch folder <path>` and `exit=1` mean that the folder stays; remove it with `docks-kit scratch remove <path>`.
 
 ## V2 — Drive the plan helper against the fake `gh`
 
@@ -104,7 +104,7 @@ The `context-tree-nudge` session reads `scripts/ci.mjs` and `README.md`, and edi
 | `nudge-failed-edit-none` | `edit` of `scripts/ci.mjs` with the stale snapshot tag of the first read | The edit fails. No added-context message follows. |
 | `nudge-url-write-none` | `write` to `local://notes.md` | The write succeeds. No added-context message follows. |
 | `extensions-loaded` | All sessions | omp reported no warning about the plugins, and no `Failed to load extension` record. |
-| `real-state` | The whole run | The real omp registry files and the real `verify-gate.jsonl` kept their modification times. |
+| `real-state` | The whole run | The real omp registry files kept their modification times. The real `verify-gate.jsonl` has no new line with a `cwd` inside the scratch folder. Lines that other omp sessions add during the run do not count. |
 
 A `FAIL <name>: <reason>` line and `exit=1` mean that the check failed; the reason tells what the run saw. `install` and `sessions` fail when an omp command exits with a status other than 0.
 
