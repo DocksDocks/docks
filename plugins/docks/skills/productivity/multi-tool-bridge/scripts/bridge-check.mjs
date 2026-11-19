@@ -63,19 +63,19 @@ const AUDIT_ENTRIES = [
   ['.claude/rules/claude-code.md', '.claude/rules/claude-code.md', 'file'],
 ];
 
-// The listing arguments of one repository: the root and whether git answers for it. The
-// Step 2 `find` commands listed regular files only.
-const listing = (repo) => ({ root: repo.root, prune: BRIDGE_PRUNE, inGit: repo.inGit, filesOnly: true });
+// The listing arguments of one repository: the root and whether git answers for it.
+const listing = (repo) => ({ root: repo.root, prune: BRIDGE_PRUNE, inGit: repo.inGit });
 
-// Every CLAUDE.md and .claude/CLAUDE.md, root and nested; gitignored build output is skipped.
+// Every CLAUDE.md and .claude/CLAUDE.md, root and nested; gitignored build output is skipped. The
+// Step 2 `find` commands listed regular files only; the node listings of Step 6 keep symlinks.
 function legacyFiles(repo) {
   const pathspecs = [':(glob)**/CLAUDE.md', EXCLUDE_NODE_MODULES];
-  return listFiles({ ...listing(repo), pathspecs, excludeStandard: true });
+  return listFiles({ ...listing(repo), pathspecs, excludeStandard: true, filesOnly: true });
 }
 
 // CLAUDE.local.md is usually gitignored, so the walk finds it also inside git.
 function personalFiles(repo) {
-  return listFiles({ ...listing(repo), pathspecs: [':(glob)**/CLAUDE.local.md'], inGit: false });
+  return listFiles({ ...listing(repo), pathspecs: [':(glob)**/CLAUDE.local.md'], inGit: false, filesOnly: true });
 }
 
 function auditLines(repo) {

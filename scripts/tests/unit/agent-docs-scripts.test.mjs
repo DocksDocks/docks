@@ -861,6 +861,18 @@ See src/app.ts:10 for the entry.
     assert.equal(run(BRIDGE, ['verify', '--bogus'], fx).status, 1);
     assert.equal(run(BRIDGE, ['bogus'], fx).status, 1);
   });
+
+  test('outside git a symlinked node stays in the routing and volatile checks', () => {
+    const fx = fixture({
+      git: false,
+      files: { 'AGENTS.md': ROOT_AGENTS, 'docs/api.md': 'We currently ship.\n' },
+      links: { 'api/AGENTS.md': '../docs/api.md' },
+    });
+    expectRun(run(BRIDGE, ['verify'], fx), 0, [
+      'HANDOFF context-tree: unrouted node api/AGENTS.md',
+      'VOLATILE time-relative api/AGENTS.md:1',
+    ]);
+  });
 });
 
 // (f) the old blocks read a failed `git ls-files`, an unreadable folder, or an unreadable file as no match.
