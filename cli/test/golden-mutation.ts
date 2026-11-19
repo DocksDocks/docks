@@ -23,13 +23,7 @@ import {
   runEngineSplit,
   runPublicCli,
 } from "./lib/goldenExecution";
-import {
-  LEGACY_CLAUDE_FILES,
-  MATRIX,
-  REPLAYS,
-  TOML_DIR,
-  TOML_SHAPES,
-} from "./lib/goldenMutationCatalog";
+import { LEGACY_CLAUDE_FILES, MATRIX, REPLAYS } from "./lib/goldenMutationCatalog";
 import { FIXTURES_DIR, REPO_DIR, makeStubDir, materializeVariant } from "./lib/goldenResources";
 import {
   diffText,
@@ -276,8 +270,7 @@ function runAdvisorMigrationCase(
 /**
  * Channel-purity invariants (stdout = data, stderr = logs). The ordered
  * goldens above merge channels via 2>&1 and cannot see a violation; these
- * split runs can. Not golden-compared — asserted directly, like the TOML
- * invariants.
+ * split runs can. Not golden-compared — asserted directly.
  */
 function channelInvariantProblems(): Array<string> {
   const problems: Array<string> = [];
@@ -344,11 +337,6 @@ function channelInvariantProblems(): Array<string> {
       "--claude-effort",
       "Available claude effort levels",
       "--claude-effort requires a value: --claude-effort=<low|medium|high|xhigh|default>",
-    ],
-    [
-      "--codex-effort",
-      "Available codex effort levels",
-      "--codex-effort requires a value: --codex-effort=<none|minimal|low|medium|high|xhigh|max|ultra|default>",
     ],
     [
       "--claude-advisor",
@@ -438,7 +426,6 @@ function channelInvariantProblems(): Array<string> {
 
   for (const [target, flag, catalog, error] of [
     ["claude", "--claude-effort", "Available claude effort levels", "Invalid Claude effort ''"],
-    ["codex", "--codex-effort", "Available codex effort levels", "Invalid Codex effort ''"],
     [
       "claude",
       "--claude-advisor",
@@ -446,7 +433,6 @@ function channelInvariantProblems(): Array<string> {
       "Invalid Claude advisor state ''",
     ],
     ["claude", "--claude-model", "Available claude models", "Invalid Claude model ''"],
-    ["codex", "--codex-model", "Available codex models", "Invalid Codex model ''"],
   ] as const) {
     for (const args of [[`${flag}=`], [flag, ""]]) {
       const empty = runPublicCli(["sync", target, ...args], "home-fresh", defaultStubs);
@@ -465,22 +451,14 @@ function channelInvariantProblems(): Array<string> {
   }
 
   const modifierForwarding = runPublicCli(
-    [
-      "sync",
-      "agents",
-      "--dry-run",
-      "--claude-effort=low",
-      "--claude-advisor=on",
-      "--codex-effort=max",
-    ],
+    ["sync", "agents", "--dry-run", "--claude-effort=low", "--claude-advisor=on"],
     "home-fresh",
     defaultStubs,
   );
   if (
     modifierForwarding.exitCode !== 0 ||
     !modifierForwarding.stderr.includes("--claude-effort ignored: claude target not selected") ||
-    !modifierForwarding.stderr.includes("--claude-advisor ignored: claude target not selected") ||
-    !modifierForwarding.stderr.includes("--codex-effort ignored: codex target not selected")
+    !modifierForwarding.stderr.includes("--claude-advisor ignored: claude target not selected")
   ) {
     problems.push(
       "  modifiers: public valued options did not reach EngineNative target-ignore validation",
@@ -578,65 +556,6 @@ function compareCase(actual: MutationCaseGolden, expected: MutationCaseGolden): 
   ];
 }
 
-function tomlInvariantProblems(shape: string, fixtureHome: string): Array<string> {
-  const configPath = join(fixtureHome, ".codex", "config.toml");
-  const problems: Array<string> = [];
-  if (!existsSync(configPath)) return ["  invariant: config.toml missing"];
-  const result = readFileSync(configPath, "utf8");
-  if (result.includes("use_legacy_landlock")) {
-    problems.push("  invariant: deprecated use_legacy_landlock survived the scrub");
-  }
-  if (!existsSync(join(fixtureHome, ".codex", "config.toml.bak"))) {
-    problems.push("  invariant: config.toml.bak backup missing");
-  }
-  // A parse rejects a duplicated key or table, and it reads multi-line strings
-  // whose lines look like table headers, which a line split cannot.
-  let parsed: Record<string, unknown> | undefined;
-  try {
-    parsed = Bun.TOML.parse(result) as Record<string, unknown>;
-  } catch (error) {
-    problems.push(`  invariant: merged config.toml is not valid TOML: ${String(error)}`);
-  }
-  if (parsed !== undefined && typeof parsed["model"] !== "string") {
-    problems.push("  invariant: merged config.toml has no top-level model");
-  }
-  if (
-    readFileSync(join(TOML_DIR, shape), "utf8").includes("[user_only.table]") &&
-    !result.includes("[user_only.table]")
-  ) {
-    problems.push("  invariant: user-only table was destroyed");
-  }
-  return problems;
-}
-
-function runTomlCase(
-  shape: string,
-  command: ReadonlyArray<string>,
-  assertInvariants: boolean,
-): MutationCaseGolden & { problems: Array<string> } {
-  const variant = materializeVariant("home-fresh", {
-    ".codex/config.toml": readFileSync(join(TOML_DIR, shape), "utf8"),
-  });
-  try {
-    const run = runEngine(command, variant, defaultStubs);
-    try {
-      const problems = assertInvariants ? tomlInvariantProblems(shape, run.home) : [];
-      return {
-        command: [...command],
-        exitCode: run.exitCode,
-        tree: snapshotTree(run.home),
-        argvLog: readArgvLog(run),
-        output: run.output,
-        problems,
-      };
-    } finally {
-      cleanup([run]);
-    }
-  } finally {
-    rmSync(variant, { recursive: true, force: true });
-  }
-}
-
 function collectCases(): {
   cases: Record<string, MutationCaseGolden>;
   invariantFailures: number;
@@ -702,27 +621,6 @@ function collectCases(): {
       invariantFailures++;
       banner("CHANNEL INVARIANT FAILURE");
       for (const p of problems) console.log(p);
-    }
-  }
-
-  for (const shape of TOML_SHAPES) {
-    const syncLabel = `toml=${shape}`;
-    if (labelSelected(syncLabel, options.filter)) {
-      selectedChecks++;
-      const { problems, ...golden } = runTomlCase(shape, ["sync", "codex"], true);
-      cases[syncLabel] = golden;
-      if (problems.length > 0) {
-        invariantFailures++;
-        banner(`TOML INVARIANT FAILURE shape=${shape}`);
-        for (const p of problems) console.log(p);
-      }
-    }
-
-    const modelLabel = `toml=${shape} model codex`;
-    if (labelSelected(modelLabel, options.filter)) {
-      selectedChecks++;
-      const { problems: _, ...golden } = runTomlCase(shape, ["model", "codex", "gpt-5.5"], false);
-      cases[modelLabel] = golden;
     }
   }
 
