@@ -20,22 +20,35 @@ build the items in this order:
    one of these names is unusable, for example a broken symlink, a folder with
    a file name, or an empty template folder. When no template is usable, use
    the defaults: "`<check command>` passes" (from the root instruction file,
-   or "Checks pass" when it names none), "Tested locally with the `verify`
-   skill", and "Code review passed". Name each unusable entry to the user.
+   or "Checks pass" when it names none) and "Code review passed". Name each
+   unusable entry to the user.
 2. One item for each check that the repository instructions require, as
    "`<command>` passes".
-3. "Tested locally with the `verify` skill" when the change touches a surface
-   that a user or another program drives.
+3. "Tested locally end to end (<checks>)" when the change touches a surface
+   that a user or another program drives. `<checks>` names each end-to-end
+   check that runs that surface, for example a flow of the project `verify`
+   skill. Leave this item out when the change touches no such surface.
 4. "Code review passed".
 
 Skip an item of 2 to 4 when a template item or a default item already covers
 it, so that no check and no review shows twice.
 
+A template item that covers local or end-to-end testing, such as "Tested
+locally end to end", covers item 3. Keep its text as written, and add
+` (<checks>)` after it, as item 3 does. Add this suffix to no other template
+item. When the change touches no driven surface, keep the template item
+unticked with the reason `the change touches no driven surface`.
+
 ## Ticks
 
 Tick an item (`- [x]`) only when its check passed on the head that you push
-now, or, for the code-review item, when a review passed on that head.
-Otherwise leave it unticked and end its line with ` - <reason>`.
+now, or, for the code-review item, when a review passed on that head. Tick the
+tested-locally item only when each check that it names passed on that head.
+Run a check through a flow of the project `verify` skill when a flow covers
+it, and directly otherwise. A template item that names the `verify` skill also
+needs each named check to run through a flow of that skill; otherwise it gets
+the reason `<checks> ran without the verify skill`. Leave every other item
+without its evidence unticked, and end its line with ` - <reason>`.
 
 After each push, untick each item whose evidence is for an older head, with the
 reason `not checked on <short-sha>`, until it passes again on the new head.

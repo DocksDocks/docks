@@ -729,34 +729,48 @@ Add the items in this order:
    that applies to the change, and name it in the merge question.
 2. One item for each Acceptance row that a repository instruction requires,
    as "`<command>` passes".
-3. "Tested locally with the `verify` skill" when an Acceptance row runs a
-   driven surface end to end.
+3. "Tested locally end to end (<ids>)" when an Acceptance row runs a driven
+   surface end to end (Steps, acceptance, and effects). `<ids>` lists the ID of
+   each such row, for example "Tested locally end to end (C3, C4, C6)". When no
+   Acceptance row runs a driven surface, leave this item out.
 4. "Code review passed".
 
 When the repository has no usable pull-request template, use these default
 items in place of the template items: "`<check command>` passes", with the check
-command from the root instruction file (for example `bun run check`); "Tested
-locally with the `verify` skill"; and "Code review passed". When the root
-instruction file names no check command, the first item reads "Checks pass"
-and stays unticked, with the reason
+command from the root instruction file (for example `bun run check`), and "Code
+review passed". When the root instruction file names no check command, the
+first item reads "Checks pass" and stays unticked, with the reason
 `no check command in the repository instructions`. Skip an item of 2 to 4 when
 a template item or a default item already covers it, so that no check and no
 review shows twice.
+
+A template item that covers local or end-to-end testing, such as "Tested
+locally end to end", covers item 3. It is the tested-locally item: keep its
+text as written, and add ` (<ids>)` after it, as item 3 does. Add this suffix
+to no other template item. When no Acceptance row runs a driven surface, keep
+the template item unticked with the reason `the change touches no driven surface`.
 
 Tick an item (`- [x]`) only when its evidence is for the reviewed head that you
 push now:
 
 - a command item: Verification Results record a pass of that command on that
   head;
-- the tested-locally item: Verification Results record a pass of the `verify`
-  skill flow on that head;
+- the tested-locally item: Verification Results record a pass, on that head,
+  of each Acceptance row that it names. Run a row through a flow of the
+  project `verify` skill when a flow covers that row, and directly otherwise,
+  as the practices Research order says. A template item that names the
+  `verify` skill also needs each named row to run through a flow of that
+  skill;
 - the code-review item: `show <n>` reports `code=pass`, and the passing round
   reviewed that head;
 - a template item: a Verification Results entry or the code-review verdict for
-  that head proves it.
+  that head proves what its text says.
 
 Otherwise keep the item unticked, and end its line with ` - <reason>`, for
-example ``- [ ] Tested locally with the `verify` skill - the change touches no driven surface``.
+example ``- [ ] Tested locally end to end - the change touches no driven surface``.
+A template item that names the `verify` skill, after rows that ran without
+the skill, gets the reason `<ids> ran without the verify skill`, where `<ids>`
+lists those rows.
 A template item without proof gets the reason `not checked by the plan`.
 After each push to the linked branch while the pull request is open, also a
 push of current work before a block or a stall, build every tick again from

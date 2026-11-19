@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-17"
-  content_hash: "bd2a17cb087a28e1c2fa00c8b90973f1ac2c597cf25c4e846dd2a0f7210e1fca"
+  updated: "2026-11-19"
+  content_hash: "f3ebb92e32c21857d90016005e700fc456691d6c86b1721565a5a5730822adba"
 ---
 
 # Plans Workspace
@@ -39,11 +39,15 @@ Report its resolved path or that the plugin is unavailable.
 
 ## Classify
 
-Inspect the standard, routing nodes, root Plans section, reviewer wrappers, and
-pull-request template. Detect the template with the detection in
+Inspect the standard, routing nodes, root Plans section, reviewer wrappers,
+pull-request template, and project `verify` skill. Detect the template with the
+detection in
 [`references/pull-request-template.md`](references/pull-request-template.md).
 A missing or unusable template is a report item, not drift: name each
 `unusable` line. A detection error is not a missing template: report the error.
+Detect the skill with the Detect block in
+[`references/verify-skill-template.md`](references/verify-skill-template.md).
+A missing skill or a `verify unverified:` line is a report item, not drift.
 Use generated scaffolding outside frozen history to recognize legacy workspaces.
 
 | Class | Evidence | Action |
@@ -97,6 +101,13 @@ For audit, that report is final.
    `.github/pull_request_template.md` only on `target free`. On
    `target occupied`, report the entry that occupies the path and write
    nothing; the user resolves it. Never write through a symlink.
+7. Offer to create the project `verify` skill from
+   [`references/verify-skill-template.md`](references/verify-skill-template.md).
+   `plan-manager` runs the end-to-end Acceptance rows of a plan through its
+   flows. Run its Detect block first. On `verify skill: present` and no
+   `verify unverified:` line, make no change. Otherwise run its Create or
+   re-verify section. That section asks before each write, and it writes
+   nothing when the repository has no runnable surface.
 
 ## Migrate or refresh
 
@@ -133,8 +144,8 @@ Plan issues are the live records. Leave `docs/plans/finished/` frozen.
 ## Verification
 
 Check each changed section: standard pointer, docs routing, absence of a
-legacy `docs/CLAUDE.md`, root routing, both reviewer wrappers, and the
-pull-request template. If generated
+legacy `docs/CLAUDE.md`, root routing, both reviewer wrappers, the
+pull-request template, and the project `verify` skill. If generated
 content shrinks, account for each removed section in the canonical reference or
 record why it was obsolete.
 Do not discard project-owned rules. Verify links resolve in the installed plugin.
@@ -156,6 +167,12 @@ Run the template detection in
 It prints a usable template, or `pull-request template: none` only when the
 user declined the offer or an unusable entry occupies the target. Report an
 `ERROR` line as a failed check.
+
+Run the Detect block in
+[`references/verify-skill-template.md`](references/verify-skill-template.md).
+It prints `verify skill: present` and no `verify unverified:` line, or
+`verify skill: missing` only when the user declined the offer or the
+repository has no runnable surface.
 
 For migration, confirm each issue uses a user-restated title and goal, and
 read back its drafting state. Confirm no operation touched or inventoried

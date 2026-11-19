@@ -4,8 +4,8 @@ description: "Use when making a repository agent-first in one pass — root AGEN
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-11-18"
-  content_hash: "60100d155e1867ee7688f09c6217ec27ef42e89d21addf45921d90703adbdb03"
+  updated: "2026-11-19"
+  content_hash: "fb45c1cf5984924d3cac16e3b3f250607529b5fc3beea334a09eb33abd43e199"
 ---
 
 # Agent-First Setup
@@ -82,13 +82,11 @@ git ls-files -co --exclude-standard -- ':(glob)**/CLAUDE.md' | sed 's/^/legacy: 
 git ls-files -co -- ':(glob)**/CLAUDE.local.md' | sed 's/^/personal: /'
 git ls-files -co --exclude-standard -- ':(glob)**/AGENTS.md' | grep -v '^AGENTS\.md$' | sed 's/^/node: /'
 find .claude/skills -mindepth 1 -maxdepth 1 ! -type l 2>/dev/null | sed 's/^/not-a-symlink: /'
-test -f .agents/skills/verify/SKILL.md && echo "verify skill: present" || echo "verify skill: missing"
-grep -n 'not observed:' .agents/skills/verify/SKILL.md 2>/dev/null | sed 's/^/verify unverified: /'
 ```
 
-Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored. In the same shell, also run the detection block of [references/pull-request-template.md](references/pull-request-template.md) word for word: it defines the `pr_templates` function and prints its `pull-request template:` lines. It tells a usable template from an unusable entry, such as a broken symlink or an empty template folder, and prints `pull-request template: none` when no usable template exists. It needs git; outside git, its last line prints `ERROR`. Report that error. An error is not a missing template.
+Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored. In the same shell, also run the detection block of [references/pull-request-template.md](references/pull-request-template.md) word for word: it defines the `pr_templates` function and prints its `pull-request template:` lines. It tells a usable template from an unusable entry, such as a broken symlink or an empty template folder, and prints `pull-request template: none` when no usable template exists. It needs git; outside git, its last line prints `ERROR`. Report that error. An error is not a missing template. Also run the Detect block of [references/verify-skill-template.md](references/verify-skill-template.md) word for word: it prints `verify skill: present` or `verify skill: missing`, and one `verify unverified:` line for each result that no run has shown.
 
-If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line. A `verify unverified:` line is a command that has not shown its expected result: it failed (its mark ends in `; got <failure>`), or no run finished it. Step 2b then marks every result again and reruns every command. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
+If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when it shows `verify skill: present` and no `verify unverified:` line; on a `verify unverified:` line, Step 2b verifies the skill again. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
 
 ### Step 1 — Run `multi-tool-bridge`
 
@@ -106,30 +104,12 @@ In `audit` mode, run `context-tree audit` only.
 
 ### Step 2b — Create the project `verify` skill
 
-A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. The template, the surface recipes, and a worked example are in [references/verify-skill-template.md](references/verify-skill-template.md).
+A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. Follow [references/verify-skill-template.md](references/verify-skill-template.md): Step 0 already ran its Detect block, so run its Create or re-verify section with that output. Ask each question of that section through the harness question tool (see "Asking the user"). If the harness has no such tool, end the turn and report Step 2b as blocked.
 
-1. If `.agents/skills/verify/SKILL.md` exists and Step 0 printed no `verify unverified:` line, make no change and go to Step 2c. If Step 0 printed a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, and ask for approval through the harness question tool to mark every result again and run every command again. After approval, and before any command runs, write `not observed: expect <result>` on each result that holds no mark: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`. An older mark with no `expect <result>` part lost its expected result: take that result from the git history of the skill or ask the user, and write `not observed: expect <result>; got <the old failure line>`. When neither supplies the expected result, leave the mark as it is, so the skill stays unverified, and report the row. Then run step 7 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow.
-2. Find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of the template's "Surface recipes" table.
-3. If the repository has no runnable surface, write nothing. Record "no runnable surface" for the report and go to Step 2c.
-4. Fill the template for each surface. Use only commands that the repository defines or that the recipes name. Ask the user through the harness question tool for a missing start command, port, or test account. No run has shown a result yet, so write each expected result as `not observed: expect <result>`: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
-5. Print the draft `SKILL.md`, with its `not observed: expect` marks, and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval through the harness question tool. The approval covers the write and one run of each command, the prerequisite checks included.
-6. After approval, write `.agents/skills/verify/SKILL.md`. Then create the symlink and check it:
+- When the section makes no change, or reports "no runnable surface", record that for the report and go to Step 2c.
+- Step 2b is complete only when the section leaves the skill verified: each command ran and showed its expected result, and the skill holds no `not observed:` entry. A failed command stays in the report with its output.
 
-   ```bash
-   mkdir -p .claude/skills
-   ln -s ../../.agents/skills/verify .claude/skills/verify
-   test -f .claude/skills/verify/SKILL.md && echo "verify skill: linked" || echo "BROKEN: .claude/skills/verify"
-   ```
-
-7. Run each command of the new skill once, in order: the check command of each Prerequisites row, Start, every flow, and Stop. Compare the output of each command with the `expect <result>` part of its mark. Only after the command shows that result, remove the mark, so that the expected result stays. If a command fails or shows another result:
-   1. If Start ran, run the Stop and cleanup commands of the skill at once, before you report or ask. No process, port, or temporary folder from this run stays.
-   2. Keep the failed command in the skill. Do not remove it. Keep the expected part of its mark and put the failure after it: `not observed: expect <result>; got <first line of the failure>`. A `got` part from an earlier run gets the new line. The commands after it keep their marks.
-   3. Do not report the skill as verified. Name the failed command and its output in the report.
-   4. Ask the user through the harness question tool for the fix, for example a missing service, dependency, or test account. If the harness has no such tool, end the turn and report Step 2b as blocked.
-
-   Step 2b is complete only when each command ran and showed its expected result, and the skill holds no `not observed:` entry.
-
-In `audit` mode, run step 1 to step 3 only and record whether the skill exists, each `verify unverified:` row, or the surface that needs it.
+In `audit` mode, use the Step 0 output and run only step 3 and step 4 of that section, which write nothing. Record whether the skill exists, each `verify unverified:` row, or the surface that needs it.
 
 ### Step 2c — Offer the pull-request template
 

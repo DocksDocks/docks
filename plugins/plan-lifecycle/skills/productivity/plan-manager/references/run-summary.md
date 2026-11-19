@@ -40,8 +40,9 @@ Closes #<n>
 ```
 
 Fill the Checklist from the contract's Pull requests: the template items of
-the repository, then the required checks, the `verify` skill item, and code
-review. Use only top-level task items, so that GitHub shows `k of n tasks`.
+the repository, then the required checks, the tested-locally item with the IDs
+of its Acceptance rows, and code review. Use only top-level task items, so that
+GitHub shows `k of n tasks`.
 
 Copy each failure and limitation from Verification Results into Limits and
 failures. Report a check that partly failed as a failure with its cause, not as
