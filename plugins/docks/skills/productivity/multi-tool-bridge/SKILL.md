@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-19"
-  content_hash: "11f722ab3c7f968b2efff6eb06df2aa4030758ead5430800fa48408c636acdd4"
+  content_hash: "2e51925050720158b5e85ba03a9cc2bc664e55daa79670ae9c00b967496d3dcf"
 ---
 
 # Multi-Tool Agent Bridge
