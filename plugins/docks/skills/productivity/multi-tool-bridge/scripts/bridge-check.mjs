@@ -27,8 +27,9 @@
 //   `routing`, or `volatile`). The cause is on stderr.
 //   Paths are relative to the repository root, without a leading `./`. No listing enters
 //   node_modules. The CLAUDE.local.md listing, and every listing outside git, walks the
-//   folder, keeps only regular files, as `find -type f` does, and skips each .git,
-//   node_modules, vendor, dist, build, out, target, and .next folder.
+//   folder and skips each .git, node_modules, vendor, dist, build, out, target, and .next
+//   folder. The legacy and personal listings keep only regular files, as `find -type f`
+//   does; the AGENTS.md node listings keep symlinks.
 //
 // Exit status: 2 after an ERROR line, 1 for a usage error, otherwise 0.
 import fs from 'node:fs';
