@@ -46,13 +46,13 @@ Run these steps from the repository root. Run the Detect command right before st
 
 A plan step that runs these steps has the approval that the plan recorded for that step. That approval covers each write and each run. It does not answer a question about a missing fact, such as a start command or a test account.
 
-Right before each write of these steps, run the write gate with each path that the step writes, and write only when it prints nothing. On a `target occupied` line, report it, write nothing, and stop.
+Right before each write of these steps, run the write gate with each path that the step writes. Write only when the gate prints nothing and exits 0. A gate that prints a line or exits with a status other than 0 blocks the write: report the line or the status, write nothing, and stop.
 
 ```bash
 node <skill-dir>/scripts/verify-skill.mjs write-gate <path>...
 ```
 
-The gate refuses a path that is a symlink, and a path whose nearest existing folder cannot be entered or resolves outside the repository. It accepts `.claude/skills` as a symlink to `.agents/skills`, because that folder resolves inside the repository.
+The gate refuses a path that is a symlink, and a path that holds a `..` segment. It also refuses a path whose nearest existing folder cannot be entered, or resolves outside the repository through symlinks. It accepts `.claude/skills` as a symlink to `.agents/skills`, because that folder resolves inside the repository.
 
 1. On an `ERROR` line, report it, write nothing, and stop. On `verify link: occupied`, report the entry at `.claude/skills/verify`, write nothing, and stop. The user resolves it.
 2. On `verify skill: present` with a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, and ask for approval to mark every result again and run every command again. After approval, run the write gate with `.agents/skills/verify/SKILL.md`. Before any command runs, write `not observed: expect <result>` on each result that holds no mark: each Prerequisites row, `Ready when:`, each flow, and `Clean when:`. An older mark with no `expect <result>` part lost its expected result: take that result from the git history of the skill or ask the user, and write `not observed: expect <result>; got <the old failure line>`. When neither supplies the expected result, leave the mark as it is, so the skill stays unverified, and report the row. Then run step 9 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow. Then go to step 3.
@@ -61,7 +61,7 @@ The gate refuses a path that is a symlink, and a path whose nearest existing fol
 5. If the repository has no runnable surface, write nothing, report "no runnable surface", and stop.
 6. Fill the [Template](#template) for each surface. Use only commands that the repository defines or that the recipes name. Ask the user for a missing start command, port, or test account. No run has shown a result yet, so write each expected result as `not observed: expect <result>`: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
 7. Print the draft `SKILL.md`, with its `not observed: expect` marks, and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval. The approval covers the write and one run of each command, the prerequisite checks included.
-8. After approval, run the write gate with `.agents/skills/verify/SKILL.md` and `.claude/skills/verify`, and run this entry gate right before the write. Write only when both print nothing. On a `target occupied` line, report it, write nothing, and stop. The entry gate checks that a new skill overwrites nothing. It prints `target occupied: <path> exists` for `.agents/skills/verify` and for `.claude/skills/verify` when an entry is there, a dangling symlink included:
+8. After approval, run the write gate with `.agents/skills/verify/SKILL.md` and `.claude/skills/verify`, and run this entry gate right before the write. Write only when both gates print nothing and exit 0. A gate that prints a line, for example a `target occupied` line, or exits with a status other than 0 blocks the write: report the line or the status, write nothing, and stop. The entry gate checks that a new skill overwrites nothing. It prints `target occupied: <path> exists` for `.agents/skills/verify` and for `.claude/skills/verify` when an entry is there, a dangling symlink included:
 
    ```bash
    node <skill-dir>/scripts/verify-skill.mjs write-gate .agents/skills/verify/SKILL.md .claude/skills/verify

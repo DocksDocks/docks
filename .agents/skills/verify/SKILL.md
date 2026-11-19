@@ -124,10 +124,12 @@ afs=$root/plugins/docks/skills/productivity/agent-first-setup/scripts/agent-firs
 mtb=$root/plugins/docks/skills/productivity/multi-tool-bridge/scripts/bridge-check.mjs
 node "$afs" detect | grep -E '^(root AGENTS.md|pull-request template|verify)'; echo "exit=${PIPESTATUS[0]}"
 node "$afs" check | grep -E '^(FAIL|ERROR)'; echo "exit=${PIPESTATUS[0]}"
+node "$mtb" verify; echo "exit=$?"
 fixture=$(mktemp -d)
 git -C "$fixture" init -q
 printf '# Rules\n' > "$fixture/CLAUDE.md"
 (cd "$fixture" && node "$afs" detect | tail -n +2; echo "exit=${PIPESTATUS[0]}")
+(cd "$fixture" && node "$afs" check; echo "exit=$?")
 (cd "$fixture" && node "$mtb" verify; echo "exit=${PIPESTATUS[0]}")
 rm -r "$fixture"
 ```
@@ -138,7 +140,9 @@ Expected, in order:
 |---|---|
 | `detect` here | `root AGENTS.md: present`, `pull-request template: .github/pull_request_template.md (file)`, `verify skill: present`, `verify link: present`, then `exit=0` |
 | `check` here | No `FAIL` or `ERROR` line, then `exit=0` |
+| `verify` here | No output, then `exit=0` |
 | `detect` in the fixture | `root AGENTS.md: missing`, `.agents/skills: missing`, `.claude/skills: missing`, `legacy: CLAUDE.md`, `pull-request template: none`, `verify skill: missing`, `verify link: missing`, then `exit=0` |
+| `check` in the fixture | `FAIL C1 root AGENTS.md missing`, `FAIL C3 CLAUDE.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md: CLAUDE.md`, `FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)`, `FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)`, then `exit=0` |
 | `verify` in the fixture | `BROKEN: AGENTS.md missing`, `BROKEN: legacy CLAUDE.md still present: CLAUDE.md`, then `exit=0` |
 
 ## Failure signs
