@@ -14,11 +14,28 @@ import { SPAWN_TIMEOUT_MS } from "../lib/spawnTimeout";
 
 const CLI = cliEntry();
 const home = mkdtempSync(join(tmpdir(), "removed-names-"));
-const env = { ...process.env, HOME: home, AGENTS_DIR: join(home, ".agents") };
+// The CLI reads its home from USERPROFILE on Windows and from HOME elsewhere.
+const env = {
+  ...process.env,
+  HOME: home,
+  USERPROFILE: home,
+  AGENTS_DIR: join(home, ".agents"),
+};
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
+const HARNESS_FILES = [".claude", ".claude.json", ".codex"];
+
+/** Run the public CLI, then check that the refusal wrote no harness file. */
 function run(args: ReadonlyArray<string>) {
-  return spawnSync("bun", [CLI, ...args], { encoding: "utf8", env, timeout: SPAWN_TIMEOUT_MS });
+  const result = spawnSync("bun", [CLI, ...args], {
+    encoding: "utf8",
+    env,
+    timeout: SPAWN_TIMEOUT_MS,
+  });
+  for (const file of HARNESS_FILES) {
+    expect(existsSync(join(home, file)), `${args.join(" ")}: ${file}`).toBe(false);
+  }
+  return result;
 }
 
 describe("names removed by the omp-only cutover", () => {
@@ -82,9 +99,4 @@ describe("names removed by the omp-only cutover", () => {
     },
     SPAWN_TIMEOUT_MS,
   );
-
-  it("writes no Claude Code or Codex file into the home folder", () => {
-    expect(existsSync(join(home, ".claude"))).toBe(false);
-    expect(existsSync(join(home, ".codex"))).toBe(false);
-  });
 });

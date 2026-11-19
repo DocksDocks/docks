@@ -42,9 +42,10 @@ part of that change until the release.
 
 ### Files that stay on your machine
 
-Sync no longer reads or writes these files, and it does not remove them.
-Some of them can hold your own settings or entries. Open each file before
-you delete it, and keep or move what you added yourself.
+Sync no longer reads or writes these files, and it does not remove them; the
+last item of the list is the one exception. Some of them can hold your own
+settings or entries. Open each file before you delete it, and keep or move
+what you added yourself.
 
 Codex:
 
@@ -67,20 +68,27 @@ Claude Code:
   own settings, because sync merged the kit keys into your file).
 - `~/.claude/CLAUDE.md` and a `CLAUDE.md.bak` when one exists.
 - `~/.claude/bin/statusline.mjs`, `session-start.mjs`, and `notify.mjs`, and
-  `~/.claude/notification.mp3`. The hooks in `settings.json` call these
-  programs, so remove those hooks before you delete them.
-- The `showTurnDuration` and `mcpServers` keys that sync set in
-  `~/.claude.json` (the file holds your own Claude Code state; edit only
-  these keys).
-- The `ENABLE_CLAUDEAI_MCP_SERVERS` line that sync added to your shell
-  profile, such as `~/.bashrc`.
+  `~/.claude/notification.mp3`. The `statusLine` setting and the hooks in
+  `settings.json` call these programs, so remove that setting and those hooks
+  before you delete the programs.
+- The `showTurnDuration` key that sync set in `~/.claude.json`. Sync also
+  merged an empty `mcpServers` object into that file, so every server under
+  `mcpServers` is your own: keep them. The file holds your own Claude Code
+  state, so edit only `showTurnDuration`.
+- The `ENABLE_CLAUDEAI_MCP_SERVERS=false` setting that turned off the
+  claude.ai cloud connectors. On Linux and macOS, sync added it with a
+  `# docks-kit:` comment line to your shell profile, such as `~/.bashrc`. On
+  Windows, sync stored it in your user environment with `setx`. Check the
+  value before you remove it, because you can have set it yourself.
 - The Claude Code plugins and marketplaces that sync installed: remove them
   with the Claude Code CLI's plugin commands.
 - The language servers that sync installed with `npm install -g`
   (`intelephense`, `typescript-language-server`, `typescript`) and with
   `rustup component add rust-analyzer`.
-- The `~/.claude/skills/<name>` links of universal skills stay managed until
-  a later part of this release removes universal skills.
+- The exception: the `~/.claude/skills/<name>` links of universal skills.
+  `docks-kit sync agents` still repairs them, and `--prune` still removes the
+  links of kit-owned skills that SoT no longer lists, until a later part of
+  this release removes universal skills.
 
 ## 2026-11-19 - docks-kit 0.22.29: omp 19.0.0 support
 
