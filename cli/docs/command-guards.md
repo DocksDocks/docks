@@ -128,9 +128,9 @@ no rule for `git commit`, `git am`, or `git pull`.
 | Exception for one form | The kit ships no omp prompt rule, so it needs no exception | An allow never beats a matching ask, so every `git rm` asks | An allow never beats a matching prompt, so every `gio trash` asks |
 | Pattern | Glob on the whole line and on each quote-stripped segment; `*` crosses spaces; no literal `*` | Glob on each subcommand as written, quotes included; `\*` is a literal `*` | Exact argv tokens from the start, with alternatives |
 | `rm` by path (`/bin/rm`) | Matched by `*/rm` forms | Matched by `*/rm` forms | Resolved to the `rm` rules |
-| Leading assignment `X=1 cmd` | Part of the line | Stripped before deny and ask rules | A script with it is not split |
+| Leading assignment `X=1 cmd` | Deny and prompt rules also match each segment without its leading assignments (omp 19.0.0) | Stripped before deny and ask rules | A script with it is not split |
 | What an ask means | The kit ships no ask; a user prompt rule asks a person in the main session, and a subagent rejects it | A person | The `auto_review` reviewer subagent |
-| Critical-command check | Turns a prompt into an allow under yolo, so the kit denies those shapes | Asks or denies for an `rm` of a critical path | Prompts for a forced `rm` that no rule matches |
+| Critical-command check | Runs after deny and prompt rules and replaces only an allow or no match; yolo then runs the command, so the kit denies those shapes | Asks or denies for an `rm` of a critical path | Prompts for a forced `rm` that no rule matches |
 
 ## How an agent removes files
 
@@ -263,11 +263,14 @@ omp has a built-in check for critical commands. For example, it flags:
 - an `rm` with an `r` or `f` option before an absolute path;
 - `sudo rm`, also when `sudo` is called by its path.
 
-For a critical command, omp returns a bare safety override before it returns
-a matching prompt rule. Under omp's default `tools.approvalMode: yolo`,
-omp ignores a bare override, so the command runs. This applies in subagents
-too.
-Only a deny rule stops a critical command (`omp://approval-mode.md`).
+omp 19.0.0 checks deny and prompt rules first, then its critical patterns, then
+allow rules. A critical command that no deny or prompt rule matches gets a bare
+safety override, which also replaces a matching allow. Under omp's default
+`tools.approvalMode: yolo`, omp ignores a bare override, so the command runs.
+This applies in subagents too. A prompt rule would ask a person in the main
+session, but a subagent rejects every prompt, so the kit ships none. Only a
+deny rule stops a critical command in every session (`BashTool.approval` in
+the v19.0.0 source).
 
 The kit therefore denies every `rm` shape that the check can flag:
 
@@ -284,11 +287,14 @@ the home directory, and no glob can express "inside the temporary directory".
 ## Matching rules per tool
 
 - **omp**:
-  - The rules are ordered, and the first match wins.
+  - For a simple command, the rules are ordered, and the first match wins.
   - `*` matches any text, spaces included, and no escape spells a literal `*`.
   - Deny rules test the whole line and each segment between `;`, `&&`, `|`,
     and similar operators, with quotes and escapes removed. So
-    `rm -rf "$HOME"` matches `rm * $HOME`.
+    `rm -rf "$HOME"` matches `rm * $HOME`. A segment also matches without its
+    leading `NAME=value` words.
+  - For a line with shell control, a deny that matches any segment wins over
+    a prompt rule that comes first.
   - Allow rules apply only to a simple command.
   - The kit ships no prompt rule. It lists rules as deny, then the `trash *`
     allow.
@@ -432,8 +438,9 @@ Each check below is safe, because the shell never reaches `rm`.
 ## Sources
 
 - omp: `omp://tools/bash.md`, `omp://approval-mode.md`, and the
-  `@oh-my-pi/pi-coding-agent` 18.17.0 source `src/tools/bash.ts`
-  (`CRITICAL_BASH_PATTERNS`, `BashTool.approval`).
+  `@oh-my-pi/pi-coding-agent` 19.0.0 source `src/tools/bash.ts`
+  (`CRITICAL_BASH_PATTERNS`, `BashTool.approval`). `omp://approval-mode.md`
+  still describes the 18.17.0 order; the source is what runs.
 - Claude Code: https://code.claude.com/docs/en/permissions and
   https://code.claude.com/docs/en/permission-modes
 - Codex: https://learn.chatgpt.com/docs/agent-configuration/rules,
