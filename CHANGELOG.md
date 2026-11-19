@@ -90,6 +90,38 @@ Claude Code:
   links of kit-owned skills that SoT no longer lists, until a later part of
   this release removes universal skills.
 
+### Fixed
+
+- The omp trigger rules no longer freeze an omp session while a large tool
+  call streams (plan #187). omp 19.0.0 tests every rule condition on the
+  tool-call buffer at each streamed delta, on its main thread. Each condition
+  started with a lookbehind that walked back over the whole buffer from every
+  position. On a 20 KB bash command or eval cell with many `\"` escapes, one
+  pass of all conditions took 3.8 to 5.8 s in Bun, and omp logged
+  `ui.loop-blocked` records of up to 5.6 s.
+- Past the JavaScriptCore match limit, such a scan also reported no match, so
+  a rule did not fire on a large call. For example, `git-safety.md` stayed
+  quiet after 4.7 s on a 21 KB eval cell that ends with
+  `sh("git reset --hard HEAD")`. Now it fires in less than 0.1 s.
+- Each of the 69 conditions now starts its match at the `"command"` or
+  `"code"` key and walks the string forward. Every fire and quiet row of
+  `cli/test/unit/ompTriggerRules.test.ts` keeps its outcome. One pass of all
+  conditions on a 20 KB buffer takes 6 to 9 ms in Bun. omp's `Matched:`
+  excerpt now starts at the `"command"` or `"code"` key.
+- Two guards in `cli/test/unit/ompTriggerRules.test.ts` keep new conditions
+  linear. The shape guard fails when a condition does not start with the
+  forward key prefix, or has a lookbehind with `*`, `+`, or `{n,}` anywhere
+  but as its last element, right after a `(?=...)` trigger lookahead. The Bun
+  backstop (`cli/test/lib/ompTriggerBackstop.ts`) fails when one pass over a
+  20 KB or 30 KB buffer takes 250 ms or more, when `git reset --hard` at the
+  end of a 20 KB cell does not fire, or when a condition grows faster than
+  linear with the buffer size. The `command-guards` topic states the rule for
+  new conditions, and the project `verify` skill adds flow V5, which runs the
+  real `omp ttsr test` on the 21 KB cell.
+- To get the fixed rules, run `./docks-kit sync omp`. Then run
+  `/reload-plugins` in each running omp session, or start a new session. A
+  running session keeps the old rules until you do one of the two.
+
 ## 2026-11-19 - docks-kit 0.22.29: omp 19.0.0 support
 
 ### Changed
