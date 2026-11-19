@@ -18,7 +18,7 @@ Rosetta reports `x86_64` and gets the unsupported-host message, so run
 docks-kit from a native arm64 shell.
 
 EngineNative is the only supported engine on supported hosts.
-When `DOCKS_KIT_ENGINE=bash` is set, the commands that run the engine (`sync`,
-`model`, `toolchain`, `status`) exit 2 with the removed-engine message. The
+When `DOCKS_KIT_ENGINE=bash` is set, the commands that run the engine (`sync`
+and `toolchain`) exit 2 with the removed-engine message. The
 message points at the `bash-engine-final` tag for historical recovery. Other
 commands ignore the variable.

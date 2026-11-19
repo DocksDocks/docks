@@ -1,33 +1,29 @@
 ---
 name: toolchain-context
-description: "Use when modifying cli/src/commands/toolchain.ts MANAGED; cli/src/engine-native/modes.ts modeToolchain; cli/src/engine-native/toolchain.ts report, installedVersion, belowFloor, latestUpstream, or outdatedReport; cli/src/engine-native/claudeLsp.ts upgradeLspServers; cli/src/engine-native/bun.ts bunBootstrap; SoT/toolchain.json tool entries, verified pins, or upstream fields; or the Bun managed install. Not for settings merge (use settings-merge-context), plugin or LSP first-install passes (use plugin-bootstrap-context), or the skills-cli and pi-intercom install passes (use universal-skills-context or omp-sync-context)."
+description: "Use when modifying cli/src/commands/toolchain.ts MANAGED; cli/src/engine-native/modes.ts modeToolchain; cli/src/engine-native/toolchain.ts report, installedVersion, belowFloor, latestUpstream, or outdatedReport; cli/src/engine-native/bun.ts bunBootstrap; SoT/toolchain.json tool entries, verified pins, or upstream fields; or the Bun managed install. Not for the skills-cli and pi-intercom install passes (use universal-skills-context or omp-sync-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
   source_files:
     - path: cli/src/commands/toolchain.ts
-      lines: "1-80"
+      lines: "1-72"
     - path: cli/src/engine-native/modes.ts
-      lines: "1-163"
+      lines: "1-67"
     - path: cli/src/engine-native/toolchain.ts
-      lines: "1-288"
-    - path: cli/src/engine-native/claudeSync.ts
-      lines: "1-89"
+      lines: "1-257"
     - path: cli/src/engine-native/bun.ts
       lines: "1-120"
-    - path: cli/src/engine-native/claudeLsp.ts
-      lines: "1-300"
     - path: cli/src/engine-native/deps.ts
-      lines: "1-297"
+      lines: "1-229"
     - path: cli/src/engine-native/kitDb.ts
       lines: "1-256"
     - path: cli/src/engine-native/ompSync.ts
       lines: "1-155"
     - path: cli/src/engine-native/sharedTypes.d.ts
-      lines: "1-63"
+      lines: "1-23"
     - path: SoT/toolchain.json
-      lines: "1-35"
-  updated: "2026-11-07"
+      lines: "1-22"
+  updated: "2026-11-19"
 ---
 
 # Toolchain Verified-Version Floors
@@ -43,7 +39,7 @@ Version probes must be best-effort. A missing command or parse miss must return
 an empty or unknown version and let `report` continue; it must not abort
 unrelated sync work.
 verify: `bunx vitest run cli/test/unit/toolchain.test.ts -t "unreadable version as unknown"`
-(a stub `claude --version` that exits 9 must report `unknown` and exit 0).
+(a stub `git --version` that exits 9 must report `unknown` and exit 0).
 </constraint>
 
 <constraint>
@@ -52,9 +48,9 @@ the exact `verified` pin from `SoT/toolchain.json`. The exemptions and their
 reasons live in that file's `$comment` (supply-chain stance). Any new install
 surface, a new marketplace or plugin source included, needs a manifest pin first.
 verify: `grep -rn '"verified")' cli/src/engine-native` lists every `verified`
-read; each install site (`bun.ts`, `claudeLsp.ts`, `skillsInstall.ts`,
-`ompPlugins.ts`) must appear there. `deps.ts` also appears: its Bun install
-hint prints the same pin and installs nothing.
+read; each install site (`bun.ts`, `skillsInstall.ts`, `ompPlugins.ts`) must
+appear there. `deps.ts` also appears: its Bun install hint prints the same pin
+and installs nothing.
 verify: `bunx vitest run cli/test/unit/deps.test.ts -t "pinned download-then-run Bun hint"`.
 </constraint>
 
@@ -68,10 +64,9 @@ verify: `bunx vitest run cli/test/unit/deps.test.ts -t "pinned download-then-run
   alone.
 - `floor` is the minimum acceptable version. `report` marks an older install
   `below-floor`, and `toolchain.ts belowFloor` also gates the
-  typescript-language-server install and the `toolchain ensure bun` warning.
-  A row's `note` says where its floor comes from.
-  verify: `bunx vitest run cli/test/unit/toolchain.test.ts -t "below the kit floor"`
-  and `bunx vitest run cli/test/unit/lspNodeFloor.test.ts`.
+  `toolchain ensure bun` warning. A row's `note` says where its floor comes
+  from.
+  verify: `bunx vitest run cli/test/unit/toolchain.test.ts -t "below the kit floor"`.
 - `verified` is the kit-tested version shown in the doctor table and used for
   exact kit-driven installs.
 - `pinnable` marks a managed tool whose bootstrap can install `verified` by
@@ -98,10 +93,9 @@ verify: `bunx vitest run cli/test/unit/toolchain.test.ts -t "engine toolchain ve
 2. `latestUpstream` reads the kit cache (`kitDb.ts readCache`, key
    `upstream:<tool>`, max age `toolchain.ts UPSTREAM_CACHE_MS`) unless
    `--refresh` is set.
-3. On a miss it reads npm `latest`, the newest npm release on `upstream.line`
-   (packument with the install-v1 `Accept` header), or the GitHub latest
-   release tag with `tagPrefix` stripped. `GITHUB_TOKEN` or `GH_TOKEN` adds a
-   bearer token.
+3. On a miss it reads the npm registry `latest` version, or the GitHub latest
+   release tag with `tagPrefix` stripped (a tag without that prefix fails the
+   lookup). `GITHUB_TOKEN` or `GH_TOKEN` adds a bearer token.
 4. Only a successful lookup is cached. A failure prints
    `lookup failed: <reason>` in the row, and the command still exits 0.
 5. `isNewer(latest, verified)` sets `newer`; anything else is `current`.
@@ -111,38 +105,11 @@ stays offline.
 verify: `bunx vitest run cli/test/unit/toolchainOutdated.test.ts -t "toolchain outdated"`
 (failed lookup still exits 0; a transport failure is retried, not cached).
 
-## Upgrade
-
-`toolchain upgrade [--dry-run]` runs `modeToolchain` -> `claudeLsp.ts
-upgradeLspServers`.
-
-1. `deps.ts npmGlobalVersions` (`npm ls -g`) decides which `claudeLsp.ts
-   NPM_SERVERS` packages npm owns.
-2. An npm-owned package below `verified` joins one exact
-   `npm install -g <pkg>@<verified>` call. A package at or above its pin
-   stays.
-3. A PATH binary that npm does not own is skipped with a warning naming its
-   path. A missing package stays missing: `sync claude` owns first installs.
-4. `typescript-language-server` is skipped below the `node` floor, the same
-   gate as the sync install.
-5. A PATH copy outside `npm prefix -g` gets a warning; only the npm copy moves.
-   The check follows links (`realpathSync`) and accepts only a file inside
-   `<prefix>/lib/node_modules/<pkg>` (POSIX) or a shim in `<prefix>`
-   (Windows). Any other file under the prefix, such as a distro binary under
-   a `/usr` prefix, still warns.
-6. A failed npm call exits 1. After the install, a fresh `npm ls -g` (new
-   executor object, because the inventory is memoized) must show every pin,
-   or the command exits 1.
-
-verify: `bunx vitest run cli/test/unit/toolchainUpgrade.test.ts`
-(includes "never downgrades a package above its pin" and "reports an error when
-npm exits 0 but the pin did not land").
-
 ## Managed Install
 
 | Tool | Owner | Notes |
 |------|-------|-------|
-| `bun` | `bun.ts bunBootstrap, per-engine-run memo` | Resolves an existing Bun or download-then-runs the pinned installer once per EngineNative invocation; every caller shares the memoized result, the Claude runtime (`claudeSync.ts claudeSync`, Bun bootstrap before the settings merge) included. |
+| `bun` | `bun.ts bunBootstrap, per-engine-run memo` | Resolves an existing Bun or download-then-runs the pinned installer once per EngineNative invocation; every caller shares the memoized result: `modes.ts modeToolchain` (`toolchain ensure bun`) and `ompSync.ts ompSync` (Bun bootstrap before the omp file deploys). |
 
 verify: `grep -rn 'bunBootstrap(' cli/src/engine-native` lists the callers;
 `bunx vitest run cli/test/unit/bun.test.ts -t "per-run Bun bootstrap"`.
@@ -161,8 +128,8 @@ verify: `grep -rn 'bunBootstrap(' cli/src/engine-native` lists the callers;
   Unprobed: no test fails on a new `modeToolchain` case that `MANAGED` lacks.
   Compare both lists by hand (verify: `grep -n "MANAGED = " cli/src/commands/toolchain.ts`
   and `grep -nE 'case "|managed tools only' cli/src/engine-native/modes.ts`).
-- Installer downloads and npm global packages are supply-chain sensitive. Bump
-  `verified` only after testing the release.
+- Installer downloads and pinned npm and `omp install` packages are supply-chain
+  sensitive. Bump `verified` only after testing the release.
 - The public CLI reaches Bun bootstrap only after the supported-host check
   (`engine.ts requireSupportedHost`).
   `bunBootstrap` checks curl only when Bun is actually missing.

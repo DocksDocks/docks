@@ -20,13 +20,13 @@ metadata:
     - path: SoT/.agents/skills.txt
       lines: "1-3"
     - path: SoT/toolchain.json
-      lines: "1-35"
+      lines: "1-22"
     - path: cli/src/engine-native/os/posix.ts
-      lines: "1-77"
+      lines: "1-39"
     - path: cli/src/engine-native/os/windows.ts
-      lines: "1-181"
+      lines: "1-135"
     - path: cli/src/engine-native/syncDispatch.ts
-      lines: "1-321"
+      lines: "1-290"
   updated: "2026-11-07"
 ---
 

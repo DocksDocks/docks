@@ -1,49 +1,45 @@
 # Flag reference
 
-Convention: global flags are unprefixed; anything touching one tool's
+Convention: global flags are unprefixed; a flag that touches one tool's
 deployed config is `--<tool>-<setting>`.
 
 ## Targets (positional)
 
 ```
 docks-kit sync                      # stored harness selection
-docks-kit sync claude               # one
-docks-kit sync claude agents        # two
-docks-kit sync omp                  # opt-in harness
+docks-kit sync omp                  # one
+docks-kit sync agents omp           # two
 ```
 
-Positional targets are `claude`, `agents`, and `omp`. A flag-less
-`sync` deploys the per-machine harness selection stored in
-`~/.docks-kit/kit.db`. A missing selection or an unreadable store selects
-`claude` and `agents`, and never selects `omp`. Choose the stored selection
-with `docks-kit harnesses`. With no stored selection, its picker pre-ticks all
-three harnesses, `omp` included; a flag-less `sync` does not change until the
-picker saves a selection. In the picker, Enter or Space ticks or unticks the
-harness under the cursor, Enter on the Save row stores the selection, and
-Escape leaves it unchanged.
+Positional targets are `agents` and `omp`. A flag-less `sync` deploys the
+per-machine harness selection stored in `~/.docks-kit/kit.db`. A missing
+selection or an unreadable store selects `agents` and `omp`. Choose the stored
+selection with `docks-kit harnesses`. With no stored selection, its picker
+pre-ticks both harnesses; a flag-less `sync` does not change until the picker
+saves a selection. In the picker, Enter or Space ticks or unticks the harness
+under the cursor, Enter on the Save row stores the selection, and Escape
+leaves it unchanged.
 
 ## Global flags
 
 | Flag | Effect |
 |------|--------|
 | `--dry-run` | Preview without applying; takes no sync lock and no folder lock |
-| `--reconcile` | Settings layer reconciled toward SoT (SoT keys win; user-only keys preserved; permissions arrays replaced) |
-| `--prune` | Uninstall kit-managed installs not in SoT: plugins, marketplaces, and the universal skills that `~/.agents/.kit-owned-skills` names |
-| `--skip-plugin-refresh` | Install missing Claude and omp plugins but skip refresh-only updates |
-| `--verbose` / `-v` | Also print no-op confirmations (already in sync, up to date, left as-is); accepted on `sync`, `model`, and `toolchain` |
+| `--prune` | Remove the kit-managed universal skills that `~/.agents/.kit-owned-skills` names and SoT no longer lists |
+| `--skip-plugin-refresh` | Install missing omp plugins but skip refresh-only updates |
+| `--verbose` / `-v` | Also print no-op confirmations (already in sync, up to date, left as-is); accepted on `sync` and `toolchain` |
 
 ## Environment overrides
 
 | Variable | Effect |
 |----------|--------|
-| `DOCKS_KIT_SYNC_CONCURRENCY=1\|2\|3` | Maximum selected sync pipelines running at once. Default `3`; use `1` for serial golden/debug execution. Invalid values fail `sync` with exit 2 but do not affect `model` or `toolchain`. |
-| `DOCKS_KIT_SYNC_LOCK_WAIT_MS=<ms>` | Time that `sync`, a `model` write, and `omp --fast` wait for another sync to release a sync lock. A non-negative safe integer in milliseconds (at most `9007199254740991`); unset or empty means `120000` (120 s). Any other value prints `DOCKS_KIT_SYNC_LOCK_WAIT_MS must be a non-negative safe integer` and exits 2. |
+| `DOCKS_KIT_SYNC_CONCURRENCY=1\|2\|3` | Maximum selected sync pipelines running at once. Default `3`; use `1` for serial golden/debug execution. Invalid values fail `sync` with exit 2 but do not affect `toolchain`. |
+| `DOCKS_KIT_SYNC_LOCK_WAIT_MS=<ms>` | Time that `sync` and `omp --fast` wait for another sync to release a sync lock. A non-negative safe integer in milliseconds (at most `9007199254740991`); unset or empty means `120000` (120 s). Any other value prints `DOCKS_KIT_SYNC_LOCK_WAIT_MS must be a non-negative safe integer` and exits 2. |
 
 ## Sync lock
 
-`sync` and `model <tool> <value>` hold the lock
-`~/.cache/docks-kit/sync-lock.db` while they run, so two runs never write the
-same files at once.
+`sync` holds the lock `~/.cache/docks-kit/sync-lock.db` while it runs, so two
+runs never write the same files at once.
 
 - A run waits up to 120 s for another run to release the lock
   (`DOCKS_KIT_SYNC_LOCK_WAIT_MS` changes the wait). It then prints
@@ -78,26 +74,10 @@ same files at once.
   wait and the held line are those of a sync.
 - A run with `--dry-run`, `-h`, or `--help` takes no lock. A dry run through
   the `DRY_RUN=1` env global of the private `native-raw` engine channel takes
-  no lock either. `model <tool>` without a value only reads, so it takes no
-  lock.
+  no lock either.
 - The lock goes when the run ends, also when the process is killed.
 - A held lock also delays the error of an invalid argument until the wait
   ends.
-
-## Per-tool flags
-
-| Flag | Effect |
-|------|--------|
-| `--claude-model=<m>` | Deploy-time modifier: deployed model (aliases or full claude-* IDs; `default` unsets) |
-| `--claude-effort=<level>` | Deploy-time modifier: `effortLevel`; valid `low`, `medium`, `high`, `xhigh`, or `default` (Claude SoT: `high`) |
-| `--claude-advisor=<state>` | Deploy-time modifier: advisor `on`, `off`, or `default` (SoT off/unset) |
-| `--claude-compact-window=<n>` | Deploy-time modifier: autocompact window in tokens (`680000` or `680k`) |
-| `--claude-permissive` | Deploy-time modifier: empty permissions.ask/deny (sandboxes) |
-| `--claude-plugin=<name>` | Sticky opt-in plugin (known: supabase, n8n); comma-separate for several |
-
-Bare model, effort, or advisor modifiers print the relevant valid-value catalog
-and exit 2. A modifier for a target not selected by the positional arguments is
-ignored with a warning.
 
 ## `omp` session flags
 
@@ -159,9 +139,5 @@ Old flags exit with a rename hint — there is no compat behavior.
 
 | Old | New |
 |-----|-----|
-| `--claude` / `--agents` | positional `claude` / `agents` |
-| `--force` | `--reconcile` |
+| `--agents` / `--omp` | positional `agents` / `omp` |
 | `--remove-plugins` | `--prune` |
-| `--680k` | `--claude-compact-window=680k` |
-| `--permissive` | `--claude-permissive` |
-| `--supabase` / `--n8n` | `--claude-plugin=supabase` / `--claude-plugin=n8n` |

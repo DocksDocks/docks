@@ -39,7 +39,7 @@ const TOPICS: Record<string, { summary: string; body: string }> = {
     body: ompContext,
   },
   "command-guards": {
-    summary: "Deny, ask, and allow tiers for destructive shell commands in omp",
+    summary: "Deny and allow rules for destructive shell commands in omp",
     body: commandGuards,
   },
 };

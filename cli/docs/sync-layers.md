@@ -1,44 +1,13 @@
 # Sync layers
 
-`docks-kit sync [claude] [agents] [omp]` — targets are positional
-words; no target means this machine's harness selection in
-`~/.docks-kit/kit.db`. The default is `claude agents`, and
-`docks-kit harnesses` changes it.
-
-## claude (→ ~/.claude, ~/.claude.json, shell rc)
-
-Order matters — runtime readiness and settings form one transaction:
-
-1. Resolve/bootstrap pinned Bun, materialize the sentinel settings template,
-   and prepare the merged settings bytes without mutation. If Bun remains
-   unavailable, omit only the new runtime pointers and preserve legacy ones.
-2. When ready, write `bin/statusline.mjs`, `bin/session-start.mjs`,
-   `bin/notify.mjs`, and `notification.mp3`; deploy CLAUDE.md; atomically commit
-   settings.
-3. **settings.json merge semantics** — additive: SoT keys win, permissions arrays are
-   unioned, user-only keys survive. `--reconcile` replaces permissions arrays
-   wholesale instead.
-4. **Removed-artifact pruning** — prune old shell assets, the Stop hook, stale
-   kit-owned settings, retired kit-owned plugin enablement, and every
-   manifest-listed kit-owned `~/.local/bin` command. A flag-less sync removes
-   `advisorModel`; an explicit advisor state excludes only that key so the
-   modifier owns it.
-5. **Deploy-time modifiers** (`--claude-compact-window`, `--claude-permissive`,
-   `--claude-model`, `--claude-effort`, `--claude-advisor`) — deployed file only.
-6. ~/.claude.json (showTurnDuration, user-scoped MCP servers) and connector env
-   export.
-7. **Plugins** — seven idempotent passes via the `claude plugin` CLI
-   (marketplaces → install → update → [--prune: uninstall/remove] → re-assert
-   SoT enabled-state). Optional opt-ins via `--claude-plugin=<name>`.
-8. LSP server binaries (npm globals plus the rust-analyzer rustup component).
-
-The statusline reads Claude's native `rate_limits`. There is no OAuth request,
-usage cache, jq/curl runtime dependency, or Stop fetch hook.
+`docks-kit sync [agents] [omp]` — targets are positional words; no target
+means this machine's harness selection in `~/.docks-kit/kit.db`. The default
+is `agents omp`, and `docks-kit harnesses` changes it.
 
 ## agents (→ ~/.agents/skills, ~/.claude/skills symlinks)
 
-`npx skills add` per missing manifest slug, Claude symlink healing, and the
-kit-managed snapshot that `--prune` reconciles against.
+`npx skills add` per missing manifest slug, `~/.claude/skills` symlink
+healing, and the kit-owned record that `--prune` removes against.
 
 ## omp (→ resolved agent dir, intercom root)
 
@@ -49,8 +18,8 @@ deployed-only keys survive; config.yml also drops stale slash-bearing
 config.yml `bash.patterns`: the merge keeps user rules and groups all rules as
 kit deny, user deny, user prompt, kit prompt (the kit ships none since 0.22.8),
 other user rules, and kit allow, so no allow loosens a deny or a prompt (see
-`docks-kit docs command-guards`). After each merge, every sync (no
-`--reconcile` needed) force-prunes the `ompRemovals.ts` retired-key inventory:
+`docks-kit docs command-guards`). After each merge, every sync (no flag
+needed) force-prunes the `ompRemovals.ts` retired-key inventory:
 the retired kit `bash.patterns` rules in `OMP_RETIRED_BASH_RULES` (exact
 `match` and `approval` pairs, including the 492 former kit prompt rules
 retired in 0.22.8), config.yml keys whose deployed value still equals the value the kit used to
@@ -149,8 +118,7 @@ into `<agent directory>/intercom`. Otherwise it goes into
 `$PI_CODING_AGENT_DIR/intercom` when that variable is set, else
 `~/.pi/agent/intercom`.
 
-## Reconcile flags
+## Prune flag
 
-- `--reconcile` — settings layer: SoT-declared keys win; user-only preserved.
-- `--prune` — plugins + marketplaces + kit-managed skills not in SoT are removed.
-- Combine for a full reset to the SoT's kit-managed scope.
+- `--prune` — the universal skills that `~/.agents/.kit-owned-skills` names
+  and SoT no longer lists are removed.

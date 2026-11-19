@@ -9,7 +9,7 @@ Store the selection and the omp session model in the SQLite store
 Resolve that path from the engine home with `kitDb.ts kitDbFile`.
 Open the store only through `kitDb.ts withKitDb`, which applies the migrations.
 Append a new migration to `kitDb.ts MIGRATIONS`; never edit a shipped entry.
-Normalize entries into `claude`, `agents`, and `omp` order, and drop an unknown name.
+Normalize entries into `agents` and `omp` order, and drop an unknown name, such as a harness that an older kit stored.
 Reject an empty or wholly unknown write.
 Write the state directory with mode `0700`.
 Chmod the database file to mode `0600`.
@@ -21,9 +21,8 @@ Each table has one writer, so a write to one key cannot drop the other.
 
 `harnesses.ts readHarnessSelection` treats a missing, corrupt, or too-new store
 as no stored selection.
-Resolve no stored selection to `claude` and `agents`.
+Resolve no stored selection to `DEFAULT_SELECTION` (`agents` and `omp`).
 A stored selection that holds only unknown names also counts as no stored selection.
-Keep omp opt-in when no state exists.
 Let explicit positional targets override the stored selection.
 
 `sync` never prompts for a selection.
@@ -33,7 +32,7 @@ It reads the store through `harnesses.ts loadHarnessSelection`.
 On a corrupt or too-new store, `commands/harnesses.ts harnessesCommand` exits 1.
 It prints no selection and opens no picker.
 Off a terminal, with a readable store, that command only prints the current selection.
-With no stored selection, its picker pre-ticks every harness in `HARNESSES`, omp included.
+With no stored selection, its picker pre-ticks `DEFAULT_SELECTION`, which is every harness in `HARNESSES`.
 The pre-tick changes no stored state until the user saves the picker.
 
 Every `docks-kit omp` launch writes a run overlay under `kitCacheDir`;
@@ -69,7 +68,7 @@ Do not claim that the launcher controls these paths, which can still select a pa
 `cli/docs/omp-models.md` `### Model selection outside the launcher` owns the list.
 Anchor input checks at `cli/src/commands/omp.ts` — `rejectedForwardedFlag` and `forwardedProfile` — the rejected model flags and the candidate profiles, scanned past `--`.
 Anchor the launch at `ompOverlay.ts` — `buildOmpArgs` and `ompChildEnvironment` — `launch` first, the explicit `--model`, the model variables, and the `PI_CONFIG_FILES` append.
-Anchor resolution at `parseArgs.ts` — `applyDefaultSelection` — explicit target precedence and legacy fallback.
+Anchor resolution at `parseArgs.ts` — `applyDefaultSelection` — explicit target precedence and the default selection.
 Anchor dispatch at `syncDispatch.ts` — `engineSync` omp branch — selected pipeline execution.
 
 
@@ -81,7 +80,7 @@ Verify the store and the selection:
 `bunx vitest run cli/test/unit/harnessesCommand.test.ts -t "fails with the upgrade hint when the store has a newer schema"`,
 `bunx vitest run cli/test/unit/harnessSelection.test.ts -t "leaves no stale level behind when a level-free model overwrites a levelled one"`,
 `bunx vitest run cli/test/unit/harnessesCommand.test.ts -t "does not open the picker when stdin is not a terminal"`,
-and `bunx vitest run cli/test/unit/targetGrammar.test.ts -t "keeps an explicit target after a modifier ahead of a stored selection"`.
+and `bunx vitest run cli/test/unit/targetGrammar.test.ts -t "keeps an explicit target after a flag ahead of a stored selection"`.
 
 Verify the launcher and the overlay:
 `bunx vitest run cli/test/unit/ompCommand.test.ts -t "rejects a model flag after a forwarded"`,

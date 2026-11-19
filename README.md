@@ -5,7 +5,7 @@ Truth (SoT)** directories deploy to each tool's user-config location. Clone
 once to get a consistent AI-assisted environment on supported Linux, macOS,
 and Windows machines. Tuned for **token efficiency without sacrificing quality**.
 
-Supported harnesses: **Claude Code** and **Oh My Pi (`omp`)**.
+Supported harness: **Oh My Pi (`omp`)**.
 The kit also deploys [agentskills.io](https://agentskills.io) universal skills.
 
 ## Quick start
@@ -16,7 +16,7 @@ cd ~/projects/public
 ./docks-kit harnesses       # choose this machine's flag-less sync harnesses
 ./docks-kit sync            # deploy this machine's harness selection
 ./docks-kit sync omp        # deploy omp explicitly
-./docks-kit status          # doctor view: drift, toolchain, plugins, skills
+./docks-kit toolchain       # doctor view: verified-version floors for external tools
 ```
 
 POSIX hosts use the `./docks-kit` launcher on Linux x64 and arm64 and on macOS
@@ -44,18 +44,16 @@ launcher and installer use Invoke-WebRequest.
 ## CLI
 
 ```text
-docks-kit sync [claude] [agents] [omp]          deploy explicit targets or the machine selection
+docks-kit sync [agents] [omp]                   deploy explicit targets or the machine selection
 docks-kit harnesses                             view or change this machine's selection
 docks-kit update [--no-sync]                    self-update the kit (autodetects checkout vs global install), then sync
-docks-kit model claude [value]                  get/set the DEPLOYED model (TTY picker)
-docks-kit models [claude|omp] [--refresh]       live catalogs for enabled harnesses (`--json`)
 docks-kit omp [--model <m>|--pick] [args...]    one omp session on a free model, nothing deployed changes
 docks-kit omp --fast                            toggle omp fast mode for OpenAI/Codex models, then exit
-docks-kit toolchain [check|ensure <tool>|outdated|upgrade]  verified-version floors for external tools
-docks-kit status [--json]                       deployed-vs-SoT drift + toolchain + counts
-docks-kit plugins list [--json]                 enabledPlugins tri-state vs installed
+docks-kit toolchain [check|ensure <tool>|outdated]  verified-version floors for external tools
 docks-kit skills list [--json]                  universal skills vs manifest
-docks-kit docs [topic]                          self-documentation (12 topics)
+docks-kit scratch new|remove                    agent temporary files and directories
+docks-kit tidy [--apply] [--report]             remove safe agent leftovers
+docks-kit docs [topic]                          self-documentation (9 topics)
 --help --version --wizard --completions    built-in
 ```
 
@@ -77,51 +75,34 @@ here.
 | Flag | Effect |
 |------|--------|
 | `--dry-run` | Preview without applying |
-| `--reconcile` | Reconcile kit-owned settings toward SoT (user-only keys preserved) |
-| `--prune` | Uninstall kit-managed plugins/marketplaces/skills not in SoT |
-| `--claude-model=<m>` | Deploy-time modifier: deployed Claude model |
-| `--claude-compact-window=<n>` | Deploy-time modifier: autocompact window (`680k`) |
-| `--claude-permissive` | Deploy-time modifier: empty ask/deny (sandboxes only) |
-| `--claude-plugin=<name>` | Sticky opt-in plugin (supabase, n8n) |
-| `--skip-plugin-refresh` | Install missing plugins but skip refresh-only updates |
+| `--prune` | Remove kit-managed universal skills not in `SoT/.agents/skills.txt` |
+| `--skip-plugin-refresh` | Install missing omp plugins but skip refresh-only updates |
+| `--verbose` | Also print no-op confirmations |
 
-**Deploy-time modifiers** change deployed config only — the SoT is untouched
-and a later flag-less sync reverts them. Full reference: `docks-kit docs flags`
-(includes the old→new rename table for the pre-CLI `sync.sh` flags).
+Full reference: `docks-kit docs flags` (includes the old→new rename table for
+the pre-CLI `sync.sh` flags).
 
 ## How syncing works
 
 - **Additive by default** — user-only settings keys, plugins, and skills
-  survive a plain sync. Reconciliation toward the SoT is explicit
-  (`--reconcile` / `--prune`).
+  survive a plain sync. Removing kit-managed universal skills that left the
+  SoT is explicit (`--prune`).
 - **Per-machine selection** — `~/.docks-kit/kit.db` drives a flag-less sync.
-  A missing selection selects Claude Code and universal skills. It does not
-  select omp. Use `docks-kit harnesses` to view or change the selection. With no
-  stored selection, its picker pre-ticks every harness, omp included.
+  A missing selection selects universal skills and omp. Use
+  `docks-kit harnesses` to view or change the selection.
 - **Idempotent** — every step is safe to re-run; no-change syncs are no-ops.
 - **Toolchain floors** — `SoT/toolchain.json` records the kit-verified version
-  floors for external tools (bun, claude, omp, …). `docks-kit toolchain check` prints
+  floors for external tools (bun, omp, …). `docks-kit toolchain check` prints
   the full doctor table. Bun is the one managed install and is pinned to its
   verified version.
-- **Model catalog** — enabled harnesses provide live Claude or omp model IDs;
-  `SoT/models.json` supplies Claude aliases, notes, and the offline fallback.
-  omp has no curated fallback list.
-- **Claude runtime** — sync materializes three dependency-free Bun `.mjs`
-  programs for statusline, SessionStart, and Notification. Quota display uses
-  Claude's native `rate_limits`; there is no OAuth fetch, shared usage cache,
-  or Stop hook. If Bun cannot be resolved or bootstrapped, sync preserves a
-  working legacy hook/statusline setup and reports that migration is deferred.
-- **Command guards** — omp and Claude Code share one policy for
-  destructive shell commands; to remove, agents use the trash
-  (`gio trash -- <path>`, or `trash <path>` on macOS); omp agents remove a
-  temporary file or directory with `docks-kit scratch remove`. `rm` of the
-  home directory or `/` and `HOME` reassignment are denied. omp also denies
-  every recursive `rm`, `find -delete`, `find -exec rm`, and `xargs rm`. The
-  kit ships no omp prompt rule, so omp runs every command that no deny
-  matches without a question, in subagents too. Claude Code asks before a
-  recursive `rm`, `find -delete`, every `git rm`, `git clean`,
-  `git reset --hard`, and any `git push` that could force. Details, per-tool
-  differences, and gaps: `docks-kit docs command-guards`.
+- **Command guards** — omp's policy for destructive shell commands: to
+  remove, agents use the trash (`gio trash -- <path>`, or `trash <path>` on
+  macOS) or remove a temporary file or directory with
+  `docks-kit scratch remove`. omp denies `rm` of the home directory or `/`,
+  `HOME` reassignment, every recursive `rm`, `find -delete`, `find -exec rm`,
+  and `xargs rm`. The kit ships no omp prompt rule, so omp runs every command
+  that no deny matches without a question, in subagents too. Details and
+  gaps: `docks-kit docs command-guards`.
 - **Agent cleanup (omp)** — `docks-kit scratch` creates agent temporary
   directories and removes agent temporary files and directories with checked
   paths. `docks-kit tidy` lists merged idle worktrees, their containers,
@@ -134,18 +115,16 @@ and a later flag-less sync reverts them. Full reference: `docks-kit docs flags`
 
 | Path | Purpose |
 |------|---------|
-| `SoT/.claude/` | Claude Code SoT (settings template, Bun runtime programs, CLAUDE.md) |
 | `SoT/.omp/` | omp SoT (AGENTS.md, config.yml, models.yml, mcp.json, intercom.json, and the `plugin/` source of `docks-kit-omp`) |
 | `SoT/.agents/` | Universal-skill manifest |
-| `SoT/models.json` | Curated aliases, notes, and offline Claude fallback |
 | `SoT/toolchain.json` | Verified-version floors |
-| `cli/src/engine-native/` | EngineNative sync/model/toolchain implementation |
+| `cli/src/engine-native/` | EngineNative sync/toolchain implementation |
 | `cli/src/generated/sotPayload.ts` | Generated in-memory payload used by standalone and npm installs |
 | `cli/` | docks-kit CLI (Effect 4 on Bun) + bundled docs topics |
 | `docks-kit` / `docks-kit.ps1` | POSIX and Windows launchers (binary → Bun-from-source) |
 | `install.sh` / `install.ps1` | POSIX and Windows global installers |
 | `docs/PLAN.md` | Plan record standard; plans are GitHub issues |
-| `AGENTS.md` / `.claude/rules/claude-code.md` | Agent-facing engineering rules / Claude Code specifics (path-scoped rule) |
+| `AGENTS.md` | Agent-facing engineering rules |
 
 ## Platform support
 
@@ -172,9 +151,7 @@ are versioned config snapshots without shipping the authoring `SoT/` tree.
 
 ## Deeper docs
 
-- `docks-kit docs <topic>` - overview, sync-layers, flags, modifiers, models,
-  omp-models, omp-context, command-guards, toolchain, plugins, install,
-  platforms (works offline, bundled with the CLI)
+- `docks-kit docs <topic>` - overview, sync-layers, flags, toolchain, install,
+  platforms, omp-models, omp-context, command-guards (works offline, bundled
+  with the CLI)
 - [`AGENTS.md`](AGENTS.md) — engineering rules for agents working on the kit
-- [`.claude/rules/claude-code.md`](.claude/rules/claude-code.md) — Claude Code specifics: env vars, session
-  management, permission mode, open concerns

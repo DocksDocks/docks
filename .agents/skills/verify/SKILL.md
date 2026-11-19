@@ -9,7 +9,7 @@ metadata:
 
 docks-kit is a CLI that a user runs from the checkout (`./docks-kit`) or from the global install. Each flow below runs it from the repository root and reads its exit code and output. No flow writes to the home folder: `sync --dry-run` plans the deploy only, and the golden suite runs each case in its own temporary home.
 
-Hosts: the commands below are POSIX shell for Linux and macOS. On Windows, run `.\docks-kit.ps1` in place of `./docks-kit` for V1 and V4 and read the exit code from `$LASTEXITCODE`; for V2, read the omp row of `.\docks-kit.ps1 toolchain check`. V3 does not run on Windows: `cli/test/golden-dryrun.ts` exits 2 on a host whose executables need a suffix, because the snapshots are Linux-canonical. On Windows, run `bun run typecheck` and `bun run test:unit` instead, as its message says.
+Hosts: the commands below are POSIX shell for Linux and macOS. On Windows, run `.\docks-kit.ps1` in place of `./docks-kit` for V1 and V4 and read the exit code from `$LASTEXITCODE`; for V2, read the omp row of `.\docks-kit.ps1 toolchain check`. V3 does not run on Windows: `cli/test/golden-dryrun.ts` exits 2 on a host whose executables need a suffix, because the snapshots are Linux-canonical. On Windows, run `bun run typecheck`, `bun run test:unit`, and `bun run smoke:native` instead.
 
 ## Prerequisites
 
@@ -17,7 +17,7 @@ Hosts: the commands below are POSIX shell for Linux and macOS. On Windows, run `
 |---|---|---|
 | Bun at the CI pin | `bun --version` | `1.4.4` |
 | omp at the toolchain floor | `omp --version` | `omp/19.0.0` |
-| Dependencies installed | `test -d node_modules && echo present` | `present` |
+| Dependencies installed | `test -d node_modules && echo present` (PowerShell: `if (Test-Path node_modules) { 'present' }`) | `present` |
 
 ## Drive and inspect
 
