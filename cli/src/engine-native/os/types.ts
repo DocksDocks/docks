@@ -8,7 +8,7 @@ export type PlatformName = "linux" | "darwin" | "windows" | "unknown";
 /** Directory-link mechanisms, tried in order before the copy fallback. */
 export type DirectoryLinkKind = "symlink" | "junction";
 /** Tools whose install command differs per host OS. */
-export type HintedTool = "git" | "jq" | "curl" | "ffplay" | "claude" | "codex";
+export type HintedTool = "git" | "jq" | "curl" | "ffplay" | "claude";
 
 /** A command plus argv, already shaped for how this host must invoke it. */
 export interface Invocation {
@@ -52,8 +52,6 @@ export interface HostOs {
   readonly id: PlatformName;
   /** `SoT/toolchain.json` `os` field this host matches; "" matches every row. */
   readonly toolchainOs: string;
-  /** Bubblewrap is the Linux-only Codex sandbox runtime. */
-  readonly supportsBubblewrap: boolean;
   /** Directory-link mechanisms tried in order before `skillsLinks.ts linkOrCopy` copies. */
   readonly directoryLinkKinds: ReadonlyArray<DirectoryLinkKind>;
   /** One-line install command for a tool whose package differs per OS. */

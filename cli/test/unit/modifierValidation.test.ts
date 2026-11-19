@@ -57,14 +57,12 @@ const ENV_KEYS = [
   "DRY_RUN",
   "DOCKS_KIT_VERBOSE",
   "DOCKS_KIT_INTERACTIVE",
-  "SKIP_BUBBLEWRAP",
   "RECONCILE",
   "PRUNE",
   "CLAUDE_COMPACT_WINDOW",
   "CLAUDE_PERMISSIVE",
   "CLAUDE_PLUGINS",
   "CLAUDE_MODEL",
-  "CODEX_MODEL",
   "DOCKS_KIT_SYNC_CONCURRENCY",
 ] as const;
 
@@ -193,64 +191,49 @@ describe("modifier field validation", () => {
     ]);
   });
 
-  it.each([
-    ["claude", ".claude", "settings.json"],
-    ["codex", ".codex", "config.toml"],
-  ] as const)("fails when deployed %s configuration cannot be read", async (tool, dir, file) => {
-    mkdirSync(join(root, dir, file), { recursive: true });
+  it("fails when deployed claude configuration cannot be read", async () => {
+    mkdirSync(join(root, ".claude", "settings.json"), { recursive: true });
     const records: Array<LogRecord> = [];
 
-    expect(await runEngineNative(["model", tool], stubServices(records))).toBe(1);
+    expect(await runEngineNative(["model", "claude"], stubServices(records))).toBe(1);
     expect(records).toEqual([
       {
         level: "err",
-        message: expect.stringContaining(
-          `Failed to read ${tool === "codex" ? root : "~"}/${dir}/${file}:`,
-        ),
+        message: expect.stringContaining("Failed to read ~/.claude/settings.json:"),
       },
     ]);
   });
 
-  it.each([
-    ["claude", "bogus", ".claude/settings.json", "Invalid Claude model 'bogus'"],
-    ["codex", "bad model", ".codex/config.toml", "Invalid Codex model 'bad model'"],
-  ] as const)(
-    "rejects invalid %s models without changing deployment",
-    async (tool, model, file, error) => {
-      const records: Array<LogRecord> = [];
+  it("rejects invalid claude models without changing deployment", async () => {
+    const records: Array<LogRecord> = [];
 
-      expect(await runEngineNative(["model", tool, model], stubServices(records))).toBe(2);
-      expect(records.filter(({ level }) => level === "err")).toEqual([
-        { level: "err", message: error },
-      ]);
-      expect(records).toContainEqual({
-        level: "echo",
-        message: expect.stringContaining(`Available ${tool} models`),
-      });
-      expect(existsSync(join(root, file))).toBe(false);
-    },
-  );
+    expect(await runEngineNative(["model", "claude", "bogus"], stubServices(records))).toBe(2);
+    expect(records.filter(({ level }) => level === "err")).toEqual([
+      { level: "err", message: "Invalid Claude model 'bogus'" },
+    ]);
+    expect(records).toContainEqual({
+      level: "echo",
+      message: expect.stringContaining("Available claude models"),
+    });
+    expect(existsSync(join(root, ".claude/settings.json"))).toBe(false);
+  });
 
-  it.each([
-    ["claude", "--claude-model=bogus", ".claude/settings.json", "Invalid Claude model 'bogus'"],
-    ["codex", "--codex-model=bad model", ".codex/config.toml", "Invalid Codex model 'bad model'"],
-  ] as const)(
-    "rejects an invalid %s sync modifier before creating deployment",
-    async (tool, flag, file, diagnostic) => {
-      const records: Array<LogRecord> = [];
+  it("rejects an invalid claude sync modifier before creating deployment", async () => {
+    const records: Array<LogRecord> = [];
 
-      expect(await runEngineNative(["sync", tool, flag], stubServices(records))).toBe(2);
-      expect(records).toContainEqual({
-        level: "err",
-        message: expect.stringContaining(diagnostic),
-      });
-      expect(records).toContainEqual({
-        level: "echo",
-        message: expect.stringContaining(`Available ${tool} models`),
-      });
-      expect(existsSync(join(root, file))).toBe(false);
-    },
-  );
+    expect(
+      await runEngineNative(["sync", "claude", "--claude-model=bogus"], stubServices(records)),
+    ).toBe(2);
+    expect(records).toContainEqual({
+      level: "err",
+      message: expect.stringContaining("Invalid Claude model 'bogus'"),
+    });
+    expect(records).toContainEqual({
+      level: "echo",
+      message: expect.stringContaining("Available claude models"),
+    });
+    expect(existsSync(join(root, ".claude/settings.json"))).toBe(false);
+  });
 
   it("ignores flags when selecting a toolchain operation", async () => {
     const records: Array<LogRecord> = [];

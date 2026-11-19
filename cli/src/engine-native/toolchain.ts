@@ -59,8 +59,6 @@ export async function installedVersion(ctx: Ctx, tool: ToolId): Promise<string> 
   switch (tool) {
     case "claude":
       return firstLineField(await version(), 0);
-    case "codex":
-      return firstLineField(await version(), -1);
     case "git":
       return firstLineField(await version(), 2);
     case "node":
@@ -77,8 +75,6 @@ export async function installedVersion(ctx: Ctx, tool: ToolId): Promise<string> 
     case "omp":
     case "npm":
       return await version();
-    case "bwrap":
-      return firstLineField(await version(), 1);
     case "ffplay":
       return firstLineField(await version(), 2).replace(/-.*$/, "");
     case "intelephense":

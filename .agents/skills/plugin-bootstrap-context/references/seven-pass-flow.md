@@ -127,11 +127,3 @@ effect. A JSON-only rewrite can lose the race with the CLI's own settings write.
 Install, update, uninstall, and marketplace operations accumulate counts. Each
 failed operation is recorded through `recordFailure`, and the sync continues to
 the remaining passes and layers.
-
-## Codex Enabled-Plugin Parser
-
-`codexPlugins.ts enabledPluginIdsFromText` scans config text for plugin tables
-whose body contains `enabled = true`. Omitted `enabled` defaults to disabled. The
-parser flushes at every table boundary and EOF so each table is emitted at most
-once. `syncPlugins` feeds it the `SoT/.codex/config.toml` text;
-`enabledPluginIds(configFile)` is the file wrapper over the same parser.

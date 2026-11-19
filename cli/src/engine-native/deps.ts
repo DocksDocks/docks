@@ -24,20 +24,14 @@ export type ToolId =
   | "npm"
   | "npx"
   | "claude"
-  | "codex"
   | "omp"
   | "bun"
-  | "bwrap"
   | "ffplay"
   | "intelephense"
   | "typescript-language-server"
   | "tsc"
   | "rust-analyzer"
-  | "rustup"
-  | "apt-get"
-  | "dnf"
-  | "pacman"
-  | "zypper";
+  | "rustup";
 
 export type ProbeResult =
   | { readonly state: "present"; readonly path?: string }
@@ -205,7 +199,6 @@ export const DEPENDENCIES: Record<ToolId, DependencySpec> = {
     () => "ships with Node.js — install via https://nodejs.org (or your package manager)",
   ),
   claude: spec("claude", (pf = rawPlatform()) => hostOs(platformName(pf)).installHint("claude")),
-  codex: spec("codex", (pf = rawPlatform()) => hostOs(platformName(pf)).installHint("codex")),
   omp: spec(
     "omp",
     () =>
@@ -223,7 +216,6 @@ export const DEPENDENCIES: Record<ToolId, DependencySpec> = {
       return await exec.capture(bun.command, ["--version"]);
     },
   }),
-  bwrap: spec("bwrap", () => "sudo apt install -y bubblewrap (or dnf/pacman/zypper equivalent)"),
   ffplay: spec("ffplay", (pf = rawPlatform()) => hostOs(platformName(pf)).installHint("ffplay"), {
     versionArgs: ["-version"],
     resolve: pathProbe("ffplay"),
@@ -246,10 +238,6 @@ export const DEPENDENCIES: Record<ToolId, DependencySpec> = {
     resolve: pathProbe("rust-analyzer"),
   }),
   rustup: spec("rustup", () => "install the Rust toolchain from https://rustup.rs"),
-  "apt-get": spec("apt-get", () => "install apt via your Linux distribution"),
-  dnf: spec("dnf", () => "install dnf via your Linux distribution"),
-  pacman: spec("pacman", () => "install pacman via your Linux distribution"),
-  zypper: spec("zypper", () => "install zypper via your Linux distribution"),
 };
 
 export function resolveDependency(

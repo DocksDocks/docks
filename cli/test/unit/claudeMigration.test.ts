@@ -511,24 +511,18 @@ describe("Claude runtime migration transaction", () => {
 });
 
 describe("contextual dependency degradation", () => {
-  it("syncs Claude and Codex without jq or a jq warning", () => {
-    for (const target of ["claude", "codex"] as const) {
-      const run = runEngine(["sync", target], "home-fresh", makeStubDir({ jq: null }, NATIVE), {
-        ...NATIVE,
-        maskTools: ["jq"],
-      });
-      try {
-        expect(run.exitCode, run.output).toBe(0);
-        expect(
-          existsSync(
-            join(run.home, target === "claude" ? ".claude/settings.json" : ".codex/config.toml"),
-          ),
-        ).toBe(true);
-        expect(run.output).not.toContain("jq not installed");
-        expect(readArgvLog(run)).not.toMatch(/^jq\t/m);
-      } finally {
-        cleanup([run]);
-      }
+  it("syncs Claude without jq or a jq warning", () => {
+    const run = runEngine(["sync", "claude"], "home-fresh", makeStubDir({ jq: null }, NATIVE), {
+      ...NATIVE,
+      maskTools: ["jq"],
+    });
+    try {
+      expect(run.exitCode, run.output).toBe(0);
+      expect(existsSync(join(run.home, ".claude/settings.json"))).toBe(true);
+      expect(run.output).not.toContain("jq not installed");
+      expect(readArgvLog(run)).not.toMatch(/^jq\t/m);
+    } finally {
+      cleanup([run]);
     }
   });
 });

@@ -8,19 +8,19 @@ metadata:
     - path: cli/src/engine-native/exec.ts
       lines: "1-363"
     - path: cli/src/engine-native/deps.ts
-      lines: "1-309"
+      lines: "1-297"
     - path: cli/src/engine-native/os/types.ts
-      lines: "1-75"
+      lines: "1-73"
     - path: cli/src/engine-native/os/index.ts
-      lines: "1-42"
+      lines: "1-41"
     - path: cli/src/engine-native/os/posix.ts
-      lines: "1-83"
+      lines: "1-77"
     - path: cli/src/engine-native/os/linux.ts
-      lines: "1-15"
+      lines: "1-14"
     - path: cli/src/engine-native/os/darwin.ts
-      lines: "1-16"
+      lines: "1-15"
     - path: cli/src/engine-native/os/windows.ts
-      lines: "1-184"
+      lines: "1-181"
     - path: cli/src/engine-native/os/targets.ts
       lines: "1-77"
     - path: cli/src/engine-native/atomicWrite.ts
@@ -92,7 +92,7 @@ Output channels, change detection, the missing-dependency warn shape, and the li
 ## Key Decisions
 
 - Host modules contribute the order of a fallback chain, never the outcome; the runtime tries and falls back (`os/types.ts` header).
-- An unknown platform reuses Linux facts with no toolchain-row filter and no bubblewrap (`os/index.ts` — `unknown`).
+- An unknown platform reuses Linux facts with no toolchain-row filter (`os/index.ts` — `unknown`).
 - The kill strategy follows the real platform (`exec.ts` — `WINDOWS_PROCESS`), while an injected `host` shapes only resolution and argv.
 - Engine tests inject plain-object `EngineServices` and fake `ProbeExecutor`s; host modules are tested on every runner through `hostOs("<id>")`.
 

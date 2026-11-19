@@ -100,13 +100,13 @@ function warmClaudeHome(): string {
 }
 
 describe("refresh-only plugin skip", () => {
-  it("skips warmed refreshes through the public CLI without skipping inventory", () => {
+  it("skips warmed refreshes through the public CLI", () => {
     const variant = materializeVariant("home-drift", {
       ".claude/plugins/installed_plugins.json": claudeInstalledPlugins(),
     });
     const stubs = makeStubDir({}, NATIVE_HOST);
     const run = runPublicCli(
-      ["sync", "claude", "codex", "--skip-plugin-refresh"],
+      ["sync", "claude", "--skip-plugin-refresh"],
       variant,
       stubs,
       NATIVE_HOST,
@@ -116,24 +116,17 @@ describe("refresh-only plugin skip", () => {
       const argv = readFileSync(join(run.home, ".golden-argv.log"), "utf8");
       expect(argv).not.toContain("claude\tplugin marketplace update");
       expect(argv).not.toContain("claude\tplugin update");
-      expect(argv).not.toContain("codex\tplugin add");
-      expect(argv.match(/^codex\tplugin list --json$/gm)).toEqual(["codex\tplugin list --json"]);
     } finally {
       rmSync(run.home, { recursive: true, force: true });
       rmSync(variant, { recursive: true, force: true });
     }
   });
 
-  it("still installs missing Claude and Codex plugins", () => {
-    const codexMissingPlugins = `if (args[0] === "--version") {
-  console.log("codex-cli 0.144.4")
-} else if (args[0] === "plugin" && args[1] === "list") {
-  console.log('{"installed":[{"pluginId":"docks@docks","version":"0.12.5","installed":true,"enabled":true}],"available":[]}')
-}`;
+  it("still installs missing Claude plugins", () => {
     const run = runEngine(
-      ["sync", "claude", "codex", "--skip-plugin-refresh"],
+      ["sync", "claude", "--skip-plugin-refresh"],
       "home-drift",
-      makeStubDir({ codex: codexMissingPlugins }, NATIVE_HOST),
+      makeStubDir({}, NATIVE_HOST),
       NATIVE_HOST,
     );
     try {
@@ -152,9 +145,6 @@ describe("refresh-only plugin skip", () => {
         "claude\tplugin install php-lsp@claude-plugins-official",
       ]);
       expect(argv).not.toContain("claude\tplugin update");
-      expect(argv.match(/^codex\tplugin add .+$/gm)).toEqual([
-        "codex\tplugin add plan-lifecycle@docks",
-      ]);
     } finally {
       cleanup([run]);
     }

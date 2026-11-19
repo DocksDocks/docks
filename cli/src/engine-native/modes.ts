@@ -3,105 +3,72 @@
  * golden-tested messages, same exit codes.
  */
 import { p } from "./exec";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { payloadText } from "../payload";
 
-import { codexHome } from "./codexPaths";
 import { syncClaudeModel } from "./claudeSettingsModifiers";
-import { syncCodexModel } from "./codexToml";
 import type { Ctx } from "./index";
 import { isObject, parseJson, type Json } from "./jq";
-import { printModels, validateClaudeModel, validateCodexModel } from "./models";
+import { printModels, validateClaudeModel } from "./models";
 import { defaultLiveInputs, resolveCatalog } from "./liveModels";
 import { bunBootstrap } from "./bun";
-import { withFolderLocks, withSyncLock } from "./syncDispatch";
+import { withSyncLock } from "./syncDispatch";
 import { upgradeLspServers } from "./claudeLsp";
 import { belowFloor, field, installedVersion, outdatedReport, present, report } from "./toolchain";
-import { topLevelTomlString } from "../manifests";
 
 export async function modeModel(ctx: Ctx, args: ReadonlyArray<string>): Promise<number> {
   const { err } = ctx.services.logger;
-  let tool: "claude" | "codex" | "" = "";
+  let toolGiven = false;
   let value = "";
   for (const arg of args) {
     if (arg === "--dry-run") ctx.dryRun = true;
     else if (arg === "--verbose") {
       ctx.verbose = true;
-    } else if (arg === "claude" || arg === "codex") tool = arg;
+    } else if (arg === "claude") toolGiven = true;
     else if (arg.startsWith("-")) {
       err(`Unknown flag for model: ${arg}`);
       return 2;
     } else value = arg;
   }
-  if (tool === "") {
-    err("Usage: model <claude|codex> [value] [--dry-run]");
+  if (!toolGiven) {
+    err("Usage: model <claude> [value] [--dry-run]");
     return 2;
   }
-  if (value === "") return await showModel(ctx, tool);
-  // A write does the same read-modify-write of settings.json and config.toml as a sync.
-  return await withSyncLock(ctx, args, async () => {
-    // `model codex` writes config.toml in the Codex folder, which syncs of
-    // other homes can share. It creates no folder, so a missing one needs no lock.
-    const codexDir = codexHome(ctx.home);
-    const folders = tool === "codex" && existsSync(codexDir) ? [codexDir] : [];
-    return await withFolderLocks(ctx, folders, () => writeModel(ctx, tool, value));
-  });
+  if (value === "") return await showModel(ctx);
+  // A write does the same read-modify-write of settings.json as a sync.
+  return await withSyncLock(ctx, args, () => writeModel(ctx, value));
 }
 
-/** Print the deployed model, the SoT model, and the model catalog of `tool`. */
-async function showModel(ctx: Ctx, tool: "claude" | "codex"): Promise<number> {
+/** Print the deployed Claude model, the SoT model, and the Claude model catalog. */
+async function showModel(ctx: Ctx): Promise<number> {
   const { echo, err, warn } = ctx.services.logger;
-  const catalog = await resolveCatalog(tool, defaultLiveInputs(ctx.home));
-  if (tool === "claude") {
-    const deployed = p(ctx.home, ".claude", "settings.json");
-    const result = readConfig(deployed);
-    if (result.kind === "missing") {
-      warn("~/.claude/settings.json missing");
-      return 0;
-    }
-    if (result.kind === "read-error") {
-      err(`Failed to read ~/.claude/settings.json: ${String(result.error)}`);
-      return 1;
-    }
-    echo(`deployed: ${jsonModelText(result.data)}`);
-    echo(`SoT:      ${jsonModelText(payloadText("SoT/.claude/settings.json"))}`);
-  } else {
-    const deployed = p(codexHome(ctx.home), "config.toml");
-    const result = readConfig(deployed);
-    if (result.kind === "missing") {
-      warn(`${deployed} missing`);
-      return 0;
-    }
-    if (result.kind === "read-error") {
-      err(`Failed to read ${deployed}: ${String(result.error)}`);
-      return 1;
-    }
-    echo(`deployed: ${topLevelTomlString(result.data, "model") ?? ""}`);
-    echo(`SoT:      ${topLevelTomlString(payloadText("SoT/.codex/config.toml"), "model") ?? ""}`);
+  const catalog = await resolveCatalog("claude", defaultLiveInputs(ctx.home));
+  const deployed = p(ctx.home, ".claude", "settings.json");
+  const result = readConfig(deployed);
+  if (result.kind === "missing") {
+    warn("~/.claude/settings.json missing");
+    return 0;
   }
+  if (result.kind === "read-error") {
+    err(`Failed to read ~/.claude/settings.json: ${String(result.error)}`);
+    return 1;
+  }
+  echo(`deployed: ${jsonModelText(result.data)}`);
+  echo(`SoT:      ${jsonModelText(payloadText("SoT/.claude/settings.json"))}`);
   printModels(ctx, catalog);
   return 0;
 }
 
-/** Validate `value` against the model catalog of `tool`, then write it. */
-async function writeModel(ctx: Ctx, tool: "claude" | "codex", value: string): Promise<number> {
+/** Validate `value` against the Claude model catalog, then write it. */
+async function writeModel(ctx: Ctx, value: string): Promise<number> {
   const { err } = ctx.services.logger;
-  const catalog = await resolveCatalog(tool, defaultLiveInputs(ctx.home));
-  if (tool === "claude") {
-    if (!validateClaudeModel(ctx, value, catalog)) {
-      printModels(ctx, catalog);
-      err(`Invalid Claude model '${value}'`);
-      return 2;
-    }
-    syncClaudeModel(ctx, value);
-  } else {
-    if (!validateCodexModel(ctx, value, catalog)) {
-      printModels(ctx, catalog);
-      err(`Invalid Codex model '${value}'`);
-      return 2;
-    }
-    syncCodexModel(ctx, value);
+  const catalog = await resolveCatalog("claude", defaultLiveInputs(ctx.home));
+  if (!validateClaudeModel(ctx, value, catalog)) {
+    printModels(ctx, catalog);
+    err(`Invalid Claude model '${value}'`);
+    return 2;
   }
+  syncClaudeModel(ctx, value);
   return 0;
 }
 

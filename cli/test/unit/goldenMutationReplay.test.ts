@@ -42,8 +42,6 @@ vi.mock("../lib/goldenMutationCatalog", () => ({
   LEGACY_CLAUDE_FILES: {},
   MATRIX: [],
   REPLAYS: [{ fixture: "home-fresh", cmd: ["sync"] }],
-  TOML_DIR: harness.root,
-  TOML_SHAPES: [],
 }));
 
 vi.mock("../lib/goldenResources", () => ({

@@ -12,7 +12,7 @@ const root = Command.make("docks-kit", {}, () =>
     yield* Console.log("docks-kit — portable AI coding agent config kit");
     yield* Console.log("");
     yield* Console.log(
-      "  docks-kit sync [claude|codex|agents|omp]  deploy the SoT to this machine",
+      "  docks-kit sync [claude|agents|omp]        deploy the SoT to this machine",
     );
     yield* Console.log(
       "  docks-kit harnesses                       choose the flag-less sync selection",
@@ -20,7 +20,7 @@ const root = Command.make("docks-kit", {}, () =>
     yield* Console.log(
       "  docks-kit update [--no-sync]              self-update the kit, then sync",
     );
-    yield* Console.log("  docks-kit model <claude|codex> [value]     get/set the deployed model");
+    yield* Console.log("  docks-kit model <claude> [value]           get/set the deployed model");
     yield* Console.log("  docks-kit models [tool] [--refresh]        live model lists per harness");
     yield* Console.log(
       "  docks-kit toolchain [check|ensure|outdated|upgrade] verified-version floors",
@@ -44,7 +44,7 @@ const root = Command.make("docks-kit", {}, () =>
   }),
 ).pipe(
   Command.withDescription(
-    "Portable AI coding agent config kit — SoT sync engine + helpers for Claude Code, Codex, and universal agent skills.",
+    "Portable AI coding agent config kit — SoT sync engine + helpers for Claude Code and universal agent skills.",
   ),
   Command.withSubcommands(COMMANDS),
 );

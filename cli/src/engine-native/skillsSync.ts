@@ -52,6 +52,6 @@ export function skillsSummary(ctx: Ctx, state: SkillsState): void {
 
 export function skillsNextSteps(ctx: Ctx): Array<string> {
   return ctx.verbose || ctx.nextStepTriggers.skillsRestart
-    ? ["Restart Claude Code (and Codex) to discover newly installed universal skills."]
+    ? ["Restart Claude Code to discover newly installed universal skills."]
     : [];
 }

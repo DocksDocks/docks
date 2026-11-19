@@ -14,7 +14,6 @@ import { kitDbFile } from "../engine-native/kitDb";
 
 const DESCRIPTIONS: Record<Harness, string> = {
   claude: "Claude Code user configuration",
-  codex: "Codex user configuration",
   agents: "Universal agent skills",
   omp: "Oh My Pi user configuration",
 };

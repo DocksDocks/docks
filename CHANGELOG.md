@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased - docks-kit 0.23.0: omp-only cutover
+
+docks-kit moves to managing omp only (plan #179). This entry grows with each
+part of that change until the release.
+
+### Removed
+
+- Codex support. `docks-kit sync codex`, `docks-kit model codex`, and
+  `docks-kit models codex` are gone, and so are the flags `--codex-model`,
+  `--codex-effort`, and `--skip-bubblewrap` and the bubblewrap bootstrap. Each
+  removed name now fails as an unknown target, tool, or flag with exit 2.
+- A stored harness selection that lists `codex` drops it and syncs the other
+  harnesses. A selection that lists only `codex` falls back to the default
+  selection, `claude` and `agents`. Run `docks-kit harnesses` to choose again.
+- `SoT/.codex/`, the project `.codex/agents/` wrappers, the
+  `codex-config-merge-context` skill, and the `codex` and `bwrap` toolchain
+  rows.
+
+### Files that stay on your machine
+
+Sync no longer reads or writes these files, and it does not remove them.
+Delete them by hand when you no longer use Codex:
+
+- In the Codex home folder (`$CODEX_HOME`, by default `~/.codex`):
+  `config.toml` and its `config.toml.bak`, `AGENTS.md`, `rules/docks.rules`
+  and a `docks.rules.bak` when one exists, `.kit-managed-rules`, and the sync
+  lock `.docks-kit-sync-lock.db`.
+- The personal Codex marketplace file `~/.agents/plugins/marketplace.json`.
+- The Codex plugins that sync installed (`docks@docks`,
+  `plan-lifecycle@docks`): remove them with the Codex CLI's plugin commands.
+- The `bubblewrap` system package, when the kit installed it only for the
+  Codex Linux sandbox.
+
 ## 2026-11-19 - docks-kit 0.22.29: omp 19.0.0 support
 
 ### Changed

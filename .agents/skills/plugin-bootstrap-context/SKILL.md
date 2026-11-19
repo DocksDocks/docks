@@ -1,50 +1,39 @@
 ---
 name: plugin-bootstrap-context
-description: "Use when modifying cli/src/engine-native/claudePluginPasses.ts syncPlugins or pluginUserScopeInstalled, claudeOptionalPlugins.ts syncOptionalPlugins or enableOptionalPlugin, claudeLsp.ts syncLspServers, or cli/src/engine-native/codexPlugins.ts syncMarketplace, removeLegacyDocksMarketplace, enabledPluginIds, or syncPlugins; covers the enabledPlugins tri-state, the seven-pass Claude plugin reconcile, --claude-plugin opt-ins, LSP binary bootstrap, and Codex personal marketplace merge. Not for settings.json merge (use settings-merge-context), Codex config.toml merge (use codex-config-merge-context), sync flag parsing (use sync-orchestration-context), toolchain pins (use toolchain-context), or omp plugins (use omp-sync-context)."
+description: "Use when modifying cli/src/engine-native/claudePluginPasses.ts syncPlugins or pluginUserScopeInstalled, claudeOptionalPlugins.ts syncOptionalPlugins or enableOptionalPlugin, or claudeLsp.ts syncLspServers; covers the enabledPlugins tri-state, the seven-pass Claude plugin reconcile, --claude-plugin opt-ins, and LSP binary bootstrap. Not for settings.json merge (use settings-merge-context), sync flag parsing (use sync-orchestration-context), toolchain pins (use toolchain-context), or omp plugins (use omp-sync-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
   source_files:
     - path: cli/src/engine-native/claudePluginPasses.ts
       lines: "1-426"
-    - path: cli/src/engine-native/codexPlugins.ts
-      lines: "1-315"
     - path: cli/src/engine-native/claudeOptionalPlugins.ts
       lines: "1-126"
     - path: cli/src/engine-native/claudeLsp.ts
-      lines: "1-301"
+      lines: "1-300"
     - path: cli/src/engine-native/failures.ts
       lines: "1-16"
     - path: cli/src/engine-native/parseModifiers.ts
-      lines: "1-225"
+      lines: "1-179"
     - path: cli/src/engine-native/syncDispatch.ts
-      lines: "1-337"
+      lines: "1-321"
     - path: cli/src/engine-native/claudeSync.ts
       lines: "1-312"
     - path: cli/src/engine-native/claudeRemovals.ts
       lines: "1-383"
     - path: cli/src/engine-native/settings.ts
       lines: "1-42"
-    - path: cli/src/engine-native/codexSync.ts
-      lines: "1-274"
-    - path: cli/src/engine-native/codexStatus.ts
-      lines: "1-25"
     - path: SoT/.claude/settings.json
       lines: "985-999"
-    - path: SoT/.codex/plugins/marketplace.json
-      lines: "1-36"
-    - path: SoT/.codex/config.toml
-      lines: "40-44"
     - path: SoT/toolchain.json
-      lines: "1-38"
+      lines: "1-35"
   updated: "2026-11-07"
 ---
 
 # Plugin Bootstrap
 
-Claude plugin reconcile is seven logical passes, `enabledPlugins` has
-true/false/absent semantics, and Codex marketplace merging is additive with SoT
-entries winning on name collisions.
+Claude plugin reconcile is seven logical passes, and `enabledPlugins` has
+true/false/absent semantics.
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.
 
@@ -87,7 +76,6 @@ the JSON normalization.
 - Changing `extraKnownMarketplaces` or marketplace removal protection.
 - Debugging why a plugin survived `--prune`.
 - Changing optional `--claude-plugin=<name>` behavior.
-- Changing Codex personal marketplace merge or `codex plugin add` refresh.
 - Changing LSP binary bootstrap for official Claude LSP plugins.
 
 ## Claude Tri-State
@@ -203,40 +191,7 @@ typescript-language-server install when host Node is below the `node` row's
 (verify: `bunx vitest run cli/test/unit/lspNodeFloor.test.ts -t "refuses the server install below the Node floor and names the remedy"`)
 The rustup channel runs `rustup component add rust-analyzer`. Its
 `rust-analyzer` row carries no verified pin, because the component version
-follows the host Rust toolchain; the `bwrap` row takes the same stance for a
-distro package.
-
-## Codex Marketplace And Plugins
-
-`syncMarketplace` merges `SoT/.codex/plugins/marketplace.json` into the personal
-marketplace file. User entries survive, but on `.name` collision the SoT entry
-wins by concatenating user entries first, repo entries last, then applying
-reverse/unique/reverse semantics.
-
-When the deployed file has a string `name` that differs from the SoT `name`,
-`codexPlugins.ts syncMarketplace` does not merge or write the file. It warns
-once: rename the marketplace to the SoT name or move the plugins, then re-run
-sync. Codex takes the `@marketplace` part of a plugin id from that top-level
-`name`. `syncMarketplace` then returns the SoT name, and `codexSync.ts` passes it
-to `codexPlugins.ts syncPlugins`, which skips `codex plugin add` for each SoT id
-whose `@marketplace` suffix is that SoT name, because Codex cannot resolve it.
-Ids from other marketplaces are still added. It records no failure for the
-skipped ids. The kit never forces the SoT name, because that would orphan the
-user's existing `<plugin>@<user-name>` tables.
-(verify: `bunx vitest run cli/test/unit/codexMarketplace.test.ts -t "leaves a differently named marketplace alone and adds no kit plugin"`)
-
-`removeLegacyDocksMarketplace` cleans up the old configured Docks marketplace
-when it points at the same Git source. `syncPlugins` parses enabled plugin
-tables from `SoT/.codex/config.toml` with the private `enabledPluginIdsFromText`.
-The exported `enabledPluginIds` is the file wrapper that `codexStatus.ts` uses to
-count the enabled plugins of the deployed `~/.codex/config.toml` for the status
-output. Ordinary `syncPlugins` runs `codex plugin add`
-for each enabled id so installed plugin caches refresh. With `ctx.skipPluginRefresh`,
-the supported `codex plugin list --json` inventory filters the operation to missing
-ids. An unavailable or invalid inventory is a warn-only fallback, not a skip: it
-records no ledger row, and the pass takes the full refresh path, where any
-failed `codex plugin add` is recorded and fails the run.
-(verify: `bunx vitest run cli/test/unit/codexRetiredPlugins.test.ts -t "refreshes enabled plugins when the CLI returns unusable inventory"`)
+follows the host Rust toolchain.
 
 ## Key Decisions
 
@@ -253,8 +208,6 @@ failed `codex plugin add` is recorded and fails the run.
   note and no warning. That host is not counted toward `missingToolCount`,
   which is why `LSP server binaries present` still prints there.
   (verify: `bunx vitest run cli/test/unit/lspRustServer.test.ts -t "stays silent on a host without rustup"`)
-- Codex config and marketplace deployment can proceed even when the Codex CLI is
-  absent; plugin refresh degrades to a warning and manual command.
 
 ## Gotchas
 

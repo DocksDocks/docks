@@ -23,15 +23,9 @@ const modelCatalogHint = (tool: Tool): string => {
 const missingModifierValue = (flag: string): string | undefined => {
   switch (flag) {
     case "--claude-model":
-    case "--codex-model": {
-      const tool: Tool = flag === "--claude-model" ? "claude" : "codex";
-      return `${modelCatalogHint(tool)}\n${flag} requires a value: ${flag}=<model>`;
-    }
+      return `${modelCatalogHint("claude")}\n${flag} requires a value: ${flag}=<model>`;
     case "--claude-effort":
-    case "--codex-effort": {
-      const tool: Tool = flag === "--claude-effort" ? "claude" : "codex";
-      return `${effortCatalog(tool)}\n${flag} requires a value: ${effortFlagGrammar(tool)}`;
-    }
+      return `${effortCatalog("claude")}\n${flag} requires a value: ${effortFlagGrammar("claude")}`;
     case "--claude-advisor":
       return `${advisorCatalog()}\n${flag} requires a value: ${advisorFlagGrammar()}`;
     case "--claude-compact-window":

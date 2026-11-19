@@ -21,7 +21,7 @@ describe("removed workflow configuration surface", () => {
         timeout: SPAWN_TIMEOUT_MS,
       });
       expect(result.status).toBe(2);
-      expect(result.stderr).toContain("Unknown tool 'workflow' (valid: claude, codex, omp)");
+      expect(result.stderr).toContain("Unknown tool 'workflow' (valid: claude, omp)");
     },
     SPAWN_TIMEOUT_MS,
   );
@@ -44,7 +44,6 @@ describe("removed workflow configuration surface", () => {
         expect(result.status, flag).toBe(2);
         expect(result.stderr, flag).toContain(`unknown flag ${flag}`);
         expect(existsSync(join(home, ".claude", "CLAUDE.md")), flag).toBe(false);
-        expect(existsSync(join(home, ".codex", "AGENTS.md")), flag).toBe(false);
       }
     },
     SPAWN_TIMEOUT_MS,
@@ -61,7 +60,6 @@ describe("removed workflow configuration surface", () => {
       expect(result.status).toBe(2);
       expect(`${result.stdout}\n${result.stderr}`).toContain("Unknown arg: workflow");
       expect(existsSync(join(home, ".claude", "CLAUDE.md"))).toBe(false);
-      expect(existsSync(join(home, ".codex", "AGENTS.md"))).toBe(false);
     },
     SPAWN_TIMEOUT_MS,
   );

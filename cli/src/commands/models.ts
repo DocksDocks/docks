@@ -6,7 +6,7 @@ import { defaultLiveInputs, resolveCatalog } from "../engine-native/liveModels";
 import type { CatalogTool, ResolvedCatalog } from "../engine-native/sharedTypes";
 
 const tool = Argument.String("tool").pipe(
-  Argument.withDescription("claude | codex | omp (omit for enabled harnesses)"),
+  Argument.withDescription("claude | omp (omit for enabled harnesses)"),
   Argument.optional,
 );
 const json = Flag.Boolean("json").pipe(
@@ -19,7 +19,7 @@ const refresh = Flag.Boolean("refresh").pipe(
 );
 
 function isCatalogTool(value: string): value is CatalogTool {
-  return value === "claude" || value === "codex" || value === "omp";
+  return value === "claude" || value === "omp";
 }
 
 const renderTool = (t: CatalogTool, catalog: ResolvedCatalog) =>
@@ -39,8 +39,6 @@ const renderTool = (t: CatalogTool, catalog: ResolvedCatalog) =>
       yield* Console.log(
         "  (full claude-* model IDs outside the catalog are accepted with a warning)",
       );
-    } else if (t === "codex") {
-      yield* Console.log("  (well-formed IDs outside the catalog are accepted with a warning)");
     }
     yield* Console.log("");
   });
@@ -49,7 +47,7 @@ export const modelsCommand = Command.make("models", { tool, json, refresh }, (co
   Effect.gen(function* () {
     const requested = Option.getOrUndefined(config.tool);
     if (requested !== undefined && !isCatalogTool(requested)) {
-      return yield* bail(`Unknown tool '${requested}' (valid: claude, codex, omp)`);
+      return yield* bail(`Unknown tool '${requested}' (valid: claude, omp)`);
     }
     const home = engineHome(process.env);
     const tools: ReadonlyArray<CatalogTool> =

@@ -1,8 +1,8 @@
 # Sync layers
 
-`docks-kit sync [claude] [codex] [agents] [omp]` — targets are positional
+`docks-kit sync [claude] [agents] [omp]` — targets are positional
 words; no target means this machine's harness selection in
-`~/.docks-kit/kit.db`. The default is `claude codex agents`, and
+`~/.docks-kit/kit.db`. The default is `claude agents`, and
 `docks-kit harnesses` changes it.
 
 ## claude (→ ~/.claude, ~/.claude.json, shell rc)
@@ -34,21 +34,6 @@ Order matters — runtime readiness and settings form one transaction:
 
 The statusline reads Claude's native `rate_limits`. There is no OAuth request,
 usage cache, jq/curl runtime dependency, or Stop fetch hook.
-
-## codex (→ Codex home, ~/.agents/plugins)
-
-bubblewrap bootstrap (Linux): when `bwrap` is missing, sync runs
-`sudo apt-get|dnf|pacman|zypper install bubblewrap` (a sudo prompt may appear)
-and then probes unprivileged user namespaces; `--skip-bubblewrap` only warns,
-and `--dry-run` only prints the step. Then config.toml merge (top-level keys
-replaced per-key, [table] blocks replaced wholesale, user-only keys/tables
-preserved, and retired kit-owned `[plugins."<id>"]` tables stripped),
-`--codex-model` then `--codex-effort` modifiers, rules, AGENTS.md, personal
-marketplace file, and `codex plugin add` refresh.
-
-The Codex home is `$CODEX_HOME` when that variable is set and not empty, else
-`~/.codex`. Like Codex, the kit resolves a relative `CODEX_HOME` against the
-current directory. Every kit read or write of Codex state uses this directory.
 
 ## agents (→ ~/.agents/skills, ~/.claude/skills symlinks)
 

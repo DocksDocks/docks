@@ -3,12 +3,10 @@ import { Console, Effect } from "effect";
 import { engineCapture, type EngineCaptureError } from "../engine";
 import {
   deployedClaudeSettings,
-  deployedCodexModel,
   installedPluginsState,
   pluginsView,
   skillsView,
   sotClaudeSettings,
-  sotCodexModel,
 } from "../manifests";
 import { kitHome } from "../kitHome";
 
@@ -76,7 +74,6 @@ const gatherDrift = (): {
     const s = String(sotVal ?? "(unset)");
     return { setting, deployed: d, sot: s, drifted: d !== s };
   };
-  const codex = row("codex.model", deployedCodexModel(), sotCodexModel());
   if (claudeDeployment.state !== "valid") {
     return {
       claudeDeployment,
@@ -87,7 +84,6 @@ const gatherDrift = (): {
           sot: "present",
           drifted: true,
         },
-        codex,
       ],
     };
   }
@@ -107,7 +103,6 @@ const gatherDrift = (): {
         env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
         sot.env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
       ),
-      codex,
     ],
   };
 };

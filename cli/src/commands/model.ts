@@ -5,7 +5,7 @@ import { engineHome } from "../engine-native/harnesses";
 import { defaultLiveInputs, resolveCatalog } from "../engine-native/liveModels";
 import type { Tool } from "../manifests";
 
-const tool = Argument.String("tool").pipe(Argument.withDescription("Which tool: claude | codex"));
+const tool = Argument.String("tool").pipe(Argument.withDescription("Which tool: claude"));
 const value = Argument.String("value").pipe(
   Argument.withDescription("Model to set (omit to view current + pick interactively on a TTY)"),
   Argument.optional,
@@ -24,8 +24,8 @@ const KEEP = "__keep__";
 
 export const modelCommand = Command.make("model", { tool, value, dryRun, verbose }, (config) =>
   Effect.gen(function* () {
-    if (config.tool !== "claude" && config.tool !== "codex") {
-      return yield* bail(`Unknown tool '${config.tool}' (valid: claude, codex)`);
+    if (config.tool !== "claude") {
+      return yield* bail(`Unknown tool '${config.tool}' (valid: claude)`);
     }
     const t = config.tool as Tool;
     const dry = [...(config.dryRun ? ["--dry-run"] : []), ...(config.verbose ? ["--verbose"] : [])];

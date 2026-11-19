@@ -1,6 +1,3 @@
-import { join } from "node:path";
-
-import { FIXTURES_DIR } from "./goldenResources";
 import { stableStringify } from "./goldenSnapshot";
 
 export interface MutationMatrixCase {
@@ -51,7 +48,6 @@ export const LEGACY_CLAUDE_FILES = {
 // row silently overwrites the earlier one's golden.
 export const MATRIX: Array<MutationMatrixCase> = [
   { fixture: "home-fresh", cmd: ["sync", "claude"] },
-  { fixture: "home-fresh", cmd: ["sync", "codex"] },
   { fixture: "home-fresh", cmd: ["sync", "agents"] },
   { fixture: "home-fresh", cmd: ["sync", "omp"] },
   { fixture: "home-fresh", cmd: ["sync", "omp"], stubs: { omp: null } },
@@ -90,33 +86,20 @@ export const MATRIX: Array<MutationMatrixCase> = [
     variant: "marketplace-refresh-failure",
   },
   { fixture: "home-drift", cmd: ["sync", "claude"] },
-  { fixture: "home-drift", cmd: ["sync", "codex"] },
   { fixture: "home-drift", cmd: ["sync", "agents"] },
   { fixture: "home-drift", cmd: ["sync", "--reconcile"] },
   { fixture: "home-drift", cmd: ["sync", "--prune"] },
   { fixture: "home-drift", cmd: ["sync", "claude", "--claude-effort=default"] },
   { fixture: "home-drift", cmd: ["sync", "claude", "--claude-advisor=on"] },
-  { fixture: "home-drift", cmd: ["sync", "codex", "--codex-effort=ultra"] },
-  { fixture: "home-drift", cmd: ["sync", "codex", "--codex-effort=default"] },
   { fixture: "home-fresh", cmd: ["sync", "claude", "--claude-effort"] },
   { fixture: "home-fresh", cmd: ["sync", "claude", "--claude-effort="] },
   { fixture: "home-fresh", cmd: ["sync", "claude", "--claude-effort=max"] },
-  { fixture: "home-fresh", cmd: ["sync", "codex", "--codex-effort"] },
-  { fixture: "home-fresh", cmd: ["sync", "codex", "--codex-effort="] },
-  { fixture: "home-fresh", cmd: ["sync", "codex", "--codex-effort=future"] },
   { fixture: "home-fresh", cmd: ["sync", "claude", "--claude-advisor"] },
   { fixture: "home-fresh", cmd: ["sync", "claude", "--claude-advisor="] },
   { fixture: "home-fresh", cmd: ["sync", "claude", "--claude-advisor=maybe"] },
   {
     fixture: "home-fresh",
-    cmd: [
-      "sync",
-      "agents",
-      "--dry-run",
-      "--claude-effort=low",
-      "--claude-advisor=on",
-      "--codex-effort=max",
-    ],
+    cmd: ["sync", "agents", "--dry-run", "--claude-effort=low", "--claude-advisor=on"],
   },
   { fixture: "home-drift", cmd: ["sync", "claude", "--claude-plugin=supabase,n8n"] },
   {
@@ -133,11 +116,9 @@ export const MATRIX: Array<MutationMatrixCase> = [
   },
   { fixture: "home-drift", cmd: ["model", "claude", "opus"] },
   { fixture: "home-drift", cmd: ["model", "claude", "default"] },
-  { fixture: "home-drift", cmd: ["model", "codex", "gpt-5.5"] },
   { fixture: "home-invalid-json", cmd: ["sync", "claude"] },
   { fixture: "home-fresh", cmd: ["toolchain", "check"] },
   { fixture: "home-fresh", cmd: ["sync", "claude"], stubs: { claude: null } },
-  { fixture: "home-fresh", cmd: ["sync", "codex"], stubs: { codex: null } },
   {
     fixture: "home-fresh",
     cmd: ["sync", "claude"],
@@ -146,21 +127,16 @@ export const MATRIX: Array<MutationMatrixCase> = [
   },
   {
     fixture: "home-fresh",
-    cmd: ["sync", "codex"],
+    cmd: ["sync", "omp"],
     stubs: { jq: null },
     variant: "jq-absent-native-sync",
   },
-  // Missing-git trio: uniform hint-bearing warn from the dependency registry;
+  // Missing-git pair: uniform hint-bearing warn from the dependency registry;
   // the combined run must emit exactly ONE deduplicated git warn.
   { fixture: "home-fresh", cmd: ["sync", "claude"], stubs: { git: null } },
-  { fixture: "home-fresh", cmd: ["sync", "codex"], stubs: { git: null } },
   { fixture: "home-fresh", cmd: ["sync"], stubs: { git: null } },
-  // Codex model modifier: deployed config.toml model key plus restart advice.
-  { fixture: "home-drift", cmd: ["sync", "codex", "--codex-model=gpt-5.5"] },
   // Default pseudo-value: deletes the deployed model key (flag-less sync reverts).
   { fixture: "home-fresh", cmd: ["sync", "claude", "--claude-model=default"] },
-  // Missing-config model set: warn and skip instead of writing.
-  { fixture: "home-fresh", cmd: ["model", "codex", "gpt-5.5"] },
   // Flag scope: reconcile and prune are accepted on the omp and agents targets.
   { fixture: "home-fresh", cmd: ["sync", "omp", "--reconcile"] },
   { fixture: "home-fresh", cmd: ["sync", "agents", "--prune"] },
@@ -183,19 +159,4 @@ export const REPLAYS: Array<MutationReplayCase> = [
     cmd: ["sync", "claude"],
     cmd2: ["sync", "claude", "--claude-model=opus"],
   },
-  // Codex repeat run: the already-in-sync surface for the codex target.
-  { fixture: "home-drift", cmd: ["sync", "codex"] },
-];
-
-export const TOML_DIR = join(FIXTURES_DIR, "codex-toml");
-export const TOML_SHAPES = [
-  "01-top-level-comments.toml",
-  "02-first-table-insert.toml",
-  "03-features-only-landlock.toml",
-  "04-features-extra-keys.toml",
-  "05-user-tables.toml",
-  "06-sot-table-replace.toml",
-  "07-dotted-quoted-headers.toml",
-  "08-multiline-string.toml",
-  "09-comment-after-managed.toml",
 ];

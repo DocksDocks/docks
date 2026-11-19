@@ -15,7 +15,7 @@ const CLI = cliEntry();
 const temporaryDirectories = new Array<string>();
 
 // `status` runs `toolchain check`, and `sync --dry-run` probes the harness CLIs.
-// Both version-probe tools such as omp, claude, and codex. The golden stubs come
+// Both version-probe tools such as omp and claude. The golden stubs come
 // first on PATH, so those probes never run the host's binaries.
 let toolStubs = "";
 
@@ -38,7 +38,6 @@ const runCli = (
       HOME: home,
       USERPROFILE: home,
       AGENTS_DIR: p(home, ".agents"),
-      CODEX_HOME: "",
       DOCKS_KIT_ENGINE: "",
       DOCKS_KIT_HOME: REPO_DIR,
       PATH: `${toolStubs}${delimiter}${process.env["PATH"] ?? ""}`,
@@ -268,11 +267,11 @@ describe("command reporting", () => {
     () => {
       const home = temporaryDirectory("docks-sync-variadic-");
 
-      const selected = runCli(["sync", "claude", "codex", "--dry-run"], home);
+      const selected = runCli(["sync", "claude", "agents", "--dry-run"], home);
       expect(selected.status).toBe(0);
       expect(selected.stdout).toContain("Claude:");
-      expect(selected.stdout).toContain("Codex:");
-      expect(selected.stdout).not.toContain("Skills:");
+      expect(selected.stdout).toContain("Skills:");
+      expect(selected.stdout).not.toContain("omp:");
 
       const invalid = runCli(["sync", "claude", "bogus", "--dry-run"], home);
       expect(invalid.status).toBe(2);

@@ -12,12 +12,12 @@ docks-kit sync claude agents        # two
 docks-kit sync omp                  # opt-in harness
 ```
 
-Positional targets are `claude`, `codex`, `agents`, and `omp`. A flag-less
+Positional targets are `claude`, `agents`, and `omp`. A flag-less
 `sync` deploys the per-machine harness selection stored in
-`~/.docks-kit/kit.db`. A missing selection or an unreadable store selects `claude`,
-`codex`, and `agents`, and never selects `omp`. Choose the stored selection
+`~/.docks-kit/kit.db`. A missing selection or an unreadable store selects
+`claude` and `agents`, and never selects `omp`. Choose the stored selection
 with `docks-kit harnesses`. With no stored selection, its picker pre-ticks all
-four harnesses, `omp` included; a flag-less `sync` does not change until the
+three harnesses, `omp` included; a flag-less `sync` does not change until the
 picker saves a selection. In the picker, Enter or Space ticks or unticks the
 harness under the cursor, Enter on the Save row stores the selection, and
 Escape leaves it unchanged.
@@ -29,8 +29,7 @@ Escape leaves it unchanged.
 | `--dry-run` | Preview without applying; takes no sync lock and no folder lock |
 | `--reconcile` | Settings layer reconciled toward SoT (SoT keys win; user-only keys preserved; permissions arrays replaced) |
 | `--prune` | Uninstall kit-managed installs not in SoT: plugins, marketplaces, and the universal skills that `~/.agents/.kit-owned-skills` names |
-| `--skip-bubblewrap` | Skip optional bubblewrap bootstrap (Codex Linux sandbox) |
-| `--skip-plugin-refresh` | Install missing Claude, Codex, and omp plugins but skip refresh-only updates |
+| `--skip-plugin-refresh` | Install missing Claude and omp plugins but skip refresh-only updates |
 | `--verbose` / `-v` | Also print no-op confirmations (already in sync, up to date, left as-is); accepted on `sync`, `model`, and `toolchain` |
 
 ## Environment overrides
@@ -50,13 +49,11 @@ same files at once.
   (`DOCKS_KIT_SYNC_LOCK_WAIT_MS` changes the wait). It then prints
   `another docks-kit sync holds <path>; run sync again after it ends` and
   exits 1 with no change.
-- Two homes can share a Codex folder (`CODEX_HOME`), an agents folder
-  (`AGENTS_DIR`), or an omp folder (`PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`,
-  `XDG_DATA_HOME`, or a symlink). So a writing sync also holds
-  `.docks-kit-sync-lock.db` inside each such folder that it writes. For `codex`
-  this is the Codex folder, and for `agents` the agents folder. For `omp` it is
-  the omp agent folder, the intercom folder, and the omp data root. A
-  `model codex <value>` write holds the Codex folder lock too. The held line
+- Two homes can share an agents folder (`AGENTS_DIR`) or an omp folder
+  (`PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `XDG_DATA_HOME`, or a symlink). So a
+  writing sync also holds `.docks-kit-sync-lock.db` inside each such folder
+  that it writes. For `agents` this is the agents folder. For `omp` it is the
+  omp agent folder, the intercom folder, and the omp data root. The held line
   then names that lock file.
 - A writing sync creates a missing folder of this set just before it takes the
   lock of that folder, after the locks of its ancestors in the set. Each folder
@@ -97,12 +94,10 @@ same files at once.
 | `--claude-compact-window=<n>` | Deploy-time modifier: autocompact window in tokens (`680000` or `680k`) |
 | `--claude-permissive` | Deploy-time modifier: empty permissions.ask/deny (sandboxes) |
 | `--claude-plugin=<name>` | Sticky opt-in plugin (known: supabase, n8n); comma-separate for several |
-| `--codex-model=<m>` | Deploy-time modifier: deployed Codex model |
-| `--codex-effort=<level>` | Deploy-time modifier: `model_reasoning_effort`; valid `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, or `default` (Codex SoT: `high`; model-dependent) |
 
 Bare model, effort, or advisor modifiers print the relevant valid-value catalog
 and exit 2. A modifier for a target not selected by the positional arguments is
-ignored with a warning; Claude modifiers never touch Codex config and vice versa.
+ignored with a warning.
 
 ## `omp` session flags
 
@@ -164,10 +159,9 @@ Old flags exit with a rename hint — there is no compat behavior.
 
 | Old | New |
 |-----|-----|
-| `--claude` / `--codex` / `--agents` | positional `claude` / `codex` / `agents` |
+| `--claude` / `--agents` | positional `claude` / `agents` |
 | `--force` | `--reconcile` |
 | `--remove-plugins` | `--prune` |
 | `--680k` | `--claude-compact-window=680k` |
 | `--permissive` | `--claude-permissive` |
 | `--supabase` / `--n8n` | `--claude-plugin=supabase` / `--claude-plugin=n8n` |
-| `--skip-rtk` | `--skip-bubblewrap` |

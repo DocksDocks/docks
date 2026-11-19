@@ -9,8 +9,8 @@ import type { ModifierFlag } from "./engineCtx";
 /** Manifest-record object: the `{ [key]: Json }` shape redeclared across manifest readers. */
 export type JsonObject = { [key: string]: Json };
 
-export type CatalogTool = "claude" | "codex" | "omp";
-export type CatalogSource = "anthropic-api" | "codex-cache" | "omp-cli" | "curated";
+export type CatalogTool = "claude" | "omp";
+export type CatalogSource = "anthropic-api" | "omp-cli" | "curated";
 
 export interface ResolvedCatalog {
   readonly tool: CatalogTool;
@@ -26,9 +26,9 @@ export interface ResolvedCatalog {
 }
 
 /**
- * Shared core of per-tool settings-edit descriptors (Claude JSON modifiers,
- * Codex TOML passes). Each tool narrows `key` to its own vocabulary and keeps
- * tool-only fields (such as Claude's dry-run preview) on its local extension.
+ * Shared core of settings-edit descriptors (the Claude JSON modifiers). A
+ * caller narrows `key` to its own vocabulary and keeps caller-only fields
+ * (such as Claude's dry-run preview) on its local extension.
  */
 export interface SettingEdit<TKey extends string> {
   readonly tag: string;

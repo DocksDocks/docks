@@ -114,7 +114,7 @@ describe("DependencyManager registry", () => {
     );
   });
 
-  it("gives platform-correct agent CLI hints", () => {
+  it("gives a platform-correct Claude CLI hint", () => {
     expect(DEPENDENCIES.claude.installHint("linux")).toBe(
       'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o "$tmp" && bash "$tmp"',
     );
@@ -123,15 +123,6 @@ describe("DependencyManager registry", () => {
     );
     expect(DEPENDENCIES.claude.installHint("win32")).toBe(
       "$tmp = Join-Path $env:TEMP 'claude-install.ps1'; curl.exe -fsSL https://claude.ai/install.ps1 -o $tmp; if ($LASTEXITCODE -eq 0) { powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp }",
-    );
-    expect(DEPENDENCIES.codex.installHint("linux")).toBe(
-      'tmp=$(mktemp) && curl -fsSL https://chatgpt.com/codex/install.sh -o "$tmp" && CODEX_NON_INTERACTIVE=1 sh "$tmp"',
-    );
-    expect(DEPENDENCIES.codex.installHint("darwin")).toBe(
-      'tmp=$(mktemp) && curl -fsSL https://chatgpt.com/codex/install.sh -o "$tmp" && CODEX_NON_INTERACTIVE=1 sh "$tmp"',
-    );
-    expect(DEPENDENCIES.codex.installHint("win32")).toBe(
-      "$tmp = Join-Path $env:TEMP 'codex-install.ps1'; curl.exe -fsSL https://chatgpt.com/codex/install.ps1 -o $tmp; if ($LASTEXITCODE -eq 0) { $env:CODEX_NON_INTERACTIVE = '1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp }",
     );
   });
 

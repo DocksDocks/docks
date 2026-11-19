@@ -205,11 +205,6 @@ const STUB_BODIES: Record<string, string> = {
   git: `if (args[0] === "--version") console.log("git version 2.43.0")`,
   jq: `if (args[0] === "--version") console.log("jq-1.7.1")`,
   claude: `if (args[0] === "--version") console.log("2.1.204 (Claude Code)")`,
-  codex: `if (args[0] === "--version") {
-  console.log("codex-cli 0.159.0")
-} else if (args[0] === "plugin" && args[1] === "list") {
-  console.log('{"installed":[{"pluginId":"docks@docks","version":"0.12.5","installed":true,"enabled":true},{"pluginId":"effect-kit@docks","version":"0.3.0","installed":true,"enabled":true},{"pluginId":"plan-lifecycle@docks","version":"0.1.0","installed":true,"enabled":true}],"available":[]}')
-}`,
   // The inventory stays empty on every call, so a replay row pins the install
   // path rather than the already-installed path; ompSync's present-detection
   // is covered by cli/test/unit/ompPluginInventory.test.ts instead.
@@ -226,7 +221,6 @@ const STUB_BODIES: Record<string, string> = {
 }`,
   bun: `if (args[0] === "--version") console.log("1.4.4")`,
   curl: ``,
-  bwrap: `if (args[0] === "--version") console.log("bubblewrap 0.11.0")`,
   intelephense: ``,
   "typescript-language-server": `if (args[0] === "--version") console.log("6.0.0")`,
   tsc: `if (args[0] === "--version") console.log("Version 6.0.3")`,
@@ -236,7 +230,6 @@ const STUB_BODIES: Record<string, string> = {
   "rust-analyzer": `if (args[0] === "--version") console.log("rust-analyzer 1.92.0 (0d1f2e3a4 2026-08-31)")`,
   rustup: `if (args[0] === "--version") console.log("rustup 1.29.0 (2026-05-12)")`,
   ffplay: `if (args[0] === "-version") console.log("ffplay version 6.1.1-3ubuntu5 Copyright (c) 2003-2023 the FFmpeg developers")`,
-  unshare: ``,
   // Windows user-environment persistence. A real `setx` writes HKCU and then
   // broadcasts WM_SETTINGCHANGE, which blocks for seconds on a headless runner
   // and mutates the machine outside the fixture home; `reg` reports the value
@@ -341,7 +334,7 @@ default: throw new Error(\`unknown golden stub: \${String(name)}\`)
 }
 
 /**
- * Write a fixture home variant on the fly (used by the TOML suite).
+ * Write a fixture home variant on the fly (used by unit tests).
  * A `null` value deletes the path instead of writing it, so a case can opt out
  * of fixture artifacts that are noise for the invariant it asserts.
  */

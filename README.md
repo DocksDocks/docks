@@ -5,7 +5,7 @@ Truth (SoT)** directories deploy to each tool's user-config location. Clone
 once to get a consistent AI-assisted environment on supported Linux, macOS,
 and Windows machines. Tuned for **token efficiency without sacrificing quality**.
 
-Supported harnesses: **Claude Code**, **Codex**, and **Oh My Pi (`omp`)**.
+Supported harnesses: **Claude Code** and **Oh My Pi (`omp`)**.
 The kit also deploys [agentskills.io](https://agentskills.io) universal skills.
 
 ## Quick start
@@ -44,11 +44,11 @@ launcher and installer use Invoke-WebRequest.
 ## CLI
 
 ```text
-docks-kit sync [claude] [codex] [agents] [omp]  deploy explicit targets or the machine selection
+docks-kit sync [claude] [agents] [omp]          deploy explicit targets or the machine selection
 docks-kit harnesses                             view or change this machine's selection
 docks-kit update [--no-sync]                    self-update the kit (autodetects checkout vs global install), then sync
-docks-kit model <claude|codex> [value]          get/set the DEPLOYED model (TTY picker)
-docks-kit models [claude|codex|omp] [--refresh]  live catalogs for enabled harnesses (`--json`)
+docks-kit model claude [value]                  get/set the DEPLOYED model (TTY picker)
+docks-kit models [claude|omp] [--refresh]       live catalogs for enabled harnesses (`--json`)
 docks-kit omp [--model <m>|--pick] [args...]    one omp session on a free model, nothing deployed changes
 docks-kit omp --fast                            toggle omp fast mode for OpenAI/Codex models, then exit
 docks-kit toolchain [check|ensure <tool>|outdated|upgrade]  verified-version floors for external tools
@@ -83,8 +83,6 @@ here.
 | `--claude-compact-window=<n>` | Deploy-time modifier: autocompact window (`680k`) |
 | `--claude-permissive` | Deploy-time modifier: empty ask/deny (sandboxes only) |
 | `--claude-plugin=<name>` | Sticky opt-in plugin (supabase, n8n) |
-| `--codex-model=<m>` | Deploy-time modifier: deployed Codex model |
-| `--skip-bubblewrap` | Skip optional bubblewrap bootstrap (Codex Linux sandbox) |
 | `--skip-plugin-refresh` | Install missing plugins but skip refresh-only updates |
 
 **Deploy-time modifiers** change deployed config only — the SoT is untouched
@@ -97,34 +95,33 @@ and a later flag-less sync reverts them. Full reference: `docks-kit docs flags`
   survive a plain sync. Reconciliation toward the SoT is explicit
   (`--reconcile` / `--prune`).
 - **Per-machine selection** — `~/.docks-kit/kit.db` drives a flag-less sync.
-  A missing selection selects Claude Code, Codex, and universal skills. It does not
+  A missing selection selects Claude Code and universal skills. It does not
   select omp. Use `docks-kit harnesses` to view or change the selection. With no
   stored selection, its picker pre-ticks every harness, omp included.
 - **Idempotent** — every step is safe to re-run; no-change syncs are no-ops.
 - **Toolchain floors** — `SoT/toolchain.json` records the kit-verified version
-  floors for external tools (bun, bwrap, …). `docks-kit toolchain check` prints
+  floors for external tools (bun, claude, omp, …). `docks-kit toolchain check` prints
   the full doctor table. Bun is the one managed install and is pinned to its
   verified version.
-- **Model catalog** — enabled harnesses provide live Claude, Codex, or omp
-  model IDs; `SoT/models.json` supplies Claude and Codex aliases, notes, and the
-  offline fallback. omp has no curated fallback list.
+- **Model catalog** — enabled harnesses provide live Claude or omp model IDs;
+  `SoT/models.json` supplies Claude aliases, notes, and the offline fallback.
+  omp has no curated fallback list.
 - **Claude runtime** — sync materializes three dependency-free Bun `.mjs`
   programs for statusline, SessionStart, and Notification. Quota display uses
   Claude's native `rate_limits`; there is no OAuth fetch, shared usage cache,
   or Stop hook. If Bun cannot be resolved or bootstrapped, sync preserves a
   working legacy hook/statusline setup and reports that migration is deferred.
-- **Command guards** — omp, Claude Code, and Codex share one policy for
+- **Command guards** — omp and Claude Code share one policy for
   destructive shell commands; to remove, agents use the trash
   (`gio trash -- <path>`, or `trash <path>` on macOS); omp agents remove a
   temporary file or directory with `docks-kit scratch remove`. `rm` of the
   home directory or `/` and `HOME` reassignment are denied. omp also denies
   every recursive `rm`, `find -delete`, `find -exec rm`, and `xargs rm`. The
   kit ships no omp prompt rule, so omp runs every command that no deny
-  matches without a question, in subagents too. Claude Code and Codex ask
-  before a recursive `rm`, `find -delete`, every `git rm`, `git clean`,
-  `git reset --hard`, and any `git push` that could force; a Codex ask can go
-  to its `auto_review` reviewer. Details, per-tool differences, and gaps:
-  `docks-kit docs command-guards`.
+  matches without a question, in subagents too. Claude Code asks before a
+  recursive `rm`, `find -delete`, every `git rm`, `git clean`,
+  `git reset --hard`, and any `git push` that could force. Details, per-tool
+  differences, and gaps: `docks-kit docs command-guards`.
 - **Agent cleanup (omp)** — `docks-kit scratch` creates agent temporary
   directories and removes agent temporary files and directories with checked
   paths. `docks-kit tidy` lists merged idle worktrees, their containers,
@@ -138,10 +135,9 @@ and a later flag-less sync reverts them. Full reference: `docks-kit docs flags`
 | Path | Purpose |
 |------|---------|
 | `SoT/.claude/` | Claude Code SoT (settings template, Bun runtime programs, CLAUDE.md) |
-| `SoT/.codex/` | Codex SoT (config.toml, rules, AGENTS.md, marketplace) |
 | `SoT/.omp/` | omp SoT (AGENTS.md, config.yml, models.yml, mcp.json, intercom.json, and the `plugin/` source of `docks-kit-omp`) |
 | `SoT/.agents/` | Universal-skill manifest |
-| `SoT/models.json` | Curated aliases, notes, and offline Claude/Codex fallback |
+| `SoT/models.json` | Curated aliases, notes, and offline Claude fallback |
 | `SoT/toolchain.json` | Verified-version floors |
 | `cli/src/engine-native/` | EngineNative sync/model/toolchain implementation |
 | `cli/src/generated/sotPayload.ts` | Generated in-memory payload used by standalone and npm installs |

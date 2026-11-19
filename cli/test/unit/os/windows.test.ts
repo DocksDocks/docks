@@ -26,7 +26,6 @@ describe("Windows host OS", () => {
 
     expect(host.id).toBe("windows");
     expect(host.toolchainOs).toBe("windows");
-    expect(host.supportsBubblewrap).toBe(false);
     expect(host.directoryLinkKinds).toEqual(["symlink", "junction"]);
     expect(host.executableSuffixes).toEqual([".exe", ".cmd", ".bat", ""]);
     expect(host.bunExecutableName).toBe("bun.exe");
@@ -81,9 +80,6 @@ describe("Windows host OS", () => {
     expect(host.installHint("ffplay")).toBe("winget install --id Gyan.FFmpeg -e");
     expect(host.installHint("claude")).toBe(
       "$tmp = Join-Path $env:TEMP 'claude-install.ps1'; curl.exe -fsSL https://claude.ai/install.ps1 -o $tmp; if ($LASTEXITCODE -eq 0) { powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp }",
-    );
-    expect(host.installHint("codex")).toBe(
-      "$tmp = Join-Path $env:TEMP 'codex-install.ps1'; curl.exe -fsSL https://chatgpt.com/codex/install.ps1 -o $tmp; if ($LASTEXITCODE -eq 0) { $env:CODEX_NON_INTERACTIVE = '1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp }",
     );
   });
 

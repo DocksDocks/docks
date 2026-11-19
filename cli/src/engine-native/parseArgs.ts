@@ -27,11 +27,10 @@ export {
   validateModifierFlags,
 } from "./parseModifiers";
 
-type TargetFlag = "syncClaude" | "syncCodex" | "syncAgents" | "syncOmp";
+type TargetFlag = "syncClaude" | "syncAgents" | "syncOmp";
 
 const TARGET_FLAGS = {
   claude: "syncClaude",
-  codex: "syncCodex",
   agents: "syncAgents",
   omp: "syncOmp",
 } satisfies Record<Harness, TargetFlag>;
@@ -43,7 +42,6 @@ const TARGET_FLAGS = {
  */
 export const LEGACY_FLAG_HINTS = {
   "--claude": "--claude was renamed: pass the target as a word, e.g. 'sync claude'",
-  "--codex": "--codex was renamed: pass the target as a word, e.g. 'sync codex'",
   "--agents": "--agents was renamed: pass the target as a word, e.g. 'sync agents'",
   "--omp": "--omp was renamed: pass the target as a word, e.g. 'sync omp'",
   "--force": "--force was renamed to --reconcile",
@@ -53,7 +51,6 @@ export const LEGACY_FLAG_HINTS = {
   "--permissive": "--permissive was renamed to --claude-permissive",
   "--supabase": "--supabase was renamed to --claude-plugin=supabase",
   "--n8n": "--n8n was renamed to --claude-plugin=n8n",
-  "--skip-rtk": "--skip-rtk was renamed to --skip-bubblewrap",
 } as const satisfies Record<string, string>;
 
 type LegacyFlag = keyof typeof LEGACY_FLAG_HINTS;
@@ -69,7 +66,6 @@ function selectTarget(ctx: Ctx, target: Harness): void {
 
 function applySelection(ctx: Ctx, selection: ReadonlyArray<Harness>): void {
   ctx.syncClaude = selection.includes("claude");
-  ctx.syncCodex = selection.includes("codex");
   ctx.syncAgents = selection.includes("agents");
   ctx.syncOmp = selection.includes("omp");
 }
@@ -81,7 +77,7 @@ function applyDefaultSelection(ctx: Ctx): void {
   applySelection(ctx, storedSelection ?? LEGACY_SELECTION);
   if (storedSelection !== undefined || !ctx.interactive) return;
 
-  ctx.services.logger.echo("No harness selection stored; syncing claude, codex, agents");
+  ctx.services.logger.echo(`No harness selection stored; syncing ${LEGACY_SELECTION.join(", ")}`);
   ctx.services.logger.echo("Choose harnesses with: docks-kit harnesses");
 }
 
@@ -96,16 +92,12 @@ export function parseArgs(ctx: Ctx, args: ReadonlyArray<string>): void {
     }
     switch (arg) {
       case "claude":
-      case "codex":
       case "agents":
       case "omp":
         selectTarget(ctx, arg);
         continue;
       case "--dry-run":
         ctx.dryRun = true;
-        continue;
-      case "--skip-bubblewrap":
-        ctx.skipBubblewrap = true;
         continue;
       case "--skip-plugin-refresh":
         ctx.skipPluginRefresh = true;
@@ -123,17 +115,9 @@ export function parseArgs(ctx: Ctx, args: ReadonlyArray<string>): void {
         printModels(ctx, curatedCatalog("claude"));
         err("--claude-model requires a value: --claude-model=<model>");
         throw new ExitError(2);
-      case "--codex-model":
-        printModels(ctx, curatedCatalog("codex"));
-        err("--codex-model requires a value: --codex-model=<model>");
-        throw new ExitError(2);
       case "--claude-effort":
         printCatalog(ctx, effortCatalog("claude"));
         err(`--claude-effort requires a value: ${effortFlagGrammar("claude")}`);
-        throw new ExitError(2);
-      case "--codex-effort":
-        printCatalog(ctx, effortCatalog("codex"));
-        err(`--codex-effort requires a value: ${effortFlagGrammar("codex")}`);
         throw new ExitError(2);
       case "--claude-advisor":
         printCatalog(ctx, advisorCatalog());
@@ -154,7 +138,6 @@ export function parseArgs(ctx: Ctx, args: ReadonlyArray<string>): void {
         );
         throw new ExitError(2);
       case "--claude":
-      case "--codex":
       case "--agents":
       case "--omp":
       case "--force":
@@ -163,7 +146,6 @@ export function parseArgs(ctx: Ctx, args: ReadonlyArray<string>): void {
       case "--permissive":
       case "--supabase":
       case "--n8n":
-      case "--skip-rtk":
         err(LEGACY_FLAG_HINTS[arg]);
         throw new ExitError(2);
       case "-h":
@@ -175,12 +157,8 @@ export function parseArgs(ctx: Ctx, args: ReadonlyArray<string>): void {
     }
     if (arg.startsWith("--claude-model=")) {
       setModifier(ctx, "--claude-model", arg.slice("--claude-model=".length));
-    } else if (arg.startsWith("--codex-model=")) {
-      setModifier(ctx, "--codex-model", arg.slice("--codex-model=".length));
     } else if (arg.startsWith("--claude-effort=")) {
       setModifier(ctx, "--claude-effort", arg.slice("--claude-effort=".length));
-    } else if (arg.startsWith("--codex-effort=")) {
-      setModifier(ctx, "--codex-effort", arg.slice("--codex-effort=".length));
     } else if (arg.startsWith("--claude-advisor=")) {
       setModifier(ctx, "--claude-advisor", arg.slice("--claude-advisor=".length));
     } else if (arg.startsWith("--claude-compact-window=")) {

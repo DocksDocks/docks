@@ -1,5 +1,5 @@
 {
-  "$comment": "Curated overlay for docks-kit model listings: aliases (kind alias) and notes always apply; the id rows are the fallback when the harness's live list is unavailable (harness not enabled, no login or cache, offline). Live sources: Claude via the Claude Code login against the Anthropic models API (cached 6 h in ~/.docks-kit/kit.db), Codex via ~/.codex/models_cache.json, omp via omp models --json.",
+  "$comment": "Curated overlay for docks-kit model listings: aliases (kind alias) and notes always apply; the id rows are the fallback when the harness's live list is unavailable (harness not enabled, no login or cache, offline). Live sources: Claude via the Claude Code login against the Anthropic models API (cached 6 h in ~/.docks-kit/kit.db), omp via omp models --json.",
   "claude": {
     "verified": "2026-09-22",
     "models": [
@@ -16,25 +16,6 @@
       { "id": "claude-opus-4-8", "kind": "id", "note": "Opus 4.8 (legacy)" },
       { "id": "claude-sonnet-5", "kind": "id", "note": "Sonnet 5" },
       { "id": "claude-haiku-4-5-20251001", "kind": "id", "note": "Haiku 4.5" }
-    ]
-  },
-  "codex": {
-    "verified": "2026-11-18",
-    "models": [
-      { "id": "gpt-6.2-sol", "kind": "id", "note": "GPT-6.2 Sol — complex coding and agentic work, recommended default; the kit SoT pin" },
-      { "id": "gpt-6.2-astra", "kind": "id", "note": "GPT-6.2 Astra — most capable, highest cost" },
-      { "id": "gpt-6.1-sol", "kind": "id", "note": "GPT-6.1 Sol — previous Sol release" },
-      { "id": "gpt-6-sol", "kind": "id", "note": "GPT-6 Sol — previous Sol release" },
-      { "id": "gpt-6-luna", "kind": "id", "note": "GPT-6 Luna — fast/light tier" },
-      { "id": "gpt-6-astra", "kind": "id", "note": "GPT-6 Astra — previous Astra release" },
-      { "id": "gpt-5.6-sol", "kind": "id", "note": "previous generation" },
-      { "id": "gpt-5.6-terra", "kind": "id", "note": "previous generation, balanced tier" },
-      { "id": "gpt-5.6-luna", "kind": "id", "note": "previous generation" },
-      { "id": "gpt-5.5", "kind": "id", "note": "previous generation" },
-      { "id": "gpt-5.5-codex", "kind": "id", "note": "codex-tuned gpt-5.5" },
-      { "id": "gpt-5.1", "kind": "id", "note": "previous generation" },
-      { "id": "gpt-5", "kind": "id", "note": "previous generation" },
-      { "id": "gpt-5-codex", "kind": "id", "note": "codex-tuned gpt-5" }
     ]
   }
 }
