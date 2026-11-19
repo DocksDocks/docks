@@ -527,7 +527,7 @@ const BACKSTOP_TIMEOUT_MS = 2 * SPAWN_TIMEOUT_MS;
 const BACKSTOP_REPORT_MS = 5_000;
 
 it(
-  "keeps every condition within budget, firing, and linear under JavaScriptCore",
+  "keeps every condition within budget, firing, and at 64 KB within 8 times its 16 KB time plus 15 ms under JavaScriptCore",
   () => {
     const run = spawnSync(BUN_RUNTIME, [BACKSTOP_SCRIPT], {
       encoding: "utf8",

@@ -15,13 +15,13 @@
  * - fire, regex JIT on: `git reset --hard` at the end of the 20 KB Python cell
  *   fires git-safety, which catches the fail-open.
  * - scaling, regex JIT off: each condition alone, on each adversarial input
- *   shape, at 16 KB and 64 KB. The 64 KB time stays within
- *   `MAX_GROWTH_RATIO` times the 16 KB time, unless it is under
- *   `GROWTH_FLOOR_MS`, and never passes `SCALING_CEILING_MS`. The JIT gives up
- *   past about 16 K backtrack frames and the interpreter takes over, so the
- *   interpreter time bounds what omp pays, and without the JIT the ratio does
- *   not depend on where that cliff falls. The ceiling catches the match-limit
- *   plateau, where the ratio stays near 1.
+ *   shape, at 16 KB and 64 KB. The 64 KB time stays within `MAX_GROWTH_RATIO`
+ *   times the 16 KB time plus `GROWTH_NOISE_MS`, and never passes
+ *   `SCALING_CEILING_MS`. The JIT gives up past about 16 K backtrack frames
+ *   and the interpreter takes over, so the interpreter time bounds what omp
+ *   pays, and without the JIT the ratio does not depend on where that cliff
+ *   falls. The ceiling catches the match-limit plateau, where the ratio stays
+ *   near 1.
  *
  * Usage: `bun cli/test/lib/ompTriggerBackstop.ts [--rules-dir=<dir>]`. The
  * default rules folder is `SoT/.omp/plugin/rules`. The script prints one line
@@ -43,8 +43,14 @@ const SCALING_SMALL_CHARS = 16_000;
 const SCALING_LARGE_CHARS = 64_000;
 /** Linear growth from 16 KB to 64 KB gives a ratio of about 4; quadratic growth gives 16. */
 const MAX_GROWTH_RATIO = 8;
-/** Under this 64 KB time a ratio measures timer noise, not growth. */
-const GROWTH_FLOOR_MS = 2;
+/**
+ * Absolute allowance on top of the ratio for a busy machine: under a parallel
+ * `bun run check`, a linear pair with 1.40 ms at 16 KB measured 13.9 ms at 64 KB.
+ * Quadratic growth still fails once the 16 KB time passes about 2 ms, where
+ * 16 times the 16 KB time exceeds 8 times plus this allowance, and the
+ * ceiling bounds every 64 KB time.
+ */
+const GROWTH_NOISE_MS = 15;
 /** About 3 times the slowest 64 KB time of the rewritten rules with the JIT off. */
 const SCALING_CEILING_MS = 100;
 /** A failing pair is timed this many times in all before it fails the check. */
@@ -281,8 +287,8 @@ function pairFault({ smallMs, largeMs }: PairTime): string | undefined {
   if (largeMs === undefined || largeMs > SCALING_CEILING_MS) {
     return `over the ${SCALING_CEILING_MS} ms ceiling`;
   }
-  if (largeMs >= GROWTH_FLOOR_MS && largeMs > MAX_GROWTH_RATIO * smallMs) {
-    return `grew ${(largeMs / smallMs).toFixed(1)} times, over ${MAX_GROWTH_RATIO}`;
+  if (largeMs > MAX_GROWTH_RATIO * smallMs + GROWTH_NOISE_MS) {
+    return `grew ${(largeMs / smallMs).toFixed(1)} times, over ${MAX_GROWTH_RATIO} times plus ${GROWTH_NOISE_MS} ms`;
   }
   return undefined;
 }
