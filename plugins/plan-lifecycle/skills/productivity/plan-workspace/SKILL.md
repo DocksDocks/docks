@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-19"
-  content_hash: "05f00ce68a75977260369887cd3866fdabda41b77ef2cc32eadefb3b137f1da9"
+  content_hash: "0cdabf2414fa5e9364093765a049343efd4c4e281dd3a3f4db8e63d181d791ce"
 ---
 
 # Plans Workspace
@@ -40,12 +40,14 @@ Report its resolved path or that the plugin is unavailable.
 ## Classify
 
 Inspect the standard, routing nodes, root Plans section, reviewer wrappers,
-pull-request template, and project `verify` skill. Detect the template with the
-detection in
+pull-request template, and project `verify` skill. `<skill-dir>` is the folder
+that holds this `SKILL.md`. Detect the template with
+`node <skill-dir>/scripts/pr-template.mjs detect`; its lines are described in
 [`references/pull-request-template.md`](references/pull-request-template.md).
 A missing or unusable template is a report item, not drift: name each
 `unusable` line. A detection error is not a missing template: report the error.
-Detect the skill with the Detect block in
+Detect the skill from the repository root with
+`node <skill-dir>/scripts/verify-skill.mjs detect`; its lines are described in
 [`references/verify-skill-template.md`](references/verify-skill-template.md).
 A missing skill, a `verify link:` line other than `present`, and a
 `verify unverified:` line are report items, not drift. Report an `ERROR` line
@@ -99,15 +101,17 @@ For audit, that report is final.
    When it prints an `ERROR` line, report the error and write nothing. Only on
    `pull-request template: none`, fill in the check command that the root
    instruction file names, print the draft with each `unusable` line, and ask.
-   When the user accepts, run the reference's write gate, and write
+   When the user accepts, run its write gate
+   (`node <skill-dir>/scripts/pr-template.mjs gate`), and write
    `.github/pull_request_template.md` only on `target free`. On
    `target occupied`, report the entry that occupies the path and write
    nothing; the user resolves it. Never write through a symlink.
 7. Offer to create the project `verify` skill from
    [`references/verify-skill-template.md`](references/verify-skill-template.md).
    `plan-manager` runs the end-to-end Acceptance rows of a plan through its
-   flows. Run its Create or re-verify section, which runs the Detect block
-   first. That section changes nothing on a verified and linked skill, asks
+   flows. Run its Create or re-verify section, which runs
+   `node <skill-dir>/scripts/verify-skill.mjs detect` first. That section
+   changes nothing on a verified and linked skill, asks
    before each write, and writes nothing when the repository has no runnable
    surface.
 
@@ -164,14 +168,14 @@ ls .codex/agents/plan-reviewer.toml .codex/agents/code-reviewer.toml
 find . \( -name .git -o -name node_modules -o -path ./docs/plans/finished \) -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print   # no output
 ```
 
-Run the template detection in
-[`references/pull-request-template.md`](references/pull-request-template.md).
+Run `node <skill-dir>/scripts/pr-template.mjs detect`
+([`references/pull-request-template.md`](references/pull-request-template.md)).
 It prints a usable template, or `pull-request template: none` only when the
 user declined the offer or an unusable entry occupies the target. Report an
 `ERROR` line as a failed check.
 
-Run the Detect block in
-[`references/verify-skill-template.md`](references/verify-skill-template.md).
+Run `node <skill-dir>/scripts/verify-skill.mjs detect`
+([`references/verify-skill-template.md`](references/verify-skill-template.md)).
 A complete run prints `verify skill: present`, `verify link: present`, and no
 `verify unverified:` or `ERROR` line. Report each other result with its cause:
 

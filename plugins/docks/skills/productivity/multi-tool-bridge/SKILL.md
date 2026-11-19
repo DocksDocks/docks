@@ -4,8 +4,8 @@ description: Use when setting up multi-tool agent compatibility in a project (Co
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-23"
-  content_hash: "cd3c4a37157329fe656c8d70c7964edee087c4417db46d392742e9ffe01046a2"
+  updated: "2026-11-19"
+  content_hash: "11f722ab3c7f968b2efff6eb06df2aa4030758ead5430800fa48408c636acdd4"
 ---
 
 # Multi-Tool Agent Bridge
@@ -19,7 +19,7 @@ All paths are RELATIVE to the project working directory at invoke time. Never wr
 </constraint>
 
 <constraint>
-Idempotency is the recovery mechanism. Re-running on a fully-bridged project must be a complete no-op. Fully bridged = `AGENTS.md` present, every `.claude/skills/<name>` a symlink to `../../.agents/skills/<name>`, and no legacy CLAUDE.md present at the root OR nested (the Step 2 enumeration returns no `CLAUDE.md` / `.claude/CLAUDE.md` path). `AGENTS.md` already present → SKIP creation. `.claude/skills/<name>` already a symlink to the correct target → SKIP. The root routing table belongs to `context-tree`: Step 6 reads it with the shared row rule (`## Context tree` section, first cell `` `<dir>/AGENTS.md` ``, a leading `@` inside the backticks tolerated) and reports gaps to `context-tree`. A routing gap is never a write action for this skill.
+Idempotency is the recovery mechanism. Re-running on a fully-bridged project must be a complete no-op. Fully bridged = `AGENTS.md` present, every `.claude/skills/<name>` a symlink to `../../.agents/skills/<name>`, and no legacy CLAUDE.md present at the root OR nested (the Step 2 audit prints no `legacy:` line). `AGENTS.md` already present → SKIP creation. `.claude/skills/<name>` already a symlink to the correct target → SKIP. The root routing table belongs to `context-tree`: Step 6 reads it with the shared row rule (`## Context tree` section, first cell `` `<dir>/AGENTS.md` ``, a leading `@` inside the backticks tolerated) and reports gaps to `context-tree`. A routing gap is never a write action for this skill.
 </constraint>
 
 <constraint>
@@ -27,7 +27,7 @@ The legacy CLAUDE.md content split is a USER decision, not an inference. When a 
 </constraint>
 
 <constraint>
-Detection is read-only. Before any write, classify every target with `Read`/`Glob`/`Grep` and read-only `Bash` (`test`, `ls`, `readlink`, `find`, `git status`/`rev-parse`/`ls-files`). Only after the user approves the action table (Step 4 approval gate) do you switch to `Write`/`Edit`/`git mv`/`git rm`/`ln`. Never write blindly.
+Detection is read-only. Before any write, classify every target with `Read`/`Glob`/`Grep` and read-only `Bash` (`test`, `ls`, `readlink`, `find`, `git status`/`rev-parse`/`ls-files`, and the `audit` and `verify` commands of `scripts/bridge-check.mjs`). Only after the user approves the action table (Step 4 approval gate) do you switch to `Write`/`Edit`/`git mv`/`git rm`/`ln`. Never write blindly.
 </constraint>
 
 <constraint>
@@ -60,39 +60,20 @@ Classify the project into one of three layouts. The layout controls only the ski
 
 ### Step 2 — Audit (read-only)
 
-```bash
-test -f AGENTS.md            && echo "EXISTS AGENTS.md"          || echo "MISSING AGENTS.md"
-test -f CLAUDE.md            && echo "EXISTS CLAUDE.md (root)"   || echo "MISSING CLAUDE.md (root)"
-test -f .claude/CLAUDE.md    && echo "EXISTS .claude/CLAUDE.md" || echo "MISSING .claude/CLAUDE.md"
-test -f CLAUDE.local.md      && echo "EXISTS CLAUDE.local.md"   || echo "MISSING CLAUDE.local.md"
-test -d .agents/skills       && echo "EXISTS .agents/skills/"   || echo "MISSING .agents/skills/"
-test -d .claude/skills       && echo "EXISTS .claude/skills/"   || echo "MISSING .claude/skills/"
-test -d .claude/agents       && echo "EXISTS .claude/agents/"   || echo "MISSING .claude/agents/"
-test -d .claude/rules        && echo "EXISTS .claude/rules/"    || echo "MISSING .claude/rules/"
-test -f .claude/rules/claude-code.md && echo "EXISTS .claude/rules/claude-code.md" || echo "MISSING .claude/rules/claude-code.md"
-```
-
-Then enumerate every legacy file, root and nested, in one read-only pass. In a git repo (tracked plus untracked, gitignored build output skipped):
+`<skill-dir>` is the folder that holds this `SKILL.md`. Its `scripts/bridge-check.mjs` holds the read-only checks of Step 2 and Step 6. Run the audit from any folder inside the project:
 
 ```bash
-git ls-files -co --exclude-standard -- ':(glob)**/CLAUDE.md' ':(exclude,glob)**/node_modules/**'
+node <skill-dir>/scripts/bridge-check.mjs audit
 ```
 
-`--exclude-standard` skips ignored files, and `CLAUDE.local.md` is usually gitignored. In a git repo, find it at any depth with `find`:
+It prints nine `EXISTS <entry>` or `MISSING <entry>` lines, in this order: `AGENTS.md`, `CLAUDE.md (root)`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.agents/skills/`, `.claude/skills/`, `.claude/agents/`, `.claude/rules/`, `.claude/rules/claude-code.md`. Then it enumerates every legacy file, root and nested, in one read-only pass:
 
-```bash
-find . \( -name .git -o -name node_modules -o -name vendor -o -name dist -o -name build -o -name out \
-  -o -name target -o -name .next \) -prune -o -type f -name CLAUDE.local.md -print
-```
+- `legacy: <path>` for each `CLAUDE.md` and `.claude/CLAUDE.md`. In a git repo, the listing holds tracked and untracked files, and it skips gitignored build output and `node_modules`.
+- `personal: <path>` for each `CLAUDE.local.md` at any depth. `CLAUDE.local.md` is usually gitignored, so this listing walks the folder, also in a git repo.
 
-Outside git, one `find` returns both names:
+The `personal:` walk, and every listing outside git, skips each `.git`, `node_modules`, `vendor`, `dist`, `build`, `out`, `target`, and `.next` folder. Paths are relative to the project root, without a leading `./`.
 
-```bash
-find . \( -name .git -o -name node_modules -o -name vendor -o -name dist -o -name build -o -name out \
-  -o -name target -o -name .next \) -prune -o -type f \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print
-```
-
-Each `CLAUDE.md` / `.claude/CLAUDE.md` path in the output is a legacy file. For a nested hit, record its folder `<dir>`: the folder that holds `CLAUDE.md`, or the parent of `.claude/` for `<dir>/.claude/CLAUDE.md`. Record also whether `<dir>/AGENTS.md` exists. Step 6 runs the same commands.
+Each `legacy:` path is a legacy file. For a nested hit, record its folder `<dir>`: the folder that holds `CLAUDE.md`, or the parent of `.claude/` for `<dir>/.claude/CLAUDE.md`. Record also whether `<dir>/AGENTS.md` exists. Step 6 runs the same enumeration.
 
 Any of `./CLAUDE.md`, `./.claude/CLAUDE.md`, or `./CLAUDE.local.md` makes Claude Code read the CLAUDE.md files instead of AGENTS.md. While one exists, a nested `<dir>/AGENTS.md` does not load natively either (Claude Code lazy-loads a subdirectory AGENTS.md only when no CLAUDE.md counts). A nested `CLAUDE.md` / `.claude/CLAUDE.md` without an import makes Claude read it instead of `<dir>/AGENTS.md`. All `CLAUDE.md` / `.claude/CLAUDE.md` files are legacy: migrate and delete them in Steps 3–5. `CLAUDE.local.md`, root or nested, is personal and usually gitignored: report it only, and tell the user it also makes Claude read CLAUDE.md files instead of AGENTS.md.
 
@@ -197,52 +178,25 @@ Apply the approved rows in this order. Write every destination (root and folder 
 
 ### Step 6 — Verify
 
-After all writes, run:
+After all writes, run the verification and the git status check. Add one `--expect <path>` pair for each rules file and each folder `AGENTS.md` that Step 5 wrote, for example:
 
 ```bash
-# Every .claude/skills/* must resolve
-find .claude/skills -maxdepth 1 -mindepth 1 \( -type l -o -type d \) -print0 \
-  | while IFS= read -r -d '' path; do
-      test -e "$path" || echo "BROKEN: $path"
-    done
-# AGENTS.md present
-test -f AGENTS.md || echo "BROKEN: AGENTS.md missing"
-# No legacy CLAUDE.md left, root or nested (same enumeration as Step 2; outside git use the Step 2 find)
-git ls-files -co --exclude-standard -- ':(glob)**/CLAUDE.md' ':(exclude,glob)**/node_modules/**' \
-  | sed 's/^/BROKEN: legacy CLAUDE.md still present: /'
-# Only when MOVE→RULES ran: each written rules file and folder AGENTS.md exists
-test -f .claude/rules/claude-code.md || echo "BROKEN: rules file missing"
-test -f .claude/rules/<dir-slug>.md  || echo "BROKEN: .claude/rules/<dir-slug>.md missing"
-test -f <dir>/AGENTS.md              || echo "BROKEN: <dir>/AGENTS.md missing"
-# Root routing (owned by context-tree; report only). Same row rule as agent-first-setup Step 3 C2:
-# a row is a table line whose first cell is `<dir>/AGENTS.md` in backticks; a leading @ inside the backticks is stripped.
-routes=$(awk -F'|' '/^[[:space:]]*\|/ { c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c ~ /^`@?[^` ]*AGENTS\.md`$/) { gsub(/`/, "", c); sub(/^@/, "", c); sub(/^\.\//, "", c); print c } }' AGENTS.md 2>/dev/null | sort -u)
-git ls-files -co --exclude-standard -- ':(glob)*/**/AGENTS.md' ':(exclude,glob)**/node_modules/**' | while IFS= read -r n; do
-  printf '%s\n' "$routes" | grep -qxF "$n" || echo "HANDOFF context-tree: unrouted node $n"
-done
-printf '%s\n' "$routes" | while IFS= read -r p; do
-  if [ -n "$p" ] && ! test -f "$p"; then echo "HANDOFF context-tree: dead route $p"; fi
-done
-# Volatile values (report only; migrated text stays verbatim). Same awk as agent-first-setup Step 3 C5:
-# fenced blocks and URLs skipped everywhere; code spans and quoted text skipped for the time and count rules only.
-git ls-files -co --exclude-standard -- ':(glob)**/AGENTS.md' ':(exclude,glob)**/node_modules/**' | while IFS= read -r f; do
-  awk -v f="$f" '
-    /^[[:space:]]*```/ { fence = !fence; next }
-    fence { next }
-    { s = $0; gsub(/https?:\/\/[^ )>]*/, "", s); t = s; gsub(/`[^`]*`/, "", t); gsub(/"[^"]*"|“[^”]*”/, "", t); l = tolower(t); gsub(/(phase|step|tier)[ -]?[0-9]+/, "", l) }
-    { r = s; while (match(r, /[A-Za-z0-9_.\/-]+\.[A-Za-z]+:[0-9]+/)) { a = substr(r, RSTART, RLENGTH); sub(/:[0-9]+$/, "", a); print "ANCHOR " a " " f ":" NR; r = substr(r, RSTART + RLENGTH) } }
-    l ~ /(^|[^a-z])(currently|as of|now has|recently)([^a-z]|$)/ { print "VOLATILE time-relative " f ":" NR }
-    l !~ /verify:/ && l ~ /(^|[^0-9.])[0-9]+ (skills|nodes|files|tests|tables|tabs|commands|agents|plugins|rules)([^a-z]|$)/ { print "VOLATILE bare-count " f ":" NR }
-  ' "$f"
-done | while read -r kind a loc; do
-  if [ "$kind" = ANCHOR ]; then d=$(dirname "${loc%:*}"); { test -e "$a" || test -e "$d/$a"; } && echo "VOLATILE line-anchor $loc ($a exists)"; else echo "$kind $a $loc"; fi
-done
-
-# git status sanity
+node <skill-dir>/scripts/bridge-check.mjs verify --expect .claude/rules/claude-code.md --expect .claude/rules/<dir-slug>.md --expect <dir>/AGENTS.md
 git status --short
 ```
 
-If any `BROKEN:` line appears, STOP and report — do not claim success. `HANDOFF` and `VOLATILE` lines are report items, not failures.
+When Step 5 wrote no rules file and no folder `AGENTS.md`, run the command with no `--expect` pair. It only reads, and it prints:
+
+| Line | Meaning |
+|---|---|
+| `BROKEN: <path>` | a `.claude/skills/*` entry that does not resolve |
+| `BROKEN: AGENTS.md missing` | no root `AGENTS.md` |
+| `BROKEN: legacy CLAUDE.md still present: <path>` | a legacy CLAUDE.md, root or nested (the same enumeration as Step 2) |
+| `BROKEN: <path> missing` | an `--expect` path that is not a file |
+| `HANDOFF context-tree: unrouted node <path>`, `HANDOFF context-tree: dead route <path>` | a gap in the root routing, which `context-tree` owns. The row rule is the same as agent-first-setup Step 3 C2: a row is a table line whose first cell is `<dir>/AGENTS.md` in backticks; a leading `@` inside the backticks is stripped |
+| `VOLATILE time-relative <file>:<line>`, `VOLATILE bare-count <file>:<line>`, `VOLATILE line-anchor <file>:<line> (<path> exists)` | a volatile value in an `AGENTS.md`. Migrated text stays verbatim. The scan is the same as agent-first-setup Step 3 C5: fenced blocks and URLs are skipped everywhere; code spans and quoted text are skipped for the time and count rules only |
+
+No output from the verification means that the bridge is complete. If any `BROKEN:` line appears, STOP and report — do not claim success. `HANDOFF` and `VOLATILE` lines are report items, not failures.
 
 Tell the user to open Claude Code in the project and run `/memory`: `AGENTS.md` must be listed. Claude Code v2.1.280+ lists it; on v2.1.277–v2.1.279, `/memory` does not list an AGENTS.md that Claude read directly, so ask Claude what its project instructions say instead.
 
@@ -279,18 +233,18 @@ Final report (markdown):
 | Mixed-content section split paragraph-by-paragraph without user input | Author intent lost | Show the proposed split and ask with the harness question tool at the Step 4 gate; unsure mixed sections default to `.claude/rules/claude-code.md` |
 | Only `./CLAUDE.md` checked; project keeps memory at `./.claude/CLAUDE.md` | Skill reports "no CLAUDE.md" and Claude keeps reading CLAUDE.md instead of AGENTS.md | Audit BOTH locations (Step 2) |
 | Nested `api/CLAUDE.md` skipped, or its keepers put in `claude-code.md` | Claude keeps reading `api/CLAUDE.md` instead of `api/AGENTS.md`, or folder rules load in every session | Enumerate nested files (Step 2); generic → `api/AGENTS.md`, keepers → `.claude/rules/api.md` with `paths: - "api/**"` |
-| Only `git ls-files --exclude-standard` used to find `CLAUDE.local.md` | Ignored files are skipped, so a gitignored nested `CLAUDE.local.md` is never reported | Use the Step 2 `find` with prune |
+| Only `git ls-files --exclude-standard` used to find `CLAUDE.local.md` | Ignored files are skipped, so a gitignored nested `CLAUDE.local.md` is never reported | Use the `personal:` lines of the Step 2 audit; its walk also finds an ignored file |
 | Nested `AGENTS.md` created by migration, then this skill adds the root row | Two skills own the routing table | Report `HANDOFF context-tree`; `context-tree` adds the `## Context tree` row |
 | Template filled with a Node version, a test count, or a directory tree | The root lies after the next upgrade or new folder | Name the file that pins the value plus `(verify: …)`; route folders through the checked `## Context tree` table only |
 
 ## Anti-Hallucination Checks
 
 - Before reporting "migrated", run `test -L .claude/skills/<name>` and `test -e .agents/skills/<name>/SKILL.md` — both must succeed
-- Before reporting "AGENTS.md loads natively", confirm `test -f AGENTS.md` succeeds and the Step 6 enumeration prints no legacy path
+- Before reporting "AGENTS.md loads natively", confirm `test -f AGENTS.md` succeeds and the Step 6 verification prints no `BROKEN: legacy CLAUDE.md still present:` line
 - After the move, confirm every original `^#{1,3}` section of each non-stub legacy CLAUDE.md, root AND nested, appears in its approved destination (`AGENTS.md`, `<dir>/AGENTS.md`, `.claude/rules/claude-code.md`, or `.claude/rules/<dir-slug>.md`) — **per-section presence**, not a byte-%. Read the source sections from the Step 5 backup directory. A missing section that was not an explicit user `DROP` ⇒ restore from the backup and stop (do not claim "migrated")
 - `git status --short` at the end must only show paths this skill touched; investigate any other entries before reporting "done"
 - Do NOT claim a layout type without the detection check in Step 1 actually returning matches
-- Before reporting "no legacy CLAUDE.md", confirm the Step 2 enumeration returned no `CLAUDE.md` / `.claude/CLAUDE.md` path, root or nested
+- Before reporting "no legacy CLAUDE.md", confirm the Step 2 audit printed no `legacy:` line, root or nested
 - Do NOT claim Claude Code loads AGENTS.md from the file checks alone; the `/memory` check in Step 6 is the user's confirmation
 
 ## References

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-19"
-  content_hash: "b1cb4db012f6cc5de3c80d752fadcbf5e946657b88fa163c86ced8d2e79be1c2"
+  content_hash: "f7b8f23f66d5acdfdc3f79e344d464f6219850bdfc8e88b97e14f599e0de58aa"
 ---
 
 # Agent-First Setup
@@ -15,7 +15,7 @@ Make a repository easy for any coding agent to use, in one pass. An agent-first 
 - **Findable** — a root `AGENTS.md` routes to every nested `AGENTS.md` node; skills live in `.agents/skills/`, and `.claude/skills/<name>` is a symlink to them. Codex reads `AGENTS.md` files only from the project root down to the directory where the session starts, so the root routing table is how a Codex session finds a deeper node. Claude Code loads a nested node when it reads a file in that folder.
 - **Fast to understand** — the root states build/test/lint commands and repo-wide rules only; folder rules live in the folder `AGENTS.md`; each fact has one home.
 - **Trustworthy** — docs hold durable facts only: no line anchors, no live counts or versions, no time-relative phrases; a volatile value carries the command that re-derives it.
-- **Verifiable** — the check in Step 3 is a set of commands, not prose. A project `verify` skill names the commands that start, drive, inspect, and stop the real product.
+- **Verifiable** — the check in Step 3 is a command, not prose. A project `verify` skill names the commands that start, drive, inspect, and stop the real product.
 - **Free of CLAUDE.md** — a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` without an `@AGENTS.md` import makes Claude read it instead of `AGENTS.md`. A stub that only imports `AGENTS.md` still delivers it; it is redundant, and the kit removes it as cleanup (source: https://code.claude.com/docs/en/memory, section "AGENTS.md").
 
 This skill is an orchestrator. `multi-tool-bridge` and `context-tree` do the work; this skill puts them in order, adds the project `verify` skill in Step 2b, offers a pull-request template in Step 2c, and ends with the check.
@@ -68,23 +68,25 @@ Use the tool that your harness registers, even when it is not in this table. By 
 
 ### Step 0 — Resolve root and detect state (read-only)
 
-```bash
-git rev-parse --show-toplevel 2>/dev/null || pwd
-```
-
-Run every later command from that root. Record the state; do not write:
+`<skill-dir>` is the folder that holds this `SKILL.md`. Its `scripts/` folder holds the read-only checks of Step 0 and Step 3. Run the detection from any folder inside the repository:
 
 ```bash
-test -f AGENTS.md          && echo "root AGENTS.md: present"     || echo "root AGENTS.md: missing"
-test -d .agents/skills     && echo ".agents/skills: present"     || echo ".agents/skills: missing"
-test -d .claude/skills     && echo ".claude/skills: present"     || echo ".claude/skills: missing"
-git ls-files -co --exclude-standard -- ':(glob)**/CLAUDE.md' | sed 's/^/legacy: /'
-git ls-files -co -- ':(glob)**/CLAUDE.local.md' | sed 's/^/personal: /'
-git ls-files -co --exclude-standard -- ':(glob)**/AGENTS.md' | grep -v '^AGENTS\.md$' | sed 's/^/node: /'
-find .claude/skills -mindepth 1 -maxdepth 1 ! -type l 2>/dev/null | sed 's/^/not-a-symlink: /'
+node <skill-dir>/scripts/agent-first-check.mjs detect
 ```
 
-Outside git, replace each `git ls-files` line with `find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o -name <FILE> -print`. The `:(glob)**/CLAUDE.md` pathspec also matches `.claude/CLAUDE.md` at any depth. The `CLAUDE.local.md` line has no `--exclude-standard`, because that personal file is usually gitignored. In the same shell, also run the detection block of [references/pull-request-template.md](references/pull-request-template.md) word for word: it defines the `pr_templates` function and prints its `pull-request template:` lines. It tells a usable template from an unusable entry, such as a broken symlink or an empty template folder, and prints `pull-request template: none` when no usable template exists. It needs git; outside git, its last line prints `ERROR`. Report that error. An error is not a missing template. Also run the Detect block of [references/verify-skill-template.md](references/verify-skill-template.md) word for word. It prints a `verify skill:` line, a `verify link:` line for `.claude/skills/verify`, and one `verify unverified:` line for each result that no run has shown. It prints an `ERROR` line when it cannot read the skill; report that error.
+The first line is the repository root (the current folder outside git). Run every later command from that root. Record the state; do not write. The command only reads, and it prints these lines:
+
+| Line | Meaning |
+|---|---|
+| `root AGENTS.md:`, `.agents/skills:`, `.claude/skills:` | `present` or `missing` |
+| `legacy: <path>` | a `CLAUDE.md` or a `.claude/CLAUDE.md`, at any depth |
+| `personal: <path>` | a `CLAUDE.local.md`, also a gitignored one, because that personal file is usually gitignored |
+| `node: <path>` | an `AGENTS.md` below the root; a file under `node_modules` is package content, not a node |
+| `not-a-symlink: <path>` | a `.claude/skills` entry that is not a symlink |
+| `pull-request template:` | the detection of [references/pull-request-template.md](references/pull-request-template.md) |
+| `verify skill:`, `verify link:`, `verify unverified:` | the Detect lines of [references/verify-skill-template.md](references/verify-skill-template.md) |
+
+Outside git, the command walks the folder itself and skips each `.git`, `node_modules`, and `vendor` folder. The `pull-request template:` lines tell a usable template from an unusable entry, such as a broken symlink or an empty template folder, and `pull-request template: none` means that no usable template exists. That detection needs git; outside git, it prints an `ERROR` line. Report that error. An error is not a missing template. The verify lines are a `verify skill:` line, a `verify link:` line for `.claude/skills/verify`, and one `verify unverified:` line for each result that no run has shown. The verify detection prints an `ERROR` line when it cannot read the skill; report that error. After an `ERROR` line, the command exits with status 2 and its cause is on stderr; read every line that it printed. Status 1 is a usage error; otherwise the status is 0.
 
 If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when Step 0 shows `verify skill: present`, `verify link: present`, and no `verify unverified:` or `ERROR` line. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
 
@@ -104,7 +106,7 @@ In `audit` mode, run `context-tree audit` only.
 
 ### Step 2b — Create the project `verify` skill
 
-A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. Follow the Create or re-verify section of [references/verify-skill-template.md](references/verify-skill-template.md). It runs the Detect block again first, because Step 1 can move `.claude/skills/verify` to `.agents/skills/verify`. Ask each question of that section through the harness question tool (see "Asking the user"). If the harness has no such tool, end the turn and report Step 2b as blocked.
+A project `verify` skill tells an agent how to run the real product the way a user or another program does. This skill owns this write. Follow the Create or re-verify section of [references/verify-skill-template.md](references/verify-skill-template.md). It runs `node <skill-dir>/scripts/verify-skill.mjs detect` again first, because Step 1 can move `.claude/skills/verify` to `.agents/skills/verify`. Its write gate, entry gate, and link commands are `verify-skill.mjs write-gate <path>...`, `entry-gate`, and `link` in the same folder. Ask each question of that section through the harness question tool (see "Asking the user"). If the harness has no such tool, end the turn and report Step 2b as blocked.
 
 - When the section stops without a write, record its reason for the report, for example "no runnable surface" or an occupied `.claude/skills/verify`, and go to Step 2c.
 - Step 2b is complete only when the section leaves the skill verified: each command ran and showed its expected result, and the skill holds no `not observed:` entry. A failed command stays in the report with its output.
@@ -113,115 +115,30 @@ In `audit` mode, use the Step 0 output and run only step 4 and step 5 of that se
 
 ### Step 2c — Offer the pull-request template
 
-This skill owns this write, behind its own approval gate. Follow [references/pull-request-template.md](references/pull-request-template.md). Offer the template only when Step 0 printed `pull-request template: none`, and list each `unusable` line with it. On a usable template, make no change; on an `ERROR` line, report the error and write nothing. Fill in the check command from the root `AGENTS.md` (or `Checks pass` when it names none), print the draft and the path `.github/pull_request_template.md`, and ask through the harness question tool. After approval, run the reference's write gate, and write only on `target free`. On `target occupied`, report the entry that occupies the path and write nothing; the user resolves it. Never write through a symlink. Tell the user that GitHub uses the template only after it is on the default branch. In `audit` mode, record the Step 0 lines only.
+This skill owns this write, behind its own approval gate. Follow [references/pull-request-template.md](references/pull-request-template.md). Offer the template only when Step 0 printed `pull-request template: none`, and list each `unusable` line with it. On a usable template, make no change; on an `ERROR` line, report the error and write nothing. Fill in the check command from the root `AGENTS.md` (or `Checks pass` when it names none), print the draft and the path `.github/pull_request_template.md`, and ask through the harness question tool. After approval, run the write gate of the reference, `node <skill-dir>/scripts/pr-template.mjs gate`, and write only on `target free`. On `target occupied`, report the entry that occupies the path and write nothing; the user resolves it. Never write through a symlink. Tell the user that GitHub uses the template only after it is on the default branch. In `audit` mode, record the Step 0 lines only.
 
 ### Step 3 — Agent-first check (read-only)
 
-Run the block below from the repository root, after you define `pr_templates` as Step 0 says. Every line it prints is `FAIL` (a contract break), `FINDING` (a risk or cleanup item a human must judge), or `ERROR` (a check that could not run; report its message, never as a pass). No output means every check passed. Outside git, replace `ls_repo` with a `find` that skips `.git`, `node_modules`, and `vendor`. The block only reads; it writes no file.
+Run the check from the repository root. It only reads; it writes no file.
 
 ```bash
-ls_repo() { git ls-files -co --exclude-standard -- "$@"; }
-# C1 root AGENTS.md exists and names its build, test, and lint commands
-if test -f AGENTS.md; then
-  for k in build test lint; do grep -qiw "$k" AGENTS.md || echo "FINDING C1 root AGENTS.md names no $k command (add it, or accept: the repo has none or one gate covers it)"; done
-else echo "FAIL C1 root AGENTS.md missing"; fi
-# C2 every nested node is a row in a root table, and every row resolves.
-# A row is a table line whose first cell is `<dir>/AGENTS.md` in backticks; a leading @ inside the backticks is stripped.
-routes=$(awk -F'|' '/^[[:space:]]*\|/ { c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c ~ /^`@?[^` ]*AGENTS\.md`$/) { gsub(/`/, "", c); sub(/^@/, "", c); sub(/^\.\//, "", c); print c } }' AGENTS.md 2>/dev/null | sort -u)
-ls_repo ':(glob)**/AGENTS.md' | grep -v '^AGENTS\.md$' | while IFS= read -r n; do
-  printf '%s\n' "$routes" | grep -qxF "$n" || echo "FAIL C2 node not routed from root: $n"
-done
-printf '%s\n' "$routes" | while IFS= read -r p; do
-  if [ -n "$p" ] && ! test -f "$p"; then echo "FAIL C2 dead route in root table: $p"; fi
-done
-# C3 CLAUDE.md files. Claude reads a CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md instead of AGENTS.md.
-# A file that imports AGENTS.md still delivers it: a stub is redundant (FINDING, cleanup); a CLAUDE.md with no import is a FAIL.
-{ ls_repo ':(glob)**/CLAUDE.md'; git ls-files -co -- ':(glob)**/CLAUDE.local.md' 2>/dev/null; } | sort -u | while IFS= read -r f; do
-  case "$f" in .claude/CLAUDE.md|*/.claude/CLAUDE.md) imp='@\.\./AGENTS\.md';; *) imp='@AGENTS\.md';; esac
-  if test -L "$f" && [ "$(basename "$(readlink "$f")")" = AGENTS.md ]; then
-    echo "FINDING C3 redundant symlink to AGENTS.md (content still loads; cleanup): $f"
-  elif ! grep -qE "(^|[[:space:]])$imp([[:space:]]|$)" "$f"; then
-    case "$f" in
-      *CLAUDE.local.md) echo "FINDING C3 CLAUDE.local.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md (personal file; user decides): $f";;
-      *) echo "FAIL C3 CLAUDE.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md: $f";;
-    esac
-  elif grep -vE "^[[:space:]]*$imp[[:space:]]*$" "$f" | grep -q '[^[:space:]]'; then
-    echo "FINDING C3 CLAUDE.md imports AGENTS.md and holds other lines (move them, then delete the file): $f"
-  else echo "FINDING C3 redundant import stub (AGENTS.md still loads; cleanup): $f"; fi
-done
-# While the root has a CLAUDE.md file, Claude does not load a nested AGENTS.md by itself; only a sibling import stub (or symlink) delivers it.
-claude_mode=; for c in CLAUDE.md .claude/CLAUDE.md CLAUDE.local.md; do test -e "$c" && claude_mode=1; done
-if [ -n "$claude_mode" ]; then
-  ls_repo ':(glob)**/AGENTS.md' | grep -v '^AGENTS\.md$' | while IFS= read -r n; do
-    d=${n%/AGENTS.md}
-    { test -L "$d/CLAUDE.md" && [ "$(basename "$(readlink "$d/CLAUDE.md")")" = AGENTS.md ]; } \
-      || grep -qsE '(^|[[:space:]])@AGENTS\.md([[:space:]]|$)' "$d/CLAUDE.md" || grep -qsE '(^|[[:space:]])@\.\./AGENTS\.md([[:space:]]|$)' "$d/.claude/CLAUDE.md" \
-      || echo "FAIL C3 node hidden from Claude (the root has a CLAUDE.md file and $d has no import stub): $n"
-  done
-fi
-# C4 every .claude/skills entry is a symlink that resolves into .agents/skills
-for e in .claude/skills/*; do
-  { test -e "$e" || test -L "$e"; } || continue
-  test -L "$e" || { echo "FAIL C4 not a symlink: $e"; continue; }
-  case "$(readlink "$e")" in ../../.agents/skills/*) ;; *) echo "FAIL C4 target outside .agents/skills: $e";; esac
-  test -f "$e/SKILL.md" || echo "FAIL C4 broken symlink: $e"
-done
-# C5 durable-doc scan: fenced blocks and URLs skipped everywhere; inline code spans and quoted text skipped for the time and count checks only
-# (a line anchor inside backticks still counts); findings only, never auto-fixed.
-# A line anchor counts only when its path exists from the repo root or from the file's folder (fictional example paths pass).
-ls_repo ':(glob)**/AGENTS.md' ':(glob)**/SKILL.md' ':(glob)**/skills/**/references/*.md' | while IFS= read -r f; do
-  awk -v f="$f" '
-    /^[[:space:]]*```/ { fence = !fence; next }
-    fence { next }
-    { s = $0; gsub(/https?:\/\/[^ )>]*/, "", s); t = s; gsub(/`[^`]*`/, "", t); gsub(/"[^"]*"|“[^”]*”/, "", t); l = tolower(t); gsub(/(phase|step|tier)[ -]?[0-9]+/, "", l) }
-    { r = s; while (match(r, /[A-Za-z0-9_.\/-]+\.[A-Za-z]+:[0-9]+/)) { a = substr(r, RSTART, RLENGTH); sub(/:[0-9]+$/, "", a); print "ANCHOR " a " " f ":" NR; r = substr(r, RSTART + RLENGTH) } }
-    l ~ /(^|[^a-z])(currently|as of|now has|recently)([^a-z]|$)/ { print "FINDING C5 time-relative " f ":" NR }
-    l !~ /verify:/ && l ~ /(^|[^0-9.])[0-9]+ (skills|nodes|files|tests|tables|tabs|commands|agents|plugins|rules)([^a-z]|$)/ { print "FINDING C5 bare-count " f ":" NR }
-  ' "$f"
-done | while read -r kind a loc; do
-  if [ "$kind" = ANCHOR ]; then d=$(dirname "${loc%:*}"); { test -e "$a" || test -e "$d/$a"; } && echo "FINDING C5 line-anchor $loc ($a exists)"; else echo "$kind $a $loc"; fi
-done
-ls_repo ':(glob)**/AGENTS.md' | while IFS= read -r f; do
-  grep -qiE 'pointers (here )?name concepts' "$f" || echo "FINDING C5 no stale-tolerance line: $f"
-done
-# C6 every skill description starts with "Use when" (block scalars `>`, `|`, `>-`, `|-` read the first indented line)
-ls_repo ':(glob)**/SKILL.md' | while IFS= read -r s; do
-  awk '/^description:[[:space:]]*[>|][-+]?[[:space:]]*$/ { blk = 1; next }
-       blk && NF { sub(/^[[:space:]]+/, ""); print; exit }
-       /^description:/ { sub(/^description:[[:space:]]*["'\'']?/, ""); print; exit }' "$s" | grep -q '^Use when' \
-    || echo "FAIL C6 description does not start with 'Use when': $s"
-done
-# C7 no bare @path import in an AGENTS.md: Claude expands it into context every time that file loads.
-# Code spans and fenced blocks are not imports, so `@<dir>/AGENTS.md` in a routing row passes. Relative paths resolve from the file's folder.
-ls_repo ':(glob)**/AGENTS.md' | while IFS= read -r f; do
-  awk -v f="$f" '
-    /^[[:space:]]*```/ { fence = !fence; next }
-    fence { next }
-    { t = $0; gsub(/`[^`]*`/, "", t)
-      while (match(t, /(^|[[:space:](\[])@[A-Za-z0-9._~\/-]*[A-Za-z0-9_-]\.[A-Za-z0-9]+/)) { a = substr(t, RSTART, RLENGTH); sub(/^[^@]*@/, "", a); print a, f ":" NR; t = substr(t, RSTART + RLENGTH) } }
-  ' "$f"
-done | while read -r a loc; do
-  case "$a" in /*) p=$a;; "~/"*) p=$HOME/${a#"~/"};; *) p=$(dirname "${loc%:*}")/$a;; esac
-  if test -f "$p"; then echo "FINDING C7 eager import $loc: @$a ($p, $(wc -l < "$p") lines, loads with this file)"
-  else echo "FINDING C7 eager import $loc: @$a (no file at $p)"; fi
-done
-# C8 every AGENTS.md is at most 500 lines (kit policy, not an Anthropic doc limit)
-ls_repo ':(glob)**/AGENTS.md' | while IFS= read -r f; do
-  n=$(wc -l < "$f"); if [ "$n" -gt 500 ]; then echo "FINDING C8 over the 500-line kit policy: $f ($n lines)"; fi
-done
-# C9 project verify skill: .agents/skills/verify/SKILL.md exists, and .claude/skills/verify resolves to it
-if test -f .agents/skills/verify/SKILL.md; then
-  [ .claude/skills/verify/SKILL.md -ef .agents/skills/verify/SKILL.md ] || echo "FAIL C9 .claude/skills/verify does not resolve to .agents/skills/verify"
-else echo "FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)"; fi
-# C9 every command of the verify skill showed its expected result (a `not observed:` entry is a command that failed or that no run finished)
-if test -f .agents/skills/verify/SKILL.md; then
-  marks=$(grep -n 'not observed:' .agents/skills/verify/SKILL.md); s=$?
-  if [ "$s" -eq 0 ]; then printf '%s\n' "$marks" | sed 's|^|FAIL C9 unverified command (rerun every command in Step 2b): .agents/skills/verify/SKILL.md:|'
-  elif [ "$s" -gt 1 ]; then echo "ERROR C9 cannot read .agents/skills/verify/SKILL.md"; fi
-fi
-# C10 a usable pull-request template exists (pr_templates from Step 0; each unusable entry is named; an error is not a missing template)
-if t=$(pr_templates); then printf '%s\n' "$t" | sed -n 's/^pull-request template: unusable /FINDING C10 unusable pull-request template: /p'; case "$t" in *"pull-request template: none"*) echo "FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)";; esac; else echo "ERROR C10 pull-request template check failed (see the message above)"; fi
+node <skill-dir>/scripts/agent-first-check.mjs check
 ```
+
+Every line it prints is `FAIL` (a contract break), `FINDING` (a risk or cleanup item a human must judge), or `ERROR` (a check that could not run; report its message, never as a pass). Each line starts with its kind and its check id, for example `FAIL C2 node not routed from root: api/AGENTS.md`. The lines come in the order C1 to C10. No output means every check passed. After an `ERROR` line, the command exits with status 2 and the cause is on stderr; the other lines still count. Outside git, the check walks the folder itself and skips each `.git`, `node_modules`, and `vendor` folder.
+
+| Check | Rule | Lines |
+|---|---|---|
+| C1 | The root `AGENTS.md` exists and names its build, test, and lint commands (a whole word, any letter case). | `FAIL` when the file is missing; one `FINDING` for each command word that it does not name (add it, or accept: the repo has none or one gate covers it) |
+| C2 | Every nested node is a row in a root table, and every row resolves. A row is a table line whose first cell is `<dir>/AGENTS.md` in backticks; a leading `@` inside the backticks is stripped. | `FAIL` for a node that no row routes, and for a dead route |
+| C3 | Claude reads a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` instead of `AGENTS.md`. A file that imports `AGENTS.md` (`@AGENTS.md`; `@../AGENTS.md` in a `.claude/CLAUDE.md`) still delivers it. While the root has a CLAUDE.md file, Claude does not load a nested `AGENTS.md` by itself; only a sibling import stub (or symlink) delivers it. | `FAIL` for a `CLAUDE.md` without an import, and for a node hidden from Claude; `FINDING` for a redundant stub or symlink (cleanup), for a file that imports `AGENTS.md` and holds other lines (move them, then delete the file), and for a `CLAUDE.local.md` without an import (personal file; user decides) |
+| C4 | Every `.claude/skills` entry is a symlink that resolves into `.agents/skills`. | `FAIL` for a non-symlink, a target outside `.agents/skills`, or a broken symlink |
+| C5 | The durable-doc scan of each `AGENTS.md`, `SKILL.md`, and `skills/**/references/*.md`. Fenced blocks and URLs are skipped everywhere. Inline code spans and quoted text are skipped for the time and count rules only (a line anchor inside backticks still counts). A line anchor counts only when its path exists from the repo root or from the folder of the file (fictional example paths pass). The count rule skips a line with `verify:` and a phase, step, or tier number. | `FINDING C5 time-relative`, `bare-count`, and `line-anchor` with `<file>:<line>`, and `FINDING C5 no stale-tolerance line` for an `AGENTS.md` without the "Pointers here name concepts" line. Findings only; never auto-fix them |
+| C6 | Every skill description starts with "Use when". A block scalar (`>`, `\|`, `>-`, `\|-`) reads its first indented line. | `FAIL` |
+| C7 | No bare `@path` import in an `AGENTS.md`: Claude expands it into context every time that file loads. Code spans and fenced blocks are not imports, so `` `@<dir>/AGENTS.md` `` in a routing row passes. A relative path resolves from the folder of the file; a `~/` path resolves from the home folder. | `FINDING` with the line count of the imported file, or with `no file at <path>` |
+| C8 | Every `AGENTS.md` is at most 500 lines (kit policy, not an Anthropic doc limit). | `FINDING` |
+| C9 | `.agents/skills/verify/SKILL.md` exists, `.claude/skills/verify` resolves to it, and every command of the skill showed its expected result (a `not observed:` entry is a command that failed or that no run finished). | `FAIL` for a link that does not resolve, and for each unverified command (rerun every command in Step 2b); `FINDING` for a missing skill (add it in Step 2b, or accept: the repo has no runnable surface); `ERROR` when the skill cannot be read |
+| C10 | A usable pull-request template exists (the detection of Step 0). Each unusable entry is named. An error is not a missing template. | `FINDING` for each unusable entry, and for no usable template (add it in Step 2c, or accept: the repository wants none); `ERROR` when the detection fails |
 
 Read each `FINDING` line before you report it. A line anchor on a fictional example path, a count that is a stated policy threshold, a time phrase inside a quoted BAD example, and a value inside a dated record (a file or sentence that carries its own date, such as an incident note or "Measured <date>") are not defects: mark each `accepted` with the reason. If the root `AGENTS.md` names a repository doc guard (a lint script for doc pointers), run it too and add its output to the report.
 
@@ -281,7 +198,7 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 
 ## Anti-Hallucination Checks
 
-- Do not report a check as `pass` unless you ran the Step 3 block in this session and it printed no line for that check. A check that printed an `ERROR` line did not run: report it as `error`.
+- Do not report a check as `pass` unless you ran the Step 3 command in this session and it printed no line for that check. A check that printed an `ERROR` line did not run: report it as `error`.
 - Do not claim Step 1 or Step 2 finished unless that skill's own verification ran and printed no failure line.
 - Do not claim "no writes" in idempotent runs without `git status --short` showing no path changed by this run.
 - Do not claim Claude Code loads `AGENTS.md` from file checks alone; the user's `/memory` output (v2.1.280 and later) or Claude's own answer on an older version is the confirmation.

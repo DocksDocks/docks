@@ -24,30 +24,11 @@ The detection answers two questions apart:
   path, also an unusable one: a broken symlink, a folder with a file name, or
   an empty template folder. This answer guards each write.
 
-Copy the `pr_templates` function and its report lines word for word:
+`<skill-dir>` is the folder of the skill that holds this reference. Run the
+detection from any folder inside the repository:
 
 ```bash
-pr_templates() (
-  root=$(git rev-parse --show-toplevel) && cd "$root" || exit 2
-  usable=0
-  for d in . docs .github; do
-    test -d "$d" || continue
-    hits=$(find "$d" -mindepth 1 -maxdepth 1 \( -iname pull_request_template -o -iname pull_request_template.md -o -iname pull_request_template.txt \) -print) || exit 2
-    for p in $hits; do
-      n=$(printf '%s' "${p##*/}" | tr '[:upper:]' '[:lower:]'); l=; test -L "$p" && l='symlink to '
-      if test -f "$p"; then usable=1; echo "pull-request template: $p (${l}file)"
-      elif test -d "$p" && [ "$n" = pull_request_template ]; then
-        f=$(find "$p/" -mindepth 1 -maxdepth 1 -type f \( -iname '*.md' -o -iname '*.txt' \) -print) || exit 2
-        if [ -n "$f" ]; then usable=1; echo "pull-request template: $p (${l}folder)"
-        else echo "pull-request template: unusable $p (${l}folder without a .md or .txt file)"; fi
-      elif test -d "$p"; then echo "pull-request template: unusable $p (${l}folder with a file name)"
-      elif test -L "$p"; then echo "pull-request template: unusable $p (broken symlink)"
-      else echo "pull-request template: unusable $p (not a regular file)"; fi
-    done
-  done
-  [ "$usable" = 1 ] || echo "pull-request template: none"
-)
-if t=$(pr_templates); then printf '%s\n' "$t"; else echo "ERROR pull-request template check failed (see the message above)"; fi
+node <skill-dir>/scripts/pr-template.mjs detect
 ```
 
 It prints one `pull-request template: <path> (<kind>)` line for each usable
@@ -55,22 +36,23 @@ entry, for example
 `pull-request template: .github/pull_request_template.md (symlink to file)`,
 and one `pull-request template: unusable <path> (<reason>)` line for each
 unusable entry. It prints `pull-request template: none` when no usable entry
-exists, also when unusable entries exist. When it prints an `ERROR` line, for
-example outside a git repository, report the error and write nothing. An
-error is not a missing template.
+exists, also when unusable entries exist. Paths are relative to the
+repository root. When it prints an `ERROR` line, for example outside a git
+repository, report the error and write nothing. An error is not a missing
+template. After an `ERROR` line, the command exits with status 2, and the
+cause is on stderr.
 
 Offer the template only on `pull-request template: none`. Never overwrite or
 edit an existing entry, and never write through a symlink. Right before the
-write, run this gate from the repository root, after the `pr_templates`
-function. Copy it word for word:
+write, run this gate:
 
 ```bash
-if t=$(pr_templates); then
-  if printf '%s\n' "$t" | grep -qiE '^pull-request template: (unusable )?\.github/pull_request_template\.md \('; then echo "target occupied: write nothing"
-  elif [ "$t" != "${t%pull-request template: none}" ] && test ! -L .github; then echo "target free"
-  else echo "no write: a usable template exists, or .github is a symlink"; fi
-else echo "ERROR pull-request template check failed (see the message above)"; fi
+node <skill-dir>/scripts/pr-template.mjs gate
 ```
+
+It prints exactly one line: `target occupied: write nothing`, `target free`,
+`no write: a usable template exists, or .github is a symlink`, or the `ERROR`
+line of the detection.
 
 Write only on `target free`. On `target occupied`, report the entry that
 occupies `.github/pull_request_template.md` and write nothing; the user

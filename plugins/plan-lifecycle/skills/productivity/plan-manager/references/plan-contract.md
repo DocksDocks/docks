@@ -719,11 +719,13 @@ Add the items in this order:
    such as `.md` or `.txt`, in any letter case, or a `PULL_REQUEST_TEMPLATE/`
    folder that holds several templates
    (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates>).
-   Find it with the detection in the `plan-workspace` skill's
-   `references/pull-request-template.md`, and take items only from an entry
-   that it reports as usable. Name each `unusable` entry, such as a broken
-   symlink or an empty template folder, in the merge question. A detection
-   error is not a missing template: report it in the merge question.
+   Find it with `node <plan-workspace-dir>/scripts/pr-template.mjs detect`,
+   where `<plan-workspace-dir>` is the folder of the installed
+   `plan-workspace` skill; its `references/pull-request-template.md`
+   describes the lines. Take items only from an entry that the command
+   reports as usable. Name each `unusable` entry, such as a broken symlink or
+   an empty template folder, in the merge question. A detection error is not
+   a missing template: report it in the merge question.
    `gh pr create --body-file` uses the file as given and copies no template,
    so copy the items yourself. When there are several templates, use the one
    that applies to the change, and name it in the merge question.
