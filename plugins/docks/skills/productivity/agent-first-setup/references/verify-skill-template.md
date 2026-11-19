@@ -56,28 +56,31 @@ Run these steps from the repository root. Run the Detect block right before step
 
 A plan step that runs these steps has the approval that the plan recorded for that step. That approval covers each write and each run. It does not answer a question about a missing fact, such as a start command or a test account.
 
+Define this write gate in the same shell. Right before each write of these steps, run `write_gate` with each path that the step writes, and write only when it prints nothing. On a `target occupied` line, report it, write nothing, and stop.
+
+```bash
+write_gate() {
+  root=$(pwd -P)
+  for p in "$@"; do
+    if test -L "$p"; then echo "target occupied: $p is a symlink"; continue; fi
+    d=$(dirname -- "$p")
+    while ! test -d "$d"; do d=$(dirname -- "$d"); done
+    r=$(cd "$d" && pwd -P) || { echo "target occupied: cannot resolve the folder of $p"; continue; }
+    case $r/ in "$root"/*) ;; *) echo "target occupied: $p resolves outside the repository";; esac
+  done
+}
+```
+
+The gate refuses a path that is a symlink, and a path whose nearest existing folder resolves outside the repository. It accepts `.claude/skills` as a symlink to `.agents/skills`, because that folder resolves inside the repository.
+
 1. On an `ERROR` line, report it, write nothing, and stop. On `verify link: occupied`, report the entry at `.claude/skills/verify`, write nothing, and stop. The user resolves it.
-2. On `verify skill: present` with a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, and ask for approval to mark every result again and run every command again. After approval, and before any command runs, write `not observed: expect <result>` on each result that holds no mark: each Prerequisites row, `Ready when:`, each flow, and `Clean when:`. An older mark with no `expect <result>` part lost its expected result: take that result from the git history of the skill or ask the user, and write `not observed: expect <result>; got <the old failure line>`. When neither supplies the expected result, leave the mark as it is, so the skill stays unverified, and report the row. Then run step 9 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow. Then go to step 3.
-3. On `verify skill: present` and `verify link: missing`, ask for approval, run the location gate of step 8, and run the link block of step 8 only when the gate prints nothing. Then go to step 10 to add a flow; otherwise stop.
+2. On `verify skill: present` with a `verify unverified:` line, the skill is not verified yet. Print the unverified rows, and ask for approval to mark every result again and run every command again. After approval, run `write_gate .agents/skills/verify/SKILL.md`. Before any command runs, write `not observed: expect <result>` on each result that holds no mark: each Prerequisites row, `Ready when:`, each flow, and `Clean when:`. An older mark with no `expect <result>` part lost its expected result: take that result from the git history of the skill or ask the user, and write `not observed: expect <result>; got <the old failure line>`. When neither supplies the expected result, leave the mark as it is, so the skill stays unverified, and report the row. Then run step 9 in full: the prerequisite checks, Start, every flow in order, and Stop. Do not run only the marked rows, because a flow can depend on an earlier flow. Then go to step 3.
+3. On `verify skill: present` and `verify link: missing`, ask for approval, run `write_gate .claude/skills/verify`, and run the link block of step 8. Then go to step 10 to add a flow; otherwise stop.
 4. Steps 4 to 9 run only on `verify skill: missing`. Find each runnable surface. Read the root `AGENTS.md`, the build files (for example `package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, `compose.yaml`), and the entry points. Match each surface to a row of [Surface recipes](#surface-recipes).
 5. If the repository has no runnable surface, write nothing, report "no runnable surface", and stop.
 6. Fill the [Template](#template) for each surface. Use only commands that the repository defines or that the recipes name. Ask the user for a missing start command, port, or test account. No run has shown a result yet, so write each expected result as `not observed: expect <result>`: each Prerequisites row, `Ready when:`, each Drive and inspect row, and `Clean when:`.
 7. Print the draft `SKILL.md`, with its `not observed: expect` marks, and the symlink `.claude/skills/verify` → `../../.agents/skills/verify`. Ask for approval. The approval covers the write and one run of each command, the prerequisite checks included.
-8. After approval, run the location gate and the entry gate right before the write. Write only when both print nothing. On a `target occupied` line, report it, write nothing, and stop.
-
-   The location gate checks that each folder of the skill and of its link resolves to a folder inside the repository. It accepts `.claude/skills` as a symlink to `.agents/skills`. Run it right before each write of these steps, also the marks of step 2 and the flow of step 10.
-
-   ```bash
-   root=$(pwd -P)
-   for d in .agents .agents/skills .agents/skills/verify .claude .claude/skills .claude/skills/verify; do
-     if test -e "$d" || test -L "$d"; then
-       r=$(cd "$d" 2>/dev/null && pwd -P) || r=
-       case $r in "$root"/*) ;; *) echo "target occupied: $d does not resolve to a folder inside the repository";; esac
-     fi
-   done
-   ```
-
-   The entry gate checks that a new skill overwrites nothing:
+8. After approval, run `write_gate .agents/skills/verify/SKILL.md .claude/skills/verify` and this entry gate right before the write. Write only when both print nothing. On a `target occupied` line, report it, write nothing, and stop. The entry gate checks that a new skill overwrites nothing:
 
    ```bash
    for p in .agents/skills/verify .claude/skills/verify; do
@@ -100,7 +103,7 @@ A plan step that runs these steps has the approval that the plan recorded for th
    4. Ask the user for the fix, for example a missing service, dependency, or test account.
 
    The skill is verified only when each command ran and showed its expected result, and the skill holds no `not observed:` entry. Go to step 10 to add a flow; otherwise stop.
-10. To add a flow, for example the end-to-end check of a plan, write it in the format of the skill: a row of its Drive and inspect table, or a section like its other flows. Give it a command and the mark `not observed: expect <result>`. Keep each script that the flow runs in the repository, for example in `.agents/skills/verify/scripts/`, not in a temporary folder. Print the new flow, and ask for approval. After approval, write `not observed: expect <result>` on each result of the skill that holds no mark, as step 2 says. Then add the flow, and run step 9 in full.
+10. To add a flow, for example the end-to-end check of a plan, write it in the format of the skill: a row of its Drive and inspect table, or a section like its other flows. Give it a command and the mark `not observed: expect <result>`. Keep each script that the flow runs in the repository, for example in `.agents/skills/verify/scripts/`, not in a temporary folder. Print the new flow, and ask for approval. After approval, run `write_gate` with `.agents/skills/verify/SKILL.md` and the path of each script. Then write `not observed: expect <result>` on each result of the skill that holds no mark, as step 2 says. Then add the flow, and run step 9 in full.
 
 ## Rules for each command
 

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-19"
-  content_hash: "40c754b33f9d9bb22910809901047b3ec50f46df8dc05722d10cc48e549c408c"
+  content_hash: "05f00ce68a75977260369887cd3866fdabda41b77ef2cc32eadefb3b137f1da9"
 ---
 
 # Plans Workspace
