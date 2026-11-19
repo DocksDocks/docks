@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 
-import { codexHome } from "./codexPaths";
 import { capture, p, which } from "./exec";
 import { LEGACY_SELECTION, readHarnessSelection } from "./harnesses";
 import { isObject, parseJson } from "./jq";
@@ -64,12 +63,7 @@ export async function resolveCatalog(
     return { ...curated, fallbackReason: `${tool} harness not enabled (docks-kit harnesses)` };
   }
 
-  const lookup =
-    tool === "claude"
-      ? await claudeCatalog(inputs)
-      : tool === "codex"
-        ? codexCatalog(inputs.home)
-        : await ompCatalog(inputs);
+  const lookup = tool === "claude" ? await claudeCatalog(inputs) : await ompCatalog(inputs);
   if ("fallbackReason" in lookup) return { ...curated, fallbackReason: lookup.fallbackReason };
   return {
     ...curated,
@@ -201,39 +195,6 @@ async function claudeCatalog(inputs: LiveCatalogInputs): Promise<Lookup> {
     fetched,
   );
   return { source: "anthropic-api", fetchedAt, models };
-}
-
-const NO_CODEX_CACHE = "no Codex model cache (~/.codex/models_cache.json); run codex once";
-const UNREADABLE_CODEX_CACHE = "Codex model cache is unreadable";
-
-function codexCatalog(home: string): Lookup {
-  let text: string;
-  try {
-    text = readFileSync(p(codexHome(home), "models_cache.json"), "utf8");
-  } catch (error) {
-    const missing =
-      typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
-    return { fallbackReason: missing ? NO_CODEX_CACHE : UNREADABLE_CODEX_CACHE };
-  }
-  const cache = parseJson(text);
-  if (cache === undefined || !isObject(cache) || !Array.isArray(cache["models"])) {
-    return { fallbackReason: UNREADABLE_CODEX_CACHE };
-  }
-  const models: Array<LiveModel> = [];
-  for (const row of cache["models"]) {
-    if (!isObject(row) || row["visibility"] !== "list") continue;
-    const id = row["slug"];
-    if (!isNonBlankString(id)) continue;
-    const name = row["display_name"];
-    models.push(isNonBlankString(name) ? { id, kind: "id", note: name } : { id, kind: "id" });
-  }
-  if (models.length === 0) return { fallbackReason: "Codex model cache lists no models" };
-  const fetchedAt = cache["fetched_at"];
-  return {
-    source: "codex-cache",
-    ...(typeof fetchedAt === "string" ? { fetchedAt } : {}),
-    models,
-  };
 }
 
 const NO_OMP_CATALOG = "'omp models --json' returned no usable catalog";

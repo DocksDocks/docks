@@ -41,7 +41,7 @@ describe("modelCatalog typed boundary", () => {
     mocks.payloadText.mockReturnValue(
       JSON.stringify({ claude: { verified: "2026-01-01", models: [] } }),
     );
-    expect(modelCatalog("codex")).toEqual({ verified: "?", models: [] });
+    expect(modelCatalog("omp")).toEqual({ verified: "?", models: [] });
     mocks.payloadText.mockReturnValue("{ not json");
     expect(modelCatalog("claude")).toEqual({ verified: "?", models: [] });
   });

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { stripVTControlCharacters } from "node:util";
 
 import type { Ctx } from "../../src/engine-native";
@@ -25,7 +26,6 @@ function targetCtx(
     interactive,
     dryRun: false,
     verbose: false,
-    skipBubblewrap: false,
     skipPluginRefresh: false,
     reconcile: false,
     prune: false,
@@ -35,8 +35,6 @@ function targetCtx(
     claudeModel: "",
     claudeEffort: "",
     claudeAdvisor: "",
-    codexModel: "",
-    codexEffort: "",
     syncConcurrency: 3,
     services: makeEngineServices({
       sinks: {
@@ -46,13 +44,11 @@ function targetCtx(
     }),
     targetFilterSet: false,
     syncClaude: false,
-    syncCodex: false,
     syncAgents: false,
     syncOmp: false,
     nextStepTriggers: {
       claudePlugins: false,
       claudeRestart: false,
-      codexRestart: false,
       skillsRestart: false,
       ompRestart: false,
       ompPluginUpgraded: false,
@@ -64,7 +60,6 @@ function targetCtx(
 function selectedTargets(ctx: Ctx) {
   return {
     claude: ctx.syncClaude,
-    codex: ctx.syncCodex,
     agents: ctx.syncAgents,
     omp: ctx.syncOmp,
   };
@@ -86,15 +81,15 @@ describe("sync target grammar", () => {
 
     parseArgs(ctx, ["omp"]);
 
-    expect(selectedTargets(ctx)).toEqual({ claude: false, codex: false, agents: false, omp: true });
+    expect(selectedTargets(ctx)).toEqual({ claude: false, agents: false, omp: true });
   });
 
-  it("selects exactly explicit claude and codex targets", () => {
+  it("selects exactly explicit claude and agents targets", () => {
     const ctx = targetCtx(home, false, []);
 
-    parseArgs(ctx, ["claude", "codex"]);
+    parseArgs(ctx, ["claude", "agents"]);
 
-    expect(selectedTargets(ctx)).toEqual({ claude: true, codex: true, agents: false, omp: false });
+    expect(selectedTargets(ctx)).toEqual({ claude: true, agents: true, omp: false });
   });
 
   it("keeps an explicit target after a modifier ahead of a stored selection", () => {
@@ -104,7 +99,7 @@ describe("sync target grammar", () => {
     parseArgs(ctx, ["--dry-run", "claude"]);
 
     expect(ctx.dryRun).toBe(true);
-    expect(selectedTargets(ctx)).toEqual({ claude: true, codex: false, agents: false, omp: false });
+    expect(selectedTargets(ctx)).toEqual({ claude: true, agents: false, omp: false });
   });
 
   it("uses a stored omp-only selection for a flag-less parse", () => {
@@ -113,7 +108,7 @@ describe("sync target grammar", () => {
 
     parseArgs(ctx, []);
 
-    expect(selectedTargets(ctx)).toEqual({ claude: false, codex: false, agents: false, omp: true });
+    expect(selectedTargets(ctx)).toEqual({ claude: false, agents: false, omp: true });
   });
 
   it("uses exactly a stored claude and omp selection", () => {
@@ -122,7 +117,7 @@ describe("sync target grammar", () => {
 
     parseArgs(ctx, []);
 
-    expect(selectedTargets(ctx)).toEqual({ claude: true, codex: false, agents: false, omp: true });
+    expect(selectedTargets(ctx)).toEqual({ claude: true, agents: false, omp: true });
   });
 
   it("uses the legacy selection silently without stored state when non-interactive", () => {
@@ -131,8 +126,30 @@ describe("sync target grammar", () => {
 
     parseArgs(ctx, []);
 
-    expect(selectedTargets(ctx)).toEqual({ claude: true, codex: true, agents: true, omp: false });
+    expect(selectedTargets(ctx)).toEqual({ claude: true, agents: true, omp: false });
     expect(echoes).toEqual([]);
+  });
+
+  it("drops a codex-only selection stored by an older kit and uses the legacy selection silently", () => {
+    // An older kit could store `codex`; the kitDb CHECK still accepts that row,
+    // so it is written straight to the table here.
+    writeHarnessSelection(home, ["omp"]);
+    const db = new DatabaseSync(kitDbFile(home));
+    try {
+      db.exec("DELETE FROM harness_selection");
+      db.prepare("INSERT INTO harness_selection (harness) VALUES (?)").run("codex");
+    } finally {
+      db.close();
+    }
+    const echoes: Array<string> = [];
+    const errors: Array<string> = [];
+    const ctx = targetCtx(home, false, echoes, errors);
+
+    parseArgs(ctx, []);
+
+    expect(selectedTargets(ctx)).toEqual({ claude: true, agents: true, omp: false });
+    expect(echoes).toEqual([]);
+    expect(errors).toEqual([]);
   });
 
   it("prints both selection hints in order without stored state when interactive", () => {
@@ -141,9 +158,9 @@ describe("sync target grammar", () => {
 
     parseArgs(ctx, []);
 
-    expect(selectedTargets(ctx)).toEqual({ claude: true, codex: true, agents: true, omp: false });
+    expect(selectedTargets(ctx)).toEqual({ claude: true, agents: true, omp: false });
     expect(echoes).toEqual([
-      "No harness selection stored; syncing claude, codex, agents",
+      "No harness selection stored; syncing claude, agents",
       "Choose harnesses with: docks-kit harnesses",
     ]);
   });
@@ -155,7 +172,7 @@ describe("sync target grammar", () => {
 
     parseArgs(ctx, []);
 
-    expect(selectedTargets(ctx)).toEqual({ claude: false, codex: false, agents: false, omp: true });
+    expect(selectedTargets(ctx)).toEqual({ claude: false, agents: false, omp: true });
 
     expect(echoes).toEqual([]);
   });
@@ -186,9 +203,7 @@ describe("sync target grammar", () => {
 
   it.each([
     ["--claude-model", "Available claude models", "--claude-model requires a value"],
-    ["--codex-model", "Available codex models", "--codex-model requires a value"],
     ["--claude-effort", "Available claude effort levels", "--claude-effort requires a value"],
-    ["--codex-effort", "Available codex effort levels", "--codex-effort requires a value"],
     ["--claude-advisor", "Available claude advisor states", "--claude-advisor requires a value"],
   ])(
     "prints the catalog and exits 2 for a bare %s on the native CLI",

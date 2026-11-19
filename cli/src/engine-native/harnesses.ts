@@ -8,10 +8,10 @@ import { homedir } from "node:os";
 import { inTransaction, isNonBlankString, nonBlankOrNull, withKitDb } from "./kitDb";
 import type { OmpSessionModel } from "./sharedTypes";
 
-export type Harness = "claude" | "codex" | "agents" | "omp";
+export type Harness = "claude" | "agents" | "omp";
 
-export const HARNESSES: ReadonlyArray<Harness> = ["claude", "codex", "agents", "omp"];
-export const LEGACY_SELECTION: ReadonlyArray<Harness> = ["claude", "codex", "agents"];
+export const HARNESSES: ReadonlyArray<Harness> = ["claude", "agents", "omp"];
+export const LEGACY_SELECTION: ReadonlyArray<Harness> = ["claude", "agents"];
 
 export type { OmpSessionModel };
 
@@ -21,7 +21,7 @@ export const DEFAULT_OMP_SESSION_MODEL: OmpSessionModel = {
 };
 
 function isHarness(value: unknown): value is Harness {
-  return value === "claude" || value === "codex" || value === "agents" || value === "omp";
+  return value === "claude" || value === "agents" || value === "omp";
 }
 
 function normalizeHarnesses(selection: ReadonlyArray<unknown>): Array<Harness> {

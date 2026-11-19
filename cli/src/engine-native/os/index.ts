@@ -22,12 +22,11 @@ export function platformName(pf: NodeJS.Platform = rawPlatform()): PlatformName 
   }
 }
 
-// An unrecognized host keeps Linux hint text, filters no toolchain row, and never claims bubblewrap — exactly today's behavior.
+// An unrecognized host keeps Linux hint text and filters no toolchain row — exactly today's behavior.
 const unknown: HostOs = {
   ...linux,
   id: "unknown",
   toolchainOs: "",
-  supportsBubblewrap: false,
 };
 
 const HOSTS: Readonly<Record<PlatformName, HostOs>> = {

@@ -1,82 +1,56 @@
-import { sotClaudeSettings, topLevelTomlString, type Tool } from "./manifests";
-import { payloadText } from "./payload";
+import { sotClaudeSettings, type Tool } from "./manifests";
 
 export const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh"] as const;
-export const CODEX_REASONING_EFFORTS = [
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultra",
-] as const;
 export const CLAUDE_ADVISOR_STATES = ["on", "off", "default"] as const;
 
 const VERIFIED = "2026-07-10";
 const ADVISOR_VERIFIED = "2026-09-22";
 const DEFAULT = "default";
 
-const upstreamEfforts = (tool: Tool): ReadonlyArray<string> =>
-  tool === "claude" ? CLAUDE_EFFORT_LEVELS : CODEX_REASONING_EFFORTS;
+const upstreamEfforts: ReadonlyArray<string> = CLAUDE_EFFORT_LEVELS;
 
-export const effortModifierValues = (tool: Tool): ReadonlyArray<string> => [
-  ...upstreamEfforts(tool),
-  DEFAULT,
-];
+export const effortModifierValues: ReadonlyArray<string> = [...upstreamEfforts, DEFAULT];
 
-export const effortValueGrammar = (tool: Tool): string => effortModifierValues(tool).join("|");
+export const effortValueGrammar = (): string => effortModifierValues.join("|");
 
 export const effortFlagGrammar = (tool: Tool): string =>
-  `--${tool}-effort=<${effortValueGrammar(tool)}>`;
+  `--${tool}-effort=<${effortValueGrammar()}>`;
 
 export const advisorValueGrammar = (): string => CLAUDE_ADVISOR_STATES.join("|");
 
 export const advisorFlagGrammar = (): string => `--claude-advisor=<${advisorValueGrammar()}>`;
 
-export const isEffortModifierValue = (tool: Tool, value: string): boolean =>
-  effortModifierValues(tool).includes(value);
+export const isEffortModifierValue = (value: string): boolean =>
+  effortModifierValues.includes(value);
 
-export function validateEffortDefault(tool: Tool, value: unknown): string {
-  const toolName = tool === "claude" ? "Claude" : "Codex";
-  const setting = tool === "claude" ? "effortLevel" : "model_reasoning_effort";
+export function validateEffortDefault(value: unknown): string {
   if (typeof value !== "string" || value === "") {
-    throw new Error(`Embedded SoT ${toolName} ${setting} is missing`);
+    throw new Error("Embedded SoT Claude effortLevel is missing");
   }
-  if (!upstreamEfforts(tool).includes(value)) {
-    throw new Error(
-      `Embedded SoT ${toolName} ${setting} '${value}' is outside the verified catalog`,
-    );
+  if (!upstreamEfforts.includes(value)) {
+    throw new Error(`Embedded SoT Claude effortLevel '${value}' is outside the verified catalog`);
   }
   return value;
 }
 
-export function sotEffort(tool: Tool): string {
-  const value =
-    tool === "claude"
-      ? sotClaudeSettings().effortLevel
-      : topLevelTomlString(payloadText("SoT/.codex/config.toml"), "model_reasoning_effort");
-  return validateEffortDefault(tool, value);
+export function sotEffort(): string {
+  return validateEffortDefault(sotClaudeSettings().effortLevel);
 }
 
 export function resolveEffort(tool: Tool, value: string): string {
-  if (value === DEFAULT) return sotEffort(tool);
-  if (!upstreamEfforts(tool).includes(value)) {
+  if (value === DEFAULT) return sotEffort();
+  if (!upstreamEfforts.includes(value)) {
     throw new Error(`Invalid ${tool} effort '${value}'`);
   }
   return value;
 }
 
 export function effortCatalog(tool: Tool): string {
-  const setting = tool === "claude" ? "effortLevel" : "model_reasoning_effort";
-  const lines = [
-    `Available ${tool} effort levels (${setting}; verified ${VERIFIED}):`,
-    ...upstreamEfforts(tool).map((value) => `  ${value}`),
-    `  default  — SoT: ${sotEffort(tool)}`,
-  ];
-  if (tool === "codex") lines.push("  (support is model-dependent)");
-  return lines.join("\n");
+  return [
+    `Available ${tool} effort levels (effortLevel; verified ${VERIFIED}):`,
+    ...upstreamEfforts.map((value) => `  ${value}`),
+    `  default  — SoT: ${sotEffort()}`,
+  ].join("\n");
 }
 
 export function advisorCatalog(): string {

@@ -16,11 +16,9 @@ let home: string;
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "docks-live-models-"));
-  vi.stubEnv("CODEX_HOME", "");
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -199,89 +197,8 @@ describe("live model catalogs", () => {
     },
   );
 
-  it("ignores hidden Codex cache models and keeps curated notes on matching IDs", async () => {
-    writeHarnessSelection(home, ["codex"]);
-    mkdirSync(join(home, ".codex"));
-    writeFileSync(
-      join(home, ".codex", "models_cache.json"),
-      JSON.stringify({
-        fetched_at: "2026-09-24T10:00:00.000Z",
-        models: [
-          { slug: "gpt-6.1-sol", display_name: "Live name", visibility: "list" },
-          { slug: "gpt-reserve", display_name: "Not public", visibility: "hide" },
-          { slug: "gpt-new", display_name: "New public model", visibility: "list" },
-        ],
-      }),
-    );
-
-    const result = await resolveCatalog("codex", inputs());
-    expect(result).toEqual({
-      tool: "codex",
-      source: "codex-cache",
-      verified: curatedCatalog("codex").verified,
-      fetchedAt: "2026-09-24T10:00:00.000Z",
-      models: [
-        {
-          id: "gpt-6.1-sol",
-          kind: "id",
-          note: curatedCatalog("codex").models.find((model) => model.id === "gpt-6.1-sol")?.note,
-        },
-        { id: "gpt-new", kind: "id", note: "New public model" },
-      ],
-    });
-  });
-
-  it("reads the Codex cache from CODEX_HOME when it is set", async () => {
-    writeHarnessSelection(home, ["codex"]);
-    const codexDir = join(home, "alt-codex");
-    mkdirSync(codexDir);
-    writeFileSync(
-      join(codexDir, "models_cache.json"),
-      JSON.stringify({
-        fetched_at: "2026-09-24T10:00:00.000Z",
-        models: [{ slug: "gpt-alt", display_name: "From CODEX_HOME", visibility: "list" }],
-      }),
-    );
-    vi.stubEnv("CODEX_HOME", codexDir);
-
-    const result = await resolveCatalog("codex", inputs());
-    expect(result).toMatchObject({ tool: "codex", source: "codex-cache" });
-    expect(result.models).toContainEqual({ id: "gpt-alt", kind: "id", note: "From CODEX_HOME" });
-  });
-
-  it("falls back to the curated list when the Codex cache lists no public models", async () => {
-    writeHarnessSelection(home, ["codex"]);
-    mkdirSync(join(home, ".codex"));
-    writeFileSync(
-      join(home, ".codex", "models_cache.json"),
-      JSON.stringify({
-        fetched_at: "2026-09-24T10:00:00.000Z",
-        models: [{ slug: "gpt-reserve", display_name: "Not public", visibility: "hide" }],
-      }),
-    );
-
-    expect(await resolveCatalog("codex", inputs())).toEqual({
-      ...curatedCatalog("codex"),
-      fallbackReason: "Codex model cache lists no models",
-    });
-  });
-
-  it.each([
-    ["invalid JSON", "{ not JSON"],
-    ["missing models array", JSON.stringify({ models: {} })],
-  ])("falls back when the Codex cache contains %s", async (_reason, cache) => {
-    writeHarnessSelection(home, ["codex"]);
-    mkdirSync(join(home, ".codex"));
-    writeFileSync(join(home, ".codex", "models_cache.json"), cache);
-
-    expect(await resolveCatalog("codex", inputs())).toEqual({
-      ...curatedCatalog("codex"),
-      fallbackReason: "Codex model cache is unreadable",
-    });
-  });
-
-  it("does not look up Claude when the selected harness is only Codex", async () => {
-    writeHarnessSelection(home, ["codex"]);
+  it("does not look up Claude when the selected harness is only omp", async () => {
+    writeHarnessSelection(home, ["omp"]);
 
     expect(await resolveCatalog("claude", inputs())).toEqual({
       ...curatedCatalog("claude"),

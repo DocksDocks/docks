@@ -12,10 +12,6 @@ export const TEXT_PAYLOAD_PATHS = [
   "SoT/.claude/bin/statusline.mjs",
   "SoT/.claude/bin/session-start.mjs",
   "SoT/.claude/bin/notify.mjs",
-  "SoT/.codex/AGENTS.md",
-  "SoT/.codex/config.toml",
-  "SoT/.codex/plugins/marketplace.json",
-  "SoT/.codex/rules/docks.rules",
   "SoT/.omp/AGENTS.md",
   "SoT/.omp/config.yml",
   "SoT/.omp/intercom.json",
@@ -37,10 +33,7 @@ export const TEXT_PAYLOAD_PATHS = [
 export const BINARY_PAYLOAD_PATHS = ["notification.mp3"] as const;
 export const PAYLOAD_PATHS = [...TEXT_PAYLOAD_PATHS, ...BINARY_PAYLOAD_PATHS] as const;
 
-export const AUTHORING_EXCLUSIONS = [
-  "SoT/.claude/settings.local.json",
-  "SoT/.codex/agents/.gitkeep",
-] as const;
+export const AUTHORING_EXCLUSIONS = ["SoT/.claude/settings.local.json"] as const;
 
 const GENERATED_MODULE = "cli/src/generated/sotPayload.ts";
 const BUN_PIN_START = "# BEGIN GENERATED BUN PIN";

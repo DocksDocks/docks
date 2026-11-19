@@ -16,14 +16,14 @@ import {
   effortValueGrammar,
   isEffortModifierValue,
 } from "../efforts";
-import { printModels, validateClaudeModel, validateCodexModel } from "./models";
+import { printModels, validateClaudeModel } from "./models";
 import { defaultLiveInputs, resolveCatalog } from "./liveModels";
 import { ExitError, printCatalog } from "./parseHelp";
 
 export const KNOWN_CLAUDE_OPTIN_PLUGINS = ["supabase", "n8n"];
 
+/** Every deploy-time modifier targets claude; it is dropped with a warning when claude is not selected. */
 interface ModifierMetadata {
-  readonly target: "claude" | "codex";
   readonly ignoredWarning: string;
   readonly hasValue: (ctx: Ctx) => boolean;
   readonly clear: (ctx: Ctx) => void;
@@ -31,7 +31,6 @@ interface ModifierMetadata {
 
 const MODIFIER_METADATA = {
   "--claude-model": {
-    target: "claude",
     ignoredWarning: "--claude-model ignored: claude target not selected",
     hasValue: (ctx) => ctx.claudeModel !== "",
     clear: (ctx) => {
@@ -39,7 +38,6 @@ const MODIFIER_METADATA = {
     },
   },
   "--claude-effort": {
-    target: "claude",
     ignoredWarning: "--claude-effort ignored: claude target not selected",
     hasValue: (ctx) => ctx.claudeEffort !== "",
     clear: (ctx) => {
@@ -47,7 +45,6 @@ const MODIFIER_METADATA = {
     },
   },
   "--claude-advisor": {
-    target: "claude",
     ignoredWarning: "--claude-advisor ignored: claude target not selected",
     hasValue: (ctx) => ctx.claudeAdvisor !== "",
     clear: (ctx) => {
@@ -55,7 +52,6 @@ const MODIFIER_METADATA = {
     },
   },
   "--claude-compact-window": {
-    target: "claude",
     ignoredWarning: "--claude-compact-window ignored: claude target not selected",
     hasValue: (ctx) => ctx.claudeCompactWindow !== "",
     clear: (ctx) => {
@@ -63,7 +59,6 @@ const MODIFIER_METADATA = {
     },
   },
   "--claude-permissive": {
-    target: "claude",
     ignoredWarning: "--claude-permissive ignored: claude target not selected",
     hasValue: (ctx) => ctx.claudePermissive,
     clear: (ctx) => {
@@ -71,27 +66,10 @@ const MODIFIER_METADATA = {
     },
   },
   "--claude-plugin": {
-    target: "claude",
     ignoredWarning: "--claude-plugin ignored: claude target not selected",
     hasValue: (ctx) => ctx.claudePlugins.length > 0,
     clear: (ctx) => {
       ctx.claudePlugins = [];
-    },
-  },
-  "--codex-model": {
-    target: "codex",
-    ignoredWarning: "--codex-model ignored: codex target not selected",
-    hasValue: (ctx) => ctx.codexModel !== "",
-    clear: (ctx) => {
-      ctx.codexModel = "";
-    },
-  },
-  "--codex-effort": {
-    target: "codex",
-    ignoredWarning: "--codex-effort ignored: codex target not selected",
-    hasValue: (ctx) => ctx.codexEffort !== "",
-    clear: (ctx) => {
-      ctx.codexEffort = "";
     },
   },
 } satisfies Record<ModifierFlag, ModifierMetadata>;
@@ -102,8 +80,6 @@ const SCALAR_MODIFIER_FLAGS: Record<ScalarModifierFlag, true> = {
   "--claude-model": true,
   "--claude-effort": true,
   "--claude-advisor": true,
-  "--codex-model": true,
-  "--codex-effort": true,
 };
 
 /** common::parse_compact_window — normalized tokens or undefined on junk. */
@@ -156,12 +132,6 @@ export function setModifier(ctx: Ctx, flag: ScalarModifierFlag, value: string): 
     case "--claude-advisor":
       ctx.claudeAdvisor = value;
       break;
-    case "--codex-model":
-      ctx.codexModel = value;
-      break;
-    case "--codex-effort":
-      ctx.codexEffort = value;
-      break;
   }
   markModifier(ctx, flag);
 }
@@ -177,8 +147,7 @@ export async function validateModifierFlags(ctx: Ctx): Promise<void> {
 
   for (const flag of Object.keys(MODIFIER_METADATA) as Array<ModifierFlag>) {
     const metadata = MODIFIER_METADATA[flag];
-    const targetSelected = metadata.target === "claude" ? ctx.syncClaude : ctx.syncCodex;
-    if (!targetSelected && supplied(flag)) {
+    if (!ctx.syncClaude && supplied(flag)) {
       warn(metadata.ignoredWarning);
       metadata.clear(ctx);
       ctx.modifierFlags?.delete(flag);
@@ -194,9 +163,9 @@ export async function validateModifierFlags(ctx: Ctx): Promise<void> {
     }
   }
   if (supplied("--claude-effort")) {
-    if (!isEffortModifierValue("claude", ctx.claudeEffort)) {
+    if (!isEffortModifierValue(ctx.claudeEffort)) {
       printCatalog(ctx, effortCatalog("claude"));
-      err(`Invalid Claude effort '${ctx.claudeEffort}' — valid: ${effortValueGrammar("claude")}`);
+      err(`Invalid Claude effort '${ctx.claudeEffort}' — valid: ${effortValueGrammar()}`);
       throw new ExitError(2);
     }
   }
@@ -204,21 +173,6 @@ export async function validateModifierFlags(ctx: Ctx): Promise<void> {
     if (!CLAUDE_ADVISOR_STATES.some((state) => state === ctx.claudeAdvisor)) {
       printCatalog(ctx, advisorCatalog());
       err(`Invalid Claude advisor state '${ctx.claudeAdvisor}' — valid: ${advisorValueGrammar()}`);
-      throw new ExitError(2);
-    }
-  }
-  if (supplied("--codex-model")) {
-    const catalog = await resolveCatalog("codex", defaultLiveInputs(ctx.home));
-    if (!validateCodexModel(ctx, ctx.codexModel, catalog)) {
-      printModels(ctx, catalog);
-      err(`Invalid Codex model '${ctx.codexModel}' — must match ^[A-Za-z0-9._-]+$`);
-      throw new ExitError(2);
-    }
-  }
-  if (supplied("--codex-effort")) {
-    if (!isEffortModifierValue("codex", ctx.codexEffort)) {
-      printCatalog(ctx, effortCatalog("codex"));
-      err(`Invalid Codex effort '${ctx.codexEffort}' — valid: ${effortValueGrammar("codex")}`);
       throw new ExitError(2);
     }
   }

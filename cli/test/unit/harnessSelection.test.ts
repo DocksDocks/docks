@@ -44,23 +44,49 @@ describe("harness selection state", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  // An older kit could store `codex`. The kitDb CHECK still accepts that row,
+  // so it is written straight to the table here.
+  function storeRawSelection(rows: ReadonlyArray<string>): void {
+    writeHarnessSelection(home, ["omp"]);
+    const db = new DatabaseSync(kitDbFile(home));
+    try {
+      db.exec("DELETE FROM harness_selection");
+      const insert = db.prepare("INSERT INTO harness_selection (harness) VALUES (?)");
+      for (const row of rows) insert.run(row);
+    } finally {
+      db.close();
+    }
+  }
+
+  it("drops a codex row stored by an older kit and keeps the other harnesses", () => {
+    storeRawSelection(["claude", "codex", "agents"]);
+
+    expect(readHarnessSelection(home)).toEqual(["claude", "agents"]);
+  });
+
+  it("reads a codex-only selection stored by an older kit as missing", () => {
+    storeRawSelection(["codex"]);
+
+    expect(loadHarnessSelection(home)).toEqual({ kind: "missing" });
+  });
+
   it("imports a valid legacy state.json once and renames it", () => {
     writeLegacyState(
       JSON.stringify({
         version: 1,
-        harnesses: ["omp", "unknown", "codex", "codex"],
+        harnesses: ["omp", "unknown", "agents", "agents"],
         ompSession: { selector: "a/b", thinking: "high" },
       }),
     );
 
-    expect(readHarnessSelection(home)).toEqual(["codex", "omp"]);
+    expect(readHarnessSelection(home)).toEqual(["agents", "omp"]);
     expect(readOmpSessionModel(home)).toEqual({ selector: "a/b", thinking: "high" });
     expect(existsSync(legacyFile())).toBe(false);
     expect(existsSync(`${legacyFile()}.migrated`)).toBe(true);
   });
 
   it("does not replace a stored selection or session model with a late legacy file", () => {
-    writeHarnessSelection(home, ["codex"]);
+    writeHarnessSelection(home, ["agents"]);
     writeOmpSessionModel(home, { selector: "provider/current", thinking: "high" });
     writeLegacyState(
       JSON.stringify({
@@ -70,7 +96,7 @@ describe("harness selection state", () => {
       }),
     );
 
-    expect(readHarnessSelection(home)).toEqual(["codex"]);
+    expect(readHarnessSelection(home)).toEqual(["agents"]);
     expect(readOmpSessionModel(home)).toEqual({
       selector: "provider/current",
       thinking: "high",
@@ -135,7 +161,7 @@ describe("harness selection state", () => {
       kind: "unreadable",
       reason: expect.stringMatching(/schema 99.*Upgrade docks-kit/s),
     });
-    expect(() => writeHarnessSelection(home, ["codex"])).toThrow(/schema 99/);
+    expect(() => writeHarnessSelection(home, ["agents"])).toThrow(/schema 99/);
     const after = new DatabaseSync(kitDbFile(home), { readOnly: true });
     const version = after.prepare("PRAGMA user_version").get()?.["user_version"];
     const rows = after.prepare("SELECT harness FROM harness_selection").all();
@@ -157,7 +183,7 @@ describe("harness selection state", () => {
   });
 
   it("normalizes a selection and removes harnesses excluded by a later write", () => {
-    writeHarnessSelection(home, ["omp", "claude", "omp", "agents", "codex"]);
+    writeHarnessSelection(home, ["omp", "claude", "omp", "agents"]);
     expect(readHarnessSelection(home)).toEqual(HARNESSES);
 
     writeHarnessSelection(home, ["omp"]);
@@ -172,11 +198,11 @@ describe("harness selection state", () => {
   });
 
   it("refuses unknown harness names without erasing stored harnesses", () => {
-    writeHarnessSelection(home, ["codex"]);
+    writeHarnessSelection(home, ["agents"]);
     const unknown = ["unknown"] as unknown as ReadonlyArray<Harness>;
 
     expect(() => writeHarnessSelection(home, unknown)).toThrow(/known harness/i);
-    expect(readHarnessSelection(home)).toEqual(["codex"]);
+    expect(readHarnessSelection(home)).toEqual(["agents"]);
   });
 
   it("creates a private store and directory under the selected home", () => {
@@ -261,11 +287,11 @@ describe("omp session model state", () => {
   });
 
   it("keeps stored harnesses when an omp session model is written", () => {
-    writeHarnessSelection(home, ["codex", "agents"]);
+    writeHarnessSelection(home, ["omp", "agents"]);
 
     writeOmpSessionModel(home, { selector: "provider/model-free", thinking: "low" });
 
-    expect(readHarnessSelection(home)).toEqual(["codex", "agents"]);
+    expect(readHarnessSelection(home)).toEqual(["agents", "omp"]);
     expect(readOmpSessionModel(home)).toEqual({ selector: "provider/model-free", thinking: "low" });
   });
 

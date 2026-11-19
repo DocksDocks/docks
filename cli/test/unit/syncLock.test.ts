@@ -8,7 +8,7 @@
  * `another docks-kit sync holds <path>; run sync again after it ends` and
  * returns exit code 1.
  *
- * A writing sync also takes a folder lock in each Codex, agents, and omp
+ * A writing sync also takes a folder lock in each agents and omp
  * folder that it writes: the omp agent folder, the omp intercom folder, and
  * the omp data root. Syncs of different homes can share these folders.
  *
@@ -81,15 +81,12 @@ const ENV_KEYS = [
   "DOCKS_KIT_INTERACTIVE",
   "DOCKS_KIT_SYNC_CONCURRENCY",
   "DOCKS_KIT_SYNC_LOCK_WAIT_MS",
-  "SKIP_BUBBLEWRAP",
   "RECONCILE",
   "PRUNE",
   "CLAUDE_COMPACT_WINDOW",
   "CLAUDE_PERMISSIVE",
   "CLAUDE_PLUGINS",
   "CLAUDE_MODEL",
-  "CODEX_MODEL",
-  "CODEX_HOME",
   "PI_CODING_AGENT_DIR",
   "OMP_PROFILE",
   "PI_PROFILE",
@@ -206,9 +203,8 @@ async function probe(home: string): Promise<string> {
   return result.kind;
 }
 
-/** The lock file that a writing sync takes inside a Codex, agents, or omp folder. */
+/** The lock file that a writing sync takes inside an agents or omp folder. */
 const FOLDER_LOCK = ".docks-kit-sync-lock.db";
-const CODEX_CONFIG = 'model = "gpt-5.5"\n';
 
 function heldLineFor(lock: string): string {
   return `another docks-kit sync holds ${lock}; run sync again after it ends`;
@@ -465,27 +461,7 @@ describe("model under the sync lock", () => {
   });
 });
 
-describe("folder locks of a shared Codex or agents folder", () => {
-  it("makes a sync of another home wait while a sync holds the shared Codex folder", async () => {
-    await withHome(async (home) => {
-      await withSharedFolder(async (shared) => {
-        process.env["CODEX_HOME"] = shared;
-        writeFileSync(join(shared, "config.toml"), CODEX_CONFIG);
-
-        await holdingFolderLock(shared, async (lock) => {
-          const before = snapshot(shared);
-          const records: Array<string> = [];
-
-          expect(await runEngineNative(["sync", "codex"], recordingServices(records))).toBe(1);
-
-          expect(records).toContain(heldLineFor(lock));
-          expect(snapshot(shared)).toEqual(before);
-        });
-        expect(await probe(home)).toBe("acquired");
-      });
-    });
-  });
-
+describe("folder locks of a shared agents folder", () => {
   it("makes a sync of another home wait while a sync holds the shared agents folder", async () => {
     await withHome(async (home) => {
       await withSharedFolder(async (shared) => {
@@ -510,41 +486,17 @@ describe("folder locks of a shared Codex or agents folder", () => {
     });
   });
 
-  it("makes a model codex write wait while a sync holds the Codex folder", async () => {
-    await withHome(async (home) => {
-      await withSharedFolder(async (shared) => {
-        process.env["CODEX_HOME"] = shared;
-        writeFileSync(join(shared, "config.toml"), CODEX_CONFIG);
-
-        await holdingFolderLock(shared, async (lock) => {
-          const records: Array<string> = [];
-
-          expect(
-            await runEngineNative(["model", "codex", "gpt-5.4"], recordingServices(records)),
-          ).toBe(1);
-
-          expect(records).toContain(heldLineFor(lock));
-          expect(readFileSync(join(shared, "config.toml"), "utf8")).toBe(CODEX_CONFIG);
-        });
-        expect(await probe(home)).toBe("acquired");
-      });
-    });
-  });
-
   it("takes no folder lock in a dry run", async () => {
     await withHome(async () => {
       await withSharedFolder(async (shared) => {
-        process.env["CODEX_HOME"] = shared;
         process.env["AGENTS_DIR"] = shared;
 
         await holdingFolderLock(shared, async (lock) => {
           const records: Array<string> = [];
 
-          await runEngineNative(
-            ["sync", "codex", "agents", "--dry-run"],
-            recordingServices(records),
-            { envGlobals: true },
-          );
+          await runEngineNative(["sync", "agents", "--dry-run"], recordingServices(records), {
+            envGlobals: true,
+          });
 
           expect(records).not.toContain(heldLineFor(lock));
         });

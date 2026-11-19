@@ -10,8 +10,6 @@ import { basename, dirname, join, resolve } from "node:path";
 import { payloadText } from "../payload";
 import { claudeNextSteps, claudeSummary, claudeSync, type ClaudeRuntimeState } from "./claudeSync";
 import { preflightClaudeSettings } from "./claudeSettings";
-import { codexHome } from "./codexPaths";
-import { codexNextSteps, codexSummary, codexSync } from "./codexSync";
 import type { Ctx } from "./index";
 import { compareCodepoints } from "./jq";
 import { acquireKitLock, releaseKitLock, type KitLock } from "./kitLock";
@@ -143,12 +141,12 @@ export function folderLockPaths(folders: ReadonlyArray<string>): Array<string> {
 
 /**
  * Run `body` under the folder lock of each folder in `folders`. Take it after
- * the sync lock. Syncs of different homes can share a Codex, agents, or omp
+ * the sync lock. Syncs of different homes can share an agents or omp
  * folder, and their home locks differ. A missing folder is created under the
  * locks of its ancestors in the set. A dry run takes no folder lock and
  * creates nothing.
  */
-export async function withFolderLocks(
+async function withFolderLocks(
   ctx: Ctx,
   folders: ReadonlyArray<string>,
   body: () => Promise<number>,
@@ -208,7 +206,6 @@ async function runSync(ctx: Ctx, args: ReadonlyArray<string>): Promise<number> {
   // data root that appears after the locks cannot move them.
   const omp = ctx.syncOmp ? ompWriteFolders(ctx) : undefined;
   const folders = [
-    ...(ctx.syncCodex ? [codexHome(ctx.home)] : []),
     ...(ctx.syncAgents ? [resolve(ctx.agentsDir)] : []),
     ...(omp === undefined ? [] : [omp.paths.agentDir, omp.intercomDir, omp.paths.dataRoot]),
   ];
@@ -223,7 +220,6 @@ async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise
 
   type PipelineResult =
     | { readonly kind: "claude"; readonly runtime: ClaudeRuntimeState }
-    | { readonly kind: "codex" }
     | { readonly kind: "skills"; readonly state: SkillsState }
     | { readonly kind: "omp"; readonly state: OmpState };
   interface SelectedPipeline {
@@ -236,15 +232,6 @@ async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise
     selected.push({
       name: "Claude",
       run: async () => ({ kind: "claude", runtime: await claudeSync(ctx) }),
-    });
-  }
-  if (ctx.syncCodex) {
-    selected.push({
-      name: "Codex",
-      run: async () => {
-        await codexSync(ctx);
-        return { kind: "codex" };
-      },
     });
   }
   if (ctx.syncAgents) {
@@ -260,7 +247,7 @@ async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise
     });
   }
 
-  // A populated skills manifest deploys with `-a claude-code codex`, and symlink healing also writes into Claude's tree.
+  // A populated skills manifest deploys through the skills CLI's claude-code agent, and symlink healing also writes into Claude's tree.
   ctx.syncConcurrency = syncConcurrencyForManifest(
     ctx.syncConcurrency,
     payloadText("SoT/.agents/skills.txt"),
@@ -294,7 +281,6 @@ async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise
   }
 
   const claudeRan = ctx.syncClaude;
-  const codexRan = ctx.syncCodex;
   let claudeRuntime: ClaudeRuntimeState | undefined;
   let skillsState: SkillsState | undefined;
   let ompState: OmpState | undefined;
@@ -308,13 +294,11 @@ async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise
   echo("--- Sync complete ---");
   echo(`Repo:     ${ctx.repoDir}`);
   if (claudeRuntime !== undefined) claudeSummary(ctx, claudeRuntime);
-  if (codexRan) codexSummary(ctx);
   if (skillsState !== undefined) skillsSummary(ctx, skillsState);
   if (ompState !== undefined) ompSummary(ctx, ompState);
 
   const advice = [
     ...(claudeRan ? claudeNextSteps(ctx) : []),
-    ...(codexRan ? codexNextSteps(ctx) : []),
     ...(skillsState !== undefined ? skillsNextSteps(ctx) : []),
     ...(ompState !== undefined ? ompNextSteps(ctx) : []),
   ];

@@ -11,7 +11,6 @@ describe("Darwin host OS", () => {
 
     expect(host.id).toBe("darwin");
     expect(host.toolchainOs).toBe("darwin");
-    expect(host.supportsBubblewrap).toBe(false);
     expect(host.directoryLinkKinds).toEqual(["symlink"]);
     expect(host.executableSuffixes).toEqual([""]);
     expect(host.invoke("/usr/local/bin/npm", ["-v"])).toEqual({
@@ -59,9 +58,6 @@ describe("Darwin host OS", () => {
     expect(host.installHint("ffplay")).toBe("brew install ffmpeg");
     expect(host.installHint("claude")).toBe(
       'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o "$tmp" && bash "$tmp"',
-    );
-    expect(host.installHint("codex")).toBe(
-      'tmp=$(mktemp) && curl -fsSL https://chatgpt.com/codex/install.sh -o "$tmp" && CODEX_NON_INTERACTIVE=1 sh "$tmp"',
     );
   });
 

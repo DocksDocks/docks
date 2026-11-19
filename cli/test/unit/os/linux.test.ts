@@ -17,7 +17,6 @@ describe("Linux host OS", () => {
 
     expect(host.id).toBe("linux");
     expect(host.toolchainOs).toBe("linux");
-    expect(host.supportsBubblewrap).toBe(true);
     expect(host.directoryLinkKinds).toEqual(["symlink"]);
     expect(host.executableSuffixes).toEqual([""]);
     expect(host.invoke("/usr/bin/npm", ["-v"])).toEqual({
@@ -67,18 +66,14 @@ describe("Linux host OS", () => {
     expect(host.installHint("claude")).toBe(
       'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o "$tmp" && bash "$tmp"',
     );
-    expect(host.installHint("codex")).toBe(
-      'tmp=$(mktemp) && curl -fsSL https://chatgpt.com/codex/install.sh -o "$tmp" && CODEX_NON_INTERACTIVE=1 sh "$tmp"',
-    );
   });
 
-  it("leaves an unsupported platform without a toolchain or bubblewrap capability", () => {
+  it("leaves an unsupported platform without a toolchain OS", () => {
     expect(platformName("freebsd")).toBe("unknown");
     const host = hostOs("unknown");
 
     expect(host.id).toBe("unknown");
     expect(host.toolchainOs).toBe("");
-    expect(host.supportsBubblewrap).toBe(false);
     expect(host.installHint("git")).toBe(
       "sudo apt install -y git (or your distro's package manager)",
     );

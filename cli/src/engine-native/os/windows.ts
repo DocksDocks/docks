@@ -101,7 +101,6 @@ function commandShimInvocation(executablePath: string, args: ReadonlyArray<strin
 export const windows: HostOs = {
   id: "windows",
   toolchainOs: "windows",
-  supportsBubblewrap: false,
   directoryLinkKinds: ["symlink", "junction"],
   executableSuffixes: [".exe", ".cmd", ".bat", ""],
   invoke: (executablePath, args) =>
@@ -177,8 +176,6 @@ export const windows: HostOs = {
         return "winget install --id Gyan.FFmpeg -e";
       case "claude":
         return "$tmp = Join-Path $env:TEMP 'claude-install.ps1'; curl.exe -fsSL https://claude.ai/install.ps1 -o $tmp; if ($LASTEXITCODE -eq 0) { powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp }";
-      case "codex":
-        return "$tmp = Join-Path $env:TEMP 'codex-install.ps1'; curl.exe -fsSL https://chatgpt.com/codex/install.ps1 -o $tmp; if ($LASTEXITCODE -eq 0) { $env:CODEX_NON_INTERACTIVE = '1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp }";
     }
   },
 };

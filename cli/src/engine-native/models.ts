@@ -1,9 +1,7 @@
 /**
- * Model-catalog helpers: SoT parsing, listing, and Claude/Codex model validation.
+ * Model-catalog helpers: SoT parsing, listing, and Claude model validation.
  * Curated message strings are covered by the golden suites.
  */
-import { codexHome } from "./codexPaths";
-import { p } from "./exec";
 import type { Ctx } from "./index";
 import { isObject, parseJson } from "./jq";
 import { payloadDisplayPath, payloadText } from "../payload";
@@ -18,7 +16,6 @@ export interface ModelCatalog {
 
 const LIVE_SOURCE_LABELS: Record<Exclude<CatalogSource, "curated">, string> = {
   "anthropic-api": "Anthropic API via Claude Code login",
-  "codex-cache": "models_cache.json in the Codex home",
   "omp-cli": "omp models --json",
 };
 
@@ -70,7 +67,6 @@ export function printModels(ctx: Ctx, catalog: ResolvedCatalog): void {
   }
   if (tool === "claude")
     echo("  (full claude-* model IDs outside the catalog are accepted with a warning)");
-  if (tool === "codex") echo("  (well-formed IDs outside the catalog are accepted with a warning)");
 }
 
 export function validateClaudeModel(ctx: Ctx, m: string, catalog: ResolvedCatalog): boolean {
@@ -85,17 +81,4 @@ export function validateClaudeModel(ctx: Ctx, m: string, catalog: ResolvedCatalo
     return true;
   }
   return false;
-}
-
-export function validateCodexModel(ctx: Ctx, m: string, catalog: ResolvedCatalog): boolean {
-  if (!/^[A-Za-z0-9._-]+$/.test(m)) return false;
-  if (!catalog.models.some((entry) => entry.id === m)) {
-    const config = p(codexHome(ctx.home), "config.toml");
-    ctx.services.logger.warn(
-      catalog.source === "curated"
-        ? `Codex model '${m}' is not in the kit-verified catalog (SoT/models.json) — applying anyway (check ${config} if Codex rejects it)`
-        : `Codex model '${m}' is not in the live Codex model list — applying anyway (check ${config} if Codex rejects it)`,
-    );
-  }
-  return true;
 }

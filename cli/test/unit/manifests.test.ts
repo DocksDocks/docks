@@ -1,5 +1,4 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { spawnSync as nodeSpawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,12 +6,10 @@ import type * as Payload from "../../src/payload";
 
 const mocks = vi.hoisted<{
   home: string;
-  codexConfig: string | undefined;
   claudeSettings: string | undefined;
   skillsManifest: string | undefined;
 }>(() => ({
   home: "",
-  codexConfig: undefined,
   claudeSettings: undefined,
   skillsManifest: undefined,
 }));
@@ -22,8 +19,6 @@ vi.mock("../../src/payload", async () => {
   return {
     ...actual,
     payloadText: (path: Parameters<typeof actual.payloadText>[0]) => {
-      if (path === "SoT/.codex/config.toml" && mocks.codexConfig !== undefined)
-        return mocks.codexConfig;
       if (path === "SoT/.claude/settings.json" && mocks.claudeSettings !== undefined)
         return mocks.claudeSettings;
       if (path === "SoT/.agents/skills.txt" && mocks.skillsManifest !== undefined)
@@ -33,32 +28,12 @@ vi.mock("../../src/payload", async () => {
   };
 });
 
-import { sotEffort } from "../../src/efforts";
-import {
-  deployedCodexModel,
-  installedPluginsState,
-  pluginsView,
-  skillsView,
-  sotCodexModel,
-  topLevelTomlString,
-} from "../../src/manifests";
-
-function parseToml(content: string): Record<string, unknown> {
-  const parsed = nodeSpawnSync(
-    "bun",
-    ["-e", "console.log(JSON.stringify(Bun.TOML.parse(await Bun.stdin.text())))"],
-    { input: content, encoding: "utf8" },
-  );
-  expect(parsed.status, parsed.stderr).toBe(0);
-  return JSON.parse(parsed.stdout) as Record<string, unknown>;
-}
+import { installedPluginsState, pluginsView, skillsView } from "../../src/manifests";
 
 beforeEach(() => {
   mocks.home = mkdtempSync(join(tmpdir(), "docks-manifests-"));
   vi.stubEnv("HOME", mocks.home);
   vi.stubEnv("USERPROFILE", mocks.home);
-  vi.stubEnv("CODEX_HOME", "");
-  mocks.codexConfig = undefined;
   mocks.claudeSettings = undefined;
   mocks.skillsManifest = undefined;
 });
@@ -70,51 +45,6 @@ afterEach(() => {
 });
 
 describe("manifest resolvers", () => {
-  it("reads a top-level TOML literal string", () => {
-    const toml = "model = 'x'\n";
-    expect(topLevelTomlString(toml, "model")).toBe("x");
-    expect(parseToml(toml)["model"]).toBe("x");
-  });
-
-  it("preserves backslashes in a TOML literal string", () => {
-    const value = String.raw`C:\models\new`;
-    const toml = `model = '${value}'\n`;
-    expect(topLevelTomlString(toml, "model")).toBe(value);
-    expect(parseToml(toml)["model"]).toBe(value);
-  });
-
-  it("reads a top-level key after a multi-line array", () => {
-    const toml = 'notify = [\n  ["a"],\n]\nmodel = "gpt-x"\n';
-    expect(topLevelTomlString(toml, "model")).toBe("gpt-x");
-    expect(parseToml(toml)["model"]).toBe("gpt-x");
-  });
-
-  it("reads a quoted top-level key", () => {
-    for (const toml of ['"model" = "quoted"\n', "'model' = \"quoted\"\n"]) {
-      expect(topLevelTomlString(toml, "model")).toBe("quoted");
-      expect(parseToml(toml)["model"]).toBe("quoted");
-    }
-  });
-
-  it("reads only the top-level Codex model, even when a profile overrides it", () => {
-    mocks.codexConfig = 'model = "top-model"\n[profiles.audit]\nmodel = "table-model"\n';
-    expect(sotCodexModel()).toBe("top-model");
-
-    mocks.codexConfig = '[profiles.audit]\nmodel = "table-model"\n';
-    expect(sotCodexModel()).toBeUndefined();
-  });
-
-  it("does not use a profile effort as the Codex default", () => {
-    mocks.codexConfig =
-      'model_reasoning_effort = "high"\n[profiles.audit]\nmodel_reasoning_effort = "low"\n';
-    expect(sotEffort("codex")).toBe("high");
-
-    mocks.codexConfig = '[profiles.audit]\nmodel_reasoning_effort = "high"\n';
-    expect(() => sotEffort("codex")).toThrow(
-      "Embedded SoT Codex model_reasoning_effort is missing",
-    );
-  });
-
   it("reports SoT enablement separately from user-scope installation", () => {
     mocks.claudeSettings = JSON.stringify({
       enabledPlugins: {
@@ -192,18 +122,5 @@ describe("manifest resolvers", () => {
     expect(skillsView()).toEqual([
       { skill: "demo", declared: true, installed: true, claudeSymlink: true },
     ]);
-  });
-
-  it("reads the deployed Codex model from CODEX_HOME when it is set", () => {
-    const homeCodex = join(mocks.home, ".codex");
-    const altCodex = join(mocks.home, "alt");
-    mkdirSync(homeCodex, { recursive: true });
-    mkdirSync(altCodex, { recursive: true });
-    writeFileSync(join(homeCodex, "config.toml"), 'model = "home-model"\n');
-    writeFileSync(join(altCodex, "config.toml"), 'model = "alt-model"\n');
-
-    expect(deployedCodexModel()).toBe("home-model");
-    vi.stubEnv("CODEX_HOME", altCodex);
-    expect(deployedCodexModel()).toBe("alt-model");
   });
 });

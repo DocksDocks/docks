@@ -117,19 +117,9 @@ describe("argument validation", () => {
       "--n8n was renamed to --claude-plugin=n8n",
     ],
     [
-      "rejects legacy --skip-rtk with its bubblewrap rename hint",
-      "--skip-rtk",
-      "--skip-rtk was renamed to --skip-bubblewrap",
-    ],
-    [
       "rejects legacy --claude with its positional-target rename hint",
       "--claude",
       "--claude was renamed: pass the target as a word, e.g. 'sync claude'",
-    ],
-    [
-      "rejects legacy --codex with its positional-target rename hint",
-      "--codex",
-      "--codex was renamed: pass the target as a word, e.g. 'sync codex'",
     ],
     [
       "rejects legacy --agents with its positional-target rename hint",
@@ -182,6 +172,18 @@ describe("argument validation", () => {
       ["docs", "--claude"],
       "--claude",
       "docs",
+    ],
+    [
+      "rejects --skip-rtk as unknown now that its bubblewrap rename hint is gone",
+      ["sync", "--skip-rtk"],
+      "--skip-rtk",
+      "sync",
+    ],
+    [
+      "rejects --codex as unknown now that the codex target is gone",
+      ["sync", "--codex"],
+      "--codex",
+      "sync",
     ],
   ] as const)("%s", (_name, input, flag, command) => {
     expect(prepareArgv(input)).toEqual({
@@ -328,13 +330,6 @@ describe("argument validation", () => {
       "Available claude models",
       "  opus  —",
       "--claude-model requires a value: --claude-model=<model>",
-    ],
-    [
-      "missing Codex model",
-      ["sync", "--codex-model"],
-      "Available codex models",
-      "  gpt-6.2-sol  —",
-      "--codex-model requires a value: --codex-model=<model>",
     ],
     [
       "missing Claude advisor",

@@ -62,7 +62,7 @@ describe("sync abort preflight", () => {
 
       const records: Array<LogRecord> = [];
       const exitCode = await runEngineNative(
-        ["sync", "claude", "codex", "agents", "omp", "--dry-run"],
+        ["sync", "claude", "agents", "omp", "--dry-run"],
         recordingServices(records),
       );
 

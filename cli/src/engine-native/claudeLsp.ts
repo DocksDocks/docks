@@ -77,8 +77,7 @@ async function installNpmServers(ctx: Ctx, missing: ReadonlyArray<string>): Prom
  * rustup channel: rust-analyzer ships no npm package, and upstream's first
  * recommendation is the rustup component, which tracks the toolchain the host
  * already trusts. The component version therefore follows that toolchain, so
- * the manifest row carries no verified pin - the stance bubblewrap already
- * takes for a distro package.
+ * the manifest row carries no verified pin.
  */
 async function installRustAnalyzer(ctx: Ctx): Promise<void> {
   const { change, clearProgress, echo, progress, verbose, warn } = ctx.services.logger;

@@ -7,18 +7,15 @@ function posixLiteral(value: string): string {
 }
 
 /** Package-manager hints for the tools a POSIX host installs through its own package manager. */
-export type PackageManagerHints = Readonly<Record<Exclude<HintedTool, "claude" | "codex">, string>>;
+export type PackageManagerHints = Readonly<Record<Exclude<HintedTool, "claude">, string>>;
 
-const UPSTREAM_INSTALLER_HINTS: Readonly<Record<"claude" | "codex", string>> = {
-  claude: 'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o "$tmp" && bash "$tmp"',
-  codex:
-    'tmp=$(mktemp) && curl -fsSL https://chatgpt.com/codex/install.sh -o "$tmp" && CODEX_NON_INTERACTIVE=1 sh "$tmp"',
-};
+// Claude ships its own installer, so its hint is the same on every POSIX host.
+const CLAUDE_INSTALLER_HINT =
+  'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o "$tmp" && bash "$tmp"';
 
 interface PosixHostInputs {
   readonly id: HostOs["id"];
   readonly toolchainOs: HostOs["toolchainOs"];
-  readonly supportsBubblewrap: boolean;
   readonly packageManagerHints: PackageManagerHints;
   /** Home-relative bash startup files in read order; the first existing one gets the write, else the first entry. */
   readonly bashTargets: readonly [string, ...string[]];
@@ -29,7 +26,6 @@ export function posixHost(inputs: PosixHostInputs): HostOs {
   return {
     id: inputs.id,
     toolchainOs: inputs.toolchainOs,
-    supportsBubblewrap: inputs.supportsBubblewrap,
     directoryLinkKinds: ["symlink"],
     executableSuffixes: [""],
     invoke: (executablePath, args) => ({ command: executablePath, args }),
@@ -76,8 +72,6 @@ export function posixHost(inputs: PosixHostInputs): HostOs {
     },
     failureHookCommand: (command) => command,
     installHint: (tool) =>
-      tool === "claude" || tool === "codex"
-        ? UPSTREAM_INSTALLER_HINTS[tool]
-        : inputs.packageManagerHints[tool],
+      tool === "claude" ? CLAUDE_INSTALLER_HINT : inputs.packageManagerHints[tool],
   };
 }

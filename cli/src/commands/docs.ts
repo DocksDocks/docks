@@ -17,7 +17,7 @@ import commandGuards from "../../docs/command-guards.md" with { type: "text" };
 const TOPICS: Record<string, { summary: string; body: string }> = {
   overview: { summary: "What docks-kit is and how the pieces fit", body: overview },
   "sync-layers": {
-    summary: "The four sync targets (claude, codex, agents, omp) and additive-by-default semantics",
+    summary: "The three sync targets (claude, agents, omp) and additive-by-default semantics",
     body: syncLayers,
   },
   flags: { summary: "Full flag reference incl. the old→new rename table", body: flags },
@@ -51,7 +51,7 @@ const TOPICS: Record<string, { summary: string; body: string }> = {
     body: ompContext,
   },
   "command-guards": {
-    summary: "Deny, ask, and allow tiers for destructive shell commands in omp, Claude, and Codex",
+    summary: "Deny, ask, and allow tiers for destructive shell commands in omp and Claude",
     body: commandGuards,
   },
 };

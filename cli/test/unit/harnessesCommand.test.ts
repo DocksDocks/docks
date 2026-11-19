@@ -30,7 +30,7 @@ describe("harnesses command", () => {
       expect(run.exitCode).toBe(0);
       expect(run.stderr).toBe("");
       expect(run.stdout).toBe(
-        "Harness selection: claude, codex, agents (no selection is stored yet; the legacy default applies)\n",
+        "Harness selection: claude, agents (no selection is stored yet; the legacy default applies)\n",
       );
       expect(existsSync(kitDbFile(run.home))).toBe(false);
     },
@@ -126,7 +126,7 @@ describe("harnesses command picker gate", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(log.mock.calls).toEqual([
       [
-        "Harness selection: claude, codex, agents (no selection is stored yet; the legacy default applies)",
+        "Harness selection: claude, agents (no selection is stored yet; the legacy default applies)",
       ],
     ]);
     expect(existsSync(kitDbFile(home))).toBe(false);
@@ -144,7 +144,7 @@ const ENTER: KeyPress = { name: "return", sequence: "\r" };
 const ESCAPE: KeyPress = { name: "escape", sequence: "\x1b" };
 
 const LEGACY_FIRST_LINE =
-  "Harness selection: claude, codex, agents (no selection is stored yet; the legacy default applies)";
+  "Harness selection: claude, agents (no selection is stored yet; the legacy default applies)";
 const NOTE = "Every harness starts ticked. Nothing is stored until you save.";
 
 /** A terminal that feeds `keys` in order, then ends its input, and records every displayed frame. */
@@ -213,14 +213,14 @@ describe("harnesses command picker", () => {
     return { exit, frames, logs: log.mock.calls };
   }
 
-  it("saves claude, agents, omp after codex is unticked on a fresh machine", async () => {
+  it("saves claude, omp after agents is unticked on a fresh machine", async () => {
     const { exit, logs } = await runPicker([DOWN, ENTER, END, ENTER]);
 
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(readHarnessSelection(home)).toEqual(["claude", "agents", "omp"]);
+    expect(readHarnessSelection(home)).toEqual(["claude", "omp"]);
     expect(logs).toEqual([
       [LEGACY_FIRST_LINE],
-      [`Saved harness selection: claude, agents, omp (${kitDbFile(home)})`],
+      [`Saved harness selection: claude, omp (${kitDbFile(home)})`],
     ]);
   });
 
@@ -237,7 +237,7 @@ describe("harnesses command picker", () => {
 
     expect(Exit.isSuccess(exit)).toBe(true);
     const first = frames[0] ?? "";
-    expect(HARNESSES.map((harness) => marker(first, harness))).toEqual(["○", "○", "○", "●"]);
+    expect(HARNESSES.map((harness) => marker(first, harness))).toEqual(["○", "○", "●"]);
     expect(first).not.toContain(NOTE);
     expect(readHarnessSelection(home)).toEqual(["omp"]);
     expect(logs).toEqual([
@@ -246,19 +246,17 @@ describe("harnesses command picker", () => {
     ]);
   });
 
-  it("shows the note and ticks all four harnesses when no selection is stored", async () => {
+  it("shows the note and ticks every harness when no selection is stored", async () => {
     const { exit, frames } = await runPicker([ESCAPE]);
 
     expect(Exit.isSuccess(exit)).toBe(true);
     const first = frames[0] ?? "";
     expect(first).toContain(NOTE);
-    expect(HARNESSES.map((harness) => marker(first, harness))).toEqual(["●", "●", "●", "●"]);
+    expect(HARNESSES.map((harness) => marker(first, harness))).toEqual(["●", "●", "●"]);
   });
 
   it("refuses to save an empty selection and stores nothing after a cancel", async () => {
     const { exit, frames, logs } = await runPicker([
-      ENTER,
-      DOWN,
       ENTER,
       DOWN,
       ENTER,

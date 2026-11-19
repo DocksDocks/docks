@@ -18,9 +18,7 @@ export type ModifierFlag =
   | "--claude-advisor"
   | "--claude-compact-window"
   | "--claude-permissive"
-  | "--claude-plugin"
-  | "--codex-model"
-  | "--codex-effort";
+  | "--claude-plugin";
 
 export interface Ctx {
   readonly repoDir: string;
@@ -29,7 +27,6 @@ export interface Ctx {
   readonly interactive: boolean;
   dryRun: boolean;
   verbose: boolean;
-  skipBubblewrap: boolean;
   skipPluginRefresh?: boolean;
   reconcile: boolean;
   prune: boolean;
@@ -39,8 +36,6 @@ export interface Ctx {
   claudeModel: string;
   claudeEffort: string;
   claudeAdvisor: string;
-  codexModel: string;
-  codexEffort: string;
   /** Distinguishes an explicitly empty modifier from an option that was not supplied. */
   modifierFlags?: Set<ModifierFlag>;
   /** Injected capability seam (logger/deps/platform) — see services.ts. */
@@ -50,14 +45,12 @@ export interface Ctx {
   bunRuntime?: Promise<BunRuntimeState>;
   targetFilterSet: boolean;
   syncClaude: boolean;
-  syncCodex: boolean;
   syncAgents: boolean;
   syncOmp: boolean;
   /** Per-run next-step triggers (Output Policy): advice prints only when its trigger changed or --verbose. */
   readonly nextStepTriggers: {
     claudePlugins: boolean;
     claudeRestart: boolean;
-    codexRestart: boolean;
     skillsRestart: boolean;
     ompRestart: boolean;
     /** A marketplace plugin upgrade changed a version, so running omp sessions lost its folder. */
@@ -75,12 +68,10 @@ export interface Ctx {
 export const ENV_GLOBAL_KEYS = [
   "DRY_RUN",
   "DOCKS_KIT_VERBOSE",
-  "SKIP_BUBBLEWRAP",
   "RECONCILE",
   "PRUNE",
   "CLAUDE_PERMISSIVE",
   "CLAUDE_MODEL",
-  "CODEX_MODEL",
   "CLAUDE_PLUGINS",
   "CLAUDE_COMPACT_WINDOW",
   "AGENTS_DIR",
@@ -124,7 +115,6 @@ export function makeCtx(services: EngineServices, options: CtxOptions): Ctx {
         process.stdin.isTTY === true),
     dryRun: globals["DRY_RUN"] === "1",
     verbose: globals["DOCKS_KIT_VERBOSE"] === "1",
-    skipBubblewrap: globals["SKIP_BUBBLEWRAP"] === "1",
     skipPluginRefresh: false,
     reconcile: globals["RECONCILE"] === "1",
     prune: globals["PRUNE"] === "1",
@@ -134,20 +124,16 @@ export function makeCtx(services: EngineServices, options: CtxOptions): Ctx {
     claudeModel: globals["CLAUDE_MODEL"] ?? "",
     claudeEffort: "",
     claudeAdvisor: "",
-    codexModel: globals["CODEX_MODEL"] ?? "",
-    codexEffort: "",
     modifierFlags: new Set(),
     syncConcurrency: 3,
     services,
     targetFilterSet: false,
     syncClaude: false,
-    syncCodex: false,
     syncAgents: false,
     syncOmp: false,
     nextStepTriggers: {
       claudePlugins: false,
       claudeRestart: false,
-      codexRestart: false,
       skillsRestart: false,
       ompRestart: false,
       ompPluginUpgraded: false,

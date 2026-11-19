@@ -379,40 +379,6 @@ describe("Claude settings truth", () => {
   });
 });
 
-describe("Codex settings truth", () => {
-  it("model dry-run skips an absent config while sync still previews the model", () => {
-    const variant = materializeVariant("home-fresh", {});
-    const modelRun = runPublicCli(
-      ["model", "codex", "gpt-5.6-sol", "--dry-run"],
-      variant,
-      makeStubDir(),
-    );
-    const syncRun = runEngine(
-      ["sync", "codex", "--dry-run", "--codex-model=gpt-5.6-sol"],
-      variant,
-      makeStubDir(),
-    );
-    try {
-      const modelOutput = `${modelRun.stdout}${modelRun.stderr}`;
-      expect(modelRun.exitCode).toBe(0);
-      expect(modelOutput).toContain("missing — skipped");
-      expect(modelOutput).not.toContain("[dry-run] (--codex-model) set model");
-      expect(existsSync(join(modelRun.home, ".codex", "config.toml"))).toBe(false);
-
-      expect(syncRun.exitCode).toBe(0);
-      expect(syncRun.output).toContain(
-        '[dry-run] (--codex-model) set model = "gpt-5.6-sol" in <HOME>/.codex/config.toml',
-      );
-      expect(syncRun.output).not.toContain("missing — skipped");
-      expect(existsSync(join(syncRun.home, ".codex", "config.toml"))).toBe(false);
-    } finally {
-      rmSync(modelRun.home, { recursive: true, force: true });
-      cleanup([syncRun]);
-      rmSync(variant, { recursive: true, force: true });
-    }
-  });
-});
-
 /** A non-dry-run sync context for one in-process plugin pass; every tool is present. */
 function pluginCtx(home: string): Ctx {
   const services: EngineServices = {
@@ -434,7 +400,6 @@ function pluginCtx(home: string): Ctx {
     interactive: false,
     dryRun: false,
     verbose: false,
-    skipBubblewrap: false,
     skipPluginRefresh: false,
     reconcile: false,
     prune: false,
@@ -444,19 +409,15 @@ function pluginCtx(home: string): Ctx {
     claudeModel: "",
     claudeEffort: "",
     claudeAdvisor: "",
-    codexModel: "",
-    codexEffort: "",
     syncConcurrency: 1,
     failures: [],
     targetFilterSet: true,
     syncClaude: true,
-    syncCodex: false,
     syncAgents: false,
     syncOmp: false,
     nextStepTriggers: {
       claudePlugins: false,
       claudeRestart: false,
-      codexRestart: false,
       skillsRestart: false,
       ompRestart: false,
       ompPluginUpgraded: false,

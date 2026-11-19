@@ -9,8 +9,6 @@ import {
   syncClaudeAdvisor,
   syncClaudeEffort,
 } from "../../src/engine-native/claudeSettingsModifiers";
-import { syncCodexEffort } from "../../src/engine-native/codexToml";
-import { codexNextSteps, codexSummary } from "../../src/engine-native/codexStatus";
 import { DEPENDENCIES } from "../../src/engine-native/deps";
 import type { Ctx } from "../../src/engine-native";
 import {
@@ -65,7 +63,6 @@ function modifierCtx(home: string, records: Array<LogRecord>): Ctx {
     interactive: false,
     dryRun: false,
     verbose: true,
-    skipBubblewrap: false,
     reconcile: false,
     prune: false,
     claudeCompactWindow: "",
@@ -74,19 +71,15 @@ function modifierCtx(home: string, records: Array<LogRecord>): Ctx {
     claudeModel: "",
     claudeEffort: "",
     claudeAdvisor: "",
-    codexModel: "",
-    codexEffort: "",
     syncConcurrency: 3,
     services: stubServices(records),
     targetFilterSet: true,
     syncClaude: true,
-    syncCodex: false,
     syncAgents: false,
     syncOmp: false,
     nextStepTriggers: {
       claudePlugins: false,
       claudeRestart: false,
-      codexRestart: false,
       skillsRestart: false,
       ompRestart: false,
       ompPluginUpgraded: false,
@@ -117,7 +110,7 @@ describe("sync pipeline coordinator", () => {
   });
 
   it("caps overlap and returns results in selection order", async () => {
-    const names = ["Claude", "Codex", "skills"] as const;
+    const names = ["Claude", "omp", "skills"] as const;
     const controls = names.map(() => deferred<string>());
     const thirdStarted = deferred<void>();
     const started: Array<string> = [];
@@ -135,13 +128,13 @@ describe("sync pipeline coordinator", () => {
       }),
       2,
     );
-    expect(started).toEqual(["Claude", "Codex"]);
-    controls[1]!.resolve("codex-result");
+    expect(started).toEqual(["Claude", "omp"]);
+    controls[1]!.resolve("omp-result");
     await thirdStarted.promise;
     expect(active).toBe(2);
     controls[0]!.resolve("claude-result");
     controls[2]!.resolve("skills-result");
-    await expect(run).resolves.toEqual(["claude-result", "codex-result", "skills-result"]);
+    await expect(run).resolves.toEqual(["claude-result", "omp-result", "skills-result"]);
     expect(maxActive).toBe(2);
   });
 
@@ -186,7 +179,7 @@ describe("sync pipeline coordinator", () => {
       2,
     );
     const result = expect(run).rejects.toBe(firstFailure);
-    second.reject(new Error("codex failed"));
+    second.reject(new Error("omp failed"));
     first.reject(firstFailure);
     await result;
     expect(queued).toBe(false);
@@ -225,11 +218,11 @@ describe("Claude settings modifiers", () => {
       expect(JSON.parse(readFileSync(settings, "utf8"))).toEqual({
         model: "sonnet",
         userOnly: true,
-        effortLevel: sotEffort("claude"),
+        effortLevel: sotEffort(),
       });
       expect(records).toContainEqual({
         level: "change",
-        message: `Effort: deployed settings effortLevel set to ${sotEffort("claude")} (SoT default)`,
+        message: `Effort: deployed settings effortLevel set to ${sotEffort()} (SoT default)`,
       });
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -287,116 +280,6 @@ describe("Claude settings modifiers", () => {
   });
 });
 
-describe("Codex effort modifier", () => {
-  it("replaces duplicate top-level effort while preserving user settings and no-op runs", () => {
-    const home = mkdtempSync(join(tmpdir(), "codex-effort-modifier-"));
-    const config = p(home, ".codex", "config.toml");
-    mkdirSync(p(home, ".codex"), { recursive: true });
-    writeFileSync(
-      config,
-      '# keep\nmodel = "gpt-5.5"\nmodel_reasoning_effort = "low" # stale\nmodel_reasoning_effort = "medium"\n\n[features]\nmemories = true\n',
-    );
-    const records: Array<LogRecord> = [];
-    const ctx = modifierCtx(home, records);
-
-    try {
-      syncCodexEffort(ctx, "ultra");
-      const deployed =
-        '# keep\nmodel = "gpt-5.5"\nmodel_reasoning_effort = "ultra"\n\n[features]\nmemories = true\n';
-      expect(readFileSync(config, "utf8")).toBe(deployed);
-      expect(records).toContainEqual({
-        level: "change",
-        message:
-          "Effort: deployed Codex model_reasoning_effort set to ultra (SoT unchanged; flag-less sync reverts)",
-      });
-
-      records.length = 0;
-      syncCodexEffort(ctx, "ultra");
-      expect(readFileSync(config, "utf8")).toBe(deployed);
-      expect(records.filter(({ level }) => level === "change")).toEqual([]);
-
-      syncCodexEffort(ctx, "default");
-      expect(readFileSync(config, "utf8")).toBe(
-        `# keep\nmodel = "gpt-5.5"\nmodel_reasoning_effort = "${sotEffort("codex")}"\n\n[features]\nmemories = true\n`,
-      );
-      expect(records).toContainEqual({
-        level: "change",
-        message: `Effort: deployed Codex model_reasoning_effort set to ${sotEffort("codex")} (SoT default)`,
-      });
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps missing-file and dry-run behavior non-mutating", () => {
-    const home = mkdtempSync(join(tmpdir(), "codex-effort-dry-"));
-    const records: Array<LogRecord> = [];
-    const ctx = modifierCtx(home, records);
-    const config = p(home, ".codex", "config.toml");
-
-    try {
-      syncCodexEffort(ctx, "ultra");
-      expect(records).toEqual([
-        { level: "warn", message: `(--codex-effort) ${config} missing — skipped` },
-      ]);
-      expect(readdirSync(home)).toEqual([]);
-
-      mkdirSync(p(home, ".codex"), { recursive: true });
-      writeFileSync(config, 'model_reasoning_effort = "low"\n');
-      records.length = 0;
-      ctx.dryRun = true;
-      syncCodexEffort(ctx, "ultra");
-      expect(readFileSync(config, "utf8")).toBe('model_reasoning_effort = "low"\n');
-      expect(records).toEqual([
-        {
-          level: "echo",
-          message: `[dry-run] (--codex-effort) set model_reasoning_effort = "ultra" in ${config}`,
-        },
-      ]);
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("Codex sync summary", () => {
-  it("counts enabled deployed plugins and recommends a restart only after a change", () => {
-    const home = mkdtempSync(join(tmpdir(), "codex-summary-"));
-    const config = p(home, ".codex", "config.toml");
-    mkdirSync(p(home, ".codex"), { recursive: true });
-    writeFileSync(
-      config,
-      '[plugins."docks@docks"]\nenabled = true\n[plugins."personal@local"]\nenabled = false\n',
-    );
-    const records: Array<LogRecord> = [];
-    const ctx = modifierCtx(home, records);
-    ctx.verbose = false;
-
-    try {
-      codexSummary(ctx);
-      expect(records.filter(({ level }) => level === "echo")).toEqual([
-        { level: "echo", message: `Codex:    ${p(home, ".codex")}` },
-        { level: "echo", message: "Codex plugins: 1 enabled in config.toml" },
-      ]);
-      expect(codexNextSteps(ctx)).toEqual([]);
-
-      ctx.nextStepTriggers.codexRestart = true;
-      expect(codexNextSteps(ctx)).toEqual([
-        "Restart Codex to load any refreshed plugins, skills, or tools.",
-      ]);
-
-      ctx.dryRun = true;
-      records.length = 0;
-      codexSummary(ctx);
-      expect(records.filter(({ level }) => level === "echo")).toEqual([
-        { level: "echo", message: `Codex:    ${p(home, ".codex")}` },
-      ]);
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-});
-
 describe("skills sync summary", () => {
   it("reports the installed count only for a real sync and advises a restart after changes", () => {
     const records: Array<LogRecord> = [];
@@ -412,7 +295,7 @@ describe("skills sync summary", () => {
 
     ctx.nextStepTriggers.skillsRestart = true;
     expect(skillsNextSteps(ctx)).toEqual([
-      "Restart Claude Code (and Codex) to discover newly installed universal skills.",
+      "Restart Claude Code to discover newly installed universal skills.",
     ]);
     ctx.dryRun = true;
     records.length = 0;
@@ -448,15 +331,12 @@ describe("native CLI argument and output behavior", () => {
       "DOCKS_KIT_VERBOSE",
       "DOCKS_KIT_INTERACTIVE",
       "DOCKS_KIT_SYNC_CONCURRENCY",
-      "SKIP_BUBBLEWRAP",
       "RECONCILE",
       "PRUNE",
       "CLAUDE_COMPACT_WINDOW",
       "CLAUDE_PERMISSIVE",
       "CLAUDE_PLUGINS",
       "CLAUDE_MODEL",
-      "CODEX_MODEL",
-      "CODEX_HOME",
     ] as const;
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]])) as Record<
       (typeof keys)[number],
@@ -493,9 +373,6 @@ describe("native CLI argument and output behavior", () => {
       expect(await runEngineNative(["sync", "--help"], services)).toBe(0);
       const help = stdout.join("");
       expect(help).toContain("--claude-effort=<low|medium|high|xhigh|default>");
-      expect(help).toContain(
-        "--codex-effort=<none|minimal|low|medium|high|xhigh|max|ultra|default>",
-      );
       expect(help).toContain("--claude-advisor=<on|off|default>");
       expect(stderr).toEqual([]);
     });
@@ -520,22 +397,6 @@ describe("native CLI argument and output behavior", () => {
     });
   });
 
-  it("reports a single-quoted deployed Codex model and ignores table-scoped keys", async () => {
-    await withIsolatedHome(async (home) => {
-      mkdirSync(p(home, ".codex"), { recursive: true });
-      writeFileSync(
-        p(home, ".codex", "config.toml"),
-        "  model = 'gpt-literal'\n\n[profiles.x]\nmodel = \"table-scoped\"\n",
-      );
-      const stdout: Array<string> = [];
-      const services = makeEngineServices({
-        sinks: { stdout: (chunk) => void stdout.push(chunk), stderr: () => undefined },
-      });
-      expect(await runEngineNative(["model", "codex"], services)).toBe(0);
-      expect(stdout[0]).toBe("deployed: gpt-literal\n");
-    });
-  });
-
   it("rejects unsupported effort and advisor values before any deployment change; only the sync lock file appears", async () => {
     await withIsolatedHome(async (home) => {
       for (const [target, flag, catalog, error] of [
@@ -544,12 +405,6 @@ describe("native CLI argument and output behavior", () => {
           "--claude-effort=max",
           "Available claude effort levels",
           "Invalid Claude effort 'max'",
-        ],
-        [
-          "codex",
-          "--codex-effort=future",
-          "Available codex effort levels",
-          "Invalid Codex effort 'future'",
         ],
         [
           "claude",
@@ -579,7 +434,7 @@ describe("native CLI argument and output behavior", () => {
     await withIsolatedHome(async (home) => {
       for (const [target, flag, catalog, error] of [
         ["claude", "--claude-effort", "Available claude effort levels", "Invalid Claude effort ''"],
-        ["codex", "--codex-model", "Available codex models", "Invalid Codex model ''"],
+        ["claude", "--claude-model", "Available claude models", "Invalid Claude model ''"],
       ] as const) {
         for (const args of [[`${flag}=`], [flag, ""]]) {
           const records: Array<LogRecord> = [];
@@ -619,21 +474,13 @@ describe("native CLI argument and output behavior", () => {
       const records: Array<LogRecord> = [];
       expect(
         await runEngineNative(
-          [
-            "sync",
-            "agents",
-            "--dry-run",
-            "--claude-effort=low",
-            "--claude-advisor=on",
-            "--codex-effort=max",
-          ],
+          ["sync", "agents", "--dry-run", "--claude-effort=low", "--claude-advisor=on"],
           stubServices(records),
         ),
       ).toBe(0);
       expect(records.filter(({ level }) => level === "warn")).toEqual([
         { level: "warn", message: "--claude-effort ignored: claude target not selected" },
         { level: "warn", message: "--claude-advisor ignored: claude target not selected" },
-        { level: "warn", message: "--codex-effort ignored: codex target not selected" },
       ]);
     });
   });

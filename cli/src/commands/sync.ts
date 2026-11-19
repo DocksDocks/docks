@@ -35,12 +35,10 @@ export const updateNudge = (logger: Logger): void => {
   }
 };
 
-const VALID_TARGETS = ["claude", "codex", "agents", "omp"];
+const VALID_TARGETS = ["claude", "agents", "omp"];
 
 const targets: Argument.Argument<ReadonlyArray<string>> = Argument.String("target").pipe(
-  Argument.withDescription(
-    "Sync targets: claude, codex, agents, omp (default: selected harnesses)",
-  ),
+  Argument.withDescription("Sync targets: claude, agents, omp (default: selected harnesses)"),
   Argument.variadic(),
 );
 
@@ -58,10 +56,6 @@ const prune = Flag.Boolean("prune").pipe(
   Flag.withDescription(
     "Uninstall kit-managed installs not in SoT (plugins, marketplaces, universal skills)",
   ),
-  Flag.withDefault(false),
-);
-const skipBubblewrap = Flag.Boolean("skip-bubblewrap").pipe(
-  Flag.withDescription("Skip optional bubblewrap bootstrap (Codex Linux sandbox)"),
   Flag.withDefault(false),
 );
 const skipPluginRefresh = Flag.Boolean("skip-plugin-refresh").pipe(
@@ -109,18 +103,6 @@ const claudePlugin = Flag.String("claude-plugin").pipe(
   ),
   Flag.atLeast(0),
 );
-const codexModel = Flag.String("codex-model").pipe(
-  Flag.withDescription(
-    "Deploy-time modifier: set deployed Codex model (see `docks-kit models codex`)",
-  ),
-  Flag.optional,
-);
-const codexEffort = Flag.String("codex-effort").pipe(
-  Flag.withDescription(
-    "Deploy-time modifier: set Codex model_reasoning_effort (bare flag shows valid levels)",
-  ),
-  Flag.optional,
-);
 
 export const syncCommand = Command.make(
   "sync",
@@ -129,7 +111,6 @@ export const syncCommand = Command.make(
     dryRun,
     reconcile,
     prune,
-    skipBubblewrap,
     skipPluginRefresh,
     verbose,
     claudeModel,
@@ -138,8 +119,6 @@ export const syncCommand = Command.make(
     claudeCompactWindow,
     claudePermissive,
     claudePlugin,
-    codexModel,
-    codexEffort,
   },
   (config) =>
     Effect.gen(function* () {
@@ -154,7 +133,6 @@ export const syncCommand = Command.make(
       if (config.dryRun) args.push("--dry-run");
       if (config.reconcile) args.push("--reconcile");
       if (config.prune) args.push("--prune");
-      if (config.skipBubblewrap) args.push("--skip-bubblewrap");
       if (config.skipPluginRefresh) args.push("--skip-plugin-refresh");
       if (config.verbose) args.push("--verbose");
       if (config.claudePermissive) args.push("--claude-permissive");
@@ -162,8 +140,6 @@ export const syncCommand = Command.make(
       Option.map(config.claudeEffort, (level) => args.push(`--claude-effort=${level}`));
       Option.map(config.claudeAdvisor, (state) => args.push(`--claude-advisor=${state}`));
       Option.map(config.claudeCompactWindow, (w) => args.push(`--claude-compact-window=${w}`));
-      Option.map(config.codexModel, (m) => args.push(`--codex-model=${m}`));
-      Option.map(config.codexEffort, (level) => args.push(`--codex-effort=${level}`));
       for (const occurrence of config.claudePlugin) {
         const names = occurrence
           .split(",")
