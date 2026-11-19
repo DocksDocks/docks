@@ -1,6 +1,6 @@
 ---
 name: sync-orchestration-context
-description: "Use when editing docks-kit, cli/src/main.ts, cli/src/argv.ts, cli/src/argvValidate.ts, cli/src/engine.ts, or cli/src/engine-native index.ts, engineCtx.ts, syncDispatch.ts, syncConcurrency.ts, parseArgs.ts, parseModifiers.ts, modes.ts, models.ts, or liveModels.ts: sync flags, positional targets, renamed-flag hints, harness selection, model validation, DOCKS_KIT_SYNC_CONCURRENCY, the sync locks (withSyncLock, withFolderLocks, folderLockPaths, withHomeAndFolderLocks, sync-lock.db, DOCKS_KIT_SYNC_LOCK_WAIT_MS), the failure ledger, or dry-run and idempotency rules. Not for settings JSON (use settings-merge-context), Codex TOML (use codex-config-merge-context), plugin passes (use plugin-bootstrap-context), universal skills (use universal-skills-context), toolchain (use toolchain-context), omp (use omp-sync-context), the lock module itself (use tidy-context), or the golden harness (use engine-native-context)."
+description: "Use when editing docks-kit, cli/src/main.ts, cli/src/argv.ts, cli/src/argvValidate.ts, cli/src/engine.ts, or cli/src/engine-native index.ts, engineCtx.ts, syncDispatch.ts, syncConcurrency.ts, parseArgs.ts, parseModifiers.ts, modes.ts, models.ts, or liveModels.ts: sync flags, positional targets, renamed-flag hints, harness selection, model validation, DOCKS_KIT_SYNC_CONCURRENCY, the sync locks (withSyncLock, withFolderLocks, folderLockPaths, withHomeAndFolderLocks, sync-lock.db, DOCKS_KIT_SYNC_LOCK_WAIT_MS), the failure ledger, or dry-run and idempotency rules. Not for settings JSON (use settings-merge-context), plugin passes (use plugin-bootstrap-context), universal skills (use universal-skills-context), toolchain (use toolchain-context), omp (use omp-sync-context), the lock module itself (use tidy-context), or the golden harness (use engine-native-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -12,7 +12,7 @@ metadata:
     - path: cli/src/argv.ts
       lines: "1-71"
     - path: cli/src/argvValidate.ts
-      lines: "1-108"
+      lines: "1-102"
     - path: cli/src/argvSurface.ts
       lines: "1-410"
     - path: cli/src/engine.ts
@@ -22,21 +22,21 @@ metadata:
     - path: cli/src/payload.ts
       lines: "1-25"
     - path: cli/src/efforts.ts
-      lines: "1-89"
+      lines: "1-63"
     - path: cli/src/commands/sync.ts
-      lines: "1-191"
+      lines: "1-167"
     - path: cli/src/engine-native/exec.ts
       lines: "1-363"
     - path: cli/src/commands/models.ts
-      lines: "1-75"
+      lines: "1-73"
     - path: cli/src/commands/update.ts
       lines: "1-317"
     - path: cli/src/engine-native/index.ts
       lines: "1-68"
     - path: cli/src/engine-native/engineCtx.ts
-      lines: "1-157"
+      lines: "1-143"
     - path: cli/src/engine-native/syncDispatch.ts
-      lines: "1-337"
+      lines: "1-321"
     - path: cli/src/engine-native/kitLock.ts
       lines: "1-121"
     - path: cli/src/engine-native/syncConcurrency.ts
@@ -44,29 +44,25 @@ metadata:
     - path: cli/src/engine-native/failures.ts
       lines: "1-16"
     - path: cli/src/engine-native/parseArgs.ts
-      lines: "1-206"
+      lines: "1-184"
     - path: cli/src/engine-native/parseHelp.ts
-      lines: "1-66"
+      lines: "1-62"
     - path: cli/src/engine-native/parseModifiers.ts
-      lines: "1-225"
+      lines: "1-179"
     - path: cli/src/engine-native/harnesses.ts
       lines: "1-138"
     - path: cli/src/engine-native/modes.ts
-      lines: "1-196"
+      lines: "1-163"
     - path: cli/src/engine-native/models.ts
-      lines: "1-101"
+      lines: "1-84"
     - path: cli/src/engine-native/liveModels.ts
-      lines: "1-264"
+      lines: "1-225"
     - path: cli/src/engine-native/claudeSettings.ts
       lines: "1-201"
     - path: cli/src/engine-native/claudeSettingsModifiers.ts
       lines: "1-115"
-    - path: cli/src/engine-native/codexToml.ts
-      lines: "1-303"
     - path: cli/src/engine-native/claudeSync.ts
       lines: "1-312"
-    - path: cli/src/engine-native/codexSync.ts
-      lines: "1-314"
     - path: cli/src/engine-native/skillsSync.ts
       lines: "1-57"
     - path: cli/src/engine-native/skillsInstall.ts
@@ -84,11 +80,11 @@ metadata:
     - path: cli/src/engine-native/claudeOptionalPlugins.ts
       lines: "1-126"
     - path: cli/src/engine-native/claudeLsp.ts
-      lines: "1-301"
+      lines: "1-300"
     - path: cli/src/engine-native/bun.ts
       lines: "1-120"
     - path: cli/src/engine-native/toolchain.ts
-      lines: "1-292"
+      lines: "1-288"
   updated: "2026-11-07"
 ---
 
@@ -160,15 +156,15 @@ Then update the golden matrix.
 ## When To Use
 
 - Adding a sync flag, positional target, or direct engine mode.
-- Changing default target selection when no `claude`, `codex`, `agents`, or
-  `omp` word is supplied.
+- Changing default target selection when no `claude`, `agents`, or `omp` word
+  is supplied.
 - Debugging why a target did or did not run.
 - Changing model validation or the catalog in `SoT/models.json`.
 - Updating the `docks-kit` launcher, the public argv layer, or the
   `cli/src/engine.ts` selector behavior.
 
 For the doctor report and Bun managed install, use
-`.agents/skills/toolchain-context/SKILL.md`. For Claude settings, Codex TOML,
+`.agents/skills/toolchain-context/SKILL.md`. For Claude settings,
 plugins, universal skills, or omp, use the matching kit-mechanic skill named in
 this skill's description.
 
@@ -220,11 +216,11 @@ exit 2. It checks in this order:
 only flag table: each flag's `Ctx` field, consumer, layer scope, and
 deploy-time function. Do not copy it here.
 
-Target words (`claude`, `codex`, `agents`, `omp`) call the target selector and
+Target words (`claude`, `agents`, `omp`) call the target selector and
 set `ctx.targetFilterSet`. When it remains false, `parseArgs.ts
 applyDefaultSelection` applies the stored kit.db harness selection. When no
 selection is stored, it falls back to `harnesses.ts LEGACY_SELECTION`.
-(verify: `bunx vitest run cli/test/unit/targetGrammar.test.ts -t "selects exactly explicit claude and codex targets"` and `bunx vitest run cli/test/unit/targetGrammar.test.ts -t "uses the legacy selection silently without stored state when non-interactive"`)
+(verify: `bunx vitest run cli/test/unit/targetGrammar.test.ts -t "selects exactly explicit claude and agents targets"` and `bunx vitest run cli/test/unit/targetGrammar.test.ts -t "uses the legacy selection silently without stored state when non-interactive"`)
 
 Renamed legacy flags still have explicit exit-2 hint arms. Keep them as refusal
 documentation only; do not reintroduce compatibility behavior.
@@ -249,13 +245,13 @@ below inside `withSyncLock` (see § Sync Lock):
    highest. Any other value exits 2 before any pipeline starts. Unprobed: no
    unit test sets an invalid value. Read the check (verify:
    `grep -n "DOCKS_KIT_SYNC_CONCURRENCY must be 1, 2, or 3" cli/src/engine-native/syncDispatch.ts`)
-4. A writing sync takes the folder locks of the selected Codex, agents, and
+4. A writing sync takes the folder locks of the selected agents and
    omp folders (see § Sync Lock). `runPipelines` runs the remaining steps.
 5. When `claude` is selected, `claudeSettings.ts preflightClaudeSettings` runs
    the abort-class check before any pipeline starts. An invalid deployed
    `~/.claude/settings.json` then stops the whole sync with exit 1.
    (verify: `bunx vitest run cli/test/unit/syncAbortPreflight.test.ts -t "stops every pipeline before it starts when Claude settings are not valid JSON"`)
-6. `engineSync` adds `claudeSync`, `codexSync`, `skillsSync`, and `ompSync`
+6. `engineSync` adds `claudeSync`, `skillsSync`, and `ompSync`
    tasks, in that order, for the selected targets only.
 7. `syncConcurrency.ts syncConcurrencyForManifest` sets the cap to 1 when the
    skills manifest is populated and both `claude` and `agents` are selected.
@@ -289,7 +285,7 @@ from the embedded payload.
   rename a legacy `state.json`.
 - `modes.ts modeModel` parses its own arguments first. It takes the lock only
   for a write (`model <tool> <value>`), because a write does the same
-  read-modify-write of `settings.json` and `config.toml` as sync. The read form
+  read-modify-write of `settings.json` as sync. The read form
   (`model <tool>`) takes no lock.
 - No lock in a dry run: `args` holds `--dry-run`, `-h`, or `--help`
   (`UNLOCKED_TOKENS`), or `ctx.dryRun` is true. `makeCtx` sets `ctx.dryRun`
@@ -311,15 +307,14 @@ from the embedded payload.
 
 (verify: `bunx vitest run cli/test/unit/syncLock.test.ts -t "exits 1 with the held line and leaves HOME unchanged"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "takes no lock in a dry run"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "releases the lock when the run stops with an ExitError"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "exits 2 when the lock wait is not a non-negative safe integer"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "takes no lock with --dry-run"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "DRY_RUN env global"`, and `bunx vitest run cli/test/unit/syncLock.test.ts -t "prints the help with -h and --help while another sync holds the lock"`)
 
-Folder locks: two homes can share a Codex folder (`CODEX_HOME`), an agents
-folder (`AGENTS_DIR`), or an omp folder (`PI_CODING_AGENT_DIR`,
+Folder locks: two homes can share an agents
+folder (`AGENTS_DIR`) or an omp folder (`PI_CODING_AGENT_DIR`,
 `PI_CONFIG_DIR`, `XDG_DATA_HOME`, or a symlink). Their home locks differ, so
 each writer of such a folder also takes `<folder>/.docks-kit-sync-lock.db`
 (`scratch.ts folderSyncLockPath`).
 
 - `runSync` takes them after `parseArgs`, through
-  `withFolderLocks(ctx, folders, body)`: the Codex folder (`codexPaths.ts
-  codexHome`) when `codex` is selected, and `ctx.agentsDir` when `agents` is
+  `withFolderLocks(ctx, folders, body)`: `ctx.agentsDir` when `agents` is
   selected. When `omp` is selected, it adds the three folders of
   `ompSync.ts ompWriteFolders`: the omp agent folder, the intercom folder, and
   the omp data root. `runSync` resolves them once, before the locks, and passes
@@ -334,21 +329,19 @@ each writer of such a folder also takes `<folder>/.docks-kit-sync-lock.db`
   held. The mode applies only to the folders that the call creates: it runs no
   chmod, and the lock keeps the folder mode (`privateDirectory: false`). The
   omp pipeline then runs `ensureDirectory` (mode 0700) under the locks.
-- A writing `model codex` takes the Codex folder lock after the home lock.
-  It creates no folder, so a missing Codex folder needs no lock.
 - `withHomeAndFolderLocks(home, folders, err, body)` takes the home lock and
   the folder locks outside a sync run. `docks-kit omp --fast` uses it for the
   omp agent folder (see `omp-sync-context`).
 - A dry run (`ctx.dryRun`) takes no folder lock and creates no folder. The
   held line and the wait bound are those of the home lock.
 
-(verify: `bunx vitest run cli/test/unit/syncLock.test.ts -t "makes a sync of another home wait while a sync holds the shared Codex folder"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "makes a sync of another home wait while a sync holds the shared agents folder"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "makes a model codex write wait while a sync holds the Codex folder"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "takes no folder lock in a dry run"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "takes one lock per real folder"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "shared omp agent folder"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "creates no intercom folder in a held omp agent folder and keeps its mode"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "missing omp data root"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "takes no omp folder lock in a dry run"`, and `bunx vitest run cli/test/unit/folderLockCreate.test.ts -t "creates a missing folder and its parents with mode 0700"`)
+(verify: `bunx vitest run cli/test/unit/syncLock.test.ts -t "makes a sync of another home wait while a sync holds the shared agents folder"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "takes no folder lock in a dry run"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "takes one lock per real folder"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "shared omp agent folder"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "creates no intercom folder in a held omp agent folder and keeps its mode"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "missing omp data root"`, `bunx vitest run cli/test/unit/syncLock.test.ts -t "takes no omp folder lock in a dry run"`, and `bunx vitest run cli/test/unit/folderLockCreate.test.ts -t "creates a missing folder and its parents with mode 0700"`)
 
 ### Direct Modes
 
 | Invocation | Implementation | Behavior |
 |-----------|----------------|----------|
-| `model <tool> [value]` | `modeModel` | Get or set deployed Claude/Codex model; set paths reuse the deploy-time modifier functions. A set without `--dry-run` runs under the sync lock; a Codex set also takes the Codex folder lock. |
+| `model <tool> [value]` | `modeModel` | Get or set the deployed Claude model; the set path reuses the deploy-time modifier function. A set without `--dry-run` runs under the sync lock. |
 | `models [tool]` | `modelsCommand` in `cli/src/commands/models.ts` -> `resolveCatalog` | Effect command, not an EngineNative mode. Prints the live list of each requested or enabled harness with `SoT/models.json` aliases and notes, or the curated list with its fallback reason when the live list is unavailable. |
 | `toolchain check` | `modeToolchain` -> `report` | Prints the toolchain table. |
 | `toolchain ensure bun` | `modeToolchain` -> `bunBootstrap` | Installs the pinned Bun release when Bun is missing. |
@@ -362,10 +355,9 @@ sync work. A modifier flag for a deselected target warns and clears the field.
 (verify: `bunx vitest run cli/test/unit/modifierValidation.test.ts -t "warns when explicitly supplied Claude modifiers are deselected"`)
 Claude values must be in the resolved catalog (`liveModels.ts resolveCatalog`)
 or match the accepted `claude-*` family (`models.ts validateClaudeModel`).
-Codex values must match the safe quoted-TOML charset in
-`models.ts validateCodexModel`. Any other value exits 2 before deployment.
-(verify: `bunx vitest run cli/test/unit/modifierValidation.test.ts -t "rejects an invalid claude sync modifier before creating deployment"` and `bunx vitest run cli/test/unit/modifierValidation.test.ts -t "rejects an invalid codex sync modifier before creating deployment"`)
-A `claude-*` value outside the catalog and a Codex catalog miss warn only.
+Any other value exits 2 before deployment.
+(verify: `bunx vitest run cli/test/unit/modifierValidation.test.ts -t "rejects an invalid claude sync modifier before creating deployment"`)
+A `claude-*` value outside the catalog warns only.
 Unprobed: no unit test sets a catalog miss. Read the warnings (verify:
 `grep -n "applying anyway" cli/src/engine-native/models.ts`)
 
@@ -382,9 +374,9 @@ Unprobed: no unit test sets a catalog miss. Read the warnings (verify:
 
 ## Gotchas
 
-- `sync claude codex` intentionally leaves `agents` and `omp` deselected. The
-  stored harness selection (legacy claude/codex/agents fallback) applies only
-  when no target word is present.
+- `sync claude agents` intentionally leaves `omp` deselected. The stored
+  harness selection (legacy claude/agents fallback) applies only when no target
+  word is present.
 - `engineCapture` is also used by tests and compiled binaries; keep the
   `native-raw` path private to the harness.
 - A failed universal-skill install warns and does not reach the

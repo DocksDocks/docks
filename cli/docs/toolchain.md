@@ -47,9 +47,8 @@ consults the floor, so a host below it still runs every other kit operation.
 `rust-analyzer` is a `check` row with no floor and no `verified` pin. The kit
 installs the component with `rustup component add rust-analyzer` for the
 `rust-analyzer-lsp` plugin, so the version follows the host Rust toolchain. A
-pin would claim control the kit does not have, the stance `bubblewrap` already
-takes for a tool the kit does not publish. `docks-kit toolchain check` reports
-the installed version and judges nothing.
+pin would claim control the kit does not have. `docks-kit toolchain check`
+reports the installed version and judges nothing.
 
 ## Language-server upgrades
 
@@ -100,13 +99,12 @@ Every kit-driven package install from npm, npx, GitHub releases, or
 `omp install` is pinned to a `SoT/toolchain.json` `verified` version — never
 floating `@latest` (the npm-worm / Shai-Hulud attack surface). That includes
 the `npx skills@<verified>` invocations on agents sync and the release workflow
-(actions pinned to commit SHAs, exact bun/npm versions). Two installs follow
-the host toolchain and have no pin: `rust-analyzer` (rustup) and `bubblewrap`
-(distro package manager). The existing Claude Code, Codex, and omp marketplace
-plugins have no manifest pin either: sync installs and refreshes them at the
-version that their marketplace publishes (see `plugins`). Any new install
-surface, a new marketplace or plugin source included, needs a manifest pin
-first.
+(actions pinned to commit SHAs, exact bun/npm versions). One install follows
+the host toolchain and has no pin: `rust-analyzer` (rustup). The existing
+Claude Code and omp marketplace plugins have no manifest pin either: sync
+installs and refreshes them at the version that their marketplace publishes
+(see `plugins`). Any new install surface, a new marketplace or plugin source
+included, needs a manifest pin first.
 
 The kit's own package is the single exemption from the `@latest` ban. `install.sh` and `install.ps1`
 end with `bun add -g docks-kit@latest` because a global installer that pinned

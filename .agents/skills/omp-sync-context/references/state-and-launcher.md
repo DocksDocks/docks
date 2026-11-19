@@ -9,7 +9,7 @@ Store the selection and the omp session model in the SQLite store
 Resolve that path from the engine home with `kitDb.ts kitDbFile`.
 Open the store only through `kitDb.ts withKitDb`, which applies the migrations.
 Append a new migration to `kitDb.ts MIGRATIONS`; never edit a shipped entry.
-Normalize entries into `claude`, `codex`, `agents`, and `omp` order.
+Normalize entries into `claude`, `agents`, and `omp` order, and drop an unknown name.
 Reject an empty or wholly unknown write.
 Write the state directory with mode `0700`.
 Chmod the database file to mode `0600`.
@@ -21,7 +21,8 @@ Each table has one writer, so a write to one key cannot drop the other.
 
 `harnesses.ts readHarnessSelection` treats a missing, corrupt, or too-new store
 as no stored selection.
-Resolve no stored selection to `claude`, `codex`, and `agents`.
+Resolve no stored selection to `claude` and `agents`.
+A stored selection that holds only unknown names also counts as no stored selection.
 Keep omp opt-in when no state exists.
 Let explicit positional targets override the stored selection.
 

@@ -8,17 +8,17 @@ metadata:
     - path: cli/src/commands/toolchain.ts
       lines: "1-80"
     - path: cli/src/engine-native/modes.ts
-      lines: "1-178"
+      lines: "1-163"
     - path: cli/src/engine-native/toolchain.ts
-      lines: "1-292"
+      lines: "1-288"
     - path: cli/src/engine-native/claudeSync.ts
       lines: "1-89"
     - path: cli/src/engine-native/bun.ts
       lines: "1-120"
     - path: cli/src/engine-native/claudeLsp.ts
-      lines: "1-301"
+      lines: "1-300"
     - path: cli/src/engine-native/deps.ts
-      lines: "1-309"
+      lines: "1-297"
     - path: cli/src/engine-native/kitDb.ts
       lines: "1-256"
     - path: cli/src/engine-native/ompSync.ts
@@ -26,7 +26,7 @@ metadata:
     - path: cli/src/engine-native/sharedTypes.d.ts
       lines: "1-63"
     - path: SoT/toolchain.json
-      lines: "1-38"
+      lines: "1-35"
   updated: "2026-11-07"
 ---
 

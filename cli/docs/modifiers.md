@@ -4,15 +4,14 @@ Modifiers change the **deployed** config for a specific machine profile —
 the SoT is never touched. They all share one contract:
 
 > A later flag-less sync reverts the modifier: the settings merge (Claude)
-> and the config.toml merge (Codex) re-assert SoT values for kit-owned keys.
+> re-asserts SoT values for kit-owned keys.
 > Re-pass the flag on machines that should keep the override. Claude Code has
 > no user-scope local settings file; a per-project Claude override belongs in
 > that checkout's `.claude/settings.local.json`, which sync never reads or
 > writes.
 
 Claude's embedded SoT is `model: opus`, `effortLevel: high`, with advisor
-off (`advisorModel` unset). Codex's embedded normal and plan reasoning effort is
-`high`.
+off (`advisorModel` unset).
 
 | Modifier | Deployed change | Typical use |
 |----------|-----------------|-------------|
@@ -21,8 +20,6 @@ off (`advisorModel` unset). Codex's embedded normal and plan reasoning effort is
 | `--claude-advisor=<state>` | `on` sets `.advisorModel = "opus"`; `off`/`default` remove it | Enable Claude advisor only on machines that need it |
 | `--claude-compact-window=<n>` | `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` | Disposable containers running long autonomous work (e.g. `680k`) — not host machines |
 | `--claude-permissive` | `permissions.ask = []`, `permissions.deny = []` | Sandboxes/containers where prompts stall unattended work. Never on a host — the deny list is the safety floor |
-| `--codex-model=<m>` | top-level `model = "…"` in ~/.codex/config.toml | Same as claude-model, for Codex |
-| `--codex-effort=<level>` | top-level `model_reasoning_effort = "…"` (`default` writes `high`) | Tune Codex effort per machine; valid `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` (model-dependent) |
 
 Bare effort/advisor flags print their verified catalog and exit 2. Invalid
 values do the same with a clear error. Passing a tool-specific modifier without
@@ -31,8 +28,6 @@ selecting that positional target warns and ignores it.
 A flag-less Claude sync also removes the formerly kit-owned `advisorModel`
 from machines synced before advisor became opt-in. Any explicit advisor state
 owns that key for the run: `on` writes `opus`; `off` and `default` delete it.
-Codex has no advisor modifier because its documented config has no advisor
-setting; `review_model` applies only to `/review`.
 
 ## Standalone get/set (no full sync)
 
@@ -40,7 +35,6 @@ setting; `review_model` applies only to `/review`.
 docks-kit model claude            # show deployed + SoT + catalog (+ TTY picker)
 docks-kit model claude opus       # set deployed model
 docks-kit model claude default    # delete the key (account default applies)
-docks-kit model codex gpt-5.5     # codex flavor
 ```
 
 The set path calls the same engine functions as the sync flags —

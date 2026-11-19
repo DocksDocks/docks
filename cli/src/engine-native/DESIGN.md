@@ -41,20 +41,18 @@ shell engine was removed after the `bash-engine-final` tag.
   materialized settings, writes runtime assets, commits settings, then performs
   readiness-gated legacy cleanup. Modifiers run after the base commit, removals
   before plugins, and LSP checks after plugin state.
-- **Pipeline concurrency is bounded.** Selected Claude, Codex, skills, and omp
+- **Pipeline concurrency is bounded.** Selected Claude, skills, and omp
   pipelines run through one input-ordered pool (`syncConcurrency.ts`
-  `runBounded`). The production default cap is 3. When all four pipelines are
-  selected, omp starts only after an earlier pipeline settles. After the first
-  rejection, started pipelines drain and queued pipelines never start.
-  `DOCKS_KIT_SYNC_CONCURRENCY=1` restores serial execution for golden tests
-  and debugging (`2` allows two-way overlap). A populated skills manifest with
-  the `claude` and `agents` targets selected forces serial execution
-  (`syncConcurrencyForManifest`). Each individual pipeline remains serial, and
-  summaries keep the Claude, Codex, skills, omp order.
-- **External CLIs stay external.** `claude`, `codex`, `npx`, `npm`, `bun`,
-  `curl`, and platform package managers are spawned with argv arrays,
-  not shell command strings except where an external installer contract
-  requires a script interpreter.
+  `runBounded`). The production default cap is 3, so all three pipelines can
+  run at once. After the first rejection, started pipelines drain and queued
+  pipelines never start. `DOCKS_KIT_SYNC_CONCURRENCY=1` restores serial
+  execution for golden tests and debugging (`2` allows two-way overlap). A
+  populated skills manifest with the `claude` and `agents` targets selected
+  forces serial execution (`syncConcurrencyForManifest`). Each individual
+  pipeline remains serial, and summaries keep the Claude, skills, omp order.
+- **External CLIs stay external.** `claude`, `omp`, `npx`, `npm`, `bun`, and
+  `curl` are spawned with argv arrays, not shell command strings except where
+  an external installer contract requires a script interpreter.
 - **Backups precede mutation.** Deployed settings/config files write `.bak`
   backups before replacement.
 - **Runtime payload is in memory.** `SoT/` remains the reviewed authoring tree;
@@ -128,9 +126,9 @@ The `--- Sync complete ---` block (stdout, `echo`) prints after the selected
 pipelines settle, also on dry-run. When a pipeline rejects, `syncDispatch.ts`
 `engineSync` skips the block and prints only the `--- Failures ---` ledger.
 The block starts with a `Repo:` line and adds the inventory lines of each
-selected target: `Claude:`/`Hooks:`/`Plugins:`, `Codex:`/`Codex plugins:`,
-`Skills:`, and `omp:`/`omp plugins:`. Dry-run leaves out the `Hooks:`,
-`Plugins:`, `Codex plugins:`, and `omp plugins:` lines. Next-step advice
+selected target: `Claude:`/`Hooks:`/`Plugins:`, `Skills:`, and
+`omp:`/`omp plugins:`. Dry-run leaves out the `Hooks:`, `Plugins:`, and
+`omp plugins:` lines. Next-step advice
 lines print only when their trigger changed this run (plugins changed →
 `/reload-plugins` line; hooks/env changed → restart line; skills changed →
 discovery line) or under `--verbose`.
@@ -197,9 +195,6 @@ active logger binding.
 | `claudeSettings.ts`          | Claude settings preflight, prepare/commit transaction, dry-run description, and the compact-window and permissive modifiers                                                                                                                                                                                         |
 | `claudeSettingsModifiers.ts` | atomic top-level Claude settings modifiers (model, effort, advisor) and the direct `model claude` write path                                                                                                                                                                                                        |
 | `claudeRemovals.ts`          | force-prune of retired Claude artifacts and the `claudeRetired.ts` permission inventory without `--reconcile`                                                                                                                                                                                                       |
-| `codexSync.ts`               | Codex pipeline orchestration: bubblewrap check, rules, AGENTS.md; `codexConfig.ts` `syncConfig` owns the config merge, `codexHooks.ts` the retired-hook prune, `codexPlugins.ts` the personal marketplace and plugin refresh, and `codexStatus.ts` the summary                                                      |
-| `codexToml.ts`               | line-based top-level TOML replacement and deployed Codex model modifier                                                                                                                                                                                                                                             |
-| `tomlLines.ts`               | import-free TOML line grammar (header lines, key separators, value continuation lines) shared by `codexToml.ts`, `codexConfig.ts`, `codexPlugins.ts`, and `../manifests.ts`                                                                                                                                         |
 | `skillsSync.ts`              | universal-skill pipeline orchestration; `skillsManifest.ts` parses the manifest, `skillsInstall.ts` owns the install pass, `skillsLinks.ts` the ordered symlink/junction/copy fallback and Claude entry healing, and `skillsPrune.ts` the prune and managed-skill snapshot                                          |
 | `ompSync.ts`                 | omp pipeline orchestration and summary; `ompFileDeploy.ts`, `ompMarketplace.ts`, `ompPlugins.ts`, and `ompRemovals.ts` own the file, marketplace, plugin, and retired-key passes; `ompPaths.ts` resolves roots; `ompYaml.ts` merges YAML                                                                            |
 | `toolchain.ts`               | tool presence/version probes, verified-version floor reporting, report table                                                                                                                                                                                                                                        |
@@ -233,7 +228,8 @@ active logger binding.
 - `bun run golden:dryrun` compares live native dry-run output to
   `cli/test/goldens/dryrun.json`.
 - `bun run golden:mutation` compares live native mutation snapshots, argv logs,
-  output, and TOML invariants to `cli/test/goldens/mutation.json`.
+  output, and the channel and migration invariants to
+  `cli/test/goldens/mutation.json`.
 - `.github/workflows/parity.yml` runs its portable lane on `ubuntu-24.04` and
   `macos-26`: typecheck, unit tests, host-specific runtime command checks, and
   compilation and execution of the native host artifact. On `windows-2025`,

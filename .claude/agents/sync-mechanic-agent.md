@@ -1,6 +1,6 @@
 ---
 name: sync-mechanic-agent
-description: Use when editing `docks-kit`, `cli/src/main.ts`, `cli/src/argv.ts`, `cli/src/argvValidate.ts`, `cli/src/engine.ts`, `cli/src/engine-native/index.ts`, `cli/src/engine-native/engineCtx.ts`, `cli/src/engine-native/syncDispatch.ts`, `cli/src/engine-native/syncConcurrency.ts`, `cli/src/engine-native/parseArgs.ts`, `cli/src/engine-native/parseModifiers.ts`, `cli/src/engine-native/modes.ts`, `cli/src/engine-native/models.ts`, sync flags, positional targets, renamed-legacy-flag hints, stored harness selection (legacy claude/codex/agents fallback), model validation, or cross-cutting sync idempotency. Read-only advisor that returns proposed edits. Not for settings JSON (use settings-json-agent), plugins (use plugin-bootstrap-agent), Codex TOML (use codex-config-agent), or universal skills (use skills-bootstrap-agent).
+description: Use when editing `docks-kit`, `cli/src/main.ts`, `cli/src/argv.ts`, `cli/src/argvValidate.ts`, `cli/src/engine.ts`, `cli/src/engine-native/index.ts`, `cli/src/engine-native/engineCtx.ts`, `cli/src/engine-native/syncDispatch.ts`, `cli/src/engine-native/syncConcurrency.ts`, `cli/src/engine-native/parseArgs.ts`, `cli/src/engine-native/parseModifiers.ts`, `cli/src/engine-native/modes.ts`, `cli/src/engine-native/models.ts`, sync flags, positional targets, renamed-legacy-flag hints, stored harness selection (legacy claude/agents fallback), model validation, or cross-cutting sync idempotency. Read-only advisor that returns proposed edits. Not for settings JSON (use settings-json-agent), plugins (use plugin-bootstrap-agent), or universal skills (use skills-bootstrap-agent).
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
@@ -54,10 +54,10 @@ behavior for removed flag names.
    new engine mode also needs a `case` arm in `index.ts runEngineNative`. Return
    the proposed edits to the caller; do not apply them.
 6. For target changes, verify the stored harness selection, the legacy
-   claude/codex/agents fallback, and selected-target behavior.
+   claude/agents fallback, and selected-target behavior.
 7. When the change enters a tool-specific module, hand off: settings JSON to
-   `settings-json-agent`, plugins to `plugin-bootstrap-agent`, Codex config to
-   `codex-config-agent`, and skills bootstrap to `skills-bootstrap-agent`. No
+   `settings-json-agent`, plugins to `plugin-bootstrap-agent`, and skills
+   bootstrap to `skills-bootstrap-agent`. No
    agent owns toolchain or omp work: read
    `.agents/skills/toolchain-context/SKILL.md` or
    `.agents/skills/omp-sync-context/SKILL.md` instead.
@@ -82,7 +82,7 @@ Name these checks in the proposal for the caller to run:
 - `bun run check`, the gate that root `AGENTS.md` names. It runs lint,
   typecheck, the generated-payload check, unit tests, and both golden suites.
 - Focused public smoke for changed flags or targets, for example
-  `./docks-kit sync --dry-run` or `./docks-kit sync codex --dry-run --skip-bubblewrap`.
+  `./docks-kit sync --dry-run` or `./docks-kit sync claude --dry-run`.
 
 ## Gotchas
 

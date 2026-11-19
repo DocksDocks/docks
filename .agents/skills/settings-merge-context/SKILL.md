@@ -1,6 +1,6 @@
 ---
 name: settings-merge-context
-description: "Use when modifying cli/src/engine-native Claude settings: claudeSync.ts syncClaudeJson, syncConnectorEnv; claudeSettings.ts prepareClaudeSettings, commitClaudeSettings, preflightClaudeSettings, syncCompactWindow, syncPermissive; claudeSettingsModifiers.ts syncClaudeModel, syncClaudeEffort, syncClaudeAdvisor; claudeRuntime.ts materializeClaudeSettings; settings.ts mergeSettings, reconcileSettings; claudeRemovals.ts syncRemovals; claudeRetired.ts RETIRED_PERMISSION_RULES. Covers sentinels, atomic commit, merge modes, retired-rule and hook pruning, and ~/.claude.json carve-outs. Not for plugin install passes (use plugin-bootstrap-context), Codex config.toml merge (use codex-config-merge-context), or sync flags (use sync-orchestration-context)."
+description: "Use when modifying cli/src/engine-native Claude settings: claudeSync.ts syncClaudeJson, syncConnectorEnv; claudeSettings.ts prepareClaudeSettings, commitClaudeSettings, preflightClaudeSettings, syncCompactWindow, syncPermissive; claudeSettingsModifiers.ts syncClaudeModel, syncClaudeEffort, syncClaudeAdvisor; claudeRuntime.ts materializeClaudeSettings; settings.ts mergeSettings, reconcileSettings; claudeRemovals.ts syncRemovals; claudeRetired.ts RETIRED_PERMISSION_RULES. Covers sentinels, atomic commit, merge modes, retired-rule and hook pruning, and ~/.claude.json carve-outs. Not for plugin install passes (use plugin-bootstrap-context) or sync flags (use sync-orchestration-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -24,19 +24,19 @@ metadata:
     - path: cli/src/engine-native/atomicWrite.ts
       lines: "1-123"
     - path: cli/src/engine-native/os/posix.ts
-      lines: "1-83"
+      lines: "1-77"
     - path: cli/src/engine-native/os/windows.ts
-      lines: "1-184"
+      lines: "1-181"
     - path: cli/src/engine-native/parseModifiers.ts
-      lines: "1-225"
+      lines: "1-179"
     - path: cli/src/engine-native/syncDispatch.ts
-      lines: "1-337"
+      lines: "1-321"
     - path: cli/src/engine-native/parseArgs.ts
-      lines: "1-206"
+      lines: "1-184"
     - path: cli/src/engine-native/models.ts
-      lines: "1-101"
+      lines: "1-84"
     - path: cli/src/efforts.ts
-      lines: "1-89"
+      lines: "1-63"
     - path: SoT/.claude/settings.json
       lines: "1-1005"
     - path: SoT/.claude/mcp-servers.json

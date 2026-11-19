@@ -1,6 +1,6 @@
 ---
 name: engine-native-context
-description: "Use when modifying cli/src/engine-native, cli/src/engine.ts requireSupportedHost or engineCapture, the cli/src/main.ts native-raw harness path, cli/test/golden-dryrun.ts, cli/test/golden-mutation.ts, cli/test/lib/golden*.ts, or cli/test/goldens; covers the golden-regression contract, the removed-engine failure for DOCKS_KIT_ENGINE value bash, the p() slash-join rule, ExitError aborts, jq.ts compatibility helpers, prove-red, GOLDEN_FILTER, and supported-host rejection before engine execution. Not for sync flags or target dispatch (use sync-orchestration-context), Codex TOML merge rules (use codex-config-merge-context), or toolchain pins and installs (use toolchain-context)."
+description: "Use when modifying cli/src/engine-native, cli/src/engine.ts requireSupportedHost or engineCapture, the cli/src/main.ts native-raw harness path, cli/test/golden-dryrun.ts, cli/test/golden-mutation.ts, cli/test/lib/golden*.ts, or cli/test/goldens; covers the golden-regression contract, the removed-engine failure for DOCKS_KIT_ENGINE value bash, the p() slash-join rule, ExitError aborts, jq.ts compatibility helpers, prove-red, GOLDEN_FILTER, and supported-host rejection before engine execution. Not for sync flags or target dispatch (use sync-orchestration-context) or toolchain pins and installs (use toolchain-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -16,19 +16,17 @@ metadata:
     - path: cli/src/engine-native/jq.ts
       lines: "1-71"
     - path: cli/src/engine-native/parseHelp.ts
-      lines: "1-66"
+      lines: "1-62"
     - path: cli/src/engine-native/os/targets.ts
       lines: "1-77"
-    - path: cli/src/engine-native/codexToml.ts
-      lines: "1-7"
     - path: cli/test/unit/engine.test.ts
       lines: "1-309"
     - path: cli/test/golden-dryrun.ts
-      lines: "1-230"
+      lines: "1-223"
     - path: cli/test/golden-mutation.ts
-      lines: "1-813"
+      lines: "1-711"
     - path: cli/test/lib/goldenResources.ts
-      lines: "1-361"
+      lines: "1-354"
     - path: cli/test/lib/goldenExecution.ts
       lines: "1-298"
     - path: cli/test/lib/goldenSnapshot.ts
@@ -36,7 +34,7 @@ metadata:
     - path: cli/test/lib/goldenCli.ts
       lines: "1-52"
     - path: cli/test/lib/goldenMutationCatalog.ts
-      lines: "1-201"
+      lines: "1-162"
     - path: cli/test/lib/goldenPlatform.ts
       lines: "1-18"
     - path: cli/test/lib/goldenProveRed.ts
@@ -119,9 +117,6 @@ verify: `GOLDEN_FILTER='(' bun run golden:dryrun` must exit 2 with
   compares the merge byte for byte against real jq (skipped when jq is absent).
 - jq `//` treats `null` and `false` as fallback triggers; do not port it as only
   nullish behavior.
-- TOML transforms stay line-based (`codexToml.ts` header); a TOML library would
-  reformat user config and break snapshots. The merge rules live in
-  `.agents/skills/codex-config-merge-context/SKILL.md`.
 
 ## Supported-host boundary
 

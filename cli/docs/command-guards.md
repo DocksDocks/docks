@@ -1,12 +1,12 @@
 # Command guards
 
-The kit ships one destructive-command policy to omp, Claude Code, and Codex.
+The kit ships one destructive-command policy to omp and Claude Code.
 The short rule for agents: **to remove, use the trash**. Run
 `gio trash -- <path>` on Linux or `trash <path>` on macOS. In omp, remove a
 temporary file or directory with `docks-kit scratch remove <path>` instead.
 To remove a path from the git index, run `git rm -- <path>`.
 
-Claude Code and Codex follow one principle: **fail closed**. A command is
+Claude Code follows one principle: **fail closed**. A command is
 allowed only in a canonical form that is safe by construction, and every other
 form that could force, empty, or delete asks. omp keeps only the deny part of
 that principle. Where omp's critical-command check acts, the form is denied
@@ -40,9 +40,6 @@ and allow.
 - **Ask**: the command needs approval before it runs. The kit ships no omp
   rule in this tier.
   - Claude Code asks a person, even in auto mode.
-  - Codex sends the prompt to the approvals reviewer in the kit's
-    `config.toml`. That reviewer is `auto_review`, a reviewer subagent, so a
-    Codex ask can be approved without a person.
 - **Allow**: the agent may run the command alone. In omp, a command that no
   rule matches runs too. The table below calls this `run`.
 
@@ -51,33 +48,32 @@ that `eval` starts.
 
 ## Tiers per tool
 
-| Command | omp `bash.patterns` | Claude Code `permissions` | Codex `docks.rules` |
-| --- | --- | --- | --- |
-| `rm` of `/`, `~`, `~/`, `$HOME`, `${HOME}`, quoted or with a trailing `/` | deny | deny, also through `/bin/rm` and other `*/rm` paths | deny `/` as argv; deny the exact scripts listed in `docks.rules` |
-| `rm` of `/*` | deny with an `r` or `f` option; plain `rm /*` runs | deny | deny the exact scripts listed |
-| `HOME=...`, `export HOME=...`, `env HOME=...` | deny | deny `export`, `env`, and a bare `HOME=...` line; `HOME=... cmd` goes to the classifier | deny `export HOME=$(mktemp -d)` and three spellings; `env` asks |
-| `sudo` before `rm`, plain or by path (`/usr/bin/sudo`) | deny | deny (`sudo *`, `*/sudo *`) | deny (`sudo`, resolved by path) |
-| `git push --force` or `-f` to `origin main` or `origin master` | deny | deny | deny |
-| Recursive `rm` (`-r`, `-R`, `-rf`, `-fr`, `-rfv`, `-ri`, `-ir`, `-Ri`, `-iR`, `--recursive`, other listed clusters) | deny, also behind any prefix (`env`, `xargs`, `nice`, `find -exec`, `git rm -r`) | ask | ask (every `rm` asks) |
-| `rm` with an `r` or `f` option before an absolute path, `--no-preserve-root` | deny | ask if recursive, else classifier | ask |
-| Any other `rm`: one file, several files, a glob, `-f` | run | glob asks; the rest goes to the classifier | ask |
-| `find ... -delete`, `find ... -exec rm` (also `-execdir`, `-ok`, `-okdir`), `xargs rm` | deny, in every position and by path | ask for `-delete`, `-exec rm` and `-execdir rm`; `-ok`/`-okdir rm` and a non-recursive `xargs rm` go to the classifier | ask (every `find` asks) |
-| `git clean`, `git reset --hard` | run | ask | ask |
-| `git push` that could force: see below | run, unless a deny above matches | ask | ask (every `git push` asks) |
-| A `$` or a backtick anywhere after `git push` in the same command | deny, also after a shell keyword, a wrapper, or a path before `git`: see below | ask for a word that starts with `$` or a backtick | ask (every `git push` asks) |
-| A git command that skips the repository's hooks: see below | run | no rule; the classifier decides | ask for each `git push`, `git merge`, and `git rebase` that starts the command; no rule for `git commit`, `git am`, or `git pull` |
-| `git rm -- <path>`, `git worktree remove -- <path>` | run | ask | ask |
-| `git worktree remove --force -- <path>` | run; the omp `file-removal.md` trigger rule fires on each `--force`, `-f`, or `--f` form and permits it once, after the commits are on the remote | ask | ask |
-| `docks-kit scratch remove <path>` | run; the command removes only a path inside the scratch root, the system temporary directory, or `/var/tmp` | no rule | no rule |
-| Any other non-recursive `git rm` or `git worktree remove` | run | ask | ask |
-| `gio trash -- <path>` | run | allow | ask |
-| Any other `gio trash` | run | ask with `--empty` or `--restore`; the rest goes to the classifier | ask |
-| `trash <path>` (macOS) | allow | allow | allow |
+| Command | omp `bash.patterns` | Claude Code `permissions` |
+| --- | --- | --- |
+| `rm` of `/`, `~`, `~/`, `$HOME`, `${HOME}`, quoted or with a trailing `/` | deny | deny, also through `/bin/rm` and other `*/rm` paths |
+| `rm` of `/*` | deny with an `r` or `f` option; plain `rm /*` runs | deny |
+| `HOME=...`, `export HOME=...`, `env HOME=...` | deny | deny `export`, `env`, and a bare `HOME=...` line; `HOME=... cmd` goes to the classifier |
+| `sudo` before `rm`, plain or by path (`/usr/bin/sudo`) | deny | deny (`sudo *`, `*/sudo *`) |
+| `git push --force` or `-f` to `origin main` or `origin master` | deny | deny |
+| Recursive `rm` (`-r`, `-R`, `-rf`, `-fr`, `-rfv`, `-ri`, `-ir`, `-Ri`, `-iR`, `--recursive`, other listed clusters) | deny, also behind any prefix (`env`, `xargs`, `nice`, `find -exec`, `git rm -r`) | ask |
+| `rm` with an `r` or `f` option before an absolute path, `--no-preserve-root` | deny | ask if recursive, else classifier |
+| Any other `rm`: one file, several files, a glob, `-f` | run | glob asks; the rest goes to the classifier |
+| `find ... -delete`, `find ... -exec rm` (also `-execdir`, `-ok`, `-okdir`), `xargs rm` | deny, in every position and by path | ask for `-delete`, `-exec rm` and `-execdir rm`; `-ok`/`-okdir rm` and a non-recursive `xargs rm` go to the classifier |
+| `git clean`, `git reset --hard` | run | ask |
+| `git push` that could force: see below | run, unless a deny above matches | ask |
+| A `$` or a backtick anywhere after `git push` in the same command | deny, also after a shell keyword, a wrapper, or a path before `git`: see below | ask for a word that starts with `$` or a backtick |
+| A git command that skips the repository's hooks: see below | run | no rule; the classifier decides |
+| `git rm -- <path>`, `git worktree remove -- <path>` | run | ask |
+| `git worktree remove --force -- <path>` | run; the omp `file-removal.md` trigger rule fires on each `--force`, `-f`, or `--f` form and permits it once, after the commits are on the remote | ask |
+| `docks-kit scratch remove <path>` | run; the command removes only a path inside the scratch root, the system temporary directory, or `/var/tmp` | no rule |
+| Any other non-recursive `git rm` or `git worktree remove` | run | ask |
+| `gio trash -- <path>` | run | allow |
+| Any other `gio trash` | run | ask with `--empty` or `--restore`; the rest goes to the classifier |
+| `trash <path>` (macOS) | allow | allow |
 
-In Claude Code, a `git push` asks when it holds any of these words. Codex
-asks for every `git push`. omp runs each of these forms. Its force-push deny
-matches only `git push --force` or `git push -f` directly before
-`origin main` or `origin master`:
+In Claude Code, a `git push` asks when it holds any of these words. omp runs
+each of these forms. Its force-push deny matches only `git push --force` or
+`git push -f` directly before `origin main` or `origin master`:
 
 - a `+` refspec;
 - any long option that starts with `--f`, such as `--force`,
@@ -116,21 +112,19 @@ A git command can skip the repository's hooks, for example with
 `--no-verify`, `git commit -n`, `git am -n`, or a `core.hooksPath` change.
 The kit ships no omp `bash.patterns` rule for these commands, so omp does not
 block them. The omp `git-safety.md` trigger rule forbids each hook skip.
-Claude Code has no rule either, so its classifier decides. Codex asks for each
-`git push`, `git merge`, and `git rebase` that starts the command. Codex has
-no rule for `git commit`, `git am`, or `git pull`.
+Claude Code has no rule either, so its classifier decides.
 
 ## Why the tools differ
 
-| Topic | omp | Claude Code | Codex |
-| --- | --- | --- | --- |
-| Rule order | First match wins | Deny, then ask, then allow, whatever the order | Strictest matching rule wins |
-| Exception for one form | The kit ships no omp prompt rule, so it needs no exception | An allow never beats a matching ask, so every `git rm` asks | An allow never beats a matching prompt, so every `gio trash` asks |
-| Pattern | Glob on the whole line and on each quote-stripped segment; `*` crosses spaces; no literal `*` | Glob on each subcommand as written, quotes included; `\*` is a literal `*` | Exact argv tokens from the start, with alternatives |
-| `rm` by path (`/bin/rm`) | Matched by `*/rm` forms | Matched by `*/rm` forms | Resolved to the `rm` rules |
-| Leading assignment `X=1 cmd` | Deny and prompt rules also match each segment without its leading assignments (omp 19.0.0) | Stripped before deny and ask rules | A script with it is not split |
-| What an ask means | The kit ships no ask; a user prompt rule asks a person in the main session, and a subagent rejects it | A person | The `auto_review` reviewer subagent |
-| Critical-command check | Runs after deny and prompt rules and replaces only an allow or no match; yolo then runs the command, so the kit denies those shapes | Asks or denies for an `rm` of a critical path | Prompts for a forced `rm` that no rule matches |
+| Topic | omp | Claude Code |
+| --- | --- | --- |
+| Rule order | First match wins | Deny, then ask, then allow, whatever the order |
+| Exception for one form | The kit ships no omp prompt rule, so it needs no exception | An allow never beats a matching ask, so every `git rm` asks |
+| Pattern | Glob on the whole line and on each quote-stripped segment; `*` crosses spaces; no literal `*` | Glob on each subcommand as written, quotes included; `\*` is a literal `*` |
+| `rm` by path (`/bin/rm`) | Matched by `*/rm` forms | Matched by `*/rm` forms |
+| Leading assignment `X=1 cmd` | Deny and prompt rules also match each segment without its leading assignments (omp 19.0.0) | Stripped before deny and ask rules |
+| What an ask means | The kit ships no ask; a user prompt rule asks a person in the main session, and a subagent rejects it | A person |
+| Critical-command check | Runs after deny and prompt rules and replaces only an allow or no match; yolo then runs the command, so the kit denies those shapes | Asks or denies for an `rm` of a critical path |
 
 ## How an agent removes files
 
@@ -142,8 +136,8 @@ no rule for `git commit`, `git am`, or `git pull`.
 2. Move every other file or directory to the trash with `gio trash -- <path>`
    on Linux or `trash <path>` on macOS. The `--` ends option parsing, so `gio`
    reads every later argument as a path, and a path such as `--empty` cannot
-   empty the trash. In Claude Code and Codex, leave a temporary file in
-   `/tmp`; the system clears it.
+   empty the trash. In Claude Code, leave a temporary file in `/tmp`; the
+   system clears it.
 3. To remove a path from the git index, run `git rm -- <path>`. To remove a
    worktree, run `git worktree remove -- <path>`. In omp, when git refuses
    because the worktree has changes, the agent may pass `--force` once, after
@@ -151,8 +145,8 @@ no rule for `git commit`, `git am`, or `git pull`.
    generated files. Never pass `--force` two times.
 4. In omp, do not use `rm`. omp denies a recursive `rm`, `find -delete`,
    `find -exec rm`, and `xargs rm`. It runs any other `rm` without a prompt.
-5. In Claude Code and Codex, use `rm <file>` without flags only for one file
-   that the agent created.
+5. In Claude Code, use `rm <file>` without flags only for one file that the
+   agent created.
 6. For a recursive or bulk deletion, ask the user in the main session. A
    subagent lists the paths in its final report. In omp, the user runs a
    recursive deletion by hand.
@@ -160,8 +154,7 @@ no rule for `git commit`, `git am`, or `git pull`.
    export `HOME`.
 
 In omp, the kit plugin trigger rules `file-removal.md` and `literal-paths.md`
-carry these rules. `~/.claude/CLAUDE.md` and the Codex `AGENTS.md` carry the
-same rules.
+carry these rules. `~/.claude/CLAUDE.md` carries the same rules.
 
 ### What the git removals keep
 
@@ -308,14 +301,6 @@ the home directory, and no glob can express "inside the temporary directory".
     deny and ask rules past a leading variable assignment, and it applies them
     to every subcommand.
   - A rule for `rm` does not match `/bin/rm`, so the kit adds `*/rm` forms.
-- **Codex**:
-  - A rule matches argv tokens from the start, and the strictest matching rule
-    wins.
-  - Codex splits a `bash -lc` script into argv only when every word is a plain
-    literal. A script with `~`, `$HOME`, a glob, or a substitution stays one
-    `[shell, -lc, script]` invocation, so a rule can match only that exact
-    script.
-  - Codex resolves `/bin/rm` and `/usr/bin/sudo` to the `rm` and `sudo` rules.
 
 ## Gaps
 
@@ -350,7 +335,7 @@ the home directory, and no glob can express "inside the temporary directory".
 - **`git push` beyond the listed words**: a configured `+` refspec in
   `remote.<name>.push` makes a plain `git push` force. No rule sees git
   configuration. `git push --delete` and `git push --prune` remove remote
-  branches without force; they ask only in Codex.
+  branches without force; no kit rule asks for them.
 - **omp, force push to `main` in another spelling**: the force-push deny
   rules match only `git push --force` or `git push -f`, then
   `origin main` or `origin master`. Every other force push to `main` runs
@@ -376,12 +361,6 @@ the home directory, and no glob can express "inside the temporary directory".
 - **Claude Code, `gio trash`**: a `gio trash` form other than `-- <path>` that
   holds neither `--empty` nor `--restore` goes to the classifier. GLib's
   `gio trash` supports no abbreviated long options.
-- **Codex, scripts**: a home or root deletion inside a longer script, such as
-  `cd x && rm -rf ~`, falls to Codex's built-in forced-`rm` prompt and to the
-  sandbox. Codex matches `HOME=` reassignment only as an exact script, and
-  `export HOME=/tmp` runs sandboxed. Each Codex command runs in a new shell.
-- **Codex, prompt reviewer**: a Codex prompt reaches the `auto_review`
-  reviewer subagent, not always a person.
 - **All tools**: no rule covers a program that removes files itself, such as a
   Python or Node script, or a shell started by omp `eval`.
 
@@ -392,9 +371,8 @@ or restores the paths, and `--empty` has no effect. Without a path, it empties
 the trash when `--empty` is set. `-f` can repeat. So `gio trash -ff --empty`
 empties the trash, while `gio trash build --empty` only trashes `build`.
 
-In Codex, every `gio trash` asks, because a prefix rule cannot tell
-`-ff --empty` from `-- <path>`. In omp, every `gio trash` runs without a
-prompt. In Claude Code, any form with `--empty` or `--restore` asks.
+In omp, every `gio trash` runs without a prompt. In Claude Code, any form with
+`--empty` or `--restore` asks.
 
 ## Sync behavior
 
@@ -418,21 +396,11 @@ prompt. In Claude Code, any form with `--empty` or `--restore` asks.
     rule stays.
 - **Claude Code**: sync unions each permissions array with the deployed one,
   so user rules stay. `--reconcile` replaces the arrays with the SoT arrays.
-- **Codex**: sync writes `~/.codex/rules/docks.rules` whole. Keep your own
-  rules in another `.rules` file, such as `default.rules`. Codex applies the
-  strictest rule across all files. Sync records each kit rules file in
-  `~/.codex/.kit-managed-rules`. When the SoT drops a kit rules file, sync
-  removes the deployed copy while it holds the kit bytes. A dropped file that
-  you edited stays, and each sync warns about it. Sync never removes a file
-  that it did not write, such as `default.rules`.
 
 ## Check the deployed rules
 
-Each check below is safe, because the shell never reaches `rm`.
+The check below is safe, because the shell never reaches `rm`.
 
-- **Codex**: run
-  `codex execpolicy check --pretty --rules ~/.codex/rules/docks.rules -- rm -rf /`.
-  It prints the decision and runs nothing.
 - **omp and Claude Code**: ask the agent to run `true || rm -rf "$HOME"`. The
   `true ||` short-circuit stops the shell before `rm`. omp reports
   `Blocked by bash pattern: rm * $HOME`, and Claude Code reports a denial.
@@ -445,9 +413,6 @@ Each check below is safe, because the shell never reaches `rm`.
   still describes the 18.17.0 order; the source is what runs.
 - Claude Code: https://code.claude.com/docs/en/permissions and
   https://code.claude.com/docs/en/permission-modes
-- Codex: https://learn.chatgpt.com/docs/agent-configuration/rules,
-  https://github.com/openai/codex/blob/main/codex-rs/execpolicy/README.md, and
-  https://learn.chatgpt.com/docs/config-file/config-reference (`approvals_reviewer`).
 - GLib `gio trash`: https://github.com/GNOME/glib/blob/main/gio/gio-tool-trash.c
 - Git: https://git-scm.com/docs/gitcli (abbreviated and clustered options),
   https://git-scm.com/docs/git-rm, https://git-scm.com/docs/git-worktree,

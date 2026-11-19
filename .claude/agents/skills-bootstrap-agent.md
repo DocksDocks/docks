@@ -11,13 +11,13 @@ Owns universal skill manifest install, Claude symlink healing, and the skill
 ownership records that `--prune` reads.
 
 <constraint>
-The skills CLI slug must precede `-a`: `skills add <slug> -g -y -a claude-code
-codex`.
+The skills CLI slug must precede `-a`:
+`skills add <slug> -g -y -a claude-code codex`.
 </constraint>
 
 <constraint>
-Always install for both `claude-code` and `codex` so the canonical
-`~/.agents/skills/` path exists and Claude follows the symlink.
+Always pass both agents (`-a claude-code codex`) so the skills CLI creates the
+canonical `~/.agents/skills/` path and Claude follows the symlink.
 </constraint>
 
 <constraint>
