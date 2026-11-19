@@ -1,7 +1,8 @@
 // Spec tests for the shipped agent-docs scripts (plan #169). Each expected line was recorded by running the
 // current shell block of the skill once with bash on the same fixture (LC_ALL=C, so `sort` and globs use byte
 // order). A comment names each intentional difference of the script contract:
-// (a) no node_modules nodes, (b) exit 2 on ERROR, (c) non-git prune sets, (d) labeled audit lines, (e) --expect lines.
+// (a) no node_modules nodes, (b) exit 2 on ERROR, (c) non-git prune sets, (d) labeled audit lines, (e) --expect lines,
+// (f) an ERROR line for a failed listing or an unreadable file, and raw non-ASCII paths, where the block went on.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -36,6 +37,10 @@ function fixture({ git = true, files = {}, links = {}, dirs = [], modes = {} } =
     ...process.env,
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_CONFIG_NOSYSTEM: '1',
+    // The global ignore file ($XDG_CONFIG_HOME/git/ignore) applies also without a global config file.
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.excludesFile',
+    GIT_CONFIG_VALUE_0: '/dev/null',
     // Outside git, no repository above the fixture may answer `git rev-parse`.
     GIT_CEILING_DIRECTORIES: path.dirname(dir),
   };
@@ -171,6 +176,30 @@ describe('pr-template.mjs detect', () => {
     // (b) the old wrapper printed the same line and exited 0.
     expectError(run(PR_TEMPLATE, ['detect'], fixture({ git: false })), [PR_ERROR]);
   });
+
+  test('a symlinked docs or .github folder lists no entry', () => {
+    const fx = fixture({
+      files: { 'real/pull_request_template.md': '## Checklist\n', 'gh/pull_request_template.md': '## Checklist\n' },
+      links: { docs: 'real', '.github': 'gh' },
+    });
+    expectRun(run(PR_TEMPLATE, ['detect'], fx), 0, ['pull-request template: none']);
+  });
+
+  test('a folder that cannot be listed prints the ERROR line', { skip: IS_ROOT }, () => {
+    expectError(run(PR_TEMPLATE, ['detect'], fixture({ dirs: ['docs'], modes: { docs: 0o000 } })), [PR_ERROR]);
+    const folder = '.github/PULL_REQUEST_TEMPLATE';
+    expectError(run(PR_TEMPLATE, ['detect'], fixture({ dirs: [folder], modes: { [folder]: 0o000 } })), [PR_ERROR]);
+  });
+
+  test('an entry that is no file, folder, or symlink is not a regular file', () => {
+    const fx = fixture({ dirs: ['.github'] });
+    const fifo = spawnSync('mkfifo', [path.join(fx.dir, '.github/pull_request_template.md')], { encoding: 'utf8' });
+    assert.equal(fifo.status, 0, `mkfifo: ${fifo.stderr}`);
+    expectRun(run(PR_TEMPLATE, ['detect'], fx), 0, [
+      'pull-request template: unusable .github/pull_request_template.md (not a regular file)',
+      'pull-request template: none',
+    ]);
+  });
 });
 
 describe('pr-template.mjs gate', () => {
@@ -284,6 +313,14 @@ describe('verify-skill.mjs write-gate', () => {
     const fx = fixture({ dirs: ['locked'], modes: { locked: 0o000 } });
     expectRun(run(VERIFY, ['write-gate', 'locked/new.md'], fx), 0, [
       'target occupied: cannot resolve the folder of locked/new.md',
+    ]);
+  });
+
+  test('refuses a path with a .. segment, also through a symlink or a missing folder', () => {
+    const fx = fixture({ links: { link: '..' } });
+    expectRun(run(VERIFY, ['write-gate', 'link/../x', 'missing/../../x'], fx), 0, [
+      'target occupied: link/../x holds a .. segment',
+      'target occupied: missing/../../x holds a .. segment',
     ]);
   });
 });
@@ -428,6 +465,12 @@ describe('agent-first-check.mjs check', () => {
       C1('lint'),
       'FINDING C5 no stale-tolerance line: AGENTS.md',
     ]);
+    const parts = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, 'AGENTS.md': `# Repo\n\nThe builder tests each linter.\n\n${STALE}` },
+    });
+    // `grep -w`: a kind inside a longer word names no command.
+    expectRun(run(AGENT_FIRST, ['check'], parts), 0, [C1('build'), C1('test'), C1('lint')]);
   });
 
   test('C2 an unrouted node and a dead route; @ and ./ prefixes of a row are stripped', () => {
@@ -451,7 +494,7 @@ describe('agent-first-check.mjs check', () => {
     const fx = fixture({
       files: {
         ...BASE_FILES,
-        'AGENTS.md': routed('api/AGENTS.md', 'docs/AGENTS.md', 'lib/AGENTS.md', 'pkg/AGENTS.md'),
+        'AGENTS.md': routed('api/AGENTS.md', 'docs/AGENTS.md', 'lib/AGENTS.md', 'pkg/AGENTS.md', 'web/AGENTS.md'),
         '.gitignore': 'CLAUDE.local.md\ngen/\n',
         'CLAUDE.md': '@AGENTS.md\n',
         '.claude/CLAUDE.md': '@../AGENTS.md\n\nUse the review agent.\n',
@@ -463,6 +506,8 @@ describe('agent-first-check.mjs check', () => {
         'docs/CLAUDE.md': '# Docs rules\n',
         'lib/AGENTS.md': STALE,
         'pkg/AGENTS.md': STALE,
+        'web/AGENTS.md': STALE,
+        'web/CLAUDE.md': '@AGENTS.md\n',
       },
       links: { ...VERIFY_LINK, 'pkg/CLAUDE.md': 'AGENTS.md' },
     });
@@ -473,6 +518,7 @@ describe('agent-first-check.mjs check', () => {
       'FINDING C3 redundant import stub (AGENTS.md still loads; cleanup): api/.claude/CLAUDE.md',
       'FAIL C3 CLAUDE.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md: docs/CLAUDE.md',
       'FINDING C3 redundant symlink to AGENTS.md (content still loads; cleanup): pkg/CLAUDE.md',
+      'FINDING C3 redundant import stub (AGENTS.md still loads; cleanup): web/CLAUDE.md',
       'FAIL C3 node hidden from Claude (the root has a CLAUDE.md file and docs has no import stub): docs/AGENTS.md',
       'FAIL C3 node hidden from Claude (the root has a CLAUDE.md file and lib has no import stub): lib/AGENTS.md',
     ]);
@@ -519,6 +565,7 @@ See demo/fake.ts:3 for a fictional path.
 \`\`\`text
 recently 4 tests
 \`\`\`
+“We currently ship 3 files” in curly quotes.
 `,
         'src/app.ts': 'export {};\n',
         'lib/AGENTS.md': '# Lib\n',
@@ -563,6 +610,21 @@ The row \`@docs/guide.md\` is a code span.
     ]);
   });
 
+  test('C7 imports from the home folder and from absolute paths', () => {
+    const fx = fixture({ ...BASE, files: { ...BASE_FILES, 'home/notes.md': 'one\n', 'abs/target.md': 'a\nb\nc\n' } });
+    const home = path.join(fx.dir, 'home');
+    fx.env.HOME = home;
+    const absolute = path.join(fx.dir, 'abs/target.md');
+    const missing = '/nonexistent-agent-docs/x.md';
+    const imports = `Read @~/notes.md first.\nRead @${absolute} next.\nRead @${missing} last.\n`;
+    fs.writeFileSync(path.join(fx.dir, 'AGENTS.md'), `${ROOT_AGENTS}${imports}`);
+    expectRun(run(AGENT_FIRST, ['check'], fx), 0, [
+      `FINDING C7 eager import AGENTS.md:6: @~/notes.md (${home}/notes.md, 1 lines, loads with this file)`,
+      `FINDING C7 eager import AGENTS.md:7: @${absolute} (${absolute}, 3 lines, loads with this file)`,
+      `FINDING C7 eager import AGENTS.md:8: @${missing} (no file at ${missing})`,
+    ]);
+  });
+
   test('C9 a missing skill, a link that does not resolve, and unverified commands', () => {
     const noSkill = fixture({ files: { ...BASE_FILES, '.agents/skills/verify/SKILL.md': undefined } });
     expectRun(run(AGENT_FIRST, ['check'], noSkill), 0, [C9_NO_SKILL]);
@@ -579,11 +641,13 @@ The row \`@docs/guide.md\` is a code span.
     );
   });
 
-  test('C9 an unreadable skill prints the ERROR line', { skip: IS_ROOT }, () => {
+  test('C9 an unreadable skill prints the ERROR line, and C5 and C6 cannot read it either', { skip: IS_ROOT }, () => {
     const fx = fixture({ ...BASE, modes: { '.agents/skills/verify/SKILL.md': 0o000 } });
-    // (b) the old block printed the same lines (C6 cannot read the description either) and exited 0.
+    // (b) the old block printed the C9 line and exited 0; (f) it read the skill as empty for C5 and C6, and printed
+    // `FAIL C6 description does not start with 'Use when'` for it.
     expectError(run(AGENT_FIRST, ['check'], fx), [
-      "FAIL C6 description does not start with 'Use when': .agents/skills/verify/SKILL.md",
+      'ERROR C5 cannot read .agents/skills/verify/SKILL.md',
+      'ERROR C6 cannot read .agents/skills/verify/SKILL.md',
       'ERROR C9 cannot read .agents/skills/verify/SKILL.md',
     ]);
   });
@@ -682,6 +746,18 @@ describe('bridge-check.mjs audit', () => {
   test('an empty repository', () => {
     expectRun(run(BRIDGE, ['audit'], fixture()), 0, audit());
   });
+
+  test('a dangling CLAUDE.local.md or CLAUDE.md symlink is no file', () => {
+    const links = { 'CLAUDE.local.md': 'missing.md', 'api/CLAUDE.local.md': 'missing.md' };
+    expectRun(run(BRIDGE, ['audit'], fixture({ links })), 0, audit());
+    // Outside git, the Step 2 `find -type f` listed no symlink either.
+    const outside = fixture({
+      git: false,
+      files: { 'api/CLAUDE.md': 'rules\n' },
+      links: { ...links, 'CLAUDE.md': 'missing.md' },
+    });
+    expectRun(run(BRIDGE, ['audit'], outside), 0, [...audit(), 'legacy: api/CLAUDE.md']);
+  });
 });
 
 describe('non-git prune sets', () => {
@@ -695,6 +771,15 @@ describe('non-git prune sets', () => {
     ]);
     const agentFirst = run(AGENT_FIRST, ['detect'], fx).lines.filter((l) => l.startsWith('legacy: '));
     assert.deepEqual(agentFirst, ['legacy: CLAUDE.md', 'legacy: dist/CLAUDE.md']);
+  });
+
+  test('a walk lists whole paths in byte order, not in creation or folder order', () => {
+    const names = ['é', 'B', '😀', 'a', 'z', '_', 'a-b', 'ｚ'];
+    const fx = fixture({ git: false, files: Object.fromEntries(names.map((n) => [`${n}/CLAUDE.md`, 'rules\n'])) });
+    // `a-b/` sorts before `a/`, because `-` is below `/`, although a walk enters `a` first. UTF-16 order would put
+    // 😀 (a surrogate pair) before ｚ (U+FF5A); byte order puts it last.
+    const sorted = ['B', '_', 'a-b', 'a', 'z', 'é', 'ｚ', '😀'];
+    expectRun(run(BRIDGE, ['audit'], fx), 0, [...audit(), ...sorted.map((n) => `legacy: ${n}/CLAUDE.md`)]);
   });
 });
 
@@ -775,5 +860,76 @@ See src/app.ts:10 for the entry.
     assert.equal(run(BRIDGE, ['verify', '--expect'], fx).status, 1);
     assert.equal(run(BRIDGE, ['verify', '--bogus'], fx).status, 1);
     assert.equal(run(BRIDGE, ['bogus'], fx).status, 1);
+  });
+});
+
+// (f) the old blocks read a failed `git ls-files`, an unreadable folder, or an unreadable file as no match.
+describe('failed listings and unreadable files', () => {
+  const failed = (label) => `ERROR ${label} file listing failed (see the message above)`;
+  const LISTING_CHECKS = ['C2', 'C3', 'C5', 'C6', 'C7', 'C8'];
+
+  test('a corrupt git index prints ERROR lines in both entry scripts', () => {
+    const fx = fixture({ ...BASE, files: { ...BASE_FILES, 'CLAUDE.md': 'rules\n' } });
+    fs.writeFileSync(path.join(fx.dir, '.git/index'), 'not an index\n');
+    expectError(run(AGENT_FIRST, ['check'], fx), LISTING_CHECKS.map(failed));
+    expectError(run(AGENT_FIRST, ['detect'], fx), [
+      fx.dir,
+      'root AGENTS.md: present',
+      '.agents/skills: present',
+      '.claude/skills: present',
+      failed('legacy:'),
+      failed('personal:'),
+      failed('node:'),
+      'pull-request template: .github/pull_request_template.md (file)',
+      'verify skill: present',
+      'verify link: present',
+    ]);
+    expectError(run(BRIDGE, ['audit'], fx), [
+      ...audit('AGENTS.md', 'CLAUDE.md (root)', '.agents/skills/', '.claude/skills/'),
+      failed('legacy:'),
+    ]);
+    expectError(run(BRIDGE, ['verify'], fx), [failed('legacy:'), failed('routing:'), failed('volatile:')]);
+  });
+
+  test('a folder that cannot be listed prints ERROR lines outside git', { skip: IS_ROOT }, () => {
+    const fx = fixture({
+      git: false,
+      files: { 'AGENTS.md': ROOT_AGENTS },
+      dirs: ['locked'],
+      modes: { locked: 0o000 },
+    });
+    expectError(run(BRIDGE, ['audit'], fx), [...audit('AGENTS.md'), failed('legacy:'), failed('personal:')]);
+    expectError(run(AGENT_FIRST, ['check'], fx), [
+      ...LISTING_CHECKS.map(failed),
+      C9_NO_SKILL,
+      'ERROR C10 pull-request template check failed (see the message above)',
+    ]);
+  });
+
+  test('an unreadable file prints ERROR C<n> and a bridge ERROR line', { skip: IS_ROOT }, () => {
+    const claude = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, 'CLAUDE.md': '@AGENTS.md\n' },
+      modes: { 'CLAUDE.md': 0o000 },
+    });
+    expectError(run(AGENT_FIRST, ['check'], claude), ['ERROR C3 cannot read CLAUDE.md']);
+    const node = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, 'AGENTS.md': routed('api/AGENTS.md'), 'api/AGENTS.md': STALE },
+      modes: { 'api/AGENTS.md': 0o000 },
+    });
+    expectError(run(AGENT_FIRST, ['check'], node), [
+      'ERROR C5 cannot read api/AGENTS.md',
+      'ERROR C7 cannot read api/AGENTS.md',
+      'ERROR C8 cannot read api/AGENTS.md',
+    ]);
+    expectError(run(BRIDGE, ['verify'], node), ['ERROR volatile: cannot read api/AGENTS.md']);
+  });
+
+  test('a non-ASCII node is routed and read', () => {
+    const fx = fixture({ ...BASE, files: { ...BASE_FILES, 'AGENTS.md': routed('é/AGENTS.md'), 'é/AGENTS.md': STALE } });
+    // (f) git quoted the path, so the old block printed a false `FAIL C2` and `FINDING C5` line for it.
+    expectRun(run(AGENT_FIRST, ['check'], fx), 0, []);
+    expectRun(run(BRIDGE, ['verify'], fx), 0, []);
   });
 });

@@ -17,8 +17,9 @@
 //               the skill cannot be read; `verify link: missing`, `verify link: present`,
 //               or `verify link: occupied`.
 //   write-gate  one `target occupied: <path> ...` line for each path that must not be
-//               written: a symlink, or a path whose nearest existing folder cannot be
-//               entered or resolves outside the current folder. Nothing for a writable path.
+//               written: a symlink, a path that holds a `..` segment, or a path whose nearest
+//               existing folder cannot be entered or resolves outside the current folder.
+//               Nothing for a writable path.
 //   entry-gate  `target occupied: <path> exists` for `.agents/skills/verify` and for
 //               `.claude/skills/verify`, a dangling symlink included.
 //   link        creates `.claude/skills/verify` when no entry is there, then prints
@@ -126,12 +127,17 @@ function refusal(root, target) {
   if (isSymlink(target)) {
     return `target occupied: ${target} is a symlink`;
   }
+  // The kernel resolves `link/..` to the parent of the link target, while path.dirname and
+  // the nearest-folder search remove `..` as text. No path with `..` passes, so both agree.
+  if (target.split('/').includes('..')) return `target occupied: ${target} holds a .. segment`;
   let resolved;
   try {
     const folder = nearestFolder(target);
     // `cd` needs search permission on the folder; realpath alone does not check it.
     fs.accessSync(folder, fs.constants.X_OK);
-    resolved = fs.realpathSync(folder);
+    // The native realpath resolves each part as the kernel does; the JavaScript one removes
+    // `..` as text before it follows a symlink.
+    resolved = fs.realpathSync.native(folder);
   } catch {
     return `target occupied: cannot resolve the folder of ${target}`;
   }

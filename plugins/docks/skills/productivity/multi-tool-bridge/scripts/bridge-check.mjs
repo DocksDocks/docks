@@ -21,12 +21,16 @@
 //           `VOLATILE line-anchor <file>:<line> (<path> exists)` for every AGENTS.md.
 //           No output means the bridge is complete. `HANDOFF` and `VOLATILE` lines are
 //           report items, not failures.
+//   Either command prints `ERROR <part>: file listing failed (see the message above)` for a
+//   listing that fails, and `ERROR <part>: cannot read <file>` for a file that is there but
+//   cannot be read, in place of the lines of that part (`skills`, `legacy`, `personal`,
+//   `routing`, or `volatile`). The cause is on stderr.
 //   Paths are relative to the repository root, without a leading `./`. No listing enters
 //   node_modules. The CLAUDE.local.md listing, and every listing outside git, walks the
-//   folder and skips each .git, node_modules, vendor, dist, build, out, target, and .next
-//   folder.
+//   folder, keeps only regular files, as `find -type f` does, and skips each .git,
+//   node_modules, vendor, dist, build, out, target, and .next folder.
 //
-// Exit status: 1 for a usage error, otherwise 0.
+// Exit status: 2 after an ERROR line, 1 for a usage error, otherwise 0.
 import fs from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
@@ -36,6 +40,7 @@ import {
   durableDocScan,
   EXCLUDE_NODE_MODULES,
   findEntries,
+  guarded,
   isFile,
   isFolder,
   listFiles,
@@ -58,8 +63,9 @@ const AUDIT_ENTRIES = [
   ['.claude/rules/claude-code.md', '.claude/rules/claude-code.md', 'file'],
 ];
 
-// The listing arguments of one repository: the root and whether git answers for it.
-const listing = (repo) => ({ root: repo.root, prune: BRIDGE_PRUNE, inGit: repo.inGit });
+// The listing arguments of one repository: the root and whether git answers for it. The
+// Step 2 `find` commands listed regular files only.
+const listing = (repo) => ({ root: repo.root, prune: BRIDGE_PRUNE, inGit: repo.inGit, filesOnly: true });
 
 // Every CLAUDE.md and .claude/CLAUDE.md, root and nested; gitignored build output is skipped.
 function legacyFiles(repo) {
@@ -76,8 +82,8 @@ function auditLines(repo) {
   const exists = (file, kind) => (kind === 'file' ? isFile(file) : isFolder(file));
   return [
     ...AUDIT_ENTRIES.map(([label, file, kind]) => `${exists(file, kind) ? 'EXISTS' : 'MISSING'} ${label}`),
-    ...legacyFiles(repo).map((file) => `legacy: ${file}`),
-    ...personalFiles(repo).map((file) => `personal: ${file}`),
+    ...guarded('legacy:', () => legacyFiles(repo).map((file) => `legacy: ${file}`)),
+    ...guarded('personal:', () => personalFiles(repo).map((file) => `personal: ${file}`)),
   ];
 }
 
@@ -90,17 +96,25 @@ function brokenSkillLines() {
     .map((entry) => `BROKEN: ${entry}`);
 }
 
-function verifyLines(repo, expectedFiles) {
+// The root routing belongs to context-tree; this skill only reports it.
+function routingLines(repo) {
   const { unroutedNodes, deadRoutes } = routingGaps(listing(repo));
   return [
-    ...brokenSkillLines(),
-    ...(isFile('AGENTS.md') ? [] : ['BROKEN: AGENTS.md missing']),
-    ...legacyFiles(repo).map((file) => `BROKEN: legacy CLAUDE.md still present: ${file}`),
-    ...expectedFiles.filter((file) => !isFile(file)).map((file) => `BROKEN: ${file} missing`),
-    // The root routing belongs to context-tree; this skill only reports it.
     ...unroutedNodes.map((node) => `HANDOFF context-tree: unrouted node ${node}`),
     ...deadRoutes.map((route) => `HANDOFF context-tree: dead route ${route}`),
-    ...durableDocScan(agentsDocs(listing(repo)), { findingLabel: 'VOLATILE' }),
+  ];
+}
+
+function verifyLines(repo, expectedFiles) {
+  return [
+    ...guarded('skills:', brokenSkillLines),
+    ...(isFile('AGENTS.md') ? [] : ['BROKEN: AGENTS.md missing']),
+    ...guarded('legacy:', () => legacyFiles(repo).map((file) => `BROKEN: legacy CLAUDE.md still present: ${file}`)),
+    ...expectedFiles.filter((file) => !isFile(file)).map((file) => `BROKEN: ${file} missing`),
+    ...guarded('routing:', () => routingLines(repo)),
+    ...guarded('volatile:', () =>
+      durableDocScan(agentsDocs(listing(repo)), { findingLabel: 'VOLATILE', errorLabel: 'volatile:' }),
+    ),
   ];
 }
 
@@ -134,7 +148,7 @@ function main(args) {
   process.chdir(repo.root);
   const lines = parsed.command === 'audit' ? auditLines(repo) : verifyLines(repo, parsed.expectedFiles);
   if (lines.length > 0) process.stdout.write(`${lines.join('\n')}\n`);
-  return 0;
+  return lines.some((line) => line.startsWith('ERROR')) ? 2 : 0;
 }
 
 // Run the CLI only when node started this file (through any symlink), not on import.

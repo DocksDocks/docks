@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Shared parts of the agent-doc checks of agent-first-setup (agent-first-check.mjs) and
 // multi-tool-bridge (bridge-check.mjs): the repository root, the file listing, the routing
 // rows of the root AGENTS.md, the nested AGENTS.md nodes, and the durable-doc scan. The
@@ -9,7 +8,8 @@
 // the semantics of that block: git pathspecs, POSIX `[[:space:]]`, the leftmost-longest
 // matches of awk, and byte order where the block sorted with `sort` or a glob.
 //
-// This module has no CLI.
+// This module has no CLI. A listing or a read that cannot finish throws CheckError after it
+// writes the cause to stderr; `guarded` turns that error into the ERROR line of the caller.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,12 +24,40 @@ export const SPACE = ' \\t\\n\\v\\f\\r';
 const ROOT_AGENTS = 'AGENTS.md';
 // A package under node_modules is not part of this repository.
 export const EXCLUDE_NODE_MODULES = ':(exclude,glob)**/node_modules/**';
+// Room for the listing of a very large repository; the default of 1 MiB would cut it off.
+const LISTING_BUFFER = 256 * 1024 * 1024;
+const LISTING_FAILED = 'file listing failed (see the message above)';
+// The errno codes that mean "no file is there", as `test -f` sees it. Any other code means
+// that an entry is there, but the check cannot read it.
+const MISSING_CODES = new Set(['ENOENT', 'ENOTDIR']);
 const FENCE = new RegExp(`^[${SPACE}]*\`\`\``, 'u');
 export const CODE_SPAN = /`[^`]*`/gu;
 
 // awk's tolower and grep -i in the C locale change only ASCII letters; String#toLowerCase
 // alone would also fold letters such as the Kelvin sign into `k`.
 export const asciiLower = (text) => text.replace(/[A-Z]+/gu, (letters) => letters.toLowerCase());
+
+// A check that cannot finish. Its cause is already on stderr; `message` completes the ERROR
+// line of the caller, for example `cannot read docs/AGENTS.md`.
+export class CheckError extends Error {}
+
+// The lines of one check, or one `ERROR <label> <message>` line in their place when the check
+// throws CheckError. A failed check is never a pass, so it must not print a partial result.
+export function guarded(label, lines) {
+  try {
+    return lines();
+  } catch (error) {
+    if (!(error instanceof CheckError)) throw error;
+    return [`ERROR ${label} ${error.message}`];
+  }
+}
+
+function listingError(folder, error) {
+  process.stderr.write(
+    `agent-docs: cannot list the folder ${folder} (${error.code ?? error.message}); make it readable and run the check again\n`,
+  );
+  return new CheckError(LISTING_FAILED);
+}
 
 // `sort` and shell globs in the C locale compare bytes; String#localeCompare and the
 // default sort compare UTF-16 code units, which differ above the Basic Multilingual Plane.
@@ -63,25 +91,37 @@ export function isSymlink(file) {
   }
 }
 
-// The entries of `folder` as `find <folder> -mindepth 1 -maxdepth 1` lists them, dot names
-// included, sorted by byte order of the name. None when `folder` is a symlink, because find
-// does not follow a symlink given as its starting point, or when it cannot be listed.
-export function findEntries(folder) {
-  if (isSymlink(folder)) return [];
+// The entries of `folder`, through a symlink too, as a glob sees them; none when no folder is
+// there. A folder that is there but cannot be listed throws CheckError.
+export function readFolder(folder) {
   try {
-    return fs.readdirSync(folder, { withFileTypes: true }).sort((a, b) => byteOrder(a.name, b.name));
-  } catch {
-    return [];
+    return fs.readdirSync(folder, { withFileTypes: true });
+  } catch (error) {
+    if (MISSING_CODES.has(error.code)) return [];
+    throw listingError(folder, error);
   }
 }
 
-// The text of a file, or null when it cannot be read; grep and awk then fail the same way.
+// The entries of `folder` as `find <folder> -mindepth 1 -maxdepth 1` lists them, dot names
+// included, sorted by byte order of the name. None when `folder` is a symlink, because find
+// does not follow a symlink given as its starting point.
+export function findEntries(folder) {
+  if (isSymlink(folder)) return [];
+  return readFolder(folder).sort((a, b) => byteOrder(a.name, b.name));
+}
+
+// The text of a file, or null when no file is there; grep and awk then fail the same way. A
+// file that is there but cannot be read throws CheckError, because its text is unknown.
 // `latin1` gives one character per byte, as awk and grep read in the C locale.
-export function readTextOrNull(file, encoding = 'utf8') {
+export function readText(file, encoding = 'utf8') {
   try {
     return fs.readFileSync(file, encoding);
-  } catch {
-    return null;
+  } catch (error) {
+    if (MISSING_CODES.has(error.code)) return null;
+    process.stderr.write(
+      `agent-docs: cannot read ${file} (${error.code ?? error.message}); make it readable and run the check again\n`,
+    );
+    throw new CheckError(`cannot read ${file}`);
   }
 }
 
@@ -112,15 +152,28 @@ export function repositoryRoot() {
   return result.stdout.replace(/\n+$/u, '');
 }
 
+// `git ls-files -co [--exclude-standard] -- <pathspecs>` in `root`. `-z` ends each path with a
+// NUL and prints it raw; without it, git quotes a path with a byte above ASCII. A failed or
+// cut-off listing throws CheckError, because an empty listing would read as a pass.
 function gitFiles(root, pathspecs, excludeStandard) {
-  const args = ['ls-files', '-co', ...(excludeStandard ? ['--exclude-standard'] : []), '--', ...pathspecs];
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  const args = ['-c', 'core.quotePath=false', 'ls-files', '-z', '-co'];
+  if (excludeStandard) args.push('--exclude-standard');
+  args.push('--', ...pathspecs);
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: LISTING_BUFFER });
   if (result.error) {
-    process.stderr.write(`agent-docs: cannot run git ls-files (${result.error.message}); install git and retry\n`);
-    return [];
+    process.stderr.write(`agent-docs: git ls-files failed (${result.error.message}); fix the cause and run the check again\n`);
+    throw new CheckError(LISTING_FAILED);
   }
   process.stderr.write(result.stderr);
-  return result.stdout === '' ? [] : textLines(result.stdout);
+  if (result.status !== 0) {
+    const end = result.status === null ? `the signal ${result.signal}` : `the status ${result.status}`;
+    process.stderr.write(`agent-docs: git ls-files stopped with ${end}; fix the cause and run the check again\n`);
+    throw new CheckError(LISTING_FAILED);
+  }
+  const files = result.stdout.split('\0');
+  // The NUL after the last path leaves an empty string at the end, as an empty listing does.
+  files.pop();
+  return files;
 }
 
 // A git glob pattern as a regular expression over the whole path. Supports `**/`, `/**/`,
@@ -152,32 +205,31 @@ function parsePathspec(pathspec) {
   return { exclude: magic.has('exclude'), pattern: globPattern(parts[2]) };
 }
 
-// Every entry below `folder` that is no folder, as a path relative to `root`. A folder named
-// in `prune` is skipped at any depth, as `find ... -prune` does; a symlink to a folder is not
-// followed, as find does not follow it.
-function walkEntries(root, folder, prune, found) {
+// Every entry below `folder` that is no folder, as a path relative to `root`; with `filesOnly`,
+// only the regular files, as `find -type f` lists them. A folder named in `prune` is skipped at
+// any depth, as `find ... -prune` does; a symlink to a folder is not followed, as find does not
+// follow it. A folder that cannot be listed throws CheckError.
+function walkEntries(root, folder, options, found) {
   let entries;
   try {
     entries = fs.readdirSync(path.join(root, folder), { withFileTypes: true });
   } catch (error) {
-    process.stderr.write(
-      `agent-docs: cannot list the folder ${folder || '.'} (${error.code ?? error.message}); its files are left out; make it readable and run the check again\n`,
-    );
-    return;
+    throw listingError(folder || '.', error);
   }
   for (const entry of entries) {
     const relative = folder === '' ? entry.name : `${folder}/${entry.name}`;
-    if (!entry.isDirectory()) found.push(relative);
-    else if (!prune.includes(entry.name)) walkEntries(root, relative, prune, found);
+    if (entry.isDirectory()) {
+      if (!options.prune.includes(entry.name)) walkEntries(root, relative, options, found);
+    } else if (!options.filesOnly || entry.isFile()) found.push(relative);
   }
 }
 
-function walkFiles(root, pathspecs, prune) {
+function walkFiles(root, pathspecs, options) {
   const specs = pathspecs.map(parsePathspec);
   const includes = specs.filter((spec) => !spec.exclude);
   const excludes = specs.filter((spec) => spec.exclude);
   const found = [];
-  walkEntries(root, '', prune, found);
+  walkEntries(root, '', options, found);
   return found
     .filter((file) => includes.some((spec) => spec.pattern.test(file)))
     .filter((file) => !excludes.some((spec) => spec.pattern.test(file)))
@@ -186,21 +238,23 @@ function walkFiles(root, pathspecs, prune) {
 
 // The files that match git `pathspecs`, as paths relative to `root`. Inside git, the lines of
 // `git ls-files -co [--exclude-standard] -- <pathspecs>` run in `root`; outside git, a walk
-// of `root` that skips each folder named in `prune`, sorted by byte order.
-export function listFiles({ root, pathspecs, excludeStandard = false, prune, inGit }) {
-  return inGit ? gitFiles(root, pathspecs, excludeStandard) : walkFiles(root, pathspecs, prune);
+// of `root` that skips each folder named in `prune`, sorted by byte order. `filesOnly` keeps
+// only regular files in the walk. A listing that fails throws CheckError.
+export function listFiles({ root, pathspecs, excludeStandard = false, prune, inGit, filesOnly = false }) {
+  return inGit ? gitFiles(root, pathspecs, excludeStandard) : walkFiles(root, pathspecs, { prune, filesOnly });
 }
 
 // Every AGENTS.md, the root one included. One under node_modules belongs to a package, not
-// to this repository, so it is never a node.
-export function agentsDocs({ root, prune, inGit }) {
+// to this repository, so it is never a node. `listing` holds the listFiles options other than
+// `pathspecs` and `excludeStandard`.
+export function agentsDocs(listing) {
   const pathspecs = [`:(glob)**/${ROOT_AGENTS}`, EXCLUDE_NODE_MODULES];
-  return listFiles({ root, pathspecs, excludeStandard: true, prune, inGit });
+  return listFiles({ ...listing, pathspecs, excludeStandard: true });
 }
 
 // Every AGENTS.md below the root: the nodes that the root table must route.
-export function nestedNodes({ root, prune, inGit }) {
-  return agentsDocs({ root, prune, inGit }).filter((file) => file !== ROOT_AGENTS);
+export function nestedNodes(listing) {
+  return agentsDocs(listing).filter((file) => file !== ROOT_AGENTS);
 }
 
 const TABLE_LINE = new RegExp(`^[${SPACE}]*\\|`, 'u');
@@ -223,14 +277,14 @@ export function routingRows(agentsMdText) {
 // so `test -f a/../b` fails when `a` is missing.
 const fromRoot = (root, file) => (path.isAbsolute(file) ? file : `${root}/${file}`);
 
-// The routing gaps of the repository at `root`: each node that no row of the root AGENTS.md
-// routes, and each route whose file does not exist.
-export function routingGaps({ root, prune, inGit }) {
-  const rootText = readTextOrNull(fromRoot(root, ROOT_AGENTS));
+// The routing gaps of the repository at `listing.root`: each node that no row of the root
+// AGENTS.md routes, and each route whose file does not exist.
+export function routingGaps(listing) {
+  const rootText = readText(fromRoot(listing.root, ROOT_AGENTS));
   const routes = rootText === null ? [] : routingRows(rootText);
   return {
-    unroutedNodes: nestedNodes({ root, prune, inGit }).filter((node) => !routes.includes(node)),
-    deadRoutes: routes.filter((route) => !isFile(fromRoot(root, route))),
+    unroutedNodes: nestedNodes(listing).filter((node) => !routes.includes(node)),
+    deadRoutes: routes.filter((route) => !isFile(fromRoot(listing.root, route))),
   };
 }
 
@@ -276,18 +330,15 @@ function scanLine(file, number, line, label) {
 // exists. Fenced blocks and URLs are skipped everywhere; code spans and quoted text are
 // skipped for the time and count rules only, so a line anchor in backticks still counts.
 // `findingLabel` starts each line: `FINDING C5` for agent-first-setup, `VOLATILE` for
-// multi-tool-bridge. Paths are relative to the current folder.
-export function durableDocScan(files, { findingLabel }) {
-  const findings = [];
-  for (const file of files) {
-    const text = readTextOrNull(file, 'latin1');
-    if (text === null) {
-      process.stderr.write(
-        `agent-docs: cannot read ${file}; the durable-doc scan skips it; make it readable and run the check again\n`,
-      );
-      continue;
-    }
-    for (const [number, line] of proseLines(text)) findings.push(...scanLine(file, number, line, findingLabel));
-  }
-  return findings;
+// multi-tool-bridge. A file that cannot be read gives `ERROR <errorLabel> cannot read <file>`
+// in place of its lines; a listed file that is gone gives no line, as awk prints none for
+// it. Paths are relative to the current folder.
+export function durableDocScan(files, { findingLabel, errorLabel }) {
+  return files.flatMap((file) =>
+    guarded(errorLabel, () => {
+      const text = readText(file, 'latin1');
+      if (text === null) return [];
+      return proseLines(text).flatMap(([number, line]) => scanLine(file, number, line, findingLabel));
+    }),
+  );
 }

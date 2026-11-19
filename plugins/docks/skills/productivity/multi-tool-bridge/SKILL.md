@@ -195,6 +195,7 @@ When Step 5 wrote no rules file and no folder `AGENTS.md`, run the command with 
 | `BROKEN: <path> missing` | an `--expect` path that is not a file |
 | `HANDOFF context-tree: unrouted node <path>`, `HANDOFF context-tree: dead route <path>` | a gap in the root routing, which `context-tree` owns. The row rule is the same as agent-first-setup Step 3 C2: a row is a table line whose first cell is `<dir>/AGENTS.md` in backticks; a leading `@` inside the backticks is stripped |
 | `VOLATILE time-relative <file>:<line>`, `VOLATILE bare-count <file>:<line>`, `VOLATILE line-anchor <file>:<line> (<path> exists)` | a volatile value in an `AGENTS.md`. Migrated text stays verbatim. The scan is the same as agent-first-setup Step 3 C5: fenced blocks and URLs are skipped everywhere; code spans and quoted text are skipped for the time and count rules only |
+| `ERROR <part>: cannot read <file>`, `ERROR <part>: file listing failed (see the message above)` | a file or a file listing that the check cannot read (the Step 2 audit prints these lines too). The cause is on stderr, and the command exits with status 2. Report it and stop; it is never a pass |
 
 No output from the verification means that the bridge is complete. If any `BROKEN:` line appears, STOP and report — do not claim success. `HANDOFF` and `VOLATILE` lines are report items, not failures.
 

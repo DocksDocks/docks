@@ -15,9 +15,13 @@
 //           `node: <path>` line for each AGENTS.md below the root (none under node_modules),
 //           one `not-a-symlink: <path>` line for each `.claude/skills` entry that is no
 //           symlink; then the lines of `pr-template.mjs detect` and `verify-skill.mjs detect`.
+//           A listing that fails prints `ERROR <label>: file listing failed (see the message
+//           above)` in place of the lines of that label.
 //   check   one `FAIL C<n> ...` (a contract break), `FINDING C<n> ...` (a risk or cleanup
 //           item a human judges), or `ERROR C<n> ...` (a check that could not run) line per
-//           problem, in the order C1 to C10. No output means every check passed.
+//           problem, in the order C1 to C10. A failed listing gives `ERROR C<n> file listing
+//           failed (see the message above)`, and a file that is there but cannot be read gives
+//           `ERROR C<n> cannot read <file>`. No output means every check passed.
 //   Paths are relative to the repository root, without a leading `./`. Outside git, the
 //   listings walk the folder and skip each .git, node_modules, and vendor folder.
 //
@@ -35,13 +39,15 @@ import {
   CODE_SPAN,
   durableDocScan,
   findEntries,
+  guarded,
   isFile,
   isFolder,
   isSymlink,
   listFiles,
   nestedNodes,
   proseLines,
-  readTextOrNull,
+  readFolder,
+  readText,
   repositoryRoot,
   routingGaps,
   SPACE,
@@ -74,23 +80,26 @@ const EAGER_IMPORT = new RegExp(`(^|[${SPACE}(\\[])@[A-Za-z0-9._~/-]*[A-Za-z0-9_
 // `grep -E pattern file`: true when a line of `text` matches.
 const anyLine = (text, pattern) => textLines(text).some((line) => pattern.test(line));
 
-// `grep -qE '(^|[[:space:]])<import>([[:space:]]|$)'`; unreadable text (null) has no import.
+// `grep -qE '(^|[[:space:]])<import>([[:space:]]|$)'`; no file (null) has no import.
 function hasImport(text, importPattern) {
   return text !== null && anyLine(text, new RegExp(`(^|[${SPACE}])${importPattern}([${SPACE}]|$)`, 'u'));
 }
 
-const fileImports = (file, importPattern) => hasImport(readTextOrNull(file), importPattern);
+const fileImports = (file, importPattern) => hasImport(readText(file), importPattern);
 
 // A symlink whose target is named AGENTS.md delivers that file.
 function linksToAgents(file) {
   return isSymlink(file) && path.basename(fs.readlinkSync(file)) === ROOT_AGENTS;
 }
 
-// `wc -l`: the number of newline bytes, or null when the file cannot be read.
+// `wc -l`: the number of newline bytes, or null when no file is there.
 function lineCount(file) {
-  const text = readTextOrNull(file, 'latin1');
+  const text = readText(file, 'latin1');
   return text === null ? null : text.split('\n').length - 1;
 }
+
+// The lines of `check` for each item; an item that cannot be read gives its ERROR line.
+const eachGuarded = (check, items, lines) => items.flatMap((item) => guarded(check, () => lines(item)));
 
 // The listings of one repository: the root and whether git answers for it.
 function repositoryListings(repo) {
@@ -116,12 +125,14 @@ function detectLines(repo) {
     presence('root AGENTS.md', isFile(ROOT_AGENTS)),
     presence('.agents/skills', isFolder('.agents/skills')),
     presence('.claude/skills', isFolder(CLAUDE_SKILLS)),
-    ...list.tracked(':(glob)**/CLAUDE.md').map((file) => `legacy: ${file}`),
-    ...list.personal().map((file) => `personal: ${file}`),
-    ...list.nodes().map((node) => `node: ${node}`),
-    ...findEntries(CLAUDE_SKILLS)
-      .filter((entry) => !entry.isSymbolicLink())
-      .map((entry) => `not-a-symlink: ${CLAUDE_SKILLS}/${entry.name}`),
+    ...guarded('legacy:', () => list.tracked(':(glob)**/CLAUDE.md').map((file) => `legacy: ${file}`)),
+    ...guarded('personal:', () => list.personal().map((file) => `personal: ${file}`)),
+    ...guarded('node:', () => list.nodes().map((node) => `node: ${node}`)),
+    ...guarded('not-a-symlink:', () =>
+      findEntries(CLAUDE_SKILLS)
+        .filter((entry) => !entry.isSymbolicLink())
+        .map((entry) => `not-a-symlink: ${CLAUDE_SKILLS}/${entry.name}`),
+    ),
     // The shell wrapper dropped the lines found before a failure and printed only its ERROR line.
     ...(pr.ok ? pr.lines : ['ERROR pull-request template check failed (see the message above)']),
     ...verifySkillLines().lines,
@@ -132,7 +143,7 @@ function detectLines(repo) {
 
 function rootCommandLines() {
   if (!isFile(ROOT_AGENTS)) return ['FAIL C1 root AGENTS.md missing'];
-  const text = asciiLower(readTextOrNull(ROOT_AGENTS) ?? '');
+  const text = asciiLower(readText(ROOT_AGENTS) ?? '');
   // `grep -qiw <kind>`: the kind as a whole word, in any ASCII letter case.
   const names = (kind) => anyLine(text, new RegExp(`(^|[^a-z0-9_])${kind}([^a-z0-9_]|$)`, 'u'));
   return ['build', 'test', 'lint']
@@ -158,7 +169,7 @@ function claudeFileLine(file) {
   const inClaudeFolder = file === '.claude/CLAUDE.md' || file.endsWith('/.claude/CLAUDE.md');
   const importPattern = inClaudeFolder ? IMPORTS_PARENT_AGENTS : IMPORTS_AGENTS;
   if (linksToAgents(file)) return `FINDING C3 redundant symlink to AGENTS.md (content still loads; cleanup): ${file}`;
-  const text = readTextOrNull(file);
+  const text = readText(file);
   if (!hasImport(text, importPattern)) {
     return file.endsWith('CLAUDE.local.md')
       ? `FINDING C3 CLAUDE.local.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md (personal file; user decides): ${file}`
@@ -174,7 +185,7 @@ function claudeFileLine(file) {
 
 function claudeFileLines(list) {
   const files = new Set([...list.tracked(':(glob)**/CLAUDE.md'), ...list.personal()]);
-  return [...files].sort(byteOrder).map(claudeFileLine);
+  return eachGuarded('C3', [...files].sort(byteOrder), (file) => [claudeFileLine(file)]);
 }
 
 // While the root has a CLAUDE.md file, Claude does not load a nested AGENTS.md by itself;
@@ -185,27 +196,22 @@ function hiddenNodeLines(list) {
     linksToAgents(`${folder}/CLAUDE.md`) ||
     fileImports(`${folder}/CLAUDE.md`, IMPORTS_AGENTS) ||
     fileImports(`${folder}/.claude/CLAUDE.md`, IMPORTS_PARENT_AGENTS);
-  return list
-    .nodes()
-    .map((node) => ({ node, folder: node.slice(0, -`/${ROOT_AGENTS}`.length) }))
-    .filter(({ folder }) => !delivered(folder))
-    .map(
-      ({ node, folder }) =>
-        `FAIL C3 node hidden from Claude (the root has a CLAUDE.md file and ${folder} has no import stub): ${node}`,
-    );
+  return eachGuarded('C3', list.nodes(), (node) => {
+    const folder = node.slice(0, -`/${ROOT_AGENTS}`.length);
+    if (delivered(folder)) return [];
+    return [
+      `FAIL C3 node hidden from Claude (the root has a CLAUDE.md file and ${folder} has no import stub): ${node}`,
+    ];
+  });
 }
 
 // The names that `.claude/skills/*` expands to: no dot names, in byte order, through a
 // symlinked `.claude/skills` too.
 function skillGlobNames() {
-  try {
-    return fs
-      .readdirSync(CLAUDE_SKILLS)
-      .filter((name) => !name.startsWith('.'))
-      .sort(byteOrder);
-  } catch {
-    return [];
-  }
+  return readFolder(CLAUDE_SKILLS)
+    .map((entry) => entry.name)
+    .filter((name) => !name.startsWith('.'))
+    .sort(byteOrder);
 }
 
 function skillLinkLines(entry) {
@@ -225,16 +231,17 @@ function durableDocLines(list) {
     ':(glob)**/skills/**/references/*.md',
     ':(exclude,glob)**/node_modules/**/AGENTS.md',
   );
-  const staleLines = list
-    .agentsDocs()
-    .filter((file) => !STALE_TOLERANCE.test(asciiLower(readTextOrNull(file) ?? '')))
-    .map((file) => `FINDING C5 no stale-tolerance line: ${file}`);
-  return [...durableDocScan(docs, { findingLabel: 'FINDING C5' }), ...staleLines];
+  const staleLines = eachGuarded('C5', list.agentsDocs(), (file) =>
+    STALE_TOLERANCE.test(asciiLower(readText(file) ?? '')) ? [] : [`FINDING C5 no stale-tolerance line: ${file}`],
+  );
+  const scanLines = durableDocScan(docs, { findingLabel: 'FINDING C5', errorLabel: 'C5' });
+  // A file that cannot be read gives one ERROR line, not one for each part of C5.
+  return [...scanLines, ...staleLines.filter((line) => !(line.startsWith('ERROR') && scanLines.includes(line)))];
 }
 
 // The start of a skill description: the first indented line of a block scalar (`>`, `|`,
 // `>-`, `|-`), else the value after `description:` without an opening quote; null when the
-// file has no description or cannot be read.
+// file has no description or no file is there.
 function descriptionStart(text) {
   let inBlock = false;
   for (const line of textLines(text ?? '')) {
@@ -246,10 +253,11 @@ function descriptionStart(text) {
 }
 
 function descriptionLines(list) {
-  return list
-    .tracked(':(glob)**/SKILL.md')
-    .filter((skill) => !descriptionStart(readTextOrNull(skill))?.startsWith('Use when'))
-    .map((skill) => `FAIL C6 description does not start with 'Use when': ${skill}`);
+  return eachGuarded('C6', list.tracked(':(glob)**/SKILL.md'), (skill) =>
+    descriptionStart(readText(skill))?.startsWith('Use when')
+      ? []
+      : [`FAIL C6 description does not start with 'Use when': ${skill}`],
+  );
 }
 
 // The bare `@path` imports of one line outside code spans, each without its `@`.
@@ -279,21 +287,19 @@ function eagerImportLine(file, number, importPath) {
 
 // Claude expands each bare `@path` in an AGENTS.md into context every time that file loads.
 function eagerImportLines(list) {
-  return list
-    .agentsDocs()
-    .flatMap((file) =>
-      proseLines(readTextOrNull(file) ?? '').flatMap(([number, line]) =>
-        eagerImports(line).map((importPath) => eagerImportLine(file, number, importPath)),
-      ),
-    );
+  return eachGuarded('C7', list.agentsDocs(), (file) =>
+    proseLines(readText(file) ?? '').flatMap(([number, line]) =>
+      eachGuarded('C7', eagerImports(line), (importPath) => [eagerImportLine(file, number, importPath)]),
+    ),
+  );
 }
 
 function nodeSizeLines(list) {
-  return list
-    .agentsDocs()
-    .map((file) => ({ file, lines: lineCount(file) }))
-    .filter(({ lines }) => lines !== null && lines > NODE_LINE_LIMIT)
-    .map(({ file, lines }) => `FINDING C8 over the ${NODE_LINE_LIMIT}-line kit policy: ${file} (${lines} lines)`);
+  return eachGuarded('C8', list.agentsDocs(), (file) => {
+    const lines = lineCount(file);
+    if (lines === null || lines <= NODE_LINE_LIMIT) return [];
+    return [`FINDING C8 over the ${NODE_LINE_LIMIT}-line kit policy: ${file} (${lines} lines)`];
+  });
 }
 
 // C9 from the verify Detect lines: the skill exists, `.claude/skills/verify` resolves to it,
@@ -333,15 +339,14 @@ function prTemplateCheckLines(repo) {
 function checkLines(repo) {
   const list = repositoryListings(repo);
   return [
-    ...rootCommandLines(),
-    ...routingLines(list),
-    ...claudeFileLines(list),
-    ...hiddenNodeLines(list),
-    ...skillGlobNames().flatMap((name) => skillLinkLines(`${CLAUDE_SKILLS}/${name}`)),
-    ...durableDocLines(list),
-    ...descriptionLines(list),
-    ...eagerImportLines(list),
-    ...nodeSizeLines(list),
+    ...guarded('C1', rootCommandLines),
+    ...guarded('C2', () => routingLines(list)),
+    ...guarded('C3', () => [...claudeFileLines(list), ...hiddenNodeLines(list)]),
+    ...guarded('C4', () => skillGlobNames().flatMap((name) => skillLinkLines(`${CLAUDE_SKILLS}/${name}`))),
+    ...guarded('C5', () => durableDocLines(list)),
+    ...guarded('C6', () => descriptionLines(list)),
+    ...guarded('C7', () => eagerImportLines(list)),
+    ...guarded('C8', () => nodeSizeLines(list)),
     ...verifySkillCheckLines(),
     ...prTemplateCheckLines(repo),
   ];
