@@ -7,7 +7,7 @@ one child plan (a sub-issue) per pull request. GitHub owns its title, assignee,
 labels, timestamps, and completion state.
 Do not track plan bodies as repository files.
 
-Read `skills/productivity/plan-manager/references/plan-contract.md` inside the
+Read `skills/plan-manager/references/plan-contract.md` inside the
 installed `plan-lifecycle` plugin for the v5 contract and helper commands.
 Resolve this reference from the installed plugin, not a marketplace checkout.
 

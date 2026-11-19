@@ -66,7 +66,7 @@ const files = [
 
 const report = [];
 for (const f of files) {
-  const m = f.match(new RegExp(`^${SKILLS_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/[^/]+/([^/]+)/`));
+  const m = f.match(new RegExp(`^${SKILLS_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/([^/]+)/`));
   const skill = m ? m[1] : f;
   if (ALLOWLIST.includes(skill)) continue;
   const lines = fs.readFileSync(f, 'utf8').split('\n');

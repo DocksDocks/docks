@@ -1,8 +1,5 @@
 {
-  "_comment": "Skills are categorized (plugin manifest accepts a skills[] array of paths). Agents stay flat (auto-discovery is depth-1 only). Per-file floor is the gate; total floor is count-derived. Calibrated 2026-05-24.",
-  "skills": {
-    "engineering": { "per_file_floor": 10 },
-    "productivity": { "per_file_floor": 8 }
-  },
+  "_comment": "Skills sit flat at skills/<name>/SKILL.md and agents at agents/<name>.md, so each kind has one per-file floor. Per-file floor is the gate; total floor is count-derived. Calibrated 2026-05-24; one skills floor since the flat layout of 2026-11.",
+  "skills": { "per_file_floor": 10 },
   "agents": { "per_file_floor": 14 }
 }

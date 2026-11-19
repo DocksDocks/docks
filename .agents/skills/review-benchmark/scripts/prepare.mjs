@@ -68,7 +68,7 @@ const WORKTREE_ROOT = 'worktree';
 // order of the MANIFEST lines of the base-instructions folder.
 const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'];
 // The plan contract of plan-lifecycle. A variant of `agents --contract-overlay` changes it (see writeContractCopy).
-const CONTRACT_PATH = `${PLUGIN_PATH}/skills/productivity/plan-manager/references/plan-contract.md`;
+const CONTRACT_PATH = `${PLUGIN_PATH}/skills/plan-manager/references/plan-contract.md`;
 // The reader of merge-base instruction files that plan-manager phase 6 and docks code-review run. `case` runs the file
 // of the checkout that holds this script, not of the case repository, so a case reads each file with the production
 // code.
@@ -76,9 +76,14 @@ const BASE_BLOB_SCRIPT = path.join(
   SKILL_DIR,
   '../../..',
   PLUGIN_PATH,
-  'skills/productivity/plan-manager/scripts/base-blob.sh',
+  'skills/plan-manager/scripts/base-blob.sh',
 );
-const PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
+// The plugin root variable of Claude Code. A plugin agent at a ref before the native omp packages names the files of
+// its skill with it. The name is put together here, so that a search of the repository for it finds only the hook
+// files that still use it.
+const LEGACY_PLUGIN_ROOT_TOKEN = `\${${['CLAUDE', 'PLUGIN', 'ROOT'].join('_')}}`;
+// A `skill://<skill>` or `skill://<skill>/<path>` URI in a plugin agent. omp resolves it to the installed skill.
+const SKILL_URI = /skill:\/\/([a-z0-9][a-z0-9-]*)(\/[^\s\x60'")]*)?/g;
 // The marker file of a plugin copy (the baseline or a variant) records the commit of the copy.
 const PLUGIN_COPY_MARKER = '.review-bench-ref';
 const RUNTIME_AGENT_DIRS = { omp: '.omp/agents', claude: '.claude/agents' };
@@ -609,17 +614,32 @@ export function relabelDiff(diffText, name) {
   return `--- a/${name}\n+++ b/${name}${diffText.slice(hunk)}`;
 }
 
-// Copies a plugin agent under `name` and pins its model and effort. `effortKey` is the effort key of the runtime.
+// The agent text with each file of its skill under the plugin copy `pluginRoot`: `skill://<skill>/<path>` gives
+// `<pluginRoot>/skills/<skill>/<path>`, `skill://<skill>` gives `<pluginRoot>/skills/<skill>/SKILL.md`, and the
+// plugin root variable of an agent at an older ref gives `pluginRoot`.
+export function pluginRootText(text, pluginRoot) {
+  return text
+    .replaceAll(LEGACY_PLUGIN_ROOT_TOKEN, pluginRoot)
+    .replace(SKILL_URI, (_, skill, rest) => `${pluginRoot}/skills/${skill}${rest ?? '/SKILL.md'}`);
+}
+
+// Copies a plugin agent under `name` and pins its model and effort. `effortKey` is the effort key of the runtime. With
+// `pluginRoot`, the copy reads its skill from that plugin copy: it loses `autoload-skills`, which would load the
+// installed skill, and each skill path names the plugin copy (pluginRootText).
 export function renderAgent(source, { name, model, effortKey, effort, pluginRoot }) {
   const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(source);
   if (!frontmatter) throw new Error('the agent file has no frontmatter');
-  const lines = frontmatter[1].split('\n').filter((line) => !/^(model|thinking-level|thinking|effort):/.test(line));
+  const pinned = /^(model|thinking-level|thinking|effort):/;
+  const lines = frontmatter[1]
+    .split('\n')
+    .filter((line) => !pinned.test(line) && (pluginRoot === undefined || !line.startsWith('autoload-skills:')));
   const nameAt = lines.findIndex((line) => line.startsWith('name:'));
   if (nameAt < 0) throw new Error('the agent frontmatter has no name');
   const modelValue = /^[A-Za-z0-9][\w./+-]*$/.test(model) ? model : JSON.stringify(model);
   lines.splice(nameAt, 1, `name: ${name}`, `model: ${modelValue}`, `${effortKey}: ${effort}`);
   const body = source.slice(frontmatter[0].length);
-  return `---\n${lines.join('\n')}\n---\n${body}`.replaceAll(PLUGIN_ROOT_TOKEN, pluginRoot);
+  const text = `---\n${lines.join('\n')}\n---\n${body}`;
+  return pluginRoot === undefined ? text : pluginRootText(text, pluginRoot);
 }
 
 // The self-review agent `name` of a configuration, in the agent file `file`. By default it loads the docks
@@ -2248,10 +2268,10 @@ function parseVariants(options, repo, baselineDir) {
     const text = blob.stdout.toString();
     // score.mjs takes the plugin root of a reviewer from the path of its reviewer skill in the agent text. An agent
     // text that names no such path, or another root, would make every run of the variant read outside its inputs.
-    const roots = reviewerPluginRoots(text.replaceAll(PLUGIN_ROOT_TOKEN, dir));
+    const roots = reviewerPluginRoots(pluginRootText(text, dir));
     if (roots.length !== 1 || roots[0] !== dir) {
       fail(
-        `variant ${name}: ${source} at ${ref} must name its reviewer skill as ${PLUGIN_ROOT_TOKEN}/skills/<folder>/plan-reviewer/SKILL.md and name no other plugin root`,
+        `variant ${name}: ${source} at ${ref} must name its reviewer skill as skill://plan-reviewer/SKILL.md and name no other plugin root`,
       );
     }
     const variant = { name, ref, sha, delta: !fullOnly.includes(name), dir, text };

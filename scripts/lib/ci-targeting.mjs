@@ -386,7 +386,7 @@ export function assertPrerequisiteJoinGatesItsEvent(workflow) {
 // A release-tag push is the only CI a version bump ever gets: the bump commit goes
 // straight to `main`, which this workflow has no trigger for, and the tag run gates
 // with `--plugin <name>`, which skips every repo-wide phase. The repo-wide
-// `.claude-plugin/marketplace.json` the bump edits would therefore ship validated by
+// `.omp-plugin/marketplace.json` the bump edits would therefore ship validated by
 // nothing. What the push leg must hold is a property - the released bytes get
 // repo-wide validation exactly once, and the targeted plugin gate still has the last
 // word - so the invocations are parsed and asked what they cover. Pinning the argv

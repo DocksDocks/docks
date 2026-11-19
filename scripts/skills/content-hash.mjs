@@ -168,21 +168,21 @@ if (mode === '--backfill' || mode === '--check-only') {
     process.exit(2);
   }
   let anyWouldBump = 0;
-  for (const { dir, name, category: cat } of eachSkillDir(root)) {
+  for (const { dir, name } of eachSkillDir(root)) {
     if (isUpstream(dir)) continue;
     const fresh = hashSkill(dir);
     const stored = storedHash(dir);
     if (mode === '--check-only') {
       if (!stored) {
-        console.log(`would-bump ${cat}/${name} (no content_hash)`);
+        console.log(`would-bump ${name} (no content_hash)`);
         anyWouldBump = 1;
       } else if (stored !== fresh) {
-        console.log(`would-bump ${cat}/${name} (content changed)`);
+        console.log(`would-bump ${name} (content changed)`);
         anyWouldBump = 1;
-      } else console.log(`unchanged ${cat}/${name}`);
+      } else console.log(`unchanged ${name}`);
     } else if (stored !== fresh) {
       writeHash(dir, fresh);
-      console.log(`wrote ${cat}/${name}`);
+      console.log(`wrote ${name}`);
     }
   }
   process.exit(mode === '--check-only' && anyWouldBump ? 1 : 0);

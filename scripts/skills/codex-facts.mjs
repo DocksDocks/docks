@@ -8,7 +8,7 @@ import path from 'node:path';
 
 const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
-const SAP = path.join(REPO_DIR, 'plugins/docks/skills/productivity/skill-agent-pipeline');
+const SAP = path.join(REPO_DIR, 'plugins/docks/skills/skill-agent-pipeline');
 const DOC = path.join(SAP, 'references/codex-agents-builder.md');
 
 if (!fs.existsSync(DOC)) {

@@ -15,10 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import {
-  parsePlan,
-  parseReviewComment,
-} from '../../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+import { parsePlan, parseReviewComment } from '../../../../plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
 
 const USAGE =
   'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...>] [--reference <column>] [--margin <per 50 known>] [--sequential] [--lead <folder,...> --lead-ref <folder>] | power <ws> [--keys <keys-dir>] [--arms <folder>,<folder>] [--margins <per 50 known,...>] [--cases <cases-dir>] [--reviewer <code-reviewer|plan-reviewer>] [--split <dev|heldout>] | corpus --cases <cases-dir> [--keys <keys-dir>] | sample <ws> [--seed <n>] | transcripts <ws> --omp-sessions <dir> | names <ws>';

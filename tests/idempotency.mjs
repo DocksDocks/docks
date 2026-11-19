@@ -13,12 +13,12 @@ let fail = 0;
 
 // 1. determinism — same input twice yields the same hash
 const skillsRoot = path.join(ROOT, 'plugins/docks/skills');
-const cat0 = fs
+const skillDirs = fs
   .readdirSync(skillsRoot)
   .sort()
-  .find((c) => fs.statSync(path.join(skillsRoot, c)).isDirectory());
-const skill0 = fs.readdirSync(path.join(skillsRoot, cat0)).sort()[0];
-const sample = path.join(skillsRoot, cat0, skill0);
+  .map((name) => path.join(skillsRoot, name))
+  .filter((dir) => fs.statSync(dir).isDirectory());
+const sample = skillDirs[0];
 const h1 = hash(sample).stdout.trim();
 const h2 = hash(sample).stdout.trim();
 if (!h1 || h1 !== h2) {
@@ -30,12 +30,8 @@ if (!h1 || h1 !== h2) {
 const check = spawnSync(process.execPath, [HASH, '--check-only'], { encoding: 'utf8' });
 if ((check.status ?? 1) === 0) {
   const unchanged = (check.stdout.match(/^unchanged /gm) || []).length;
-  const upstream = fs
-    .readdirSync(skillsRoot)
-    .flatMap((c) => {
-      const cp = path.join(skillsRoot, c);
-      return fs.statSync(cp).isDirectory() ? fs.readdirSync(cp).map((s) => path.join(cp, s, 'SKILL.md')) : [];
-    })
+  const upstream = skillDirs
+    .map((dir) => path.join(dir, 'SKILL.md'))
     .filter((f) => fs.existsSync(f) && /^upstream:/m.test(fs.readFileSync(f, 'utf8'))).length;
   console.log(`ok: all kit skills in sync (${unchanged} unchanged, ${upstream} upstream skipped)`);
 } else {
