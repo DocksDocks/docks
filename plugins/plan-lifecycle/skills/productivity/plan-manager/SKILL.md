@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-18"
-  content_hash: "981ef2d41a64aba78572465371dc7dab160cdc95310243a00982e04bc33ff9d0"
+  updated: "2026-11-19"
+  content_hash: "2a193884df98d7f2e2b8e3959b297a6876598a4893a5c0829fea92ad06ae037e"
 ---
 
 # Plan Manager
@@ -116,9 +116,11 @@ Move the plan to ongoing. Set up the linked branch with the contract's Linked
 branch steps before you change code. Set each step in-flight, implement or
 delegate it, run its proof, then mark it done. Honor the Effect confirmation
 gate. Follow the practices Engineering standards, Red baseline, Commits,
-Checks that fail outside the goal, and Delegated work. When the project has a
-`verify` skill, for example `.agents/skills/verify/SKILL.md`, use it to run the
-changed surface before you mark acceptance. Run all acceptance commands and
+Checks that fail outside the goal, and Delegated work. Before you mark
+acceptance, run each Acceptance row that runs a driven surface end to end.
+Run it through a flow of the project `verify` skill
+(`.agents/skills/verify/SKILL.md`) when a flow covers that row, and directly
+otherwise, as the practices Research order says. Run all acceptance commands and
 record real results in Verification Results through the export/edit flow.
 Review plan edits after the pass as the contract's Phases and review comments
 says. Once work starts, put new work into a child plan, and act on split

@@ -89,6 +89,6 @@ items into its `## Checklist` section.
 ## Checklist
 
 - [ ] `<check command>` passes
-- [ ] Tested locally with the `verify` skill
+- [ ] Tested locally end to end
 - [ ] Code review passed
 ```

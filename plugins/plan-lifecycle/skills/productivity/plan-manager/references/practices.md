@@ -57,6 +57,21 @@ unit-test command that only calls internal functions does not. A change to
 prose or skill text alone needs no such row. The contract's Steps, acceptance,
 and effects states the rule.
 
+When the plan has such a row, run the Detect block of the `plan-workspace`
+skill's `references/verify-skill-template.md`. Record its output in Research.
+A flow of the project `verify` skill is the preferred way to run such a row,
+because the next plan can reuse it. A plan step can run the Create or
+re-verify section of that reference. Such a step creates the skill, verifies
+it again, or adds a flow. Ask whether the plan adds such a step when the skill
+is missing, is not verified, or has no flow for a row. A grant answers this
+question (the contract's Delegated decisions). Some facts only the user holds,
+such as a start command or a test account. When the run cannot ask for such a
+fact, add no such step, and record why. A row that runs the surface directly
+is still proof. Do not keep an end-to-end check only in the review scratch
+directory. Put its command in the Acceptance row. Keep each script that the
+command runs in the repository: in a flow of the skill, or in a file that a
+step of the plan adds.
+
 ## Decisions and corrections
 
 Record each decision in Research: the decision, its evidence, and the rejected
