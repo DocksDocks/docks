@@ -95,9 +95,16 @@ for (const file of files) {
   if (!lines.some((l) => /^## Workflow/.test(l))) fail(`${name} — missing '## Workflow' section`);
   if (!lines.some((l) => /^## Success Criteria/.test(l))) fail(`${name} — missing '## Success Criteria' section`);
 
-  const badSkillRefs = lines.filter((l) => /\/SKILL\.md/.test(l) && !l.includes('CLAUDE_PLUGIN_ROOT'));
+  // omp sets no plugin root variable in an agent, so a `${...}` stays literal text there. A plugin agent names each
+  // file of its skill as `skill://<skill>/<path>`, which omp resolves.
+  const variables = [...new Set(content.match(/\$\{[^}\s]*\}/g) ?? [])];
+  if (variables.length > 0)
+    fail(
+      `${name} — remove ${variables.join(', ')}; omp sets no plugin root variable, so name each skill file as skill://<skill>/<path>`,
+    );
+  const badSkillRefs = lines.filter((l) => /\/SKILL\.md/.test(l) && !/skill:\/\/[a-z0-9-]+\/SKILL\.md/.test(l));
   if (badSkillRefs.length > 0) {
-    console.error(`FAIL: ${name} — bundled SKILL.md must load via \${CLAUDE_PLUGIN_ROOT}, not a repo-relative path:`);
+    console.error(`FAIL: ${name} — a bundled SKILL.md must load via skill://<skill>/SKILL.md, not a file path:`);
     for (const l of badSkillRefs) console.error(`    ${l}`);
     errors += 1;
   }

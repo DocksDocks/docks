@@ -1,6 +1,6 @@
 ---
 name: verify
-description: "Use when checking a change to this docks repository end to end: validate both plugins and the marketplace with the Claude Code CLI, drive the plan helper against the fake gh, run each docks hook with sample stdin, run the plan-lifecycle self-test, and run the agent-first-setup and multi-tool-bridge check scripts. Not for the full CI gate (run bun scripts/ci.mjs), reviewer benchmarks (use review-benchmark), or plugin release."
+description: "Use when checking a change to this docks repository end to end: install both plugins from this checkout into an isolated omp state, drive the plan helper against the fake gh, run each docks hook with sample stdin, run the plan-lifecycle self-test, and run the agent-first-setup and multi-tool-bridge check scripts. Not for the full CI gate (run bun scripts/ci.mjs), reviewer benchmarks (use review-benchmark), or plugin release."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
@@ -9,7 +9,7 @@ metadata:
 
 # Verify docks
 
-This skill runs the surfaces of this repository the way a user or a host program does. Claude Code loads the plugins. A user drives the plan helper. Claude Code and Codex call the hooks with JSON on stdin. Run the commands from the repository root. Each one finishes in seconds and starts no server.
+This skill runs the surfaces of this repository the way a user or a host program does. omp installs and loads the plugins. A user drives the plan helper. The hooks get JSON on stdin; child plan #173 moves them to omp extensions. Run the commands from the repository root. Each one finishes in seconds. V1 starts one local fake model server and stops it before it exits.
 
 This skill does not replace the gate. The gate choice is in the root `AGENTS.md` (Tool-agnostic rules).
 
@@ -29,28 +29,30 @@ Do not create a commit, push, or call the real `gh` to verify a change. The comm
 BAD  — "The hooks work": the agent read the hook source and ran the unit tests.
 GOOD — The agent ran V3 and V4, and the output matched each expected result.
 
-BAD  — V1 printed a plugin-directory warning, so the agent reports V1 as failed.
-GOOD — The agent reads the result line and the exit code. `✔ Validation passed`
-       with exit 0 is a pass. The report names the warning.
+BAD  — V1 printed a warning count above 0, and the agent reports V1 as passed.
+GOOD — The agent reads every line and the exit code. A `FAIL` line or a
+       non-zero exit is a failure; a warning count above 0 prints a `FAIL`
+       line, and the agent reports each warning.
 ```
 
 ## Prerequisites
 
 | Need | Check command | Expected result |
 |---|---|---|
-| Claude Code CLI | `claude --version` | A version line that ends with `(Claude Code)` |
+| omp CLI | `omp --version` | A line that starts with `omp/` |
 | Node and Bun | `node --version && bun --version` | Two version lines |
+| docks-kit CLI (V1 scratch folders) | `docks-kit --version` | One version line |
 | Dependencies | `bun install --frozen-lockfile` | Exit 0 |
 
-## V1 — Validate the plugins and the marketplace
+## V1 — Install the plugins into an isolated omp state
 
-`claude plugin validate` checks a plugin manifest and its skills, agents, and hooks. `--strict` turns each warning into a failure (exit 1).
+`omp-smoke.mjs` creates a docks-kit scratch folder and points `PI_CONFIG_DIR` at it, so omp keeps all its state there and the real `~/.omp` stays unchanged. omp gets only `PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, and `PI_CONFIG_DIR` from the environment, so no credential reaches it. It starts a fake local model. It adds this checkout as the `docks` marketplace, and installs `docks@docks` and `plan-lifecycle@docks`. It then lists the plugins, the skills, and the task agents of one `omp -p` session. At the end it removes the scratch folder, also after a failure.
 
 ```bash
-for p in plugins/docks plugins/plan-lifecycle .; do claude plugin validate --strict "$p" || echo "FAIL $p"; done
+bun .agents/skills/verify/scripts/omp-smoke.mjs; echo "exit=$?"
 ```
 
-Expected: each run prints `✔ Validation passed`, and no `FAIL` line appears. The plugin folders also print plugin-directory warnings, such as `ICON_MISSING`. The CLI says that these warnings "do not change the result below". The `.` run validates `.claude-plugin/marketplace.json`.
+Expected, in order: `docks@docks <version>` and `plan-lifecycle@docks <version>`, where each version equals its entry in `.omp-plugin/marketplace.json`; then `skills: 33`, `agents: code-reviewer,plan-reviewer`, `warnings: 0`, and `exit=0`. A `FAIL <reason>` line and `exit=1` mean that the install or the discovery failed, or that omp reported a warning about the plugins. `FAIL could not remove scratch folder <path>` and `exit=1` mean that the folder stays; remove it with `docks-kit scratch remove <path>`.
 
 ## V2 — Drive the plan helper against the fake `gh`
 
@@ -120,8 +122,8 @@ The skills run these read-only scripts with `node`. The block runs them in this 
 
 ```bash
 root=$PWD
-afs=$root/plugins/docks/skills/productivity/agent-first-setup/scripts/agent-first-check.mjs
-mtb=$root/plugins/docks/skills/productivity/multi-tool-bridge/scripts/bridge-check.mjs
+afs=$root/plugins/docks/skills/agent-first-setup/scripts/agent-first-check.mjs
+mtb=$root/plugins/docks/skills/multi-tool-bridge/scripts/bridge-check.mjs
 node "$afs" detect | grep -E '^(root AGENTS.md|pull-request template|verify)'; echo "exit=${PIPESTATUS[0]}"
 node "$afs" check | grep -E '^(FAIL|ERROR)'; echo "exit=${PIPESTATUS[0]}"
 node "$mtb" verify; echo "exit=$?"

@@ -1,15 +1,16 @@
 ---
 name: code-reviewer
 description: Use when plan-manager dispatches a read-only code-review round on a candidate diff (a full round, one panel lens, or a delta re-review of repairs) against code standards and the canonical plan. Not for ad hoc code review (use docks code-review), security audits (use docks security), plan review, applying fixes, lifecycle control, or direct user invocation.
-tools: Read, Glob, Grep
+tools: read, glob, grep
+autoload-skills: code-reviewer
 ---
 
 # Code Reviewer
 
-Load and follow
-`${CLAUDE_PLUGIN_ROOT}/skills/productivity/code-reviewer/SKILL.md`.
-Without `CLAUDE_PLUGIN_ROOT`, resolve `../skills/productivity/code-reviewer/SKILL.md`
-from this file. Acknowledge the supplied round mode, lens, plan issue number,
+Load and follow the `code-reviewer` skill at
+`skill://code-reviewer/SKILL.md`; `autoload-skills` loads it with this agent.
+Name each further file of the skill as `skill://code-reviewer/<path>`.
+Acknowledge the supplied round mode, lens, plan issue number,
 export path, round number, input paths, and base-instructions folder before
 analysis. These values are the complete review input from the manager. When
 the skill cannot be loaded, the rules below are enough for a `full` round on

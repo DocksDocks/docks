@@ -201,7 +201,7 @@ export function computeGateKey({ repo, scope, git = gitReader(repo), entry = (re
     `scope=${JSON.stringify(scope)}`,
     `node=${process.version}`,
     `platform=${process.platform}/${process.arch}`,
-    `tools=${(tools ?? toolFingerprint(['cargo', 'claude', 'git', 'node', 'bun', 'shellcheck'])).join(',')}`,
+    `tools=${(tools ?? toolFingerprint(['cargo', 'git', 'node', 'bun', 'shellcheck'])).join(',')}`,
     `install=${install}`,
     `worktree=${sha256(listing.join('\n'))}`,
   ];

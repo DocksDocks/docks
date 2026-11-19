@@ -14,6 +14,8 @@ const TREE_GUARD = path.join(ROOT, 'scripts/tree/guard.mjs');
 const SKILLS_GUARD = path.join(ROOT, 'scripts/skills/guard.mjs');
 const TEST_CONTRACTS = path.join(ROOT, 'scripts/tests/test-contracts.mjs');
 const REPORT_SECTION = path.join(ROOT, 'scripts/config/report-section.md');
+const SKILL_GUARD = path.join(ROOT, 'plugins/docks/skills/write-skill/scripts/skill-guard.mjs');
+const AGENTS_GUARD = path.join(ROOT, 'scripts/agents/guard.mjs');
 
 function runNode(script, args, options = {}) {
   return spawnSync(process.execPath, [script, ...args], {
@@ -407,8 +409,8 @@ function testSkillsGuardReportSection() {
 // cases run the guard of a copy of the scripts and plugins, and change the copy of the shared file there. The target
 // is the plan-lifecycle skills, and the copy is in the docks plugin: the check runs whatever the target folder is.
 function testSkillsGuardSharedFiles() {
-  const canonical = 'plugins/plan-lifecycle/skills/productivity/plan-workspace/references/pull-request-template.md';
-  const copy = 'plugins/docks/skills/productivity/agent-first-setup/references/pull-request-template.md';
+  const canonical = 'plugins/plan-lifecycle/skills/plan-workspace/references/pull-request-template.md';
+  const copy = 'plugins/docks/skills/agent-first-setup/references/pull-request-template.md';
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-shared-'));
   try {
     for (const dir of ['scripts', 'plugins'])
@@ -468,12 +470,152 @@ function testSkillsGuardSharedFiles() {
   }
 }
 
+// The shipped scorer of write-skill reads the native layout: each skill is a folder `<root>/<name>/SKILL.md`, one
+// level below the skills root. A folder without a SKILL.md is not a skill, so the scorer does not go into it.
+function testSkillGuardScoresFlatSkills() {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-skill-guard-'));
+  try {
+    const skillsRoot = path.join(fixtureRoot, 'skills');
+    const writeSkill = (relative, name) => {
+      const folder = path.join(skillsRoot, relative);
+      fs.mkdirSync(folder, { recursive: true });
+      fs.writeFileSync(
+        path.join(folder, 'SKILL.md'),
+        ['---', `name: ${name}`, `description: Use when a test scores the ${name} fixture. Not for real work.`, '---']
+          .concat([`# ${name}`, '', '## Workflow', '', '1. Score the fixture.', ''])
+          .join('\n'),
+      );
+    };
+    writeSkill('alpha', 'alpha');
+    writeSkill('beta', 'beta');
+    writeSkill('group/nested', 'nested');
+    fs.writeFileSync(path.join(skillsRoot, 'AGENTS.md'), '# Skills\n');
+    const rowsOf = (stdout) =>
+      stdout
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => line.split(' '));
+
+    const perFile = runNode(SKILL_GUARD, ['score', '--per-file', skillsRoot]);
+    assertStarted(perFile);
+    assert.equal(perFile.status, 0, perFile.stderr);
+    const rows = rowsOf(perFile.stdout);
+    assert.deepEqual(
+      rows.map(([name]) => name),
+      ['alpha', 'beta'],
+      'the scorer must give one row per skills/<name>/SKILL.md and no row for a deeper skill',
+    );
+    for (const [name, score] of rows) assert.match(score, /^\d+$/, `${name} must get an integer score`);
+
+    const total = runNode(SKILL_GUARD, ['score', skillsRoot]);
+    assertStarted(total);
+    assert.equal(total.status, 0, total.stderr);
+    assert.equal(total.stdout, `${rows.reduce((sum, [, score]) => sum + Number(score), 0)}\n`);
+
+    // Without a root, the scorer reads plugins/docks/skills of the working directory.
+    const docksSkills = path.join(ROOT, 'plugins/docks/skills');
+    const shippedNames = fs
+      .readdirSync(docksSkills)
+      .filter((name) => fs.existsSync(path.join(docksSkills, name, 'SKILL.md')))
+      .sort();
+    assert.ok(shippedNames.length > 0, 'plugins/docks/skills must hold skills at skills/<name>/SKILL.md');
+    const shipped = runNode(SKILL_GUARD, ['score', '--per-file']);
+    assertStarted(shipped);
+    assert.equal(shipped.status, 0, shipped.stderr);
+    assert.deepEqual(
+      rowsOf(shipped.stdout).map(([name]) => name),
+      shippedNames,
+    );
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
+// A plugin agent names the files of its skill as `skill://<skill>/<path>`, because omp resolves that form and sets no
+// plugin root variable. The guard accepts the `skill://` form. It refuses each `${...}` variable in an agent, and it
+// refuses a file path to a SKILL.md.
+function testAgentsGuardSkillReferences() {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-agents-'));
+  try {
+    const agentText = (reference) =>
+      [
+        '---',
+        'name: probe-reviewer',
+        'description: Use when a test needs a probe reviewer agent. Not for real reviews.',
+        'tools: read, glob, grep',
+        'autoload-skills: probe-reviewer',
+        '---',
+        '',
+        '# Probe Reviewer',
+        '',
+        `Read \`${reference}\` before the review.`,
+        '',
+        '<constraint>',
+        'Remain read-only.',
+        '</constraint>',
+        '',
+        '## Workflow',
+        '',
+        '1. Review the input.',
+        '',
+        '## Success Criteria',
+        '',
+        '- The review is complete.',
+        '',
+      ].join('\n');
+    let index = 0;
+    const runGuard = (reference) => {
+      index += 1;
+      const agents = path.join(fixtureRoot, `agents-${index}`);
+      fs.mkdirSync(agents);
+      fs.writeFileSync(path.join(agents, 'probe-reviewer.md'), agentText(reference));
+      return runNode(AGENTS_GUARD, [agents]);
+    };
+
+    for (const reference of ['skill://probe-reviewer/SKILL.md', 'skill://probe-reviewer/references/delta.md']) {
+      const accepted = runGuard(reference);
+      assertStarted(accepted);
+      assert.equal(accepted.status, 0, `${reference} must be accepted:\n${accepted.stderr}`);
+    }
+
+    const variableRule = /omp sets no plugin root variable, so name each skill file as skill:\/\/<skill>\/<path>/;
+    const pathRule = /a bundled SKILL\.md must load via skill:\/\/<skill>\/SKILL\.md, not a file path/;
+    // Each fixture breaks one rule only: the variable rule refuses a `${...}` variable also in a path to a file that
+    // is not SKILL.md, and in a variable that is not a plugin root variable.
+    for (const variable of [`\${CLAUDE_PLUGIN_ROOT}`, `\${OMP_PLUGIN_ROOT}`, `\${PLUGIN_ROOT}`, `\${HOME}`]) {
+      const rejected = runGuard(`${variable}/skills/probe-reviewer/references/delta.md`);
+      assertStarted(rejected);
+      assert.equal(rejected.status, 1, `${variable} must be refused:\n${rejected.stdout}`);
+      assert.match(rejected.stderr, /^FAIL: probe-reviewer\b/m);
+      assert.match(rejected.stderr, variableRule, `${variable} must be refused by the variable rule`);
+      assert.ok(
+        rejected.stderr.includes(`remove ${variable};`),
+        `the refusal must name ${variable}:\n${rejected.stderr}`,
+      );
+      assert.doesNotMatch(rejected.stderr, pathRule, `${variable} names no SKILL.md, so the path rule must not fire`);
+    }
+    // A plain repository path to SKILL.md holds no variable, so only the skill:// path rule refuses it.
+    const plainPath = 'plugins/plan-lifecycle/skills/probe-reviewer/SKILL.md';
+    const rejectedPath = runGuard(plainPath);
+    assertStarted(rejectedPath);
+    assert.equal(rejectedPath.status, 1, `${plainPath} must be refused:\n${rejectedPath.stdout}`);
+    assert.match(rejectedPath.stderr, pathRule, `${plainPath} must be refused by the skill:// path rule`);
+    assert.ok(rejectedPath.stderr.includes(plainPath), `the refusal must show the line:\n${rejectedPath.stderr}`);
+    assert.doesNotMatch(rejectedPath.stderr, variableRule, `${plainPath} holds no variable`);
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 testBiomeRejectsSyntaxDefect();
 testCombinedSkillValidation();
 testTreeGuardOperationalFailures();
 testSkillsGuardSpawnFailure();
 testSkillsGuardReportSection();
 testSkillsGuardSharedFiles();
+testSkillGuardScoresFlatSkills();
+testAgentsGuardSkillReferences();
 testTestContractToolchains();
 testShebangInterpreter();
 testValidatorTable();

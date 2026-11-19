@@ -31,6 +31,8 @@ import { createGenericPluginReleaseIo } from '../lib/plugin-release.mjs';
 import { PLUGINS, REPO_WIDE_JAVASCRIPT_QUALITY } from '../lib/plugins.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+// The one catalog of the native omp packages; the release bumps it next to the plugin package.json.
+const NATIVE_CATALOG = '.omp-plugin/marketplace.json';
 const GENERIC_RELEASE_IO_KEYS = Object.freeze(
   Object.keys(createGenericPluginReleaseIo({ repo: ROOT, plugins: PLUGINS })).sort(),
 );
@@ -289,11 +291,7 @@ function gitSnapshot() {
     assert.equal(result.status, 0, result.stderr);
     return result.stdout;
   };
-  const manifests = [
-    'plugins/docks/.claude-plugin/plugin.json',
-    'plugins/docks/.codex-plugin/plugin.json',
-    '.claude-plugin/marketplace.json',
-  ];
+  const manifests = ['plugins/docks/package.json', '.omp-plugin/marketplace.json'];
   return {
     status: run(['status', '--porcelain=v1', '--untracked-files=all']),
     refs: run(['show-ref']),
@@ -360,23 +358,20 @@ import path from 'node:path';
 const tool = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.DOCKS_CI_PROBE_LOG, JSON.stringify({ tool, args }) + '\\n');
-if (tool === 'claude') process.stdout.write('Validation passed\\n');
+// The native gate runs no claude command, so a claude call fails the gate here.
+if (tool === 'claude') process.exit(97);
 // The scorer stub must emit a row per scorable skill directory, because gateSkills now
 // corroborates the row count against the tree on disk. Enumerated here rather than listed so
 // adding a skill cannot silently turn this probe into a short-set failure; the short-set and
 // empty-set behaviour of that corroboration is owned by scripts/tests/unit/skill-score-vacuity.test.mjs.
-if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
+if (tool === 'node' && args[0] === 'plugins/docks/skills/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
   const skillRoot = args.at(-1);
   const rows = [];
-  for (const category of fs.readdirSync(skillRoot).sort()) {
-    const cp = path.join(skillRoot, category);
-    if (!fs.statSync(cp).isDirectory()) continue;
-    for (const skill of fs.readdirSync(cp).sort()) {
-      const dir = path.join(cp, skill);
-      if (!fs.statSync(dir).isDirectory()) continue;
-      if (!fs.existsSync(path.join(dir, 'SKILL.md'))) continue;
-      rows.push(\`\${category}/\${skill} 14\`);
-    }
+  for (const skill of fs.readdirSync(skillRoot).sort()) {
+    const dir = path.join(skillRoot, skill);
+    if (!fs.statSync(dir).isDirectory()) continue;
+    if (!fs.existsSync(path.join(dir, 'SKILL.md'))) continue;
+    rows.push(\`\${skill} 14\`);
   }
   if (rows.length) process.stdout.write(\`\${rows.join('\\n')}\\n\`);
 }
@@ -494,22 +489,21 @@ async function testFocusedCiCommandSelection() {
   const planLifecycleBiomeCiArgv = ['run', 'biome', 'ci', 'plugins/plan-lifecycle/test'];
   const coreBiomeCiArgv = ['run', 'biome', 'ci', 'scripts', 'plugins/docks/hooks', 'plugins/plan-lifecycle/test'];
   const docksSkillScripts = [
-    'plugins/docks/skills/productivity/write-skill/scripts',
-    'plugins/docks/skills/productivity/agent-first-setup/scripts',
-    'plugins/docks/skills/productivity/multi-tool-bridge/scripts',
+    'plugins/docks/skills/write-skill/scripts',
+    'plugins/docks/skills/agent-first-setup/scripts',
+    'plugins/docks/skills/multi-tool-bridge/scripts',
   ];
   const planLifecycleSkillScripts = [
-    'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts',
-    'plugins/plan-lifecycle/skills/productivity/plan-workspace/scripts',
+    'plugins/plan-lifecycle/skills/plan-manager/scripts',
+    'plugins/plan-lifecycle/skills/plan-workspace/scripts',
   ];
   const docksBiomeLintArgv = ['run', 'biome', 'lint', ...docksSkillScripts];
   const coreBiomeLintArgv = ['run', 'biome', 'lint', ...docksSkillScripts, ...planLifecycleSkillScripts];
   // Each selected plugin lints its shipped shell scripts, also the bundled skill scripts: plan-manager ships
   // base-blob.sh and checkout-state.sh, and docks code-review ships a copy of base-blob.sh.
-  const planLifecycleShell = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/base-blob.sh';
-  const planLifecycleCheckoutState =
-    'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/checkout-state.sh';
-  const docksShell = 'plugins/docks/skills/engineering/code-review/scripts/base-blob.sh';
+  const planLifecycleShell = 'plugins/plan-lifecycle/skills/plan-manager/scripts/base-blob.sh';
+  const planLifecycleCheckoutState = 'plugins/plan-lifecycle/skills/plan-manager/scripts/checkout-state.sh';
+  const docksShell = 'plugins/docks/skills/code-review/scripts/base-blob.sh';
   const shellcheckArgv = (...files) => ['-S', 'warning', ...files];
   // The repo lane owns exactly the paths no plugin claims. Derived from the registry so
   // this stays a statement about ownership rather than about a pasted argv.
@@ -525,6 +519,21 @@ async function testFocusedCiCommandSelection() {
       run('repo-', ['--lane', 'repo'], { timings: true }),
       run('timed-full-', [], { timings: true }),
     ]);
+    for (const [label, selected] of Object.entries({
+      targeted,
+      untargeted,
+      docksTargeted,
+      core,
+      timedCore,
+      repoWide,
+      full,
+    })) {
+      assert.deepEqual(
+        selected.calls.filter(({ tool }) => tool === 'claude'),
+        [],
+        `${label} CI must run no claude command; the gate checks the native package itself`,
+      );
+    }
     assert.equal(targeted.result.status, 0, `${targeted.result.stdout}\n${targeted.result.stderr}`);
     for (const script of repoWideCommands) {
       assert.equal(
@@ -657,18 +666,26 @@ async function testFocusedCiCommandSelection() {
       ],
       'core CI timing phases must own its two plugins and nothing repo-wide',
     );
+    // Each floor is read once and then reused. The skills floors are keyed however scoring.json keys them, so this
+    // counts each distinct read rather than naming the keys.
     const observedFloorCalls = core.calls.filter(
-      ({ args: callArgs }) => callArgs[0] === 'scripts/config/read-floor.mjs',
+      ({ tool, args: callArgs }) => tool === 'bun' && callArgs[0] === 'scripts/config/read-floor.mjs',
     );
-    for (const floorArgs of [
-      ['scripts/config/read-floor.mjs', 'skills', 'engineering'],
-      ['scripts/config/read-floor.mjs', 'skills', 'productivity'],
-      ['scripts/config/read-floor.mjs', 'agents'],
-    ]) {
+    const floorReads = new Map();
+    for (const { args: callArgs } of observedFloorCalls) {
+      const key = callArgs.slice(1).join('/');
+      floorReads.set(key, (floorReads.get(key) ?? 0) + 1);
+    }
+    assert.equal(floorReads.get('agents'), 1, `core CI must read the agents floor once; observed ${[...floorReads]}`);
+    assert.ok(
+      [...floorReads.keys()].some((key) => key.split('/')[0] === 'skills'),
+      `core CI must read a skills floor; observed ${[...floorReads]}`,
+    );
+    for (const [key, count] of floorReads) {
       assert.equal(
-        countToolInvocation(core.calls, 'bun', floorArgs),
+        count,
         1,
-        `core CI must read floor ${floorArgs.slice(1).join('/')} exactly once; observed ${JSON.stringify(observedFloorCalls)}`,
+        `core CI must read floor ${key} exactly once; observed ${JSON.stringify(observedFloorCalls)}`,
       );
     }
     assert.equal(
@@ -759,6 +776,310 @@ async function testFocusedCiCommandSelection() {
       fullPhases.filter((name) => !shardedPhases.has(name)),
       [],
       'every phase of the untargeted gate must be owned by some shard',
+    );
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
+// A copy of the working tree: every tracked and every untracked, not ignored file, as the gate sees the checkout.
+function copyWorkingTree(target) {
+  const listed = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  assert.equal(listed.status, 0, listed.stderr);
+  for (const relative of new Set(listed.stdout.split('\0').filter(Boolean))) {
+    const source = path.join(ROOT, relative);
+    // A tracked file that the working tree deleted is not part of the checkout.
+    const stat = fs.lstatSync(source, { throwIfNoEntry: false });
+    if (stat === undefined) continue;
+    const destination = path.join(target, relative);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    if (stat.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(source), destination);
+    else fs.copyFileSync(source, destination);
+  }
+  fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(target, 'node_modules'), 'dir');
+}
+
+const writeTreeFile = (tree, relative, text) => {
+  fs.mkdirSync(path.dirname(path.join(tree, relative)), { recursive: true });
+  fs.writeFileSync(path.join(tree, relative), text);
+};
+const editTreeText = (tree, relative, change) => {
+  const file = path.join(tree, relative);
+  const before = fs.readFileSync(file, 'utf8');
+  const after = change(before);
+  assert.notEqual(after, before, `the fixture change of ${relative} changed nothing`);
+  fs.writeFileSync(file, after);
+};
+const editTreeJson = (tree, relative, change) =>
+  editTreeText(tree, relative, (text) => {
+    const value = JSON.parse(text);
+    change(value);
+    return `${JSON.stringify(value, null, 2)}\n`;
+  });
+const catalogEntry = (catalog, name) => catalog.plugins.find((entry) => entry.name === name);
+const fixtureSkill = (name) =>
+  `---\nname: ${name}\ndescription: Use when a gate test needs the ${name} skill. Not for real work.\n---\n\n# ${name}\n`;
+
+// Each case is one defect of a native package, and a pattern that a gate failure line about that defect matches.
+const NATIVE_GATE_CASES = [
+  [
+    // The frontmatter name is the name of the folder that holds SKILL.md, so only the depth rule refuses this skill.
+    'a skill one folder below skills/<name>/',
+    (tree) => writeTreeFile(tree, 'plugins/docks/skills/zz-nested/zz-nested/SKILL.md', fixtureSkill('zz-nested')),
+    /skills\/zz-nested\/zz-nested\/SKILL\.md is not at skills\/<name>\/SKILL\.md/,
+  ],
+  [
+    'a skill whose frontmatter name is not its folder name',
+    (tree) => writeTreeFile(tree, 'plugins/docks/skills/zz-folder/SKILL.md', fixtureSkill('zz-other')),
+    /zz-folder/,
+  ],
+  [
+    'a catalog without a name',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        delete catalog.name;
+      }),
+    /marketplace\.json has no name$/,
+  ],
+  [
+    'a catalog entry that no descriptor has',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        catalog.plugins.push({ ...catalogEntry(catalog, 'docks'), name: 'zz-extra' });
+      }),
+    /entry zz-extra has no descriptor/,
+  ],
+  [
+    'a catalog source that is another plugin folder',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        catalogEntry(catalog, 'docks').source = './plugins/plan-lifecycle';
+      }),
+    /docks catalog source \.\/plugins\/plan-lifecycle is not \.\/plugins\/docks/,
+  ],
+  [
+    'a package.json without a description',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        delete pluginPackage.description;
+      }),
+    /plugins\/docks\/package\.json lacks description$/,
+  ],
+  [
+    'a package.json without a license',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        delete pluginPackage.license;
+      }),
+    /plugins\/docks\/package\.json lacks license$/,
+  ],
+  [
+    'a package.json that is not private',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.private = false;
+      }),
+    /plugins\/docks\/package\.json lacks private: true$/,
+  ],
+  [
+    'a package.json of type commonjs',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.type = 'commonjs';
+      }),
+    /plugins\/docks\/package\.json lacks type: "module"$/,
+  ],
+  [
+    'a leftover Codex plugin manifest folder',
+    (tree) => writeTreeFile(tree, 'plugins/docks/.codex-plugin/plugin.json', '{"name":"docks"}\n'),
+    /plugins\/docks\/\.codex-plugin is a leftover/,
+  ],
+  [
+    'an agent without a description',
+    (tree) =>
+      editTreeText(tree, 'plugins/plan-lifecycle/agents/code-reviewer.md', (text) =>
+        text.replace(/^description: .*\n/m, ''),
+      ),
+    /agent code-reviewer has no description$/,
+  ],
+  [
+    'a catalog version that is not the package.json version',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        catalogEntry(catalog, 'docks').version = '9.9.9';
+      }),
+    /9\.9\.9/,
+  ],
+  [
+    'a package.json version that is not the catalog version',
+    (tree) =>
+      editTreeJson(tree, 'plugins/plan-lifecycle/package.json', (pluginPackage) => {
+        pluginPackage.version = '8.8.8';
+      }),
+    /8\.8\.8/,
+  ],
+  [
+    'a package.json name that is not its catalog entry name',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.name = 'zz-renamed';
+      }),
+    /zz-renamed/,
+  ],
+  [
+    'a package.json without the omp object',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        delete pluginPackage.omp;
+      }),
+    /\bomp\b/,
+  ],
+  [
+    'a catalog without owner.name',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        delete catalog.owner;
+      }),
+    /owner/,
+  ],
+  [
+    'a catalog without an entry for a plugin',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        catalog.plugins = catalog.plugins.filter((entry) => entry.name !== 'plan-lifecycle');
+      }),
+    /plan-lifecycle/,
+  ],
+  [
+    'a catalog source outside the repository',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        catalogEntry(catalog, 'docks').source = '../docks';
+      }),
+    /\.\.\/docks/,
+  ],
+  [
+    'an agent with a model key',
+    (tree) =>
+      editTreeText(tree, 'plugins/plan-lifecycle/agents/code-reviewer.md', (text) =>
+        text.replace(/^name: code-reviewer$/m, '$&\nmodel: sonnet'),
+      ),
+    /code-reviewer.*\bmodel\b|\bmodel\b.*code-reviewer/,
+  ],
+  [
+    'an agent that names a plugin root variable',
+    (tree) =>
+      editTreeText(
+        tree,
+        'plugins/plan-lifecycle/agents/code-reviewer.md',
+        (text) => `${text}\nRead \`\${OMP_PLUGIN_ROOT}/skills/code-reviewer/SKILL.md\` first.\n`,
+      ),
+    /code-reviewer/,
+  ],
+  [
+    'a leftover plugin manifest folder',
+    (tree) => writeTreeFile(tree, 'plugins/docks/.claude-plugin/plugin.json', '{"name":"docks"}\n'),
+    /\.claude-plugin/,
+  ],
+  [
+    'a leftover root catalog folder',
+    (tree) => writeTreeFile(tree, '.claude-plugin/marketplace.json', '{"name":"docks"}\n'),
+    /\.claude-plugin/,
+  ],
+  [
+    'a leftover second catalog',
+    (tree) => writeTreeFile(tree, '.agents/plugins/marketplace.json', '{"name":"docks"}\n'),
+    /\.agents\/plugins/,
+  ],
+  [
+    'a leftover agents folder of another tool',
+    (tree) => writeTreeFile(tree, '.codex/agents/zz-agent.toml', 'name = "zz-agent"\n'),
+    /\.codex\b/,
+  ],
+];
+
+// The failure lines that the gate lists after its `check(s) failed` header.
+function gateFailures(stdout) {
+  const lines = stdout.split('\n');
+  const header = lines.findIndex((line) => line.includes('check(s) failed:'));
+  if (header === -1) return [];
+  return lines
+    .slice(header + 1)
+    .filter((line) => line.startsWith('  - '))
+    .map((line) => line.slice(4));
+}
+
+// The native package rules run inside scripts/ci.mjs. So the gate finds each defect above also when every child
+// command is stubbed green. Each case runs the untargeted gate on a copy of the working tree with one defect, and
+// the defect must add a failure line that names it. The clean copy must pass, and no run may call claude.
+async function testNativePackageGate() {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-native-gate-'));
+  try {
+    const shimDir = path.join(fixtureRoot, 'bin');
+    fs.mkdirSync(shimDir, { mode: 0o700 });
+    for (const tool of ['node', 'bun', 'claude', 'shellcheck']) writeCiProbeShim(shimDir, tool);
+    const env = { ...process.env, PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ''}` };
+    delete env.GITHUB_ACTIONS;
+    const runGate = async (index, mutate) => {
+      const tree = path.join(fixtureRoot, `tree-${index}`);
+      copyWorkingTree(tree);
+      mutate?.(tree);
+      const callLog = path.join(fixtureRoot, `calls-${index}.jsonl`);
+      fs.writeFileSync(callLog, '', { mode: 0o600 });
+      const result = await execFileResult(process.execPath, ['scripts/ci.mjs'], {
+        cwd: tree,
+        encoding: 'utf8',
+        timeout: 180_000,
+        maxBuffer: 16 * 1024 * 1024,
+        env: { ...env, DOCKS_CI_PROBE_LOG: callLog },
+      });
+      const logged = fs.readFileSync(callLog, 'utf8').trim();
+      const calls = logged === '' ? [] : logged.split('\n').map((line) => JSON.parse(line));
+      fs.rmSync(tree, { recursive: true, force: true });
+      return { result, calls, failures: gateFailures(result.stdout) };
+    };
+    // A few gates at a time: each gate starts many stubbed children.
+    const jobs = [null, ...NATIVE_GATE_CASES.map(([, mutate]) => mutate)];
+    const outcomes = new Array(jobs.length);
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: 4 }, async () => {
+        while (next < jobs.length) {
+          const index = next;
+          next += 1;
+          outcomes[index] = await runGate(index, jobs[index]);
+        }
+      }),
+    );
+
+    const [clean, ...broken] = outcomes;
+    assert.equal(
+      clean.result.status,
+      0,
+      `the clean copy must pass the gate:\n${clean.result.stdout}\n${clean.result.stderr}`,
+    );
+    assert.deepEqual(clean.failures, []);
+    for (const [index, [label, , pattern]] of NATIVE_GATE_CASES.entries()) {
+      const { result, calls, failures } = broken[index];
+      assert.deepEqual(
+        calls.filter(({ tool }) => tool === 'claude'),
+        [],
+        `${label}: the gate must run no claude command`,
+      );
+      assert.notEqual(result.status, 0, `${label} must fail the gate:\n${result.stdout}\n${result.stderr}`);
+      assert.ok(
+        failures.some((line) => pattern.test(line)),
+        `${label} must add a gate failure that matches ${pattern}; the failures are:\n${failures.join('\n')}`,
+      );
+    }
+    assert.deepEqual(
+      clean.calls.filter(({ tool }) => tool === 'claude'),
+      [],
+      'the gate must run no claude command',
     );
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
@@ -900,14 +1221,24 @@ async function testGenericReleaseModuleContract(
     assert.ok(plugin, `missing ordinary plugin descriptor: ${plugin?.name}`);
     assert.deepEqual(Object.keys(plugin.release).sort(), ['install', 'kind']);
     assert.equal(plugin.release.kind, 'generic');
-    assert.match(plugin.release.install, /\S/);
+    // `omp plugin install` fails on an existing install, so the release text gives both the install and the upgrade.
+    for (const line of [
+      'omp plugin marketplace add DocksDocks/docks',
+      `omp plugin install ${plugin.name}@docks`,
+      'omp plugin marketplace update docks',
+      `omp plugin upgrade ${plugin.name}@docks`,
+    ])
+      assert.ok(
+        plugin.release.install.split('\n').includes(line),
+        `${plugin.name} release install text lacks: ${line}`,
+      );
     assert.equal('install' in plugin, false, `${plugin.name} install text belongs only to its release policy`);
 
-    const currentVersion = JSON.parse(
-      fs.readFileSync(path.join(ROOT, plugin.root, '.claude-plugin/plugin.json'), 'utf8'),
-    ).version;
+    const packageJson = `${plugin.root}/package.json`;
+    const currentVersion = JSON.parse(fs.readFileSync(path.join(ROOT, packageJson), 'utf8')).version;
     const [major, minor, patchVersion] = currentVersion.split('.').map(Number);
     const targetVersion = `${major}.${minor}.${patchVersion + 1}`;
+    const targetTag = `${plugin.name}--v${targetVersion}`;
     const fixture = genericReleaseIo(ROOT);
     await runGenericPluginRelease({
       argv: ['--dry-run', '--plugin', plugin.name, 'patch'],
@@ -916,11 +1247,8 @@ async function testGenericReleaseModuleContract(
       io: fixture.io,
     });
     assert.ok(
-      fixture.calls.some(
-        ({ tool, args: callArgs }) =>
-          tool === 'readJson' && callArgs[0] === `${plugin.root}/.claude-plugin/plugin.json`,
-      ),
-      `${plugin.name} must derive its current version from its own Claude manifest`,
+      fixture.calls.some(({ tool, args: callArgs }) => tool === 'readJson' && callArgs[0] === packageJson),
+      `${plugin.name} must derive its current version from its own package.json`,
     );
     assert.ok(
       fixture.calls.some(
@@ -935,16 +1263,29 @@ async function testGenericReleaseModuleContract(
       fixture.output.join('\n'),
       new RegExp(`Bumping ${plugin.name}: ${currentVersion.replaceAll('.', '\\.')} →`),
     );
-    const dryRunOutput = fixture.output.join('\n');
+    const forecast = [
+      `  [dry-run] ${packageJson}: would write version → ${targetVersion}`,
+      `  [dry-run] ${NATIVE_CATALOG}: would write version → ${targetVersion}`,
+      `  [dry-run] git add ${packageJson} ${NATIVE_CATALOG}`,
+      `  [dry-run] git commit -m "chore(release): ${plugin.name} v${targetVersion}"`,
+      '  [dry-run] git push origin HEAD',
+      `  [dry-run] git tag -a ${targetTag} -m "${plugin.name} plugin v${targetVersion}"`,
+      `  [dry-run] git push origin ${targetTag}`,
+    ];
+    const forecastLines = forecast.map((line) => fixture.output.indexOf(line));
     assert.ok(
-      dryRunOutput.includes(
-        `  [dry-run] ${plugin.root}/.claude-plugin/plugin.json: would write version → ${targetVersion}`,
-      ),
-      `${plugin.name} real bump preview must name the target version`,
+      forecastLines.every((index) => index !== -1),
+      `${plugin.name} dry run must forecast the native writes, the commit, and the git tag and its push:\n${fixture.output.join('\n')}`,
     );
-    assert.ok(
-      dryRunOutput.includes(`  [dry-run] git commit -m "chore(release): ${plugin.name} v${targetVersion}"`),
-      `${plugin.name} real bump preview must predict the release commit`,
+    assert.deepEqual(
+      forecastLines,
+      [...forecastLines].sort((left, right) => left - right),
+      `${plugin.name} dry run must forecast the release steps in the order the release runs them`,
+    );
+    assert.deepEqual(
+      fixture.output.filter((line) => /claude|codex/i.test(line)),
+      [],
+      `${plugin.name} dry run must name no Claude or Codex file or command`,
     );
     assert.equal(
       fixture.calls.some(({ tool }) =>
@@ -957,10 +1298,8 @@ async function testGenericReleaseModuleContract(
 
   const generic = ordinaryPlugins[0];
   const recutPlugin = ordinaryPlugins.at(-1);
-  const recutVersion = JSON.parse(
-    fs.readFileSync(path.join(ROOT, recutPlugin.root, '.claude-plugin/plugin.json'), 'utf8'),
-  ).version;
-  const recutManifest = `${recutPlugin.root}/.claude-plugin/plugin.json`;
+  const recutManifest = `${recutPlugin.root}/package.json`;
+  const recutVersion = JSON.parse(fs.readFileSync(path.join(ROOT, recutManifest), 'utf8')).version;
 
   const unchangedRecut = genericReleaseIo(ROOT, { wouldStageChange: false });
   await runGenericPluginRelease({
@@ -1045,16 +1384,17 @@ async function testGenericReleaseModuleContract(
     io: dirtyTree.io,
   });
   const dirtyTreeOutput = dirtyTree.output.join('\n');
-  for (const relative of [
-    recutManifest,
-    '.claude-plugin/marketplace.json',
-    `${recutPlugin.root}/.codex-plugin/plugin.json`,
-  ]) {
+  for (const relative of [recutManifest, NATIVE_CATALOG]) {
     assert.ok(
       dirtyTreeOutput.includes(`  [dry-run] ${relative}: not compared (working tree dirty)`),
       `dirty-tree dry-run refusal must decline the per-manifest comparison for ${relative}`,
     );
   }
+  assert.deepEqual(
+    dirtyTree.output.filter((line) => /claude|codex/i.test(line)),
+    [],
+    'dirty-tree dry run must name no Claude or Codex file',
+  );
   assert.equal(
     dirtyTree.calls.some(({ tool }) => tool === 'wouldStageChange'),
     false,
@@ -1078,7 +1418,7 @@ async function testGenericReleaseModuleContract(
     'git add',
     'git commit',
     'git push',
-    'plugin tag',
+    'git tag',
     'wait for tag-CI',
     'gh release create',
     'already at this version',
@@ -1302,6 +1642,43 @@ async function testGenericReleaseModuleContract(
     successfulRelease.calls.some(({ tool }) => tool === 'createRelease'),
     'an explicit green tag-CI result must authorize stable release creation',
   );
+  // The release writes the native files only, commits them, pushes, and then creates and pushes the tag through
+  // createTag. It probes gh and no other executable: no claude executable takes part in a release.
+  const genericPackage = `${generic.root}/package.json`;
+  const [releaseMajor, releaseMinor, releasePatch] = JSON.parse(
+    fs.readFileSync(path.join(ROOT, genericPackage), 'utf8'),
+  )
+    .version.split('.')
+    .map(Number);
+  const releasedVersion = `${releaseMajor}.${releaseMinor}.${releasePatch + 1}`;
+  const releaseCalls = (tool) => successfulRelease.calls.filter((call) => call.tool === tool).map((call) => call.args);
+  assert.deepEqual(releaseCalls('ensureTool'), [['gh']], 'the release must check for gh only');
+  const releaseWrites = releaseCalls('writeJson');
+  assert.deepEqual(
+    releaseWrites.map(([file]) => file),
+    [genericPackage, NATIVE_CATALOG],
+    'the release must write the plugin package.json and the catalog, and nothing else',
+  );
+  assert.equal(releaseWrites[0][1].version, releasedVersion, 'package.json must get the new version');
+  const catalogOnDisk = JSON.parse(fs.readFileSync(path.join(ROOT, NATIVE_CATALOG), 'utf8'));
+  assert.deepEqual(
+    releaseWrites[1][1].plugins,
+    catalogOnDisk.plugins.map((entry) =>
+      entry.name === generic.name ? { ...entry, version: releasedVersion } : entry,
+    ),
+    'the catalog must change only the version of the released entry',
+  );
+  assert.deepEqual(releaseCalls('commit'), [
+    [[genericPackage, NATIVE_CATALOG], `chore(release): ${generic.name} v${releasedVersion}`],
+  ]);
+  assert.deepEqual(releaseCalls('createTag'), [[`${generic.name}--v${releasedVersion}`]]);
+  assert.deepEqual(
+    successfulRelease.calls
+      .map(({ tool }) => tool)
+      .filter((tool) => ['writeJson', 'commit', 'push', 'createTag', 'waitForTagCi', 'createRelease'].includes(tool)),
+    ['writeJson', 'writeJson', 'commit', 'push', 'createTag', 'waitForTagCi', 'createRelease'],
+    'the release must write, commit, push, tag, wait for tag CI, and then publish',
+  );
 
   const greenRun = {
     ok: true,
@@ -1385,6 +1762,7 @@ async function testDryRunReleaseSafety() {
   fs.mkdirSync(shimDir, { mode: 0o700 });
   fs.writeFileSync(callLog, '', { mode: 0o600 });
   try {
+    // The claude shim is a sentinel: the release runs no claude command, so any call to it is logged and refused.
     for (const name of ['node', 'bun', 'git', 'claude', 'gh']) writeReleaseShim(shimDir, name);
     const result = spawnSync(process.execPath, ['scripts/release.mjs', '--dry-run', '--plugin', 'docks', 'patch'], {
       cwd: ROOT,
@@ -1398,10 +1776,14 @@ async function testDryRunReleaseSafety() {
       },
     });
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /\[dry-run\] plugins\/docks\/package\.json: would write version → /);
+    assert.match(result.stdout, /\[dry-run\] \.omp-plugin\/marketplace\.json: would write version → /);
     assert.match(result.stdout, /\[dry-run\] git push origin HEAD/);
-    assert.match(result.stdout, /\[dry-run\] claude plugin tag --push/);
+    assert.match(result.stdout, /\[dry-run\] git tag -a docks--v\d+\.\d+\.\d+ -m "docks plugin v\d+\.\d+\.\d+"/);
+    assert.match(result.stdout, /\[dry-run\] git push origin docks--v\d+\.\d+\.\d+\n/);
     assert.match(result.stdout, /\[dry-run\] wait for tag-CI .* gh release create/);
     assert.match(result.stdout, /\[dry-run\] OK — no changes written, no tag, no release/);
+    assert.doesNotMatch(result.stdout, /claude/i, 'the dry run must name no claude command');
     const calls = fs
       .readFileSync(callLog, 'utf8')
       .trim()
@@ -1445,10 +1827,10 @@ async function testDryRunReleaseSafety() {
       false,
       'dry-run must not invoke git push',
     );
-    assert.equal(
-      calls.some(({ tool, args: callArgs }) => tool === 'claude' && callArgs[0] === 'plugin' && callArgs[1] === 'tag'),
-      false,
-      'dry-run must not invoke claude plugin tag',
+    assert.deepEqual(
+      calls.filter(({ tool }) => tool === 'claude'),
+      [],
+      'the release must run no claude command, also no claude --version probe',
     );
     assert.equal(
       calls.some(({ tool, args: callArgs }) => tool === 'gh' && callArgs[0] === 'release' && callArgs[1] === 'create'),
@@ -1472,7 +1854,7 @@ async function testDryRunReleaseSafety() {
       calls.some(
         ({ tool, args: callArgs }) =>
           (tool === 'git' && ['add', 'commit', 'push', 'tag'].includes(callArgs[0])) ||
-          (tool === 'claude' && callArgs[0] === 'plugin' && callArgs[1] === 'tag') ||
+          tool === 'claude' ||
           (tool === 'gh' &&
             ((callArgs[0] === 'workflow' && callArgs[1] === 'run') ||
               (callArgs[0] === 'release' && ['create', 'edit', 'upload', 'delete'].includes(callArgs[1])))),
@@ -1481,9 +1863,9 @@ async function testDryRunReleaseSafety() {
       'Docks dry-run must not invoke write, commit, push, tag, workflow, or GitHub Release mutation',
     );
     assert.deepEqual(gitSnapshot(), before);
-    const ordinaryReleaseBytes = ['plan-lifecycle']
-      .flatMap((name) => [`plugins/${name}/.claude-plugin/plugin.json`, `plugins/${name}/.codex-plugin/plugin.json`])
-      .map((file) => fs.readFileSync(path.join(ROOT, file), 'base64'));
+    const ordinaryReleaseBytes = ['plugins/plan-lifecycle/package.json', NATIVE_CATALOG].map((file) =>
+      fs.readFileSync(path.join(ROOT, file), 'base64'),
+    );
     for (const pluginName of ['plan-lifecycle']) {
       fs.writeFileSync(callLog, '', { mode: 0o600 });
       const pluginResult = spawnSync(
@@ -1521,7 +1903,7 @@ async function testDryRunReleaseSafety() {
         pluginCalls.some(
           ({ tool, args: callArgs }) =>
             (tool === 'git' && ['add', 'commit', 'push', 'tag'].includes(callArgs[0])) ||
-            (tool === 'claude' && callArgs[0] === 'plugin' && callArgs[1] === 'tag') ||
+            tool === 'claude' ||
             (tool === 'gh' &&
               ((callArgs[0] === 'workflow' && callArgs[1] === 'run') ||
                 (callArgs[0] === 'release' && ['create', 'edit', 'upload', 'delete'].includes(callArgs[1])))),
@@ -1531,9 +1913,9 @@ async function testDryRunReleaseSafety() {
       );
     }
     assert.deepEqual(
-      ['plan-lifecycle']
-        .flatMap((name) => [`plugins/${name}/.claude-plugin/plugin.json`, `plugins/${name}/.codex-plugin/plugin.json`])
-        .map((file) => fs.readFileSync(path.join(ROOT, file), 'base64')),
+      ['plugins/plan-lifecycle/package.json', NATIVE_CATALOG].map((file) =>
+        fs.readFileSync(path.join(ROOT, file), 'base64'),
+      ),
       ordinaryReleaseBytes,
     );
     assert.deepEqual(gitSnapshot(), before);
@@ -1568,7 +1950,7 @@ function testTimingWriteFailure() {
       path.join(ROOT, 'scripts/lib/ci-background-task.mjs'),
       path.join(worktree, 'scripts/lib/ci-background-task.mjs'),
     );
-    const manifestPath = path.join(worktree, 'plugins/plan-lifecycle/.claude-plugin/plugin.json');
+    const manifestPath = path.join(worktree, 'plugins/plan-lifecycle/package.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     manifest.version = '0.0.0';
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -1724,10 +2106,7 @@ for (const plugin of PLUGINS) {
   assert.ok(lanes.includes(REPO_WIDE_LANE), `${plugin.name}: the repo-wide shard is unconditional`);
 }
 assert.deepEqual(shardsFor(['plugins/plan-lifecycle/test/selftest.mjs']).lanes, ['repo', 'core']);
-assert.deepEqual(shardsFor(['plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs']).lanes, [
-  'repo',
-  'core',
-]);
+assert.deepEqual(shardsFor(['plugins/docks/skills/write-skill/scripts/skill-guard.mjs']).lanes, ['repo', 'core']);
 
 // A multi-plugin diff selects each implicated shard.
 assert.deepEqual(shardsFor(['plugins/plan-lifecycle/test/selftest.mjs', 'plugins/docks/skills/a.md']).lanes, [
@@ -1822,7 +2201,10 @@ assert.deepEqual(assertPluginTreesAreRegistered(), ['plugins/docks', 'plugins/pl
 // The reported defect, and it must reach callers through the wired entry point too.
 withPluginTreeEntry(
   'zz-unregistered-probe',
-  (target) => fs.mkdirSync(path.join(target, '.claude-plugin'), { recursive: true }),
+  (target) => {
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, 'package.json'), '{"name":"zz-unregistered-probe","omp":{}}\n');
+  },
   () => {
     for (const [label, call] of [
       ['the helper', assertPluginTreesAreRegistered],
@@ -1932,6 +2314,8 @@ assert.deepEqual(releaseCiArgs('docks'), ['-q', '--plugin', 'docks']);
 console.log('registry targeting and author-check selection passed');
 await testFocusedCiCommandSelection();
 console.log('focused CI command selection passed');
+await testNativePackageGate();
+console.log('native package gate checks passed');
 
 assert.deepEqual(parseReleaseTag('docks--v0.12.8'), { plugin: 'docks', version: '0.12.8' });
 assert.deepEqual(parseReleaseTag('plan-lifecycle--v11.2.0'), { plugin: 'plan-lifecycle', version: '11.2.0' });
@@ -1957,15 +2341,85 @@ console.log('release tag and workflow selection passed');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-ci-targeting-'));
 try {
+  // The resolver runs in the checkout of the tagged commit. Each fixture is such a checkout: the plugin package.json
+  // and the catalog, with the versions that the case needs.
+  const tagCheckout = (name, { packageVersion, catalogVersion, catalogEntries = 1 }) => {
+    const checkout = path.join(tmp, name);
+    const pluginPackage = JSON.parse(fs.readFileSync(path.join(ROOT, 'plugins/plan-lifecycle/package.json'), 'utf8'));
+    const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, NATIVE_CATALOG), 'utf8'));
+    const entry = catalogEntry(catalog, 'plan-lifecycle');
+    catalog.plugins = [
+      ...catalog.plugins.filter((candidate) => candidate !== entry),
+      ...Array.from({ length: catalogEntries }, () => ({ ...entry, version: catalogVersion })),
+    ];
+    writeTreeFile(
+      checkout,
+      'plugins/plan-lifecycle/package.json',
+      `${JSON.stringify({ ...pluginPackage, version: packageVersion })}\n`,
+    );
+    writeTreeFile(checkout, NATIVE_CATALOG, `${JSON.stringify(catalog)}\n`);
+    return checkout;
+  };
+  const resolveTag = (cwd, tag, extra = []) =>
+    spawnSync(process.execPath, [path.join(ROOT, 'scripts/ci-target.mjs'), 'release-tag', tag, ...extra], {
+      cwd,
+      encoding: 'utf8',
+    });
+
   const githubOutput = path.join(tmp, 'github-output');
-  const cli = spawnSync(
-    process.execPath,
-    ['scripts/ci-target.mjs', 'release-tag', 'plan-lifecycle--v0.11.2', '--github-output', githubOutput],
-    { cwd: ROOT, encoding: 'utf8' },
-  );
+  const matching = tagCheckout('tag-matching', { packageVersion: '0.11.2', catalogVersion: '0.11.2' });
+  const cli = resolveTag(matching, 'plan-lifecycle--v0.11.2', ['--github-output', githubOutput]);
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stdout, '');
   assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'mode=targeted\nplugin=plan-lifecycle\n');
+
+  // The tag of each plugin at its current version resolves in this checkout.
+  for (const plugin of PLUGINS) {
+    const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, plugin.root, 'package.json'), 'utf8'));
+    const current = resolveTag(ROOT, `${plugin.name}--v${version}`);
+    assert.equal(current.status, 0, current.stderr);
+    assert.deepEqual(JSON.parse(current.stdout), { mode: 'targeted', plugin: plugin.name });
+  }
+
+  // A tag whose version is not the version of the tagged commit fails the tag CI, and the error names each file
+  // that disagrees and no other.
+  for (const [label, checkout, tag, named, notNamed] of [
+    [
+      'a tag version that neither file has',
+      matching,
+      'plan-lifecycle--v0.11.3',
+      [/plugins\/plan-lifecycle\/package\.json has version 0\.11\.2/, /marketplace\.json has version 0\.11\.2/],
+      [],
+    ],
+    [
+      'a package.json version that is not the tag version',
+      tagCheckout('tag-package-drift', { packageVersion: '0.11.9', catalogVersion: '0.11.2' }),
+      'plan-lifecycle--v0.11.2',
+      [/plugins\/plan-lifecycle\/package\.json has version 0\.11\.9/],
+      [/marketplace\.json has version/],
+    ],
+    [
+      'a catalog version that is not the tag version',
+      tagCheckout('tag-catalog-drift', { packageVersion: '0.11.2', catalogVersion: '0.11.8' }),
+      'plan-lifecycle--v0.11.2',
+      [/marketplace\.json has version 0\.11\.8/],
+      [/package\.json has version/],
+    ],
+    [
+      'a catalog without an entry for the tagged plugin',
+      tagCheckout('tag-catalog-missing', { packageVersion: '0.11.2', catalogVersion: '0.11.2', catalogEntries: 0 }),
+      'plan-lifecycle--v0.11.2',
+      [/marketplace\.json has 0 entries for plan-lifecycle/],
+      [],
+    ],
+  ]) {
+    const outputFile = path.join(tmp, `github-output-${tag}-${path.basename(checkout)}`);
+    const refused = resolveTag(checkout, tag, ['--github-output', outputFile]);
+    assert.equal(refused.status, 2, `${label} must fail the release-tag resolution:\n${refused.stderr}`);
+    for (const pattern of named) assert.match(refused.stderr, pattern, `${label}`);
+    for (const pattern of notNamed) assert.doesNotMatch(refused.stderr, pattern, `${label}`);
+    assert.equal(fs.existsSync(outputFile), false, `${label} must write no CI target`);
+  }
 
   const malformed = spawnSync(process.execPath, ['scripts/ci-target.mjs', 'release-tag', 'docks--v1.2.3;echo-owned'], {
     cwd: ROOT,
@@ -2171,34 +2625,40 @@ assert.deepEqual(
     'publish hosted timing artifact',
   ],
 );
+// The name of the dependency install step may say what it installs, so the inventories below name it by its
+// prefix. No step of the workflow sets up a Claude CLI: the gate checks the native package itself.
+const INSTALL_STEP = 'install Bun dependencies';
+const stepLabel = (row) => (row.name?.startsWith(INSTALL_STEP) ? INSTALL_STEP : (row.name ?? row.uses));
+for (const [jobName, job] of Object.entries(validation.jobs)) {
+  for (const row of job.steps) {
+    assert.doesNotMatch(
+      `${row.name ?? ''}\n${row.run ?? ''}`,
+      /claude/i,
+      `${jobName}: step ${row.name ?? row.uses} must not install or run a Claude CLI`,
+    );
+  }
+}
 const shardSteps = shardJob.steps;
 const shardStep = (name) => shardSteps.find((row) => row.name?.startsWith(name));
-assert.deepEqual(
-  shardSteps.map((row) => row.name ?? row.uses),
-  [
-    'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
-    'setup Node 24',
-    'setup Bun',
-    'start hosted step timing',
-    'cache Bun install cache',
-    'mark hosted cache restore',
-    'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
-    'verify registry signatures (non-blocking)',
-    'materialize claude-code binary (trustedDependencies denies it by default)',
-    'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-    'run validation lane',
-    'publish hosted timing artifact',
-  ],
-);
+assert.deepEqual(shardSteps.map(stepLabel), [
+  'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+  'setup Node 24',
+  'setup Bun',
+  'start hosted step timing',
+  'cache Bun install cache',
+  'mark hosted cache restore',
+  INSTALL_STEP,
+  'verify registry signatures (non-blocking)',
+  'run validation lane',
+  'publish hosted timing artifact',
+]);
 for (const name of [
   'setup Bun',
   'start hosted step timing',
   'cache Bun install cache',
   'mark hosted cache restore',
-  'install Bun dependencies',
+  INSTALL_STEP,
   'verify registry signatures',
-  'materialize claude-code binary',
-  'add node_modules/.bin to PATH',
   'run validation lane',
 ])
   assert.equal(shardStep(name).if, undefined, `${name} must run on both candidate lanes`);
@@ -2216,32 +2676,25 @@ assert.equal(targetingJob['runs-on'], 'ubuntu-latest');
 assert.equal(targetingJob['timeout-minutes'], 10);
 const targetingSteps = targetingJob.steps;
 const targetingStep = (name) => targetingSteps.find((row) => row.name?.startsWith(name));
-assert.deepEqual(
-  targetingSteps.map((row) => row.name ?? row.uses),
-  [
-    'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
-    'setup Node 24',
-    'setup Bun',
-    'start hosted step timing',
-    'cache Bun install cache',
-    'mark hosted cache restore',
-    'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
-    'verify registry signatures (non-blocking)',
-    'materialize claude-code binary (trustedDependencies denies it by default)',
-    'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-    'run non-unit plugin-targeting contracts',
-    'publish hosted timing artifact',
-  ],
-);
+assert.deepEqual(targetingSteps.map(stepLabel), [
+  'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+  'setup Node 24',
+  'setup Bun',
+  'start hosted step timing',
+  'cache Bun install cache',
+  'mark hosted cache restore',
+  INSTALL_STEP,
+  'verify registry signatures (non-blocking)',
+  'run non-unit plugin-targeting contracts',
+  'publish hosted timing artifact',
+]);
 for (const name of [
   'setup Node 24',
   'setup Bun',
   'cache Bun install cache',
   'mark hosted cache restore',
-  'install Bun dependencies',
+  INSTALL_STEP,
   'verify registry signatures',
-  'materialize claude-code binary',
-  'add node_modules/.bin to PATH',
 ]) {
   assert.deepEqual(targetingStep(name), shardStep(name), `${name}: targeting-contract setup drifted from shard setup`);
 }
@@ -2265,30 +2718,25 @@ assert.deepEqual(validateJob.needs, ['validation-shards', 'targeting-contracts',
 assert.equal(validateJob.if, 'always()');
 const steps = validateWorkflow.value.jobs.validate.steps;
 const step = (name) => steps.find((row) => row.name?.startsWith(name));
-assert.deepEqual(
-  steps.map((row) => row.name ?? row.uses),
-  [
-    'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
-    'setup Node 24',
-    'setup Bun',
-    'resolve CI target',
-    'start hosted step timing',
-    'cache Bun install cache',
-    'mark hosted cache restore',
-    'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
-    'verify registry signatures (non-blocking)',
-    'materialize claude-code binary (trustedDependencies denies it by default)',
-    'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
-    'run the authoritative gate (scripts/ci.mjs)',
-    'publish hosted timing artifact',
-    'assert successful prerequisite jobs',
-  ],
-);
+assert.deepEqual(steps.map(stepLabel), [
+  'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd',
+  'setup Node 24',
+  'setup Bun',
+  'resolve CI target',
+  'start hosted step timing',
+  'cache Bun install cache',
+  'mark hosted cache restore',
+  INSTALL_STEP,
+  'verify registry signatures (non-blocking)',
+  'run the authoritative gate (scripts/ci.mjs)',
+  'publish hosted timing artifact',
+  'assert successful prerequisite jobs',
+]);
 const nonPullRequestCondition = "github.event_name != 'pull_request'";
 const pushCondition = "github.event_name == 'push'";
 const pullRequestCondition = "github.event_name == 'pull_request'";
 const hostedTimingPublishCondition = "always() && github.event_name != 'pull_request'";
-const validateStepLabel = (row) => row.name ?? 'checkout';
+const validateStepLabel = (row) => (row.uses?.startsWith('actions/checkout@') ? 'checkout' : stepLabel(row));
 assert.deepEqual(Object.fromEntries(steps.map((row) => [validateStepLabel(row), row.if])), {
   checkout: nonPullRequestCondition,
   'setup Node 24': nonPullRequestCondition,
@@ -2297,10 +2745,8 @@ assert.deepEqual(Object.fromEntries(steps.map((row) => [validateStepLabel(row), 
   'start hosted step timing': nonPullRequestCondition,
   'cache Bun install cache': nonPullRequestCondition,
   'mark hosted cache restore': nonPullRequestCondition,
-  'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)': nonPullRequestCondition,
+  [INSTALL_STEP]: nonPullRequestCondition,
   'verify registry signatures (non-blocking)': nonPullRequestCondition,
-  'materialize claude-code binary (trustedDependencies denies it by default)': nonPullRequestCondition,
-  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)': nonPullRequestCondition,
   'run the authoritative gate (scripts/ci.mjs)': nonPullRequestCondition,
   'assert successful prerequisite jobs': undefined,
   'publish hosted timing artifact': hostedTimingPublishCondition,
@@ -2332,10 +2778,8 @@ const fullValidateInventory = [
   'start hosted step timing',
   'cache Bun install cache',
   'mark hosted cache restore',
-  'install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)',
+  INSTALL_STEP,
   'verify registry signatures (non-blocking)',
-  'materialize claude-code binary (trustedDependencies denies it by default)',
-  'add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)',
   'run the authoritative gate (scripts/ci.mjs)',
   'publish hosted timing artifact',
   'assert successful prerequisite jobs',
@@ -2448,10 +2892,8 @@ for (const name of [
   'setup Bun',
   'cache Bun install cache',
   'mark hosted cache restore',
-  'install Bun dependencies',
+  INSTALL_STEP,
   'verify registry signatures',
-  'materialize claude-code binary',
-  'add node_modules/.bin to PATH',
 ]) {
   assert.deepEqual(
     withoutIf(shardStep(name)),
@@ -2704,6 +3146,131 @@ async function runReleaseAdapterGitContracts(createReleaseIo) {
   } finally {
     fs.rmSync(brokenFilter, { recursive: true, force: true });
   }
+
+  // createTag of the production adapter creates the annotated tag `<plugin>--v<version>` with git and pushes that tag
+  // to origin. A claude shim on PATH records each call, so a release that still runs a claude command is caught. gh
+  // fails here, so the push time comes from the local clock.
+  const tagFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-tag-'));
+  const inheritedPath = process.env.PATH;
+  try {
+    const origin = path.join(tagFixture, 'origin.git');
+    const repo = path.join(tagFixture, 'repo');
+    const shims = path.join(tagFixture, 'bin');
+    const claudeLog = path.join(tagFixture, 'claude-calls.log');
+    fs.mkdirSync(repo);
+    fs.mkdirSync(shims);
+    runGit(tagFixture, ['init', '-q', '--bare', origin]);
+    runGit(repo, ['init', '-q']);
+    configureFixtureRepo(repo);
+    runGit(repo, ['config', '--local', 'user.email', 'release@example.test']);
+    runGit(repo, ['config', '--local', 'user.name', 'Release Fixture']);
+    runGit(repo, ['config', '--local', 'tag.gpgSign', 'false']);
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+    runGit(repo, ['add', 'a.txt']);
+    runGit(repo, ['commit', '-qm', 'x']);
+    runGit(repo, ['remote', 'add', 'origin', origin]);
+    fs.writeFileSync(path.join(shims, 'claude'), `#!/bin/sh\necho "$*" >> '${claudeLog}'\nexit 97\n`, {
+      mode: 0o755,
+    });
+    fs.writeFileSync(path.join(shims, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    process.env.PATH = `${shims}${path.delimiter}${inheritedPath ?? ''}`;
+
+    const io = createReleaseIo({ repo, plugins: PLUGINS });
+    const tag = 'docks--v1.2.3';
+    const startedAt = Date.now();
+    const pushedAt = await io.createTag(tag);
+    assert.equal(fs.existsSync(claudeLog), false, 'createTag must run no claude command');
+    assert.ok(
+      typeof pushedAt === 'string' && Date.parse(pushedAt) >= startedAt - 1000,
+      `createTag must report when it pushed the tag; got ${pushedAt}`,
+    );
+    const gitOut = (cwd, gitArgs) => {
+      const result = spawnSync('git', gitArgs, { cwd, encoding: 'utf8' });
+      assert.equal(result.status, 0, `git ${gitArgs.join(' ')}: ${result.stderr}`);
+      return result.stdout.trim();
+    };
+    assert.equal(gitOut(repo, ['cat-file', '-t', `refs/tags/${tag}`]), 'tag', `${tag} must be an annotated tag`);
+    assert.equal(gitOut(repo, ['tag', '--list', '--format=%(contents:subject)', tag]), 'docks plugin v1.2.3');
+    assert.equal(gitOut(repo, ['rev-parse', `${tag}^{commit}`]), gitOut(repo, ['rev-parse', 'HEAD']));
+    assert.equal(
+      gitOut(origin, ['rev-parse', `refs/tags/${tag}`]),
+      gitOut(repo, ['rev-parse', `refs/tags/${tag}`]),
+      'createTag must push the tag to origin',
+    );
+  } finally {
+    process.env.PATH = inheritedPath;
+    fs.rmSync(tagFixture, { recursive: true, force: true });
+  }
+
+  // A failed tag push must leave no local tag: `tagPublished` reads a local tag as a published release, so a kept tag
+  // stops the re-cut that the error names. A tag that already exists must make createTag stop without moving the tag.
+  const tagFailureFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-tag-failure-'));
+  try {
+    const gitOut = (cwd, gitArgs) => {
+      const result = spawnSync('git', gitArgs, { cwd, encoding: 'utf8' });
+      assert.equal(result.status, 0, `git ${gitArgs.join(' ')}: ${result.stderr}`);
+      return result.stdout.trim();
+    };
+    const shims = path.join(tagFailureFixture, 'bin');
+    fs.mkdirSync(shims);
+    fs.writeFileSync(path.join(shims, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    process.env.PATH = `${shims}${path.delimiter}${inheritedPath ?? ''}`;
+    const tagRepo = (name, origin) => {
+      const repo = path.join(tagFailureFixture, name);
+      fs.mkdirSync(repo);
+      runGit(repo, ['init', '-q']);
+      configureFixtureRepo(repo);
+      runGit(repo, ['config', '--local', 'user.email', 'release@example.test']);
+      runGit(repo, ['config', '--local', 'user.name', 'Release Fixture']);
+      runGit(repo, ['config', '--local', 'tag.gpgSign', 'false']);
+      fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+      runGit(repo, ['add', 'a.txt']);
+      runGit(repo, ['commit', '-qm', 'x']);
+      runGit(repo, ['remote', 'add', 'origin', origin]);
+      return repo;
+    };
+
+    const unreachable = tagRepo('unreachable', path.join(tagFailureFixture, 'no-such-origin.git'));
+    const io = createReleaseIo({ repo: unreachable, plugins: PLUGINS });
+    assert.throws(
+      () => io.createTag('docks--v1.2.3'),
+      (error) =>
+        /git push origin docks--v1\.2\.3 failed/.test(error.message) &&
+        error.message.includes('bun scripts/release.mjs --plugin docks 1.2.3'),
+      'a failed tag push must stop the release and name the re-cut command',
+    );
+    assert.equal(
+      gitOut(unreachable, ['tag', '--list', 'docks--v1.2.3']),
+      '',
+      'a failed tag push must remove the local tag',
+    );
+
+    const existingOrigin = path.join(tagFailureFixture, 'existing-origin.git');
+    runGit(tagFailureFixture, ['init', '-q', '--bare', existingOrigin]);
+    const existing = tagRepo('existing', existingOrigin);
+    runGit(existing, ['tag', '-a', 'docks--v1.2.3', '-m', 'docks plugin v1.2.3']);
+    const tagObject = gitOut(existing, ['rev-parse', 'refs/tags/docks--v1.2.3']);
+    fs.writeFileSync(path.join(existing, 'a.txt'), 'b\n');
+    runGit(existing, ['commit', '-qam', 'y']);
+    assert.throws(
+      () => createReleaseIo({ repo: existing, plugins: PLUGINS }).createTag('docks--v1.2.3'),
+      /git tag -a docks--v1\.2\.3 .* failed/,
+      'createTag must refuse a tag that already exists',
+    );
+    assert.equal(
+      gitOut(existing, ['rev-parse', 'refs/tags/docks--v1.2.3']),
+      tagObject,
+      'createTag must not move or remove a tag that already exists',
+    );
+    assert.equal(
+      spawnSync('git', ['rev-parse', '-q', '--verify', 'refs/tags/docks--v1.2.3'], { cwd: existingOrigin }).status,
+      1,
+      'createTag must not push a tag that already exists',
+    );
+  } finally {
+    process.env.PATH = inheritedPath;
+    fs.rmSync(tagFailureFixture, { recursive: true, force: true });
+  }
 }
 
 await testReleaseAdapterGitContracts(releaseModule.createGenericPluginReleaseIo);
@@ -2717,6 +3284,7 @@ function testReleaseShimRefusalMatrix() {
   try {
     const callLog = path.join(shimRoot, 'calls.jsonl');
     fs.writeFileSync(callLog, '', { mode: 0o600 });
+    // The claude shim is a sentinel: no release command may reach it.
     for (const name of ['node', 'bun', 'git', 'claude', 'gh']) writeReleaseShim(shimRoot, name);
     const invoke = (tool, args, options = {}) =>
       spawnSync(path.join(shimRoot, tool), args, {
@@ -2737,7 +3305,8 @@ function testReleaseShimRefusalMatrix() {
         },
         ...options,
       });
-    const manifest = 'plugins/docks/.claude-plugin/plugin.json';
+    // Any file tracked at HEAD serves: the matrix tests the argument shapes, not the release files.
+    const manifest = 'package.json';
     const allowed = [
       ['git', ['status', '--porcelain'], {}],
       ['git', ['hash-object', '--path', manifest, '--stdin'], { input: '{}\n' }],
@@ -2755,6 +3324,8 @@ function testReleaseShimRefusalMatrix() {
     const refused = [
       ['git', ['hash-object', '-w', '--stdin']],
       ['git', ['tag', 'docks--v9.9.9']],
+      ['git', ['tag', '-a', 'docks--v9.9.9', '-m', 'docks plugin v9.9.9']],
+      ['git', ['push', 'origin', 'docks--v9.9.9']],
       ['git', ['commit', '-m', 'release']],
       ['git', ['update-ref', 'refs/heads/main', 'HEAD']],
       // A near miss must refuse too: the shapes match argument for argument, not by subcommand.
@@ -2764,7 +3335,7 @@ function testReleaseShimRefusalMatrix() {
       // The gate shape is stubbed only on the runtime the release runs it under; the same argv
       // on Node is refused like any other.
       ['node', [path.join(ROOT, 'no-such-directory/scripts/ci.mjs'), '-q', '--plugin', 'docks']],
-      ['claude', ['plugin', 'tag', '--push']],
+      ['claude', ['--version']],
       ['gh', ['release', 'create', 'docks--v9.9.9']],
     ];
     for (const [tool, args] of refused) {

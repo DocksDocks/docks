@@ -13,18 +13,14 @@ import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-
 import { changedScopes, computeGateKey, lookupMemo, memoRoot, recordMemo, renderGateCost } from './lib/gate-memo.mjs';
 import { describeEnvelope, detectCompetingWork, hostResources, runtimeAvailability } from './lib/host-resources.mjs';
 import {
-  CLAUDE_MARKETPLACE,
-  CODEX_MARKETPLACE,
-  claudeManifest,
-  codexManifest,
-  manifestCategories,
-  marketEntryVersion,
+  MARKETPLACE,
   PLUGINS,
+  pluginPackageJson,
   presentPlugins,
   REPO_WIDE_JAVASCRIPT_QUALITY,
   shellScripts,
 } from './lib/plugins.mjs';
-import { eachSkillCandidateDir } from './lib/skills-walk.mjs';
+import { eachSkillCandidateDir, findSkillFiles } from './lib/skills-walk.mjs';
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 process.chdir(REPO);
@@ -151,17 +147,35 @@ const readJSON = (f) => {
     return null;
   }
 };
-const BUNDLE = 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs';
+const BUNDLE = 'plugins/docks/skills/write-skill/scripts/skill-guard.mjs';
 const floorCache = new Map();
-const floorOf = (kind, cat) => {
-  const key = `${kind}/${cat ?? ''}`;
-  if (floorCache.has(key)) return floorCache.get(key);
-  const result = bun(['scripts/config/read-floor.mjs', kind, ...(cat ? [cat] : [])]);
+const floorOf = (kind) => {
+  if (floorCache.has(kind)) return floorCache.get(kind);
+  const result = bun(['scripts/config/read-floor.mjs', kind]);
   const parsed = result.status === 0 ? parseInt(result.stdout.trim(), 10) : null;
   const floor = Number.isInteger(parsed) ? parsed : null;
-  floorCache.set(key, floor);
+  floorCache.set(kind, floor);
   return floor;
 };
+// The native omp package rules. omp installs a package whose catalog and package.json parse, and it checks no skill
+// or agent, so this gate checks the layout itself. The folders below belong to the Claude Code and Codex plugin
+// formats, and a native package has none of them: the repo-wide phase refuses the repository-level folders, and each
+// plugin gate refuses the plugin-level folders under its root.
+const LEFTOVER_REPO_PATHS = ['.claude-plugin', '.agents/plugins', '.codex'];
+const LEFTOVER_PLUGIN_PATHS = ['.claude-plugin', '.codex-plugin'];
+// The string fields of each plugin package.json; it also declares `private: true`, `type: "module"`, and `omp`.
+const PACKAGE_FIELDS = ['name', 'version', 'description', 'license'];
+// A `${...}` variable. omp sets no plugin root variable for an agent, so the text would stay literal.
+const TEXT_VARIABLE = /\$\{[^}\s]*\}/gu;
+// The frontmatter block of a markdown file, and the keys of its top-level lines.
+const frontmatterOf = (text) => /^---\n([\s\S]*?)\n---(?:\n|$)/u.exec(text)?.[1] ?? null;
+const frontmatterKeys = (block) =>
+  new Set(block.split('\n').flatMap((line) => /^([A-Za-z][\w-]*):/u.exec(line)?.[1] ?? []));
+const frontmatterName = (block) =>
+  /^name:[ \t]*(.*)$/mu
+    .exec(block)?.[1]
+    .trim()
+    .replace(/^([\x22\x27])(.*)\1$/u, '$2') ?? null;
 
 // --list: print the registry and exit.
 if (options.list) {
@@ -256,12 +270,13 @@ if (onlyPlugin === null && onlyLane === null) {
     scheduleJavaScriptQuality('javascript quality lint', ['run', 'biome', 'lint', ...lintPaths]);
 }
 
-// Catalogs are shared; read once (used by the per-plugin version checks too). The
-// repo-wide shard selects no plugin but still validates both catalogs, so read
-// them whenever either a plugin or the repo-wide phase needs them.
+// The catalog is shared; read once (used by the per-plugin version checks too). The
+// repo-wide shard selects no plugin but still validates the catalog, so read it
+// whenever either a plugin or the repo-wide phase needs it.
 const needsCatalogs = repoWide || targets.length > 0;
-const claudeMarket = needsCatalogs ? readJSON(CLAUDE_MARKETPLACE) : null;
-const codexMarket = needsCatalogs ? readJSON(CODEX_MARKETPLACE) : null;
+const market = needsCatalogs ? readJSON(MARKETPLACE) : null;
+const catalogEntries = (name) =>
+  Array.isArray(market?.plugins) ? market.plugins.filter((entry) => entry?.name === name) : [];
 
 if (repoWide) {
   const { parseDocument } = await import('yaml');
@@ -281,10 +296,7 @@ if (repoWide) {
   }
 
   section('marketplace catalogs');
-  claudeMarket ? ok(`${CLAUDE_MARKETPLACE} JSON valid`) : fail(`${CLAUDE_MARKETPLACE} JSON invalid`);
-  if (fs.existsSync(CODEX_MARKETPLACE))
-    codexMarket ? ok(`${CODEX_MARKETPLACE} JSON valid`) : fail(`${CODEX_MARKETPLACE} JSON invalid`);
-  else warn(`${CODEX_MARKETPLACE} missing — Codex distribution not configured (optional)`);
+  gateCatalog();
 
   section('repo-wide guards');
   bunOk(['scripts/tree/guard.mjs'])
@@ -392,38 +404,16 @@ if (javascriptQualityTasks.length > 0) {
 
 function gatePlugin(p) {
   section(`plugin: ${p.name}`);
-  const manifest = readJSON(claudeManifest(p));
-  manifest ? ok(`${p.name} plugin.json JSON valid`) : fail(`${p.name} plugin.json JSON invalid`);
-  const mv = marketEntryVersion(claudeMarket, p.name);
-  if (manifest?.version && manifest.version === mv) ok(`${p.name} version agrees (${manifest.version})`);
-  else fail(`${p.name} version drift: plugin.json=${manifest?.version} marketplace.json=${mv}`);
-
-  const v = runCommand(`claude plugin validate ./${p.root}`, ['claude', 'plugin', 'validate', `./${p.root}`], {
-    encoding: 'utf8',
-  });
-  if (v.error) fail(`claude CLI could not run — ${p.name} plugin not validated`);
-  else if (`${v.stdout}${v.stderr}`.includes('Validation passed')) ok(`claude plugin validate ./${p.root}`);
-  else fail(`claude plugin validate ./${p.root} (run manually for details)`);
-
-  if (p.codex) {
-    const cp = readJSON(codexManifest(p));
-    cp ? ok(`${p.name} codex plugin.json JSON valid`) : fail(`${p.name} codex plugin.json JSON invalid`);
-    cp?.skills === './skills/'
-      ? ok(`${p.name} codex skills uses string path "./skills/"`)
-      : fail(`${p.name} codex plugin.json skills must be string "./skills/" (arrays are rejected by Codex)`);
-    cp?.version === manifest?.version
-      ? ok(`${p.name} codex manifest version matches claude (${cp?.version})`)
-      : fail(`${p.name} codex version drift: codex=${cp?.version} claude=${manifest?.version}`);
-    (codexMarket?.plugins || []).some((x) => x.name === p.name)
-      ? ok(`${p.name} listed in Codex marketplace (${CODEX_MARKETPLACE})`)
-      : fail(`${p.name} missing from ${CODEX_MARKETPLACE}`);
+  gatePackage(p);
+  for (const leftover of LEFTOVER_PLUGIN_PATHS.map((name) => `${p.root}/${name}`)) {
+    if (fs.existsSync(leftover)) fail(`${p.name}: ${leftover} is a leftover of another plugin format; remove it`);
   }
 
   for (const f of p.extraJson)
     readJSON(f) ? ok(`${p.name} ${path.basename(f)} JSON valid`) : fail(`${p.name} ${f} JSON invalid`);
 
   if (p.skills) {
-    if (fs.existsSync(p.skills)) gateSkills(p, manifest);
+    if (fs.existsSync(p.skills)) gateSkills(p);
     else fail(`${p.name} declared skills root missing: ${p.skills}`);
   }
 
@@ -431,6 +421,7 @@ function gatePlugin(p) {
     if (!fs.existsSync(p.agents)) {
       fail(`${p.name} declared agents root missing: ${p.agents}`);
     } else {
+      gateAgentFiles(p);
       bunOk(['scripts/agents/guard.mjs', p.agents])
         ? ok(`${p.name} agents/guard passed`)
         : fail(`${p.name} agents/guard failed (run: bun scripts/agents/guard.mjs ${p.agents})`);
@@ -547,21 +538,119 @@ function gatePlugin(p) {
   }
 }
 
-function gateSkills(p, manifest) {
-  // category layout — declared categories exist; no skills directly under skills/<name>.
+// The catalog: it parses and names the marketplace and its owner, it holds one entry per descriptor and no other
+// entry, and no folder of another plugin format is left in the repository.
+function gateCatalog() {
+  if (market === null) {
+    fail(`${MARKETPLACE} is missing or is not valid JSON`);
+    return;
+  }
+  ok(`${MARKETPLACE} JSON valid`);
+  typeof market.name === 'string' && market.name !== ''
+    ? ok(`${MARKETPLACE} names the marketplace ${market.name}`)
+    : fail(`${MARKETPLACE} has no name`);
+  typeof market.owner?.name === 'string' && market.owner.name !== ''
+    ? ok(`${MARKETPLACE} names its owner`)
+    : fail(`${MARKETPLACE} has no owner.name`);
+  if (!Array.isArray(market.plugins)) fail(`${MARKETPLACE} has no plugins list`);
+  for (const p of PLUGINS) {
+    const count = catalogEntries(p.name).length;
+    count === 1
+      ? ok(`${MARKETPLACE} has one entry for ${p.name}`)
+      : fail(`${MARKETPLACE} has ${count} entries for ${p.name}; it needs exactly one`);
+  }
+  for (const entry of Array.isArray(market.plugins) ? market.plugins : []) {
+    if (!PLUGINS.some((p) => p.name === entry?.name))
+      fail(`${MARKETPLACE} entry ${entry?.name} has no descriptor in scripts/lib/plugins.mjs`);
+  }
+  const leftovers = LEFTOVER_REPO_PATHS.filter((leftover) => fs.existsSync(leftover));
+  for (const leftover of leftovers) fail(`${leftover} is a leftover of another plugin format; remove it`);
+  if (leftovers.length === 0) ok(`no folder of another plugin format (${LEFTOVER_REPO_PATHS.join(', ')})`);
+}
+
+// The plugin package.json: it parses and has the native fields, and its name, version, and folder agree with its
+// catalog entry.
+function gatePackage(p) {
+  const file = pluginPackageJson(p);
+  const pluginPackage = readJSON(file);
+  if (pluginPackage === null) {
+    fail(`${p.name} ${file} is missing or is not valid JSON`);
+    return;
+  }
+  ok(`${p.name} ${file} JSON valid`);
+  const missing = PACKAGE_FIELDS.filter((field) => typeof pluginPackage[field] !== 'string' || !pluginPackage[field]);
+  if (pluginPackage.private !== true) missing.push('private: true');
+  if (pluginPackage.type !== 'module') missing.push('type: "module"');
+  missing.length === 0
+    ? ok(`${p.name} ${file} has the native package fields`)
+    : fail(`${p.name} ${file} lacks ${missing.join(', ')}`);
+  const omp = pluginPackage.omp;
+  omp !== null && typeof omp === 'object' && !Array.isArray(omp)
+    ? ok(`${p.name} ${file} declares the omp object`)
+    : fail(`${p.name} ${file} must declare an omp object`);
+  pluginPackage.name === p.name
+    ? ok(`${p.name} ${file} name matches its catalog entry`)
+    : fail(`${p.name} ${file} name ${pluginPackage.name} is not its catalog entry name ${p.name}`);
+  const entries = catalogEntries(p.name);
+  if (entries.length !== 1) {
+    fail(`${p.name} needs exactly one entry in ${MARKETPLACE}; it has ${entries.length}`);
+    return;
+  }
+  const [entry] = entries;
+  typeof pluginPackage.version === 'string' && pluginPackage.version === entry.version
+    ? ok(`${p.name} version agrees (${pluginPackage.version})`)
+    : fail(`${p.name} version drift: ${file}=${pluginPackage.version} ${MARKETPLACE}=${entry.version}`);
+  const source = typeof entry.source === 'string' ? path.relative(REPO, path.resolve(REPO, entry.source)) : null;
+  if (source === null || source.startsWith('..') || path.isAbsolute(source))
+    fail(`${p.name} catalog source ${entry.source} is outside the repository`);
+  else if (source !== p.root) fail(`${p.name} catalog source ${entry.source} is not ./${p.root}`);
+  else if (!fs.existsSync(source)) fail(`${p.name} catalog source ${entry.source} does not exist`);
+  else ok(`${p.name} catalog source ${entry.source} exists`);
+}
+
+// Each agent file loads as an omp task agent: it has a name and a description, no `model` key (a Claude Code alias
+// such as `sonnet` fails in omp), and no `${...}` variable.
+function gateAgentFiles(p) {
+  let agentsOk = true;
+  for (const file of fs
+    .readdirSync(p.agents)
+    .filter((name) => name.endsWith('.md'))
+    .sort()) {
+    const text = fs.readFileSync(path.join(p.agents, file), 'utf8');
+    const block = frontmatterOf(text);
+    const keys = frontmatterKeys(block ?? '');
+    const problems = [];
+    if (block === null) problems.push('has no frontmatter');
+    for (const key of ['name', 'description']) if (!keys.has(key)) problems.push(`has no ${key}`);
+    if (keys.has('model')) problems.push('has a model key');
+    const variables = [...new Set(text.match(TEXT_VARIABLE) ?? [])];
+    if (variables.length > 0) problems.push(`names ${variables.join(', ')}, which omp does not set`);
+    if (problems.length > 0) {
+      fail(`${p.name} agent ${file.replace(/\.md$/u, '')} ${problems.join('; ')}`);
+      agentsOk = false;
+    }
+  }
+  if (agentsOk) ok(`${p.name} agents load as omp task agents`);
+}
+
+function gateSkills(p) {
+  // Native layout: each skill is skills/<name>/SKILL.md, one level below skills/, and its frontmatter name is <name>.
   let layoutOk = true;
-  for (const c of manifestCategories(manifest)) {
-    if (!fs.existsSync(path.join(p.root, 'skills', c))) {
-      fail(`${p.name}: plugin.json references missing category dir skills/${c}`);
+  for (const file of findSkillFiles(p.skills)) {
+    const relative = path.relative(p.skills, file).split(path.sep).join('/');
+    const [folder, ...rest] = relative.split('/');
+    if (rest.length !== 1) {
+      fail(`${p.name}: skills/${relative} is not at skills/<name>/SKILL.md`);
+      layoutOk = false;
+      continue;
+    }
+    const name = frontmatterName(frontmatterOf(fs.readFileSync(file, 'utf8')) ?? '');
+    if (name !== folder) {
+      fail(`${p.name}: skills/${relative} has the name '${name}', not its folder name '${folder}'`);
       layoutOk = false;
     }
   }
-  const strays = fs.readdirSync(p.skills).filter((d) => fs.existsSync(`${p.skills}/${d}/SKILL.md`)).length;
-  if (strays > 0) {
-    fail(`${p.name}: ${strays} skill(s) at skills/<name>/SKILL.md (need skills/<category>/<name>/SKILL.md)`);
-    layoutOk = false;
-  }
-  if (layoutOk) ok(`${p.name} skill categories declared in plugin.json all exist; no stray skills`);
+  if (layoutOk) ok(`${p.name} skills sit at skills/<name>/SKILL.md under their own name`);
 
   bunOk(['scripts/skills/guard.mjs', p.skills])
     ? ok(`${p.name} skill frontmatter valid`)
@@ -598,12 +687,12 @@ function gateSkills(p, manifest) {
     .filter(Boolean)
     .map((l) => {
       const [n, s] = l.split(' ');
-      return { name: n, cat: n.split('/')[0], score: parseInt(s, 10) };
+      return { name: n, score: parseInt(s, 10) };
     });
   // Counted from skill DIRECTORIES, not SKILL.md files: a directory missing its
   // SKILL.md is invisible to the scorer, so counting files would corroborate an
   // empty-by-omission score set at the wrong number.
-  const onDisk = [...eachSkillCandidateDir(p.skills)].map(({ category, name }) => `${category}/${name}`);
+  const onDisk = [...eachSkillCandidateDir(p.skills)].map(({ name }) => name);
   const scored = new Set(scores.map((r) => r.name));
   const unscored = onDisk.filter((n) => !scored.has(n));
   if (scores.length !== onDisk.length) {
@@ -614,19 +703,16 @@ function gateSkills(p, manifest) {
     return;
   }
   ok(`${p.name} skill score set covers the tree: ${scores.length} score rows for ${onDisk.length} skill dirs on disk`);
-  for (const c of [...new Set(scores.map((r) => r.cat))]) {
-    const floor = floorOf('skills', c);
-    if (floor == null) {
-      fail(`${p.name}: scripts/config/scoring.json missing skills.${c}`);
-      continue;
-    }
-    const rows = scores.filter((r) => r.cat === c);
-    const sum = rows.reduce((a, r) => a + r.score, 0);
-    const catFloor = rows.length * floor;
-    sum >= catFloor
-      ? ok(`${p.name} skills/${c}: ${sum} (floor ${catFloor} = ${rows.length} × ${floor})`)
-      : fail(`${p.name} skills/${c}: ${sum} below floor ${catFloor} (${rows.length} × ${floor})`);
+  const floor = floorOf('skills');
+  if (floor == null) {
+    fail(`${p.name}: scripts/config/scoring.json missing skills.per_file_floor`);
+    return;
   }
+  const sum = scores.reduce((a, r) => a + r.score, 0);
+  const totalFloor = scores.length * floor;
+  sum >= totalFloor
+    ? ok(`${p.name} skills: ${sum} (floor ${totalFloor} = ${scores.length} × ${floor})`)
+    : fail(`${p.name} skills: ${sum} below floor ${totalFloor} (${scores.length} × ${floor})`);
   let under = 0;
   let exempt = 0;
   for (const r of scores) {
@@ -634,13 +720,12 @@ function gateSkills(p, manifest) {
       exempt += 1;
       continue;
     }
-    const floor = floorOf('skills', r.cat);
-    if (floor != null && r.score < floor) {
+    if (r.score < floor) {
       fail(`  ${p.name} skills:${r.name} score ${r.score} below per-file floor ${floor}`);
       under = 1;
     }
   }
-  if (!under) ok(`${p.name} skills per-file all clear per-category floors (${exempt} upstream skipped)`);
+  if (!under) ok(`${p.name} skills per-file all clear (floor ${floor}; ${exempt} upstream skipped)`);
 }
 
 // ============================ summary ============================

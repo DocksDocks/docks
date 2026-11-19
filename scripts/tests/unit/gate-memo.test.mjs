@@ -121,12 +121,10 @@ test('root dependency links are part of the gate key', (t) => {
 });
 
 test('scoped dependency links are part of the gate key', (t) => {
-  const dependency = 'node_modules/@anthropic-ai/claude-code';
+  const dependency = 'node_modules/@biomejs/biome';
   const repo = fixtureRepo('scoped-link-fingerprint', t, {
-    installEntries: ['@anthropic-ai+claude-code@1.0.0'],
-    rootLinks: [
-      ['@anthropic-ai/claude-code', '../.bun/@anthropic-ai+claude-code@1.0.0/node_modules/@anthropic-ai/claude-code'],
-    ],
+    installEntries: ['@biomejs+biome@2.5.4'],
+    rootLinks: [['@biomejs/biome', '../.bun/@biomejs+biome@2.5.4/node_modules/@biomejs/biome']],
   });
   const installed = repo.key().key;
   fs.unlinkSync(path.join(repo.root, dependency));
@@ -134,16 +132,14 @@ test('scoped dependency links are part of the gate key', (t) => {
 });
 
 test('scoped dependency link targets are part of the gate key', (t) => {
-  const dependency = 'node_modules/@anthropic-ai/claude-code';
+  const dependency = 'node_modules/@biomejs/biome';
   const repo = fixtureRepo('scoped-target-fingerprint', t, {
-    installEntries: ['@anthropic-ai+claude-code@1.0.0'],
-    rootLinks: [
-      ['@anthropic-ai/claude-code', '../.bun/@anthropic-ai+claude-code@1.0.0/node_modules/@anthropic-ai/claude-code'],
-    ],
+    installEntries: ['@biomejs+biome@2.5.4'],
+    rootLinks: [['@biomejs/biome', '../.bun/@biomejs+biome@2.5.4/node_modules/@biomejs/biome']],
   });
   const installed = repo.key().key;
   fs.unlinkSync(path.join(repo.root, dependency));
-  fs.symlinkSync('../different/claude-code', path.join(repo.root, dependency));
+  fs.symlinkSync('../different/biome', path.join(repo.root, dependency));
   assert.notEqual(repo.key().key, installed, 'repointing a scoped dependency link must change the key');
 });
 

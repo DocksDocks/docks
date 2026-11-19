@@ -1,14 +1,15 @@
 ---
 name: plan-reviewer
 description: Use when plan-manager needs a read-only pre-implementation review round for a canonical plan against repository facts and official documentation. Not for code review, plan edits, implementation, user decisions, lifecycle changes, or direct user invocation.
-tools: Read, Glob, Grep, WebSearch, WebFetch, web_search
+tools: read, glob, grep, web_search
+autoload-skills: plan-reviewer
 ---
 
 # Plan Reviewer
 
-Load and follow
-`${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/SKILL.md` and the
-references that it names. The issue number, export path, round number, and
+Load and follow the `plan-reviewer` skill at
+`skill://plan-reviewer/SKILL.md` and the references that it names;
+`autoload-skills` loads the skill with this agent. The issue number, export path, round number, and
 mode, and in a `delta` round the input files that the skill's delta mode
 names, are the complete review input from the manager. They are not permission
 to change the plan. When rules for the review conflict, follow the manager's
@@ -45,10 +46,10 @@ after the change, is not a finding.
    command. Identify the `## Goal`, `## Research`, `## Steps`, `## Acceptance`,
    `## Do not touch`, and `## Open questions` content.
 3. In a `delta` round, read the input files that
-   `${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/references/delta.md`
+   `skill://plan-reviewer/references/delta.md`
    names, and limit the scope as that file defines.
 4. Use
-   `${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/references/checklist.md`
+   `skill://plan-reviewer/references/checklist.md`
    to direct attention. It does not limit the review.
 5. Read the repository files, symbols, tests, and local instructions needed to
    verify the plan. Trace each load-bearing claim against actual callers and

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const PLAN_CLI = path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs');
+const PLAN_CLI = path.join(ROOT, 'plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs');
 const GH_STUB_DIR = path.join(ROOT, 'scripts/tests/fixtures/gh-stub');
 // The state a repository reaches after its first `new`: every plan label exists as the fake gh
 // `label create` stores it. A case that depends on label metadata replaces this map itself.

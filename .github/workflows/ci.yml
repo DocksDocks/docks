@@ -3,7 +3,9 @@ name: validate
 # Triggers:
 #   - pull_request: validate before merge into main
 #   - push: tags: resolve and validate the released plugin (release.mjs creates
-#     the GitHub Release only if this authoritative tag-CI run succeeds)
+#     the GitHub Release only if this authoritative tag-CI run succeeds). The
+#     resolve step fails when the tag version is not the version in the plugin
+#     package.json and in its catalog entry at the tagged commit.
 #   - workflow_dispatch: manual run for ad-hoc validation
 
 on:
@@ -121,10 +123,10 @@ jobs:
       - name: "mark hosted cache restore"
         run: |
           printf '{"step":"mark hosted cache restore","at_ms":%s,"bun_cache_hit":"%s","bun_cache_key":"%s"}\n' "$(date +%s%3N)" '${{ steps.bun-cache.outputs.cache-hit }}' '${{ steps.bun-cache.outputs.cache-primary-key }}' >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-      - name: "install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)"
+      - name: "install Bun dependencies (--frozen-lockfile)"
         run: |
           bun install --frozen-lockfile
-          printf '{"step":"install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+          printf '{"step":"install Bun dependencies (--frozen-lockfile)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "verify registry signatures (non-blocking)"
         continue-on-error: true
         run: |
@@ -132,14 +134,6 @@ jobs:
           npm audit signatures || status=$?
           printf '{"step":"verify registry signatures (non-blocking)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
           exit "$status"
-      - name: "materialize claude-code binary (trustedDependencies denies it by default)"
-        run: |
-          node node_modules/@anthropic-ai/claude-code/install.cjs
-          printf '{"step":"materialize claude-code binary (trustedDependencies denies it by default)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-      - name: "add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)"
-        run: |
-          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
-          printf '{"step":"add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "run validation lane"
         run: |
           bun scripts/ci.mjs --lane "${{ matrix.lane }}" --timings-json "$RUNNER_TEMP/docks-ci-timings.json"
@@ -186,10 +180,10 @@ jobs:
       - name: "mark hosted cache restore"
         run: |
           printf '{"step":"mark hosted cache restore","at_ms":%s,"bun_cache_hit":"%s","bun_cache_key":"%s"}\n' "$(date +%s%3N)" '${{ steps.bun-cache.outputs.cache-hit }}' '${{ steps.bun-cache.outputs.cache-primary-key }}' >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-      - name: "install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)"
+      - name: "install Bun dependencies (--frozen-lockfile)"
         run: |
           bun install --frozen-lockfile
-          printf '{"step":"install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+          printf '{"step":"install Bun dependencies (--frozen-lockfile)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "verify registry signatures (non-blocking)"
         continue-on-error: true
         run: |
@@ -197,14 +191,6 @@ jobs:
           npm audit signatures || status=$?
           printf '{"step":"verify registry signatures (non-blocking)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
           exit "$status"
-      - name: "materialize claude-code binary (trustedDependencies denies it by default)"
-        run: |
-          node node_modules/@anthropic-ai/claude-code/install.cjs
-          printf '{"step":"materialize claude-code binary (trustedDependencies denies it by default)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-      - name: "add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)"
-        run: |
-          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
-          printf '{"step":"add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "run non-unit plugin-targeting contracts"
         run: |
           bun scripts/tests/ci-plugin-targeting.mjs
@@ -259,11 +245,11 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           printf '{"step":"mark hosted cache restore","at_ms":%s,"bun_cache_hit":"%s","bun_cache_key":"%s"}\n' "$(date +%s%3N)" '${{ steps.bun-cache.outputs.cache-hit }}' '${{ steps.bun-cache.outputs.cache-primary-key }}' >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-      - name: "install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)"
+      - name: "install Bun dependencies (--frozen-lockfile)"
         if: github.event_name != 'pull_request'
         run: |
           bun install --frozen-lockfile
-          printf '{"step":"install Bun dependencies (--frozen-lockfile; yaml + lockfile-pinned claude-code)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
+          printf '{"step":"install Bun dependencies (--frozen-lockfile)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "verify registry signatures (non-blocking)"
         if: github.event_name != 'pull_request'
         continue-on-error: true
@@ -272,21 +258,11 @@ jobs:
           npm audit signatures || status=$?
           printf '{"step":"verify registry signatures (non-blocking)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
           exit "$status"
-      - name: "materialize claude-code binary (trustedDependencies denies it by default)"
-        if: github.event_name != 'pull_request'
-        run: |
-          node node_modules/@anthropic-ai/claude-code/install.cjs
-          printf '{"step":"materialize claude-code binary (trustedDependencies denies it by default)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
-      - name: "add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)"
-        if: github.event_name != 'pull_request'
-        run: |
-          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
-          printf '{"step":"add node_modules/.bin to PATH (so ci.mjs finds the pinned claude)","at_ms":%s}\n' "$(date +%s%3N)" >> "$RUNNER_TEMP/docks-hosted-timings.jsonl"
       - name: "run the authoritative gate (scripts/ci.mjs)"
         if: github.event_name != 'pull_request'
         run: |
           # A release-tag push carries the version bump that edited the repo-wide
-          # `.claude-plugin/marketplace.json`, and it is the only run those bytes ever get:
+          # `.omp-plugin/marketplace.json`, and it is the only run those bytes ever get:
           # the bump goes straight to `main`, which this workflow does not trigger on, and
           # the targeted `--plugin` gate skips every repo-wide phase by design. So the push
           # leg runs the repo-wide shard too — once, here, over the exact bytes being

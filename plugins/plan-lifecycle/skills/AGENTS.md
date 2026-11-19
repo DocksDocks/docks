@@ -4,8 +4,9 @@ This plugin ships the lifecycle skills named in Roles below, one
 `plan-manager/scripts/plan.mjs` lifecycle tool, one
 `plan-manager/references/plan-contract.md` contract reference, and the
 read-only reviewer wrappers named in Roles (verify:
-`ls plugins/plan-lifecycle/skills/productivity plugins/plan-lifecycle/agents`).
-It is self-versioned: manifests live in `.claude-plugin/` and `.codex-plugin/`,
+`ls plugins/plan-lifecycle/skills plugins/plan-lifecycle/agents`).
+It is self-versioned: its manifest is `package.json` (with the `omp` object),
+its catalog entry is in the root `.omp-plugin/marketplace.json`,
 and `compatibility.json` is a closed declaration (keys `schema` and
 `minimum_docks_major`) that `test/selftest.mjs` verifies against docks' parsed
 major (verify: `bun plugins/plan-lifecycle/test/selftest.mjs`). Do not replace
@@ -52,12 +53,13 @@ Delegated decisions when the user hands those decisions to the agent;
 round; internal `code-reviewer` returns one read-only code-review block per
 reviewer, for one lens or for the changes of a delta round. The
 `code-reviewer` agent loads that skill the way the `plan-reviewer` agent loads
-its skill. Two read-only reviewer wrappers ship: the plugin wrappers at
-`../agents/plan-reviewer.md` and `../agents/code-reviewer.md`, with this source
-repository's matching `.codex/agents/plan-reviewer.toml` and
-`.codex/agents/code-reviewer.toml` pair. `plugins/plan-lifecycle/agents/` deliberately carries no
-context-tree node (`claude plugin validate` lints every `agents/*.md` as a
-subagent, so an `AGENTS.md` there fails validation).
+its skill. Two read-only reviewer wrappers ship: the plugin agents at
+`../agents/plan-reviewer.md` and `../agents/code-reviewer.md`. Each agent loads
+its skill with `autoload-skills` and names each further file as
+`skill://<skill>/<path>`, never with a plugin root variable.
+`plugins/plan-lifecycle/agents/` deliberately carries no context-tree node
+(omp loads every `agents/*.md` as a task agent, and the gate checks each one as
+an agent, so an `AGENTS.md` there fails validation).
 The explicit-only `yolo` skill is a user entry point. It runs `plan-manager`'s
 six phases under the contract's Yolo runs section and asks only the merge
 question and the stall question. `disable-model-invocation` keeps Claude Code
@@ -92,8 +94,8 @@ the helper's behavior; no test pins skill prose.
 The reviewer agents and the reviewer skills own the exact review block
 they return. Keep that block inside the comment rules in `plan-contract.md`
 (Phases and review comments). Keep the plan-review block identical in
-`../agents/plan-reviewer.md` and the `plan-reviewer` skill. The Codex templates,
-`.codex/agents/plan-reviewer.toml`, and `.codex/agents/code-reviewer.toml` point
+`../agents/plan-reviewer.md` and the `plan-reviewer` skill. The Codex templates
+in `plan-workspace/references/codex-agent-templates.md` point
 to the agent's Output Format and do not copy it. A review round posts one
 comment that holds every block of that round, then the manager response to the
 previous round under `#### Manager response to round <k>`. The helper reads no
@@ -149,10 +151,12 @@ the rule and its verify command.
 ## Scoring and namespace
 
 Same rubric as every kit skill: `node
-plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score
+plugins/docks/skills/write-skill/scripts/skill-guard.mjs score
 --per-file plugins/plan-lifecycle/skills`. Per-file floors live in
-`scripts/config/scoring.json` (verify: `bun scripts/config/read-floor.mjs skills productivity`;
-agents: `bun scripts/config/read-floor.mjs agents`). Skills surface as
-`plan-lifecycle:<name>` from `name` in `plugins/plan-lifecycle/.claude-plugin/plugin.json`.
+`scripts/config/scoring.json` (verify: `bun scripts/config/read-floor.mjs skills`;
+agents: `bun scripts/config/read-floor.mjs agents`). omp keeps the bare
+frontmatter `name` of each skill, with no plugin prefix: address a skill as
+`skill://<name>` (a file inside it as `skill://<name>/<path>`) and invoke it
+as `/skill:<name>`.
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.

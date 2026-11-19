@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
-import { normalizePlan } from '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+import { normalizePlan } from '../../../plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
 import { body, expectSuccess, planCliContext, refuse } from './harness.mjs';
 
 test('new creates each missing plan label and keeps existing label metadata unchanged', (t) => {

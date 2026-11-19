@@ -26,28 +26,24 @@ export function findSkillFiles(root) {
   return out.sort();
 }
 
-// Iterate <root>/<category>/<skill>/ dirs (sorted) whether or not they hold a
-// SKILL.md, yielding { category, name, dir, file }. The scorer's own walk
-// (plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs:161-168)
+// Iterate <root>/<skill>/ dirs (sorted) whether or not they hold a SKILL.md,
+// yielding { name, dir, file }. The scorer's own walk
+// (plugins/docks/skills/write-skill/scripts/skill-guard.mjs — `score`)
 // silently skips a skill directory whose SKILL.md is missing, so a corroborating
 // count keyed on SKILL.md files would agree with the scorer at the wrong number;
 // this sees the directory regardless. `statSync` follows symlinks exactly as the
 // scorer does, so a symlinked skill dir is visible to both.
 export function* eachSkillCandidateDir(root) {
   if (!fs.existsSync(root)) return;
-  for (const category of fs.readdirSync(root).sort()) {
-    const cp = path.join(root, category);
-    if (!fs.statSync(cp).isDirectory()) continue;
-    for (const name of fs.readdirSync(cp).sort()) {
-      const dir = path.join(cp, name);
-      if (!fs.statSync(dir).isDirectory()) continue;
-      yield { category, name, dir, file: path.join(dir, 'SKILL.md') };
-    }
+  for (const name of fs.readdirSync(root).sort()) {
+    const dir = path.join(root, name);
+    if (!fs.statSync(dir).isDirectory()) continue;
+    yield { name, dir, file: path.join(dir, 'SKILL.md') };
   }
 }
 
-// Iterate <root>/<category>/<skill>/ dirs (sorted) that hold a SKILL.md,
-// yielding { category, name, dir, file }.
+// Iterate <root>/<skill>/ dirs (sorted) that hold a SKILL.md, yielding
+// { name, dir, file }.
 export function* eachSkillDir(root) {
   for (const entry of eachSkillCandidateDir(root)) if (fs.existsSync(entry.file)) yield entry;
 }

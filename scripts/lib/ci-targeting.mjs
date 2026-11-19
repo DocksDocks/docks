@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { byName, PLUGINS } from './plugins.mjs';
+import { byName, MARKETPLACE, PLUGINS, pluginPackageJson } from './plugins.mjs';
 
 // Resolved from this module's own location, never from `process.cwd()`: the
 // release-preparation source-CI pin calls the topology assertion from wherever the
@@ -92,6 +92,32 @@ export function parseReleaseTag(tag) {
     plugin: plugin.name,
     version: `${match[2]}.${match[3]}.${match[4]}`,
   };
+}
+
+// A release tag names the version that its commit ships. The tag CI refuses a tag whose version is not the version
+// in the plugin package.json and in its catalog entry at the tagged commit, so a tag made by hand with a typed
+// version cannot publish other bytes. `repo` is the checkout of the tagged commit.
+export function resolveReleaseTagAtCommit(tag, repo) {
+  const resolved = parseReleaseTag(tag);
+  const readJson = (file) => JSON.parse(fs.readFileSync(path.join(repo, file), 'utf8'));
+  const packageFile = pluginPackageJson(byName(resolved.plugin));
+  const packageVersion = readJson(packageFile).version;
+  const catalog = readJson(MARKETPLACE);
+  const entries = Array.isArray(catalog.plugins)
+    ? catalog.plugins.filter((entry) => entry?.name === resolved.plugin)
+    : [];
+  if (entries.length !== 1) {
+    throw new Error(`${MARKETPLACE} has ${entries.length} entries for ${resolved.plugin}; a release tag needs one`);
+  }
+  const mismatches = [];
+  if (packageVersion !== resolved.version) mismatches.push(`${packageFile} has version ${packageVersion}`);
+  if (entries[0].version !== resolved.version) mismatches.push(`${MARKETPLACE} has version ${entries[0].version}`);
+  if (mismatches.length > 0) {
+    throw new Error(
+      `release tag ${tag} does not match the tagged commit: ${mismatches.join('; ')}. Make the tag from the version in ${packageFile}`,
+    );
+  }
+  return resolved;
 }
 
 export function releaseCiArgs(pluginName) {
@@ -386,7 +412,7 @@ export function assertPrerequisiteJoinGatesItsEvent(workflow) {
 // A release-tag push is the only CI a version bump ever gets: the bump commit goes
 // straight to `main`, which this workflow has no trigger for, and the tag run gates
 // with `--plugin <name>`, which skips every repo-wide phase. The repo-wide
-// `.claude-plugin/marketplace.json` the bump edits would therefore ship validated by
+// `.omp-plugin/marketplace.json` the bump edits would therefore ship validated by
 // nothing. What the push leg must hold is a property - the released bytes get
 // repo-wide validation exactly once, and the targeted plugin gate still has the last
 // word - so the invocations are parsed and asked what they cover. Pinning the argv

@@ -1,13 +1,21 @@
 # docks
 
-Claude Code + Codex plugin marketplace publishing the **docks** plugin - a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, design tokens, SOLID, type-safety, and React patterns; and a GitHub-issue lifecycle tracks multi-commit work.
+Native omp plugin marketplace publishing the **docks** plugin - a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, design tokens, SOLID, type-safety, and React patterns; and a GitHub-issue lifecycle tracks multi-commit work.
 
 ## Install
 
 ```bash
-/plugin marketplace add DocksDocks/docks
-/plugin install docks@docks
-/reload-plugins
+omp plugin marketplace add DocksDocks/docks
+omp plugin install docks@docks
+omp plugin install plan-lifecycle@docks
+```
+
+To update installed copies:
+
+```bash
+omp plugin marketplace update docks
+omp plugin upgrade docks@docks
+omp plugin upgrade plan-lifecycle@docks
 ```
 
 ## session-relay moved out
@@ -64,7 +72,7 @@ Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfa
 | `ci-speed` | Slow or costly CI and test runs - queue time, checkout, installs, caches, lint, type check, tests, sharding, affected-only runs, pre-push hooks, Blacksmith runners with a GitHub-hosted fallback |
 | `effect-ts` | TypeScript code that uses Effect v4 - services, layers, typed errors, `@effect/vitest` tests, Effect diagnostics as lint rules, agent rules that keep code on the installed version |
 
-The `productivity/` category contains `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-agent-pipeline`, `skill-maintenance`, `write-skill`, and `zoom-out`.
+The kit also ships `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-agent-pipeline`, `skill-maintenance`, `write-skill`, and `zoom-out`.
 
 ### Plan lifecycle (the `plan-lifecycle` plugin)
 
@@ -94,7 +102,7 @@ A user-invoked `yolo` run replaces these asks with the contract's Yolo runs sect
 A delegation grant hands the design and tradeoff decisions of a plan to the agent (the contract's Delegated decisions). Its authority comes only from a trusted `Delegation grant:` comment; the Goal's `Delegated:` line mirrors it. It does not replace these asks or the merge question; a `yolo` run includes that grant.
 Merge requires a fresh `Merge now` answer. Without it, leave the pull request open.
 
-Read `skills/productivity/plan-manager/references/plan-contract.md` inside the
+Read `skills/plan-manager/references/plan-contract.md` inside the
 installed `plan-lifecycle` plugin for the complete contract and helper commands.
 If the plugin is missing, report it. Do not invent a substitute workflow.
 
@@ -102,11 +110,10 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 
 ```
 .
-├── .claude-plugin/marketplace.json   ← marketplace catalog (this file is what /plugin marketplace add reads)
-├── .codex/agents/                     ← repo-local Codex plan-reviewer and code-reviewer wrappers
+├── .omp-plugin/marketplace.json       ← marketplace catalog (this file is what omp plugin marketplace add reads)
 ├── plugins/
 │   ├── docks/                         ← the engineering kit plugin (only plugin dirs get cached on user install)
-│   │   ├── .claude-plugin/plugin.json
+│   │   ├── package.json               ← native omp package manifest (name, version, `omp` object)
 │   │   ├── skills/                    ← cross-tool skills
 │   │   └── README.md                  ← plugin-facing docs
 │   └── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (lifecycle skills + internal plan-reviewer and code-reviewer skills + explicit-only yolo skill + plan.mjs + marker contract + two read-only reviewer wrappers)
@@ -117,17 +124,17 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 └── .github/workflows/ci.yml           ← validator CI on PR, release tag, and manual dispatch
 ```
 
-**What ships to users**: only the `plugins/<name>/` directory of each installed plugin. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to `~/.claude/plugins/cache/` on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism - Claude Code's plugin cache copies only the directory pointed at by `source`.
+**What ships to users**: only the `plugins/<name>/` directory of each installed plugin. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to the omp plugin cache on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism - the plugin cache copies only the directory pointed at by `source`.
 
 ## Develop locally
 
-Test changes without pushing to GitHub:
+Test changes without pushing to GitHub: start omp from the checkout root and load the plugin directories.
 
 ```bash
-claude --plugin-dir ./plugins/docks
+omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle
 ```
 
-When a `--plugin-dir` plugin shares a name with an installed marketplace plugin, the local copy wins for that session. After edits, run `/reload-plugins` in the running session - no Claude Code restart needed.
+omp loads each plugin from its directory for that session. Give `--plugin-dir` once for each plugin that you change. After edits, start a new session with the same flags.
 
 ## Validate before pushing
 
@@ -136,7 +143,7 @@ Four validators mirror the kit-side conventions:
 ```bash
 bun install --frozen-lockfile
 bun scripts/skills/guard.mjs    # Codex + Claude skill compatibility + reference hygiene
-node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file   # skill quality score (max 16)
+node plugins/docks/skills/write-skill/scripts/skill-guard.mjs score --per-file   # skill quality score (max 16)
 bun scripts/agents/guard.mjs    # frontmatter, "Use when…" / "Not…" CSO, no `model` key, tools declared, Workflow + Success Criteria
 bun scripts/agents/score.mjs    # quality score (max 15) - no `model` key, tools declared, Workflow + Success Criteria
 ```
@@ -145,16 +152,16 @@ Bun runs this repository's own tooling: `scripts/`, `tests/`, and the plan-lifec
 
 Node runs the shipped plugin files, also inside the gate, because consumers run them with `node`. The `skill-guard.mjs` scorer line above is one of them. Node's version is the `node-version` in `.github/workflows/ci.yml`.
 
-`--per-file` on a scorer prints one `<name> <score>` line per item - useful for spotting drift after an edit. `bun scripts/ci.mjs` runs the full local gate (guards + scorers + manifest + idempotency); `ci.yml` runs that same file on CI.
+`--per-file` on a scorer prints one `<name> <score>` line per item - useful for spotting drift after an edit. `bun scripts/ci.mjs` runs the full local gate (guards + scorers + native package checks + idempotency); `ci.yml` runs that same file on CI.
 
 On a PR to `main`, CI runs only the shards the changed paths resolve to - the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks and plan-lifecycle tag independently), CI resolves the tag to one registry plugin, runs `bun scripts/ci.mjs --lane repo` once over the released bytes, then runs `bun scripts/ci.mjs --plugin <name>` as the authoritative gate. The `--plugin` gate alone skips repo-wide checks. See `.github/workflows/ci.yml`; full trigger model below.
 
 ## Versioning + releases
 
-Versions are per plugin. Each plugin's `version` in `plugins/<name>/.claude-plugin/plugin.json`, its `.codex-plugin/plugin.json` mirror, and its entry in `.claude-plugin/marketplace.json` stay in lockstep and control update propagation:
+Versions are per plugin. Each plugin's `version` in `plugins/<name>/package.json` and its entry in `.omp-plugin/marketplace.json` stay in lockstep. omp compares the catalog version when it checks for updates and when it upgrades all plugins:
 
-- **With explicit version**: users only receive updates when this field bumps. Bump on every release.
-- **Without version**: the git commit SHA is used; every commit counts as a new version (noisier but auto-tracking).
+- **With a version**: users receive an update only when this field changes to a newer version. Bump it on every release.
+- **Without a version**: omp does not compare the entry, so it does not find or install updates for that plugin. Every catalog entry in this repository declares a version.
 
 `scripts/release.mjs` releases one plugin per run and wraps the full dance in one command (`--plugin` defaults to `docks`; `--dry-run` previews the bump + manifest diff without tagging):
 
@@ -165,11 +172,18 @@ bun scripts/release.mjs --plugin plan-lifecycle major  # plan-lifecycle: 0.1.0 �
 bun scripts/release.mjs --plugin docks 0.2.0           # explicit
 ```
 
-The script runs `bun scripts/ci.mjs --plugin <name>` as a preflight, bumps that plugin's Claude and Codex manifests plus its entry in the versioned Claude marketplace catalog, commits + pushes, runs `claude plugin tag --push` for the `<name>--v<version>` tag, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created - the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
+The script runs `bun scripts/ci.mjs --plugin <name>` as a preflight, bumps that plugin's `package.json` plus its entry in the `.omp-plugin/marketplace.json` catalog, commits + pushes, creates the annotated `<name>--v<version>` tag with `git tag -a` and pushes it, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create` with notes generated from `git log` since the previous tag. If CI fails, the GitHub Release is NOT created - the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
 
 CI runs only on (a) PRs to main, (b) tag pushes matching `<plugin>--v<version>`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI - PR validation gates merges, tag-CI gates releases.
 
-Manually: `claude plugin tag --push ./plugins/<name>` (tag only, no GitHub Release).
+Manually, from a clean checkout of the release commit (tag only, no GitHub Release):
+
+```bash
+v=$(node -p "require('./plugins/<name>/package.json').version")
+git tag -a "<name>--v$v" -m "<name> plugin v$v" && git push origin "<name>--v$v"
+```
+
+Tag CI fails when the tag version differs from the `package.json` version or from the catalog entry version at the tagged commit.
 
 ## License
 

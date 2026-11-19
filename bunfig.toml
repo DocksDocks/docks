@@ -15,8 +15,5 @@ linker = "isolated"
 hoist = false
 
 # Lifecycle scripts stay denied by default. `trustedDependencies: []` in package.json
-# trusts nothing, replacing pnpm's `allowBuilds: {'@anthropic-ai/claude-code': false}`.
-# An empty array is the only spelling that denies everything: omitting the field trusts
-# every package on Bun's built-in list, which includes @anthropic-ai/claude-code.
-# Its postinstall materializes a ~230MB CLI binary that only the plugin-validate CI job
-# needs, and that job runs `node install.cjs` itself.
+# trusts nothing. An empty array is the only spelling that denies everything: omitting
+# the field trusts every package on Bun's built-in list.

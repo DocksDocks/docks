@@ -5,11 +5,11 @@
 // Each descriptor declares paths + capabilities; the tooling runs a check only
 // when the capability is present, so a skills-only plugin and a skills+agents+
 // selftest plugin share one code path. Versions are PER-PLUGIN and independent
-// (each plugin versions separately); the Claude marketplace catalog
-// holds one entry per plugin, matched by `name`.
+// (each plugin versions separately); each plugin's package.json carries its
+// version, and the one omp catalog holds one entry per plugin, matched by `name`.
 //
 // Fields:
-//   name          marketplace + tag identity (claude plugin tag → <name>--v<ver>)
+//   name          catalog + tag identity (the release tags <name>--v<ver>)
 //   root          plugin dir under the repo; also the changed-path prefix that maps
 //                 a pull-request diff onto this plugin's shard (ci-targeting.mjs
 //                 `resolveShardSelection`), so the workflow never duplicates roots
@@ -18,7 +18,6 @@
 //   javascriptQuality scoped Biome paths (`ci` required, optional `lint`)
 //   skills        skills root, or null
 //   agents        agents root, or null
-//   codex         true when a .codex-plugin/ mirror + Codex marketplace entry ship
 //   selftest      path to a runnable self-test, or null
 //   rust          Rust binary capability, or null. `source` owns local build
 //                 paths; `prebuilt` owns immutable release target/asset naming.
@@ -48,6 +47,18 @@ export const REPO_WIDE_JAVASCRIPT_QUALITY = Object.freeze({
   lint: Object.freeze([]),
 });
 
+// The install text of a GitHub release. `omp plugin install` fails when the plugin is already installed, so the text
+// gives the new-install lines and the update lines.
+const releaseInstallText = (name) =>
+  [
+    '# New install',
+    'omp plugin marketplace add DocksDocks/docks',
+    `omp plugin install ${name}@docks`,
+    '# Update',
+    'omp plugin marketplace update docks',
+    `omp plugin upgrade ${name}@docks`,
+  ].join('\n');
+
 export const PLUGINS = [
   {
     name: 'docks',
@@ -56,23 +67,22 @@ export const PLUGINS = [
     javascriptQuality: {
       ci: ['scripts', 'plugins/docks/hooks'],
       lint: [
-        'plugins/docks/skills/productivity/write-skill/scripts',
-        'plugins/docks/skills/productivity/agent-first-setup/scripts',
-        'plugins/docks/skills/productivity/multi-tool-bridge/scripts',
+        'plugins/docks/skills/write-skill/scripts',
+        'plugins/docks/skills/agent-first-setup/scripts',
+        'plugins/docks/skills/multi-tool-bridge/scripts',
       ],
     },
     skills: 'plugins/docks/skills',
     agents: null,
-    codex: true,
     selftest: null,
     rust: null,
-    extraJson: [],
+    extraJson: ['plugins/docks/hooks/hooks.json'],
     authorChecks: ['idempotency', 'plan-reviewer'],
     releaseContracts: [],
     transformGuard: true,
     release: {
       kind: 'generic',
-      install: '/plugin marketplace update docks\n/plugin install docks@docks',
+      install: releaseInstallText('docks'),
     },
   },
   {
@@ -82,13 +92,12 @@ export const PLUGINS = [
     javascriptQuality: {
       ci: ['plugins/plan-lifecycle/test'],
       lint: [
-        'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts',
-        'plugins/plan-lifecycle/skills/productivity/plan-workspace/scripts',
+        'plugins/plan-lifecycle/skills/plan-manager/scripts',
+        'plugins/plan-lifecycle/skills/plan-workspace/scripts',
       ],
     },
     skills: 'plugins/plan-lifecycle/skills',
     agents: 'plugins/plan-lifecycle/agents',
-    codex: true,
     selftest: 'plugins/plan-lifecycle/test/selftest.mjs',
     rust: null,
     extraJson: [],
@@ -99,41 +108,21 @@ export const PLUGINS = [
     transformGuard: false,
     release: {
       kind: 'generic',
-      install: '/plugin marketplace update docks\n/plugin install plan-lifecycle@docks',
+      install: releaseInstallText('plan-lifecycle'),
     },
   },
 ];
 
-// Shared catalogs (one entry per plugin, matched by name).
-export const CLAUDE_MARKETPLACE = '.claude-plugin/marketplace.json';
-export const CODEX_MARKETPLACE = '.agents/plugins/marketplace.json';
+// The one catalog of the native omp packages (one entry per plugin, matched by name).
+export const MARKETPLACE = '.omp-plugin/marketplace.json';
 
-export const claudeManifest = (p) => `${p.root}/.claude-plugin/plugin.json`;
-export const codexManifest = (p) => `${p.root}/.codex-plugin/plugin.json`;
+// The native package manifest of a plugin, relative to the repository root.
+export const pluginPackageJson = (p) => `${p.root}/package.json`;
 
 export const byName = (name) => PLUGINS.find((p) => p.name === name) || null;
 
 // Plugins actually present on disk (a descriptor may outlive its files mid-edit).
 export const presentPlugins = () => PLUGINS.filter((p) => fs.existsSync(p.root));
-
-// Version of a plugin's entry in a parsed marketplace catalog.
-export const marketEntryVersion = (market, name) => market?.plugins?.find((x) => x.name === name)?.version;
-
-// Skill categories a plugin declares in its manifest `skills` array
-// (["./skills/productivity", …] → ["productivity", …]); [] when skills is the
-// Codex string form or absent.
-export function manifestCategories(manifest) {
-  const skills = manifest?.skills;
-  if (!Array.isArray(skills)) return [];
-  return skills
-    .map((s) =>
-      s
-        .replace(/^\.\//, '')
-        .replace(/^skills\//, '')
-        .replace(/\/$/, ''),
-    )
-    .filter(Boolean);
-}
 
 // Shell files to lint: hook scripts (*.sh) under a plugin's hooks/ dir, the
 // bundled skill scripts (skills/**/scripts/*.sh), and the rust capability's sh

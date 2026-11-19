@@ -16,25 +16,19 @@ const REPO = path.resolve(HERE, '../../..');
 const TARGET = 'docks';
 const SKILLS_ROOT = `plugins/${TARGET}/skills`;
 
-// Counted the way the gate counts: every <category>/<skill> directory, SKILL.md or not.
-const skillDirs = (root) => {
-  const out = [];
-  for (const category of fs.readdirSync(path.join(REPO, root)).sort()) {
-    const cp = path.join(REPO, root, category);
-    if (!fs.statSync(cp).isDirectory()) continue;
-    for (const name of fs.readdirSync(cp).sort()) {
-      if (fs.statSync(path.join(cp, name)).isDirectory()) out.push(`${category}/${name}`);
-    }
-  }
-  return out;
-};
+// Counted the way the gate counts: every skill directory directly under the skills root, SKILL.md or not.
+const skillDirs = (root) =>
+  fs
+    .readdirSync(path.join(REPO, root))
+    .sort()
+    .filter((name) => fs.statSync(path.join(REPO, root, name)).isDirectory());
 const EXPECTED = skillDirs(SKILLS_ROOT);
 assert.ok(EXPECTED.length >= 2, `${SKILLS_ROOT} must hold at least two skills for the subset case to mean anything`);
 
 // One shim per tool on PATH. Every stubbed child succeeds silently except the scorer, whose
 // behaviour DOCKS_SCORE_MODE selects: `full` reproduces the real scorer's contract (a row per
-// skill directory holding a SKILL.md, upstream skills included — the scorer emits those too,
-// skill-guard.mjs:168-171), `empty` prints nothing, `subset` drops the first row, `crash`
+// skill directory holding a SKILL.md, upstream skills included — the score mode of
+// skill-guard.mjs emits those too), `empty` prints nothing, `subset` drops the first row, `crash`
 // writes a diagnostic to stderr and exits 3.
 function writeShim(directory, name) {
   const script = `#!${process.execPath}
@@ -42,20 +36,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 const tool = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
-if (tool === 'claude') process.stdout.write('Validation passed\\n');
+// The native gate runs no claude command, so a claude call fails the gate here.
+if (tool === 'claude') process.exit(97);
 if (tool === 'bun' && args[0] === 'scripts/config/read-floor.mjs') process.stdout.write('10\\n');
-if (tool === 'node' && args[0] === 'plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
+if (tool === 'node' && args[0] === 'plugins/docks/skills/write-skill/scripts/skill-guard.mjs' && args[1] === 'score') {
   const root = args.at(-1);
   const rows = [];
-  for (const category of fs.readdirSync(root).sort()) {
-    const cp = path.join(root, category);
-    if (!fs.statSync(cp).isDirectory()) continue;
-    for (const skill of fs.readdirSync(cp).sort()) {
-      const dir = path.join(cp, skill);
-      if (!fs.statSync(dir).isDirectory()) continue;
-      if (!fs.existsSync(path.join(dir, 'SKILL.md'))) continue;
-      rows.push(\`\${category}/\${skill} 14\`);
-    }
+  for (const skill of fs.readdirSync(root).sort()) {
+    const dir = path.join(root, skill);
+    if (!fs.statSync(dir).isDirectory()) continue;
+    if (!fs.existsSync(path.join(dir, 'SKILL.md'))) continue;
+    rows.push(\`\${skill} 14\`);
   }
   const mode = root === ${JSON.stringify(SKILLS_ROOT)} ? process.env.DOCKS_SCORE_MODE : 'full';
   if (mode === 'crash') {
@@ -157,9 +148,6 @@ test('a scorer that exits non-zero fails the gate naming the command', async () 
   const { status, output } = await gates.get('crash');
   assert.notEqual(status, 0);
   assert.match(output, rx(`${TARGET} skill scorer exited 3 — no score set to gate`));
-  assert.match(
-    output,
-    rx('node plugins/docks/skills/productivity/write-skill/scripts/skill-guard.mjs score --per-file'),
-  );
+  assert.match(output, rx('node plugins/docks/skills/write-skill/scripts/skill-guard.mjs score --per-file'));
   assert.doesNotMatch(output, rx(`${TARGET} skills per-file all clear`));
 });

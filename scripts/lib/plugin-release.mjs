@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { MARKETPLACE, pluginPackageJson } from './plugins.mjs';
 
 // Preview and execution share these reasons so a dry run cannot drift from the release
 // decision it forecasts.
@@ -212,6 +213,11 @@ function formattedJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+// The message of the annotated release tag `<plugin>--v<version>`.
+function tagMessage(pluginName, version) {
+  return `${pluginName} plugin v${version}`;
+}
+
 // Preview of the manifest writes a real run would make. A dirty tree is never compared:
 // the probe below is only meaningful against a clean index, and the executed release
 // refuses on a dirty tree, so no staging decision exists to forecast.
@@ -259,14 +265,12 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
   const { dryRun, plugin, versionArgument } = parseGenericArgs(argv, plugins);
   validateIo(io);
 
-  const pluginJson = path.join(repo, `${plugin.root}/.claude-plugin/plugin.json`);
-  const marketplaceJson = path.join(repo, '.claude-plugin/marketplace.json');
-  const codexPluginJson = path.join(repo, `${plugin.root}/.codex-plugin/plugin.json`);
-  const pluginPath = `./${plugin.root}`;
+  // The native omp package: the plugin package.json and its entry in the one catalog carry the version.
+  const packageJson = path.join(repo, pluginPackageJson(plugin));
+  const marketplaceJson = path.join(repo, MARKETPLACE);
 
   if (!dryRun && !io.ensureTool('gh')) throw new Error('gh is required');
-  if (!dryRun && !io.ensureTool('claude')) throw new Error('claude is required');
-  if (!io.fileExists(pluginJson)) throw new Error(`plugin.json not found at ${pluginJson}`);
+  if (!io.fileExists(packageJson)) throw new Error(`package.json not found at ${packageJson}`);
   if (!io.fileExists(marketplaceJson)) throw new Error(`marketplace.json not found at ${marketplaceJson}`);
   const cleanTree = io.ensureCleanTree();
   let dryRunBlocked = false;
@@ -283,8 +287,8 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
   }
   io.log('');
 
-  const pluginManifest = await io.readJson(pluginJson);
-  const currentVersion = pluginManifest.version;
+  const pluginPackage = await io.readJson(packageJson);
+  const currentVersion = pluginPackage.version;
   const newVersion = nextVersion(currentVersion, versionArgument);
   // Re-cutting the version already in the manifest is legal only while that version was never
   // tagged. The manifest is a proxy for "already released", not the fact: a run that bumps the
@@ -303,9 +307,9 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
     cleanTree,
   });
 
-  pluginManifest.version = newVersion;
-  if (dryRun) preview(pluginJson, pluginManifest);
-  else await io.writeJson(pluginJson, pluginManifest);
+  pluginPackage.version = newVersion;
+  if (dryRun) preview(packageJson, pluginPackage);
+  else await io.writeJson(packageJson, pluginPackage);
 
   const marketplace = await io.readJson(marketplaceJson);
   const marketplacePlugin = marketplace.plugins.find((candidate) => candidate.name === plugin.name);
@@ -313,16 +317,7 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
   if (dryRun) preview(marketplaceJson, marketplace);
   else await io.writeJson(marketplaceJson, marketplace);
 
-  const codexFiles = [];
-  if (plugin.codex && io.fileExists(codexPluginJson)) {
-    const codexManifest = await io.readJson(codexPluginJson);
-    codexManifest.version = newVersion;
-    if (dryRun) preview(codexPluginJson, codexManifest);
-    else await io.writeJson(codexPluginJson, codexManifest);
-    codexFiles.push(path.relative(repo, codexPluginJson));
-  }
-
-  const addFiles = [`${plugin.root}/.claude-plugin/plugin.json`, '.claude-plugin/marketplace.json', ...codexFiles];
+  const addFiles = [pluginPackageJson(plugin), MARKETPLACE];
   const tag = `${plugin.name}--v${newVersion}`;
   if (dryRun) {
     // The executed release refuses before writing on a dirty tree, so there is no
@@ -339,7 +334,8 @@ export async function runGenericPluginRelease({ argv, repo, plugins, io }) {
       io.log(`  [dry-run] ${RECUT_TAG_REASON}`);
     }
     io.log('  [dry-run] git push origin HEAD');
-    io.log(`  [dry-run] claude plugin tag --push --message "${plugin.name} plugin %s" ${pluginPath}`);
+    io.log(`  [dry-run] git tag -a ${tag} -m "${tagMessage(plugin.name, newVersion)}"`);
+    io.log(`  [dry-run] git push origin ${tag}`);
     io.log(`  [dry-run] wait for tag-CI on ${tag}, then gh release create (gated on CI green)`);
     io.log('\n[dry-run] OK — no changes written, no tag, no release.');
     return true;
@@ -429,10 +425,26 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
     createRelease({ tag, title, notes }) {
       run('gh', ['release', 'create', tag, '--title', title, '--notes', notes]);
     },
+    // An annotated tag `<plugin>--v<version>` on HEAD, pushed to origin; the tag push starts the tag CI. `git tag`
+    // without `-f` refuses a tag that already exists, so this never moves a tag.
     createTag(tag) {
       const plugin = pluginForTag(tag);
+      const version = tag.slice(`${plugin.name}--v`.length);
       const pushedAt = githubNow() ?? new Date().toISOString();
-      run('claude', ['plugin', 'tag', '--push', '--message', `${plugin.name} plugin %s`, `./${plugin.root}`]);
+      run('git', ['tag', '-a', tag, '-m', tagMessage(plugin.name, version)]);
+      const pushed = spawnSync('git', ['push', 'origin', tag], { stdio: 'inherit', cwd: repo });
+      if ((pushed.status ?? 1) !== 0) {
+        // A local tag that origin does not have makes `tagPublished` report the version as released, and the re-cut
+        // then stops with `already released`. So remove the local tag before the release stops.
+        const recovery = `bun scripts/release.mjs --plugin ${plugin.name} ${version}`;
+        const removed = capture('git', ['tag', '-d', tag]);
+        if ((removed.status ?? 1) !== 0) {
+          throw new Error(
+            `git push origin ${tag} failed, and git tag -d ${tag} failed: ${removed.stderr?.trim() || `exit ${removed.status}`}. Remove the local tag with git tag -d ${tag}, then run ${recovery}`,
+          );
+        }
+        throw new Error(`git push origin ${tag} failed; the local tag ${tag} is removed. To recover, run ${recovery}`);
+      }
       return pushedAt;
     },
     ensureCleanTree() {

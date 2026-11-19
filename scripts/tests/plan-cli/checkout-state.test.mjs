@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 // Two listings of the session checkout must differ in the line of each path that changed on disk, and in no other
 // line, also when the checkout was dirty before the dispatch.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const SCRIPT = path.join(ROOT, 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/checkout-state.sh');
+const SCRIPT = path.join(ROOT, 'plugins/plan-lifecycle/skills/plan-manager/scripts/checkout-state.sh');
 const GIT_ENV = {
   ...process.env,
   GIT_CONFIG_GLOBAL: '/dev/null',

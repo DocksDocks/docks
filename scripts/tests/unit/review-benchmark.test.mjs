@@ -2740,7 +2740,7 @@ const missingHead = (head, caseFile, pull, script) =>
 const copyPrepare = (repo) => {
   const live = path.join(import.meta.dirname, '../../..');
   const scripts = '.agents/skills/review-benchmark/scripts';
-  const helper = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+  const helper = 'plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
   for (const file of [`${scripts}/prepare.mjs`, `${scripts}/score.mjs`, helper]) {
     put(repo, file, readText(path.join(live, file)));
   }
@@ -3273,8 +3273,8 @@ const SCOPE_CASE = `${SCOPE_WS}/code-7`;
 const reads = (...paths) => paths.map((target) => ({ name: 'read', path: target }));
 // The part of a rendered reviewer agent that names the skill of its plugin root.
 const agentText = (root) =>
-  `# Code Reviewer\n\nLoad and follow\n\`${root}/skills/productivity/code-reviewer/SKILL.md\`.\n` +
-  'Without `CLAUDE_PLUGIN_ROOT`, resolve `../skills/productivity/code-reviewer/SKILL.md`\nfrom this file.\n';
+  `# Code Reviewer\n\nLoad and follow the \`code-reviewer\` skill at\n\`${root}/skills/code-reviewer/SKILL.md\`.\n` +
+  `Name each further file of the skill as \`${root}/skills/code-reviewer/<path>\`.\n`;
 // A transcript of one agent that runs in the live checkout at the `low` configuration. Its last assistant message
 // makes the tool calls, each [name, arguments], and `cwd` is the working directory of its session. `results` maps the
 // id `call-<n>` of the n-th call to the details of its tool result; a call without an entry gets no tool result.
@@ -3370,9 +3370,9 @@ test('readScope allows the inputs of the run, the instructions of the reviewer, 
       `${SCOPE_CASE}/C3-low/run-1/prompts/correctness.txt`,
       // The instructions of the reviewer, by an absolute path and by a path relative to the working directory.
       `${LIVE_PLUGIN}/agents/code-reviewer.md`,
-      'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md',
-      `${LIVE_PLUGIN}/skills/productivity/code-reviewer/references/correctness.md:1-80`,
-      `${LIVE_PLUGIN}/skills/productivity/plan-reviewer/references/checklist.md`,
+      'plugins/plan-lifecycle/skills/code-reviewer/SKILL.md',
+      `${LIVE_PLUGIN}/skills/code-reviewer/references/correctness.md:1-80`,
+      `${LIVE_PLUGIN}/skills/plan-reviewer/references/checklist.md`,
       'skill://code-review/references/perf.md',
       'skill://code-clarity',
       'artifact://12:1-40',
@@ -3381,7 +3381,7 @@ test('readScope allows the inputs of the run, the instructions of the reviewer, 
     ),
     { name: 'glob', path: `${SCOPE_CASE}/snapshot/**/AGENTS.md` },
     { name: 'grep', path: `${SCOPE_CASE}/snapshot/src; ${SCOPE_CASE}/snapshot/tests` },
-    { name: 'glob', path: `${LIVE_PLUGIN}/skills/productivity/code-reviewer/references/*.md` },
+    { name: 'glob', path: `${LIVE_PLUGIN}/skills/code-reviewer/references/*.md` },
     // Calls without a path that search nothing.
     { name: 'yield', path: null },
     { name: 'web_search', path: null },
@@ -3405,10 +3405,10 @@ test('readScope lists each target outside the inputs of the run once, in call or
     // The live checkout: other files, other skills (they can hold fixed shipped text), and the other plugin root.
     ...reads(
       'scripts/score.mjs',
-      `${LIVE}/plugins/docks/skills/engineering/code-review/references/perf.md`,
-      `${LIVE_PLUGIN}/skills/productivity/plan-manager/SKILL.md`,
+      `${LIVE}/plugins/docks/skills/code-review/references/perf.md`,
+      `${LIVE_PLUGIN}/skills/plan-manager/SKILL.md`,
       `${LIVE_PLUGIN}/README.md`,
-      `${BASELINE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`,
+      `${BASELINE_PLUGIN}/skills/code-reviewer/SKILL.md`,
     ),
     { name: 'grep', path: null },
     { name: 'glob', path: null },
@@ -3435,10 +3435,10 @@ test('readScope lists each target outside the inputs of the run once, in call or
       `${SCOPE_CASE}/snapshot/**/../*.json`,
       `${LIVE}/src`,
       'scripts/score.mjs',
-      `${LIVE}/plugins/docks/skills/engineering/code-review/references/perf.md`,
-      `${LIVE_PLUGIN}/skills/productivity/plan-manager/SKILL.md`,
+      `${LIVE}/plugins/docks/skills/code-review/references/perf.md`,
+      `${LIVE_PLUGIN}/skills/plan-manager/SKILL.md`,
       `${LIVE_PLUGIN}/README.md`,
-      `${BASELINE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`,
+      `${BASELINE_PLUGIN}/skills/code-reviewer/SKILL.md`,
       'grep without a path',
       'glob without a path',
       'find without a path',
@@ -3455,8 +3455,8 @@ test('readScope lists each target outside the inputs of the run once, in call or
     ],
   });
   // Without a working directory, a relative path is outside. Without a plugin root, the skill of the reviewer is too.
-  const ownSkill = `${LIVE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`;
-  const relativeSkill = 'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md';
+  const ownSkill = `${LIVE_PLUGIN}/skills/code-reviewer/SKILL.md`;
+  const relativeSkill = 'plugins/plan-lifecycle/skills/code-reviewer/SKILL.md';
   assert.deepEqual(score.readScope(reads(relativeSkill, ownSkill), { ...scope, cwd: null }), {
     outside: [relativeSkill],
   });
@@ -3481,9 +3481,9 @@ test('readScope of a loop round allows the tree copies of its run up to that rou
       `${SCOPE_CASE}/snapshot/src/sync.mjs`,
       `${SCOPE_CASE}/plan.md`,
       tree('run-1/round-2'),
-      // A baseline plugin can keep its skills without a category folder.
+      // A baseline plugin at a ref before the flat layout keeps its skills in a category folder.
       `${BASELINE_PLUGIN}/agents/code-reviewer.md`,
-      `${BASELINE_PLUGIN}/skills/code-reviewer/SKILL.md`,
+      `${BASELINE_PLUGIN}/skills/legacy/code-reviewer/SKILL.md`,
     ),
     { name: 'glob', path: `${run}/round-2/snapshot/**/*.mjs` },
   ];
@@ -3497,7 +3497,7 @@ test('readScope of a loop round allows the tree copies of its run up to that rou
     `${SCOPE_CASE}/B0-low/run-2/round-2/snapshot/src/sync.mjs`,
     tree('run-1/round-3'),
     tree('run-2/round-2'),
-    `${LIVE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`,
+    `${LIVE_PLUGIN}/skills/code-reviewer/SKILL.md`,
   ];
   assert.deepEqual(score.readScope(reads(...outside), scope), { outside });
 });
@@ -3518,13 +3518,13 @@ test('transcripts command writes the outside reads of each reviewer and leaves f
   // The read scope takes the files that the case changes from the full.diff of each round.
   put(caseDir, 'full.diff', '');
   put(round(2), 'full.diff', '');
-  const relativeSkill = 'plugins/docks/skills/engineering/code-review/references/perf.md';
+  const relativeSkill = 'plugins/docks/skills/code-review/references/perf.md';
   put(
     sessions,
     'Code7C1LowR1K1Full.jsonl',
     toolTranscript(caseDir, 30, [
       // The system prompt names the plugin root of this skill.
-      ['read', { path: `${LIVE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md` }],
+      ['read', { path: `${LIVE_PLUGIN}/skills/code-reviewer/SKILL.md` }],
       ['read', { path: `${path.join(caseDir, 'full.diff')}:1-200` }],
       ['read', { path: relativeSkill }],
       ['grep', { pattern: 'lock' }],
@@ -3681,7 +3681,7 @@ test('transcripts on the probe workspace writes the effort and the served tier o
 test('a reviewer that read outside its inputs makes the run invalid, also without a configuration', () => {
   const config = CONFIGS['xhigh-fast'];
   const many = ['a', 'b', 'c', 'd', 'e'].map((name) => `${LIVE}/src/${name}.mjs`);
-  const perf = `${LIVE}/plugins/docks/skills/engineering/code-review/references/perf.md`;
+  const perf = `${LIVE}/plugins/docks/skills/code-review/references/perf.md`;
   const costs = [
     provenCost(config, 100, 100, { readScope: { outside: [] } }),
     provenCost(config, 200, 100, { readScope: { outside: [perf] } }),
@@ -3736,7 +3736,7 @@ test('readScope allows the plan contract of a plugin root and an installed cache
   const cache = '/home/user/.omp/plugins/cache/plugins/docks___docks___0.21.0/skills';
   const allowed = [
     ...reads(
-      `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/plan-contract.md:120-160`,
+      `${LIVE_PLUGIN}/skills/plan-manager/references/plan-contract.md:120-160`,
       `${LIVE_PLUGIN}/skills/plan-manager/references/plan-contract.md`,
       `${cache}/engineering/code-review/references/security.md`,
       `${cache}/code-clarity/SKILL.md:1-40`,
@@ -3750,13 +3750,13 @@ test('readScope allows the plan contract of a plugin root and an installed cache
   const outside = [
     // The docks skills of the repository that holds the plugin root. The plans name them, but the copy of the reviewed
     // repository is under the snapshot root.
-    `${LIVE}/plugins/docks/skills/engineering/code-review/references/perf.md`,
+    `${LIVE}/plugins/docks/skills/code-review/references/perf.md`,
     `${LIVE}/plugins/docks/skills/**/code-clarity/SKILL.md`,
     // Only the plan contract file of a plugin root of the reviewer.
-    `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/other.md`,
-    `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/*.md`,
+    `${LIVE_PLUGIN}/skills/plan-manager/references/other.md`,
+    `${LIVE_PLUGIN}/skills/plan-manager/references/*.md`,
     `${LIVE_PLUGIN}/skills/a/b/plan-manager/references/plan-contract.md`,
-    `${BASELINE_PLUGIN}/skills/productivity/plan-manager/references/plan-contract.md`,
+    `${BASELINE_PLUGIN}/skills/plan-manager/references/plan-contract.md`,
     // A cache copy of another skill, a path whose `..` segment leaves the allowed skill for it, and a glob from a
     // folder above the skill folders.
     `${cache}/productivity/plan-manager/references/plan-contract.md`,
@@ -3787,10 +3787,10 @@ test('readScope puts an optional instruction read outside when the case changes 
     cwd: LIVE,
     pluginRoots: [LIVE_PLUGIN],
     changedFiles: [
-      'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md',
-      'plugins/docks/skills/engineering/code-review/SKILL.md',
+      'plugins/plan-lifecycle/skills/plan-manager/references/plan-contract.md',
+      'plugins/docks/skills/code-review/SKILL.md',
       'plugins/plan-lifecycle/agents/code-reviewer.md',
-      'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md',
+      'plugins/plan-lifecycle/skills/code-reviewer/SKILL.md',
     ],
   };
   const allowed = [
@@ -3798,14 +3798,14 @@ test('readScope puts an optional instruction read outside when the case changes 
       `${cache}/engineering/code-review/references/perf.md`,
       'skill://code-clarity',
       // The reviewer cannot work without its agent file and its own skill folder, so they stay allowed.
-      `${LIVE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`,
+      `${LIVE_PLUGIN}/skills/code-reviewer/SKILL.md`,
       `${LIVE_PLUGIN}/agents/code-reviewer.md`,
     ),
     { name: 'glob', path: `${cache}/engineering/code-review/references/*.md` },
   ];
   assert.deepEqual(score.readScope(allowed, scope), { outside: [] });
   const outside = [
-    `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/plan-contract.md`,
+    `${LIVE_PLUGIN}/skills/plan-manager/references/plan-contract.md`,
     `${cache}/engineering/code-review/SKILL.md`,
     'skill://code-review',
     // The folder before the first glob segment holds the changed SKILL.md.
@@ -3820,7 +3820,7 @@ test('transcripts command takes the changed files of a plan case from the Files 
   const root = scratch(t);
   const ws = path.join(root, 'ws');
   const sessions = path.join(root, 'sessions');
-  const contract = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
+  const contract = 'plugins/plan-lifecycle/skills/plan-manager/references/plan-contract.md';
   put(ws, 'plan-3/case.json', { id: 'plan-3', kind: 'plan', split: 'dev' });
   put(
     ws,
@@ -3839,7 +3839,7 @@ test('transcripts command takes the changed files of a plan case from the Files 
     ].join('\n'),
   );
   put(ws, 'plan-3/P0/run-1/prompts/plan.txt', 'agent: review-bench-candidate-plan-low\n\nReview.\n');
-  const contractRead = `${LIVE_PLUGIN}/skills/productivity/plan-manager/references/plan-contract.md`;
+  const contractRead = `${LIVE_PLUGIN}/skills/plan-manager/references/plan-contract.md`;
   put(
     sessions,
     'Plan3P0R1Plan.jsonl',
@@ -4801,13 +4801,13 @@ test('readScope puts the installed reviewer skills outside and exempts the own s
   // Through these targets, a baseline reviewer reads the instructions of the installed release. Its own skill folder
   // under its plugin root stays allowed.
   const baseline = { runDir: `${SCOPE_CASE}/B0-low/run-1`, cwd: LIVE, pluginRoots: [BASELINE_PLUGIN] };
-  const baselineSkill = `${BASELINE_PLUGIN}/skills/productivity/code-reviewer/SKILL.md`;
+  const baselineSkill = `${BASELINE_PLUGIN}/skills/code-reviewer/SKILL.md`;
   assert.deepEqual(score.readScope(reads(...installed, baselineSkill), baseline), { outside: installed });
   const candidate = { runDir: `${SCOPE_CASE}/C1-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
   assert.deepEqual(score.readScope(reads(...installed), candidate), { outside: installed });
 
   // A case that changes the code-clarity skill.
-  const changedFiles = ['plugins/docks/skills/engineering/code-clarity/SKILL.md'];
+  const changedFiles = ['plugins/docks/skills/code-clarity/SKILL.md'];
   const clarity = [
     'skill://code-clarity',
     `${docksCache}/engineering/code-clarity/SKILL.md`,
@@ -4825,7 +4825,7 @@ test('readScope puts the installed reviewer skills outside and exempts the own s
   assert.deepEqual(score.readScope(reads(...clarity), { ...candidate, changedFiles }), { outside: clarity });
   // The installed reviewer skills and the copy of code-clarity in the live checkout stay outside for the self-review
   // agent.
-  const liveClarity = `${LIVE}/plugins/docks/skills/engineering/code-clarity/SKILL.md`;
+  const liveClarity = `${LIVE}/plugins/docks/skills/code-clarity/SKILL.md`;
   assert.deepEqual(score.readScope(reads(...installed, liveClarity), selfReview), {
     outside: [...installed, liveClarity],
   });
@@ -5783,7 +5783,7 @@ test('transcripts reads a target as a list only when no file has its whole path,
   const { live, snapshot } = fixture;
   // The live checkout, the working directory of the reviewer, has the layout of the snapshot. The agent text names
   // another plugin root, as for a baseline reviewer, so the skill file of the live checkout is outside.
-  const skill = 'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md';
+  const skill = 'plugins/plan-lifecycle/skills/code-reviewer/SKILL.md';
   for (const file of ['src/a.mjs', 'src/a;b.mjs', 'docs/release notes.md', skill]) put(snapshot, file, 'text\n');
   put(live, skill, 'text\n');
   const a = path.join(snapshot, 'src', 'a.mjs');
@@ -6107,13 +6107,29 @@ test('findings removes the judge answers of each finding whose text changed or t
 
 const PREPARE_SCRIPT = path.join(import.meta.dirname, '../../../.agents/skills/review-benchmark/scripts/prepare.mjs');
 // The delta reference of the plan-reviewer skill, relative to a plugin root.
-const VARIANT_DELTA = 'skills/productivity/plan-reviewer/references/delta.md';
+const VARIANT_DELTA = 'skills/plan-reviewer/references/delta.md';
 // The variants of variantOptions and their refs.
 const VARIANT_REFS = { 16: 'v16', a: 'cand-a' };
+// The plugin root variable of Claude Code that a plugin agent before the native omp packages names.
+const LEGACY_PLUGIN_ROOT = `\${CLAUDE_PLUGIN_ROOT}`;
 
-// The plan-reviewer agent at one ref of the variant repository. As the plugin agent does, it names the skill of its
-// plugin root.
+// The plan-reviewer agent at one ref of the variant repository. As the plugin agent does, it loads its skill with
+// `autoload-skills` and names the skill file as a `skill://` URI.
 const variantAgentText = (label) => `---
+name: plan-reviewer
+description: Reviews plans.
+tools: read, glob, grep
+autoload-skills: plan-reviewer
+---
+
+# Plan Reviewer ${label}
+
+Load and follow
+\`skill://plan-reviewer/SKILL.md\`.
+`;
+// The plan-reviewer agent of a release before the native omp packages: it names its skill under the plugin root
+// variable of Claude Code.
+const legacyVariantAgentText = (label) => `---
 name: plan-reviewer
 description: Reviews plans.
 tools: Read, Glob, Grep
@@ -6122,7 +6138,7 @@ tools: Read, Glob, Grep
 # Plan Reviewer ${label}
 
 Load and follow
-\`\${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/SKILL.md\`.
+\`${LEGACY_PLUGIN_ROOT}/skills/plan-reviewer/SKILL.md\`.
 `;
 
 // The plugin root of a variant: `agents` extracts it next to the baseline copy.
@@ -6146,15 +6162,15 @@ function variantRepo(t) {
     return gitIn(repo, 'rev-parse', 'HEAD').trim();
   };
   const plugin = 'plugins/plan-lifecycle';
-  const files = (label) => ({
+  const files = (label, agent = variantAgentText(label)) => ({
     [`${plugin}/agents/code-reviewer.md`]: `---\nname: code-reviewer\ndescription: Reviews.\n---\n\n# ${label}\n`,
-    [`${plugin}/agents/plan-reviewer.md`]: variantAgentText(label),
-    [`${plugin}/skills/productivity/plan-reviewer/SKILL.md`]: `# Plan reviewer ${label}\n`,
-    [`${plugin}/skills/productivity/plan-manager/references/plan-contract.md`]: `# Plan contract ${label}\n`,
+    [`${plugin}/agents/plan-reviewer.md`]: agent,
+    [`${plugin}/skills/plan-reviewer/SKILL.md`]: `# Plan reviewer ${label}\n`,
+    [`${plugin}/skills/plan-manager/references/plan-contract.md`]: `# Plan contract ${label}\n`,
   });
   const shas = {
     bare: commit('bare', { 'README.md': '# Demo\n' }),
-    v16: commit('0.16.0', files('0.16.0')),
+    v16: commit('0.16.0', files('0.16.0', legacyVariantAgentText('0.16.0'))),
     'cand-a': commit('candidate a', { ...files('A'), [`${plugin}/${VARIANT_DELTA}`]: '# Delta mode A\n' }),
   };
   for (const [tag, sha] of Object.entries(shas)) gitIn(repo, 'tag', tag, sha);
@@ -6213,14 +6229,17 @@ test('agents --variants writes an agent per variant and configuration from the p
         pluginRoot,
       });
       assert.equal(text, rendered);
-      assert.ok(text.includes(`\`${pluginRoot}/skills/productivity/plan-reviewer/SKILL.md\``));
+      assert.ok(text.includes(`\`${pluginRoot}/skills/plan-reviewer/SKILL.md\``));
+      // The copy reads the skill of its plugin root, not the installed skill.
+      assert.doesNotMatch(text, /skill:\/\/|^autoload-skills:/m);
+      assert.ok(!text.includes(LEGACY_PLUGIN_ROOT));
       assert.equal(overrides[agent], tier);
     }
     // The plugin root holds plugins/plan-lifecycle at the ref, not the files of the work tree.
     for (const file of [
       'agents/plan-reviewer.md',
-      'skills/productivity/plan-reviewer/SKILL.md',
-      'skills/productivity/plan-manager/references/plan-contract.md',
+      'skills/plan-reviewer/SKILL.md',
+      'skills/plan-manager/references/plan-contract.md',
     ]) {
       assert.equal(readText(path.join(pluginRoot, file)), atRef(file));
     }
@@ -6415,17 +6434,17 @@ test('transcripts lets a variant reviewer read its own plugin root and no other 
   const own = variantRoot(root, 'a');
   const other = variantRoot(root, '16');
   const ownReads = [
-    ['read', { path: `${own}/skills/productivity/plan-reviewer/SKILL.md` }],
+    ['read', { path: `${own}/skills/plan-reviewer/SKILL.md` }],
     ['read', { path: `${own}/${VARIANT_DELTA}:1-40` }],
-    ['glob', { path: `${own}/skills/productivity/plan-reviewer/references/*.md` }],
+    ['glob', { path: `${own}/skills/plan-reviewer/references/*.md` }],
     ['read', { path: `${own}/agents/plan-reviewer.md` }],
-    ['read', { path: `${own}/skills/productivity/plan-manager/references/plan-contract.md` }],
+    ['read', { path: `${own}/skills/plan-manager/references/plan-contract.md` }],
   ];
   // The skill and the agent file of the other variant, and the skill of the live checkout.
   const outside = [
-    `${other}/skills/productivity/plan-reviewer/SKILL.md`,
+    `${other}/skills/plan-reviewer/SKILL.md`,
     `${other}/agents/plan-reviewer.md`,
-    `${LIVE_PLUGIN}/skills/productivity/plan-reviewer/SKILL.md`,
+    `${LIVE_PLUGIN}/skills/plan-reviewer/SKILL.md`,
   ];
   const calls = [...ownReads, ...outside.map((target) => ['read', { path: target }])];
   // The system prompt of the transcript holds the text of the variant agent.
@@ -6489,7 +6508,7 @@ test('a case with show_benchmark gets the benchmark skill folder without its cas
   // The scripts hide the skill folder of the repository that holds them, so this test runs a copy of them in a
   // repository with a benchmark skill folder. score.mjs imports the plan helper of plan-lifecycle.
   const skill = '.agents/skills/review-benchmark';
-  const helper = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+  const helper = 'plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
   const live = path.join(import.meta.dirname, '../../..');
   for (const file of [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`, helper]) {
     put(repo, file, readText(path.join(live, file)));
@@ -6541,7 +6560,7 @@ test('a case with show_benchmark gets the benchmark skill folder without its cas
 //
 // prepare.mjs:
 // - prepareAgents takes `contract-overlay` (`--contract-overlay <name,...>`): variants of `variants` whose commit
-//   changes plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md against its first
+//   changes plugins/plan-lifecycle/skills/plan-manager/references/plan-contract.md against its first
 //   parent. The entry of such a variant in the list of configurations gets `contractDiff`, the git diff of that file
 //   from the first parent to the commit. Before it extracts a plugin or writes a file of the project, agents refuses: a
 //   name of --full-only or --contract-overlay that is not a variant, or one of these options without --variants; an
@@ -6566,7 +6585,9 @@ test('a case with show_benchmark gets the benchmark skill folder without its cas
 //   backticks or quotes up to the closing quote, so the path can hold spaces. A bare path ends at the first space. So
 //   `agents --variants` takes an --out folder whose parent has a space in its path.
 
-const CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
+const CONTRACT = 'plugins/plan-lifecycle/skills/plan-manager/references/plan-contract.md';
+// The two forms of the contract path that the messages of the contract overlay name: flat, and in a category folder.
+const CONTRACT_FORM = 'plugins/plan-lifecycle/skills/[<folder>/]plan-manager/references/plan-contract.md';
 // The prompt rule that sends the reviewer to the snapshot root for the plan contract, and the rule of a run with a
 // contract overlay, which sends the reviewer to the copy `copy`.
 const SNAPSHOT_CONTRACT_RULE =
@@ -6574,7 +6595,8 @@ const SNAPSHOT_CONTRACT_RULE =
 const copyContractRule = (copy) =>
   `- Your own instruction files are your agent file and the files of your own skill folder. Read the plan contract at ${copy}. Read every other repository file, including other skills, under the snapshot root.`;
 // The refusal of a contract overlay on the snapshot `snapshot`, which has no plan contract.
-const noContract = (snapshot) => `${snapshot} has no ${CONTRACT}, so the contract overlay has no contract to change`;
+const noContract = (snapshot) =>
+  `${snapshot} has no ${CONTRACT_FORM}, so the contract overlay has no contract to change`;
 
 // Each file and folder under `dir`, without the .git folders: one key per path relative to `dir`, with the text of a
 // file, or '' for a folder, whose key ends with `/`. A refusal leaves this state as it was.
@@ -6683,12 +6705,12 @@ test('agents refuses colliding plugin copies, bad variant options, and unusable 
   // names the reviewer skill of another plugin root.
   const agentFile = 'plugins/plan-lifecycle/agents/plan-reviewer.md';
   const noSkill = '---\nname: plan-reviewer\ndescription: Reviews plans.\n---\n\n# Plan Reviewer\n';
-  const otherRoot = `${variantAgentText('other')}Also load \`/opt/x/skills/productivity/plan-reviewer/SKILL.md\`.\n`;
+  const otherRoot = `${variantAgentText('other')}Also load \`/opt/x/skills/plan-reviewer/SKILL.md\`.\n`;
   tagCommit('same-contract', {});
   tagCommit('no-skill', { [agentFile]: noSkill });
   tagCommit('other-root', { [agentFile]: otherRoot });
   const ownSkill = (ref) =>
-    `variant a: plugins/plan-lifecycle/agents/plan-reviewer.md at ${ref} must name its reviewer skill as \${CLAUDE_PLUGIN_ROOT}/skills/<folder>/plan-reviewer/SKILL.md and name no other plugin root`;
+    `variant a: plugins/plan-lifecycle/agents/plan-reviewer.md at ${ref} must name its reviewer skill as skill://plan-reviewer/SKILL.md, or at a ref before the native omp packages as ${LEGACY_PLUGIN_ROOT}/skills/[<folder>/]plan-reviewer/SKILL.md, and name no other plugin root`;
   const refusals = [
     // A variant copy in the folder of the baseline copy would replace the baseline plugin of the baseline agents.
     [
@@ -6709,7 +6731,7 @@ test('agents refuses colliding plugin copies, bad variant options, and unusable 
     [{ 'contract-overlay': '16,b' }, '--contract-overlay names b, which is not a variant'],
     [
       { variants: '16=v16,a=same-contract', 'contract-overlay': 'a' },
-      `variant a: same-contract does not change ${CONTRACT} against its first parent; leave it out of --contract-overlay`,
+      `variant a: same-contract does not change ${CONTRACT_FORM} against its first parent; leave it out of --contract-overlay`,
     ],
     [{ variants: '16=v16,a=no-skill' }, ownSkill('no-skill')],
     [{ variants: '16=v16,a=other-root' }, ownSkill('other-root')],
@@ -6734,7 +6756,7 @@ test('agents refuses colliding plugin copies, bad variant options, and unusable 
 test('agents --variants takes an --out folder whose parent has a space and keeps the same-root check', (t) => {
   const fixture = variantRepo(t);
   const { root, repo, agentDir } = fixture;
-  const skill = 'skills/productivity/plan-reviewer/SKILL.md';
+  const skill = 'skills/plan-reviewer/SKILL.md';
   // Without --baseline-dir, the plugin copies go to the parent of --out, whose path has a space.
   const parent = path.join(root, 'review runs');
   const options = { ...variantOptions(fixture), 'baseline-dir': undefined, out: path.join(parent, 'heldout') };
@@ -6759,7 +6781,7 @@ test('agents --variants takes an --out folder whose parent has a space and keeps
   gitIn(repo, 'add', '-A');
   gitIn(repo, 'commit', '-q', '-m', 'other root');
   gitIn(repo, 'tag', 'other-space');
-  const message = `variant a: ${agentFile} at other-space must name its reviewer skill as \${CLAUDE_PLUGIN_ROOT}/skills/<folder>/plan-reviewer/SKILL.md and name no other plugin root`;
+  const message = `variant a: ${agentFile} at other-space must name its reviewer skill as skill://plan-reviewer/SKILL.md, or at a ref before the native omp packages as ${LEGACY_PLUGIN_ROOT}/skills/[<folder>/]plan-reviewer/SKILL.md, and name no other plugin root`;
   assert.throws(() => prepare.prepareAgents({ ...options, variants: '16=v16,a=other-space' }, repo), { message });
 });
 
@@ -6907,7 +6929,7 @@ test('agents --candidate-contract-overlay gives the runs of candidate code arms 
   // Without a working-tree change, the option has nothing to record, so agents stops before it writes.
   put(repo, CONTRACT, '# Plan contract 0.16.0\n');
   assert.throws(() => prepare.prepareAgents(agentOptions, repo), {
-    message: `agents --candidate-contract-overlay: the working tree does not change ${CONTRACT} against v16`,
+    message: `agents --candidate-contract-overlay: the working tree does not change ${CONTRACT_FORM} against v16`,
   });
 });
 
@@ -6982,6 +7004,211 @@ test('case records not applicable only without the removed text and else stops w
   assert.deepEqual(treeState(ws), state);
 });
 
+// The plan contract in the layout before the native omp packages: in the category folder `productivity/`.
+const LEGACY_CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
+// A plan contract of the rules 1 to 8, one paragraph per rule, with the rule texts of `changed` (by rule number) and
+// the rules `added` after rule 8. Rules 2 and 7 are far enough apart that the diff of each has its own context lines.
+const rulesContract = (changed = {}, added = []) => {
+  const rules = Array.from({ length: 8 }, (_, index) => changed[index + 1] ?? `Rule ${index + 1}.`);
+  return `# Plan contract\n\n${[...rules, ...added].join('\n\n')}\n`;
+};
+// The rule changes of old-cand and of moved (see historicalRepo).
+const OLD_CAND_RULES = { 2: 'Rule 2 of old-cand.' };
+const MOVED_RULES = { ...OLD_CAND_RULES, 7: 'Rule 7 moved.' };
+// The lines that the diff text `diff` removes and adds, without the file headers.
+const diffChanges = (diff) =>
+  diff
+    .slice(diff.indexOf('\n@@'))
+    .split('\n')
+    .filter((line) => /^[-+]/.test(line));
+
+// A git repository that moves plan-lifecycle from the layout before the native omp packages to the flat layout. Its
+// commits, in order: `bare` (README.md only); `old`, the categorized layout with an agent that names its skill with the
+// plugin root variable of Claude Code; `old-cand`, which changes rule 2 in the categorized contract; `moved`, which
+// moves the skills to the flat layout, changes rule 7, and names the skill as a `skill://` URI; `both`, which also
+// holds the categorized contract; `live`, which removes it again; `dropped`, which removes the contract; and
+// `restored`, which adds it back. The working tree adds rule 9.
+function historicalRepo(t) {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  const project = path.join(root, 'project');
+  fs.mkdirSync(repo);
+  fs.mkdirSync(project);
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  const plugin = 'plugins/plan-lifecycle';
+  const commit = (tag, files, removed = []) => {
+    for (const file of removed) fs.rmSync(path.join(repo, file), { recursive: true });
+    for (const [file, content] of Object.entries(files)) put(repo, file, content);
+    gitIn(repo, 'add', '-A');
+    gitIn(repo, 'commit', '-q', '-m', tag);
+    gitIn(repo, 'tag', tag);
+    return gitIn(repo, 'rev-parse', 'HEAD').trim();
+  };
+  const codeAgent = `---\nname: code-reviewer\ndescription: Reviews.\n---\n\n# Code Reviewer\n`;
+  const legacyAgent = legacyVariantAgentText('old').replace(
+    '/skills/plan-reviewer/',
+    '/skills/productivity/plan-reviewer/',
+  );
+  const shas = {
+    bare: commit('bare', { 'README.md': '# Demo\n' }),
+    old: commit('old', {
+      [`${plugin}/agents/code-reviewer.md`]: codeAgent,
+      [`${plugin}/agents/plan-reviewer.md`]: legacyAgent,
+      [`${plugin}/skills/productivity/plan-reviewer/SKILL.md`]: '# Plan reviewer old\n',
+      [LEGACY_CONTRACT]: rulesContract(),
+    }),
+    'old-cand': commit('old-cand', { [LEGACY_CONTRACT]: rulesContract(OLD_CAND_RULES) }),
+    moved: commit(
+      'moved',
+      {
+        [`${plugin}/agents/plan-reviewer.md`]: variantAgentText('moved'),
+        [`${plugin}/skills/plan-reviewer/SKILL.md`]: '# Plan reviewer moved\n',
+        [CONTRACT]: rulesContract(MOVED_RULES),
+      },
+      [`${plugin}/skills/productivity`],
+    ),
+  };
+  shas.both = commit('both', { [LEGACY_CONTRACT]: rulesContract() });
+  shas.live = commit('live', {}, [LEGACY_CONTRACT]);
+  shas.dropped = commit('dropped', {}, [CONTRACT]);
+  shas.restored = commit('restored', { [CONTRACT]: rulesContract(MOVED_RULES) });
+  put(repo, CONTRACT, rulesContract(MOVED_RULES, ['Rule 9.']));
+  return { root, repo, project, agentDir: path.join(project, '.omp', 'agents'), shas };
+}
+
+// The options of `agents` for the historical repository, at the effort low with the default tier.
+const historicalOptions = ({ root, project }, more = {}) => ({
+  'baseline-ref': 'old',
+  model: MODEL,
+  efforts: 'low',
+  tiers: 'default',
+  'baseline-dir': path.join(root, 'baseline-plugin'),
+  project,
+  ...more,
+});
+
+// A ref before the native omp packages holds the plan contract in a category folder. The contract overlay finds the
+// contract in each tree, records only the change of the text across the move, and applies it to a snapshot in either
+// layout.
+test('the contract overlay finds the plan contract in the categorized and the flat layout', (t) => {
+  const fixture = historicalRepo(t);
+  const { root, repo, project, agentDir, shas } = fixture;
+  prepare.prepareAgents(
+    historicalOptions(fixture, { variants: 'o=old-cand,m=moved', 'contract-overlay': 'o,m' }),
+    repo,
+  );
+  const variants = readJson(path.join(agentDir, 'review-bench-configs.json')).variants;
+  // old-cand changes the categorized contract in place. moved moves the contract and changes rule 7, and its recorded
+  // change holds only that rule, not the whole flat file.
+  assert.deepEqual(diffChanges(variants[0].contractDiff), ['-Rule 2.', '+Rule 2 of old-cand.']);
+  assert.deepEqual(diffChanges(variants[1].contractDiff), ['-Rule 7.', '+Rule 7 moved.']);
+  // Both agent forms name the skill of the variant copy: the plugin root variable at old-cand, a skill:// URI at moved.
+  for (const name of ['o', 'm']) {
+    const text = readText(path.join(agentDir, `review-bench-variant-${name}-plan-low.md`));
+    assert.deepEqual(score.reviewerPluginRoots(text), [variantRoot(root, name)]);
+  }
+
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const planCase = (id, ref) => ({
+    id,
+    kind: 'plan',
+    split: 'dev',
+    issue: 3,
+    round: 1,
+    plan: `${id}-plan.md`,
+    repo_ref: ref,
+    known: [],
+  });
+  const codeCase = { id: 'code-9', kind: 'code', split: 'dev', issue: 9, round: 1, plan: 'code-9-plan.md' };
+  for (const caseData of [
+    planCase('plan-8', shas.old),
+    planCase('plan-9', shas.live),
+    planCase('plan-10', shas.both),
+    { ...codeCase, base: shas.bare, head: shas.old, known: [] },
+  ]) {
+    put(cases, `dev/${caseData.id}.json`, caseData);
+    put(cases, `dev/${caseData.plan}`, `# Plan ${caseData.issue}\n\nStep 1.\n`);
+  }
+  const options = (id, arms) => ({
+    case: path.join(cases, 'dev', `${id}.json`),
+    arms,
+    runs: '1',
+    out: ws,
+    configs: 'low',
+    project,
+  });
+  const run = (id, arm) => path.join(ws, id, `${arm}-low`, 'run-1');
+  const copyOf = (id, arm) => readText(path.join(run(id, arm), 'plan-contract.md'));
+  const overlay = (id, arm) => readJson(path.join(run(id, arm), 'meta.json')).contractOverlay;
+
+  // The snapshot of old holds the categorized contract, and the change of each variant applies to it. The snapshot of
+  // live holds the flat contract, which no longer holds rule 2 of old.
+  prepare.prepareCase(options('plan-8', 'P1,Vo,Vm'), repo);
+  assert.equal(copyOf('plan-8', 'Vo'), rulesContract(OLD_CAND_RULES));
+  assert.equal(copyOf('plan-8', 'Vm'), rulesContract({ 7: 'Rule 7 moved.' }));
+  assert.deepEqual([overlay('plan-8', 'Vo'), overlay('plan-8', 'Vm')], ['applied', 'applied']);
+  prepare.prepareCase(options('plan-9', 'Vo'), repo);
+  assert.equal(overlay('plan-9', 'Vo'), 'not applicable');
+  assert.equal(copyOf('plan-9', 'Vo'), rulesContract(MOVED_RULES));
+
+  // A snapshot that holds the contract in both folders has no one contract to change, so case stops and writes no
+  // folder.
+  const snapshot = path.join(ws, 'plan-10', 'snapshot');
+  assert.throws(() => prepare.prepareCase(options('plan-10', 'Vm'), repo), {
+    message: `${snapshot} holds more than one plan contract: ${CONTRACT}, ${LEGACY_CONTRACT}`,
+  });
+  assert.equal(fs.existsSync(path.join(ws, 'plan-10')), false);
+
+  // The working tree holds the flat contract and old the categorized one. The candidate change holds only the
+  // changed rules, and it applies to the categorized contract of the snapshot of old.
+  prepare.prepareAgents(historicalOptions(fixture, { 'candidate-contract-overlay': true }), repo);
+  const candidateDiff = readJson(path.join(agentDir, 'review-bench-configs.json')).candidateContractDiff;
+  assert.deepEqual(diffChanges(candidateDiff), [
+    '-Rule 2.',
+    '+Rule 2 of old-cand.',
+    '-Rule 7.',
+    '+Rule 7 moved.',
+    '+',
+    '+Rule 9.',
+  ]);
+  prepare.prepareCase(options('code-9', 'C3'), repo);
+  assert.equal(readText(path.join(run('code-9', 'C3'), 'plan-contract.md')), readText(path.join(repo, CONTRACT)));
+  assert.equal(overlay('code-9', 'C3'), 'applied');
+});
+
+test('the contract overlay stops when a tree it compares has no plan contract', (t) => {
+  const fixture = historicalRepo(t);
+  const { root, repo } = fixture;
+  const state = treeState(root);
+  const refusals = [
+    [
+      { variants: 'o=old', 'contract-overlay': 'o' },
+      `variant o: the first parent of old has no ${CONTRACT_FORM}; leave it out of --contract-overlay`,
+    ],
+    [
+      { variants: 'd=dropped', 'contract-overlay': 'd' },
+      `variant d: dropped has no ${CONTRACT_FORM}; leave it out of --contract-overlay`,
+    ],
+    [
+      { 'baseline-ref': 'bare', 'candidate-contract-overlay': true },
+      `agents --candidate-contract-overlay: bare has no ${CONTRACT_FORM}`,
+    ],
+  ];
+  for (const [more, message] of refusals) {
+    assert.throws(() => prepare.prepareAgents(historicalOptions(fixture, more), repo), { message });
+    assert.deepEqual(treeState(root), state);
+  }
+  // A working tree without the contract gives the candidate overlay nothing to compare.
+  fs.rmSync(path.join(repo, CONTRACT));
+  const withoutContract = treeState(root);
+  assert.throws(() => prepare.prepareAgents(historicalOptions(fixture, { 'candidate-contract-overlay': true }), repo), {
+    message: `agents --candidate-contract-overlay: the working tree has no ${CONTRACT_FORM}`,
+  });
+  assert.deepEqual(treeState(root), withoutContract);
+});
+
 test('readScope allows the contract copy of its own run, also when the case changes the plan contract', () => {
   const caseDir = `${SCOPE_WS}/plan-3`;
   const runDir = `${caseDir}/Va-low/run-1`;
@@ -6996,7 +7223,7 @@ test('readScope allows the contract copy of its own run, also when the case chan
     `${caseDir}/Va-low/plan-contract.md`,
     `${caseDir}/plan-contract.md`,
     // The case changes the plan contract, so the contract of the plugin root shows a later version.
-    `${pluginRoot}/skills/productivity/plan-manager/references/plan-contract.md`,
+    `${pluginRoot}/skills/plan-manager/references/plan-contract.md`,
   ];
   assert.deepEqual(score.readScope(reads(...outside), scope), { outside });
 });
@@ -7155,8 +7382,8 @@ test('show_benchmark keeps the benchmark changes outside cases/ in the diffs of 
   // As in the snapshot test above, a copy of the scripts runs in a repository with a benchmark skill folder. A code
   // case also runs the base-instructions reader of that repository.
   const skill = '.agents/skills/review-benchmark';
-  const helper = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
-  const reader = 'plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/base-blob.sh';
+  const helper = 'plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
+  const reader = 'plugins/plan-lifecycle/skills/plan-manager/scripts/base-blob.sh';
   const live = path.join(import.meta.dirname, '../../..');
   for (const file of [`${skill}/scripts/prepare.mjs`, `${skill}/scripts/score.mjs`, helper, reader]) {
     put(repo, file, readText(path.join(live, file)));
@@ -8773,7 +9000,7 @@ function skillRootRepo(t) {
     put(repo, `plugins/plan-lifecycle/agents/${role}-reviewer.md`, agent);
   }
   for (const skill of ['code-review', 'code-clarity']) {
-    put(repo, `plugins/docks/skills/engineering/${skill}/SKILL.md`, `# ${skill} at the release\n`);
+    put(repo, `plugins/docks/skills/${skill}/SKILL.md`, `# ${skill} at the release\n`);
   }
   put(repo, 'src/a.mjs', 'export const a = 1;\n');
   gitIn(repo, 'add', '-A');
@@ -8784,7 +9011,7 @@ function skillRootRepo(t) {
   gitIn(repo, 'add', '-A');
   gitIn(repo, 'commit', '-q', '-m', 'head');
   const head = gitIn(repo, 'rev-parse', 'HEAD').trim();
-  put(repo, 'plugins/docks/skills/engineering/code-review/SKILL.md', '# code-review of the working tree\n');
+  put(repo, 'plugins/docks/skills/code-review/SKILL.md', '# code-review of the working tree\n');
   const options = {
     'baseline-ref': 'HEAD',
     model: MODEL,
@@ -8805,8 +9032,8 @@ test('agents --self-review-roots writes a self-review agent per root that reads 
   const relDir = path.join(root, 'selfreview-rel-plugin');
   const wtDir = path.join(repo, 'plugins', 'docks');
   const skillFiles = (dir) => ({
-    'code-review': path.join(dir, 'skills', 'engineering', 'code-review', 'SKILL.md'),
-    'code-clarity': path.join(dir, 'skills', 'engineering', 'code-clarity', 'SKILL.md'),
+    'code-review': path.join(dir, 'skills', 'code-review', 'SKILL.md'),
+    'code-clarity': path.join(dir, 'skills', 'code-clarity', 'SKILL.md'),
   });
   assert.deepEqual(list.selfReviewRoots, [
     { name: 'rel', source: 'rel', dir: relDir, sha: base, skills: skillFiles(relDir) },
@@ -8870,7 +9097,7 @@ test('agents refuses bad self-review roots before it writes a file', (t) => {
     assert.throws(() => prepare.prepareAgents({ ...options, 'self-review-roots': roots }, repo), { message });
     assert.deepEqual(treeState(root), state);
   }
-  fs.rmSync(path.join(repo, 'plugins', 'docks', 'skills', 'engineering', 'code-clarity'), { recursive: true });
+  fs.rmSync(path.join(repo, 'plugins', 'docks', 'skills', 'code-clarity'), { recursive: true });
   assert.throws(() => prepare.prepareAgents({ ...options, 'self-review-roots': 'wt=worktree' }, repo), {
     message: 'self-review root wt (worktree) has no plugins/docks/skills/[<folder>/]code-clarity/SKILL.md',
   });
@@ -8880,8 +9107,8 @@ test('readScope lets a self-review agent of a root read only the two skills unde
   const rootDir = '/work/selfreview-rel-plugin';
   const runDir = '/work/ws/code-7/S1rel-low/run-1';
   const agentFiles = ['/work/project/.omp/agents/review-bench-selfreview-rel-low.md'];
-  const skill = (name, rest = 'SKILL.md') => `${rootDir}/skills/engineering/${name}/${rest}`;
-  const cache = '/home/u/.omp/plugins/cache/plugins/docks___docks___0.21.0/skills/engineering/code-review/SKILL.md';
+  const skill = (name, rest = 'SKILL.md') => `${rootDir}/skills/${name}/${rest}`;
+  const cache = '/home/u/.omp/plugins/cache/plugins/docks___docks___0.21.0/skills/code-review/SKILL.md';
   const calls = reads(
     skill('code-review'),
     skill('code-clarity', 'references/naming.md'),
