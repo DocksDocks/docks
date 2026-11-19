@@ -8,6 +8,18 @@
     "copies": ["plugins/docks/skills/productivity/agent-first-setup/references/verify-skill-template.md"]
   },
   {
+    "canonical": "plugins/plan-lifecycle/skills/productivity/plan-workspace/scripts/pr-template.mjs",
+    "copies": ["plugins/docks/skills/productivity/agent-first-setup/scripts/pr-template.mjs"]
+  },
+  {
+    "canonical": "plugins/plan-lifecycle/skills/productivity/plan-workspace/scripts/verify-skill.mjs",
+    "copies": ["plugins/docks/skills/productivity/agent-first-setup/scripts/verify-skill.mjs"]
+  },
+  {
+    "canonical": "plugins/docks/skills/productivity/agent-first-setup/scripts/agent-docs.mjs",
+    "copies": ["plugins/docks/skills/productivity/multi-tool-bridge/scripts/agent-docs.mjs"]
+  },
+  {
     "canonical": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/base-blob.sh",
     "copies": ["plugins/docks/skills/engineering/code-review/scripts/base-blob.sh"]
   }
