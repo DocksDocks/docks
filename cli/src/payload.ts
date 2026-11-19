@@ -1,18 +1,12 @@
-import {
-  GENERATED_PAYLOAD_BASE64,
-  GENERATED_PAYLOAD_PATHS,
-  GENERATED_PAYLOAD_TEXT,
-} from "./generated/sotPayload";
+import { GENERATED_PAYLOAD_PATHS, GENERATED_PAYLOAD_TEXT } from "./generated/sotPayload";
 
 export type PayloadPath = (typeof GENERATED_PAYLOAD_PATHS)[number];
-type TextPayloadPath = Exclude<PayloadPath, "notification.mp3">;
 
-export function payloadText(path: TextPayloadPath): string {
+export function payloadText(path: PayloadPath): string {
   return GENERATED_PAYLOAD_TEXT[path];
 }
 
 export function payloadBytes(path: PayloadPath): Buffer {
-  if (path === "notification.mp3") return Buffer.from(GENERATED_PAYLOAD_BASE64[path], "base64");
   return Buffer.from(payloadText(path));
 }
 

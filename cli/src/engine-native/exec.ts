@@ -12,7 +12,7 @@ import {
   type SpawnSyncOptionsWithStringEncoding,
   type SpawnSyncReturns,
 } from "node:child_process";
-import { accessSync, constants, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, extname, isAbsolute, join } from "node:path";
 import { hostOs, type HostOs, type Invocation } from "./os";
 
@@ -343,21 +343,4 @@ function isExecutable(
   } catch {
     return false;
   }
-}
-
-// Change-detection primitives (Output Policy in DESIGN.md): operations report
-// changed:boolean so unchanged repeat runs log at verbose instead of [ok].
-
-/** Write only when the content differs; returns whether a write happened. */
-export function writeTextIfChanged(path: string, content: string): boolean {
-  if (existsSync(path) && readFileSync(path, "utf8") === content) return false;
-  writeFileSync(path, content);
-  return true;
-}
-
-export function writeBytesIfChanged(path: string, content: Uint8Array): boolean {
-  const bytes = Buffer.from(content);
-  if (existsSync(path) && readFileSync(path).equals(bytes)) return false;
-  writeFileSync(path, bytes);
-  return true;
 }

@@ -117,16 +117,16 @@ describe.skipIf(!POSIX_LAUNCHER_APPLIES)(launcherSuiteLabel, () => {
     const platform = { system: "Linux", machine: "x86_64" };
 
     const version = runLauncher(fixture, platform, ["--version"]);
-    const catalog = runLauncher(fixture, platform, ["models", "claude", "--json"]);
+    const routed = runLauncher(fixture, platform, ["toolchain", "check", "--verbose"]);
 
     expect(version.status).toBe(0);
     expect(version.stdout.trim()).toBe(CURRENT_VERSION);
-    expect(catalog.status).toBe(0);
-    expect(catalog.stdout.trim()).toBe("source:models claude --json");
-    expect(catalog.stderr).toContain(
+    expect(routed.status).toBe(0);
+    expect(routed.stdout.trim()).toBe("source:toolchain check --verbose");
+    expect(routed.stderr).toContain(
       "ignoring stale cli/dist/docks-kit-linux-x64 0.4.0; checkout is",
     );
-    expect(catalog.stderr).toContain("run 'bun run build:binaries' to refresh it or delete it");
+    expect(routed.stderr).toContain("run 'bun run build:binaries' to refresh it or delete it");
     expect(
       readFileSync(join(fixture.root, "cli", "dist", "docks-kit-linux-x64"), "utf8"),
     ).toContain("compiled:");

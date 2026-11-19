@@ -8,7 +8,7 @@ export type PlatformName = "linux" | "darwin" | "windows" | "unknown";
 /** Directory-link mechanisms, tried in order before the copy fallback. */
 export type DirectoryLinkKind = "symlink" | "junction";
 /** Tools whose install command differs per host OS. */
-export type HintedTool = "git" | "jq" | "curl" | "ffplay" | "claude";
+export type HintedTool = "git" | "jq" | "curl";
 
 /** A command plus argv, already shaped for how this host must invoke it. */
 export interface Invocation {
@@ -17,29 +17,6 @@ export interface Invocation {
   /** Preserve a fully quoted Windows command line instead of applying libuv quoting. */
   readonly windowsVerbatimArguments?: boolean;
 }
-
-/** How this host persists a user-level environment variable. */
-export type EnvironmentSetting =
-  | {
-      readonly kind: "profile";
-      /** Home-relative files scanned for an existing setting. */
-      readonly candidates: ReadonlyArray<string>;
-      /** Home-relative file that receives the write for this shell; `exists` tests a home-relative file. */
-      readonly target: (shell: string | undefined, exists: (file: string) => boolean) => string;
-      /** Line appended to the target file. */
-      readonly line: string;
-    }
-  | {
-      readonly kind: "command";
-      /** Exits zero when the variable is already persisted. */
-      readonly probe: Invocation;
-      /** Persists the variable. */
-      readonly apply: Invocation;
-      /** Where the value lands, named for the log line. */
-      readonly location: string;
-      /** Manual recovery when `apply` fails. */
-      readonly manualHint: string;
-    };
 
 /** The two steps that fetch and run a pinned Bun installer. */
 export interface BunInstaller {
@@ -64,10 +41,4 @@ export interface HostOs {
   readonly bunExecutableName: string;
   /** Download-then-run installer for a pinned Bun version placed in `directory`. */
   readonly bunInstaller: (pin: string, directory: string) => BunInstaller;
-  /** How this host persists a user-level environment variable. */
-  readonly environmentSetting: (name: string, value: string) => EnvironmentSetting;
-  /** Claude `statusLine.command` for a resolved bun executable and script. */
-  readonly statusLineCommand: (bun: string, script: string) => string;
-  /** Reshape the SoT `PostToolUseFailure` command for this host's shell. */
-  readonly failureHookCommand: (command: string) => string;
 }

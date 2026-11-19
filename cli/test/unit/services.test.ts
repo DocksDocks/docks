@@ -25,14 +25,14 @@ describe("dependency manager services", () => {
     }).logger;
     const first = makeDependencyManager(makePlatform("linux"));
     const second = makeDependencyManager(makePlatform("linux"));
-    first.warnMissing("git", logger, "Claude sync");
-    first.warnMissing("git", logger, "Codex sync");
+    first.warnMissing("git", logger, "omp sync");
+    first.warnMissing("git", logger, "skills sync");
     first.warnMissing("jq", logger);
-    second.warnMissing("git", logger, "Codex sync");
+    second.warnMissing("git", logger, "skills sync");
     expect(lines).toEqual([
-      "\x1b[1;33m[warn]\x1b[0m git not installed — sudo apt install -y git (or your distro's package manager) (Claude sync)\n",
+      "\x1b[1;33m[warn]\x1b[0m git not installed — sudo apt install -y git (or your distro's package manager) (omp sync)\n",
       "\x1b[1;33m[warn]\x1b[0m jq not installed — sudo apt install -y jq\n",
-      "\x1b[1;33m[warn]\x1b[0m git not installed — sudo apt install -y git (or your distro's package manager) (Codex sync)\n",
+      "\x1b[1;33m[warn]\x1b[0m git not installed — sudo apt install -y git (or your distro's package manager) (skills sync)\n",
     ]);
   });
 });

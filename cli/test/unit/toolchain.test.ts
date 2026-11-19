@@ -17,14 +17,14 @@ describe("toolchain report", () => {
     "reports a present tool with an unreadable version as unknown instead of ok",
     () => {
       const stubs = makeStubDir({
-        claude: `if (args[0] === "--version") process.exitCode = 9`,
+        git: `if (args[0] === "--version") process.exitCode = 9`,
       });
       const run = runPublicCli(["toolchain", "check"], "home-fresh", stubs);
 
       try {
         expect(run.exitCode).toBe(0);
-        const claude = run.stdout.split("\n").find((line) => line.startsWith("claude"));
-        expect(claude).toMatch(/^claude\s+check\s+\?\s+2\.1\.280\s+-\s+unknown$/);
+        const git = run.stdout.split("\n").find((line) => line.startsWith("git "));
+        expect(git).toMatch(/^git\s+check\s+\?\s+-\s+-\s+unknown$/);
       } finally {
         rmSync(run.home, { recursive: true, force: true });
       }
@@ -45,7 +45,7 @@ describe("public toolchain operands", () => {
         expect(run.exitCode).toBe(2);
         expect(run.stdout).toBe("");
         expect(run.stderr).toContain(
-          "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+          "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
         );
       } finally {
         rmSync(run.home, { recursive: true, force: true });
@@ -195,23 +195,19 @@ describe("engine toolchain argument errors", () => {
   it.each([
     {
       args: ["invalid-op"],
-      diagnostic:
-        "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+      diagnostic: "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
     },
     {
       args: ["check", "extra"],
-      diagnostic:
-        "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+      diagnostic: "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
     },
     {
       args: ["outdated", "extra"],
-      diagnostic:
-        "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+      diagnostic: "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
     },
     {
       args: ["ensure", "bun", "extra"],
-      diagnostic:
-        "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]|upgrade [--dry-run]]",
+      diagnostic: "Usage: toolchain [check|ensure <tool> [--dry-run]|outdated [--refresh]]",
     },
     {
       args: ["ensure", "not-managed"],

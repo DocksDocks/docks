@@ -114,18 +114,6 @@ describe("DependencyManager registry", () => {
     );
   });
 
-  it("gives a platform-correct Claude CLI hint", () => {
-    expect(DEPENDENCIES.claude.installHint("linux")).toBe(
-      'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o "$tmp" && bash "$tmp"',
-    );
-    expect(DEPENDENCIES.claude.installHint("darwin")).toBe(
-      'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o "$tmp" && bash "$tmp"',
-    );
-    expect(DEPENDENCIES.claude.installHint("win32")).toBe(
-      "$tmp = Join-Path $env:TEMP 'claude-install.ps1'; curl.exe -fsSL https://claude.ai/install.ps1 -o $tmp; if ($LASTEXITCODE -eq 0) { powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp }",
-    );
-  });
-
   it("gives a pinned download-then-run Bun hint on every host", () => {
     const toolchain = JSON.parse(
       readFileSync(resolve(import.meta.dirname, "..", "..", "..", "SoT", "toolchain.json"), "utf8"),
@@ -163,42 +151,6 @@ describe("DependencyManager registry", () => {
   it("gives platform-correct jq hints", () => {
     expect(DEPENDENCIES.jq.installHint("darwin")).toBe("brew install jq");
     expect(DEPENDENCIES.jq.installHint("linux")).toBe("sudo apt install -y jq");
-  });
-
-  it("shares one in-flight npm global listing across concurrent version probes", async () => {
-    const captures: Array<[string, ReadonlyArray<string>]> = [];
-    const listing = Promise.withResolvers<string>();
-    const manager = makeDependencyManager(makePlatform("linux"), {
-      commandExists: () => true,
-      capture: async (cmd, args) => {
-        captures.push([cmd, args]);
-        return await listing.promise;
-      },
-      which: (name) => `/stub/${name}`,
-    });
-
-    const first = manager.version("intelephense");
-    const second = manager.version("intelephense");
-    expect(captures).toEqual([["npm", ["ls", "-g", "--depth=0", "--json"]]]);
-
-    listing.resolve('{"dependencies":{"intelephense":{"version":"1.18.4"}}}');
-    await expect(Promise.all([first, second])).resolves.toEqual(["1.18.4", "1.18.4"]);
-    await expect(manager.version("intelephense")).resolves.toBe("1.18.4");
-    expect(captures).toEqual([["npm", ["ls", "-g", "--depth=0", "--json"]]]);
-  });
-
-  it("reports no intelephense version when npm is absent", async () => {
-    const captures: Array<[string, ReadonlyArray<string>]> = [];
-    const manager = makeDependencyManager(makePlatform("linux"), {
-      commandExists: (name) => name !== "npm",
-      capture: async (cmd, args) => {
-        captures.push([cmd, args]);
-        return "";
-      },
-      which: (name) => (name !== "npm" ? `/stub/${name}` : ""),
-    });
-    await expect(manager.version("intelephense")).resolves.toBe("");
-    expect(captures).toEqual([]);
   });
 
   it("does not capture a Bun version when Bun is absent", async () => {
@@ -305,7 +257,7 @@ describe("DependencyManager registry", () => {
     const bounded: Array<[string, ReadonlyArray<string>, number]> = [];
     const exec: ProbeExecutor = {
       commandExists: () => true,
-      capture: async () => "rust-analyzer 1.92.0",
+      capture: async () => "git version 2.53.0",
       captureWithin: async (cmd, args, timeoutMs) => {
         bounded.push([cmd, args, timeoutMs]);
         return { kind: "timed-out" };
@@ -313,13 +265,13 @@ describe("DependencyManager registry", () => {
       which: (name) => `/stub/${name}`,
     };
 
-    await expect(resolveVersionReading(DEPENDENCIES["rust-analyzer"], exec)).resolves.toEqual({
+    await expect(resolveVersionReading(DEPENDENCIES.git, exec)).resolves.toEqual({
       kind: "timed-out",
     });
-    await expect(resolveVersion(DEPENDENCIES["rust-analyzer"], exec)).resolves.toBe("");
+    await expect(resolveVersion(DEPENDENCIES.git, exec)).resolves.toBe("");
     expect(bounded).toEqual([
-      ["rust-analyzer", ["--version"], VERSION_PROBE_LIMIT_MS],
-      ["rust-analyzer", ["--version"], VERSION_PROBE_LIMIT_MS],
+      ["git", ["--version"], VERSION_PROBE_LIMIT_MS],
+      ["git", ["--version"], VERSION_PROBE_LIMIT_MS],
     ]);
   });
 
@@ -333,12 +285,12 @@ describe("DependencyManager registry", () => {
 
     await expect(
       resolveVersionReading(
-        DEPENDENCIES["rust-analyzer"],
-        answering({ kind: "output", stdout: "rust-analyzer 1.92.0" }),
+        DEPENDENCIES.git,
+        answering({ kind: "output", stdout: "git version 2.53.0" }),
       ),
-    ).resolves.toEqual({ kind: "version", value: "rust-analyzer 1.92.0" });
+    ).resolves.toEqual({ kind: "version", value: "git version 2.53.0" });
     await expect(
-      resolveVersionReading(DEPENDENCIES["rust-analyzer"], answering({ kind: "failed" })),
+      resolveVersionReading(DEPENDENCIES.git, answering({ kind: "failed" })),
     ).resolves.toEqual({ kind: "version", value: "" });
   });
 });

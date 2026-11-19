@@ -137,7 +137,6 @@ describe("skills durability", () => {
     mocks.spawnProcess.mockReset();
     mocks.payloadText.mockReset().mockImplementation((path) => {
       if (path === "SoT/.agents/skills.txt") return mocks.declaredSkills;
-      if (path === "SoT/.claude/settings.json") return '{"enabledPlugins":{}}';
       if (path === "SoT/toolchain.json") return '{"tools":{"skills-cli":{"verified":"1.5.15"}}}';
       throw new Error(`Unexpected payload: ${path}`);
     });

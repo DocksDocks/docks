@@ -49,38 +49,9 @@ describe("Windows host OS", () => {
         ],
       },
     });
-    expect(host.environmentSetting("ENABLE_CLAUDEAI_MCP_SERVERS", "false")).toEqual({
-      kind: "command",
-      probe: {
-        command: "reg",
-        args: ["query", "HKCU\\Environment", "/v", "ENABLE_CLAUDEAI_MCP_SERVERS"],
-      },
-      apply: {
-        command: "setx",
-        args: ["ENABLE_CLAUDEAI_MCP_SERVERS", "false"],
-      },
-      location: "user environment",
-      manualHint: "set it manually in System Properties > Environment Variables",
-    });
-    const command = host.statusLineCommand(
-      "C:/Tools/O'Brien/bun.exe",
-      "C:/Users/test/.claude/bin/statusline.mjs",
-    );
-    const encoded = command.match(
-      /^powershell\.exe -NoProfile -NonInteractive -EncodedCommand ([A-Za-z0-9+/=]+)$/,
-    )?.[1];
-    if (encoded === undefined) throw new Error(`missing encoded PowerShell command: ${command}`);
-    expect(Buffer.from(encoded, "base64").toString("utf16le")).toBe(
-      "$ProgressPreference = 'SilentlyContinue'; if ((Test-Path -LiteralPath 'C:/Tools/O''Brien/bun.exe' -PathType Leaf) -and (Test-Path -LiteralPath 'C:/Users/test/.claude/bin/statusline.mjs' -PathType Leaf)) { & 'C:/Tools/O''Brien/bun.exe' 'C:/Users/test/.claude/bin/statusline.mjs' }",
-    );
-    expect(host.failureHookCommand("echo unquoted")).toBe("echo unquoted");
     expect(host.installHint("git")).toBe("winget install --id Git.Git -e");
     expect(host.installHint("jq")).toBe("winget install --id jqlang.jq -e");
     expect(host.installHint("curl")).toBe("winget install --id cURL.cURL -e");
-    expect(host.installHint("ffplay")).toBe("winget install --id Gyan.FFmpeg -e");
-    expect(host.installHint("claude")).toBe(
-      "$tmp = Join-Path $env:TEMP 'claude-install.ps1'; curl.exe -fsSL https://claude.ai/install.ps1 -o $tmp; if ($LASTEXITCODE -eq 0) { powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp }",
-    );
   });
 
   it.each([
@@ -145,20 +116,6 @@ describe("Windows host OS", () => {
       args: ["/d", "/v:off", "/s", "/c", `"${escapedPath} ^^^"a^^^ ^^^&^^^ b^^^""`],
       windowsVerbatimArguments: true,
     });
-  });
-
-  it("doubles typographic single quotes in the PowerShell statusLine literal", () => {
-    const command = hostOs("windows").statusLineCommand(
-      "C:/Users/O’Brien/.bun/bin/bun.exe",
-      "C:/Users/test/.claude/bin/statusline.mjs",
-    );
-    const encoded = command.match(
-      /^powershell\.exe -NoProfile -NonInteractive -EncodedCommand ([A-Za-z0-9+/=]+)$/,
-    )?.[1];
-    if (encoded === undefined) throw new Error(`missing encoded PowerShell command: ${command}`);
-    expect(Buffer.from(encoded, "base64").toString("utf16le")).toContain(
-      "'C:/Users/O’’Brien/.bun/bin/bun.exe'",
-    );
   });
 
   it.each([

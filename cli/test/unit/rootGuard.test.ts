@@ -82,12 +82,12 @@ describe("rootGuard", () => {
 
   it("reports an overwrite of a file that was already dirty at setup", async () => {
     const guard = await loadGuard();
-    gitStatus(" M SoT/.claude/settings.json");
-    state.files["SoT/.claude/settings.json"] = '{"before":true}';
+    gitStatus(" M SoT/.omp/config.yml");
+    state.files["SoT/.omp/config.yml"] = "before: true\n";
     guard.setup();
 
-    state.files["SoT/.claude/settings.json"] = '{"overwritten":true}';
-    expect(() => guard.teardown()).toThrow("modified during run: SoT/.claude/settings.json");
+    state.files["SoT/.omp/config.yml"] = "overwritten: true\n";
+    expect(() => guard.teardown()).toThrow("modified during run: SoT/.omp/config.yml");
     expect(process.exitCode).toBe(1);
   });
 
@@ -110,8 +110,8 @@ describe("rootGuard", () => {
 
   it("stays quiet when status and content are unchanged", async () => {
     const guard = await loadGuard();
-    gitStatus(" M SoT/.claude/settings.json", "?? scratch/a.txt");
-    state.files["SoT/.claude/settings.json"] = "dirty";
+    gitStatus(" M SoT/.omp/config.yml", "?? scratch/a.txt");
+    state.files["SoT/.omp/config.yml"] = "dirty";
     state.files["scratch/a.txt"] = "a";
     guard.setup();
 
@@ -144,14 +144,14 @@ describe("rootGuard", () => {
 
   it("reports a deletion of a file that was already modified at setup", async () => {
     const guard = await loadGuard();
-    gitStatus(" M SoT/.claude/settings.json");
-    state.files["SoT/.claude/settings.json"] = "dirty";
+    gitStatus(" M SoT/.omp/config.yml");
+    state.files["SoT/.omp/config.yml"] = "dirty";
     guard.setup();
 
-    gitStatus(" D SoT/.claude/settings.json");
-    delete state.files["SoT/.claude/settings.json"];
+    gitStatus(" D SoT/.omp/config.yml");
+    delete state.files["SoT/.omp/config.yml"];
     expect(() => guard.teardown()).toThrow(
-      / D SoT\/\.claude\/settings\.json\nmodified during run: SoT\/\.claude\/settings\.json/,
+      / D SoT\/\.omp\/config\.yml\nmodified during run: SoT\/\.omp\/config\.yml/,
     );
     expect(process.exitCode).toBe(1);
   });

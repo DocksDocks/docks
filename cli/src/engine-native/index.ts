@@ -1,5 +1,5 @@
 /**
- * EngineNative — the supported sync/model/toolchain engine.
+ * EngineNative — the supported sync/toolchain engine.
  *
  * Golden suites drive it through main.ts's harness-private `native-raw`
  * channel, which bypasses effect/cli so tests see the internal argv
@@ -11,13 +11,13 @@
  * existing import paths keep working.
  */
 import { makeCtx, type Ctx } from "./engineCtx";
-import { modeModel, modeToolchain } from "./modes";
+import { modeToolchain } from "./modes";
 import { ExitError } from "./parseArgs";
 import { makeEngineServices, type EngineServices, type Logger } from "./services";
 import { engineSync } from "./syncDispatch";
 
-export type { Ctx, ModifierFlag } from "./engineCtx";
-export { runBounded, syncConcurrencyForManifest } from "./syncConcurrency";
+export type { Ctx } from "./engineCtx";
+export { runBounded } from "./syncConcurrency";
 export type { SyncConcurrency, SyncTask } from "./syncConcurrency";
 
 /**
@@ -52,8 +52,6 @@ export async function runEngineNative(
   try {
     ctx = makeCtx(runServices, { envGlobals: options.envGlobals === true });
     switch (argv[0]) {
-      case "model":
-        return await modeModel(ctx, argv.slice(1));
       case "toolchain":
         return await modeToolchain(ctx, argv.slice(1));
       case "sync":

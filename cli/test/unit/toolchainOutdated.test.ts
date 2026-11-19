@@ -33,19 +33,6 @@ describe("toolchain outdated", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("picks the newest stable release on the pinned major line", async () => {
-    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
-      expect(String(url)).toBe("https://registry.npmjs.org/typescript");
-      return jsonResponse({
-        versions: { "6.0.3": {}, "6.0.10": {}, "7.0.2": {}, "6.1.0-rc": {} },
-      });
-    });
-
-    const result = await latestUpstream("tsc", { home, refresh: false, now: NOW, fetchImpl });
-
-    expect(result).toEqual({ ok: true, version: "6.0.10" });
-  });
-
   it("strips the GitHub tag prefix", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ tag_name: "bun-v1.4.3" }));
 

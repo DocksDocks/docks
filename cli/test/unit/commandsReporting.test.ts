@@ -1,12 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { p } from "../../src/engine-native/exec";
 import { BUN_RUNTIME, cliEntry } from "../lib/cliEntry";
-import { runPublicCli } from "../lib/goldenExecution";
 import { childEnv, cleanupTemporaryDirs, makeStubDir } from "../lib/goldenResources";
 import { SPAWN_TIMEOUT_MS } from "../lib/spawnTimeout";
 
@@ -14,9 +13,8 @@ const REPO_DIR = resolve(import.meta.dirname, "..", "..", "..");
 const CLI = cliEntry();
 const temporaryDirectories = new Array<string>();
 
-// `status` runs `toolchain check`, and `sync --dry-run` probes the harness CLIs.
-// Both version-probe tools such as omp and claude. The golden stubs come
-// first on PATH, so those probes never run the host's binaries.
+// `sync --dry-run` version-probes harness CLIs such as omp. The golden stubs
+// come first on PATH, so those probes never run the host's binaries.
 let toolStubs = "";
 
 const temporaryDirectory = (prefix: string): string => {
@@ -74,192 +72,6 @@ afterEach(() => {
 });
 
 describe("command reporting", () => {
-  it(
-    "rejects explicitly empty and blank models instead of treating them as read requests",
-    () => {
-      for (const value of ["", "   "]) {
-        const result = runCli(["model", "claude", value], temporaryDirectory("docks-model-empty-"));
-
-        expect(result.status).toBe(2);
-        expect(result.stderr).toContain("Model value must not be empty or blank");
-      }
-    },
-    SPAWN_TIMEOUT_MS,
-  );
-
-  it(
-    "reports malformed deployed Claude settings as JSON data with a failing exit",
-    () => {
-      const home = temporaryDirectory("docks-status-malformed-");
-      mkdirSync(p(home, ".claude"), { recursive: true });
-      writeFileSync(p(home, ".claude", "settings.json"), "{not-json\n");
-
-      const argvLog = join(temporaryDirectory("docks-status-argv-"), "argv.log");
-      const result = runCli(["status", "--json"], home, { GOLDEN_ARGV_LOG: argvLog });
-      const output = JSON.parse(result.stdout) as {
-        deployment: { claude: { state: string; diagnostic: string } };
-        drift: Array<{ setting: string; deployed: string; sot: string; drifted: boolean }>;
-        toolchain: { state: string; table: string };
-        diagnostics: Array<{ source: string; message: string; exitCode: number }>;
-      };
-
-      expect(result.status).toBe(1);
-      expect(output.deployment.claude.state).toBe("malformed");
-      expect(output.deployment.claude.diagnostic).toContain("invalid JSON");
-      expect(output.drift).toContainEqual({
-        setting: "claude.settings",
-        deployed: "(malformed)",
-        sot: "present",
-        drifted: true,
-      });
-      expect(output.diagnostics).toContainEqual({
-        source: "claude.settings",
-        message: output.deployment.claude.diagnostic,
-        exitCode: 1,
-      });
-      expect(result.stderr).not.toContain("SyntaxError");
-      // The toolchain probes ran against the stubs: the table carries the stub's
-      // omp version, and the stub logged the probe.
-      expect(output.toolchain.state).toBe("valid");
-      expect(output.toolchain.table).toMatch(/^omp\s+check\s+19\.0\.0\s/m);
-      expect(readFileSync(argvLog, "utf8")).toContain("omp\t--version");
-
-      const humanResult = runCli(["status"], home);
-      expect(humanResult.status).toBe(1);
-      expect(humanResult.stdout).toContain(
-        "ERROR claude.settings: deployed Claude settings contain invalid JSON",
-      );
-    },
-    SPAWN_TIMEOUT_MS,
-  );
-
-  it(
-    "rejects a deployed Claude settings array without treating it as valid settings",
-    () => {
-      const home = temporaryDirectory("docks-status-array-");
-      mkdirSync(p(home, ".claude"), { recursive: true });
-      writeFileSync(p(home, ".claude", "settings.json"), "[]\n");
-
-      const result = runCli(["status", "--json"], home);
-      const output = JSON.parse(result.stdout) as {
-        deployment: { claude: { state: string; diagnostic: string } };
-        drift: Array<{ setting: string; deployed: string; sot: string; drifted: boolean }>;
-        diagnostics: Array<{ source: string; message: string; exitCode: number }>;
-      };
-
-      expect(result.status).toBe(1);
-      expect(output.deployment.claude).toEqual({
-        state: "malformed",
-        diagnostic: "deployed Claude settings must contain a JSON object",
-      });
-      expect(output.drift).toContainEqual({
-        setting: "claude.settings",
-        deployed: "(malformed)",
-        sot: "present",
-        drifted: true,
-      });
-      expect(output.diagnostics).toContainEqual({
-        source: "claude.settings",
-        message: "deployed Claude settings must contain a JSON object",
-        exitCode: 1,
-      });
-    },
-    SPAWN_TIMEOUT_MS,
-  );
-
-  it(
-    "reports a malformed installed Claude plugins file as a status diagnostic",
-    () => {
-      const home = temporaryDirectory("docks-status-plugins-");
-      mkdirSync(p(home, ".claude", "plugins"), { recursive: true });
-      writeFileSync(p(home, ".claude", "plugins", "installed_plugins.json"), '{"plugins": {');
-
-      const result = runCli(["status", "--json"], home);
-      const output = JSON.parse(result.stdout) as {
-        plugins: Array<{ plugin: string; sot: string; installed: boolean }>;
-        diagnostics: Array<{ source: string; message: string; exitCode: number }>;
-      };
-
-      expect(result.status).toBe(1);
-      expect(output.plugins.length).toBeGreaterThan(0);
-      expect(output.plugins.every((plugin) => !plugin.installed)).toBe(true);
-      expect(output.diagnostics).toContainEqual({
-        source: "claude.plugins",
-        message:
-          "installed Claude plugins file must contain a JSON object with an object 'plugins' field",
-        exitCode: 1,
-      });
-      expect(result.stderr).not.toContain("SyntaxError");
-
-      const humanResult = runCli(["status"], home);
-      expect(humanResult.status).toBe(1);
-      expect(humanResult.stdout).toContain("ERROR claude.plugins:");
-    },
-    SPAWN_TIMEOUT_MS,
-  );
-
-  it.each([
-    ["--claude-plugin", "Invalid Claude plugin ''"],
-    ["--claude-compact-window", "--claude-compact-window expects a token count"],
-  ])(
-    "preserves empty %s values for engine validation",
-    (flag, diagnostic) => {
-      const result = runCli(
-        ["sync", "claude", `${flag}=`, "--dry-run"],
-        temporaryDirectory("docks-modifier-empty-"),
-      );
-
-      expect(result.status).toBe(2);
-      expect(result.stderr).toContain(diagnostic);
-      expect(result.stdout).not.toContain("--- Sync complete ---");
-    },
-    SPAWN_TIMEOUT_MS,
-  );
-
-  it.each([[["--claude-plugin=,"]], [["--claude-plugin", " , "]]])(
-    "rejects a --claude-plugin value that holds only separators: %j",
-    (tokens) => {
-      const result = runCli(
-        ["sync", "claude", ...tokens, "--dry-run"],
-        temporaryDirectory("docks-plugin-separators-"),
-      );
-
-      expect(result.status).toBe(2);
-      expect(result.stderr).toContain("Invalid Claude plugin ''");
-      expect(result.stdout).not.toContain("--- Sync complete ---");
-    },
-    SPAWN_TIMEOUT_MS,
-  );
-
-  it(
-    "reports engine capture failure in human and JSON status output with its exit status",
-    () => {
-      const home = temporaryDirectory("docks-status-capture-home-");
-      const incompleteKit = temporaryDirectory("docks-status-capture-kit-");
-      writeFileSync(p(incompleteKit, "package.json"), '{"name":"docks-kit","version":"0.0.0"}\n');
-      const environment = { DOCKS_KIT_HOME: incompleteKit };
-
-      const jsonResult = runCli(["status", "--json"], home, environment);
-      const output = JSON.parse(jsonResult.stdout) as {
-        toolchain: { state: string; diagnostic: string; exitCode: number };
-        diagnostics: Array<{ source: string; message: string; exitCode: number }>;
-      };
-      expect(jsonResult.status).toBe(1);
-      expect(output.toolchain).toEqual(expect.objectContaining({ state: "failed", exitCode: 1 }));
-      expect(output.toolchain.diagnostic).toContain("engine capture failed for 'toolchain check'");
-      expect(output.diagnostics).toContainEqual({
-        source: "toolchain",
-        message: output.toolchain.diagnostic,
-        exitCode: 1,
-      });
-
-      const humanResult = runCli(["status"], home, environment);
-      expect(humanResult.status).toBe(1);
-      expect(humanResult.stdout).toContain("ERROR: engine capture failed for 'toolchain check'");
-    },
-    SPAWN_TIMEOUT_MS,
-  );
-
   // Engine-native goldens bypass the public parser. This checks that multiple
   // positional targets reach the selected pipelines and invalid later targets fail.
   it(
@@ -267,13 +79,12 @@ describe("command reporting", () => {
     () => {
       const home = temporaryDirectory("docks-sync-variadic-");
 
-      const selected = runCli(["sync", "claude", "agents", "--dry-run"], home);
+      const selected = runCli(["sync", "agents", "omp", "--dry-run"], home);
       expect(selected.status).toBe(0);
-      expect(selected.stdout).toContain("Claude:");
       expect(selected.stdout).toContain("Skills:");
-      expect(selected.stdout).not.toContain("omp:");
+      expect(selected.stdout).toContain("omp:");
 
-      const invalid = runCli(["sync", "claude", "bogus", "--dry-run"], home);
+      const invalid = runCli(["sync", "agents", "bogus", "--dry-run"], home);
       expect(invalid.status).toBe(2);
       expect(invalid.stderr).toContain("Unknown sync target(s): bogus");
       expect(invalid.stdout).not.toContain("--- Sync complete ---");
@@ -370,25 +181,6 @@ process.exit(9);
       expect(result.stderr).toContain(
         `kit home ${home} is neither a git checkout nor a global package install`,
       );
-    },
-    SPAWN_TIMEOUT_MS,
-  );
-});
-
-describe("status capture child", () => {
-  it(
-    "ignores engine globals that Bun reloads from a project .env (R09)",
-    () => {
-      // Bun loads `.env` from the working directory into every Bun process,
-      // including the child that status spawns for `toolchain check`.
-      const project = temporaryDirectory("docks-status-dotenv-");
-      writeFileSync(join(project, ".env"), "CLAUDE_COMPACT_WINDOW=junk\n");
-      const native = { nativeHost: true } as const;
-      const stubs = makeStubDir({}, native);
-
-      const run = runPublicCli(["status"], "home-fresh", stubs, { ...native, cwd: project });
-      expect(run.stderr).not.toContain("engine capture failed");
-      expect(run.exitCode, run.stderr).toBe(0);
     },
     SPAWN_TIMEOUT_MS,
   );

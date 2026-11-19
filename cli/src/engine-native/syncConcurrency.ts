@@ -1,9 +1,8 @@
 /**
- * EngineNative sync scheduling: bounded-concurrency runner plus the
- * manifest-driven serialization rule. Split from index.ts, which re-exports
- * the public surface so existing import paths keep working.
+ * EngineNative sync scheduling: the bounded-concurrency runner. Split from
+ * index.ts, which re-exports the public surface so existing import paths keep
+ * working.
  */
-import { normalizeManifest } from "./skillsManifest";
 
 export type SyncConcurrency = 1 | 2 | 3;
 export type SyncTask<T> = () => Promise<T>;
@@ -41,15 +40,4 @@ export async function runBounded<T>(
     if (failures.has(index)) throw failures.get(index);
   }
   return results;
-}
-
-export function syncConcurrencyForManifest(
-  configured: SyncConcurrency,
-  manifest: string,
-  claudeSelected: boolean,
-  skillsSelected: boolean,
-): SyncConcurrency {
-  if (!claudeSelected || !skillsSelected || normalizeManifest(manifest).length === 0)
-    return configured;
-  return 1;
 }

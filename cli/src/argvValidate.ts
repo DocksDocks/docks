@@ -1,41 +1,11 @@
 /**
  * Per-command validation for the Effect CLI layer: legacy-flag hints,
- * unknown-command/flag detection, boolean-value and duplicate rejection, and
- * the sync modifiers' missing-value diagnostics. Operates on scanned flags so
- * the grammar machinery stays in argvSurface.ts.
+ * unknown-command/flag detection, and boolean-value and duplicate rejection.
+ * Operates on scanned flags so the grammar machinery stays in argvSurface.ts.
  */
 
-import { KNOWN_CLAUDE_OPTIN_PLUGINS } from "./engine-native/parseModifiers";
 import { isLegacyFlag, LEGACY_FLAG_HINTS } from "./engine-native/parseArgs";
-import { modelCatalog } from "./engine-native/models";
-import { advisorCatalog, advisorFlagGrammar, effortCatalog, effortFlagGrammar } from "./efforts";
-import type { Tool } from "./manifests";
 import type { ArgvSurfaces, FlagSurface, ScannedFlag } from "./argvSurface";
-
-const modelCatalogHint = (tool: Tool): string => {
-  const catalog = modelCatalog(tool);
-  const list = catalog.models
-    .map((model) => `  ${model.id}${model.note !== undefined ? `  — ${model.note}` : ""}`)
-    .join("\n");
-  return `Available ${tool} models (kit-verified ${catalog.verified} — SoT/models.json):\n${list}`;
-};
-
-const missingModifierValue = (flag: string): string | undefined => {
-  switch (flag) {
-    case "--claude-model":
-      return `${modelCatalogHint("claude")}\n${flag} requires a value: ${flag}=<model>`;
-    case "--claude-effort":
-      return `${effortCatalog("claude")}\n${flag} requires a value: ${effortFlagGrammar("claude")}`;
-    case "--claude-advisor":
-      return `${advisorCatalog()}\n${flag} requires a value: ${advisorFlagGrammar()}`;
-    case "--claude-compact-window":
-      return `${flag} requires a value: ${flag}=<tokens> (e.g. 680k)`;
-    case "--claude-plugin":
-      return `${flag} requires a value: ${flag}=<${KNOWN_CLAUDE_OPTIN_PLUGINS.join("|")}>`;
-    default:
-      return undefined;
-  }
-};
 
 /**
  * Run the validation checks in diagnostic order. Returns the reject message
@@ -88,14 +58,6 @@ export const validateScannedArgv = (
       return `flag ${name} was given more than once`;
     }
     seen.add(name);
-  }
-
-  if (subcommand === "sync") {
-    for (const flag of flags) {
-      if (flag.hasValue) continue;
-      const message = missingModifierValue(flag.name);
-      if (message !== undefined) return message;
-    }
   }
 
   return undefined;

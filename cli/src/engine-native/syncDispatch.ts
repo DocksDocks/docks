@@ -1,15 +1,12 @@
 /**
  * EngineNative pipeline dispatch: select the requested harness pipelines,
  * run them under the concurrency cap, then print the summary and advice.
- * Split from index.ts; the `sync`/`model`/`toolchain` entry routing still
- * lives there.
+ * Split from index.ts; the `sync`/`toolchain` entry routing still lives
+ * there.
  */
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { payloadText } from "../payload";
-import { claudeNextSteps, claudeSummary, claudeSync, type ClaudeRuntimeState } from "./claudeSync";
-import { preflightClaudeSettings } from "./claudeSettings";
 import type { Ctx } from "./index";
 import { compareCodepoints } from "./jq";
 import { acquireKitLock, releaseKitLock, type KitLock } from "./kitLock";
@@ -22,16 +19,11 @@ import {
   type OmpWriteFolders,
 } from "./ompSync";
 import { skillsNextSteps, skillsSummary, skillsSync, type SkillsState } from "./skillsSync";
-import { ExitError, parseArgs, validateModifierFlags } from "./parseArgs";
+import { ExitError, parseArgs } from "./parseArgs";
 import { folderSyncLockPath, syncLockPath } from "./scratch";
-import {
-  runBounded,
-  syncConcurrencyForManifest,
-  type SyncConcurrency,
-  type SyncTask,
-} from "./syncConcurrency";
+import { runBounded, type SyncConcurrency, type SyncTask } from "./syncConcurrency";
 
-/** The default time that a sync or a model write waits for another sync to release the sync lock. */
+/** The default time that a sync waits for another sync to release the sync lock. */
 export const SYNC_LOCK_WAIT_MS = 120_000;
 const SYNC_LOCK_WAIT_ERROR = "DOCKS_KIT_SYNC_LOCK_WAIT_MS must be a non-negative safe integer";
 
@@ -105,7 +97,7 @@ async function withKitLocks(
  * `UNLOCKED_TOKENS`, or `ctx.dryRun` is true. `makeCtx` sets `ctx.dryRun`
  * from the `DRY_RUN` env global only on the channel that reads env globals.
  */
-export async function withSyncLock(
+async function withSyncLock(
   ctx: Ctx,
   args: ReadonlyArray<string>,
   body: () => Promise<number>,
@@ -184,7 +176,6 @@ export async function engineSync(ctx: Ctx, args: ReadonlyArray<string>): Promise
 async function runSync(ctx: Ctx, args: ReadonlyArray<string>): Promise<number> {
   const { err } = ctx.services.logger;
   parseArgs(ctx, args);
-  await validateModifierFlags(ctx);
   const configuredConcurrency = process.env["DOCKS_KIT_SYNC_CONCURRENCY"];
   if (configuredConcurrency === undefined || configuredConcurrency === "") {
     ctx.syncConcurrency = 3;
@@ -215,11 +206,8 @@ async function runSync(ctx: Ctx, args: ReadonlyArray<string>): Promise<number> {
 /** Run the selected pipelines. `omp` holds the omp folders when omp is selected. */
 async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise<number> {
   const { acquireTerminal, echo } = ctx.services.logger;
-  // An abort-class check runs before any pipeline starts, so the abort stops the whole sync.
-  preflightClaudeSettings(ctx);
 
   type PipelineResult =
-    | { readonly kind: "claude"; readonly runtime: ClaudeRuntimeState }
     | { readonly kind: "skills"; readonly state: SkillsState }
     | { readonly kind: "omp"; readonly state: OmpState };
   interface SelectedPipeline {
@@ -228,12 +216,6 @@ async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise
   }
 
   const selected: Array<SelectedPipeline> = [];
-  if (ctx.syncClaude) {
-    selected.push({
-      name: "Claude",
-      run: async () => ({ kind: "claude", runtime: await claudeSync(ctx) }),
-    });
-  }
   if (ctx.syncAgents) {
     selected.push({
       name: "skills",
@@ -246,14 +228,6 @@ async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise
       run: async () => ({ kind: "omp", state: await ompSync(ctx, omp) }),
     });
   }
-
-  // A populated skills manifest deploys through the skills CLI's claude-code agent, and symlink healing also writes into Claude's tree.
-  ctx.syncConcurrency = syncConcurrencyForManifest(
-    ctx.syncConcurrency,
-    payloadText("SoT/.agents/skills.txt"),
-    ctx.syncClaude,
-    ctx.syncAgents,
-  );
 
   const remaining = new Set(selected.map(({ name }) => name));
   const lease = acquireTerminal(`Syncing ${[...remaining].join(", ")}...`);
@@ -280,25 +254,20 @@ async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise
     throw error;
   }
 
-  const claudeRan = ctx.syncClaude;
-  let claudeRuntime: ClaudeRuntimeState | undefined;
   let skillsState: SkillsState | undefined;
   let ompState: OmpState | undefined;
   for (const result of results) {
-    if (result.kind === "claude") claudeRuntime = result.runtime;
-    else if (result.kind === "skills") skillsState = result.state;
-    else if (result.kind === "omp") ompState = result.state;
+    if (result.kind === "skills") skillsState = result.state;
+    else ompState = result.state;
   }
 
   echo("");
   echo("--- Sync complete ---");
   echo(`Repo:     ${ctx.repoDir}`);
-  if (claudeRuntime !== undefined) claudeSummary(ctx, claudeRuntime);
   if (skillsState !== undefined) skillsSummary(ctx, skillsState);
   if (ompState !== undefined) ompSummary(ctx, ompState);
 
   const advice = [
-    ...(claudeRan ? claudeNextSteps(ctx) : []),
     ...(skillsState !== undefined ? skillsNextSteps(ctx) : []),
     ...(ompState !== undefined ? ompNextSteps(ctx) : []),
   ];

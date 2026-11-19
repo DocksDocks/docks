@@ -4,11 +4,9 @@ import type { HostOs } from "./types";
 export const linux: HostOs = posixHost({
   id: "linux",
   toolchainOs: "linux",
-  bashTargets: [".bashrc"],
   packageManagerHints: {
     git: "sudo apt install -y git (or your distro's package manager)",
     jq: "sudo apt install -y jq",
     curl: "sudo apt install -y curl",
-    ffplay: "sudo apt install -y ffmpeg",
   },
 });

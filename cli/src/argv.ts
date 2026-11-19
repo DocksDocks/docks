@@ -1,11 +1,7 @@
 import { GlobalFlag } from "effect/cli";
 import { docsCommand } from "./commands/docs";
 import { harnessesCommand } from "./commands/harnesses";
-import { modelCommand } from "./commands/model";
-import { modelsCommand } from "./commands/models";
-import { pluginsCommand } from "./commands/plugins";
 import { skillsCommand } from "./commands/skills";
-import { statusCommand } from "./commands/status";
 import { syncCommand } from "./commands/sync";
 import { toolchainCommand } from "./commands/toolchain";
 import { updateCommand } from "./commands/update";
@@ -34,11 +30,7 @@ export const COMMANDS = [
   syncCommand,
   harnessesCommand,
   updateCommand,
-  modelCommand,
-  modelsCommand,
   toolchainCommand,
-  statusCommand,
-  pluginsCommand,
   skillsCommand,
   docsCommand,
   ompCommand,
