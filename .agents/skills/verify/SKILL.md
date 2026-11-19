@@ -31,7 +31,8 @@ GOOD — The agent ran V3 and V4, and the output matched each expected result.
 
 BAD  — V1 printed a warning count above 0, and the agent reports V1 as passed.
 GOOD — The agent reads every line and the exit code. A `FAIL` line or a
-       non-zero exit is a failure; a warning count above 0 is reported.
+       non-zero exit is a failure; a warning count above 0 prints a `FAIL`
+       line, and the agent reports each warning.
 ```
 
 ## Prerequisites
@@ -40,17 +41,18 @@ GOOD — The agent reads every line and the exit code. A `FAIL` line or a
 |---|---|---|
 | omp CLI | `omp --version` | A line that starts with `omp/` |
 | Node and Bun | `node --version && bun --version` | Two version lines |
+| docks-kit CLI (V1 scratch folders) | `docks-kit --version` | One version line |
 | Dependencies | `bun install --frozen-lockfile` | Exit 0 |
 
 ## V1 — Install the plugins into an isolated omp state
 
-`omp-smoke.mjs` creates a docks-kit scratch folder and points `PI_CONFIG_DIR` at it, so omp keeps all its state there and the real `~/.omp` stays unchanged. It starts a fake local model. It adds this checkout as the `docks` marketplace, and installs `docks@docks` and `plan-lifecycle@docks`. It then lists the plugins, the skills, and the task agents of one `omp -p` session. At the end it removes the scratch folder, also after a failure.
+`omp-smoke.mjs` creates a docks-kit scratch folder and points `PI_CONFIG_DIR` at it, so omp keeps all its state there and the real `~/.omp` stays unchanged. omp gets only `PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, and `PI_CONFIG_DIR` from the environment, so no credential reaches it. It starts a fake local model. It adds this checkout as the `docks` marketplace, and installs `docks@docks` and `plan-lifecycle@docks`. It then lists the plugins, the skills, and the task agents of one `omp -p` session. At the end it removes the scratch folder, also after a failure.
 
 ```bash
 bun .agents/skills/verify/scripts/omp-smoke.mjs; echo "exit=$?"
 ```
 
-Expected, in order: `docks@docks <version>` and `plan-lifecycle@docks <version>`, where each version equals its entry in `.omp-plugin/marketplace.json`; then `skills: 33`, `agents: code-reviewer,plan-reviewer`, `warnings: 0`, and `exit=0`. A `FAIL <reason>` line and `exit=1` mean that the install or the discovery failed.
+Expected, in order: `docks@docks <version>` and `plan-lifecycle@docks <version>`, where each version equals its entry in `.omp-plugin/marketplace.json`; then `skills: 33`, `agents: code-reviewer,plan-reviewer`, `warnings: 0`, and `exit=0`. A `FAIL <reason>` line and `exit=1` mean that the install or the discovery failed, or that omp reported a warning about the plugins. `FAIL could not remove scratch folder <path>` and `exit=1` mean that the folder stays; remove it with `docks-kit scratch remove <path>`.
 
 ## V2 — Drive the plan helper against the fake `gh`
 

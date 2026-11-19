@@ -533,7 +533,8 @@ function testSkillGuardScoresFlatSkills() {
 }
 
 // A plugin agent names the files of its skill as `skill://<skill>/<path>`, because omp resolves that form and sets no
-// plugin root variable. The guard accepts the `skill://` form and refuses each `${...}` variable in an agent.
+// plugin root variable. The guard accepts the `skill://` form. It refuses each `${...}` variable in an agent, and it
+// refuses a file path to a SKILL.md.
 function testAgentsGuardSkillReferences() {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-agents-'));
   try {
@@ -578,16 +579,30 @@ function testAgentsGuardSkillReferences() {
       assert.equal(accepted.status, 0, `${reference} must be accepted:\n${accepted.stderr}`);
     }
 
-    // The name of the Claude Code root variable is put together here, so that a search of the repository for that
-    // name finds only the hook files that still use it.
-    const claudeRootVariable = `\${${['CLAUDE', 'PLUGIN', 'ROOT'].join('_')}}`;
-    for (const variable of [claudeRootVariable, `\${OMP_PLUGIN_ROOT}`, `\${PLUGIN_ROOT}`]) {
-      const rejected = runGuard(`${variable}/skills/probe-reviewer/SKILL.md`);
+    const variableRule = /omp sets no plugin root variable, so name each skill file as skill:\/\/<skill>\/<path>/;
+    const pathRule = /a bundled SKILL\.md must load via skill:\/\/<skill>\/SKILL\.md, not a file path/;
+    // Each fixture breaks one rule only: the variable rule refuses a `${...}` variable also in a path to a file that
+    // is not SKILL.md, and in a variable that is not a plugin root variable.
+    for (const variable of [`\${CLAUDE_PLUGIN_ROOT}`, `\${OMP_PLUGIN_ROOT}`, `\${PLUGIN_ROOT}`, `\${HOME}`]) {
+      const rejected = runGuard(`${variable}/skills/probe-reviewer/references/delta.md`);
       assertStarted(rejected);
       assert.equal(rejected.status, 1, `${variable} must be refused:\n${rejected.stdout}`);
       assert.match(rejected.stderr, /^FAIL: probe-reviewer\b/m);
-      assert.ok(rejected.stderr.includes(variable), `the refusal must name ${variable}:\n${rejected.stderr}`);
+      assert.match(rejected.stderr, variableRule, `${variable} must be refused by the variable rule`);
+      assert.ok(
+        rejected.stderr.includes(`remove ${variable};`),
+        `the refusal must name ${variable}:\n${rejected.stderr}`,
+      );
+      assert.doesNotMatch(rejected.stderr, pathRule, `${variable} names no SKILL.md, so the path rule must not fire`);
     }
+    // A plain repository path to SKILL.md holds no variable, so only the skill:// path rule refuses it.
+    const plainPath = 'plugins/plan-lifecycle/skills/probe-reviewer/SKILL.md';
+    const rejectedPath = runGuard(plainPath);
+    assertStarted(rejectedPath);
+    assert.equal(rejectedPath.status, 1, `${plainPath} must be refused:\n${rejectedPath.stdout}`);
+    assert.match(rejectedPath.stderr, pathRule, `${plainPath} must be refused by the skill:// path rule`);
+    assert.ok(rejectedPath.stderr.includes(plainPath), `the refusal must show the line:\n${rejectedPath.stderr}`);
+    assert.doesNotMatch(rejectedPath.stderr, variableRule, `${plainPath} holds no variable`);
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }

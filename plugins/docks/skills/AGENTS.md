@@ -150,7 +150,7 @@ Skills run in both runtimes; phrase for both. Sources: the Claude Code skills do
 
 ## Namespace
 
-Artifacts surface as `<plugin>:<name>` (e.g. `docks:security`, `docks:write-skill`) from `name` in `plugins/docks/package.json`.
+omp keeps the bare frontmatter `name` of each skill, with no plugin prefix (e.g. `security`, `write-skill`). Address a skill as `skill://<name>`, a file inside it as `skill://<name>/<path>`, and invoke it as `/skill:<name>`. Only when two different skills have the same name does omp give the lower-precedence one a `<namespace>/<name>` form, so keep each skill name unique.
 
 ## Sources
 

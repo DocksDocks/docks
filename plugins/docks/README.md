@@ -1,26 +1,32 @@
 # docks
 
-A cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode), packaged as a Claude Code plugin. Sequential pipeline skills (security, refactor, skill-agent-pipeline) plus a library of engineering-convention skills.
+A cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode), shipped as a native omp plugin. Sequential pipeline skills (security, refactor, skill-agent-pipeline) plus a library of engineering-convention skills.
 
 ## Install
 
 ```bash
-/plugin marketplace add DocksDocks/docks
-/plugin install docks@docks
-/reload-plugins
+omp plugin marketplace add DocksDocks/docks
+omp plugin install docks@docks
+```
+
+To update an installed copy:
+
+```bash
+omp plugin marketplace update docks
+omp plugin upgrade docks@docks
 ```
 
 ## Platform support
 
 The `docks` plugin supports Linux and macOS only.
 
-For local development:
+For local development, start omp from the root of a checkout of the marketplace repository:
 
 ```bash
-claude --plugin-dir /path/to/docks/plugins/docks
+omp --plugin-dir ./plugins/docks
 ```
 
-When a `--plugin-dir` plugin shares a name with an installed marketplace plugin, the local copy wins for that session. After edits, run `/reload-plugins` — no Claude Code restart needed.
+omp loads the plugin from that directory for the session. After edits, start a new session with the same flag.
 
 ## What's inside
 
@@ -60,7 +66,7 @@ Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfa
 | `ci-speed` | Slow or costly CI and test runs — queue time, checkout, installs, caches, lint, type check, tests, sharding, affected-only runs, pre-push hooks, Blacksmith runners with a GitHub-hosted fallback |
 | `effect-ts` | TypeScript code that uses Effect v4 — services, layers, typed errors, `@effect/vitest` tests, Effect diagnostics as lint rules, agent rules that keep code on the installed version |
 
-Plus `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-maintenance`, `write-skill`, and `zoom-out` under `productivity/`.
+Plus `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-maintenance`, `write-skill`, and `zoom-out`.
 
 ### Plan lifecycle (companion plugin)
 
@@ -84,7 +90,7 @@ Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-m
 Install it alongside docks:
 
 ```bash
-/plugin install plan-lifecycle@docks
+omp plugin install plan-lifecycle@docks
 ```
 
 ## Why sequential, single-context?

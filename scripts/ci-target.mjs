@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 import fs from 'node:fs';
-import { CI_LANES, parseReleaseTag, resolveShardSelection } from './lib/ci-targeting.mjs';
+import { CI_LANES, resolveReleaseTagAtCommit, resolveShardSelection } from './lib/ci-targeting.mjs';
 
+// release-tag runs in the checkout of the tagged commit: it reads the plugin package.json and the catalog there.
 const RELEASE_TAG_USAGE = 'usage: ci-target.mjs release-tag <tag> [--github-output <path>]';
 const SHARDS_USAGE =
   'usage: ci-target.mjs shards (--changed-paths <path> | --unresolved) [--event <name>] [--github-output <path>]';
@@ -25,7 +26,7 @@ function releaseTagCommand(args) {
   if (args.length === 3 && args[1] === '--github-output' && args[2] !== '') outputPath = args[2];
   else if (args.length !== 1) fail(RELEASE_TAG_USAGE);
   try {
-    const resolved = parseReleaseTag(args[0]);
+    const resolved = resolveReleaseTagAtCommit(args[0], process.cwd());
     emit(
       outputPath,
       [

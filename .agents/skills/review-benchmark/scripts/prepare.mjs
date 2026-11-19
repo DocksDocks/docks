@@ -67,8 +67,12 @@ const WORKTREE_ROOT = 'worktree';
 // The instruction files of the merge base that a code reviewer reads (plan-contract.md, Code-review rounds), in the
 // order of the MANIFEST lines of the base-instructions folder.
 const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'];
-// The plan contract of plan-lifecycle. A variant of `agents --contract-overlay` changes it (see writeContractCopy).
-const CONTRACT_PATH = `${PLUGIN_PATH}/skills/plan-manager/references/plan-contract.md`;
+// The plan contract of plan-lifecycle. A variant of `agents --contract-overlay` changes it (see writeContractCopy). A
+// tree at a ref before the native omp packages holds it in a category folder (`skills/productivity/`), and the current
+// tree holds it directly under `skills/`. So the overlay finds the contract in each tree with CONTRACT_FILE, and the
+// messages name both forms with CONTRACT_PATH_FORM.
+const CONTRACT_FILE = /^plugins\/plan-lifecycle\/skills\/(?:[^/]+\/)?plan-manager\/references\/plan-contract\.md$/;
+const CONTRACT_PATH_FORM = `${PLUGIN_PATH}/skills/[<folder>/]plan-manager/references/plan-contract.md`;
 // The reader of merge-base instruction files that plan-manager phase 6 and docks code-review run. `case` runs the file
 // of the checkout that holds this script, not of the case repository, so a case reads each file with the production
 // code.
@@ -79,9 +83,8 @@ const BASE_BLOB_SCRIPT = path.join(
   'skills/plan-manager/scripts/base-blob.sh',
 );
 // The plugin root variable of Claude Code. A plugin agent at a ref before the native omp packages names the files of
-// its skill with it. The name is put together here, so that a search of the repository for it finds only the hook
-// files that still use it.
-const LEGACY_PLUGIN_ROOT_TOKEN = `\${${['CLAUDE', 'PLUGIN', 'ROOT'].join('_')}}`;
+// its skill with it, for example `${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/SKILL.md`.
+const LEGACY_PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
 // A `skill://<skill>` or `skill://<skill>/<path>` URI in a plugin agent. omp resolves it to the installed skill.
 const SKILL_URI = /skill:\/\/([a-z0-9][a-z0-9-]*)(\/[^\s\x60'")]*)?/g;
 // The marker file of a plugin copy (the baseline or a variant) records the commit of the copy.
@@ -700,9 +703,10 @@ function runGit(repo, args, { env, input } = {}) {
   return result;
 }
 
-function git(repo, args, options) {
+// `statuses` lists the exit statuses that are not a failure: `git diff --no-index` exits 1 when the files differ.
+function git(repo, args, { statuses = [0], ...options } = {}) {
   const result = runGit(repo, args, options);
-  if (result.status !== 0) fail(`git ${args.join(' ')} failed: ${result.stderr.toString().trim()}`);
+  if (!statuses.includes(result.status)) fail(`git ${args.join(' ')} failed: ${result.stderr.toString().trim()}`);
   return result.stdout;
 }
 
@@ -1168,17 +1172,38 @@ function removedText(diffText) {
     .map((line) => line.slice(1));
 }
 
+// The repository path of the plan contract among the repository paths `files` (see CONTRACT_FILE), or null. `where`
+// names the tree in the message when the tree holds the contract in two places.
+function contractPathIn(files, where) {
+  const found = files.filter((file) => CONTRACT_FILE.test(file));
+  if (found.length > 1) fail(`${where} holds more than one plan contract: ${found.sort().join(', ')}`);
+  return found[0] ?? null;
+}
+
+// The repository path of the plan contract at the commit `commit` (see contractPathIn).
+function contractPathAtCommit(repo, commit, where) {
+  const listed = git(repo, ['ls-tree', '-r', '-z', '--name-only', commit, '--', `${PLUGIN_PATH}/skills`]);
+  return contractPathIn(listed.toString().split('\0').filter(Boolean), where);
+}
+
+// The repository path of the plan contract in the folder `dir`, a snapshot or a working tree (see contractPathIn).
+function contractPathInDir(dir) {
+  return contractPathIn(filesBelow(path.join(dir, PLUGIN_PATH, 'skills'), `${PLUGIN_PATH}/skills/`), dir);
+}
+
 // Writes `copy`, the plan contract of the snapshot with the contract change `diff` of a variant of `agents
-// --contract-overlay`, and tells whether the change applied. `git apply` patches the copy, so the snapshot stays the
-// same. When the change does not apply because the contract of the snapshot holds no line that the change removes
+// --contract-overlay`, and tells whether the change applied. The snapshot holds the contract in the layout of its ref
+// (see CONTRACT_FILE). `git apply` patches the copy, so the snapshot stays the same. When the change does not apply
+// because the contract of the snapshot holds no line that the change removes
 // (blank lines aside), the copy keeps the contract of the snapshot, and the result is 'not applicable'. Every other
 // failure of `git apply`, for example a removed line with other context lines, stops the command with the message of
 // git and the run folder of the copy.
 function writeContractCopy(snapshot, diff, copy) {
-  const contract = path.join(snapshot, CONTRACT_PATH);
-  if (!fs.existsSync(contract)) {
-    fail(`${snapshot} has no ${CONTRACT_PATH}, so the contract overlay has no contract to change`);
+  const relative = contractPathInDir(snapshot);
+  if (relative === null) {
+    fail(`${snapshot} has no ${CONTRACT_PATH_FORM}, so the contract overlay has no contract to change`);
   }
+  const contract = path.join(snapshot, relative);
   const dir = path.dirname(copy);
   fs.mkdirSync(dir, { recursive: true });
   fs.copyFileSync(contract, copy);
@@ -2199,22 +2224,49 @@ function selectConfigs(options, repo) {
 }
 
 // The diff of the plan contract from the baseline commit `sha` (at the ref `ref`) to the working tree: the contract
-// change of the candidate code reviewer for `agents --candidate-contract-overlay`.
+// change of the candidate code reviewer for `agents --candidate-contract-overlay`. A ref before the native omp packages
+// holds the contract at another path (see CONTRACT_FILE). Then git compares the text of the two files, so the diff
+// holds only the change of the text, not the move.
 function candidateContractDiff(repo, sha, ref) {
-  const diff = git(repo, ['diff', ...DIFF_FLAGS, sha, '--', `:(literal)${CONTRACT_PATH}`]).toString();
-  if (!diff)
-    fail(`agents --candidate-contract-overlay: the working tree does not change ${CONTRACT_PATH} against ${ref}`);
+  const label = 'agents --candidate-contract-overlay';
+  const before = contractPathAtCommit(repo, sha, ref);
+  const after = contractPathInDir(repo);
+  if (before === null || after === null) {
+    fail(`${label}: ${before === null ? ref : 'the working tree'} has no ${CONTRACT_PATH_FORM}`);
+  }
+  // A ref before the native omp packages holds the contract at another path. `--no-index` then compares the contract
+  // of the ref, which it reads from stdin (`-`), with the file of the working tree.
+  const diff = (
+    before === after
+      ? git(repo, ['diff', ...DIFF_FLAGS, sha, '--', `:(literal)${after}`])
+      : git(repo, ['diff', ...DIFF_FLAGS, '--no-index', '--', '-', after], {
+          input: git(repo, ['cat-file', 'blob', `${sha}:${before}`]),
+          statuses: [0, 1],
+        })
+  ).toString();
+  if (!diff) fail(`${label}: the working tree does not change ${CONTRACT_PATH_FORM} against ${ref}`);
   return diff;
 }
 
 // The diff of the plan contract from the first parent of the commit `sha` (at the ref `ref`) to the commit: the
-// contract change of a variant of --contract-overlay. `label` starts the message when the commit does not change the
-// contract.
+// contract change of a variant of --contract-overlay. When the commit moves the contract (see CONTRACT_FILE), git
+// compares the text of the two files, so the diff holds only the change of the text. `label` starts the message when
+// a tree has no contract or the commit does not change the contract text.
 function contractDiff(repo, sha, ref, label) {
-  const diff = git(repo, ['diff', ...DIFF_FLAGS, `${sha}^1`, sha, '--', `:(literal)${CONTRACT_PATH}`]).toString();
+  const parent = `the first parent of ${ref}`;
+  const before = contractPathAtCommit(repo, `${sha}^1`, parent);
+  const after = contractPathAtCommit(repo, sha, ref);
+  if (before === null || after === null) {
+    fail(
+      `${label}: ${before === null ? parent : ref} has no ${CONTRACT_PATH_FORM}; leave it out of --contract-overlay`,
+    );
+  }
+  const range =
+    before === after ? [`${sha}^1`, sha, '--', `:(literal)${after}`] : [`${sha}^1:${before}`, `${sha}:${after}`];
+  const diff = git(repo, ['diff', ...DIFF_FLAGS, ...range]).toString();
   if (!diff) {
     fail(
-      `${label}: ${ref} does not change ${CONTRACT_PATH} against its first parent; leave it out of --contract-overlay`,
+      `${label}: ${ref} does not change ${CONTRACT_PATH_FORM} against its first parent; leave it out of --contract-overlay`,
     );
   }
   return diff;
@@ -2271,7 +2323,7 @@ function parseVariants(options, repo, baselineDir) {
     const roots = reviewerPluginRoots(pluginRootText(text, dir));
     if (roots.length !== 1 || roots[0] !== dir) {
       fail(
-        `variant ${name}: ${source} at ${ref} must name its reviewer skill as skill://plan-reviewer/SKILL.md and name no other plugin root`,
+        `variant ${name}: ${source} at ${ref} must name its reviewer skill as skill://plan-reviewer/SKILL.md, or at a ref before the native omp packages as ${LEGACY_PLUGIN_ROOT_TOKEN}/skills/[<folder>/]plan-reviewer/SKILL.md, and name no other plugin root`,
       );
     }
     const variant = { name, ref, sha, delta: !fullOnly.includes(name), dir, text };

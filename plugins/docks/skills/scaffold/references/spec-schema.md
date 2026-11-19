@@ -104,7 +104,7 @@ bundled_skills:
 The three plan skills are copied verbatim and keep separate ownership: workspace maintenance, main-context orchestration, and repository-grounded plan review. Scaffold generation does not create or review a plan. The read-only Codex wrappers are `plan-reviewer` and `code-reviewer`. Main context invokes `plan-manager` directly. Plans are GitHub issues, not tracked markdown files. Read `skills/plan-manager/references/plan-contract.md` inside the installed `plan-lifecycle` plugin for the plan contract.
 
 - `source` - path in the source repo. Setup must read these from the live repo rather than copying a stale example.
-- `destination` - optional; defaults to the same category path under `plugins/{{ plugin_name }}/`.
+- `destination` - optional; defaults to `skills/<name>/` under `plugins/{{ plugin_name }}/`, where `<name>` is the last folder of `source`.
 - Copied verbatim (pinned). A copy never re-syncs from the source repo. To update it, re-copy it from the source repo into the seeded project and release a new plugin version there; that project's consumers then receive it through `claude plugin update`.
 
 ## `scripts`

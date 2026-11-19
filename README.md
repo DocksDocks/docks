@@ -1,6 +1,6 @@
 # docks
 
-Claude Code + Codex plugin marketplace publishing the **docks** plugin - a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, design tokens, SOLID, type-safety, and React patterns; and a GitHub-issue lifecycle tracks multi-commit work.
+Native omp plugin marketplace publishing the **docks** plugin - a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, design tokens, SOLID, type-safety, and React patterns; and a GitHub-issue lifecycle tracks multi-commit work.
 
 ## Install
 
@@ -8,6 +8,14 @@ Claude Code + Codex plugin marketplace publishing the **docks** plugin - a cross
 omp plugin marketplace add DocksDocks/docks
 omp plugin install docks@docks
 omp plugin install plan-lifecycle@docks
+```
+
+To update installed copies:
+
+```bash
+omp plugin marketplace update docks
+omp plugin upgrade docks@docks
+omp plugin upgrade plan-lifecycle@docks
 ```
 
 ## session-relay moved out
@@ -64,7 +72,7 @@ Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfa
 | `ci-speed` | Slow or costly CI and test runs - queue time, checkout, installs, caches, lint, type check, tests, sharding, affected-only runs, pre-push hooks, Blacksmith runners with a GitHub-hosted fallback |
 | `effect-ts` | TypeScript code that uses Effect v4 - services, layers, typed errors, `@effect/vitest` tests, Effect diagnostics as lint rules, agent rules that keep code on the installed version |
 
-The `productivity/` category contains `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-agent-pipeline`, `skill-maintenance`, `write-skill`, and `zoom-out`.
+The kit also ships `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-agent-pipeline`, `skill-maintenance`, `write-skill`, and `zoom-out`.
 
 ### Plan lifecycle (the `plan-lifecycle` plugin)
 
@@ -120,14 +128,13 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 
 ## Develop locally
 
-Test changes without pushing to GitHub: add the checkout as a local marketplace and install from it.
+Test changes without pushing to GitHub: start omp from the checkout root and load the plugin directories.
 
 ```bash
-omp plugin marketplace add ./
-omp plugin install docks@docks
+omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle
 ```
 
-After edits, run `omp plugin marketplace update docks` and `omp plugin upgrade docks@docks`, then `/reload-plugins` in the running session.
+omp loads each plugin from its directory for that session. Give `--plugin-dir` once for each plugin that you change. After edits, start a new session with the same flags.
 
 ## Validate before pushing
 
@@ -151,10 +158,10 @@ On a PR to `main`, CI runs only the shards the changed paths resolve to - the re
 
 ## Versioning + releases
 
-Versions are per plugin. Each plugin's `version` in `plugins/<name>/package.json` and its entry in `.omp-plugin/marketplace.json` stay in lockstep and control update propagation (the catalog version is the one omp compares):
+Versions are per plugin. Each plugin's `version` in `plugins/<name>/package.json` and its entry in `.omp-plugin/marketplace.json` stay in lockstep. omp compares the catalog version when it checks for updates and when it upgrades all plugins:
 
-- **With explicit version**: users only receive updates when this field bumps. Bump on every release.
-- **Without version**: the git commit SHA is used; every commit counts as a new version (noisier but auto-tracking).
+- **With a version**: users receive an update only when this field changes to a newer version. Bump it on every release.
+- **Without a version**: omp does not compare the entry, so it does not find or install updates for that plugin. Every catalog entry in this repository declares a version.
 
 `scripts/release.mjs` releases one plugin per run and wraps the full dance in one command (`--plugin` defaults to `docks`; `--dry-run` previews the bump + manifest diff without tagging):
 
@@ -169,7 +176,14 @@ The script runs `bun scripts/ci.mjs --plugin <name>` as a preflight, bumps that 
 
 CI runs only on (a) PRs to main, (b) tag pushes matching `<plugin>--v<version>`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI - PR validation gates merges, tag-CI gates releases.
 
-Manually: `git tag -a <name>--v<version> -m "<name> plugin v<version>" && git push origin <name>--v<version>` (tag only, no GitHub Release).
+Manually, from a clean checkout of the release commit (tag only, no GitHub Release):
+
+```bash
+v=$(node -p "require('./plugins/<name>/package.json').version")
+git tag -a "<name>--v$v" -m "<name> plugin v$v" && git push origin "<name>--v$v"
+```
+
+Tag CI fails when the tag version differs from the `package.json` version or from the catalog entry version at the tagged commit.
 
 ## License
 

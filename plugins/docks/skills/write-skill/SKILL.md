@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: meta-skill
   updated: "2026-11-19"
-  content_hash: "09a072e0a2d3d120720c184c0dec79dcf46285ae6bc189361108f1a98a97dbeb"
+  content_hash: "84a178d07258db272b85da0ee3c49b8290551848390911d52d2f79aed4da7052"
 ---
 
 # Write a Skill (docks conventions)
@@ -85,7 +85,7 @@ metadata:
 8. **Docs check.** Run the self-check in `references/durable-anchors.md` on the body and every reference. If the skill writes docs, check rows A–C of "Durable docs and agent-first output" below against the docs it emits; if it writes into a user repo, check row D too.
 9. **Targeted CI while iterating.** In a multi-plugin kit, run the owning plugin's gate after each meaningful change — in this kit, `bun scripts/ci.mjs --plugin <changed-plugin>`. Do not rerun unrelated plugin gates during the edit loop.
 10. **Full CI once.** Run `bun scripts/ci.mjs` at the final pre-commit/release gate, or earlier only when shared/repo-wide files changed. It must be green before commit.
-11. **Stop when the behavioral checks pass.** Ship when the baseline check shows the step 0 gaps closed and the trigger check passes. The score is a minimum, not the goal: meet the category floor, but do not add tables or constraint blocks only to gain points, because a format proxy does not tell you whether the agent behaves better.
+11. **Stop when the behavioral checks pass.** Ship when the baseline check shows the step 0 gaps closed and the trigger check passes. The score is a minimum, not the goal: meet the per-file skills floor (`bun scripts/config/read-floor.mjs skills` in this repository), but do not add tables or constraint blocks only to gain points, because a format proxy does not tell you whether the agent behaves better.
 
 ## Behavioral checks
 

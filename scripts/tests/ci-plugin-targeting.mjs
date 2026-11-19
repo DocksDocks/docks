@@ -827,14 +827,84 @@ const fixtureSkill = (name) =>
 // Each case is one defect of a native package, and a pattern that a gate failure line about that defect matches.
 const NATIVE_GATE_CASES = [
   [
+    // The frontmatter name is the name of the folder that holds SKILL.md, so only the depth rule refuses this skill.
     'a skill one folder below skills/<name>/',
-    (tree) => writeTreeFile(tree, 'plugins/docks/skills/zz-group/zz-nested/SKILL.md', fixtureSkill('zz-nested')),
-    /zz-group\/zz-nested/,
+    (tree) => writeTreeFile(tree, 'plugins/docks/skills/zz-nested/zz-nested/SKILL.md', fixtureSkill('zz-nested')),
+    /skills\/zz-nested\/zz-nested\/SKILL\.md is not at skills\/<name>\/SKILL\.md/,
   ],
   [
     'a skill whose frontmatter name is not its folder name',
     (tree) => writeTreeFile(tree, 'plugins/docks/skills/zz-folder/SKILL.md', fixtureSkill('zz-other')),
     /zz-folder/,
+  ],
+  [
+    'a catalog without a name',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        delete catalog.name;
+      }),
+    /marketplace\.json has no name$/,
+  ],
+  [
+    'a catalog entry that no descriptor has',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        catalog.plugins.push({ ...catalogEntry(catalog, 'docks'), name: 'zz-extra' });
+      }),
+    /entry zz-extra has no descriptor/,
+  ],
+  [
+    'a catalog source that is another plugin folder',
+    (tree) =>
+      editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
+        catalogEntry(catalog, 'docks').source = './plugins/plan-lifecycle';
+      }),
+    /docks catalog source \.\/plugins\/plan-lifecycle is not \.\/plugins\/docks/,
+  ],
+  [
+    'a package.json without a description',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        delete pluginPackage.description;
+      }),
+    /plugins\/docks\/package\.json lacks description$/,
+  ],
+  [
+    'a package.json without a license',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        delete pluginPackage.license;
+      }),
+    /plugins\/docks\/package\.json lacks license$/,
+  ],
+  [
+    'a package.json that is not private',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.private = false;
+      }),
+    /plugins\/docks\/package\.json lacks private: true$/,
+  ],
+  [
+    'a package.json of type commonjs',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.type = 'commonjs';
+      }),
+    /plugins\/docks\/package\.json lacks type: "module"$/,
+  ],
+  [
+    'a leftover Codex plugin manifest folder',
+    (tree) => writeTreeFile(tree, 'plugins/docks/.codex-plugin/plugin.json', '{"name":"docks"}\n'),
+    /plugins\/docks\/\.codex-plugin is a leftover/,
+  ],
+  [
+    'an agent without a description',
+    (tree) =>
+      editTreeText(tree, 'plugins/plan-lifecycle/agents/code-reviewer.md', (text) =>
+        text.replace(/^description: .*\n/m, ''),
+      ),
+    /agent code-reviewer has no description$/,
   ],
   [
     'a catalog version that is not the package.json version',
@@ -1151,7 +1221,17 @@ async function testGenericReleaseModuleContract(
     assert.ok(plugin, `missing ordinary plugin descriptor: ${plugin?.name}`);
     assert.deepEqual(Object.keys(plugin.release).sort(), ['install', 'kind']);
     assert.equal(plugin.release.kind, 'generic');
-    assert.match(plugin.release.install, /\S/);
+    // `omp plugin install` fails on an existing install, so the release text gives both the install and the upgrade.
+    for (const line of [
+      'omp plugin marketplace add DocksDocks/docks',
+      `omp plugin install ${plugin.name}@docks`,
+      'omp plugin marketplace update docks',
+      `omp plugin upgrade ${plugin.name}@docks`,
+    ])
+      assert.ok(
+        plugin.release.install.split('\n').includes(line),
+        `${plugin.name} release install text lacks: ${line}`,
+      );
     assert.equal('install' in plugin, false, `${plugin.name} install text belongs only to its release policy`);
 
     const packageJson = `${plugin.root}/package.json`;
@@ -2261,15 +2341,85 @@ console.log('release tag and workflow selection passed');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-ci-targeting-'));
 try {
+  // The resolver runs in the checkout of the tagged commit. Each fixture is such a checkout: the plugin package.json
+  // and the catalog, with the versions that the case needs.
+  const tagCheckout = (name, { packageVersion, catalogVersion, catalogEntries = 1 }) => {
+    const checkout = path.join(tmp, name);
+    const pluginPackage = JSON.parse(fs.readFileSync(path.join(ROOT, 'plugins/plan-lifecycle/package.json'), 'utf8'));
+    const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, NATIVE_CATALOG), 'utf8'));
+    const entry = catalogEntry(catalog, 'plan-lifecycle');
+    catalog.plugins = [
+      ...catalog.plugins.filter((candidate) => candidate !== entry),
+      ...Array.from({ length: catalogEntries }, () => ({ ...entry, version: catalogVersion })),
+    ];
+    writeTreeFile(
+      checkout,
+      'plugins/plan-lifecycle/package.json',
+      `${JSON.stringify({ ...pluginPackage, version: packageVersion })}\n`,
+    );
+    writeTreeFile(checkout, NATIVE_CATALOG, `${JSON.stringify(catalog)}\n`);
+    return checkout;
+  };
+  const resolveTag = (cwd, tag, extra = []) =>
+    spawnSync(process.execPath, [path.join(ROOT, 'scripts/ci-target.mjs'), 'release-tag', tag, ...extra], {
+      cwd,
+      encoding: 'utf8',
+    });
+
   const githubOutput = path.join(tmp, 'github-output');
-  const cli = spawnSync(
-    process.execPath,
-    ['scripts/ci-target.mjs', 'release-tag', 'plan-lifecycle--v0.11.2', '--github-output', githubOutput],
-    { cwd: ROOT, encoding: 'utf8' },
-  );
+  const matching = tagCheckout('tag-matching', { packageVersion: '0.11.2', catalogVersion: '0.11.2' });
+  const cli = resolveTag(matching, 'plan-lifecycle--v0.11.2', ['--github-output', githubOutput]);
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(cli.stdout, '');
   assert.equal(fs.readFileSync(githubOutput, 'utf8'), 'mode=targeted\nplugin=plan-lifecycle\n');
+
+  // The tag of each plugin at its current version resolves in this checkout.
+  for (const plugin of PLUGINS) {
+    const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, plugin.root, 'package.json'), 'utf8'));
+    const current = resolveTag(ROOT, `${plugin.name}--v${version}`);
+    assert.equal(current.status, 0, current.stderr);
+    assert.deepEqual(JSON.parse(current.stdout), { mode: 'targeted', plugin: plugin.name });
+  }
+
+  // A tag whose version is not the version of the tagged commit fails the tag CI, and the error names each file
+  // that disagrees and no other.
+  for (const [label, checkout, tag, named, notNamed] of [
+    [
+      'a tag version that neither file has',
+      matching,
+      'plan-lifecycle--v0.11.3',
+      [/plugins\/plan-lifecycle\/package\.json has version 0\.11\.2/, /marketplace\.json has version 0\.11\.2/],
+      [],
+    ],
+    [
+      'a package.json version that is not the tag version',
+      tagCheckout('tag-package-drift', { packageVersion: '0.11.9', catalogVersion: '0.11.2' }),
+      'plan-lifecycle--v0.11.2',
+      [/plugins\/plan-lifecycle\/package\.json has version 0\.11\.9/],
+      [/marketplace\.json has version/],
+    ],
+    [
+      'a catalog version that is not the tag version',
+      tagCheckout('tag-catalog-drift', { packageVersion: '0.11.2', catalogVersion: '0.11.8' }),
+      'plan-lifecycle--v0.11.2',
+      [/marketplace\.json has version 0\.11\.8/],
+      [/package\.json has version/],
+    ],
+    [
+      'a catalog without an entry for the tagged plugin',
+      tagCheckout('tag-catalog-missing', { packageVersion: '0.11.2', catalogVersion: '0.11.2', catalogEntries: 0 }),
+      'plan-lifecycle--v0.11.2',
+      [/marketplace\.json has 0 entries for plan-lifecycle/],
+      [],
+    ],
+  ]) {
+    const outputFile = path.join(tmp, `github-output-${tag}-${path.basename(checkout)}`);
+    const refused = resolveTag(checkout, tag, ['--github-output', outputFile]);
+    assert.equal(refused.status, 2, `${label} must fail the release-tag resolution:\n${refused.stderr}`);
+    for (const pattern of named) assert.match(refused.stderr, pattern, `${label}`);
+    for (const pattern of notNamed) assert.doesNotMatch(refused.stderr, pattern, `${label}`);
+    assert.equal(fs.existsSync(outputFile), false, `${label} must write no CI target`);
+  }
 
   const malformed = spawnSync(process.execPath, ['scripts/ci-target.mjs', 'release-tag', 'docks--v1.2.3;echo-owned'], {
     cwd: ROOT,
@@ -3050,6 +3200,76 @@ async function runReleaseAdapterGitContracts(createReleaseIo) {
   } finally {
     process.env.PATH = inheritedPath;
     fs.rmSync(tagFixture, { recursive: true, force: true });
+  }
+
+  // A failed tag push must leave no local tag: `tagPublished` reads a local tag as a published release, so a kept tag
+  // stops the re-cut that the error names. A tag that already exists must make createTag stop without moving the tag.
+  const tagFailureFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-release-adapter-tag-failure-'));
+  try {
+    const gitOut = (cwd, gitArgs) => {
+      const result = spawnSync('git', gitArgs, { cwd, encoding: 'utf8' });
+      assert.equal(result.status, 0, `git ${gitArgs.join(' ')}: ${result.stderr}`);
+      return result.stdout.trim();
+    };
+    const shims = path.join(tagFailureFixture, 'bin');
+    fs.mkdirSync(shims);
+    fs.writeFileSync(path.join(shims, 'gh'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    process.env.PATH = `${shims}${path.delimiter}${inheritedPath ?? ''}`;
+    const tagRepo = (name, origin) => {
+      const repo = path.join(tagFailureFixture, name);
+      fs.mkdirSync(repo);
+      runGit(repo, ['init', '-q']);
+      configureFixtureRepo(repo);
+      runGit(repo, ['config', '--local', 'user.email', 'release@example.test']);
+      runGit(repo, ['config', '--local', 'user.name', 'Release Fixture']);
+      runGit(repo, ['config', '--local', 'tag.gpgSign', 'false']);
+      fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+      runGit(repo, ['add', 'a.txt']);
+      runGit(repo, ['commit', '-qm', 'x']);
+      runGit(repo, ['remote', 'add', 'origin', origin]);
+      return repo;
+    };
+
+    const unreachable = tagRepo('unreachable', path.join(tagFailureFixture, 'no-such-origin.git'));
+    const io = createReleaseIo({ repo: unreachable, plugins: PLUGINS });
+    assert.throws(
+      () => io.createTag('docks--v1.2.3'),
+      (error) =>
+        /git push origin docks--v1\.2\.3 failed/.test(error.message) &&
+        error.message.includes('bun scripts/release.mjs --plugin docks 1.2.3'),
+      'a failed tag push must stop the release and name the re-cut command',
+    );
+    assert.equal(
+      gitOut(unreachable, ['tag', '--list', 'docks--v1.2.3']),
+      '',
+      'a failed tag push must remove the local tag',
+    );
+
+    const existingOrigin = path.join(tagFailureFixture, 'existing-origin.git');
+    runGit(tagFailureFixture, ['init', '-q', '--bare', existingOrigin]);
+    const existing = tagRepo('existing', existingOrigin);
+    runGit(existing, ['tag', '-a', 'docks--v1.2.3', '-m', 'docks plugin v1.2.3']);
+    const tagObject = gitOut(existing, ['rev-parse', 'refs/tags/docks--v1.2.3']);
+    fs.writeFileSync(path.join(existing, 'a.txt'), 'b\n');
+    runGit(existing, ['commit', '-qam', 'y']);
+    assert.throws(
+      () => createReleaseIo({ repo: existing, plugins: PLUGINS }).createTag('docks--v1.2.3'),
+      /git tag -a docks--v1\.2\.3 .* failed/,
+      'createTag must refuse a tag that already exists',
+    );
+    assert.equal(
+      gitOut(existing, ['rev-parse', 'refs/tags/docks--v1.2.3']),
+      tagObject,
+      'createTag must not move or remove a tag that already exists',
+    );
+    assert.equal(
+      spawnSync('git', ['rev-parse', '-q', '--verify', 'refs/tags/docks--v1.2.3'], { cwd: existingOrigin }).status,
+      1,
+      'createTag must not push a tag that already exists',
+    );
+  } finally {
+    process.env.PATH = inheritedPath;
+    fs.rmSync(tagFailureFixture, { recursive: true, force: true });
   }
 }
 

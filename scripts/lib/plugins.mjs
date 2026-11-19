@@ -47,6 +47,18 @@ export const REPO_WIDE_JAVASCRIPT_QUALITY = Object.freeze({
   lint: Object.freeze([]),
 });
 
+// The install text of a GitHub release. `omp plugin install` fails when the plugin is already installed, so the text
+// gives the new-install lines and the update lines.
+const releaseInstallText = (name) =>
+  [
+    '# New install',
+    'omp plugin marketplace add DocksDocks/docks',
+    `omp plugin install ${name}@docks`,
+    '# Update',
+    'omp plugin marketplace update docks',
+    `omp plugin upgrade ${name}@docks`,
+  ].join('\n');
+
 export const PLUGINS = [
   {
     name: 'docks',
@@ -70,7 +82,7 @@ export const PLUGINS = [
     transformGuard: true,
     release: {
       kind: 'generic',
-      install: 'omp plugin marketplace update docks\nomp plugin install docks@docks',
+      install: releaseInstallText('docks'),
     },
   },
   {
@@ -96,7 +108,7 @@ export const PLUGINS = [
     transformGuard: false,
     release: {
       kind: 'generic',
-      install: 'omp plugin marketplace update docks\nomp plugin install plan-lifecycle@docks',
+      install: releaseInstallText('plan-lifecycle'),
     },
   },
 ];

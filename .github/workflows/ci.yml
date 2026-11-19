@@ -3,7 +3,9 @@ name: validate
 # Triggers:
 #   - pull_request: validate before merge into main
 #   - push: tags: resolve and validate the released plugin (release.mjs creates
-#     the GitHub Release only if this authoritative tag-CI run succeeds)
+#     the GitHub Release only if this authoritative tag-CI run succeeds). The
+#     resolve step fails when the tag version is not the version in the plugin
+#     package.json and in its catalog entry at the tagged commit.
 #   - workflow_dispatch: manual run for ad-hoc validation
 
 on:

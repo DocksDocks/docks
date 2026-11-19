@@ -425,13 +425,26 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
     createRelease({ tag, title, notes }) {
       run('gh', ['release', 'create', tag, '--title', title, '--notes', notes]);
     },
-    // An annotated tag `<plugin>--v<version>` on HEAD, pushed to origin; the tag push starts the tag CI.
+    // An annotated tag `<plugin>--v<version>` on HEAD, pushed to origin; the tag push starts the tag CI. `git tag`
+    // without `-f` refuses a tag that already exists, so this never moves a tag.
     createTag(tag) {
       const plugin = pluginForTag(tag);
       const version = tag.slice(`${plugin.name}--v`.length);
       const pushedAt = githubNow() ?? new Date().toISOString();
       run('git', ['tag', '-a', tag, '-m', tagMessage(plugin.name, version)]);
-      run('git', ['push', 'origin', tag]);
+      const pushed = spawnSync('git', ['push', 'origin', tag], { stdio: 'inherit', cwd: repo });
+      if ((pushed.status ?? 1) !== 0) {
+        // A local tag that origin does not have makes `tagPublished` report the version as released, and the re-cut
+        // then stops with `already released`. So remove the local tag before the release stops.
+        const recovery = `bun scripts/release.mjs --plugin ${plugin.name} ${version}`;
+        const removed = capture('git', ['tag', '-d', tag]);
+        if ((removed.status ?? 1) !== 0) {
+          throw new Error(
+            `git push origin ${tag} failed, and git tag -d ${tag} failed: ${removed.stderr?.trim() || `exit ${removed.status}`}. Remove the local tag with git tag -d ${tag}, then run ${recovery}`,
+          );
+        }
+        throw new Error(`git push origin ${tag} failed; the local tag ${tag} is removed. To recover, run ${recovery}`);
+      }
       return pushedAt;
     },
     ensureCleanTree() {

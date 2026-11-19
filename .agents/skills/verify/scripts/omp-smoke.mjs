@@ -41,17 +41,28 @@ const children = new Set();
 let scratch = null;
 let server = null;
 
+// Stops children and the fake model, and removes the scratch folder.
+// Returns the path of a scratch folder that it could not remove, else null.
 function cleanup() {
   for (const child of children) child.kill("SIGKILL");
   children.clear();
   server?.closeAllConnections?.();
   server?.close();
   server = null;
-  if (scratch) {
-    const result = spawnSync("docks-kit", ["scratch", "remove", scratch], { encoding: "utf8" });
-    if (result.status !== 0) console.error(`could not remove scratch folder ${scratch}: ${result.stderr || result.error}`);
-    scratch = null;
-  }
+  if (!scratch) return null;
+  const path = scratch;
+  scratch = null;
+  const result = spawnSync("docks-kit", ["scratch", "remove", path], { encoding: "utf8" });
+  if (result.status === 0 && !existsSync(path)) return null;
+  const detail = (result.stderr || result.error || "").toString().trim();
+  if (detail) console.error(detail);
+  return path;
+}
+
+function reportCleanup() {
+  const kept = cleanup();
+  if (kept) console.log(`FAIL could not remove scratch folder ${kept}`);
+  return kept === null;
 }
 
 for (const [signal, code] of [
@@ -59,7 +70,7 @@ for (const [signal, code] of [
   ["SIGTERM", 143],
 ]) {
   process.on(signal, () => {
-    cleanup();
+    reportCleanup();
     process.exit(code);
   });
 }
@@ -73,13 +84,13 @@ function createScratch() {
   return path;
 }
 
-// Environment for omp: no parent omp session variables, no model credentials, isolated config root.
+// Environment for omp: only the allowed parent variables, so no omp session variable and no credential
+// reaches omp, plus the isolated config root.
+const ENV_ALLOWLIST = ["PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR"];
 function isolatedEnv(configDir) {
-  const env = { ...process.env };
-  for (const key of Object.keys(env)) {
-    if (/^(PI_|OMP_)/.test(key) || /(API_KEY|TOKEN|SECRET)/.test(key) || /^XDG_(DATA|STATE|CACHE|CONFIG)_HOME$/.test(key)) {
-      delete env[key];
-    }
+  const env = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && (ENV_ALLOWLIST.includes(key) || key.startsWith("LC_"))) env[key] = value;
   }
   env.PI_CONFIG_DIR = configDir;
   return env;
@@ -347,7 +358,9 @@ async function smoke() {
   if (missingAgents.length) failures.push(`agents missing from the task tool: ${missingAgents.join(",")}`);
 
   const markers = [...installPaths, repo, join(stateDir, "plugins", "cache", "marketplaces"), ...PLUGINS.map((plugin) => `${plugin}@${MARKETPLACE}`)];
-  lines.push(`warnings: ${countWarnings({ skillWarnings: skillList?.warnings ?? [], results, stateDir, markers })}`);
+  const warnings = countWarnings({ skillWarnings: skillList?.warnings ?? [], results, stateDir, markers });
+  lines.push(`warnings: ${warnings}`);
+  if (warnings > 0) failures.push(`omp reported ${warnings} warning(s) about the plugins`);
 
   for (const [file, before] of realBefore) {
     const after = existsSync(file) ? statSync(file).mtimeMs : null;
@@ -365,6 +378,6 @@ try {
 } catch (error) {
   console.log(`FAIL ${error.message}`);
 } finally {
-  cleanup();
+  if (!reportCleanup()) exitCode = 1;
 }
 process.exit(exitCode);

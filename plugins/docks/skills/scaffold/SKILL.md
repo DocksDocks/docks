@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: generative-skill
   updated: "2026-11-19"
-  content_hash: "64315197833abfb0ba404b61700e092e1edc5eddda7b8c20041d8a82446f3379"
+  content_hash: "df400b3e8c161e844826c8646902c1ed1397781e37b205005746e7337f0d1509"
 ---
 
 # Scaffold — capture a repo's shape, seed new projects from it

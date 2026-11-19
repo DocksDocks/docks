@@ -154,7 +154,9 @@ Same rubric as every kit skill: `node
 plugins/docks/skills/write-skill/scripts/skill-guard.mjs score
 --per-file plugins/plan-lifecycle/skills`. Per-file floors live in
 `scripts/config/scoring.json` (verify: `bun scripts/config/read-floor.mjs skills`;
-agents: `bun scripts/config/read-floor.mjs agents`). Skills surface as
-`plan-lifecycle:<name>` from `name` in `plugins/plan-lifecycle/package.json`.
+agents: `bun scripts/config/read-floor.mjs agents`). omp keeps the bare
+frontmatter `name` of each skill, with no plugin prefix: address a skill as
+`skill://<name>` (a file inside it as `skill://<name>/<path>`) and invoke it
+as `/skill:<name>`.
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.

@@ -6110,9 +6110,8 @@ const PREPARE_SCRIPT = path.join(import.meta.dirname, '../../../.agents/skills/r
 const VARIANT_DELTA = 'skills/plan-reviewer/references/delta.md';
 // The variants of variantOptions and their refs.
 const VARIANT_REFS = { 16: 'v16', a: 'cand-a' };
-// The plugin root variable of Claude Code that a plugin agent before the native omp packages names. The name is put
-// together here, so that a search of the repository for it finds only the hook files that still use it.
-const LEGACY_PLUGIN_ROOT = `\${${['CLAUDE', 'PLUGIN', 'ROOT'].join('_')}}`;
+// The plugin root variable of Claude Code that a plugin agent before the native omp packages names.
+const LEGACY_PLUGIN_ROOT = `\${CLAUDE_PLUGIN_ROOT}`;
 
 // The plan-reviewer agent at one ref of the variant repository. As the plugin agent does, it loads its skill with
 // `autoload-skills` and names the skill file as a `skill://` URI.
@@ -6587,6 +6586,8 @@ test('a case with show_benchmark gets the benchmark skill folder without its cas
 //   `agents --variants` takes an --out folder whose parent has a space in its path.
 
 const CONTRACT = 'plugins/plan-lifecycle/skills/plan-manager/references/plan-contract.md';
+// The two forms of the contract path that the messages of the contract overlay name: flat, and in a category folder.
+const CONTRACT_FORM = 'plugins/plan-lifecycle/skills/[<folder>/]plan-manager/references/plan-contract.md';
 // The prompt rule that sends the reviewer to the snapshot root for the plan contract, and the rule of a run with a
 // contract overlay, which sends the reviewer to the copy `copy`.
 const SNAPSHOT_CONTRACT_RULE =
@@ -6594,7 +6595,8 @@ const SNAPSHOT_CONTRACT_RULE =
 const copyContractRule = (copy) =>
   `- Your own instruction files are your agent file and the files of your own skill folder. Read the plan contract at ${copy}. Read every other repository file, including other skills, under the snapshot root.`;
 // The refusal of a contract overlay on the snapshot `snapshot`, which has no plan contract.
-const noContract = (snapshot) => `${snapshot} has no ${CONTRACT}, so the contract overlay has no contract to change`;
+const noContract = (snapshot) =>
+  `${snapshot} has no ${CONTRACT_FORM}, so the contract overlay has no contract to change`;
 
 // Each file and folder under `dir`, without the .git folders: one key per path relative to `dir`, with the text of a
 // file, or '' for a folder, whose key ends with `/`. A refusal leaves this state as it was.
@@ -6708,7 +6710,7 @@ test('agents refuses colliding plugin copies, bad variant options, and unusable 
   tagCommit('no-skill', { [agentFile]: noSkill });
   tagCommit('other-root', { [agentFile]: otherRoot });
   const ownSkill = (ref) =>
-    `variant a: plugins/plan-lifecycle/agents/plan-reviewer.md at ${ref} must name its reviewer skill as skill://plan-reviewer/SKILL.md and name no other plugin root`;
+    `variant a: plugins/plan-lifecycle/agents/plan-reviewer.md at ${ref} must name its reviewer skill as skill://plan-reviewer/SKILL.md, or at a ref before the native omp packages as ${LEGACY_PLUGIN_ROOT}/skills/[<folder>/]plan-reviewer/SKILL.md, and name no other plugin root`;
   const refusals = [
     // A variant copy in the folder of the baseline copy would replace the baseline plugin of the baseline agents.
     [
@@ -6729,7 +6731,7 @@ test('agents refuses colliding plugin copies, bad variant options, and unusable 
     [{ 'contract-overlay': '16,b' }, '--contract-overlay names b, which is not a variant'],
     [
       { variants: '16=v16,a=same-contract', 'contract-overlay': 'a' },
-      `variant a: same-contract does not change ${CONTRACT} against its first parent; leave it out of --contract-overlay`,
+      `variant a: same-contract does not change ${CONTRACT_FORM} against its first parent; leave it out of --contract-overlay`,
     ],
     [{ variants: '16=v16,a=no-skill' }, ownSkill('no-skill')],
     [{ variants: '16=v16,a=other-root' }, ownSkill('other-root')],
@@ -6779,7 +6781,7 @@ test('agents --variants takes an --out folder whose parent has a space and keeps
   gitIn(repo, 'add', '-A');
   gitIn(repo, 'commit', '-q', '-m', 'other root');
   gitIn(repo, 'tag', 'other-space');
-  const message = `variant a: ${agentFile} at other-space must name its reviewer skill as skill://plan-reviewer/SKILL.md and name no other plugin root`;
+  const message = `variant a: ${agentFile} at other-space must name its reviewer skill as skill://plan-reviewer/SKILL.md, or at a ref before the native omp packages as ${LEGACY_PLUGIN_ROOT}/skills/[<folder>/]plan-reviewer/SKILL.md, and name no other plugin root`;
   assert.throws(() => prepare.prepareAgents({ ...options, variants: '16=v16,a=other-space' }, repo), { message });
 });
 
@@ -6927,7 +6929,7 @@ test('agents --candidate-contract-overlay gives the runs of candidate code arms 
   // Without a working-tree change, the option has nothing to record, so agents stops before it writes.
   put(repo, CONTRACT, '# Plan contract 0.16.0\n');
   assert.throws(() => prepare.prepareAgents(agentOptions, repo), {
-    message: `agents --candidate-contract-overlay: the working tree does not change ${CONTRACT} against v16`,
+    message: `agents --candidate-contract-overlay: the working tree does not change ${CONTRACT_FORM} against v16`,
   });
 });
 
@@ -7000,6 +7002,211 @@ test('case records not applicable only without the removed text and else stops w
   const state = treeState(ws);
   assert.throws(() => prepare.prepareCase(options('plan-7', 'Vb', { extend: true }), repo), stops);
   assert.deepEqual(treeState(ws), state);
+});
+
+// The plan contract in the layout before the native omp packages: in the category folder `productivity/`.
+const LEGACY_CONTRACT = 'plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md';
+// A plan contract of the rules 1 to 8, one paragraph per rule, with the rule texts of `changed` (by rule number) and
+// the rules `added` after rule 8. Rules 2 and 7 are far enough apart that the diff of each has its own context lines.
+const rulesContract = (changed = {}, added = []) => {
+  const rules = Array.from({ length: 8 }, (_, index) => changed[index + 1] ?? `Rule ${index + 1}.`);
+  return `# Plan contract\n\n${[...rules, ...added].join('\n\n')}\n`;
+};
+// The rule changes of old-cand and of moved (see historicalRepo).
+const OLD_CAND_RULES = { 2: 'Rule 2 of old-cand.' };
+const MOVED_RULES = { ...OLD_CAND_RULES, 7: 'Rule 7 moved.' };
+// The lines that the diff text `diff` removes and adds, without the file headers.
+const diffChanges = (diff) =>
+  diff
+    .slice(diff.indexOf('\n@@'))
+    .split('\n')
+    .filter((line) => /^[-+]/.test(line));
+
+// A git repository that moves plan-lifecycle from the layout before the native omp packages to the flat layout. Its
+// commits, in order: `bare` (README.md only); `old`, the categorized layout with an agent that names its skill with the
+// plugin root variable of Claude Code; `old-cand`, which changes rule 2 in the categorized contract; `moved`, which
+// moves the skills to the flat layout, changes rule 7, and names the skill as a `skill://` URI; `both`, which also
+// holds the categorized contract; `live`, which removes it again; `dropped`, which removes the contract; and
+// `restored`, which adds it back. The working tree adds rule 9.
+function historicalRepo(t) {
+  isolateGit(t);
+  const root = neutralScratch(t);
+  const repo = path.join(root, 'repo');
+  const project = path.join(root, 'project');
+  fs.mkdirSync(repo);
+  fs.mkdirSync(project);
+  gitIn(repo, 'init', '-q', '-b', 'main');
+  const plugin = 'plugins/plan-lifecycle';
+  const commit = (tag, files, removed = []) => {
+    for (const file of removed) fs.rmSync(path.join(repo, file), { recursive: true });
+    for (const [file, content] of Object.entries(files)) put(repo, file, content);
+    gitIn(repo, 'add', '-A');
+    gitIn(repo, 'commit', '-q', '-m', tag);
+    gitIn(repo, 'tag', tag);
+    return gitIn(repo, 'rev-parse', 'HEAD').trim();
+  };
+  const codeAgent = `---\nname: code-reviewer\ndescription: Reviews.\n---\n\n# Code Reviewer\n`;
+  const legacyAgent = legacyVariantAgentText('old').replace(
+    '/skills/plan-reviewer/',
+    '/skills/productivity/plan-reviewer/',
+  );
+  const shas = {
+    bare: commit('bare', { 'README.md': '# Demo\n' }),
+    old: commit('old', {
+      [`${plugin}/agents/code-reviewer.md`]: codeAgent,
+      [`${plugin}/agents/plan-reviewer.md`]: legacyAgent,
+      [`${plugin}/skills/productivity/plan-reviewer/SKILL.md`]: '# Plan reviewer old\n',
+      [LEGACY_CONTRACT]: rulesContract(),
+    }),
+    'old-cand': commit('old-cand', { [LEGACY_CONTRACT]: rulesContract(OLD_CAND_RULES) }),
+    moved: commit(
+      'moved',
+      {
+        [`${plugin}/agents/plan-reviewer.md`]: variantAgentText('moved'),
+        [`${plugin}/skills/plan-reviewer/SKILL.md`]: '# Plan reviewer moved\n',
+        [CONTRACT]: rulesContract(MOVED_RULES),
+      },
+      [`${plugin}/skills/productivity`],
+    ),
+  };
+  shas.both = commit('both', { [LEGACY_CONTRACT]: rulesContract() });
+  shas.live = commit('live', {}, [LEGACY_CONTRACT]);
+  shas.dropped = commit('dropped', {}, [CONTRACT]);
+  shas.restored = commit('restored', { [CONTRACT]: rulesContract(MOVED_RULES) });
+  put(repo, CONTRACT, rulesContract(MOVED_RULES, ['Rule 9.']));
+  return { root, repo, project, agentDir: path.join(project, '.omp', 'agents'), shas };
+}
+
+// The options of `agents` for the historical repository, at the effort low with the default tier.
+const historicalOptions = ({ root, project }, more = {}) => ({
+  'baseline-ref': 'old',
+  model: MODEL,
+  efforts: 'low',
+  tiers: 'default',
+  'baseline-dir': path.join(root, 'baseline-plugin'),
+  project,
+  ...more,
+});
+
+// A ref before the native omp packages holds the plan contract in a category folder. The contract overlay finds the
+// contract in each tree, records only the change of the text across the move, and applies it to a snapshot in either
+// layout.
+test('the contract overlay finds the plan contract in the categorized and the flat layout', (t) => {
+  const fixture = historicalRepo(t);
+  const { root, repo, project, agentDir, shas } = fixture;
+  prepare.prepareAgents(
+    historicalOptions(fixture, { variants: 'o=old-cand,m=moved', 'contract-overlay': 'o,m' }),
+    repo,
+  );
+  const variants = readJson(path.join(agentDir, 'review-bench-configs.json')).variants;
+  // old-cand changes the categorized contract in place. moved moves the contract and changes rule 7, and its recorded
+  // change holds only that rule, not the whole flat file.
+  assert.deepEqual(diffChanges(variants[0].contractDiff), ['-Rule 2.', '+Rule 2 of old-cand.']);
+  assert.deepEqual(diffChanges(variants[1].contractDiff), ['-Rule 7.', '+Rule 7 moved.']);
+  // Both agent forms name the skill of the variant copy: the plugin root variable at old-cand, a skill:// URI at moved.
+  for (const name of ['o', 'm']) {
+    const text = readText(path.join(agentDir, `review-bench-variant-${name}-plan-low.md`));
+    assert.deepEqual(score.reviewerPluginRoots(text), [variantRoot(root, name)]);
+  }
+
+  const ws = path.join(root, 'ws');
+  const cases = path.join(root, 'cases');
+  const planCase = (id, ref) => ({
+    id,
+    kind: 'plan',
+    split: 'dev',
+    issue: 3,
+    round: 1,
+    plan: `${id}-plan.md`,
+    repo_ref: ref,
+    known: [],
+  });
+  const codeCase = { id: 'code-9', kind: 'code', split: 'dev', issue: 9, round: 1, plan: 'code-9-plan.md' };
+  for (const caseData of [
+    planCase('plan-8', shas.old),
+    planCase('plan-9', shas.live),
+    planCase('plan-10', shas.both),
+    { ...codeCase, base: shas.bare, head: shas.old, known: [] },
+  ]) {
+    put(cases, `dev/${caseData.id}.json`, caseData);
+    put(cases, `dev/${caseData.plan}`, `# Plan ${caseData.issue}\n\nStep 1.\n`);
+  }
+  const options = (id, arms) => ({
+    case: path.join(cases, 'dev', `${id}.json`),
+    arms,
+    runs: '1',
+    out: ws,
+    configs: 'low',
+    project,
+  });
+  const run = (id, arm) => path.join(ws, id, `${arm}-low`, 'run-1');
+  const copyOf = (id, arm) => readText(path.join(run(id, arm), 'plan-contract.md'));
+  const overlay = (id, arm) => readJson(path.join(run(id, arm), 'meta.json')).contractOverlay;
+
+  // The snapshot of old holds the categorized contract, and the change of each variant applies to it. The snapshot of
+  // live holds the flat contract, which no longer holds rule 2 of old.
+  prepare.prepareCase(options('plan-8', 'P1,Vo,Vm'), repo);
+  assert.equal(copyOf('plan-8', 'Vo'), rulesContract(OLD_CAND_RULES));
+  assert.equal(copyOf('plan-8', 'Vm'), rulesContract({ 7: 'Rule 7 moved.' }));
+  assert.deepEqual([overlay('plan-8', 'Vo'), overlay('plan-8', 'Vm')], ['applied', 'applied']);
+  prepare.prepareCase(options('plan-9', 'Vo'), repo);
+  assert.equal(overlay('plan-9', 'Vo'), 'not applicable');
+  assert.equal(copyOf('plan-9', 'Vo'), rulesContract(MOVED_RULES));
+
+  // A snapshot that holds the contract in both folders has no one contract to change, so case stops and writes no
+  // folder.
+  const snapshot = path.join(ws, 'plan-10', 'snapshot');
+  assert.throws(() => prepare.prepareCase(options('plan-10', 'Vm'), repo), {
+    message: `${snapshot} holds more than one plan contract: ${CONTRACT}, ${LEGACY_CONTRACT}`,
+  });
+  assert.equal(fs.existsSync(path.join(ws, 'plan-10')), false);
+
+  // The working tree holds the flat contract and old the categorized one. The candidate change holds only the
+  // changed rules, and it applies to the categorized contract of the snapshot of old.
+  prepare.prepareAgents(historicalOptions(fixture, { 'candidate-contract-overlay': true }), repo);
+  const candidateDiff = readJson(path.join(agentDir, 'review-bench-configs.json')).candidateContractDiff;
+  assert.deepEqual(diffChanges(candidateDiff), [
+    '-Rule 2.',
+    '+Rule 2 of old-cand.',
+    '-Rule 7.',
+    '+Rule 7 moved.',
+    '+',
+    '+Rule 9.',
+  ]);
+  prepare.prepareCase(options('code-9', 'C3'), repo);
+  assert.equal(readText(path.join(run('code-9', 'C3'), 'plan-contract.md')), readText(path.join(repo, CONTRACT)));
+  assert.equal(overlay('code-9', 'C3'), 'applied');
+});
+
+test('the contract overlay stops when a tree it compares has no plan contract', (t) => {
+  const fixture = historicalRepo(t);
+  const { root, repo } = fixture;
+  const state = treeState(root);
+  const refusals = [
+    [
+      { variants: 'o=old', 'contract-overlay': 'o' },
+      `variant o: the first parent of old has no ${CONTRACT_FORM}; leave it out of --contract-overlay`,
+    ],
+    [
+      { variants: 'd=dropped', 'contract-overlay': 'd' },
+      `variant d: dropped has no ${CONTRACT_FORM}; leave it out of --contract-overlay`,
+    ],
+    [
+      { 'baseline-ref': 'bare', 'candidate-contract-overlay': true },
+      `agents --candidate-contract-overlay: bare has no ${CONTRACT_FORM}`,
+    ],
+  ];
+  for (const [more, message] of refusals) {
+    assert.throws(() => prepare.prepareAgents(historicalOptions(fixture, more), repo), { message });
+    assert.deepEqual(treeState(root), state);
+  }
+  // A working tree without the contract gives the candidate overlay nothing to compare.
+  fs.rmSync(path.join(repo, CONTRACT));
+  const withoutContract = treeState(root);
+  assert.throws(() => prepare.prepareAgents(historicalOptions(fixture, { 'candidate-contract-overlay': true }), repo), {
+    message: `agents --candidate-contract-overlay: the working tree has no ${CONTRACT_FORM}`,
+  });
+  assert.deepEqual(treeState(root), withoutContract);
 });
 
 test('readScope allows the contract copy of its own run, also when the case changes the plan contract', () => {

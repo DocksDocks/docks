@@ -19,7 +19,7 @@ with `npm audit signatures`. Re-derive the workflow set before relying on it
 
 Only three events trigger CI; `scripts/tests/ci-plugin-targeting.mjs` asserts the `on:` block of `workflows/ci.yml` (verify: `grep -n -A7 '^on:' .github/workflows/ci.yml`):
 - `pull_request` to main → resolve the diff into a shard set, run those shards plus the targeting contract, then require their unchanged `validate` join status before merge
-- `push` of tags matching `*--v*` — strictly resolve `<plugin>--v<version>` to a known plugin, then run the repo-wide shard over the released bytes followed by that plugin's gate (`release.mjs` waits for this authoritative result)
+- `push` of tags matching `*--v*` — strictly resolve `<plugin>--v<version>` to a known plugin, then run the repo-wide shard over the released bytes followed by that plugin's gate (`release.mjs` waits for this authoritative result). The resolve step fails when the tag version differs from the `plugins/<plugin>/package.json` version or from the catalog entry version at the tagged commit.
 - `workflow_dispatch` → run the full gate manually
 
 <constraint>

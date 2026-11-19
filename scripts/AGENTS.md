@@ -143,7 +143,7 @@ For example, an 8 GB, 6-core swapless host with tmpfs `/tmp` prints
 
 1. Edit files inside the target plugin (`plugins/<name>/{skills,agents,…}/`).
 2. Run focused checks while iterating. Once the relevant implementation tree is final, run the smallest authoritative gate the root `AGENTS.md` (Tool-agnostic rules) names.
-3. Local omp test (no push): `omp plugin marketplace add ./` from the checkout, then `omp plugin install <name>@docks` (after edits: `omp plugin marketplace update docks`, `omp plugin upgrade <name>@docks`, then `/reload-plugins`).
+3. Local omp test (no push): from the checkout root, run `omp --plugin-dir ./plugins/<name>`. omp loads the plugin from that directory for the session; after edits, start a new session with the same flag.
 4. PR to main → PR-CI gates the merge.
 5. After merge, release **one plugin** with the generic positional command: `bun scripts/release.mjs [--plugin <name>] patch|minor|major|<X.Y.Z>` (`--dry-run` previews).
 
@@ -173,6 +173,6 @@ Before `bun scripts/release.mjs`, run the smallest authoritative gate for the fi
 
 ## Versioning
 
-Versions are **per-plugin and independent** — each plugin bumps separately, and the `.omp-plugin/marketplace.json` catalog holds one entry per plugin (matched by `name`). Within a single plugin, its `package.json` and its catalog entry carry a `version` that must agree — `release.mjs` keeps that pair in lockstep, and `ci.mjs`'s per-plugin gate fails on disagreement (verify: bump one of the two versions alone → `bun scripts/ci.mjs --plugin <name>` must fail on the disagreement; revert). omp compares the catalog version on `omp plugin upgrade`. Without an explicit plugin `version`, every commit counts as a new "update" to consumers (noisy prompts), so always tag explicit semver bumps. Tag format: `<name>--v<X.Y.Z>`, an annotated git tag that `release.mjs` creates and pushes; the tag CI and `ci-target.mjs` resolve that form.
+Versions are **per-plugin and independent** — each plugin bumps separately, and the `.omp-plugin/marketplace.json` catalog holds one entry per plugin (matched by `name`). Within a single plugin, its `package.json` and its catalog entry carry a `version` that must agree — `release.mjs` keeps that pair in lockstep, and `ci.mjs`'s per-plugin gate fails on disagreement (verify: bump one of the two versions alone → `bun scripts/ci.mjs --plugin <name>` must fail on the disagreement; revert). omp compares only catalog entries that declare a `version` when it checks for updates and when it upgrades all plugins; a catalog entry without a `version` gets no update, so every entry declares one and every release bumps it. Tag format: `<name>--v<X.Y.Z>`, an annotated git tag that `release.mjs` creates and pushes; the tag CI and `ci-target.mjs` resolve that form. Tag CI fails when the tag version differs from the `plugins/<name>/package.json` version or from the catalog entry version at the tagged commit. A manual tag reads its version from `package.json`: `v=$(node -p "require('./plugins/<name>/package.json').version")`, then `git tag -a "<name>--v$v" -m "<name> plugin v$v"`.
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.
