@@ -16,15 +16,17 @@ describe("toolchain report", () => {
   it(
     "reports a present tool with an unreadable version as unknown instead of ok",
     () => {
+      // omp is not installed on the CI runners, so the stub is the only omp on
+      // PATH; a Windows runner's own git would shadow a git stub.
       const stubs = makeStubDir({
-        git: `if (args[0] === "--version") process.exitCode = 9`,
+        omp: `if (args[0] === "--version") process.exitCode = 9`,
       });
       const run = runPublicCli(["toolchain", "check"], "home-fresh", stubs);
 
       try {
         expect(run.exitCode).toBe(0);
-        const git = run.stdout.split("\n").find((line) => line.startsWith("git "));
-        expect(git).toMatch(/^git\s+check\s+\?\s+-\s+-\s+unknown$/);
+        const omp = run.stdout.split("\n").find((line) => line.startsWith("omp "));
+        expect(omp).toMatch(/^omp\s+check\s+\?\s+19\.0\.0\s+19\.0\.0\s+unknown$/);
       } finally {
         rmSync(run.home, { recursive: true, force: true });
       }
