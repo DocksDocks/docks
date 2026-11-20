@@ -1,11 +1,13 @@
 /**
- * Bun backstop for the conditions of the kit's omp trigger rules (plan issue
- * #187). omp 19.0.0 tests every condition on the whole tool-call buffer at
- * each streamed delta, on its main thread, in JavaScriptCore. The unit suite
- * runs on V8, where a condition that froze omp for seconds took 56 ms against
- * 3 ms and still fired, so only a JavaScriptCore run shows that cost, and the
- * fail-open where JavaScriptCore stops a search at its match limit and reports
- * no match. `ompTriggerRules.test.ts` runs this script under Bun.
+ * Bun backstop for the conditions of the kit's omp trigger rules (plan
+ * DocksDocks/public#187). omp 19.0.0 tests every condition on the whole
+ * tool-call buffer at each streamed delta, on its main thread, in
+ * JavaScriptCore. The unit suite runs on V8, where a condition that froze omp
+ * for seconds took 56 ms against 3 ms and still fired, so only a
+ * JavaScriptCore run shows that cost, and the fail-open where JavaScriptCore
+ * stops a search at its match limit and reports no match.
+ * `ompTriggerBackstop.test.ts` runs this script under Bun, in its own Vitest
+ * project after every other unit file, because the script uses every core.
  *
  * Checks, each on the conditions of every `*.md` rule file:
  *

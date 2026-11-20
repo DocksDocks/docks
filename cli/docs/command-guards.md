@@ -295,8 +295,8 @@ Write each new condition by these rules:
 - Make each scan one frozen walk that stops at its first event and at the
   next command start.
 - Never put a group loop inside a lookaround over text of unbounded length.
-- Run `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`. It runs the
-  shape guard and the Bun backstop.
+- Run `bunx vitest run cli/test/unit/ompTriggerRules.test.ts cli/test/unit/ompTriggerBackstop.test.ts`.
+  The first file runs the shape guard, and the second runs the Bun backstop.
 - When you rewrite a condition, run the old and the new condition on each
   buffer of the test table, and make sure that both give the same result.
 
@@ -314,8 +314,11 @@ must start with the forward key prefix, and this rejects the leading
 lookbehind that froze omp. No `|` can stand outside every group, because the
 alternative after it needs no key prefix. The shape guard cannot prove
 linear time. The backstop tests the measured input families for linear
-time: the test runs `cli/test/lib/ompTriggerBackstop.ts` under Bun, because
-the unit tests run on V8, which does not show the JavaScriptCore cost. A
+time: `cli/test/unit/ompTriggerBackstop.test.ts` runs
+`cli/test/lib/ompTriggerBackstop.ts` under Bun, because the unit tests run on
+V8, which does not show the JavaScriptCore cost. That file is a Vitest project
+of its own, which starts after every other unit file has ended, because the
+backstop uses every core (DocksDocks/docks-kit#187). A
 condition can still backtrack on a run that no generator holds, so a new
 condition needs a new family when its shape is new. The backstop has these
 checks:

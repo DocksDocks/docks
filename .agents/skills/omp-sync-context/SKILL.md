@@ -177,10 +177,10 @@ The test fails when a condition has no wrong row that fires it, or when a
 rule has another repeat mode.
 The `bash.patterns` denies in `config.yml` still enforce.
 
-Verify the conditions: `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`.
-Its shape guard checks only the key prefix and that no `|` stands outside
-every group.
-Its Bun backstop (`cli/test/lib/ompTriggerBackstop.ts`) tests the measured
+Verify the conditions: `bunx vitest run cli/test/unit/ompTriggerRules.test.ts cli/test/unit/ompTriggerBackstop.test.ts`.
+The first file holds the shape guard, which checks only the key prefix and
+that no `|` stands outside every group.
+The second file runs the Bun backstop (`cli/test/lib/ompTriggerBackstop.ts`), which tests the measured
 input families for linear time in JavaScriptCore: a time budget, a fire
 check, scaling with the JIT off, and dense and head-and-run lines with the
 JIT on, in bash, open bash, and Python.
