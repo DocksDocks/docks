@@ -27,7 +27,7 @@ Place near the top so the agent reads it before any step (agentskills.io progres
 
 ```markdown
 <constraint>
-**No content loss across the transform.** Before any Write/Edit/git-mv:
+**No content loss across the transform.** Before any `write`, `edit`, or `git mv`:
 1. Inventory every source section (`^#{1,3}` headings) + byte count.
 2. Show a `Section | Destination | Reason` table; unclassified → KEEP in source.
 3. Relocate verbatim (reformat OK, reword NOT). Two-phase: write destinations,
@@ -48,8 +48,9 @@ or a timeout result is not approval: write nothing and end the turn. If `ask`
 is not available or returns an error (for example, in a headless subagent or a
 print-mode run), print the question as your FINAL message and end the turn; do
 not invent a tool call.
-Do NOT call Write/Edit/git-mv/Bash-write until the user answers. Silence is not
-consent; ambiguous answers → re-show the table and ask again.
+Do NOT call `write`, `edit`, `git mv`, or a writing `bash` command until the
+user answers. Silence is not consent; ambiguous answers → re-show the table and
+ask again.
 </constraint>
 ```
 

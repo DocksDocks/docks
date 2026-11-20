@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "da2f952b426074b9d46029b05fef63a982fd977d5cbb611e99f4e7fbfbd838a5"
+  content_hash: "6f0701475f2d2df7501bbebcb3025a8dbc72f00a31ede90c0633ad4ec07ad389"
 ---
 
 # Skills & Agents Pipeline
@@ -136,7 +136,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from `/tmp/skill.before`, loc
 |---|---|---|
 | Reading an explicit agent `tools` list as a hard sandbox | omp adds MCP, extension, and custom tools to every explicit list, so the agent can still call them | Give the agent the smallest omp tool list, and state the extra tools in the report; do not promise a read-only agent from `tools` alone |
 | An agent body that relies on `AGENTS.md` or the chat history | A task subagent gets no `AGENTS.md` context file and no conversation history, so it works without the project rules | Name every source in the body: `autoload-skills`, a `skill://<name>/references/<file>.md` read, or an explicit file read |
-| A delegating agent with an explicit `tools` list and no `spawns` | The agent has no `task` tool, so it cannot delegate | List the child agents in `spawns`; omp then adds `task` while the depth allows it. Nested delegation stops at `task.maxRecursionDepth` (default 2) |
+| A delegating agent with an explicit `tools` list and no `spawns` | Without `task` in `tools`, the agent cannot delegate. With `task` in `tools`, omp sets `spawns: *`, so the agent may spawn any agent | List the child agents in `spawns` to limit the scope; omp then adds `task` while the depth allows it. Nested delegation stops at `task.maxRecursionDepth` (default 2) |
 | An agent named like a bundled agent (`task`, `scout`, `sonic`, `reviewer`, `security-reviewer`) | The project agent replaces the bundled one for every spawn in the project | Pick another name unless the override is the goal, and state the override in the report |
 | Counting `.claude/agents/*.md` files as live agents | omp skips `.claude/agents/`, so those agents never run | Report them as legacy in Phases 0 and 1 and route them to `agent-first-setup` (`convert-agent`) |
 | A pre-existing skill's description exceeds 1024 chars | It breaks the agentskills.io specification cap, and a loader that validates against the specification rejects the skill | Phase 2a flags it `rewrite-description`; Phase 6 hard-fails until fixed |
@@ -144,7 +144,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from `/tmp/skill.before`, loc
 | Bumping `metadata.updated` on a no-op regeneration | Timestamp churn; defeats staleness triage | Bump only on real content change; sync hashes only when the current project documents that contract |
 | Declaring a skill accurate from a git-delta or a 5-ref spot-check | Pre-baseline drift and fictional APIs ship unseen | Phase 2c opens EVERY ref/snippet/identifier vs current source and states the count verified; `metadata.updated` is not accuracy evidence |
 | SKILL.md body crossing 310 lines | The agentskills.io specification advises a body under 5000 tokens and 500 lines; 310 lines is the kit line budget inside that advice; the verifier hard-fails 310–500 lines with no `references/` | Split detail into `references/<topic>.md` (30–150 lines) |
-| Unquoted `description:` contains `: ` or `#` | A YAML loader cannot read the description, or reads a cut-off one | Quote every generated description; check the `warnings` of `omp skill list --json` |
+| Unquoted `description:` contains `: ` or `#` | A YAML loader cannot read the description, or reads a cut-off one | Quote every generated description and parse the frontmatter with a YAML parser; `omp skill list --json` lists a project skill with invalid YAML or a description over 1024 chars without a warning |
 | Agent skill-references pointing at pre-split paths | Agents land with broken references | Phase 4–5 must reference Phase 3's proposed paths, not old ones |
 | Editing AGENTS.md / CLAUDE.md from this pipeline | Scope bleed; clobbers project config | Nested nodes and the routing table → `context-tree`; legacy `CLAUDE.md` content → `claude-md-migration`; root `AGENTS.md` and `.claude/` cleanup → `agent-first-setup` |
 

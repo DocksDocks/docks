@@ -1,11 +1,11 @@
 ---
 name: skill-maintenance
-description: "Use when project-local SKILL.md files need validation or refresh after source changes, omp warns about or does not list a skill (invalid YAML, description over 1024 chars), a .claude/skills copy shadows .agents/skills, stale source_files/metadata.updated/content_hash need no-op maintenance, review rules need pruning, or a skill rewrite needs a blind old-vs-new comparison. Not for authoring new Docks plugin skills (use write-skill), whole-set bootstrap/audit with agent emission (use skill-agent-pipeline), or prose docs."
+description: "Use when project-local SKILL.md files need validation or refresh after source changes, a skill has invalid YAML or a description over 1024 chars, omp does not list a skill or warns about it, a .claude/skills copy shadows .agents/skills, stale source_files/metadata.updated/content_hash need no-op maintenance, review rules need pruning, or a skill rewrite needs a blind old-vs-new comparison. Not for authoring new Docks plugin skills (use write-skill), whole-set bootstrap/audit with agent emission (use skill-agent-pipeline), or prose docs."
 user-invocable: false
 metadata:
   pattern: reviewer
   updated: "2026-11-20"
-  content_hash: "201a53c45f5c25bcea2c2934acd62ce2413346edfd293839a9049accec24649e"
+  content_hash: "e1f8ee4803d208db6a9b25ec109987508ddab62ef412b5e559642c54372aa0f8"
 ---
 
 # Skill Maintenance
@@ -206,10 +206,16 @@ Use the narrowest available command:
 # if the project ships a skill validator/loader-check, run it
 
 # if the docks plugin is installed, write-skill bundles a portable validator —
-# frontmatter guard + 16-pt score, no kit tooling needed (--strict for kit conventions):
+# frontmatter guard (fences, name, 1024-char description cap, unquoted '#')
+# + 16-pt score, no kit tooling needed (--strict for kit conventions):
 node skill://write-skill/scripts/skill-guard.mjs validate .agents/skills
 
-# omp loader check: read the "warnings" array; a missing skill is not in "skills"
+# full YAML check: the parser command in references/REFERENCES.md
+# (Validation Without Project Scripts)
+
+# omp loader check: lists each skill and its "warnings"; a missing skill is not
+# in "skills". It does not check YAML validity or the 1024 cap of a project
+# skill (it reads past both without a warning), so run the checks above too.
 omp skill list --json
 
 # Generic filesystem check

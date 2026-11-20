@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-20"
-  content_hash: "3d8dd564d18341abc18c6f5726a0fe9ce4b45d29f91791328377a8460108908b"
+  content_hash: "477ea0063da38ee1b8d91bb594d9490ac7af7a011e5afa415e665262477158bb"
 ---
 
 # Code Review
@@ -123,7 +123,7 @@ SEVERITY · CATEGORY · file:line
   Suggested fix: <one sentence or short snippet>
 ```
 
-Then ask "Apply fixes?" with the omp `ask` tool. Send one form per call, with four options: all / critical-only / specific findings / none. Do not call Edit/Write until the user answers. An error, a cancel, or a timeout result is not approval: write nothing and end the turn. Silence is not consent. If the answer is ambiguous, show the findings again and ask again. Do not write "Apply fixes? yes/no" as plain reply text when `ask` is available. If `ask` is not available or returns an error (for example, in a headless subagent or a print-mode run), put the question in your final answer and end the turn. Do not invent a tool call.
+Then ask "Apply fixes?" with the omp `ask` tool. Send one form per call, with four options: all / critical-only / specific findings / none. Do not call `edit` or `write` until the user answers. An error, a cancel, or a timeout result is not approval: write nothing and end the turn. Silence is not consent. If the answer is ambiguous, show the findings again and ask again. Do not write "Apply fixes? yes/no" as plain reply text when `ask` is available. If `ask` is not available or returns an error (for example, in a headless subagent or a print-mode run), put the question in your final answer and end the turn. Do not invent a tool call.
 
 If the user approves fixes:
 
@@ -171,7 +171,7 @@ each citing the spec line + the diff line>
 - Worst issue per axis: Standards <one line>; Spec <one line> (do not pick one winner across axes — that is the reranking the constraint forbids)
 ```
 
-Run the two passes sequentially within one turn — the discipline that matters is keeping the reports separate, not how they're scheduled. (A runtime with isolated workers MAY split the axes so one doesn't bleed into the other's context, but sequential is the portable default.)
+Run the two passes sequentially within one turn — the discipline that matters is keeping the reports separate, not how they're scheduled. Sequential is the default. In omp you MAY run the axes as two read-only `scout` items in one `task` call, one item per axis, so one axis does not bleed into the other's context. Before the fan-out, check that no project `.omp/agents/*.md` file and no user `~/.omp/agent/agents/*.md` file declares `name: scout` (normally a `scout.md`): omp uses the first agent it finds with a name, so such a file replaces the bundled read-only `scout`. If one exists, run sequentially. A `scout` has no `bash` and no conversation history, so save the diff to a `local://` file first and give each item that path, the spec, and its axis rules.
 
 Pattern adapted from Matt Pocock's `code-review` skill (formerly `review`; MIT): <https://github.com/mattpocock/skills/blob/main/skills/engineering/code-review/SKILL.md>.
 

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "19609246cffdd620c8485229b88b6f44114cf726dda81feceb66c503b70e6736"
+  content_hash: "d2bfbf9a1690e63cdd6c130b9cd73c8425486d12839215a579e6ce9d8c13d241"
 ---
 
 # Refactor (sequential pipeline)
@@ -64,7 +64,7 @@ Run in order. Each phase reads its reference, then hands its output to `plan-man
 
 Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 merges 2a + 2b + 3.
 
-Optional omp fan-out: the user may ask you to run Phases 2a and 2b as two read-only `scout` items in one `task` call, one item for each scan. Give each item the scope, the Phase 1 results, and its reference as `skill://refactor/references/<phase>.md`, because a subagent gets no conversation history and no `AGENTS.md`. Hand each returned result to `plan-manager` under its subheading yourself, then run Phase 3 in this context. The sequential path stays the reference.
+Optional omp fan-out: the user may ask you to run Phases 2a and 2b as two read-only `scout` items in one `task` call, one item for each scan. Before the fan-out, check that no project `.omp/agents/*.md` file and no user `~/.omp/agent/agents/*.md` file declares `name: scout` (normally a `scout.md`): omp uses the first agent it finds with a name, so such a file replaces the bundled read-only `scout`. If one exists, use the sequential path. Give each item the scope, the Phase 1 results, and its reference as `skill://refactor/references/<phase>.md`, because a subagent gets no conversation history and no `AGENTS.md`. Hand each returned result to `plan-manager` under its subheading yourself, then run Phase 3 in this context. The sequential path stays the reference.
 
 ## How to run each phase
 
@@ -93,7 +93,7 @@ After Phase 5, write `### Phase 6: Plan Presentation` under `## Research` in the
 
 For an assessment-only or plan-only request, report the reviewed plan issue and summary, then stop. For an implementation request, hand the complete report to the unified `plan-manager`; it files the report in the plan issue, performs the single pre-implementation plan review, and sets the plan `ongoing`, then this orchestration continues directly into Phases 7–8 without a manual lifecycle prompt. Ask only when the manager identifies a genuine unresolved decision.
 
-After the plan reaches `status: ongoing`, implement via **Phases 7–8 in-context (the default)** — or, on omp with `task.isolation.enabled` true and plan mode off, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): one isolated `task` subagent, with its model from `task.agentModelOverrides.task`, runs the plan in its own checkout, and you review its patch like a tech lead. Same plan, same issue verdict; just who does the edits.
+After the plan reaches `status: ongoing`, implement via **Phases 7–8 in-context (the default)** — or, on omp with `task.isolation.enabled` true, `task.isolation.apply` false, and plan mode off, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): one isolated `task` subagent, with its model from `task.agentModelOverrides.task`, runs the plan in its own checkout, and you review its patch like a tech lead. Same plan, same issue verdict; just who does the edits.
 
 ## Implementation (Phases 7–8, while the plan is ongoing)
 
@@ -102,7 +102,7 @@ After the plan reaches `status: ongoing`, implement via **Phases 7–8 in-contex
 
 ```bash
 # per change: characterize → change → test → keep or revert
-# edit-only change → Edit tool; file deletion → git rm <path>  (never raw rm)
+# edit-only change → edit tool; file deletion → git rm <path>  (never raw rm)
 # on test failure → git restore <path>  (staged deletion: git restore --staged <path> && git restore <path>)
 ```
 

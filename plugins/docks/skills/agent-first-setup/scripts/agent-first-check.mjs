@@ -38,11 +38,15 @@
 //           The dropped `model`, `color`, and `effort` fields are named on stderr. An agent
 //           that has no exact omp form gives one `ERROR convert-agent <path>: <reason>; port
 //           it by hand` line and no agent text. A repeated field, an empty or null `name` or
-//           `description`, a `name` or `description` that a YAML reader reads as no string
-//           (`<field> is no YAML string`: a boolean, a number, a flow collection, an anchor,
-//           an alias, a tag, or a block list), a reserved `name` (`main`, `sub`), and a `name`
-//           that is no safe file name (`^[a-z0-9]+(-[a-z0-9]+)*$`) have no exact omp form. A
-//           quoted name that would read as no string goes out in double quotes.
+//           `description` (a block scalar without content lines counts as empty), a `name` or
+//           `description` that a YAML reader reads as no string (`<field> is no YAML string`:
+//           a YAML 1.2 core-schema boolean or number in its exact spelling, a flow
+//           collection, an alias, a block list, a block mapping, a plain value that starts
+//           with `]`, `}`, `,`, or a reserved indicator, or a block scalar header that is not
+//           valid), a `name` or `description` with an anchor or a tag (`<field> uses a YAML
+//           anchor or tag`), a reserved `name` (`main`, `sub`), and a `name` that is no safe
+//           file name (`^[a-z0-9]+(-[a-z0-9]+)*$`) have no exact omp form. A quoted name that
+//           would read as no string goes out in double quotes.
 //   Paths are relative to the repository root, without a leading `./`. Outside git, the
 //   listings walk the folder and skip each .git, node_modules, and vendor folder.
 //
@@ -366,17 +370,23 @@ function checkLines(repo) {
 const FRONTMATTER_FENCE = '---';
 const AGENT_FIELD = /^([A-Za-z_][A-Za-z0-9_-]*):(.*)$/u;
 const CONTINUATION = /^([ \t]|-[ \t]|$)/u;
-// The values that leave a `name` or a `description` empty: YAML null forms, compared in lower case.
-const EMPTY_VALUES = new Set(['', '~', 'null']);
+// The values that leave a `name` or a `description` empty: the YAML 1.2 core-schema null forms.
+const EMPTY_VALUES = new Set(['', '~', 'null', 'Null', 'NULL']);
 // The plain values that a YAML 1.2 core-schema reader reads as a boolean or a number, not as a
-// string, compared in lower case, so `True` and `.NaN` count too.
+// string. Only these spellings count, so `tRue`, `.iNf`, and `0X1F` stay strings.
 const NON_STRING_PLAIN =
-  /^(true|false|0o[0-7]+|0x[0-9a-f]+|[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)(e[-+]?[0-9]+)?|[-+]?\.inf|\.nan)$/u;
-// The start of a plain value that makes it a flow collection, an anchor, an alias, a tag, a block
-// sequence, a mapping key, or a reserved indicator, not a string.
-const NON_STRING_START = /^([[{&*!%@`]|[-?]([ \t]|$))/u;
-// A quoted scalar or a block scalar is always a string.
-const STRING_START = /^["'|>]/u;
+  /^(true|True|TRUE|false|False|FALSE|0o[0-7]+|0x[0-9a-fA-F]+|[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?|[-+]?\.(inf|Inf|INF)|\.(nan|NaN|NAN))$/u;
+// The start of a plain value that makes it a flow collection, an alias, a block sequence, a
+// mapping key, or a reserved indicator, not a string.
+const NON_STRING_START = /^([[\]{},*%@`]|[-?]([ \t]|$))/u;
+// An anchor or a tag; the value may still be a string, but this script does not resolve it.
+const ANCHOR_OR_TAG_START = /^[&!]/u;
+// A quoted scalar is always a string.
+const QUOTED_START = /^["']/u;
+// A block scalar starts with `|` or `>`; its header may add an indentation indicator (1 to 9)
+// and a chomping indicator (`+` or `-`) in either order, and nothing else but a comment.
+const BLOCK_SCALAR_START = /^[|>]/u;
+const BLOCK_SCALAR_HEADER = /^[|>]([1-9][-+]?|[-+][1-9]?)?$/u;
 // omp reserves these agent names (omp://task-agent-discovery.md, agent definition shape).
 const RESERVED_AGENT_NAMES = new Set(['main', 'sub']);
 // The setup writes `.omp/agents/<name>.md`, so a name must be one safe file name.
@@ -473,12 +483,15 @@ function unquoted(text) {
   return opensQuote && closingQuote(trimmed, 0) === trimmed.length - 1 ? trimmed.slice(1, -1) : trimmed;
 }
 
-// The parts of a scalar field: the text after the field name and on its continuation lines,
-// each without its comment, trimmed, and not empty.
+// The value part of each line of a scalar field: the text after the field name, then each
+// continuation line, without its comment and trimmed.
+function lineParts(fieldLines) {
+  return [fieldLines[0].replace(AGENT_FIELD, '$2'), ...fieldLines.slice(1)].map((line) => withoutComment(line).trim());
+}
+
+// The parts of a scalar field: its line parts that are not empty.
 function fieldParts(fieldLines) {
-  return [fieldLines[0].replace(AGENT_FIELD, '$2'), ...fieldLines.slice(1)]
-    .map((line) => withoutComment(line).trim())
-    .filter((part) => part !== '');
+  return lineParts(fieldLines).filter((part) => part !== '');
 }
 
 // The value of a scalar field: its parts in one line, without one pair of outer quotes.
@@ -488,15 +501,48 @@ function fieldValue(fieldLines) {
 
 // True when a YAML 1.2 core-schema reader keeps `text`, a plain value, as a string.
 function isPlainString(text) {
-  return !NON_STRING_PLAIN.test(asciiLower(text)) && !NON_STRING_START.test(text);
+  return !NON_STRING_PLAIN.test(text) && !NON_STRING_START.test(text);
 }
 
-// True when omp reads the value of a scalar field as a string: a quoted scalar, a block scalar,
-// or a plain value that stays a string. A value that starts on a `- ` continuation line is a
-// block sequence.
-function isYamlString(fieldLines) {
-  const parts = fieldParts(fieldLines);
-  return STRING_START.test(parts[0] ?? '') || isPlainString(parts.join(' '));
+// True when `part`, one line of a value, has the `key:` form of a block mapping: a `:` before a
+// space, a tab, or the line end, outside a quoted scalar. A quote opens a quoted scalar only
+// where a value starts, as in withoutComment.
+function hasMappingKey(part) {
+  for (let i = 0; i < part.length; i += 1) {
+    const valueStart = i === 0 || /[ \t[,]/u.test(part[i - 1]);
+    if (valueStart && (part[i] === '"' || part[i] === "'")) {
+      const end = closingQuote(part, i);
+      if (end === -1) return false;
+      i = end;
+    } else if (part[i] === ':' && (i === part.length - 1 || part[i + 1] === ' ' || part[i + 1] === '\t')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Refuse a `name` or a `description` that is empty, or that omp would not read as a string.
+// A block scalar needs a valid header and one content line that is not blank; its body keeps
+// each `#`, because in a block scalar it is text. Any other value is empty when it is a null
+// form. An anchor or a tag is refused, as this script does not resolve them. One quoted
+// scalar is a string. A continuation line in the `key:` form makes a block mapping, and a
+// plain value must stay a string; a value that starts on a `- ` continuation line is a block
+// sequence.
+function checkStringField(field, fieldLines) {
+  const parts = lineParts(fieldLines);
+  const start = parts.findIndex((part) => part !== '');
+  const first = parts[start] ?? '';
+  if (BLOCK_SCALAR_START.test(first)) {
+    if (!BLOCK_SCALAR_HEADER.test(first)) throw new Refusal(`${field} is no YAML string`);
+    if (fieldLines.slice(start + 1).every((line) => line.trim() === '')) throw new Refusal(`no ${field} field`);
+    return;
+  }
+  const value = parts.filter((part) => part !== '').join(' ');
+  if (EMPTY_VALUES.has(unquoted(value))) throw new Refusal(`no ${field} field`);
+  if (ANCHOR_OR_TAG_START.test(value)) throw new Refusal(`${field} uses a YAML anchor or tag`);
+  if (QUOTED_START.test(value) && closingQuote(value, 0) === value.length - 1) return;
+  if (parts.slice(1).some(hasMappingKey)) throw new Refusal(`${field} is no YAML string`);
+  if (!QUOTED_START.test(value) && !isPlainString(value)) throw new Refusal(`${field} is no YAML string`);
 }
 
 // The tool names of a `tools` field: a comma list, a flow list `[a, b]`, or a block list of
@@ -537,10 +583,8 @@ function ompAgent(text) {
     }
   }
   for (const field of ['name', 'description']) {
-    if (!fields.has(field) || EMPTY_VALUES.has(asciiLower(fieldValue(fields.get(field))))) {
-      throw new Refusal(`no ${field} field`);
-    }
-    if (!isYamlString(fields.get(field))) throw new Refusal(`${field} is no YAML string`);
+    if (!fields.has(field)) throw new Refusal(`no ${field} field`);
+    checkStringField(field, fields.get(field));
   }
   const name = fieldValue(fields.get('name'));
   if (RESERVED_AGENT_NAMES.has(asciiLower(name))) throw new Refusal(`name ${name} is reserved in omp`);

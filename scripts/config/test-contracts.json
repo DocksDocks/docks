@@ -164,7 +164,7 @@
       "selection": {
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/agent-docs-scripts.test.mjs",
-        "expected_min": 81
+        "expected_min": 91
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["bun-1"],

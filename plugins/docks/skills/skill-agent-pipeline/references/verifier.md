@@ -40,7 +40,7 @@ Every skill path (`<skills-dir>/…` or `skill://<name>/…`) and every `autoloa
 
 ## Replaced-skill sentinel
 
-For each split/merge in Phase 3, the gate presentation MUST include the cleanup of the old skill: `git rm -r <skills-dir>/<old-name>`. Flag if missing.
+For each split, merge, or replaced skill in Phase 3, the gate presentation MUST include the cleanup of the old skill: `git rm -r <skills-dir>/<old-name>`. When `<skills-dir>` is `.agents/skills` and `.claude/skills/<old-name>` is a symlink into `.agents/skills`, the cleanup MUST also remove that link, with no trailing slash so the command removes the link and not its target: `git rm .claude/skills/<old-name>` when git tracks the link (`git ls-files .claude/skills/<old-name>` prints it), else `rm .claude/skills/<old-name>`. Flag a missing cleanup. Report each `.claude/skills/<name>` symlink whose target does not exist as a dangling link, and route it to `agent-first-setup`.
 
 ## SKILL.md split preservation (per-section, not byte-%)
 

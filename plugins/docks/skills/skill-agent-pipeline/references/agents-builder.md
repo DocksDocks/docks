@@ -69,5 +69,5 @@ Per agent: `#### File: .omp/agents/<name>.md`, then put the full content in a fe
 | Skill ref to a removed path | Use Phase 3 proposed paths only |
 | Body says "follow the project rules" | The subagent has no `AGENTS.md`; name the skill or file to read |
 | Explicit `tools` list sold as read-only | omp adds MCP, extension, and custom tools; state that in the report |
-| Delegating agent with `tools` and no `spawns` | It has no `task` tool; add `spawns` |
+| Delegating agent with `tools` and no `spawns` | Without `task` in `tools` it cannot delegate; with `task` in `tools`, omp sets `spawns: *` and it may spawn any agent. Add `spawns` with the child agents to limit the scope |
 | `name` differs from the file name, or is `main`/`sub` | Rename; omp skips a reserved name |

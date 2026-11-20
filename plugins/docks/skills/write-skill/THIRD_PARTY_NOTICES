@@ -1,7 +1,7 @@
 Third-party notice
 
 Source: https://github.com/anthropics/skills (Apache License 2.0)
-The baseline check, trigger check, and assertion rules in SKILL.md adapt the eval loop in skills/skill-creator/SKILL.md and agents/grader.md. Changes: paraphrased, made cross-tool, no scripts copied.
+The baseline check, trigger check, and assertion rules in SKILL.md adapt the eval loop in skills/skill-creator/SKILL.md and agents/grader.md. Changes: paraphrased, adapted to omp (each check runs in an omp task subagent or a new omp session), no scripts copied.
 The rest of this skill is docks content under the repository license.
 
 

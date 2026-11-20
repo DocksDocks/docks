@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "d99e1acfb4e41f6448f1544be50b74519707126d12f1fe6ab6c2d2dd1dce6528"
+  content_hash: "081b489b64c208827e1d96ae1124f5fcc7eff6ac38a5c750717703ca00026142"
 ---
 
 # Security Audit (sequential pipeline)
@@ -59,7 +59,7 @@ Run these in order. Each phase reads its reference, then hands its output to `pl
 
 Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequentially in this context (constraint 1) — their independence just means a finding in one never gates another.
 
-Optional omp fan-out: the user may ask you to run Phases 2a–2c as three read-only `scout` items in one `task` call, one item for each lens. Give each item the scope, the Phase 1 map, and its reference as `skill://security/references/<phase>.md`, because a subagent gets no conversation history and no `AGENTS.md`. Hand each returned result to `plan-manager` under its subheading yourself, then run Phase 3 in this context. The sequential path stays the reference.
+Optional omp fan-out: the user may ask you to run Phases 2a–2c as three read-only `scout` items in one `task` call, one item for each lens. Before the fan-out, check that no project `.omp/agents/*.md` file and no user `~/.omp/agent/agents/*.md` file declares `name: scout` (normally a `scout.md`): omp uses the first agent it finds with a name, so such a file replaces the bundled read-only `scout`. If one exists, use the sequential path. Give each item the scope, the Phase 1 map, and its reference as `skill://security/references/<phase>.md`, because a subagent gets no conversation history and no `AGENTS.md`. Hand each returned result to `plan-manager` under its subheading yourself, then run Phase 3 in this context. The sequential path stays the reference.
 
 ## How to run each phase
 

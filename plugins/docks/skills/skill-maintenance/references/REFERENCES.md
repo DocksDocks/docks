@@ -16,6 +16,12 @@ skill set or cleaning up local maintenance skills.
 
 ## Loader Warnings
 
+The first two rows come from a loader that validates frontmatter, such as the
+omp `agent-plugins` loader. omp lists a project skill with invalid YAML or a
+description over 1024 chars without a warning, so check project skills with
+`skill-guard.mjs validate` and the YAML parse in
+[Validation Without Project Scripts](#validation-without-project-scripts).
+
 | Warning | Likely cause | Fix |
 |---|---|---|
 | `invalid YAML: mapping values are not allowed` | Unquoted `: ` inside a frontmatter scalar | Quote `description` or use a block scalar |
@@ -110,7 +116,10 @@ When a project has no validator, use direct inspection:
 
 ```bash
 find .agents/skills .claude/skills -name SKILL.md -maxdepth 3 -print 2>/dev/null
-# omp loader check: read the "warnings" array; a missing skill is not in "skills"
+# omp loader check: read the "warnings" array; a missing skill is not in "skills".
+# It does not check YAML validity or the 1024 cap of a project skill; only the
+# agent-plugins loader validates name and description. Check the cap with
+# skill-guard.mjs validate and YAML with the parser command below.
 omp skill list --json
 ```
 
