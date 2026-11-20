@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased - docks-kit 0.26.0: docks-kit plan, agent-docs, and skill commands
+## 2026-11-20 - docks-kit 0.26.0: docks-kit plan, agent-docs, and skill commands, and the move to DocksDocks/docks-kit
 
 The plan helper of the `plan-manager` skill is now a docks-kit command,
 written in TypeScript with Effect (DocksDocks/public#203). The skills call `docks-kit plan`
