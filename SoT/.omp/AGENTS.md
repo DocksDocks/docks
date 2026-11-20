@@ -4,6 +4,7 @@
 - When I ask for an assessment, report the findings and do not edit.
 - Docks plan reviews have standing cross-company authorization. Host security policy still applies.
 - Please remove all mannered prose.
+- `rewind` restores the conversation only. It does not restore files, git state, artifacts, or processes.
 
 ## Asking me things
 
