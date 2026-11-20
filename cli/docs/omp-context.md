@@ -107,7 +107,8 @@ model with a smaller window.
 Up to 0.23.0, `SoT/.omp/config.yml` set `compaction.idleEnabled: true`. In
 0.24.0 the owner returned the key to the omp default `false` (omp 18.4.4
 through 19.0.0). Sync prunes a deployed `true` that the kit shipped, so idle
-compaction is off. Only the reserve-based trigger starts a compaction.
+compaction is off. With the default threshold settings, only the
+reserve-based trigger starts a compaction.
 
 ## Related settings left at their omp defaults
 

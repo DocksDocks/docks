@@ -171,11 +171,12 @@ describe("retired omp config keys", () => {
     });
   });
 
-  // The owner returned these 18 overrides to the omp 19.0.0 defaults. The user
-  // changed `browser.idleCloseSec` from the shipped 600, so sync keeps it; the
-  // next case prunes it at 600. `task` keeps the reviewer override that the kit
-  // still ships.
-  it("prunes the returned overrides at their shipped values and keeps an edited one", () => {
+  // The owner returned these 18 overrides to the omp 19.0.0 defaults. Each one
+  // holds its shipped value here, so sync prunes all 18 in one pass. The user
+  // edited `compaction.thresholdTokens`, which an earlier kit retired at -1
+  // and 231200, so sync keeps it. `task` keeps the reviewer override that the
+  // kit still ships.
+  it("prunes all 18 returned overrides at their shipped values and keeps an edited retired value", () => {
     const { file, root } = deployConfig(
       [
         "statusLine:",
@@ -185,7 +186,7 @@ describe("retired omp config keys", () => {
         "find:",
         "  enabled: true",
         "browser:",
-        "  idleCloseSec: 900",
+        "  idleCloseSec: 600",
         "task:",
         "  eager: always",
         "  showResolvedModelBadge: true",
@@ -204,6 +205,7 @@ describe("retired omp config keys", () => {
         "compaction:",
         "  idleEnabled: true",
         "  handoffSaveToDisk: true",
+        "  thresholdTokens: 150000",
         "doubleEscapeAction: tree",
         "features:",
         "  unexpectedStopDetection: smart",
@@ -211,18 +213,11 @@ describe("retired omp config keys", () => {
       ].join("\n"),
     );
 
-    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(17);
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(18);
     expect(parse(readFileSync(file, "utf8"))).toEqual({
-      browser: { idleCloseSec: 900 },
+      compaction: { thresholdTokens: 150000 },
       task: { agentModelOverrides: { reviewer: "@reviewer" } },
     });
-  });
-
-  it("prunes the shipped browser idle timeout", () => {
-    const { file, root } = deployConfig("browser:\n  idleCloseSec: 600\n");
-
-    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
-    expect(parse(readFileSync(file, "utf8"))).toEqual({});
   });
 
   it("prunes the shipped advisor block, role, and empty retry chain", () => {
