@@ -1,11 +1,11 @@
 ---
-name: multi-tool-bridge
+name: claude-md-migration
 description: Use when setting up multi-tool agent compatibility in a project (Codex + Claude Code) — creates canonical AGENTS.md, migrates .claude/skills/ to .agents/skills/, symlinks Claude skill entries back, migrates legacy CLAUDE.md content, root or nested (generic → AGENTS.md or the folder AGENTS.md, Claude-specific → .claude/rules/claude-code.md or a path-scoped .claude/rules/ file), and removes every CLAUDE.md so Claude Code loads AGENTS.md natively. Idempotent. Not for plan workspace setup or refresh (use plan-workspace), splitting per-area rules into AGENTS.md nodes (use context-tree), porting Claude subagents to Codex TOML (use skill-agent-pipeline), or one-shot full repo setup (use agent-first-setup).
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-19"
-  content_hash: "2e51925050720158b5e85ba03a9cc2bc664e55daa79670ae9c00b967496d3dcf"
+  updated: "2026-11-20"
+  content_hash: "5aaf255f3c91c8067b2c836c9ea08dd7a19ae795e865f681c37b4c1b2142c8af"
 ---
 
 # Multi-Tool Agent Bridge
@@ -40,7 +40,7 @@ Everything this skill writes into `AGENTS.md` is durable: read as current state 
 - Standardizing on `.agents/skills/` as the canonical location (per [agentskills.io's recommendation](https://agentskills.io/client-implementation/adding-skills-support))
 - Adding the bridge to an existing Claude-only project (auto-detects layout)
 - Removing a legacy CLAUDE.md so Claude Code loads AGENTS.md natively: migrate a content file, delete a redundant `@AGENTS.md` stub
-- The user says "set up AGENTS.md", "migrate CLAUDE.md to AGENTS.md", "make this multi-tool", or `/docks:multi-tool-bridge`
+- The user says "set up AGENTS.md", "migrate CLAUDE.md to AGENTS.md", "make this multi-tool", or `/docks:claude-md-migration`
 
 ## Workflow
 
@@ -138,7 +138,7 @@ Apply the approved rows in this order. Write every destination (root and folder 
 0. **Backup** — before the first write, copy every existing file the approved table changes or deletes (each legacy CLAUDE.md, and each AGENTS.md or rules file that gets an append) to a directory OUTSIDE the repository, with relative paths kept. Never use `git stash` as a backup: it reverts the working tree. Moved skill directories keep their content; `git mv` (or `mv`) back reverses them.
    ```bash
    root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-   b="${XDG_STATE_HOME:-$HOME/.local/state}/multi-tool-bridge/$(basename "$root")-$(date -u +%Y%m%dT%H%M%SZ)"
+   b="${XDG_STATE_HOME:-$HOME/.local/state}/claude-md-migration/$(basename "$root")-$(date -u +%Y%m%dT%H%M%SZ)"
    for p in <each path the table changes or deletes>; do
      test -e "$p" || continue
      mkdir -p "$b/$(dirname "$p")" && cp -p "$p" "$b/$p"

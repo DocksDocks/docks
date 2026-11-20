@@ -8,7 +8,7 @@ Enumerate, don't diagnose. Record what exists (files, frontmatter, structure). D
 
 ## Project profile
 
-Stack + package manager (check `package.json`, `requirements.txt`, `go.mod`, `Cargo.toml`, `pyproject.toml`), rough size, key directories, and existing docs: `README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/**/*.md`, `.env.example`. AGENTS.md is the cross-tool source of truth. Record every `CLAUDE.md`, `.claude/CLAUDE.md`, and `CLAUDE.local.md` as a legacy file with one located fact: import stub (only `@AGENTS.md` / `@../AGENTS.md`; redundant, content still loads) or content without an import (a defect: Claude reads it instead of AGENTS.md). Both route to `multi-tool-bridge`; this pipeline does not edit them.
+Stack + package manager (check `package.json`, `requirements.txt`, `go.mod`, `Cargo.toml`, `pyproject.toml`), rough size, key directories, and existing docs: `README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/**/*.md`, `.env.example`. AGENTS.md is the cross-tool source of truth. Record every `CLAUDE.md`, `.claude/CLAUDE.md`, and `CLAUDE.local.md` as a legacy file with one located fact: import stub (only `@AGENTS.md` / `@../AGENTS.md`; redundant, content still loads) or content without an import (a defect: Claude reads it instead of AGENTS.md). Both route to `claude-md-migration`; this pipeline does not edit them.
 
 ## Existing skills
 

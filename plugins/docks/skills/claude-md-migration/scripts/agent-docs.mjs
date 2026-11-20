@@ -1,7 +1,7 @@
 // Shared parts of the agent-doc checks of agent-first-setup (agent-first-check.mjs) and
-// multi-tool-bridge (bridge-check.mjs): the repository root, the file listing, the routing
+// claude-md-migration (bridge-check.mjs): the repository root, the file listing, the routing
 // rows of the root AGENTS.md, the nested AGENTS.md nodes, and the durable-doc scan. The
-// canonical file is in agent-first-setup; multi-tool-bridge ships a byte-identical copy,
+// canonical file is in agent-first-setup; claude-md-migration ships a byte-identical copy,
 // because a skill folder cannot import from another skill folder.
 //
 // Each function ports one part of a shell block that the two skills ran before. A port keeps
@@ -330,7 +330,7 @@ function scanLine(file, number, line, label) {
 // exists. Fenced blocks and URLs are skipped everywhere; code spans and quoted text are
 // skipped for the time and count rules only, so a line anchor in backticks still counts.
 // `findingLabel` starts each line: `FINDING C5` for agent-first-setup, `VOLATILE` for
-// multi-tool-bridge. A file that cannot be read gives `ERROR <errorLabel> cannot read <file>`
+// claude-md-migration. A file that cannot be read gives `ERROR <errorLabel> cannot read <file>`
 // in place of its lines; a listed file that is gone gives no line, as awk prints none for
 // it. Paths are relative to the current folder.
 export function durableDocScan(files, { findingLabel, errorLabel }) {

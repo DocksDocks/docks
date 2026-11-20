@@ -17,7 +17,7 @@
   },
   {
     "canonical": "plugins/docks/skills/agent-first-setup/scripts/agent-docs.mjs",
-    "copies": ["plugins/docks/skills/multi-tool-bridge/scripts/agent-docs.mjs"]
+    "copies": ["plugins/docks/skills/claude-md-migration/scripts/agent-docs.mjs"]
   },
   {
     "canonical": "plugins/plan-lifecycle/skills/plan-manager/scripts/base-blob.sh",

@@ -33,7 +33,7 @@ Render at the approval gate — alongside the node list — a row for EVERY sect
 | ## Legacy notes               | DROP (user-confirmed)        | obsolete — explicit drop       |
 ```
 
-Defaults: anything you cannot confidently route → **KEEP in root** (never silently move or drop). `DROP` requires an explicit user mark. A legacy CLAUDE.md never gets a row here: context-tree does not edit or delete it; `multi-tool-bridge` owns it. MIXED sections (part stays, part moves) split paragraph-by-paragraph; the unclassified remainder stays in root.
+Defaults: anything you cannot confidently route → **KEEP in root** (never silently move or drop). `DROP` requires an explicit user mark. A legacy CLAUDE.md never gets a row here: context-tree does not edit or delete it; `claude-md-migration` owns it. MIXED sections (part stays, part moves) split paragraph-by-paragraph; the unclassified remainder stays in root.
 
 When a canonical plan is warranted, `plan-manager` reviews the proposal first. Then print the node list and this table, and ask for approval with the harness question tool (the approval gate; tool names and the no-tool fallback are in the SKILL.md Intent gate). Write nothing until the user answers; silence is not consent; an ambiguous answer re-shows the tables. `--dry-run` and preview-only requests stop here permanently.
 

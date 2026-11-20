@@ -23,7 +23,7 @@ const DIRS = process.argv[2]
 
 const TRANSFORMING_SKILLS = [
   'context-tree',
-  'multi-tool-bridge',
+  'claude-md-migration',
   'skill-agent-pipeline',
   'skill-maintenance',
   'refactor',
@@ -36,7 +36,7 @@ const PRES_RE =
 // A heading, not prose. The block must be a section a reader can find and an edit cannot strip
 // unnoticed; a stray "verify before deleting" sentence in the body satisfied the old alternates
 // while the "## Verification block" this guard reports was absent. Heading TEXT is free -- five
-// curated skills spell it "## Verification" and multi-tool-bridge spells it "### Step 6 - Verify",
+// curated skills spell it "## Verification" and claude-md-migration spells it "### Step 6 - Verify",
 // and both are real executable blocks.
 const VERIFY_RE = /^#{2,3}[^\n]*\bverif(y|ication)\b/im;
 

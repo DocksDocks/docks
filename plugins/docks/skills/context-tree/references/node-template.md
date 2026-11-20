@@ -2,7 +2,7 @@
 
 ## One file per node
 
-A node is `<folder>/AGENTS.md` and nothing else. Do not write a `CLAUDE.md` beside it. Claude Code (v2.1.277+) lazy-loads a subdirectory's AGENTS.md when it reads a file there, but only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the working directory or above. Codex reads the AGENTS.md files from the project root down to the working directory once, at session start; it does not load a node below the working directory, so the agent must open it from the root routing table. A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md. `audit` reports every legacy CLAUDE.md and routes it to `multi-tool-bridge`; context-tree never edits or deletes one.
+A node is `<folder>/AGENTS.md` and nothing else. Do not write a `CLAUDE.md` beside it. Claude Code (v2.1.277+) lazy-loads a subdirectory's AGENTS.md when it reads a file there, but only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the working directory or above. Codex reads the AGENTS.md files from the project root down to the working directory once, at session start; it does not load a node below the working directory, so the agent must open it from the root routing table. A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md. `audit` reports every legacy CLAUDE.md and routes it to `claude-md-migration`; context-tree never edits or deletes one.
 
 ## AGENTS.md skeleton
 
@@ -47,7 +47,7 @@ Keep it ≤500 lines (kit policy, enforced by the kit's checks — not an Anthro
 - [ ] No live `path:NN` line anchors — durable anchors only; the stale-tolerance line is present
 - [ ] Every "X enforces/automates/blocks Y" claim carries a cue that EXERCISES the behavior (should-fail probe), not an existence check — or the claim is cut
 - [ ] Reads correctly if it's the ONLY context file loaded (the `--continue` test)
-- [ ] No `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in this folder or above it (a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md; report it for `multi-tool-bridge`)
+- [ ] No `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in this folder or above it (a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md; report it for `claude-md-migration`)
 - [ ] AGENTS.md ≤500 lines
 - [ ] `## tree` `sources:` lists every file this node's claims cite (so `audit` can verify them)
 

@@ -491,7 +491,7 @@ async function testFocusedCiCommandSelection() {
   const docksSkillScripts = [
     'plugins/docks/skills/write-skill/scripts',
     'plugins/docks/skills/agent-first-setup/scripts',
-    'plugins/docks/skills/multi-tool-bridge/scripts',
+    'plugins/docks/skills/claude-md-migration/scripts',
   ];
   const planLifecycleSkillScripts = [
     'plugins/plan-lifecycle/skills/plan-manager/scripts',

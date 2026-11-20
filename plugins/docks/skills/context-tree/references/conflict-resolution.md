@@ -19,7 +19,7 @@ Existing nodes are PRESERVED by `init` — never clobbered. `docs/` is the canon
 
 ## Legacy CLAUDE.md (report and route)
 
-A legacy CLAUDE.md is any `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in the project, root or nested. When one exists in the working directory or above, Claude reads the CLAUDE.md files, not AGENTS.md. Never write one. `audit` reports each as `legacy-claude-md`. context-tree never edits or deletes a CLAUDE.md: `multi-tool-bridge` owns every write to it.
+A legacy CLAUDE.md is any `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in the project, root or nested. When one exists in the working directory or above, Claude reads the CLAUDE.md files, not AGENTS.md. Never write one. `audit` reports each as `legacy-claude-md`. context-tree never edits or deletes a CLAUDE.md: `claude-md-migration` owns every write to it.
 
 ```bash
 find . \( -path ./.git -o -path '*/node_modules' -o -path '*/vendor' \) -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print |
@@ -33,9 +33,9 @@ done
 
 | Found | Severity | Fix |
 |---|---|---|
-| `CLAUDE.md` holding only `@AGENTS.md` (or `@../AGENTS.md`) | Redundant: the import still delivers AGENTS.md | Cleanup finding. Route to `multi-tool-bridge`, which deletes it behind its own gate. |
-| `CLAUDE.md` with content and no `@AGENTS.md` import | Defect: Claude reads it instead of AGENTS.md | Route to `multi-tool-bridge` (it migrates nested files into the folder AGENTS.md and a path-scoped `.claude/rules/` file, then removes the file). `init` stops until it is migrated. |
-| `CLAUDE.md` with content and an import | Claude-only content outside AGENTS.md | Route to `multi-tool-bridge` for migration. |
+| `CLAUDE.md` holding only `@AGENTS.md` (or `@../AGENTS.md`) | Redundant: the import still delivers AGENTS.md | Cleanup finding. Route to `claude-md-migration`, which deletes it behind its own gate. |
+| `CLAUDE.md` with content and no `@AGENTS.md` import | Defect: Claude reads it instead of AGENTS.md | Route to `claude-md-migration` (it migrates nested files into the folder AGENTS.md and a path-scoped `.claude/rules/` file, then removes the file). `init` stops until it is migrated. |
+| `CLAUDE.md` with content and an import | Claude-only content outside AGENTS.md | Route to `claude-md-migration` for migration. |
 
 ## Merge vs overwrite
 
@@ -87,7 +87,7 @@ Soft prose (rationale, "prefer X" advice) has no source anchor — mark it `unve
 
 ### Verdict per claim
 
-`confirmed` · `broken-ref` (path/line gone) · `stale-snippet` (snippet/command drifted) · `fictional-identifier` (named thing not defined) · `drifted-claim` (threshold/behaviour wrong) · `legacy-claude-md` (a `CLAUDE.md` / `.claude/CLAUDE.md` / `CLAUDE.local.md` exists in the repo; an import stub is redundant, a file without an `@AGENTS.md` import is a defect; fix owner = `multi-tool-bridge`) · `line-anchor` (live `path:NN` in the node — even if accurate today it rots on the next edit; fix = convert to the durable `` `path` — `symbol` — purpose (verify: `cmd`) `` form, never just re-point the number; fictional example paths exempt) · `volatile-value` · `duplicated-fact` · `dead-pointer` · `unchecked-list` · `eager-import` (see the durable-docs table below) · `unverifiable`. A node is **CLEAN** only at zero drift AND a non-zero stated claim count; otherwise report it as a `refresh` candidate with its top finding.
+`confirmed` · `broken-ref` (path/line gone) · `stale-snippet` (snippet/command drifted) · `fictional-identifier` (named thing not defined) · `drifted-claim` (threshold/behaviour wrong) · `legacy-claude-md` (a `CLAUDE.md` / `.claude/CLAUDE.md` / `CLAUDE.local.md` exists in the repo; an import stub is redundant, a file without an `@AGENTS.md` import is a defect; fix owner = `claude-md-migration`) · `line-anchor` (live `path:NN` in the node — even if accurate today it rots on the next edit; fix = convert to the durable `` `path` — `symbol` — purpose (verify: `cmd`) `` form, never just re-point the number; fictional example paths exempt) · `volatile-value` · `duplicated-fact` · `dead-pointer` · `unchecked-list` · `eager-import` (see the durable-docs table below) · `unverifiable`. A node is **CLEAN** only at zero drift AND a non-zero stated claim count; otherwise report it as a `refresh` candidate with its top finding.
 
 ### Durable-docs findings
 
@@ -100,7 +100,7 @@ A node is read as current state. These findings apply even when the text is accu
 | `dead-pointer` | a backticked repo path that resolves neither from the node's own folder nor from the repo root, or a "see root" / "see parent" with no path. A path that names a location in another project (consumer repo, upstream) is not a pointer | re-locate the owner by the pointer's stated purpose (grep the symbol) and fix the path; if no owner exists, state the rule in the node or cut the pointer |
 | `unchecked-list` | a hand-kept enumeration of things that change, with no check that compares it with disk | replace with the rule + the `find`/`grep` command that lists them; keep a list only when it is the single home of the fact AND a check compares it with disk (the root Context-tree table, checked by `audit`) |
 | `line-anchor` | a live `path:NN` anchor | convert to `` `path` — `symbol` — purpose (verify: `cmd`) ``; never re-point the number |
-| `legacy-claude-md` | any `CLAUDE.md` / `.claude/CLAUDE.md` / `CLAUDE.local.md` in the repo (classifier in "Legacy CLAUDE.md" above) | route to `multi-tool-bridge`; context-tree never edits or deletes it |
+| `legacy-claude-md` | any `CLAUDE.md` / `.claude/CLAUDE.md` / `CLAUDE.local.md` in the repo (classifier in "Legacy CLAUDE.md" above) | route to `claude-md-migration`; context-tree never edits or deletes it |
 | `eager-import` | a bare `@path` outside backticks and fences in any AGENTS.md, root included (Claude expands it on every load). An `@` inside backticks is a code span, not an import. Detect with the snippet below | put the path in backticks; keep a bare import only when the target must always be in context, and say why |
 
 ```bash

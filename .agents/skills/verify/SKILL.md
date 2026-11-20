@@ -1,6 +1,6 @@
 ---
 name: verify
-description: "Use when checking a change to this docks repository end to end: install both plugins from this checkout into an isolated omp state, drive the plan helper against the fake gh, drive the docks omp extensions in scripted omp sessions, run the plan-lifecycle self-test, and run the agent-first-setup and multi-tool-bridge check scripts. Not for the full CI gate (run bun scripts/ci.mjs), reviewer benchmarks (use review-benchmark), or plugin release."
+description: "Use when checking a change to this docks repository end to end: install both plugins from this checkout into an isolated omp state, drive the plan helper against the fake gh, drive the docks omp extensions in scripted omp sessions, run the plan-lifecycle self-test, and run the agent-first-setup and claude-md-migration check scripts. Not for the full CI gate (run bun scripts/ci.mjs), reviewer benchmarks (use review-benchmark), or plugin release."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
@@ -129,14 +129,14 @@ bun plugins/plan-lifecycle/test/selftest.mjs; echo "exit=$?"
 
 Expected: `plan-lifecycle self-test PASSED: manifest/catalog agreement (<version>), ...`, then `exit=0`.
 
-## V6 — Run the agent-first-setup and multi-tool-bridge check scripts
+## V6 — Run the agent-first-setup and claude-md-migration check scripts
 
 The skills run these read-only scripts with `node`. The block runs them in this repository and in a new fixture repository that holds only a `CLAUDE.md`.
 
 ```bash
 root=$PWD
 afs=$root/plugins/docks/skills/agent-first-setup/scripts/agent-first-check.mjs
-mtb=$root/plugins/docks/skills/multi-tool-bridge/scripts/bridge-check.mjs
+mtb=$root/plugins/docks/skills/claude-md-migration/scripts/bridge-check.mjs
 node "$afs" detect | grep -E '^(root AGENTS.md|pull-request template|verify)'; echo "exit=${PIPESTATUS[0]}"
 node "$afs" check | grep -E '^(FAIL|ERROR)'; echo "exit=${PIPESTATUS[0]}"
 node "$mtb" verify; echo "exit=$?"

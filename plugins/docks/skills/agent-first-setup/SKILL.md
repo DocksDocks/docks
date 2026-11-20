@@ -1,11 +1,11 @@
 ---
 name: agent-first-setup
-description: "Use when making a repository agent-first in one pass — root AGENTS.md, nested AGENTS.md nodes, .agents/skills with .claude/skills symlinks, no CLAUDE.md, durable docs — or auditing whether a repo is. Runs multi-tool-bridge and context-tree init, adds a project verify skill, and ends with a pass/fail check. Not for one step alone: CLAUDE.md migration or skill symlinks (use multi-tool-bridge), nested nodes only (use context-tree), or plan workspace setup (use plan-workspace)."
+description: "Use when making a repository agent-first in one pass — root AGENTS.md, nested AGENTS.md nodes, .agents/skills with .claude/skills symlinks, no CLAUDE.md, durable docs — or auditing whether a repo is. Runs claude-md-migration and context-tree init, adds a project verify skill, and ends with a pass/fail check. Not for one step alone: CLAUDE.md migration or skill symlinks (use claude-md-migration), nested nodes only (use context-tree), or plan workspace setup (use plan-workspace)."
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-11-19"
-  content_hash: "a5c6ca198c8f8040cf4abc90535dad58faab71970f57ad4be497e8d0a219a6cb"
+  updated: "2026-11-20"
+  content_hash: "271f943b4bb46e1c3d8c1f5bddc8efc0c62516981c05ba64c74986ace073ec79"
 ---
 
 # Agent-First Setup
@@ -18,10 +18,10 @@ Make a repository easy for any coding agent to use, in one pass. An agent-first 
 - **Verifiable** — the check in Step 3 is a command, not prose. A project `verify` skill names the commands that start, drive, inspect, and stop the real product.
 - **Free of CLAUDE.md** — a `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` without an `@AGENTS.md` import makes Claude read it instead of `AGENTS.md`. A stub that only imports `AGENTS.md` still delivers it; it is redundant, and the kit removes it as cleanup (source: https://code.claude.com/docs/en/memory, section "AGENTS.md").
 
-This skill is an orchestrator. `multi-tool-bridge` and `context-tree` do the work; this skill puts them in order, adds the project `verify` skill in Step 2b, offers a pull-request template in Step 2c, and ends with the check.
+This skill is an orchestrator. `claude-md-migration` and `context-tree` do the work; this skill puts them in order, adds the project `verify` skill in Step 2b, offers a pull-request template in Step 2c, and ends with the check.
 
 <constraint>
-Delegate, do not re-implement. For Step 1 and Step 2, load the named skill and follow its workflow as written, including its detection, classification, and verification steps. Do not copy, shorten, or reorder its steps here. If a named skill (`multi-tool-bridge`, `context-tree`) or a prerequisite it names is not available, STOP before any write and name the missing skill or plugin in your final message.
+Delegate, do not re-implement. For Step 1 and Step 2, load the named skill and follow its workflow as written, including its detection, classification, and verification steps. Do not copy, shorten, or reorder its steps here. If a named skill (`claude-md-migration`, `context-tree`) or a prerequisite it names is not available, STOP before any write and name the missing skill or plugin in your final message.
 </constraint>
 
 <constraint>
@@ -58,7 +58,7 @@ Use the tool that your harness registers, even when it is not in this table. By 
 
 | Situation | Use instead |
 |---|---|
-| Only migrate a legacy CLAUDE.md or add `.claude/skills` symlinks | `multi-tool-bridge` |
+| Only migrate a legacy CLAUDE.md or add `.claude/skills` symlinks | `claude-md-migration` |
 | Only add, audit, or refresh nested AGENTS.md nodes | `context-tree` |
 | Set up or refresh the GitHub-issue plan workspace (`docs/AGENTS.md`, `docs/PLAN.md`) | `plan-workspace` |
 | Fix a stale or invalid SKILL.md found by the check | `skill-maintenance` |
@@ -90,9 +90,9 @@ Outside git, the command walks the folder itself and skips each `.git`, `node_mo
 
 If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` path, no non-symlink skill entry, and at least one node or a small repo, go directly to Step 2b. Step 2b is a no-op when Step 0 shows `verify skill: present`, `verify link: present`, and no `verify unverified:` or `ERROR` line. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
 
-### Step 1 — Run `multi-tool-bridge`
+### Step 1 — Run `claude-md-migration`
 
-Load `multi-tool-bridge` and follow it from its first step. It owns: layout detection, root `AGENTS.md` creation, legacy CLAUDE.md classification and removal (root and nested), and the `.claude/skills` → `.agents/skills` symlinks. Its approval gate ends the turn; continue here after the user approves and its own verification prints no `BROKEN:` line. If it reports `BROKEN:`, STOP and report; do not start Step 2.
+Load `claude-md-migration` and follow it from its first step. It owns: layout detection, root `AGENTS.md` creation, legacy CLAUDE.md classification and removal (root and nested), and the `.claude/skills` → `.agents/skills` symlinks. Its approval gate ends the turn; continue here after the user approves and its own verification prints no `BROKEN:` line. If it reports `BROKEN:`, STOP and report; do not start Step 2.
 
 In `audit` mode, run only its read-only detection and audit steps and record what it would change.
 
@@ -148,10 +148,10 @@ Print one table. `Result` is `pass`, `fail (<count>)`, `findings (<count>)`, or 
 
 | Check | Result | Fix owner |
 |---|---|---|
-| C1 root AGENTS.md + commands | | `multi-tool-bridge` (creates the file); the user supplies the commands |
+| C1 root AGENTS.md + commands | | `claude-md-migration` (creates the file); the user supplies the commands |
 | C2 root routing ↔ nodes on disk | | `context-tree` (`init` / `refresh`) |
-| C3 CLAUDE.md import rule | | `multi-tool-bridge` (moves content, deletes stubs behind its gate) |
-| C4 `.claude/skills` symlinks | | `multi-tool-bridge` |
+| C3 CLAUDE.md import rule | | `claude-md-migration` (moves content, deletes stubs behind its gate) |
+| C4 `.claude/skills` symlinks | | `claude-md-migration` |
 | C5 durable-doc findings | | `context-tree audit` for nodes; `skill-maintenance` for skills |
 | C6 skill descriptions | | `skill-maintenance` |
 | C7 no eager `@path` imports | | `context-tree` (`audit` / `refresh`) |
@@ -168,7 +168,7 @@ Below the table, list: files written by Step 1, Step 2, Step 2b, and Step 2c (fr
 ```text
 BAD  — Step 1 copies the CLAUDE.md classification rules into this run and
        splits the file without the owning skill's approval table.
-GOOD — Load multi-tool-bridge, print its proposal table, ask for approval
+GOOD — Load claude-md-migration, print its proposal table, ask for approval
        with the harness question tool (omp `ask`, Claude Code
        `AskUserQuestion`), and resume here after the user approves.
 
@@ -188,8 +188,8 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 | Nodes already exist | Run `context-tree init` again and expect new nodes | Run `context-tree audit`; `init` leaves existing nodes alone |
 | Small repo gets no node | Force a node so C2 has rows | Zero nodes is a pass when `context-tree` finds no major folder |
 | `.claude/skills` symlinks look redundant with native AGENTS.md support | Delete them | Keep them; Claude Code does not read `.agents/` |
-| A CLAUDE.md holds only `@AGENTS.md` | Report it as a FAIL, or say it hides AGENTS.md | It still delivers AGENTS.md through the import, so it is redundant: a C3 `FINDING`. `multi-tool-bridge` deletes it behind its gate. While the root has a CLAUDE.md, each nested node needs its own stub (C3 checks this) |
-| A CLAUDE.md holds rules and no `@AGENTS.md` import | Treat it like a stub | A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md: a C3 `FAIL`. `multi-tool-bridge` moves the content, then deletes the file |
+| A CLAUDE.md holds only `@AGENTS.md` | Report it as a FAIL, or say it hides AGENTS.md | It still delivers AGENTS.md through the import, so it is redundant: a C3 `FINDING`. `claude-md-migration` deletes it behind its gate. While the root has a CLAUDE.md, each nested node needs its own stub (C3 checks this) |
+| A CLAUDE.md holds rules and no `@AGENTS.md` import | Treat it like a stub | A CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md: a C3 `FAIL`. `claude-md-migration` moves the content, then deletes the file |
 | A root table row reads `@scripts/AGENTS.md` without backticks | Keep it; it is only a link | A bare `@path` is an import: Claude loads that file into every session (C7). Put the path in backticks |
 | `audit` mode finds a fixable problem | Fix it in the same run | Report it; the user runs the default mode or the owning skill |
 | The `verify` skill lists only the unit-test command | Accept it as verification | A unit test does not drive the product. Add a row that starts the surface, drives a main flow, and names the observable result |
@@ -207,7 +207,7 @@ GOOD — STOP at the BROKEN line; the report shows the step that failed.
 
 ## References
 
-- `multi-tool-bridge` — root AGENTS.md, legacy CLAUDE.md migration, `.agents/skills` symlinks (Step 1).
+- `claude-md-migration` — root AGENTS.md, legacy CLAUDE.md migration, `.agents/skills` symlinks (Step 1).
 - `context-tree` — nested AGENTS.md nodes: `init`, `audit`, `refresh` (Step 2).
 - `skill-maintenance` — fixes for C5 and C6 findings in SKILL.md files.
 - [references/verify-skill-template.md](references/verify-skill-template.md) — the project `verify` skill template, surface recipes, and a worked example (Step 2b).

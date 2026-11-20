@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Audit the agent-doc layout before multi-tool-bridge writes (Step 2), and verify the
+// Audit the agent-doc layout before claude-md-migration writes (Step 2), and verify the
 // bridge after the writes (Step 6). Both commands read only; they write no file. The
-// meaning of each line and the reaction to it live in the SKILL.md of multi-tool-bridge.
+// meaning of each line and the reaction to it live in the SKILL.md of claude-md-migration.
 //
 // Usage (from any folder inside the repository, or from the project folder outside git):
 //   node bridge-check.mjs audit
