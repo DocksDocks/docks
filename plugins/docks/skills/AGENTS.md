@@ -22,7 +22,7 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 
 **Agent-first.** Every skill that writes or changes files in a user repo must leave that repo easier for an agent to use:
 
-1. Findable: a root AGENTS.md routes to every nested node and every canonical location (skills in `.agents/skills/`, with no `.claude/skills` link); names say what a thing does.
+1. Findable: a root AGENTS.md routes to every nested node and every canonical location (skills in `.agents/skills/`, with no legacy `.claude/skills` folder); names say what a thing does.
 2. Fast to understand: the root states commands (build/test/lint) and repo-wide rules only; per-folder rules live in the folder AGENTS.md; no duplicated facts.
 3. Trustworthy: durable facts only; every volatile value has a verify command; behavior claims carry a probe.
 4. Verifiable: the skill ends with a check an agent can run (commands, not prose).
@@ -53,7 +53,7 @@ Structural rules are enforced by `scripts/skills/guard.mjs`.
 | `metadata.content_hash` | auto-managed by `scripts/skills/content-hash.mjs --backfill` |
 | `allowed-tools` | pre-approves tools while the skill is active |
 | `license` | optional; a license name or the name of a bundled license file (agentskills.io spec). Set it on a skill that carries its own license terms, so a consumer who copies the folder knows the terms |
-| `compatibility` | optional; ≤500 chars (agentskills.io spec); states environment requirements (intended product, system packages, network access). Add it only when the skill cannot run without them, so a runtime or user can tell before activation. Check the length by hand unless the guard enforces it (verify: `grep -n compatibility plugins/docks/skills/write-skill/scripts/skill-guard.mjs`) |
+| `compatibility` | optional; ≤500 chars (agentskills.io spec); states environment requirements (intended product, system packages, network access). Add it only when the skill cannot run without them, so omp or the user can tell before activation. Check the length by hand unless the guard enforces it (verify: `grep -n compatibility plugins/docks/skills/write-skill/scripts/skill-guard.mjs`) |
 | third-party | add an `upstream:` block (`source`/`license`/`vendored_at`) to relax kit checks for vendored skills |
 
 ## Body (loads on activation — every line is a recurring cost)
@@ -128,7 +128,7 @@ The text above is identical in `plugins/plan-lifecycle/skills/AGENTS.md` (Adding
 
 ## Report section (every shipped skill)
 
-Every shipped skill of the docks and plan-lifecycle plugins ends with one byte-identical `## Report a problem with this skill` section, so an agent that uses a skill sees where and how to report a problem with it. The section points to the docks `report-skill-issue` skill. For a runtime without docks, it allows only a draft for the user, because the publication safeguards live in that skill. A new skill copies the section unchanged. The skills guard checks every copy against `scripts/config/report-section.md` (verify: `bun scripts/skills/guard.mjs plugins/docks/skills` and `bun scripts/skills/guard.mjs plugins/plan-lifecycle/skills`); a change to the section changes that file and every copy in the same commit.
+Every shipped skill of the docks and plan-lifecycle plugins ends with one byte-identical `## Report a problem with this skill` section, so an agent that uses a skill sees where and how to report a problem with it. The section points to the docks `report-skill-issue` skill. When the `report-skill-issue` skill is not installed, the section allows only a draft for the user, because the publication safeguards live in that skill. A new skill copies the section unchanged. The skills guard checks every copy against `scripts/config/report-section.md` (verify: `bun scripts/skills/guard.mjs plugins/docks/skills` and `bun scripts/skills/guard.mjs plugins/plan-lifecycle/skills`); a change to the section changes that file and every copy in the same commit.
 
 ## omp wording
 

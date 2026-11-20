@@ -3,7 +3,7 @@
 These scripts validate and release the repo's plugins. They are **author-side only** — never shipped to consumers. All tooling is `.mjs` that runs on Bun, including `release.mjs` (`--dry-run` supported); no author script is a shell script. The one shipped shell script is `base-blob.sh`, the merge-base reader of instruction files in `plan-manager` and `code-review`: it is POSIX `sh` with git as its only dependency, because `code-review` runs in repositories that can lack `node`, and `scripts/tests/plan-cli/base-instructions.test.mjs` runs it under `sh`. The docks omp extensions in `plugins/docks/extensions/` ship too: omp loads each `.ts` adapter into the omp process, and each adapter imports its `.mjs` core; the unit tests import the adapters on Bun. Two gate steps stay on Node because consumers run the shipped files with `node`: `scripts/tests/plan-cli.mjs` drives the shipped `plan.mjs` (its fake `gh` runs on Bun), and the gate scores skills with the shipped `plugins/docks/skills/write-skill/scripts/skill-guard.mjs`. In `ci.mjs`, `node()`/`nodeOk()` run exactly these two; `bun()`/`bunOk()` run every other script. Runtimes are chosen by command name, not by `bun --bun` or bunfig `run.bun`. Such an alias makes every `node` in the process tree mean Bun, so the gate could no longer test the shipped files on Node. `ci.mjs` is the local gate, and `.github/workflows/ci.yml` invokes that same gate in full or with its supported `--lane` or `--plugin` target; `ci-target.mjs` resolves both targets — a release tag to one plugin, and a pull-request diff to the shard set the matrix runs.
 
 <constraint>
-Gate choice (focused checks while implementing, `bun scripts/ci.mjs --plugin <name>` for a change owned by one plugin, full `bun scripts/ci.mjs` otherwise, reuse of a green gate) is repo-wide policy in the root `AGENTS.md` (Tool-agnostic rules). Don't loosen validator floors to make a problematic file pass; fix the file.
+Gate choice (focused checks while implementing, `bun scripts/ci.mjs --plugin <name>` for a change owned by one plugin, full `bun scripts/ci.mjs` otherwise, reuse of a green gate) is repo-wide policy in the root `AGENTS.md` (Gate and workspace rules). Don't loosen validator floors to make a problematic file pass; fix the file.
 </constraint>
 
 ## Multi-plugin model (`scripts/lib/plugins.mjs`)
@@ -143,8 +143,8 @@ For example, an 8 GB, 6-core swapless host with tmpfs `/tmp` prints
 ## Edit → release workflow
 
 1. Edit files inside the target plugin (`plugins/<name>/{skills,agents,…}/`).
-2. Run focused checks while iterating. Once the relevant implementation tree is final, run the smallest authoritative gate the root `AGENTS.md` (Tool-agnostic rules) names.
-3. Local omp test (no push): from the checkout root, run `omp --plugin-dir ./plugins/<name>`. omp loads the plugin from that directory for the session; after edits, start a new session with the same flag.
+2. Run focused checks while iterating. Once the relevant implementation tree is final, run the smallest authoritative gate the root `AGENTS.md` (Gate and workspace rules) names.
+3. Local omp test (no push): from the checkout root, run the `verify` project skill, the end-to-end check with the flows V1 to V6. V1 and V3 are its smoke commands (`bun .agents/skills/verify/scripts/omp-smoke.mjs`, then `bun .agents/skills/verify/scripts/omp-smoke.mjs hooks`): they install both plugins from this checkout into isolated omp state and drive the docks extensions. The skill lists the other flows. For one interactive session with the changed plugins, use the commands of the `README.md` "Develop locally" section.
 4. PR to main → PR-CI gates the merge.
 5. After merge, release **one plugin** with the generic positional command: `bun scripts/release.mjs [--plugin <name>] patch|minor|major|<X.Y.Z>` (`--dry-run` previews).
 
@@ -158,11 +158,13 @@ final implementation tree → bun scripts/ci.mjs --plugin <name>    (LAYER 1 —
         ├── commits + pushes  (chore(release): <name> v<version>)
         ├── git tag -a <name>--v<version> + git push origin <name>--v<version>
         ├── waits for tag-CI on GitHub        (LAYER 2 — authoritative)
-        ├── tag-CI passes → gh release create
+        ├── tag-CI passes → gh release create  (notes: commit subjects since the previous tag + the ## Install block)
         └── tag-CI fails  → exits non-zero, prints recovery
 ```
 
 The release tag, not the manifest number, is the fact that a version was released. When manifests are already at this version, a re-cut stages nothing. The release tags existing HEAD instead of creating a commit. A dry run consults the clean-tree gate. On a dirty tree, it reports the refusal instead of forecasting a landing it cannot predict.
+
+The release notes end with an `## Install` block: the new-install and update commands of the plugin (`omp plugin marketplace add`, `omp plugin install`, `omp plugin marketplace update`, `omp plugin upgrade`). The `release.install` field of the plugin descriptor holds that text; `releaseInstallText` in `scripts/lib/plugins.mjs` builds it (verify: `grep -n -A8 'const releaseInstallText' scripts/lib/plugins.mjs`).
 
 Every plugin uses this positional flow: bump resolution, local and tag CI gates, commit/push/tag, release notes, and a read-only dry run.
 

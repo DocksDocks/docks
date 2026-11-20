@@ -7,9 +7,11 @@ one child plan (a sub-issue) per pull request. GitHub owns its title, assignee,
 labels, timestamps, and completion state.
 Do not track plan bodies as repository files.
 
-Read `skills/plan-manager/references/plan-contract.md` inside the
-installed `plan-lifecycle` plugin for the v5 contract and helper commands.
-Resolve this reference from the installed plugin, not a marketplace checkout.
+Read `skill://plan-manager/references/plan-contract.md` for the plan contract
+and helper commands. In a normal session, this path resolves to the installed
+`plan-lifecycle` plugin. In a session that loads this checkout with
+`--plugin-dir` (the README "Develop locally" section), it resolves to the
+checkout copy under change. Read the contract by this path, not by a file path.
 
 Use `plan-workspace` to maintain workspace routing, main-context `plan-manager`
 to run the lifecycle, and internal `plan-reviewer` for plan review.
