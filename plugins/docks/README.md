@@ -16,32 +16,36 @@ omp plugin marketplace update docks
 omp plugin upgrade docks@docks
 ```
 
-Restart omp after an update. omp loads the docks extensions only when a session starts, so an open session keeps the old ones.
+Restart omp after an update. `/reload-plugins` refreshes the skills in an open session, but omp loads the docks extensions only when a session starts, so an open session keeps the old ones.
 
 ## Extensions
 
 The plugin ships two omp extensions:
 
-- `verify-gate` checks each `git commit` that runs through the bash tool for a `Verified:` trailer. A commit that another tool makes does not pass through the gate. The `DOCKS_VERIFY_GATE` environment variable of omp selects the mode: `observe` (default), `enforce`, or `off`. The `commit-discipline` skill describes the trailer and the modes.
+- `verify-gate` checks each `git commit` that runs through the bash tool for a `Verified:` trailer. A commit that another tool makes does not pass through the gate. The `DOCKS_VERIFY_GATE` environment variable of omp selects the mode: `observe` (default), `enforce`, or `off`. In `observe` mode, the gate writes one line for each commit without the trailer to `${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl`. The `commit-discipline` skill describes the trailer and the modes.
 - `context-tree-nudge` adds a message after a file edit inside a context-tree node (a folder below the repository root with its own `AGENTS.md`). The message asks the agent to refresh that node.
 
 ## Platform support
 
 The `docks` plugin supports Linux and macOS only.
 
-For local development, start omp from the root of a checkout of the marketplace repository:
+## Develop locally
+
+The [Develop locally](https://github.com/DocksDocks/docks#develop-locally) section of the marketplace repository README has the full steps and the end-to-end check. For one interactive session from the checkout root, disable the installed `docks@docks` first and enable it again after the session:
 
 ```bash
-omp --plugin-dir ./plugins/docks
+omp plugin disable docks@docks
+omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle -e ./plugins/docks
+omp plugin enable docks@docks
 ```
 
-omp loads the plugin from that directory for the session. After edits, start a new session with the same flag.
+If `docks@docks` stays enabled, omp loads the docks extensions two times.
 
 ## What's inside
 
 ### Pipeline skills
 
-Each runs as one sequential pass in a single context. Approval gates through GitHub-issue plans managed by the `plan-manager` skill from the companion `plan-lifecycle` plugin, not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`. The pipeline skills are `user-invocable` — trigger by name or natural language.
+Each runs as one sequential pass in a single context. Approval gates through GitHub-issue plans managed by the `plan-manager` skill from the companion `plan-lifecycle` plugin, not the omp plan mode. Per-phase expertise lives in each skill's `references/`. The pipeline skills are `user-invocable` — trigger with `/skill:<name>` or natural language.
 
 | Skill | Pipeline |
 |---------|----------|
@@ -49,11 +53,11 @@ Each runs as one sequential pass in a single context. Approval gates through Git
 | `skill-agent-pipeline` | Detection → Exploration → \[Categorizer \| Content-Accuracy Audit \| Pattern Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder (`.omp/agents/*.md`) → Verifier |
 | `refactor` | Exploration → \[Dead Code \| Duplication\] → SOLID Analyzer → Planner → Pre-Verifier → approve → implementation → Post-Verifier (catches NEW SOLID violations introduced while fixing old ones) |
 
-The bracketed phases are independent lenses — a runtime with parallel workers MAY run them concurrently, but the portable default is sequential.
+The bracketed phases are independent lenses; they run in sequence.
 
 ### Skills
 
-Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfaces-feel-better` and `code-guardrails`, which are also user-invocable). Names stay un-namespaced for invocation since they're model-invoked.
+Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfaces-feel-better` and `code-guardrails`, which are also user-invocable). omp keeps the bare skill name: invoke a skill with `/skill:<name>` and read it with `skill://<name>`.
 
 | Skill | Use when |
 |---|---|
@@ -84,8 +88,8 @@ plugin in this same marketplace. It includes the lifecycle skills, an
 explicit-only `yolo` skill that runs the whole lifecycle and asks only before
 merge, the shipped `plan.mjs`, a marker-based plan contract, and the read-only
 `plan-reviewer` and `code-reviewer` wrappers. Plan repairs are re-reviewed from fresh exports, and
-code fixes are re-reviewed from fresh diffs, with a 10-round ceiling in each
-review phase. Each reviewer returns one markdown block that the manager stores
+code fixes are re-reviewed from fresh diffs. The ceiling of each review phase
+is 10 rounds, plus 10 for each extension. Each reviewer returns one markdown block that the manager stores
 as one issue comment. When implementation starts, the manager reuses or creates
 the GitHub-linked plan branch. After code review passes, it commits and pushes
 any remaining reviewed bytes, opens the closing pull request, waits for
@@ -104,16 +108,18 @@ omp plugin install plan-lifecycle@docks
 
 ## Why sequential, single-context?
 
-Earlier versions ran each pipeline as parallel Claude subagents. The kit now runs each pipeline as one sequential pass in a single context; that sequential path stays the reference. omp loads the agents that a plugin ships in its `agents/` folder. The plan issue (issue body + review comments) is the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval record. Each pipeline still uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (recorded in the same plan issue) before anything is applied.
+The kit runs each pipeline as one sequential pass in a single context. The plan issue (issue body + review comments) is the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval record. Each pipeline uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (recorded in the same plan issue) before anything is applied.
 
 ## Validators (plugin-author tooling)
 
-Quality gates live in the marketplace repo's `scripts/` directory and are NOT shipped to user installs — they validate plugin authoring before release:
+Quality gates live in the `scripts/` folder of the marketplace repository and are NOT shipped to user installs. They validate plugin authoring before a release:
 
-- `scripts/skills/guard.mjs` + the bundled `write-skill/scripts/skill-guard.mjs` (`score`) — skill frontmatter and quality (max 16)
-- `scripts/agents/guard.mjs` / `scripts/agents/score.mjs` — structural + quality (max 15)
+```bash
+bun scripts/ci.mjs --plugin docks   # a change in the docks plugin only
+bun scripts/ci.mjs                  # the full local gate: both plugins and the repo-wide checks
+```
 
-`bun scripts/ci.mjs` runs the full local gate. CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.
+`scripts/AGENTS.md` lists each validator with its command and what it checks; each scorer's rubric is in its script. CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.
 
 ## License
 
