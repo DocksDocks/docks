@@ -11,7 +11,7 @@ metadata:
 
 This skill runs the surfaces of this repository the way a user or a host program does. omp installs and loads the plugins. A user drives the plan helper. omp calls the docks extensions (`verify-gate` and `context-tree-nudge`) on its tool events. Run the commands from the repository root. Each one finishes in seconds. V1 and V3 each start one local fake model server and stop it before they exit.
 
-This skill does not replace the gate. The gate choice is in the root `AGENTS.md` (Tool-agnostic rules).
+This skill does not replace the gate. The gate choice is in the root `AGENTS.md` (Gate and workspace rules).
 
 <constraint>
 Report a check as passed only when you ran its command in this session and saw the expected result. A unit-test run does not replace V1 to V6.

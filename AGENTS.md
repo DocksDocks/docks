@@ -1,6 +1,6 @@
 # AGENTS.md
 
-docks is an engineering skill kit and plugin marketplace for omp. It ships **skills** for omp, including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the GitHub-issue plan lifecycle instead of runtime-specific Plan Mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin ships read-only reviewer wrappers under `plugins/plan-lifecycle/agents/`. Both plugins ship as native omp packages.
+docks is an engineering skill kit and plugin marketplace for omp. It ships **skills** for omp, including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the GitHub-issue plan lifecycle instead of the omp plan mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin ships read-only reviewer wrappers under `plugins/plan-lifecycle/agents/`. Both plugins ship as native omp packages.
 
 This root file stays **repo-wide**. Per-area authoring details - skill/agent frontmatter, scoring, the release flow, CI triggers - live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
@@ -72,21 +72,21 @@ Each non-local step needs an in-session `ask` immediately before it runs.
 A user-invoked `yolo` run replaces these asks with the contract's Yolo runs section and asks only before merge.
 A delegation grant hands the design and tradeoff decisions of a plan to the agent (the contract's Delegated decisions). Its authority comes only from a trusted `Delegation grant:` comment; the Goal's `Delegated:` line mirrors it. It does not replace these asks or the merge question; a `yolo` run includes that grant.
 Merge needs a fresh `Merge now` answer. Plan approval does not authorize merge.
-Read `skills/plan-manager/references/plan-contract.md` inside the
-installed `plan-lifecycle` plugin for the complete contract.
+Read `skill://plan-manager/references/plan-contract.md` (the contract reference
+inside the installed `plan-lifecycle` plugin) for the complete contract.
 If the plugin is missing, report it. Do not invent a substitute workflow.
 
 ## Project-local skills
 
 The repo's own `.agents/skills/` hosts skills useful only when working ON this plugin repo - they don't ship to consumers. Each skill's `description` states when to use it (verify: `ls .agents/skills`).
 
-omp reads them directly at `.agents/skills/`.
+omp reads them directly at `.agents/skills/`. The `verify` skill (`.agents/skills/verify/SKILL.md`) is the end-to-end check of a change: it installs both plugins from this checkout into isolated omp state and drives the docks extensions (`bun .agents/skills/verify/scripts/omp-smoke.mjs` and `bun .agents/skills/verify/scripts/omp-smoke.mjs hooks`).
 
 ## CI targeting
 
 CI always runs `scripts/ci.mjs`: in full, per `--lane <shard>`, or per `--plugin <name>`. The trigger model, pull-request shard topology, and cache behavior live in `.github/AGENTS.md`; the gate's selection rules live in `scripts/AGENTS.md`.
 
-## Tool-agnostic rules
+## Gate and workspace rules
 
 - Run focused checks while implementing. Before committing, pushing, or releasing a change owned by exactly one plugin, run `bun scripts/ci.mjs --plugin <name>`; that selected-plugin gate is authoritative for the plugin payload and its descriptor-owned author, source, and release-contract tooling.
 - Run full `bun scripts/ci.mjs` for repo-wide validation/tooling, shared infrastructure used by multiple plugins, registry or CI-topology changes, changes spanning multiple plugins, and manual full-gate requests. Do not run it merely because a single-plugin release is imminent.
@@ -94,7 +94,7 @@ CI always runs `scripts/ci.mjs`: in full, per `--lane <shard>`, or per `--plugin
 - Don't loosen validator floors to pass; fix the file instead
 - Plugin version numbers stay in lockstep per plugin (`package.json` and the catalog entry); `scripts/AGENTS.md` (Versioning) owns the rule, its enforcement, and its verify command
 - Skill body limits live in `plugins/docks/skills/AGENTS.md`
-- Agent scratch worktrees live under `$XDG_DATA_HOME/agent-worktrees/<repo>/<slug>` (default `~/.local/share/agent-worktrees/…`) - never as a sibling of the repository, and never under `/tmp` or `/var/tmp`, which are tmpfs on some hosts (a worktree there is a RAM claim, and `systemd-tmpfiles` ages out individual files, silently corrupting the checkout). Teardown is `git worktree remove` followed by `git worktree prune`; removing the directory by hand leaves an orphan admin record. The artifact set to delete before teardown is stack-dependent - `target/`, `node_modules/`, `dist/`, `.next/`, `__pycache__`, `.venv` - not a fixed `cargo clean`, because a worktree's reclaimable bytes are almost entirely build output. This rule binds agents working in **this** repository; cross-repository coverage requires your runtime's user-global agent file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.omp/agent/AGENTS.md`), each of which is outside every repository and therefore a user action.
+- Agent scratch worktrees live under `$XDG_DATA_HOME/agent-worktrees/<repo>/<slug>` (default `~/.local/share/agent-worktrees/…`) - never as a sibling of the repository, and never under `/tmp` or `/var/tmp`, which are tmpfs on some hosts (a worktree there is a RAM claim, and `systemd-tmpfiles` ages out individual files, silently corrupting the checkout). Teardown is `git worktree remove` followed by `git worktree prune`; removing the directory by hand leaves an orphan admin record. The artifact set to delete before teardown is stack-dependent - `target/`, `node_modules/`, `dist/`, `.next/`, `__pycache__`, `.venv` - not a fixed `cargo clean`, because a worktree's reclaimable bytes are almost entirely build output. This rule binds agents working in **this** repository; cross-repository coverage requires the user-global omp agent file (`~/.omp/agent/AGENTS.md`), which is outside every repository and therefore a user action.
 - Other agent scratch follows the same principle as worktrees: **never the home root, never a repository sibling.** Review bundles and plan-body exports belong in the `docks-review` directory that `git rev-parse --git-path docks-review` resolves - `.git/docks-review` in a plain clone, the worktree-private equivalent in a linked worktree, whose `.git` is a file that makes a literal `.git/…` path fail with `ENOTDIR`. `plan-manager` writes the diff bundle there in phase 6 and `plan.mjs export` writes `plan-<issue>.md` there, both created mode `0700`, untracked, and discarded with the clone or worktree; scratch written anywhere else falls outside the lifecycle's contract. One-shot drivers, candidate plan bodies, measurement output, and the cross-session handoff index belong under `$XDG_STATE_HOME/docks/…` (default `~/.local/state/docks/…`, mode `0700`), extending the release tooling's existing `~/.local/state/docks-release/<plugin>-<version>/run.<id>/`.
 
 ## Security
@@ -106,7 +106,6 @@ CI always runs `scripts/ci.mjs`: in full, per `--lane <shard>`, or per `--plugin
 ## What does NOT belong in this repo
 
 - Consumer-side env vars / permissions / RTK config - those live in [DocksDocks/public](https://github.com/DocksDocks/public)
-- `disable-claudeai-connectors.sh` - same reason, it's an opinionated user-machine hook
 - Plugin version numbers in prose (AGENTS.md, README) - let `package.json`, the catalog, and GitHub Releases be the source of truth
 
 (Repository entry point. Per-area rules live in the Context tree nodes above.)
