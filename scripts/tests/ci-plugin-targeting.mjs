@@ -1019,6 +1019,20 @@ const NATIVE_GATE_CASES = [
     /entry \.\/extensions\/zz-linked-folder is outside the plugin folder after symbolic links resolve$/,
   ],
   [
+    // The folder entry is a link to a folder outside the plugin folder, and the index.ts there links back to a module
+    // inside it. The file that omp loads is inside, but the folder of the entry is missing after install.
+    'an omp.extensions folder entry that is a symbolic link to a folder outside the plugin folder',
+    (tree) => {
+      writeTreeFile(tree, 'plugins/docks/extensions/zz-inside-module.ts', 'export default () => undefined;\n');
+      linkTreeFile(tree, 'plugins/zz-outside-folder/index.ts', '../docks/extensions/zz-inside-module.ts');
+      linkTreeFile(tree, 'plugins/docks/extensions/zz-escaping-folder', '../../zz-outside-folder');
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-escaping-folder'];
+      });
+    },
+    /entry \.\/extensions\/zz-escaping-folder is outside the plugin folder after symbolic links resolve$/,
+  ],
+  [
     // The gate must record one failure line for the module and go on to its summary.
     'an omp.extensions entry that throws at import',
     (tree) => {

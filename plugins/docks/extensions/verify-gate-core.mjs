@@ -22,6 +22,7 @@
 // check writes no state after it. The core reads and writes nothing on stdout or stderr: the
 // adapter allows the command when the core throws.
 import { execFile } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -425,7 +426,7 @@ function messageSources(options) {
 
 // ---------- state ----------
 
-// Run one write of state, unless the check passed its deadline: a check writes no state after it.
+// Start one write of state, unless the check passed its deadline: a check starts no state write after it.
 function writeState(signal, write) {
   signal.throwIfAborted();
   return write();
@@ -464,7 +465,9 @@ async function readDenials(file, signal) {
 
 // Record one denial for the session and return the count of earlier denials. After
 // DENIALS_BEFORE_ALLOW denials the count starts again at zero. The new state goes to a temporary
-// file first, and a rename puts it in place, so a reader never sees a part of a file.
+// file first, and a rename puts it in place, so a reader never sees a part of a file. Each update
+// has its own temporary file, so no other update writes into it. A write that started before the
+// deadline can end after it; the update then removes its temporary file and changes no state.
 async function updateDenials(env, sessionId, signal) {
   const file = path.join(await stateDir(env, signal), 'verify-gate-denials.json');
   const state = await readDenials(file, signal);
@@ -474,26 +477,25 @@ async function updateDenials(env, sessionId, signal) {
   }
   const previous = state[sessionId]?.count ?? 0;
   state[sessionId] = previous >= DENIALS_BEFORE_ALLOW ? { count: 0, time: now } : { count: previous + 1, time: now };
-  const temp = `${file}.${process.pid}.tmp`;
-  await writeState(signal, () => fs.promises.writeFile(temp, JSON.stringify(state), { mode: 0o600 }));
-  await writeState(signal, () => fs.promises.rename(temp, file));
+  const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeState(signal, () => fs.promises.writeFile(temp, JSON.stringify(state), { mode: 0o600, flag: 'wx' }));
+    await writeState(signal, () => fs.promises.rename(temp, file));
+  } catch (error) {
+    await fs.promises.unlink(temp).catch(() => {});
+    throw error;
+  }
   return previous;
 }
 
-// The end of the last queued denial update of this omp process. Each update waits for the one
-// before it, so two checks cannot both read the old count and lose a denial. An update that does
-// not end frees the queue at the deadline of its check, because it then writes no more state.
+// The end of the last queued denial update of this omp process. Each update starts only when the
+// one before it settles, so two updates never overlap and two checks cannot both read the old
+// count and lose a denial. An update whose check passed its deadline while it waited writes nothing.
 let denialQueue = Promise.resolve();
-
-const whenAborted = (signal) =>
-  new Promise((resolve) => {
-    if (signal.aborted) resolve();
-    else signal.addEventListener('abort', () => resolve(), { once: true });
-  });
 
 function countDenial(env, sessionId, signal) {
   const update = denialQueue.then(() => updateDenials(env, sessionId, signal));
-  denialQueue = Promise.race([update, whenAborted(signal)]).catch(() => {});
+  denialQueue = update.catch(() => {});
   return update;
 }
 
@@ -508,7 +510,7 @@ const DENY_REASON =
 // `sessionId` keys the denial count, and `env` gives DOCKS_VERIFY_GATE and XDG_STATE_HOME.
 // Returns the deny reason, or null to allow the command. It rejects when the check runs longer
 // than `deadlineMs`; the abort then stops the git calls and the file reads of the check, so the
-// check writes no state after its deadline.
+// check starts no state write after its deadline.
 export async function checkCommand({ command, cwd, sessionId, env, deadlineMs = CHECK_DEADLINE_MS }) {
   const controller = new AbortController();
   const expired = new Promise((_, reject) => {

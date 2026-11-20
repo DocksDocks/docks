@@ -637,9 +637,10 @@ async function gateExtensions(p) {
 }
 
 // The problem of one `omp.extensions` entry, or null when omp can load it. The install copies only the plugin
-// folder, so an entry outside it is missing after install: the entry path, and the real path of the file that omp
-// loads, with each symbolic link resolved, must be inside the real plugin folder. A folder entry loads its first
-// `index.*` file, as omp does. A module that throws at import gives a problem, so the gate goes on to its summary.
+// folder, so an entry outside it is missing after install: the entry path, the real path of the entry, and the real
+// path of the file that omp loads, with each symbolic link resolved, must be inside the real plugin folder. A folder
+// entry loads its first `index.*` file, as omp does. A module that throws at import gives a problem, so the gate goes
+// on to its summary.
 async function extensionProblem(pluginRoot, entry) {
   const outside = (root, file) => path.relative(root, file).split(path.sep)[0] === '..';
   const target = path.resolve(pluginRoot, entry);
@@ -649,7 +650,8 @@ async function extensionProblem(pluginRoot, entry) {
     ? (EXTENSION_INDEX_FILES.map((name) => path.join(target, name)).find(isFile) ?? target)
     : target;
   if (!isFile(modulePath)) return `is not a file (a folder entry needs one of ${EXTENSION_INDEX_FILES.join(', ')})`;
-  if (outside(fs.realpathSync(pluginRoot), fs.realpathSync(modulePath)))
+  const realRoot = fs.realpathSync(pluginRoot);
+  if (outside(realRoot, fs.realpathSync(target)) || outside(realRoot, fs.realpathSync(modulePath)))
     return 'is outside the plugin folder after symbolic links resolve';
   let module;
   try {

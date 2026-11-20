@@ -449,50 +449,74 @@ test('a check that runs past its deadline rejects, stops its git calls, and writ
   assert.equal(fs.existsSync(path.join(state, 'docks')), false);
 });
 
-test('a check that passes its deadline during a state write writes no denial and no log line', async (t) => {
+// Replace fs.promises.writeFile for the temporary denial files of one state folder. The stub records the name of each
+// temporary file and the highest count of these writes at the same time. With `hold`, the first write waits until
+// `release()`; `held` settles when that write starts.
+function watchDenialWrites(state, t, { hold = false } = {}) {
+  const realWriteFile = fs.promises.writeFile;
+  const prefix = path.join(state, 'docks', 'verify-gate-denials.json.');
+  const writes = { names: [], active: 0, maxActive: 0 };
+  let release = () => {};
+  const released = hold ? new Promise((resolve) => (release = resolve)) : Promise.resolve();
+  let started = () => {};
+  const held = new Promise((resolve) => (started = resolve));
+  fs.promises.writeFile = async (file, ...rest) => {
+    if (typeof file !== 'string' || !file.startsWith(prefix)) return realWriteFile(file, ...rest);
+    writes.names.push(file);
+    writes.active += 1;
+    writes.maxActive = Math.max(writes.maxActive, writes.active);
+    try {
+      if (writes.names.length === 1) {
+        started();
+        await released;
+      }
+      return await realWriteFile(file, ...rest);
+    } finally {
+      writes.active -= 1;
+    }
+  };
+  t.after(() => {
+    fs.promises.writeFile = realWriteFile;
+    release();
+  });
+  return { writes, held, release };
+}
+
+test('a denial update whose write stalls holds the next update until it settles, and neither check writes state', async (t) => {
   const state = tempDir('state-deadline', t);
-  const denials = path.join(state, 'docks', 'verify-gate-denials.json');
-  fs.mkdirSync(path.dirname(denials), { recursive: true });
-  // Two denials of s1 make this commit the allowed third one, which resets the count and appends a log line.
-  const before = JSON.stringify({ s1: { count: 2, time: Date.now() } });
-  fs.writeFileSync(denials, before);
-  // The core writes the new state to this temporary file first. As a FIFO without a reader, it holds the write
-  // in its open until the deadline passes.
-  const temp = `${denials}.${process.pid}.tmp`;
-  execFileSync('mkfifo', [temp]);
+  const docks = path.join(state, 'docks');
+  const denials = path.join(docks, 'verify-gate-denials.json');
+  fs.mkdirSync(docks, { recursive: true });
+  // Two denials of s1 make the next commit the allowed third one, which resets the count and appends a log line.
+  fs.writeFileSync(denials, JSON.stringify({ s1: { count: 2, time: Date.now() } }));
+  const { writes, held, release } = watchDenialWrites(state, t, { hold: true });
   const { checkCommand } = await import(CORE);
-  await assert.rejects(
+  const check = (deadlineMs) =>
     checkCommand({
       command: 'git commit',
       cwd: state,
       sessionId: 's1',
       env: { XDG_STATE_HOME: state, DOCKS_VERIFY_GATE: 'enforce' },
-      deadlineMs: 500,
-    }),
-    /the check ran longer than 500 ms/u,
+      deadlineMs,
+    });
+  // The first check passes its deadline during its write. The second check waits in the chain after it.
+  const first = check(300);
+  const second = check(600);
+  await held;
+  await assert.rejects(first, /the check ran longer than 300 ms/u);
+  await assert.rejects(second, /the check ran longer than 600 ms/u);
+  assert.equal(writes.names.length, 1, 'the second update must not start while the first one writes');
+  // The held write ends now, after both deadlines. The third check waits in the chain until the first update settles.
+  release();
+  assert.equal(await check(5000), null, 'two denials stay recorded, so the third commit is allowed');
+  assert.equal(JSON.parse(fs.readFileSync(denials, 'utf8')).s1.count, 0);
+  assert.deepEqual(
+    logLines(state).map((line) => line.allowed_after_denials),
+    [2],
   );
-  // A reader lets the held write go on now, after the deadline. Read until the writer closes the FIFO.
-  const reader = fs.openSync(temp, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
-  let received = '';
-  for (const until = Date.now() + 3000; Date.now() < until; ) {
-    const buffer = Buffer.alloc(4096);
-    let bytes = 0;
-    try {
-      bytes = fs.readSync(reader, buffer);
-    } catch (error) {
-      if (error.code !== 'EAGAIN') throw error;
-    }
-    if (bytes > 0) received += buffer.toString('utf8', 0, bytes);
-    else if (received !== '') break;
-    else await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  fs.closeSync(reader);
-  assert.match(received, /"s1":\{"count":0/u, 'the write of the new state must have gone on after the deadline');
-  // Give a rename and a log append time to run, if the check did not stop.
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.ok(fs.lstatSync(denials).isFile(), 'the denial file must not be replaced');
-  assert.equal(fs.readFileSync(denials, 'utf8'), before);
-  assert.deepEqual(logLines(state), []);
+  assert.deepEqual(fs.readdirSync(docks).sort(), ['verify-gate-denials.json', 'verify-gate.jsonl']);
+  assert.equal(writes.maxActive, 1);
+  assert.equal(new Set(writes.names).size, 2, 'each update must write its own temporary file');
 });
 
 test('a denial file that is not a regular file allows the command in enforce mode at once', async (t) => {
@@ -518,8 +542,9 @@ test('a denial file that is not a regular file allows the command in enforce mod
   assert.deepEqual(logLines(state), []);
 });
 
-test('two checks of one session at the same time count two denials', async (t) => {
+test('two checks of one session at the same time count two denials, each through its own temporary file', async (t) => {
   const state = tempDir('concurrent', t);
+  const { writes } = watchDenialWrites(state, t);
   const handler = await toolCallHandler();
   // `git commit` without a message source starts no git call, so both checks reach the denial state at once.
   const event = { type: 'tool_call', toolName: 'bash', toolCallId: 'call_1', input: { command: 'git commit' } };
@@ -532,6 +557,8 @@ test('two checks of one session at the same time count two denials', async (t) =
   assert.equal(saved.s1.count, 2);
   // After the two denials, the third commit is allowed.
   assert.equal(await runGate({ state, mode: 'enforce', command: 'git commit', handler }), undefined);
+  assert.equal(writes.maxActive, 1, 'two denial updates must not overlap');
+  assert.equal(new Set(writes.names).size, 3, 'two updates must never use the same temporary file name');
 });
 
 test('a denial count older than seven days expires, and the denial file drops it', async (t) => {
