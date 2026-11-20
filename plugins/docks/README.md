@@ -34,17 +34,19 @@ The `docks` plugin supports Linux and macOS only.
 The [Develop locally](https://github.com/DocksDocks/docks#develop-locally) section of the marketplace repository README has the full steps and the end-to-end check. For one interactive session from the checkout root, first disable each enabled install of `docks@docks`:
 
 1. Run `omp plugin list --json`. Note the `scope` (`user` or `project`) of each `docks@docks` entry and its `enabled` value. `"enabled": false` shows a disabled install; `"enabled": true` or no `enabled` field shows an enabled install.
-2. Disable each enabled scope with `--scope <scope>`, then start the session:
+2. Disable each enabled scope, then start the session. Run only the disable lines that match an enabled install:
 
    ```bash
-   omp plugin disable --scope <scope> docks@docks   # once for each enabled scope: user, project
+   omp plugin disable --scope user docks@docks      # only for an enabled user install
+   omp plugin disable --scope project docks@docks   # only for an enabled project install
    omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle -e ./plugins/docks
    ```
 
 3. After the session, enable again only the scopes that were enabled before:
 
    ```bash
-   omp plugin enable --scope <scope> docks@docks    # once for each scope that was enabled before
+   omp plugin enable --scope user docks@docks       # only if the user install was enabled before
+   omp plugin enable --scope project docks@docks    # only if the project install was enabled before
    ```
 
 If an install of `docks@docks` stays enabled, omp loads the docks extensions two times. Each loaded copy of `verify-gate` checks each `bash` call that holds a commit. In `observe` mode, a call with an unverified commit writes one log line for each copy. In `enforce` mode, each copy adds a denial, so the two-denial rule does not work as the `commit-discipline` skill describes.
