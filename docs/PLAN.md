@@ -121,10 +121,7 @@ The Steps table uses this exact header:
 
 `#` is the positive display number. `Id` matches `[a-z][a-z0-9_]{0,63}` and is unique. `Task`, `Files`, and `Done when` are non-empty. `Depends` is `-` or a comma-separated list of lower display numbers from the same table. `Effect` is exactly one of `local`, `probe`, `production_access`, `publish`, `push`, `release`, or `deploy`. `Status` is exactly one of `planned`, `in-flight`, `done`, `blocked`, or `skipped`; `done` and `skipped` are terminal. `Done when` names one observable proof and carries no "or STOP" clause. Step citations use `step:<id>` and resolve to a declared id.
 
-Every Steps row must be terminal before the closing pull request merges. Once
-that merge closes the issue as completed, the derived state is `finished` and
-step mutation is limited to terminal repair of a closed-but-unarchived record.
-Post-merge work belongs to a named follow-up plan.
+Every Steps row must be terminal before the closing pull request merges, except a step whose Task starts with `After the landing merge`. Such a step, for example a release, a deploy, or a sync, stays `planned` until that merge, runs only after an in-session `ask`, and archive waits until it is terminal. Once the merge closes the issue as completed, the derived state is `finished`, and step mutation is limited to marking those steps `done` or `skipped` and to terminal repair of a closed-but-unarchived record. Other post-merge work belongs to a named follow-up plan.
 
 No Steps `Files` cell names the plan's own issue reference. Writing lifecycle
 state into the record is the CLI's job, not an implementation step.
@@ -259,8 +256,7 @@ and presence byte-for-byte; new rows must be appended after every existing row,
 must start `planned`, and are refused on closed plans; after that boundary, only
 `plan.mjs step` writes step state.
 Before this boundary, a `drafting` or `planned` plan with no historical
-`plan:ongoing` event may edit Steps freely. On a closed plan, post-merge step
-mutation remains limited to terminal repair; new work requires a follow-up plan.
+`plan:ongoing` event may edit Steps freely. On a closed plan, post-merge step mutation is limited to the steps whose Task starts with `After the landing merge` and to terminal repair; new work requires a follow-up plan.
 
 Re-export immediately before every body edit. Edit the export.
 Apply it with `plan.mjs edit <issue> --file <path>`.
