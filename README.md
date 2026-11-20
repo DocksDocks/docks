@@ -113,7 +113,7 @@ Full reference: `docks-kit docs flags`.
 | `cli/` | docks-kit CLI (Effect 4 on Bun) + bundled docs topics |
 | `docks-kit` / `docks-kit.ps1` | POSIX and Windows launchers (binary → Bun-from-source) |
 | `install.sh` / `install.ps1` | POSIX and Windows global installers |
-| `docs/PLAN.md` | Plan record standard; plans are GitHub issues |
+| `docs/PLAN.md` | Plan pointer and project plan rules; plans are GitHub issues |
 | `AGENTS.md` | Agent-facing engineering rules |
 
 ## Platform support
