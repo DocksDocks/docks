@@ -18,14 +18,24 @@
  *   first, so a live buffer can start with `{"i":"<intent>",`. The model is
  *   expected to write the keys in schema order, but a call can also put `i`
  *   last. A provider can also stream JSON with white space, such as
- *   `{"command": "ls"}`. So each condition starts with a lookbehind that puts
- *   the match inside the `command` or `code` string, with optional JSON white
- *   space around the colon, and its scans stop at the end of that string.
- *   omp 18.21.0 accepts this variable-length lookbehind.
+ *   `{"command": "ls"}`. So each condition starts with the forward key
+ *   prefix: the `command` or `code` key, optional JSON white space around the
+ *   colon, and a lazy walk over the string body that steps over each `\`
+ *   escape and never over an unescaped `"`. The match therefore starts at the
+ *   key, and the prefix stays inside that string; a later part such as
+ *   `[^)]*` can still cross the closing quote. `conditionShapeFaults` checks
+ *   the prefix.
+ * - omp 19.0.0 tests every condition on the whole buffer at each streamed
+ *   delta, on its main thread, in JavaScriptCore. A leading variable-length
+ *   lookbehind, the earlier form of the key anchor, walks back from every
+ *   buffer position there: seconds per scan on a 20 KB call, which froze omp
+ *   sessions, and past JavaScriptCore's match limit the scan reports no match
+ *   (plan issue #187). `ompTriggerBackstop.ts` measures that cost under Bun.
  * - A match is case-sensitive. omp compiles a condition with no flags, so
  *   there is no `u` flag and `\q` is an identity escape. `^` and `$` are the
  *   start and end of the buffer.
- * - One leading `(?i)`, `(?m)`, or `(?s)` group becomes the JavaScript flag.
+ * - A leading inline flag group with one or more of `i`, `m`, and `s`, such
+ *   as `(?i)` or `(?is)`, becomes the JavaScript flags, as in omp 19.0.0.
  * - `scope` limits the stream surfaces. With `tool:<name>` tokens only, prose
  *   never matches. With no `scope`, omp watches prose and every tool.
  *
@@ -68,6 +78,8 @@ export interface TriggerScope {
 export interface TriggerRule {
   readonly name: string;
   readonly conditions: ReadonlyArray<RegExp>;
+  /** The condition texts as the rule file writes them, inline flag group included. */
+  readonly conditionSources: ReadonlyArray<string>;
   readonly scope: TriggerScope;
   readonly repeatMode: RepeatMode | undefined;
 }
@@ -100,7 +112,7 @@ export type TriggerToolCall = TriggerArgumentForm &
       }
   );
 
-const INLINE_FLAG_GROUP = /^\(\?([ims])\)/u;
+const INLINE_FLAG_GROUP = /^\(\?([ims]+)\)/u;
 const PER_TOOL_PATH_GLOB = /^tool:[\w-]+\(/u;
 const FILE_GLOB_CONDITION = /^[\w./*-]*\*[\w./*-]*$/u;
 
@@ -128,10 +140,10 @@ function compileCondition(name: string, source: string): RegExp {
     throw new Error(`${name}: condition ${JSON.stringify(source)} is a file glob, not ported`);
   }
   const flagGroup = INLINE_FLAG_GROUP.exec(source);
-  const flag = flagGroup?.[1] ?? "";
+  const flags = flagGroup?.[1] ?? "";
   const pattern = flagGroup === null ? source : source.slice(flagGroup[0].length);
   try {
-    return new RegExp(pattern, flag);
+    return new RegExp(pattern, flags);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`${name}: condition ${JSON.stringify(source)} does not compile: ${reason}`, {
@@ -174,11 +186,11 @@ function parseRepeatMode(name: string, value: unknown): RepeatMode | undefined {
 export function parseTriggerRule(name: string, text: string): TriggerRule {
   const data = frontmatter(name, text);
   if (data.condition === undefined) throw new Error(`${name}: no condition`);
+  const conditionSources = stringList(name, "condition", data.condition);
   return {
     name,
-    conditions: stringList(name, "condition", data.condition).map((source) =>
-      compileCondition(name, source),
-    ),
+    conditions: conditionSources.map((source) => compileCondition(name, source)),
+    conditionSources,
     scope: parseScope(name, data.scope),
     repeatMode: parseRepeatMode(name, data.repeatMode),
   };
@@ -187,6 +199,94 @@ export function parseTriggerRule(name: string, text: string): TriggerRule {
 /** Loads a kit rule from the embedded payload, which sync deploys to the kit plugin. */
 export function kitTriggerRule(name: TriggerRuleName): TriggerRule {
   return parseTriggerRule(name, payloadText(`SoT/.omp/plugin/rules/${name}.md`));
+}
+
+// The key, then the first run of plain characters; each escape step that
+// follows consumes one `\` escape and the plain run after it, so the walk
+// never passes an unescaped `"` and stays inside the string.
+const KEY_PREFIX_START = String.raw`"(?:command|code)"\s*:\s*"[^"\\]*?`;
+const ESCAPE_STEP = String.raw`\\.[^"\\]*?`;
+const UNROLLED_ESCAPES = 8;
+
+/** The forward key prefix `P0` of plan #187: one loop step per escape. */
+export const FORWARD_KEY_PREFIX = `${KEY_PREFIX_START}(?:${ESCAPE_STEP})*?`;
+
+/**
+ * `P0` with `escapes` escapes per loop step. It matches the same positions as
+ * `P0`. JavaScriptCore's regex JIT keeps one backtrack frame per loop step and
+ * falls back to its 25 times slower interpreter past about 16 K frames, which
+ * `P0` reaches at about 50 KB of escape-dense text. `k` escapes per step move
+ * that point `k` times further out. Most kit rules use 8; a condition with
+ * many capture groups has larger frames and uses 16.
+ */
+function unrolledKeyPrefix(escapes: number): string {
+  return (
+    `${KEY_PREFIX_START}(?:${ESCAPE_STEP.repeat(escapes)})*?` +
+    `(?:${ESCAPE_STEP}){0,${escapes - 1}}?`
+  );
+}
+
+/** The unrolled key prefix that most kit rules use: 8 escapes per step. */
+export const UNROLLED_KEY_PREFIX = unrolledKeyPrefix(UNROLLED_ESCAPES);
+
+/** Every key prefix width the shape check accepts: `P0` and 2 to 32 escapes per step. */
+const KEY_PREFIXES: ReadonlyArray<string> = [
+  FORWARD_KEY_PREFIX,
+  ...Array.from({ length: 31 }, (_, index) => unrolledKeyPrefix(index + 2)),
+];
+
+/** Offsets of the `|` characters outside every group and character class. */
+function topLevelBars(pattern: string): Array<number> {
+  const bars: Array<number> = [];
+  let depth = 0;
+  let inClass = false;
+  for (let at = 0; at < pattern.length; at++) {
+    const char = pattern[at];
+    if (char === "\\") {
+      at++;
+    } else if (inClass) {
+      if (char === "]") inClass = false;
+    } else if (char === "[") {
+      inClass = true;
+    } else if (char === "(") {
+      depth++;
+    } else if (char === ")") {
+      depth--;
+    } else if (char === "|" && depth === 0) {
+      bars.push(at);
+    }
+  }
+  return bars;
+}
+
+/**
+ * Why a condition breaks the static shape rules, or an empty list. After an
+ * optional inline flag group the condition must start with the forward key
+ * prefix, so each match starts at the `command` or `code` key. The shape
+ * that froze omp, a leading lookbehind that walks back from each buffer
+ * position, does not start at the key, so it fails this rule. A `|` outside
+ * every group and character class lets the alternative after it match
+ * without the key prefix, so the condition must not have one.
+ *
+ * This check cannot prove that a scan takes linear time: a later part of a
+ * condition can still backtrack or walk back far. `ompTriggerBackstop.ts`
+ * proves it by measurement under Bun: the time budget, the fire check,
+ * scaling with the JIT off, escape-dense text, a head-then-run buffer, and
+ * an open buffer.
+ */
+export function conditionShapeFaults(source: string): Array<string> {
+  const flagGroup = INLINE_FLAG_GROUP.exec(source);
+  const pattern = flagGroup === null ? source : source.slice(flagGroup[0].length);
+  const faults: Array<string> = [];
+  if (!KEY_PREFIXES.some((prefix) => pattern.startsWith(prefix))) {
+    faults.push("does not start with the forward key prefix");
+  }
+  for (const bar of topLevelBars(pattern)) {
+    faults.push(
+      `has a "|" outside every group at offset ${bar}, so its next alternative needs no key prefix`,
+    );
+  }
+  return faults;
 }
 
 /** The argument JSON text that omp matches, with the key order of the measured snippets. */

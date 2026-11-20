@@ -204,20 +204,102 @@ command before they decide, because `-n` or `--staged` can come last.
 The buffer is the argument JSON text, and omp's schema puts the intent field
 `i` before `command`. A call can also put `i` after `command`, and a provider
 can stream JSON with white space, such as `{"command": "ls"}`. Each condition
-has the lookbehind `(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)` before
-its first command token, so a match starts only inside the `command` or
-`code` string, with or without JSON white space around the colon. omp 18.21.0
-accepts this variable-length lookbehind. A scan reads an escape pair, such as
-`\"` or `\\`, as one unit. It stops at an unescaped `"`, which ends the
-command string, and at a newline (`\n`), which ends the command line. So the
-intent text and the next line do not fire a rule. A tab in a command is `\t`
-in the buffer, so each condition reads `\t` as shell white space, as it reads
-a space. A scan that looks for an option also stops at a ` -- ` word, also
-with a tab, because each later word is a path. So `git clean -fd -- -n`
-fires, and `git rm -- -f` stays quiet. In the `git push` conditions for `$`,
-a backtick, and a chain, a scan also stops at `)` and at a backtick, which end
-a JavaScript `` sh`…` `` or `sh("…")` call. A backtick counts as a command
+starts its match with the forward key prefix, after an optional inline flag
+group:
+
+```text
+"(?:command|code)"\s*:\s*"[^"\\]*?(?:\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?\\.[^"\\]*?)*?(?:\\.[^"\\]*?){0,7}?
+```
+
+The prefix matches the `command` or `code` key, with or without JSON white
+space around the colon. Then it walks the string body forward and steps over
+one escape pair, such as `\"` or `\\`, as one unit. Each loop step takes up to
+8 escape pairs. So the JavaScriptCore regex JIT handles about 8 times more
+escapes before it falls back to its slower interpreter. The walk never passes
+an unescaped `"`, so the key prefix starts at the key and stays inside that
+string. Only the prefix gives this guarantee. A scan stops at an unescaped
+`"`, which ends the command string, and at a newline (`\n`), which ends the
+command line. So the intent text and the next line do not fire a rule. A
+known limit: a part of a condition that is not such a scan, such as
+`[^)]*`, can cross the closing quote, and the match then continues into a
+later field. For example, the `Bun.file` condition of `file-removal.md`
+matches `{"code":"Bun.file(","i":").delete("}`. A tab in a command is `\t` in
+the buffer, so each condition reads `\t` as shell white space, as it reads a
+space. A scan that looks for an option also stops at a ` -- ` word, also with
+a tab, because each later word is a path. So `git clean -fd -- -n` fires, and
+`git rm -- -f` stays quiet. In the `git push` conditions for `$`, a backtick,
+and a chain, a scan also stops at `)` and at a backtick, which end a
+JavaScript `` sh`…` `` or `sh("…")` call. A backtick counts as a command
 substitution only when a word follows it.
+omp's `Matched:` excerpt is a bounded window around the match start, not the
+full match (`packages/coding-agent/src/export/ttsr.ts` in omp 19.0.0). The
+window starts up to 60 characters before the match start, so it can show the
+end of the intent field. omp keeps at most 120 characters of the match and
+up to 60 characters after them. So a long match is cut at 180 characters from
+its start. omp replaces each white space run with one space and marks a cut
+end with `…`. In a long call, the trigger can be more than 180 characters
+after the key, and then the trigger is outside the excerpt.
+
+omp 19.0.0 tests every condition on the whole buffer at each streamed delta,
+on its main thread, in JavaScriptCore. From 0.22.24 to 0.22.29, each
+condition started with a variable-length lookbehind over the key and the
+string body. A leading unbounded lookbehind walks back over the buffer from
+every position. On a 20 KB tool call, one scan took seconds and froze the omp
+session. Past JavaScriptCore's match limit, the scan also reported no match,
+so the rule did not fire.
+
+A forward key prefix alone does not make a condition linear. Three input
+families can still make a scan slow:
+
+- A dense line: one long line that repeats a command start, such as
+  `git restore `. If the scan of each command start runs to the end of the
+  line, the time grows with the square of the line length.
+- A head and a run: one command start, such as `aws `, and then one long run,
+  such as `x x x`. A group loop inside a lookaround makes JavaScriptCore keep
+  each loop step until the match attempt ends. The regex then drops out of
+  the JIT. One `remote-cleanup.md` condition took 0.9 ms at 16 KB and 82 ms at
+  64 KB.
+- An open buffer: the buffer stops before the closing quote of the command.
+  omp tests the buffer after each streamed delta, so most real scans see no
+  closing quote, and a scan cannot use it as a stop.
+
+A command start inside the option region of an earlier command start, and
+text with many escapes, need care too. So each condition has this form:
+
+- The match starts at the forward key prefix.
+- Each scan after a command start is one lazy walk that stops at its first
+  event: `(?=(?<w>[\s\S]*?)(?=EVENT)BOUNDARY)\k<w>`. The events are the flag
+  that the condition looks for, a terminator, the end of the run, and the
+  next command start. A lookahead in JavaScript does not backtrack after it
+  matches, so `\k<w>` consumes the walk as one frozen piece.
+- An event counts only at a real token boundary: no odd run of backslashes
+  comes before it.
+- A scan stops at a later command start, because the scan of that command
+  start reads the same remaining text. So two scans never read the same
+  text, and a dense line costs linear time.
+- Some conditions find the flag first and then walk back once to the head of
+  the command. Their head allows wrapper words, such as `sudo` or `env`, or
+  `KEY=value` words before the command, as in `LC_ALL=C rm`.
+
+The rewrite gives the same result as the rules of 0.22.29 on each input that
+the checks tried. The checks are the 2697 rows of the test table, a fuzz run
+of 5 times 310,825 buffers on all 69 conditions, and an enumeration of every
+token sequence of up to 6 or 7 tokens for each condition. The enumeration
+used closed and open buffers. No result changed, and no match was lost or
+added.
+
+Write each new condition by these rules:
+
+- Start the match with the forward key prefix. Never start a condition with
+  an unbounded lookbehind.
+- Make each scan one frozen walk that stops at its first event and at the
+  next command start.
+- Never put a group loop inside a lookaround over text of unbounded length.
+- Run `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`. It runs the
+  shape guard and the Bun backstop.
+- When you rewrite a condition, run the old and the new condition on each
+  buffer of the test table, and make sure that both give the same result.
+
 `cli/test/unit/ompTriggerRules.test.ts` runs each shell row through bash,
 Python `sh("…")`, JavaScript `` sh`…` ``, and JavaScript `sh("…");`. It runs
 every row in the compact JSON layout (`{"command":"ls"}`) and in the spaced
@@ -226,6 +308,33 @@ newline and an indent. Other rows put trigger words in the intent field,
 before or after the command, or put a tab in the command. The test checks
 that each correct form stays quiet on each prefix, that each condition has a
 wrong row that fires it, and that each rule has `repeatMode: always`.
+
+Its shape guard checks only what a static check can prove. Each condition
+must start with the forward key prefix, and this rejects the leading
+lookbehind that froze omp. No `|` can stand outside every group, because the
+alternative after it needs no key prefix. The shape guard cannot prove
+linear time. The backstop proves it by measurement: the test runs
+`cli/test/lib/ompTriggerBackstop.ts` under Bun, because the unit tests run on
+V8, which does not show the JavaScriptCore cost. The backstop has these
+checks:
+
+- Time budget, with the regex JIT on: one pass of all conditions over a
+  20 KB Python cell, a 20 KB bash command, and a 30 KB `KEY=value` chain
+  stays under 250 ms for each buffer.
+- Fire, with the regex JIT on: `git reset --hard` at the end of the 20 KB
+  cell fires `git-safety.md`.
+- Scaling, with the regex JIT off: each condition alone, on each adversarial
+  input shape, at 16 KB and 64 KB.
+- Dense and head-and-run scaling, with the regex JIT on: each condition
+  alone, on the two families above, at 16 KB and 64 KB. Each line goes into a
+  bash command, an open bash command without its closing quote, and a Python
+  `sh("…")` cell.
+
+In each scaling check, the 64 KB time must stay at most 8 times the 16 KB
+time plus 15 ms, and at most 100 ms. The backstop times the pairs in parallel
+child processes first. Each pair that fails there gets a second, serial run,
+and it fails only when it fails there too. A call of 1000 ms or more fails at
+once.
 
 ## Why omp denies instead of asking
 

@@ -90,6 +90,59 @@ Claude Code:
   links of kit-owned skills that SoT no longer lists, until a later part of
   this release removes universal skills.
 
+### Fixed
+
+- The omp trigger rules no longer freeze an omp session while a large tool
+  call streams (plan #187). omp 19.0.0 tests every rule condition on the
+  tool-call buffer at each streamed delta, on its main thread. Each condition
+  started with a lookbehind that walked back over the whole buffer from every
+  position. On a 20 KB bash command or eval cell with many `\"` escapes, one
+  pass of all conditions took 3.8 to 5.8 s in Bun, and omp logged
+  `ui.loop-blocked` records of up to 5.6 s.
+- Past the JavaScriptCore match limit, such a scan also reported no match, so
+  a rule did not fire on a large call. For example, `git-safety.md` stayed
+  quiet after 4.7 s on a 21 KB eval cell that ends with
+  `sh("git reset --hard HEAD")`. Now it fires in less than 0.1 s.
+- Each of the 69 conditions now starts its match at the `"command"` or
+  `"code"` key and walks the string forward. Each scan after a command start
+  is one lazy walk that stops at its first event: the flag of the condition,
+  a terminator, the end of the run, or the next command start. The regex
+  cannot backtrack into that walk, and two scans never read the same text.
+  One pass of all conditions on a 20 KB or 30 KB buffer takes 9 to 14 ms in
+  Bun.
+- The rules also stay linear on three input families that a forward start
+  alone does not cover. The first is one long line that repeats a command
+  start, such as `git restore `. The second is one command start and then
+  one long run, where a group loop inside a lookaround drops JavaScriptCore
+  out of its regex JIT. The third is an open buffer that stops before the
+  closing quote, which omp tests at each streamed delta.
+- The new conditions give the same result as the rules of 0.22.29. The
+  checks found no change on the 2697 rows of the test table, on a fuzz run of
+  5 times 310,825 buffers, or on each token sequence of up to 6 or 7 tokens
+  per condition, in closed and open buffers.
+- omp's `Matched:` excerpt is a bounded window around the match start, which
+  is now the `"command"` or `"code"` key: up to 60 characters before the key,
+  and at most 180 characters after it. So in a long call the trigger can be
+  outside the excerpt.
+- Two guards in `cli/test/unit/ompTriggerRules.test.ts` check new
+  conditions. The shape guard checks only what a static check can prove.
+  Each condition must start with the forward key prefix, which rejects the
+  leading lookbehind that froze omp, and no `|` can stand outside every
+  group. The Bun backstop (`cli/test/lib/ompTriggerBackstop.ts`) proves
+  linear time by measurement. It fails when one pass over a 20 KB or 30 KB
+  buffer takes 250 ms or more, or when `git reset --hard` at the end of a
+  20 KB cell does not fire.
+- The backstop also times each condition alone at 16 KB and 64 KB. It uses
+  adversarial shapes with the regex JIT off, and the first two input families
+  with the JIT on, in a bash command, an open bash command, and a Python
+  cell. The 64 KB time must stay at most 8 times the 16 KB time plus 15 ms,
+  and at most 100 ms. The `command-guards` topic states the rules for new
+  conditions, and the project `verify` skill adds flow V5, which runs the
+  real `omp ttsr test` on the 21 KB cell.
+- To get the fixed rules, run `./docks-kit sync omp`. Then run
+  `/reload-plugins` in each running omp session, or start a new session. A
+  running session keeps the old rules until you do one of the two.
+
 ## 2026-11-19 - docks-kit 0.22.29: omp 19.0.0 support
 
 ### Changed
