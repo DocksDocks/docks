@@ -94,7 +94,11 @@ describe("public sync over a config.yml from an earlier kit", () => {
   it(
     "prunes the 17 unedited returned overrides, keeps the edited one, and turns on the new tools",
     () => {
-      const run = runPublicCli(["sync"], "home-fresh", makeStubDir(), {
+      // The native host pairing puts the omp stub first on PATH in a form that
+      // the host runs (`omp.cmd` on Windows), so the plugin steps find it.
+      const nativeHost = { nativeHost: true } as const;
+      const run = runPublicCli(["sync"], "home-fresh", makeStubDir({}, nativeHost), {
+        ...nativeHost,
         reuseHome: seededHome(),
       });
 
