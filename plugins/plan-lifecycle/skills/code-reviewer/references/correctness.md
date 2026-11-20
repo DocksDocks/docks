@@ -91,6 +91,7 @@ A defect that meets the finding bar and fits this lens counts even when no list 
 
 ## With docks installed
 
-When the docks plugin is installed, also load `references/perf.md` of the
-`docks:code-review` skill. Use its patterns and its severity questions. Keep the
-output format and the severity caps of this skill.
+When the docks plugin is installed, also read
+`skill://code-review/references/perf.md` of the `code-review` skill. Use its
+patterns and its severity questions. Keep the output format and the severity
+caps of this skill.

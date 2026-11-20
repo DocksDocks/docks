@@ -32,9 +32,9 @@ repository root. If these files are missing, stop and name the missing
 `plan-lifecycle` plugin.
 
 <constraint>
-Start only when the user's own message invokes yolo: `/plan-lifecycle:yolo`,
-`/skill:yolo`, `$yolo`, or a sentence that names the yolo skill. Otherwise stop
-and use `plan-manager`. Do not call `ask` before the merge question. The only
+Start only when the user's own message invokes yolo: `/skill:yolo` or a
+sentence that names the yolo skill. Otherwise stop and use `plan-manager`. Do
+not call `ask` before the merge question. The only
 exception is the stall question of the Stall rule in the contract's Delegated
 decisions, which this run asks as the contract's Round ceiling says.
 After the merge, each production cleanup in the contract's Teardown needs its

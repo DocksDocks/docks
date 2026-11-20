@@ -76,7 +76,8 @@ Look for:
 
 ## With docks installed
 
-When the docks plugin is installed, also load `references/security.md` and
-`references/maintainability.md` of the `docks:code-review` skill, and the
-`docks:code-clarity` skill. Use their patterns and severity questions. Keep the
-output format and the severity caps of this skill.
+When the docks plugin is installed, also read
+`skill://code-review/references/security.md` and
+`skill://code-review/references/maintainability.md` of the `code-review` skill,
+and the `code-clarity` skill (`skill://code-clarity`). Use their patterns and
+severity questions. Keep the output format and the severity caps of this skill.

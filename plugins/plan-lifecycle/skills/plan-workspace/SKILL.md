@@ -1,6 +1,6 @@
 ---
 name: plan-workspace
-description: "Use when bootstrapping, migrating, auditing, or explicitly refreshing a GitHub-issue plan workspace, its labels, docs/PLAN.md standard, root routing, or two reviewer wrappers. Not for deciding, drafting, reviewing, or implementing an individual goal (use plan-manager or plan-reviewer)."
+description: "Use when bootstrapping, migrating, auditing, or explicitly refreshing a GitHub-issue plan workspace, its labels, docs/PLAN.md standard, or root routing. Not for deciding, drafting, reviewing, or implementing an individual goal (use plan-manager or plan-reviewer)."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
@@ -10,15 +10,15 @@ metadata:
 
 # Plans Workspace
 
-Maintain repository-level plan routing and the two read-only reviewer wrappers.
+Maintain repository-level plan routing.
 This skill owns bootstrap, migration, audit, and explicit refresh, not an
 individual goal. Read the `plan-manager` skill's
 `references/plan-contract.md` for the canonical lifecycle contract.
 
 <constraint>
 Classify before writing. Audit is read-only. Refresh requires an explicit
-request. Preserve project-owned rules and wrapper content. Never turn drift
-into permission to overwrite a customized workspace.
+request. Preserve project-owned rules. Never turn drift into permission to
+overwrite a customized workspace.
 </constraint>
 
 <constraint>
@@ -39,8 +39,8 @@ Report its resolved path or that the plugin is unavailable.
 
 ## Classify
 
-Inspect the standard, routing nodes, root Plans section, reviewer wrappers,
-pull-request template, and project `verify` skill. `<skill-dir>` is the folder
+Inspect the standard, routing nodes, root Plans section, pull-request template,
+and project `verify` skill. `<skill-dir>` is the folder
 that holds this `SKILL.md`. Detect the template with
 `node <skill-dir>/scripts/pr-template.mjs detect`; its lines are described in
 [`references/pull-request-template.md`](references/pull-request-template.md).
@@ -57,7 +57,7 @@ Use generated scaffolding outside frozen history to recognize legacy workspaces.
 |---|---|---|
 | LEGACY_MARKDOWN | Recognizable generated tracked-plan scaffolding | Explicit migration only |
 | GREENFIELD | No plan standard or existing issue-backed workspace | Bootstrap |
-| CURRENT | Standard, routing, and wrappers match current guidance | No-op or audit |
+| CURRENT | Standard and routing match current guidance | No-op or audit |
 | STALE | Recognizable generated workspace has drift | Explicit refresh only |
 | AMBIGUOUS_CUSTOM | Customized or unrecognized content | Report and stop |
 
@@ -68,10 +68,12 @@ Do not create a queue. Existing project queues remain outside this lifecycle.
 A legacy `docs/CLAUDE.md` is a second home for instructions. If it holds only
 `@AGENTS.md`, it is redundant generated scaffolding: report it and propose its
 removal. If it holds other content, report it as AMBIGUOUS_CUSTOM and leave it
-in place. A `CLAUDE.md` without an `@AGENTS.md` import makes Claude read it
-instead of `AGENTS.md`. A root `CLAUDE.md`, `.claude/CLAUDE.md`, or
-`CLAUDE.local.md` without that import hides every `AGENTS.md` below it, so the
-routing this skill writes would not load: report each one; do not remove it here.
+in place. omp keeps one project context file for each folder depth, and
+`AGENTS.md` comes first, so omp ignores a `CLAUDE.md` next to an `AGENTS.md`.
+A `.claude/CLAUDE.md` replaces the `AGENTS.md` of the folder where a session
+starts, so the routing this skill writes would not load there. omp does not
+load a `CLAUDE.local.md`. Report each root `CLAUDE.md`, `.claude/CLAUDE.md`,
+and `CLAUDE.local.md`; do not remove it here.
 
 Before mutation, report each target, proposed action, and observed reason.
 For audit, that report is final.
@@ -84,17 +86,14 @@ For audit, that report is final.
    `docs/PLAN.md`. It is a short pointer to the canonical contract.
 3. Add routing to `docs/AGENTS.md` that tells agents to read `docs/PLAN.md`
    before plan work. Preserve unrelated documentation rules. Never create
-   `docs/CLAUDE.md`; Claude Code reads `docs/AGENTS.md` natively. Whether you
+   `docs/CLAUDE.md`; omp loads `docs/AGENTS.md` itself. Whether you
    create `docs/AGENTS.md` or add routing to an existing one, make sure it
    carries this line, and add it at the end if missing: "Pointers here name
    concepts, not coordinates — if a path or symbol moved, trust the stated
    purpose and re-locate it (grep the symbol) before acting." If the root
    `AGENTS.md` has a node table, add a `docs/AGENTS.md` row to it.
 4. Add the root Plans section below without changing unrelated rules.
-5. Seed only missing Codex reviewer files from
-   [`references/codex-agent-templates.md`](references/codex-agent-templates.md).
-   Never overwrite an existing wrapper or create a manager wrapper.
-6. Offer to create the pull-request template from
+5. Offer to create the pull-request template from
    [`references/pull-request-template.md`](references/pull-request-template.md).
    Run its detection first. When it prints a usable template, make no change.
    When it prints an `ERROR` line, report the error and write nothing. Only on
@@ -105,7 +104,7 @@ For audit, that report is final.
    `.github/pull_request_template.md` only on `target free`. On
    `target occupied`, report the entry that occupies the path and write
    nothing; the user resolves it. Never write through a symlink.
-7. Offer to create the project `verify` skill from
+6. Offer to create the project `verify` skill from
    [`references/verify-skill-template.md`](references/verify-skill-template.md).
    `plan-manager` runs the end-to-end Acceptance rows of a plan through its
    flows. Run its Create or re-verify section, which runs
@@ -121,9 +120,9 @@ each goal that should remain live. Use the publication preflight and `new` in
 `plan-manager` for those fresh records. Read each created issue with `show`
 and report its number, URL, and drafting state.
 
-Replace only recognized generated standard and routing sections. Seed missing
-reviewer wrappers. Do not translate legacy plans or queues. Ambiguous content
-stops migration rather than becoming an inferred contract.
+Replace only recognized generated standard and routing sections. Do not
+translate legacy plans or queues. Ambiguous content stops migration rather
+than becoming an inferred contract.
 
 Explicit refresh repairs only recognized stale generated surfaces. Reclassify
 before writing. CURRENT remains a no-op. Refresh never edits issue bodies.
@@ -148,8 +147,8 @@ Plan issues are the live records. Leave `docs/plans/finished/` frozen.
 ## Verification
 
 Check each changed section: standard pointer, docs routing, absence of a
-legacy `docs/CLAUDE.md`, root routing, both reviewer wrappers, the
-pull-request template, and the project `verify` skill. If generated
+legacy `docs/CLAUDE.md`, root routing, the pull-request template, and the
+project `verify` skill. If generated
 content shrinks, account for each removed section in the canonical reference or
 record why it was obsolete.
 Do not discard project-owned rules. Verify links resolve in the installed plugin.
@@ -162,7 +161,6 @@ grep -n 'docs/PLAN.md' docs/AGENTS.md          # docs routing
 grep -n 'docs/AGENTS.md' AGENTS.md             # root routes to the docs node
 grep -n '^## Plans' AGENTS.md                  # root Plans section
 grep -c 'Pointers here name concepts' docs/AGENTS.md   # 1 or more
-ls .codex/agents/plan-reviewer.toml .codex/agents/code-reviewer.toml
 find . \( -name .git -o -name node_modules -o -path ./docs/plans/finished \) -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print   # no output
 ```
 
@@ -187,8 +185,8 @@ A complete run prints `verify skill: present` and no `verify unverified:` or
 For migration, confirm each issue uses a user-restated title and goal, and
 read back its drafting state. Confirm no operation touched or inventoried
 legacy plan files or frozen history. Do not inspect those files to prove this.
-Report changed paths and created issues. File presence does not prove a wrapper
-ran. An audit reports missing or stale surfaces without repairing them.
+Report changed paths and created issues.
+An audit reports missing or stale surfaces without repairing them.
 
 ## BAD / GOOD
 

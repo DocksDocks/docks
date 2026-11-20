@@ -56,5 +56,6 @@ Look for:
 
 ## With docks installed
 
-When the docks plugin is installed, you may load the `docks:test-coverage`
-skill for test patterns. Keep the output format of this skill.
+When the docks plugin is installed, you may load the `test-coverage` skill
+(`skill://test-coverage`) for test patterns. Keep the output format of this
+skill.
