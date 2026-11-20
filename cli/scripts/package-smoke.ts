@@ -7,13 +7,43 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve, sep } from "node:path";
+import { performance } from "node:perf_hooks";
+import { BUNDLE_PATH } from "./build-bundle";
 
 const REPO_DIR = resolve(import.meta.dirname, "..", "..");
+const PACKED_BUNDLE = `package/${BUNDLE_PATH}`;
+const PACKED_STRAY_OUTPUT = /^package\/cli\/src\/.*\.js(\.map)?$/;
+const START_TIME_RUNS = 10;
+// Measured on Linux x64 with Bun 1.4.4: 60 ms for the bundle, 162 ms for the
+// TypeScript source, and 4 ms for `bun -e 0`, so half the source's own start
+// keeps a wide margin.
+const START_TIME_MAX_RATIO = 0.5;
+
+/** Median start times in milliseconds of the bundle, the source, and `bun -e 0`. */
+export interface StartTimeMedians {
+  readonly bundle: number;
+  readonly source: number;
+  readonly bun: number;
+}
+
+/** Whether the bundle's own start, above Bun's start, is at most half the
+ * source's. Subtracting Bun's start keeps a scheduling delay that hits every
+ * process alike out of the ratio. */
+export function startTimeWithinLimit(medians: StartTimeMedians): boolean {
+  return medians.bundle - medians.bun <= START_TIME_MAX_RATIO * (medians.source - medians.bun);
+}
+
+const UNRELATED_FOLDER_COMMANDS: ReadonlyArray<ReadonlyArray<string>> = [
+  ["--version"],
+  ["--help"],
+  ["sync", "--dry-run"],
+];
 const RECOVERY_COMMAND = "bun rm -g docks-kit && bun add -g docks-kit@latest";
 const IGNORED_NODE_MODULES_ENTRIES: Record<string, true> = { ".bin": true, ".cache": true };
 const TRUTHY_FLAG_VALUES: Record<string, true> = { "1": true, true: true, yes: true };
@@ -222,29 +252,142 @@ function assertNoNestedDuplicates(consumerDir: string, pins: ReadonlyArray<Pin>)
   );
 }
 
-function assertBinaryVersion(consumerDir: string, expected: string): void {
+// `bun pm pack` ships a file that git ignores, so the tarball itself must show
+// the bundle and no build output that a misplaced build left under cli/src.
+function assertTarballContents(tarball: string): void {
+  const list = spawnSync("tar", ["-tzf", tarball], { encoding: "utf8", env: CHILD_ENV });
+  requireSuccess("tar -tzf", list);
+  // A tar that lists directories ends their entries with "/"; only files count.
+  const entries = list.stdout
+    .split("\n")
+    .filter((entry) => entry.length > 0 && !entry.endsWith("/"));
+  if (!entries.includes(PACKED_BUNDLE)) {
+    fail(
+      `assertion "the tarball ships the bundle" failed: observed no ${PACKED_BUNDLE} among ${entries.length} entries. ` +
+        `Repair: keep "${BUNDLE_PATH}" in package.json files and "bun run build:bundle" in prepack.`,
+    );
+  }
+  const extraDist = entries.filter(
+    (entry) => entry.startsWith("package/cli/dist/") && entry !== PACKED_BUNDLE,
+  );
+  const strays = entries.filter((entry) => PACKED_STRAY_OUTPUT.test(entry));
+  const maps = entries.filter((entry) => entry.endsWith(".map"));
+  const unwanted = [...new Set([...extraDist, ...strays, ...maps])];
+  if (unwanted.length > 0) {
+    fail(
+      `assertion "the tarball holds no map, no other cli/dist file, and no .js under cli/src" failed: observed ` +
+        `${unwanted.join(", ")}. Repair: list only "${BUNDLE_PATH}" from cli/dist in package.json files, and delete ` +
+        `the build outputs under cli/src.`,
+    );
+  }
+  console.log(
+    `[package-smoke] tarball contents: ${entries.length} files, ${BUNDLE_PATH} present, no .map, ` +
+      `no other cli/dist file, no .js or .js.map under cli/src`,
+  );
+}
+
+function assertBinTarget(consumerDir: string): string {
   const binaryPath = join(consumerDir, "node_modules", ".bin", "docks-kit");
   if (!existsSync(binaryPath)) {
     fail(
       `assertion "installed binary exists" failed: observed no executable at ${displayPath(consumerDir, binaryPath)}. ` +
-        `Repair: keep the "docks-kit" bin entry in the root package.json and keep cli/src inside package.json files.`,
+        `Repair: keep the "docks-kit" bin entry in the root package.json and keep ${BUNDLE_PATH} in its files.`,
     );
   }
-  const versionRun = spawnSync(binaryPath, ["--version"], {
-    cwd: consumerDir,
-    encoding: "utf8",
-    env: CHILD_ENV,
-  });
-  requireSuccess("installed docks-kit --version", versionRun);
-  const reportedVersion = versionRun.stdout.trim();
-  if (reportedVersion !== expected) {
+  const packageDir = realpathSync(join(consumerDir, "node_modules", "docks-kit"));
+  const target = relative(packageDir, realpathSync(binaryPath)).split(sep).join("/");
+  if (target !== BUNDLE_PATH) {
     fail(
-      `assertion "installed binary reports the packaged version" failed: observed ${JSON.stringify(reportedVersion)}, ` +
-        `expected ${expected}. Repair: rebuild the tarball from a clean tree so the packed cli/src matches the root ` +
-        `package.json version.`,
+      `assertion "the installed bin runs the bundle" failed: observed ${target}, expected ${BUNDLE_PATH}. ` +
+        `Repair: point package.json bin.docks-kit at ${BUNDLE_PATH}.`,
     );
   }
-  console.log(`[package-smoke] docks-kit --version: ${reportedVersion}`);
+  console.log(`[package-smoke] bin target: ${target}`);
+  return binaryPath;
+}
+
+// An unrelated folder proves that the bundle finds its package root from its
+// own location, not from the working directory.
+function assertUnrelatedFolderRuns(workDir: string, binaryPath: string, expected: string): void {
+  const unrelatedDir = join(workDir, "unrelated");
+  mkdirSync(unrelatedDir, { recursive: true });
+  for (const args of UNRELATED_FOLDER_COMMANDS) {
+    const label = `docks-kit ${args.join(" ")}`;
+    const run = spawnSync(binaryPath, args, {
+      cwd: unrelatedDir,
+      encoding: "utf8",
+      env: CHILD_ENV,
+    });
+    requireSuccess(`installed ${label} from an unrelated folder`, run);
+    if (args[0] === "--version" && run.stdout.trim() !== expected) {
+      fail(
+        `assertion "installed binary reports the packaged version" failed: observed ` +
+          `${JSON.stringify(run.stdout.trim())}, expected ${expected}. Repair: rebuild the tarball from a clean tree ` +
+          `so the packed bundle matches the root package.json version.`,
+      );
+    }
+    console.log(`[package-smoke] ${label} (from an unrelated folder): exit ${run.status}`);
+  }
+}
+
+function median(samples: ReadonlyArray<number>): number {
+  const sorted = [...samples].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? (sorted[middle] ?? 0)
+    : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
+}
+
+function timedRun(
+  label: string,
+  command: string,
+  args: ReadonlyArray<string>,
+  cwd: string,
+): number {
+  const start = performance.now();
+  const run = spawnSync(command, args, { cwd, encoding: "utf8", env: CHILD_ENV });
+  const elapsed = performance.now() - start;
+  requireSuccess(label, run);
+  return elapsed;
+}
+
+// The runs alternate, so a slow phase of the host affects every form alike.
+function assertStartTime(consumerDir: string, binaryPath: string): void {
+  const sourceEntry = join(consumerDir, "node_modules", "docks-kit", "cli", "src", "main.ts");
+  const bundleSamples: Array<number> = [];
+  const sourceSamples: Array<number> = [];
+  const bunSamples: Array<number> = [];
+  for (let run = 0; run < START_TIME_RUNS; run++) {
+    bundleSamples.push(timedRun("installed bin --version", binaryPath, ["--version"], consumerDir));
+    sourceSamples.push(
+      timedRun(
+        "installed cli/src/main.ts --version",
+        process.execPath,
+        [sourceEntry, "--version"],
+        consumerDir,
+      ),
+    );
+    bunSamples.push(timedRun("bun -e 0", process.execPath, ["-e", "0"], consumerDir));
+  }
+  const medians: StartTimeMedians = {
+    bundle: median(bundleSamples),
+    source: median(sourceSamples),
+    bun: median(bunSamples),
+  };
+  const limit = medians.bun + START_TIME_MAX_RATIO * (medians.source - medians.bun);
+  console.log(
+    `[package-smoke] start time, median of ${START_TIME_RUNS} runs: bundle --version ${medians.bundle.toFixed(1)} ms, ` +
+      `source --version ${medians.source.toFixed(1)} ms, bun -e 0 ${medians.bun.toFixed(1)} ms ` +
+      `(bundle limit ${limit.toFixed(1)} ms)`,
+  );
+  if (!startTimeWithinLimit(medians)) {
+    fail(
+      `assertion "the bundle's start above Bun's is at most half the source's" failed: observed ` +
+        `${medians.bundle.toFixed(1)} ms against ${medians.source.toFixed(1)} ms, with Bun's start at ` +
+        `${medians.bun.toFixed(1)} ms. Repair: check that bin runs ${BUNDLE_PATH} and that the build still ` +
+        `bundles the dependencies.`,
+    );
+  }
 }
 
 function smoke(workDir: string, manifest: Manifest, pins: ReadonlyArray<Pin>): void {
@@ -254,7 +397,10 @@ function smoke(workDir: string, manifest: Manifest, pins: ReadonlyArray<Pin>): v
 
   assertPinnedVersions(consumerDir, pins);
   assertNoNestedDuplicates(consumerDir, pins);
-  assertBinaryVersion(consumerDir, manifest.version);
+  const binaryPath = assertBinTarget(consumerDir);
+  assertTarballContents(tarball);
+  assertUnrelatedFolderRuns(workDir, binaryPath, manifest.version);
+  assertStartTime(consumerDir, binaryPath);
 }
 
 function main(): void {
@@ -299,9 +445,11 @@ function main(): void {
   console.log("[package-smoke] clean-room consumer install passed");
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(`[package-smoke] ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
+if (import.meta.main) {
+  try {
+    main();
+  } catch (error) {
+    console.error(`[package-smoke] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
 }
