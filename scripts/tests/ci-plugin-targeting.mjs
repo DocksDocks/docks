@@ -1110,6 +1110,12 @@ const NATIVE_GATE_CASES = [
     (tree) => writeTreeFile(tree, '.codex/agents/zz-agent.toml', 'name = "zz-agent"\n'),
     /\.codex\b/,
   ],
+  [
+    // The copy holds the tracked files of the working tree, so a .claude entry in it stands for a tracked one.
+    'a tracked root .claude folder',
+    (tree) => linkTreeFile(tree, '.claude/skills/zz-skill', '../../.agents/skills/verify'),
+    /(^|[\s`'"])\.claude(?![-\w])/,
+  ],
 ];
 
 // The failure lines that the gate lists after its `check(s) failed` header.
