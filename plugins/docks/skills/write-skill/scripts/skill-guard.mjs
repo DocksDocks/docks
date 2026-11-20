@@ -107,7 +107,6 @@ function validate(dirs, strict) {
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) fail(`name '${name}' must be lowercase hyphen-case`);
     if ([...name].length > 64) fail(`name exceeds 64 chars (${[...name].length})`);
     if (name !== dirname) fail(`name '${name}' must match directory '${dirname}'`);
-    if (/anthropic|claude/.test(name)) fail('name must not contain reserved words anthropic/claude');
 
     const descRaw = (lines.find((l) => /^description:/.test(l)) || '').replace(/^description:\s*/, '');
     const desc = descRaw.replace(/^"/, '').replace(/"$/, '').replace(/^'/, '').replace(/'$/, '');
@@ -115,8 +114,7 @@ function validate(dirs, strict) {
     if (!desc) fail('description must be a non-empty single line');
     else {
       if ([...desc].length > 1024) fail(`description exceeds 1024 chars (${[...desc].length})`);
-      if (desc.includes('<') || desc.includes('>')) fail('description cannot contain angle brackets (Codex compatibility)');
-      if (!/^["'|>]/.test(descRaw) && /(^|[ \t])#/.test(descRaw)) fail("unquoted description contains '#' — quote it (YAML comment truncation)");
+      if (!/^["'|>]/.test(descRaw) && /(^|[ \t])#/.test(descRaw)) fail("unquoted description contains '#' — quote it (YAML reads ' #' as the start of a comment)");
       if ([...desc].length > 500) warn(`description is ${[...desc].length} chars (>500 crowds the aggregate listing budget)`);
       if (hasUpstream > 0) { if (!/use when/i.test(desc)) warn("description should contain 'Use when'"); }
       else if (!/^use when/i.test(desc)) warn("description should start with 'Use when'");
@@ -128,7 +126,7 @@ function validate(dirs, strict) {
 
     const bl = bodyAfter(lines).length;
     if (bl > 500) fail(`body is ${bl} lines (hard cap 500) — extract detail into references/`);
-    if (bl < 80 || bl > 310) warn(`body is ${bl} lines, outside the 80-310 sweet spot (~310 = post-compaction re-attachment ceiling)`);
+    if (bl < 80 || bl > 310) warn(`body is ${bl} lines, outside the 80-310 target (agentskills.io: keep the body under 5000 tokens and 500 lines)`);
 
     const refDir = path.join(dir, 'references');
     if (fs.existsSync(refDir) && fs.statSync(refDir).isDirectory()) {

@@ -15,8 +15,8 @@ const dirArg = args.find((a) => !a.startsWith('--'));
 const DIR = dirArg || path.join(REPO_DIR, 'plugins/plan-lifecycle/agents');
 // Research gate: the agent is told to settle a claim against an authoritative source instead of
 // trusting memory. Scoring one vendor's MCP tool names would bake a single harness into a quality
-// score — omp ships built-in web search, Claude Code ships its own fetch and search, and other
-// runtimes differ again. So match the DISCIPLINE, in two independent forms.
+// score — omp ships built-in web search, and each harness names its fetch and search tools
+// differently. So match the DISCIPLINE, in two independent forms.
 //
 // Form 1: a verification verb whose object, in the same sentence, is a source of truth. `against
 // actual …` is deliberately open-ended: "against actual callers", "against actual reach" and
@@ -40,8 +40,8 @@ const RESEARCH_DISCIPLINE = new RegExp(`${RESEARCH_VERB}[^.\\n]*${SOURCE_OF_TRUT
 const RESEARCH_TOOL = /\b(?:resolve-library-id|query-docs|context7)\b/i;
 const RESEARCH_GATE = { test: (text) => RESEARCH_DISCIPLINE.test(text) || RESEARCH_TOOL.test(text) };
 
-// Claude Code and Codex read agent metadata only from YAML frontmatter, so
-// body lines that resemble fields must neither earn nor lose score points.
+// omp reads agent fields only from the YAML frontmatter, so body lines that
+// resemble fields must neither earn nor lose score points.
 function findFmFieldLine(lines, key) {
   const start = lines.indexOf('---');
   if (start === -1) return undefined;
@@ -97,12 +97,12 @@ for (const fname of mdFiles) {
   if (bodyLines >= 60 && bodyLines <= 300) score += 1;
   // 7. anti-hallucination checklist (1)
   if (anyLine(lines, /anti-hallucination|file:line refs|verify import paths/i)) score += 1;
-  // 8. portable model resolution: no `model:` key (1) — Claude Code defaults to
-  // `inherit` and omp falls back to the parent session model, so omitting it is the
-  // only spelling both runtimes resolve. Any literal kills the spawn under omp.
+  // 8. no `model:` key (1) — omp reads a value as a model id and a value that
+  // resolves to no model fails the spawn; without the key the agent uses the
+  // parent session model.
   if (!hasFmField(lines, 'model')) score += 1;
-  // 9. tools/disallowedTools declared (1)
-  if (hasFmField(lines, 'tools') || hasFmField(lines, 'disallowedTools')) score += 1;
+  // 9. tools declared (1)
+  if (hasFmField(lines, 'tools')) score += 1;
   // 10. slop (max −2)
   score += Math.max(0, 2 - slopCount(lines));
   // 11. research-gate (1)

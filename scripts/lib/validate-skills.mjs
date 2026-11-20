@@ -10,32 +10,14 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const NAME_RE = /^[a-z0-9-]+$/;
 const HASH_RE = /^[0-9a-f]{64}$/;
 
-const usage = 'usage: validate-skills.mjs --runtime codex|claude|all <skills-root>';
+const usage = 'usage: validate-skills.mjs <skills-root>';
 
 function parseArgs(argv) {
-  let runtime = null;
-  const roots = [];
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === '--runtime') {
-      if (runtime !== null || i + 1 >= argv.length) {
-        console.error(usage);
-        process.exit(2);
-      }
-      runtime = argv[i + 1];
-      i += 1;
-    } else if (arg.startsWith('-')) {
-      console.error(usage);
-      process.exit(2);
-    } else {
-      roots.push(arg);
-    }
-  }
-  if (!runtime || !['codex', 'claude', 'all'].includes(runtime) || roots.length !== 1) {
+  if (argv.length !== 1 || argv[0].startsWith('-')) {
     console.error(usage);
     process.exit(2);
   }
-  return { runtime, root: path.resolve(roots[0]) };
+  return path.resolve(argv[0]);
 }
 
 function extractFrontmatter(content) {
@@ -113,18 +95,13 @@ function validateCommon(file, frontmatterText, fm, errors) {
     if (description.length > MAX_DESCRIPTION_LENGTH) {
       errors.push(`description exceeds maximum length of ${MAX_DESCRIPTION_LENGTH} characters (${description.length})`);
     }
-    if (description.includes('<') || description.includes('>')) {
-      errors.push('description cannot contain angle brackets (`<` or `>`) for Codex compatibility');
-    }
     if (hasPlainCommentHazard(frontmatterText)) {
-      errors.push('plain YAML description contains `#`; quote it so Codex/Claude do not truncate it as a comment');
+      errors.push('plain YAML description contains `#`; YAML reads ` #` as the start of a comment, so quote it');
     }
   }
 }
 
-// agentskills.io UNIVERSAL structural rules — enforced on both runtimes (Codex
-// truncates an over-length body too, and "avoid deeply nested reference chains"
-// is a spec rule, not a Claude-only convention).
+// agentskills.io specification rules: the body stays under 500 lines, and references stay one level deep.
 function validateStructure(file, body, errors) {
   const lines = bodyLineCount(body);
   if (lines > 500) {
@@ -142,7 +119,8 @@ function validateStructure(file, body, errors) {
   }
 }
 
-function validateClaude(fm, errors) {
+// docks conventions: the `Use when` prefix, `user-invocable`, `metadata.updated`, and the `content_hash` format.
+function validateDocks(fm, errors) {
   const upstream = Boolean(fm.upstream);
   const description = fm.description;
 
@@ -168,7 +146,7 @@ function validateClaude(fm, errors) {
 }
 
 function main() {
-  const { runtime, root } = parseArgs(process.argv.slice(2));
+  const root = parseArgs(process.argv.slice(2));
   let files;
   try {
     files = findSkillFiles(root);
@@ -195,7 +173,7 @@ function main() {
       } else {
         validateCommon(file, extracted.text, parsed.value, errors);
         validateStructure(file, extracted.body, errors);
-        if (runtime === 'claude' || runtime === 'all') validateClaude(parsed.value, errors);
+        validateDocks(parsed.value, errors);
       }
     }
     if (errors.length > 0) {
@@ -209,13 +187,11 @@ function main() {
         console.error(`FAIL: ${formatPath(failure.file)}: ${error}`);
       }
     }
-    const compatibility = runtime === 'all' ? 'Codex and Claude' : runtime;
-    console.error(`Guard FAILED: ${failures.length} skill file(s) failed ${compatibility} compatibility`);
+    console.error(`Guard FAILED: ${failures.length} skill file(s) failed the skill frontmatter rules`);
     process.exit(1);
   }
 
-  const compatibility = runtime === 'all' ? 'Codex and Claude' : runtime;
-  console.log(`Guard PASSED: ${files.length} skill(s) match ${compatibility} skill frontmatter expectations`);
+  console.log(`Guard PASSED: ${files.length} skill(s) match the skill frontmatter rules`);
 }
 
 main();

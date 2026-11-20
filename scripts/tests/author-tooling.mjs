@@ -75,31 +75,78 @@ function testCombinedSkillValidation() {
         '',
       ].join('\n'),
     );
-    const valid = runNode(VALIDATE_SKILLS, ['--runtime', 'all', validRoot]);
+    const valid = runNode(VALIDATE_SKILLS, [validRoot]);
     assertStarted(valid);
     assert.equal(valid.status, 0, valid.stderr);
-    assert.equal(valid.stdout, 'Guard PASSED: 1 skill(s) match Codex and Claude skill frontmatter expectations\n');
+    assert.equal(valid.stdout, 'Guard PASSED: 1 skill(s) match the skill frontmatter rules\n');
+
+    // The validator takes only the skills root: `--runtime` is a usage error.
+    for (const args of [['--runtime', 'all', validRoot], ['--runtime', 'claude', validRoot], ['--runtime']]) {
+      const usage = runNode(VALIDATE_SKILLS, args);
+      assertStarted(usage);
+      assert.equal(usage.status, 2, `${args.join(' ')} must be a usage error`);
+      assert.equal(usage.stderr, 'usage: validate-skills.mjs <skills-root>\n');
+    }
+
+    // A name with `claude` or `anthropic` and a description with `<` or `>` pass: agentskills.io has neither rule.
+    const relaxedRoot = path.join(fixtureRoot, 'relaxed');
+    for (const name of ['claude-probe', 'anthropic-probe']) {
+      fs.mkdirSync(path.join(relaxedRoot, name), { recursive: true });
+      fs.writeFileSync(
+        path.join(relaxedRoot, name, 'SKILL.md'),
+        [
+          '---',
+          `name: ${name}`,
+          'description: Use when a test passes a <placeholder> and an arrow -> to the validator.',
+          'user-invocable: false',
+          'metadata:',
+          '  updated: "2026-07-20"',
+          '---',
+          `# ${name}`,
+          '',
+        ].join('\n'),
+      );
+    }
+    const relaxed = runNode(VALIDATE_SKILLS, [relaxedRoot]);
+    assertStarted(relaxed);
+    assert.equal(relaxed.status, 0, relaxed.stderr);
+    assert.equal(relaxed.stdout, 'Guard PASSED: 2 skill(s) match the skill frontmatter rules\n');
+
+    // The docks rules always run: no option turns them off.
+    const docksRoot = path.join(fixtureRoot, 'docks-rules');
+    fs.mkdirSync(path.join(docksRoot, 'bare-skill'), { recursive: true });
+    fs.writeFileSync(
+      path.join(docksRoot, 'bare-skill', 'SKILL.md'),
+      '---\nname: bare-skill\ndescription: Checks a fixture.\n---\n# Bare\n',
+    );
+    const docks = runNode(VALIDATE_SKILLS, [docksRoot]);
+    assertStarted(docks);
+    assert.equal(docks.status, 1);
+    assert.match(docks.stderr, /: description must start with `Use when`/);
+    assert.match(docks.stderr, /: frontmatter `user-invocable` must be present and boolean/);
+    assert.match(docks.stderr, /: metadata\.updated must be present in YYYY-MM-DD format/);
+    assert.match(docks.stderr, /Guard FAILED: 1 skill file\(s\) failed the skill frontmatter rules\n$/);
 
     const malformedRoot = path.join(fixtureRoot, 'malformed');
     const malformedSkill = path.join(malformedRoot, 'malformed-skill');
     const malformedFile = path.join(malformedSkill, 'SKILL.md');
     fs.mkdirSync(malformedSkill, { recursive: true });
     fs.writeFileSync(malformedFile, '---\nname: [\n---\n# Malformed\n');
-    const malformed = runNode(VALIDATE_SKILLS, ['--runtime', 'all', malformedRoot]);
+    const malformed = runNode(VALIDATE_SKILLS, [malformedRoot]);
     assertStarted(malformed);
     assert.equal(malformed.status, 1);
     assert.match(malformed.stderr, new RegExp(`FAIL: .*${path.basename(malformedFile)}: invalid YAML frontmatter:`));
-    assert.match(malformed.stderr, /Guard FAILED: 1 skill file\(s\) failed Codex and Claude compatibility\n$/);
+    assert.match(malformed.stderr, /Guard FAILED: 1 skill file\(s\) failed the skill frontmatter rules\n$/);
 
     const emptyRoot = path.join(fixtureRoot, 'empty');
     fs.mkdirSync(emptyRoot);
-    const empty = runNode(VALIDATE_SKILLS, ['--runtime', 'all', emptyRoot]);
+    const empty = runNode(VALIDATE_SKILLS, [emptyRoot]);
     assertStarted(empty);
     assert.equal(empty.status, 1);
     assert.equal(empty.stderr, `Guard FAILED: no SKILL.md files found under ${emptyRoot}\n`);
 
     const missingRoot = path.join(fixtureRoot, 'missing');
-    const missing = runNode(VALIDATE_SKILLS, ['--runtime', 'all', missingRoot]);
+    const missing = runNode(VALIDATE_SKILLS, [missingRoot]);
     assertStarted(missing);
     assert.equal(missing.status, 2);
     assert.match(missing.stderr, new RegExp(`^FAIL: cannot read skills directory ${missingRoot}: .*ENOENT`));
@@ -145,8 +192,9 @@ function testTreeGuardOperationalFailures() {
     assert.equal(legacy.status, 1);
     assert.match(
       legacy.stderr,
-      /^FAIL: \.claude\/CLAUDE\.md — legacy CLAUDE\.md: keep one home for instructions \(a CLAUDE\.md without an @AGENTS\.md import makes Claude read it instead of AGENTS\.md\)/,
+      /^FAIL: \.claude\/CLAUDE\.md — legacy CLAUDE\.md: keep one home for instructions \(omp loads a \.claude\/CLAUDE\.md in place of the AGENTS\.md of its folder, and skips a CLAUDE\.md next to an AGENTS\.md\); move its content to AGENTS\.md and delete it$/m,
     );
+    assert.doesNotMatch(legacy.stderr, /\.claude\/rules|Claude read/);
 
     // The root routing table must name every nested node, and every row must resolve.
     const routeRoot = path.join(fixtureRoot, 'route');
@@ -254,7 +302,7 @@ function testSkillsGuardSpawnFailure() {
   assert.match(
     result.stderr,
     new RegExp(
-      `^FAIL: bun ${path.join(ROOT, 'scripts/lib/validate-skills.mjs')} --runtime all ${target} could not start: ENOENT \\(`,
+      `^FAIL: bun ${path.join(ROOT, 'scripts/lib/validate-skills.mjs')} ${target} could not start: ENOENT \\(`,
     ),
   );
 }
@@ -371,7 +419,7 @@ function testSkillsGuardReportSection() {
     assert.equal(unchanged.status, 0, unchanged.stderr);
     assert.match(
       unchanged.stdout,
-      /Guard PASSED: skills match Codex and Claude conventions and end with the canonical Report section\n$/,
+      /Guard PASSED: skills match the skill frontmatter rules and end with the canonical Report section\n$/,
     );
 
     const [missingSkill, changedSkill] = skillFiles;
@@ -608,6 +656,109 @@ function testAgentsGuardSkillReferences() {
   }
 }
 
+// omp refuses an agent named `main` or `sub` after it trims and lowercases the name, so the guard refuses them too.
+// A name with `claude` or `anthropic` is a valid omp agent name. A `model` key fails with the omp reason only.
+function testAgentsGuardNames() {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-agent-names-'));
+  try {
+    const agentText = (nameLine, extra = []) =>
+      [
+        '---',
+        nameLine,
+        'description: Use when a test needs a probe agent. Not for real reviews.',
+        'tools: read, glob, grep',
+        ...extra,
+        '---',
+        '',
+        '# Probe',
+        '',
+        '<constraint>',
+        'Remain read-only.',
+        '</constraint>',
+        '',
+        '## Workflow',
+        '',
+        '1. Review the input.',
+        '',
+        '## Success Criteria',
+        '',
+        '- The review is complete.',
+        '',
+      ].join('\n');
+    let index = 0;
+    const runGuard = (fileName, nameLine, extra) => {
+      index += 1;
+      const agents = path.join(fixtureRoot, `agents-${index}`);
+      fs.mkdirSync(agents);
+      fs.writeFileSync(path.join(agents, `${fileName}.md`), agentText(nameLine, extra));
+      return runNode(AGENTS_GUARD, [agents]);
+    };
+
+    const reservedRule = /is reserved: omp refuses an agent named main or sub/;
+    for (const [fileName, nameLine] of [
+      ['main', 'name: main'],
+      ['sub', 'name: sub'],
+      ['Main', 'name: Main'],
+      ['SUB', 'name: SUB'],
+      ['sub', 'name: sub   '],
+    ]) {
+      const rejected = runGuard(fileName, nameLine);
+      assertStarted(rejected);
+      assert.equal(rejected.status, 1, `${JSON.stringify(nameLine)} must be refused:\n${rejected.stdout}`);
+      assert.match(rejected.stderr, reservedRule, `${JSON.stringify(nameLine)} must be refused as reserved`);
+    }
+
+    for (const name of ['claude-reviewer', 'anthropic-auditor', 'main-reviewer', 'subagent']) {
+      const accepted = runGuard(name, `name: ${name}`);
+      assertStarted(accepted);
+      assert.equal(accepted.status, 0, `${name} must be accepted:\n${accepted.stderr}`);
+    }
+
+    const model = runGuard('model-probe', 'name: model-probe', ['model: inherit']);
+    assertStarted(model);
+    assert.equal(model.status, 1);
+    assert.match(model.stderr, /^FAIL: model-probe — remove 'model: inherit';.*task\.agentModelOverrides\.<agent>/m);
+    assert.doesNotMatch(model.stderr, /claude|anthropic|codex/i);
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
+// The shipped write-skill validator has no `anthropic`/`claude` name rule and no angle-bracket description rule, and
+// it gives the agentskills.io reason for the body line target.
+function testSkillGuardValidateRules() {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-skill-guard-validate-'));
+  try {
+    const skillsRoot = path.join(fixtureRoot, 'skills');
+    for (const name of ['claude-probe', 'anthropic-probe']) {
+      fs.mkdirSync(path.join(skillsRoot, name), { recursive: true });
+      fs.writeFileSync(
+        path.join(skillsRoot, name, 'SKILL.md'),
+        [
+          '---',
+          `name: ${name}`,
+          'description: Use when a test passes a <placeholder> and an arrow -> to the validator. Not for real work.',
+          'user-invocable: false',
+          'metadata:',
+          '  updated: "2026-07-20"',
+          '---',
+          `# ${name}`,
+          '',
+        ].join('\n'),
+      );
+    }
+    const result = runNode(SKILL_GUARD, ['validate', skillsRoot]);
+    assertStarted(result);
+    assert.equal(result.status, 0, result.stdout);
+    assert.doesNotMatch(result.stdout, /FAIL/);
+    assert.match(result.stdout, /^skill-guard PASSED: 2 skill\(s\), /m);
+    assert.match(result.stdout, /WARN: body is \d+ lines, outside the 80-310 target \(agentskills\.io: keep the body/);
+    assert.doesNotMatch(result.stdout, /re-attachment|angle bracket|reserved word/i);
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 testBiomeRejectsSyntaxDefect();
 testCombinedSkillValidation();
 testTreeGuardOperationalFailures();
@@ -616,6 +767,8 @@ testSkillsGuardReportSection();
 testSkillsGuardSharedFiles();
 testSkillGuardScoresFlatSkills();
 testAgentsGuardSkillReferences();
+testAgentsGuardNames();
+testSkillGuardValidateRules();
 testTestContractToolchains();
 testShebangInterpreter();
 testValidatorTable();

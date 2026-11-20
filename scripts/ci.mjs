@@ -679,8 +679,8 @@ async function extensionProblem(pluginRoot, entry) {
   return typeof module.default === 'function' ? null : 'has no default function export';
 }
 
-// Each agent file loads as an omp task agent: it has a name and a description, no `model` key (a Claude Code alias
-// such as `sonnet` fails in omp), and no `${...}` variable.
+// Each agent file loads as an omp task agent: it has a name and a description, no `model` key (omp reads the value
+// as a model id, and a value that resolves to no model fails the spawn), and no `${...}` variable.
 function gateAgentFiles(p) {
   let agentsOk = true;
   for (const file of fs

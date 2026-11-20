@@ -7,13 +7,13 @@
 //      to read a file that isn't there (agentskills.io: references one level
 //      deep, all linked from SKILL.md — so a broken link is a silent dead end).
 //   2. ORPHAN references    — a references/*.md file never mentioned by SKILL.md.
-//      Level-3 content Claude never reaches is dead weight (Anthropic BP: "files
-//      never accessed — cut them").
+//      The agent never reaches it, so it is dead weight (agentskills.io best
+//      practices: tell the agent when to load each file).
 //   3. MISSING TOC          — a references/*.md over 100 lines with ≥3 doc-level
-//      headings but no "## Contents" table (Anthropic BP: "For reference files
-//      longer than 100 lines, include a table of contents" so Claude sees full
-//      scope under partial reads). The ≥3-heading gate auto-exempts embedded
-//      output templates, whose sections live inside a verbatim code fence.
+//      headings but no "## Contents" table (docks rule: a table of contents shows
+//      the agent the full scope of a reference that it reads only in part). The
+//      ≥3-heading gate auto-exempts embedded output templates, whose sections
+//      live inside a verbatim code fence.
 //
 // Cross-skill prose mentions (`solid/references/x.md`) and runtime/consumer paths
 // (`docs/assets/…`) are NOT local links and are correctly ignored — only
@@ -107,7 +107,7 @@ try {
             if (a.lineCount > TOC_LINE_THRESHOLD && a.headings >= TOC_HEADING_MIN && !a.hasToc) {
               failures.push(
                 `references/${entry} (${path.relative(process.cwd(), refPath)}): ${a.lineCount} lines, ` +
-                  `${a.headings} headings, no "## Contents" TOC (Anthropic BP: TOC for reference files > 100 lines)`,
+                  `${a.headings} headings, no "## Contents" TOC (docks rule: TOC for reference files > 100 lines)`,
               );
             }
           }

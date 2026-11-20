@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 // Guard: validate context-tree nodes.
 // A node is a directory carrying AGENTS.md; AGENTS.md must stay <= 500 lines.
-// Any CLAUDE.md (incl. .claude/CLAUDE.md) fails: this repo keeps one home for instructions,
-// and a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md.
+// Any CLAUDE.md (incl. .claude/CLAUDE.md) fails: this repo keeps one home for instructions.
+// omp loads a .claude/CLAUDE.md in place of the AGENTS.md of its folder, and skips a CLAUDE.md
+// next to an AGENTS.md.
 // The root AGENTS.md routing table (rows naming `<dir>/AGENTS.md`, or `@<dir>/AGENTS.md`)
 // must name every nested node, and every row must resolve. Every backticked repo pointer in
 // a node must resolve.
@@ -60,7 +61,7 @@ function readTreeFile(file) {
 
 for (const file of legacyClaude.sort()) {
   fail(
-    `${path.relative(ROOT, file)} — legacy CLAUDE.md: keep one home for instructions (a CLAUDE.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md); move content to AGENTS.md or .claude/rules/ and delete it`,
+    `${path.relative(ROOT, file)} — legacy CLAUDE.md: keep one home for instructions (omp loads a .claude/CLAUDE.md in place of the AGENTS.md of its folder, and skips a CLAUDE.md next to an AGENTS.md); move its content to AGENTS.md and delete it`,
   );
 }
 
