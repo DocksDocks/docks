@@ -12,9 +12,10 @@
  * Two guards keep the conditions from freezing omp, which tests every
  * condition on the whole buffer at each delta, on its main thread (plan issue
  * #187). The shape case rejects a condition that does not start with the
- * forward key prefix, or that has an unbounded lookbehind anywhere but right
- * after its trigger lookahead. The backstop case runs `ompTriggerBackstop.ts`
- * under Bun, because V8 hides the JavaScriptCore cost that froze omp.
+ * forward key prefix or that has a `|` outside every group; it cannot prove
+ * linear time. The backstop case proves that by measurement: it runs
+ * `ompTriggerBackstop.ts` under Bun, because V8 hides the JavaScriptCore cost
+ * that froze omp.
  */
 import { spawnSync } from "node:child_process";
 import { basename } from "node:path";
@@ -25,6 +26,7 @@ import { payloadPaths } from "../../src/payload";
 import { BUN_RUNTIME } from "../lib/cliEntry";
 import {
   TRIGGER_RULE_NAMES,
+  UNROLLED_KEY_PREFIX,
   conditionShapeFaults,
   kitTriggerRule,
   ruleTriggers,
@@ -505,7 +507,7 @@ it("lists every rule file of the kit plugin", () => {
   expect([...TRIGGER_RULE_NAMES].sort()).toEqual([...files].sort());
 });
 
-it("starts each condition at the forward key prefix and keeps unbounded lookbehinds after a trigger lookahead", () => {
+it("starts each condition at the forward key prefix, with no | outside every group", () => {
   const faults = TRIGGER_RULE_NAMES.flatMap((name) =>
     kitTriggerRule(name).conditionSources.flatMap((source, index) => {
       const conditionFaults = conditionShapeFaults(source);
@@ -515,6 +517,25 @@ it("starts each condition at the forward key prefix and keeps unbounded lookbehi
     }),
   );
   expect(faults).toEqual([]);
+});
+
+describe("conditionShapeFaults", () => {
+  it("rejects a | outside every group, because its next alternative needs no key prefix", () => {
+    expect(conditionShapeFaults(`${UNROLLED_KEY_PREFIX}foo|bar`)).toEqual([
+      expect.stringMatching(/has a "\|" outside every group/u),
+    ]);
+  });
+
+  it("accepts a | inside a group or a character class", () => {
+    expect(conditionShapeFaults(`${UNROLLED_KEY_PREFIX}(?:foo|bar)[|]`)).toEqual([]);
+  });
+
+  it("rejects a leading unbounded lookbehind, the form that froze omp, because it does not start at the key", () => {
+    const leadingLookbehind = String.raw`(?<="(?:command|code)"\s*:\s*"(?:\\.|[^"\\])*)rm\b`;
+    expect(conditionShapeFaults(leadingLookbehind)).toEqual([
+      "does not start with the forward key prefix",
+    ]);
+  });
 });
 
 const BACKSTOP_SCRIPT = fileURLToPath(new URL("../lib/ompTriggerBackstop.ts", import.meta.url));

@@ -22,7 +22,9 @@
  *   prefix: the `command` or `code` key, optional JSON white space around the
  *   colon, and a lazy walk over the string body that steps over each `\`
  *   escape and never over an unescaped `"`. The match therefore starts at the
- *   key and stays inside that string. `conditionShapeFaults` enforces it.
+ *   key, and the prefix stays inside that string; a later part such as
+ *   `[^)]*` can still cross the closing quote. `conditionShapeFaults` checks
+ *   the prefix.
  * - omp 19.0.0 tests every condition on the whole buffer at each streamed
  *   delta, on its main thread, in JavaScriptCore. A leading variable-length
  *   lookbehind, the earlier form of the key anchor, walks back from every
@@ -210,29 +212,33 @@ const UNROLLED_ESCAPES = 8;
 export const FORWARD_KEY_PREFIX = `${KEY_PREFIX_START}(?:${ESCAPE_STEP})*?`;
 
 /**
- * `P0` with 8 escapes per loop step, the form the kit rules use. It matches
- * the same positions as `P0`. JavaScriptCore's regex JIT keeps one backtrack
- * frame per loop step and falls back to its 25 times slower interpreter past
- * about 16 K frames, which `P0` reaches at about 50 KB of escape-dense text.
- * 8 escapes per step move that point 8 times further out.
+ * `P0` with `escapes` escapes per loop step. It matches the same positions as
+ * `P0`. JavaScriptCore's regex JIT keeps one backtrack frame per loop step and
+ * falls back to its 25 times slower interpreter past about 16 K frames, which
+ * `P0` reaches at about 50 KB of escape-dense text. `k` escapes per step move
+ * that point `k` times further out. Most kit rules use 8; a condition with
+ * many capture groups has larger frames and uses 16.
  */
-export const UNROLLED_KEY_PREFIX =
-  `${KEY_PREFIX_START}(?:${ESCAPE_STEP.repeat(UNROLLED_ESCAPES)})*?` +
-  `(?:${ESCAPE_STEP}){0,${UNROLLED_ESCAPES - 1}}?`;
-
-interface RegexGroup {
-  /** Offset of the opening `(`. */
-  readonly start: number;
-  /** Offset just past the closing `)`. */
-  readonly end: number;
-  /** Number of groups that enclose this one. */
-  readonly depth: number;
+function unrolledKeyPrefix(escapes: number): string {
+  return (
+    `${KEY_PREFIX_START}(?:${ESCAPE_STEP.repeat(escapes)})*?` +
+    `(?:${ESCAPE_STEP}){0,${escapes - 1}}?`
+  );
 }
 
-/** The parenthesized groups of a regex pattern, skipping escapes and character classes. */
-function regexGroups(pattern: string): Array<RegexGroup> {
-  const groups: Array<RegexGroup> = [];
-  const openings: Array<number> = [];
+/** The unrolled key prefix that most kit rules use: 8 escapes per step. */
+export const UNROLLED_KEY_PREFIX = unrolledKeyPrefix(UNROLLED_ESCAPES);
+
+/** Every key prefix width the shape check accepts: `P0` and 2 to 32 escapes per step. */
+const KEY_PREFIXES: ReadonlyArray<string> = [
+  FORWARD_KEY_PREFIX,
+  ...Array.from({ length: 31 }, (_, index) => unrolledKeyPrefix(index + 2)),
+];
+
+/** Offsets of the `|` characters outside every group and character class. */
+function topLevelBars(pattern: string): Array<number> {
+  const bars: Array<number> = [];
+  let depth = 0;
   let inClass = false;
   for (let at = 0; at < pattern.length; at++) {
     const char = pattern[at];
@@ -243,71 +249,42 @@ function regexGroups(pattern: string): Array<RegexGroup> {
     } else if (char === "[") {
       inClass = true;
     } else if (char === "(") {
-      openings.push(at);
+      depth++;
     } else if (char === ")") {
-      const start = openings.pop();
-      if (start !== undefined) groups.push({ start, end: at + 1, depth: openings.length });
+      depth--;
+    } else if (char === "|" && depth === 0) {
+      bars.push(at);
     }
   }
-  return groups;
-}
-
-const UNBOUNDED_BRACE = /^\{\d+,\}/u;
-
-/** True when a regex fragment holds `*`, `+`, or `{n,}` outside a character class. */
-function hasUnboundedQuantifier(fragment: string): boolean {
-  let inClass = false;
-  for (let at = 0; at < fragment.length; at++) {
-    const char = fragment[at];
-    if (char === "\\") {
-      at++;
-    } else if (inClass) {
-      if (char === "]") inClass = false;
-    } else if (char === "[") {
-      inClass = true;
-    } else if (char === "*" || char === "+") {
-      return true;
-    } else if (char === "{" && UNBOUNDED_BRACE.test(fragment.slice(at))) {
-      return true;
-    }
-  }
-  return false;
+  return bars;
 }
 
 /**
- * Why a condition breaks the shape that keeps omp's scans linear, or an empty
- * list. After an optional inline flag group the condition must start with the
- * forward key prefix, so each scan walks the buffer forward once. An unbounded
- * lookbehind may appear only as the last element, right after a `(?=...)`
- * trigger lookahead: it then walks back only where the trigger matched, and it
- * stops at the word before the trigger.
+ * Why a condition breaks the static shape rules, or an empty list. After an
+ * optional inline flag group the condition must start with the forward key
+ * prefix, so each match starts at the `command` or `code` key. The shape
+ * that froze omp, a leading lookbehind that walks back from each buffer
+ * position, does not start at the key, so it fails this rule. A `|` outside
+ * every group and character class lets the alternative after it match
+ * without the key prefix, so the condition must not have one.
+ *
+ * This check cannot prove that a scan takes linear time: a later part of a
+ * condition can still backtrack or walk back far. `ompTriggerBackstop.ts`
+ * proves it by measurement under Bun: the time budget, the fire check,
+ * scaling with the JIT off, escape-dense text, a head-then-run buffer, and
+ * an open buffer.
  */
 export function conditionShapeFaults(source: string): Array<string> {
   const flagGroup = INLINE_FLAG_GROUP.exec(source);
   const pattern = flagGroup === null ? source : source.slice(flagGroup[0].length);
   const faults: Array<string> = [];
-  if (!pattern.startsWith(FORWARD_KEY_PREFIX) && !pattern.startsWith(UNROLLED_KEY_PREFIX)) {
+  if (!KEY_PREFIXES.some((prefix) => pattern.startsWith(prefix))) {
     faults.push("does not start with the forward key prefix");
   }
-  const groups = regexGroups(pattern);
-  for (const lookbehind of groups) {
-    const opener = pattern.slice(lookbehind.start, lookbehind.start + 4);
-    if (opener !== "(?<=" && opener !== "(?<!") continue;
-    if (!hasUnboundedQuantifier(pattern.slice(lookbehind.start + 4, lookbehind.end - 1))) continue;
-    const trailsTriggerLookahead =
-      lookbehind.depth === 0 &&
-      lookbehind.end === pattern.length &&
-      groups.some(
-        (group) =>
-          group.depth === 0 &&
-          group.end === lookbehind.start &&
-          pattern.startsWith("(?=", group.start),
-      );
-    if (!trailsTriggerLookahead) {
-      faults.push(
-        `has an unbounded lookbehind at offset ${lookbehind.start} that is not the last element after a trigger lookahead`,
-      );
-    }
+  for (const bar of topLevelBars(pattern)) {
+    faults.push(
+      `has a "|" outside every group at offset ${bar}, so its next alternative needs no key prefix`,
+    );
   }
   return faults;
 }
