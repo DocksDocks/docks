@@ -121,10 +121,7 @@ The Steps table uses this exact header:
 
 `#` is the positive display number. `Id` matches `[a-z][a-z0-9_]{0,63}` and is unique. `Task`, `Files`, and `Done when` are non-empty. `Depends` is `-` or a comma-separated list of lower display numbers from the same table. `Effect` is exactly one of `local`, `probe`, `production_access`, `publish`, `push`, `release`, or `deploy`. `Status` is exactly one of `planned`, `in-flight`, `done`, `blocked`, or `skipped`; `done` and `skipped` are terminal. `Done when` names one observable proof and carries no "or STOP" clause. Step citations use `step:<id>` and resolve to a declared id.
 
-Every Steps row must be terminal before the closing pull request merges. Once
-that merge closes the issue as completed, the derived state is `finished` and
-step mutation is limited to terminal repair of a closed-but-unarchived record.
-Post-merge work belongs to a named follow-up plan.
+Every Steps row must be terminal before the closing pull request merges, except a step whose Task starts with `After the landing merge`. Such a step, for example a release, a deploy, or a sync, stays `planned` until that merge, runs only after an in-session `ask`, and archive waits until it is terminal. Once the merge closes the issue as completed, the derived state is `finished`, and step mutation is limited to marking those steps `done` or `skipped` and to terminal repair of a closed-but-unarchived record. Other post-merge work belongs to a named follow-up plan.
 
 No Steps `Files` cell names the plan's own issue reference. Writing lifecycle
 state into the record is the CLI's job, not an implementation step.
@@ -187,14 +184,15 @@ resolves the target repository from that checkout's GitHub remote.
 | `plan.mjs export <issue>` | Write the body and its digest sidecar to the protected scratch directory. Print the body path. |
 | `plan.mjs edit <issue> --file <path>` | Validate provenance. Normalize the record. Enforce frozen step state. Write the body and changed lines. |
 | `plan.mjs status <issue> <status> [--reason <text>]` | Apply an open-plan status. Maintain the blocked reason and phase labels. |
-| `plan.mjs step <issue> <step-id> <status>` | Apply one step status. Require an ongoing plan, except terminal repair on a finished plan. |
+| `plan.mjs step <issue> <step-id> <status>` | Apply one step status. Require an ongoing plan, except on a finished plan: marking a step whose Task starts with `After the landing merge` `done` or `skipped`, and terminal repair. |
 | `plan.mjs list [--status <s>]` | List plan issues by derived status. Show open plans before closed plans. |
 | `plan.mjs archive <issue> --pr <pr>` | Verify terminal steps, trusted code review, and the merged landing pull request `<pr>`. Close an open `ongoing` plan as completed when GitHub does not. Remove stale phase labels. |
 | `plan.mjs retire <issue> --reason <text>` | Close an eligible plan as not planned. Remove phase labels. |
 | `plan.mjs reopen <issue> --pr <pr>` | Reopen a plan that the merged partial pull request `<pr>` closed through its linked branch. Claim an unassigned plan. |
 
 Open non-terminal step statuses may change freely. A `done` or `skipped` step is
-immutable. A finished plan permits only terminal step repair.
+immutable. A finished plan permits only marking a step whose Task starts with
+`After the landing merge` `done` or `skipped`, and terminal step repair.
 
 ## Archive verification
 
@@ -259,8 +257,7 @@ and presence byte-for-byte; new rows must be appended after every existing row,
 must start `planned`, and are refused on closed plans; after that boundary, only
 `plan.mjs step` writes step state.
 Before this boundary, a `drafting` or `planned` plan with no historical
-`plan:ongoing` event may edit Steps freely. On a closed plan, post-merge step
-mutation remains limited to terminal repair; new work requires a follow-up plan.
+`plan:ongoing` event may edit Steps freely. On a closed plan, post-merge step mutation is limited to the steps whose Task starts with `After the landing merge` and to terminal repair; new work requires a follow-up plan.
 
 Re-export immediately before every body edit. Edit the export.
 Apply it with `plan.mjs edit <issue> --file <path>`.
@@ -362,8 +359,8 @@ sets the plan `blocked`.
 2. **Draft.** Create the plan issue, write the goal and research hypothesis, and keep provisional Steps and Acceptance tables while status remains `drafting`.
 3. **Research.** Verify facts and sources. Choose the durable fix. Bind the files. Complete Acceptance. Set the plan `planned`.
 4. **Plan review.** Run rounds from fresh exports. Post each reviewer block as one issue comment. Fix reproduced findings and dispatch a fresh review; stop on pass. Ask the user to continue or block when a round makes no progress, the same finding returns after a repair, round 5 does not pass, or dispatch fails again without a relevant change. If no answer is available, record the reason and block. Route every `blocked` user-only decision through `## Open questions` and `ask`, including in round five. A plan-only run stops at `planned` only after plan review passes.
-5. **Implement.** Set the plan `ongoing`, verify and check out its GitHub-linked branch before changing implementation bytes, move each step through its legal states, and record real Acceptance output in `## Verification Results` before the closing merge.
-6. **Code review.** Run rounds from fresh plan exports, each with the diffs of its round mode (`full`, `panel`, or `delta`). Post each reviewer block as one issue comment. Fix every critical and high finding and dispatch a fresh review; stop on pass. A code-review `blocked` verdict follows the rule in Review records. Ask the user to continue or block when a round makes no progress, the same finding returns after a repair, round 5 does not pass, or dispatch fails again without a relevant change. If no answer is available, record the reason and block. Before recording a blocker after implementation, commit and normally push all current work to the linked plan branch. Every step must be terminal and code review must pass before the closing merge; archive verifies those facts afterward.
+5. **Implement.** Set the plan `ongoing`, verify and check out its GitHub-linked branch before changing implementation bytes, move each step through its legal states, and record real Acceptance output in `## Verification Results` before the closing merge. The Acceptance rows of a step whose Task starts with `After the landing merge` are recorded after that step runs.
+6. **Code review.** Run rounds from fresh plan exports, each with the diffs of its round mode (`full`, `panel`, or `delta`). Post each reviewer block as one issue comment. Fix every critical and high finding and dispatch a fresh review; stop on pass. A code-review `blocked` verdict follows the rule in Review records. Ask the user to continue or block when a round makes no progress, the same finding returns after a repair, round 5 does not pass, or dispatch fails again without a relevant change. If no answer is available, record the reason and block. Before recording a blocker after implementation, commit and normally push all current work to the linked plan branch. Before the closing merge, code review must pass, and every step must be terminal except the steps that Plan tables lets run after the landing merge; archive verifies those facts afterward and waits until every step is terminal.
 
 Build the full diff from the complete candidate pull request, not only the
 dirty worktree. Resolve and fetch the repository default branch, then compute

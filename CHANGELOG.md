@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased - docks-kit 0.23.0: omp-only cutover
+## 2026-11-19 - docks-kit 0.23.0: Codex and Claude Code removal, omp trigger-rule fix
 
-docks-kit moves to managing omp only (plan #179). This entry grows with each
-part of that change until the release.
+docks-kit moves to managing omp only (plan #179). 0.23.0 is the first part of
+that change. It removes Codex and Claude Code support, moves omp to 19.0.0, and
+fixes the omp trigger rules that froze sessions. The 0.22.29 changes below were
+not published on their own; they ship in 0.23.0. A later version makes `sync`
+omp-only (#183) and changes the omp settings (#184).
 
 ### Removed
 
@@ -128,10 +131,10 @@ Claude Code:
   conditions. The shape guard checks only what a static check can prove.
   Each condition must start with the forward key prefix, which rejects the
   leading lookbehind that froze omp, and no `|` can stand outside every
-  group. The Bun backstop (`cli/test/lib/ompTriggerBackstop.ts`) proves
-  linear time by measurement. It fails when one pass over a 20 KB or 30 KB
-  buffer takes 250 ms or more, or when `git reset --hard` at the end of a
-  20 KB cell does not fire.
+  group. The Bun backstop (`cli/test/lib/ompTriggerBackstop.ts`) tests the
+  measured input families for linear time. It fails when one pass over a
+  20 KB or 30 KB buffer takes 250 ms or more, or when `git reset --hard` at
+  the end of a 20 KB cell does not fire.
 - The backstop also times each condition alone at 16 KB and 64 KB. It uses
   adversarial shapes with the regex JIT off, and the first two input families
   with the JIT on, in a bash command, an open bash command, and a Python
