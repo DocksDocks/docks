@@ -1,6 +1,6 @@
 {
   "name": "docks",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "description": "Engineering skill kit of agentskills.io skills. Sequential pipeline skills — security audit (OWASP Top 10), refactor (dead code, duplication, SOLID), and skill-agent-pipeline — plus portable convention skills: test-first, coverage, fix workflows, code review, design tokens, dependency-vuln triage, lint discipline, UI polish, SOLID, type-safety, and React component patterns. Routes plan approval to the companion plan-lifecycle plugin.",
   "license": "MIT",
   "private": true,
