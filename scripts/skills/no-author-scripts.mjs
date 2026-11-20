@@ -18,7 +18,7 @@ const AGENTS_DIR = argSkills
     ? path.resolve(process.argv[3])
     : null
   : path.join(REPO_DIR, 'plugins/docks/agents');
-const ALLOWLIST = ['scaffold', 'write-skill'];
+const ALLOWLIST = ['write-skill'];
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const scriptEntries = fs.readdirSync(path.join(REPO_DIR, 'scripts'), { withFileTypes: true });

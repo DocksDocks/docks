@@ -13,7 +13,7 @@ After changing a skill's meaning, run `bun scripts/skills/content-hash.mjs --bac
 </constraint>
 
 <constraint>
-Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.mjs`, `scripts/config/*`, `scripts/lib/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.mjs` enforces this; only the tooling-authoring skills that seed/describe that tooling (`scaffold`, `write-skill`) are allowlisted. This applies to plugin-shipped agent bodies too.
+Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.mjs`, `scripts/config/*`, `scripts/lib/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.mjs` enforces this; only the tooling-authoring skill that describes that tooling (`write-skill`) is allowlisted. This applies to plugin-shipped agent bodies too.
 </constraint>
 
 ## Durable docs and agent-first (kit rules)

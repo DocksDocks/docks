@@ -20,7 +20,7 @@ import { parseArgs } from "node:util";
 const MARKETPLACE = "docks";
 const PLUGINS = ["docks", "plan-lifecycle"];
 const CATALOG_PATH = ".omp-plugin/marketplace.json";
-const EXPECTED_SKILLS = 33;
+const EXPECTED_SKILLS = 32;
 const REQUIRED_AGENTS = ["code-reviewer", "plan-reviewer"];
 const COMMAND_TIMEOUT_MS = 120_000;
 const MODEL_PROVIDER = "omp-smoke";
