@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased - docks-kit 0.24.0: omp-only sync
+## 2026-11-20 - docks-kit 0.24.0: omp-only sync and omp 19.0.0 tools
 
 docks-kit now manages omp only. `docks-kit sync` syncs omp. Sync writes no
 `.agents` or `.claude` folder of its own; omp's folders follow
@@ -81,19 +81,20 @@ defaults.
 
 ### Files that stay on your machine
 
-Sync no longer reads, writes, or removes these files. Before you delete
-them, read the kit records. Each line of `~/.agents/.kit-owned-skills` holds
-a skill name and the device and inode pair (`<dev>:<ino>`) of the folder
-that the kit install created. That record can be stale, because you or
-another tool can have replaced the folder since the install. A folder counts
-as kit-installed only when its device and inode still match the recorded
-pair. On Linux, `stat -c '%d:%i' <folder>` prints the pair. On macOS, use
-`stat -f '%d:%i' <folder>`. When a line has no pair, or when you cannot read
-the pair of the folder, treat the folder as uncertain. Each entry in
-`~/.agents/.kit-pending-skills` is uncertain too: the kit started that
-install but did not record the result, so check that folder yourself.
-`~/.agents/skills/` and `~/.claude/skills/` can hold your own skills, which
-you or another tool installed. Delete only the skills that you do not use.
+Sync no longer reads, writes, or removes these files, except the folder lock
+in the list below. Before you delete them, read the kit records. Each line of
+`~/.agents/.kit-owned-skills` holds a skill name and the device and inode
+pair (`<dev>:<ino>`) of the folder that the kit install created. That record
+can be stale, because you or another tool can have replaced the folder since
+the install. A folder counts as kit-installed only when its device and inode
+still match the recorded pair. On Linux, `stat -c '%d:%i' <folder>` prints
+the pair. On macOS, use `stat -f '%d:%i' <folder>`. When a line has no pair,
+or when you cannot read the pair of the folder, treat the folder as
+uncertain. Each entry in `~/.agents/.kit-pending-skills` is uncertain too:
+the kit started that install but did not record the result, so check that
+folder yourself. `~/.agents/skills/` and `~/.claude/skills/` can hold your own
+skills, which you or another tool installed. Delete only the skills that you
+do not use.
 
 - The `~/.agents/skills/<name>/` folders that `npx skills add` created for
   the kit.
@@ -101,8 +102,13 @@ you or another tool installed. Delete only the skills that you do not use.
   `~/.agents/.kit-pending-skills`, and `~/.agents/.kit-managed-skills`. An
   older kit also wrote your own skill folders into `.kit-managed-skills`, so
   do not use that file alone to find the kit skills.
-- The sync lock `~/.agents/.docks-kit-sync-lock.db` and the
-  `~/.agents/skills/` folder, which each writing `agents` sync created.
+- The sync lock `~/.agents/.docks-kit-sync-lock.db`. Keep the lock file
+  while an omp folder that sync writes is `~/.agents` or resolves to it
+  through a symlink. `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, and
+  `XDG_DATA_HOME` can each move an omp folder there, and a named omp profile
+  (`OMP_PROFILE` or `PI_PROFILE`) changes which of them apply. Sync then holds
+  that file as its folder lock. Never delete it while a `docks-kit sync` runs.
+- The `~/.agents/skills/` folder, which each writing `agents` sync created.
   Delete the folder only when it is empty.
 - The `~/.claude/skills/<name>` entries of the kit skills. Each entry is a
   symlink, a Windows junction, or a copy with the marker file
