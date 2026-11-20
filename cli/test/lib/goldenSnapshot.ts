@@ -78,8 +78,6 @@ const TEXT_ARTIFACT_NAMES: Record<string, true> = {
   ".bashrc": true,
   ".gitkeep": true,
   ".kit-managed-skills": true,
-  ".kit-owned-skills": true,
-  ".kit-pending-skills": true,
   "session-relay": true,
 };
 

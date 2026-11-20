@@ -196,10 +196,9 @@ process.on("SIGTERM", handleSigterm);
  * both POSIX launchers and Windows `.cmd` launchers.
  */
 const STUB_BODIES: Record<string, string> = {
-  // node and jq are version-probed by `toolchain check` (presence-checked in
-  // preflight/skills) but never do real work in the engine — pin them so the
-  // goldens don't embed the recording machine's host versions.
-  node: `if (args[0] === "--version") console.log("v22.23.1")`,
+  // git and jq are version-probed by `toolchain check` but never do real work
+  // in the engine — pin them so the goldens don't embed the recording
+  // machine's host versions.
   git: `if (args[0] === "--version") console.log("git version 2.43.0")`,
   jq: `if (args[0] === "--version") console.log("jq-1.7.1")`,
   // The inventory stays empty on every call, so a replay row pins the install
@@ -210,7 +209,6 @@ const STUB_BODIES: Record<string, string> = {
 } else if (args[0] === "plugin" && args[1] === "list") {
   console.log('{"npm":[],"marketplace":[]}')
 }`,
-  npx: ``,
   npm: `if (args[0] === "view") console.log("0.0.1")`,
   bun: `if (args[0] === "--version") console.log("1.4.4")`,
   curl: ``,

@@ -122,20 +122,20 @@ function channelInvariantProblems(): Array<string> {
   const problems: Array<string> = [];
   const logPrefixes = ["[ok]", "[warn]", "[err]"];
 
-  const syncSplit = runEngineSplit(["sync", "omp"], "home-fresh", defaultStubs);
+  const syncSplit = runEngineSplit(["sync"], "home-fresh", defaultStubs);
   if (syncSplit.exitCode !== 0) {
-    problems.push(`  channel: sync omp exited ${syncSplit.exitCode}; expected 0`);
+    problems.push(`  channel: sync exited ${syncSplit.exitCode}; expected 0`);
   }
   if (!syncSplit.stdout.includes("--- Sync complete ---")) {
-    problems.push("  channel: summary block missing from stdout (sync omp)");
+    problems.push("  channel: summary block missing from stdout (sync)");
   }
   for (const prefix of logPrefixes) {
     if (syncSplit.stdout.includes(prefix)) {
-      problems.push(`  channel: '${prefix}' log prefix leaked to stdout (sync omp)`);
+      problems.push(`  channel: '${prefix}' log prefix leaked to stdout (sync)`);
     }
   }
   if (syncSplit.stderr.includes("--- Sync complete ---")) {
-    problems.push("  channel: summary block leaked to stderr (sync omp)");
+    problems.push("  channel: summary block leaked to stderr (sync)");
   }
 
   // Dry-run under verbose env: the report must stay a complete stdout
@@ -158,27 +158,14 @@ function channelInvariantProblems(): Array<string> {
   // A warn-emitting run (masked git): warns must land on stderr, never stdout.
   // The fully-stubbed cases above emit no warns, so without this leg a
   // stdout-routed warn would pass every channel check.
-  const warnSplit = runEngineSplit(["sync", "omp"], "home-fresh", makeStubDir({ git: null }), {
+  const warnSplit = runEngineSplit(["sync"], "home-fresh", makeStubDir({ git: null }), {
     maskTools: ["git"],
   });
   if (warnSplit.stdout.includes("[warn]")) {
-    problems.push("  channel: '[warn]' leaked to stdout (git-masked sync omp)");
+    problems.push("  channel: '[warn]' leaked to stdout (git-masked sync)");
   }
   if (!warnSplit.stderr.includes("git not installed —")) {
-    problems.push("  channel: expected git warn missing from stderr (git-masked sync omp)");
-  }
-
-  for (const [flag, hint] of [
-    ["--omp", "--omp was renamed: pass the target as a word, e.g. 'sync omp'"],
-    ["--remove-plugins", "--remove-plugins was renamed to --prune"],
-  ] as const) {
-    const bare = runPublicCli(["sync", flag], "home-fresh", defaultStubs);
-    if (bare.exitCode !== 2 || !bare.stderr.includes(hint)) {
-      problems.push(`  modifiers: public legacy ${flag} lost rename-hint/exit-2 behavior`);
-    }
-    if (bare.stdout !== "")
-      problems.push(`  modifiers: public legacy ${flag} wrote rename hint to stdout`);
-    rmSync(bare.home, { recursive: true, force: true });
+    problems.push("  channel: expected git warn missing from stderr (git-masked sync)");
   }
 
   for (const [args, error, label] of [
@@ -189,9 +176,9 @@ function channelInvariantProblems(): Array<string> {
     ],
     [["sync", "-x"], "unknown flag -x for 'sync'", "single-dash unknown flag -x"],
     [
-      ["sync", "--prune", "--prune"],
-      "flag --prune was given more than once",
-      "duplicate non-repeatable flag --prune",
+      ["sync", "--verbose", "--verbose"],
+      "flag --verbose was given more than once",
+      "duplicate non-repeatable flag --verbose",
     ],
   ] as const) {
     const bare = runPublicCli(args, "home-fresh", defaultStubs);
@@ -217,7 +204,7 @@ function channelInvariantProblems(): Array<string> {
   rmSync(booleanWithValue.home, { recursive: true, force: true });
 
   // The kit refuses these flags outright so Effect 4 cannot negate a declared boolean into a real mutating sync.
-  for (const flag of ["--no-dry-run", "--no-prune"] as const) {
+  for (const flag of ["--no-dry-run", "--no-verbose"] as const) {
     const bare = runPublicCli(["sync", flag], "home-fresh", defaultStubs);
     if (bare.exitCode !== 2 || bare.stderr !== `unknown flag ${flag} for 'sync'\n`) {
       problems.push(`  modifiers: public negated ${flag} lost unknown-flag/exit-2 behavior`);
