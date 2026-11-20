@@ -75,7 +75,7 @@ Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfa
 | `ci-speed` | Slow or costly CI and test runs — queue time, checkout, installs, caches, lint, type check, tests, sharding, affected-only runs, pre-push hooks, Blacksmith runners with a GitHub-hosted fallback |
 | `effect-ts` | TypeScript code that uses Effect v4 — services, layers, typed errors, `@effect/vitest` tests, Effect diagnostics as lint rules, agent rules that keep code on the installed version |
 
-Plus `agent-first-setup`, `context-tree`, `multi-tool-bridge`, `report-skill-issue`, `scaffold`, `skill-maintenance`, `write-skill`, and `zoom-out`.
+Plus `agent-first-setup`, `claude-md-migration`, `context-tree`, `report-skill-issue`, `scaffold`, `skill-maintenance`, `write-skill`, and `zoom-out`.
 
 ### Plan lifecycle (companion plugin)
 

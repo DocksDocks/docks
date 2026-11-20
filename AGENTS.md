@@ -24,8 +24,7 @@ Bun runs this repository's tooling and is the package manager; its version is th
 │   └── extensions/ (omp)             verify-gate commit check and context-tree nudge: omp extensions (`.ts` adapters over `.mjs` cores)
 ├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin (cross-tool): lifecycle skills, shipped plan.mjs, plan contract reference, and read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
 ├── .omp-plugin/marketplace.json      omp marketplace catalog (one entry per plugin)
-├── .agents/skills/                   project-local skills (canonical, multi-tool)
-├── .claude/skills/                   Claude Code-visible symlinks → ../../.agents/skills/
+├── .agents/skills/                   project-local skills (omp loads project skills from here)
 ├── docs/                             plan routing (rules: docs/AGENTS.md)
 ├── scripts/                          plugin-author tooling (NOT shipped to consumers)
 └── .github/workflows/                gh-side CI on PR + tag push
@@ -33,7 +32,7 @@ Bun runs this repository's tooling and is the package manager; its version is th
 
 ## Context tree
 
-Per-area conventions load lazily from nested `AGENTS.md` nodes. A node is a single `AGENTS.md`; Claude Code and Codex both load a nested `AGENTS.md` when they work in that folder. Do not add a `CLAUDE.md`: this repo keeps one home for instructions, and a `CLAUDE.md` without an `@AGENTS.md` import makes Claude read it instead of `AGENTS.md`. The `.claude/skills/` symlinks remain because Claude Code does not read `.agents/`. Drill into the node for the local rules - this root carries only repo-wide concerns:
+Per-area conventions load lazily from nested `AGENTS.md` nodes. A node is a single `AGENTS.md`. omp loads a node when a session starts in its folder or below; otherwise open the node from the table below. Do not add a `CLAUDE.md`: omp ignores a `CLAUDE.md` next to an `AGENTS.md`, and this repo keeps one home for instructions. Drill into the node for the local rules - this root carries only repo-wide concerns:
 
 | Node | Covers |
 |---|---|
@@ -52,12 +51,12 @@ Plugin-shipped agents are omp task agents: omp loads each `agents/*.md` of a nat
 The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): omp loads every `*.md` under `agents/` as a task agent, and the gate (`scripts/ci.mjs`) checks each one as an agent, so an `AGENTS.md` there fails. These authoring rules therefore live in this root file instead of a nested node.
 
 - **Description (CSO):** lead with "Use when …" AND include a "Not …" exclusion clause (both required by `scripts/agents/guard.mjs`); ≥80 and ≤500 chars; concrete triggers; no slop words.
-- **Frontmatter:** `name` (required, kebab-case, matches filename, no `anthropic`/`claude` substring); `description` (required, with the "Not …" clause); **no `model` key** - `scripts/agents/guard.mjs` rejects any value, `inherit` included. Claude Code resolves an omitted `model` through its subagent model order (ending at the main conversation model), and omp falls back to the parent session model, so omission is the only spelling both runtimes agree on; every literal (`inherit`, `sonnet`, `claude-*`) is handed to omp as a model ID, resolves to nothing, and kills the spawn with "No model selected" (a plugin agent carrying `model: inherit` fails to spawn; the identical file without the key runs). Consumers pin per-agent models their own way - Claude via `CLAUDE_CODE_SUBAGENT_MODEL` (a default below frontmatter; add `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` to override every subagent), omp via `task.agentModelOverrides.<agent>`. `tools` (allowlist; omitted = inherit all). For plugin-shipped agents, `hooks`/`mcpServers`/`permissionMode` are silently ignored for security - define the agent in the consuming project's own .claude/agents folder when you need those.
+- **Frontmatter:** `name` (required, kebab-case, matches filename, no `anthropic`/`claude` substring); `description` (required, with the "Not …" clause); **no `model` key** - `scripts/agents/guard.mjs` rejects any value, `inherit` included. omp falls back to the parent session model when `model` is omitted; every literal (`inherit`, `sonnet`, `claude-*`) is handed to omp as a model ID, resolves to nothing, and kills the spawn with "No model selected" (a plugin agent carrying `model: inherit` fails to spawn; the identical file without the key runs). Consumers pin per-agent models with `task.agentModelOverrides.<agent>`. `tools` (allowlist; omitted = the omp default tool set; omp also adds MCP, extension, and custom tools to a listed set).
 - **Skill files:** an agent loads its skill with `autoload-skills: <skill>` and names each further file as `skill://<skill>/<path>`. omp sets no plugin root variable, so `scripts/agents/guard.mjs` and the gate refuse each `${...}` variable in an agent.
 - **Body:** hard cap 500 lines (`scripts/agents/guard.mjs`); scorer sweet spot 60–300 lines (`scripts/agents/score.mjs`). Same patterns as skills (`<constraint>` blocks - up to 2 rewarded - lookup tables, BAD/GOOD, gotchas, validation loop); structure as context-acknowledgment (step 1), then `## Workflow`, `## Output Format`, `## Anti-Hallucination Checks`, `## Success Criteria`.
 - **No author-script refs (consumer-safety):** a plugin-shipped agent body must not name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/agents/*`, `scripts/tree/*`, …) as a step - they don't ship to a consumer's project. Refer to "the project's CI / validators, if present", or make the check self-contained. `scripts/skills/no-author-scripts.mjs` scans agent bodies alongside shipped skills (verify: append a line naming `bun scripts/ci.mjs` to a non-allowlisted skill body → the guard run must FAIL naming that file; revert).
 - **Validators:** `bun scripts/agents/guard.mjs` (structural) + `bun scripts/agents/score.mjs --per-file` (quality score; the rubric maximum is defined in `scripts/agents/score.mjs`). The per-file floor lives in `scripts/config/scoring.json` (verify: `bun scripts/config/read-floor.mjs agents`). Use up to two `<constraint>` blocks when they express distinct load-bearing invariants, not to manage score slack. Both validators run inside `scripts/ci.mjs`; the validator table lives in `scripts/AGENTS.md`.
-- **Sources:** [sub-agents](https://code.claude.com/docs/en/sub-agents) · [plugins-reference](https://code.claude.com/docs/en/plugins-reference).
+- **Sources:** the omp doc `omp://task-agent-discovery.md` (agent definition shape, discovery roots, `tools`).
 
 ## Plans
 
@@ -81,7 +80,7 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 
 The repo's own `.agents/skills/` hosts skills useful only when working ON this plugin repo - they don't ship to consumers. Each skill's `description` states when to use it (verify: `ls .agents/skills`).
 
-Claude Code sees these via the symlinks under `.claude/skills/`. Codex sees them directly at `.agents/skills/`.
+omp reads them directly at `.agents/skills/`.
 
 ## CI targeting
 

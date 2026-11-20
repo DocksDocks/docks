@@ -1,8 +1,8 @@
 // Shared parts of the agent-doc checks of agent-first-setup (agent-first-check.mjs) and
-// multi-tool-bridge (bridge-check.mjs): the repository root, the file listing, the routing
-// rows of the root AGENTS.md, the nested AGENTS.md nodes, and the durable-doc scan. The
-// canonical file is in agent-first-setup; multi-tool-bridge ships a byte-identical copy,
-// because a skill folder cannot import from another skill folder.
+// claude-md-migration (bridge-check.mjs): the repository root, the file listing, the legacy
+// `.claude/` entries, the routing rows of the root AGENTS.md, the nested AGENTS.md nodes, and
+// the durable-doc scan. The canonical file is in agent-first-setup; claude-md-migration ships
+// a byte-identical copy, because a skill folder cannot import from another skill folder.
 //
 // Each function ports one part of a shell block that the two skills ran before. A port keeps
 // the semantics of that block: git pathspecs, POSIX `[[:space:]]`, the leftmost-longest
@@ -110,6 +110,120 @@ export function findEntries(folder) {
   return readFolder(folder).sort((a, b) => byteOrder(a.name, b.name));
 }
 
+const CLAUDE_FOLDER = '.claude';
+const CLAUDE_SKILLS = '.claude/skills';
+const CLAUDE_AGENTS = '.claude/agents';
+const CLAUDE_SETTINGS = ['.claude/settings.json', '.claude/settings.local.json'];
+// The `.claude/` entries that have their own line; each other entry is a `legacy other:` entry.
+const CLAUDE_OWN_LINES = new Set(['CLAUDE.md', 'skills', 'agents', 'settings.json', 'settings.local.json']);
+
+// True when the absolute path `inner` is `outer` or below it.
+function isWithin(outer, inner) {
+  const relative = path.relative(outer, inner);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+// The link target of `file` as read, when `file` is a symlink whose real path is outside the
+// current folder (the repository root); else null. A dangling link resolves its target from
+// the real folder of the link. A link that cannot be read throws CheckError.
+function externalTarget(file) {
+  if (!isSymlink(file)) return null;
+  try {
+    const target = fs.readlinkSync(file);
+    const real =
+      statOrNull(file) === null ? path.resolve(fs.realpathSync(path.dirname(file)), target) : fs.realpathSync(file);
+    return isWithin(fs.realpathSync('.'), real) ? null : target;
+  } catch (error) {
+    throw listingError(file, error);
+  }
+}
+
+// True when the `.claude/skills` folder of the root is no link to a place outside the
+// repository, and no `.claude` link above it is either. The checks then may list its entries.
+export function claudeSkillsInRepository() {
+  return externalTarget(CLAUDE_FOLDER) === null && externalTarget(CLAUDE_SKILLS) === null;
+}
+
+// The legacy Claude Code entries of the `.claude/` folder in the current folder (the
+// repository root): `external`, each of `.claude`, `.claude/skills`, and `.claude/agents` that
+// is a symlink to a place outside the repository, as { path, target }, with no entry below it;
+// the skills folder; each agent file that `.claude/agents/*.md` expands to (no dot names, in
+// byte order); each settings file; and `others`, each other entry of `.claude/` (dot names
+// too, in byte order). Throws CheckError when `.claude` or `.claude/agents` is there but
+// cannot be listed.
+export function legacyClaudeEntries() {
+  const external = [];
+  const outside = (folder) => {
+    const target = externalTarget(folder);
+    if (target !== null) external.push({ path: folder, target });
+    return target !== null;
+  };
+  if (outside(CLAUDE_FOLDER)) return { external, skills: null, agents: [], settings: [], others: [] };
+  const skillsOutside = outside(CLAUDE_SKILLS);
+  const agentsOutside = outside(CLAUDE_AGENTS);
+  const others = readFolder(CLAUDE_FOLDER)
+    .map((entry) => entry.name)
+    .filter((name) => !CLAUDE_OWN_LINES.has(name))
+    .sort(byteOrder)
+    .map((name) => `${CLAUDE_FOLDER}/${name}`);
+  const agents = agentsOutside
+    ? []
+    : readFolder(CLAUDE_AGENTS)
+        .map((entry) => entry.name)
+        .filter((name) => !name.startsWith('.') && name.endsWith('.md'))
+        .sort(byteOrder)
+        .map((name) => `${CLAUDE_AGENTS}/${name}`)
+        .filter(isFile);
+  return {
+    external,
+    skills: !skillsOutside && isFolder(CLAUDE_SKILLS) ? CLAUDE_SKILLS : null,
+    agents,
+    settings: CLAUDE_SETTINGS.filter(isFile),
+    others,
+  };
+}
+
+// The `legacy external:`, `legacy skills:`, `legacy agents:`, `legacy settings:`, and
+// `legacy other:` lines of legacyClaudeEntries.
+export function legacyClaudeLines() {
+  const { external, skills, agents, settings, others } = legacyClaudeEntries();
+  return [
+    ...external.map((link) => `legacy external: ${link.path} -> ${link.target}`),
+    ...(skills === null ? [] : [`legacy skills: ${skills}`]),
+    ...agents.map((agent) => `legacy agents: ${agent}`),
+    ...settings.map((file) => `legacy settings: ${file}`),
+    ...others.map((entry) => `legacy other: ${entry}`),
+  ];
+}
+
+// The root context files that omp can load, and the root personal file.
+export const ROOT_CONTEXT_FILES = ['CLAUDE.md', '.claude/CLAUDE.md'];
+export const ROOT_PERSONAL_FILES = ['CLAUDE.local.md'];
+
+// `files` and each of the root files `names` that is a file (a symlink to a file too), unique
+// and in byte order. A git listing skips an ignored file, but omp still loads an ignored
+// CLAUDE.md or .claude/CLAUDE.md. A `.claude` link to a place outside the repository adds no
+// file. A `.claude` link that cannot be read throws CheckError.
+export function withRootFiles(files, names) {
+  const claudeOutside = externalTarget(CLAUDE_FOLDER) !== null;
+  const found = names.filter((name) => isFile(name) && !(claudeOutside && name.startsWith(`${CLAUDE_FOLDER}/`)));
+  return [...new Set([...files, ...found])].sort(byteOrder);
+}
+
+// True when `file`, a CLAUDE.md or a .claude/CLAUDE.md, is a symlink whose target resolves to
+// the AGENTS.md of its folder (for a .claude/CLAUDE.md, of the folder above). Such a link
+// holds no text of its own, so there is nothing to migrate.
+export function isAgentsLink(file) {
+  if (!isSymlink(file)) return false;
+  let folder = path.posix.dirname(file);
+  if (path.posix.basename(folder) === CLAUDE_FOLDER) folder = path.posix.dirname(folder);
+  try {
+    return fs.realpathSync(file) === fs.realpathSync(`${folder}/${ROOT_AGENTS}`);
+  } catch {
+    return false;
+  }
+}
+
 // The text of a file, or null when no file is there; grep and awk then fail the same way. A
 // file that is there but cannot be read throws CheckError, because its text is unknown.
 // `latin1` gives one character per byte, as awk and grep read in the C locale.
@@ -161,7 +275,9 @@ function gitFiles(root, pathspecs, excludeStandard) {
   args.push('--', ...pathspecs);
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: LISTING_BUFFER });
   if (result.error) {
-    process.stderr.write(`agent-docs: git ls-files failed (${result.error.message}); fix the cause and run the check again\n`);
+    process.stderr.write(
+      `agent-docs: git ls-files failed (${result.error.message}); fix the cause and run the check again\n`,
+    );
     throw new CheckError(LISTING_FAILED);
   }
   process.stderr.write(result.stderr);
@@ -330,7 +446,7 @@ function scanLine(file, number, line, label) {
 // exists. Fenced blocks and URLs are skipped everywhere; code spans and quoted text are
 // skipped for the time and count rules only, so a line anchor in backticks still counts.
 // `findingLabel` starts each line: `FINDING C5` for agent-first-setup, `VOLATILE` for
-// multi-tool-bridge. A file that cannot be read gives `ERROR <errorLabel> cannot read <file>`
+// claude-md-migration. A file that cannot be read gives `ERROR <errorLabel> cannot read <file>`
 // in place of its lines; a listed file that is gone gives no line, as awk prints none for
 // it. Paths are relative to the current folder.
 export function durableDocScan(files, { findingLabel, errorLabel }) {

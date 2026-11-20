@@ -69,7 +69,7 @@ export const PLUGINS = [
       lint: [
         'plugins/docks/skills/write-skill/scripts',
         'plugins/docks/skills/agent-first-setup/scripts',
-        'plugins/docks/skills/multi-tool-bridge/scripts',
+        'plugins/docks/skills/claude-md-migration/scripts',
       ],
     },
     skills: 'plugins/docks/skills',

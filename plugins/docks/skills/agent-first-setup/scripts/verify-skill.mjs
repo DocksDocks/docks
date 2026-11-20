@@ -1,32 +1,27 @@
 #!/usr/bin/env node
-// Check the project `verify` skill and guard each write that creates or links it. The
-// skill lives at `.agents/skills/verify/SKILL.md`; the symlink `.claude/skills/verify`
-// points to `../../.agents/skills/verify`. The steps and the meaning of each line live
-// in references/verify-skill-template.md.
+// Check the project `verify` skill and guard each write that creates it. The skill lives
+// at `.agents/skills/verify/SKILL.md`. The steps and the meaning of each line live in
+// references/verify-skill-template.md.
 //
 // Usage (from the repository root):
 //   node verify-skill.mjs detect
 //   node verify-skill.mjs write-gate <path>...
 //   node verify-skill.mjs entry-gate
-//   node verify-skill.mjs link
 //
 // Output lines:
 //   detect      `verify skill: present` or `verify skill: missing`; one
 //               `verify unverified: <n>:<line>` line for each line of the skill that holds
 //               `not observed:`; `ERROR verify skill check failed: cannot read <file>` when
-//               the skill cannot be read; `verify link: missing`, `verify link: present`,
-//               or `verify link: occupied`.
+//               the skill cannot be read.
 //   write-gate  one `target occupied: <path> ...` line for each path that must not be
 //               written: a symlink, a path that holds a `..` segment, or a path whose nearest
 //               existing folder cannot be entered or resolves outside the current folder.
 //               Nothing for a writable path.
-//   entry-gate  `target occupied: <path> exists` for `.agents/skills/verify` and for
-//               `.claude/skills/verify`, a dangling symlink included.
-//   link        creates `.claude/skills/verify` when no entry is there, then prints
-//               `verify skill: linked` or `BROKEN: .claude/skills/verify`.
+//   entry-gate  `target occupied: .agents/skills/verify exists` when an entry is there, a
+//               dangling symlink included.
 //
 // Exit status: 2 after an ERROR line, 1 for a usage error, otherwise 0. `target occupied`
-// and `BROKEN:` lines do not change the status.
+// lines do not change the status.
 //
 // Export: verifySkillLines() returns the detect lines as { ok, lines }.
 import fs from 'node:fs';
@@ -34,13 +29,9 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
-const USAGE = 'usage: verify-skill.mjs detect | write-gate <path>... | entry-gate | link';
+const USAGE = 'usage: verify-skill.mjs detect | write-gate <path>... | entry-gate';
 const SKILL_DIR = '.agents/skills/verify';
 const SKILL_FILE = `${SKILL_DIR}/SKILL.md`;
-const LINK_PARENT = '.claude/skills';
-const LINK = `${LINK_PARENT}/verify`;
-// Relative to LINK_PARENT, so the link still resolves after the repository moves.
-const LINK_TARGET = '../../.agents/skills/verify';
 const UNVERIFIED_MARK = 'not observed:';
 
 // fs.statSync follows symlinks, as `test -f` does; a failed stat means no entry.
@@ -71,13 +62,6 @@ function isSymlink(file) {
   }
 }
 
-// `[ a -ef b ]`: both resolve, after symlinks, to the same device and inode.
-function sameFile(a, b) {
-  const left = statOrNull(a);
-  const right = statOrNull(b);
-  return left !== null && right !== null && left.dev === right.dev && left.ino === right.ino;
-}
-
 // The detect lines for the current folder. On { ok: false }, `lines` still holds every
 // line, the ERROR line included, and the cause is on stderr.
 export function verifySkillLines() {
@@ -104,9 +88,6 @@ export function verifySkillLines() {
   } else {
     lines.push('verify skill: missing');
   }
-  if (!entryExists(LINK)) lines.push('verify link: missing');
-  else if (sameFile(`${LINK}/SKILL.md`, SKILL_FILE)) lines.push('verify link: present');
-  else lines.push('verify link: occupied');
   return { ok, lines };
 }
 
@@ -152,26 +133,7 @@ function writeGateLines(targets) {
 }
 
 function entryGateLines() {
-  return [SKILL_DIR, LINK].filter(entryExists).map((entry) => `target occupied: ${entry} exists`);
-}
-
-// Create the link only where no entry is; when `.claude/skills` already links to
-// `.agents/skills`, the skill is there without a link of its own. A failed step leaves
-// its cause on stderr, and the final check reports the result.
-function linkLines() {
-  try {
-    fs.mkdirSync(LINK_PARENT, { recursive: true });
-  } catch (error) {
-    process.stderr.write(`verify-skill: cannot create the folder ${LINK_PARENT} (${error.code ?? error.message})\n`);
-  }
-  if (!entryExists(LINK)) {
-    try {
-      fs.symlinkSync(LINK_TARGET, LINK);
-    } catch (error) {
-      process.stderr.write(`verify-skill: cannot create the symlink ${LINK} (${error.code ?? error.message})\n`);
-    }
-  }
-  return [sameFile(`${LINK}/SKILL.md`, SKILL_FILE) ? 'verify skill: linked' : `BROKEN: ${LINK}`];
+  return entryExists(SKILL_DIR) ? [`target occupied: ${SKILL_DIR} exists`] : [];
 }
 
 function main(args) {
@@ -180,7 +142,6 @@ function main(args) {
   if (command === 'detect' && rest.length === 0) result = verifySkillLines();
   else if (command === 'write-gate' && rest.length > 0) result = { ok: true, lines: writeGateLines(rest) };
   else if (command === 'entry-gate' && rest.length === 0) result = { ok: true, lines: entryGateLines() };
-  else if (command === 'link' && rest.length === 0) result = { ok: true, lines: linkLines() };
   else {
     process.stderr.write(`${USAGE}\n`);
     return 1;

@@ -1,30 +1,38 @@
 #!/usr/bin/env node
-// Audit the agent-doc layout before multi-tool-bridge writes (Step 2), and verify the
-// bridge after the writes (Step 6). Both commands read only; they write no file. The
-// meaning of each line and the reaction to it live in the SKILL.md of multi-tool-bridge.
+// Audit the agent-doc layout before claude-md-migration writes (Step 2), and verify the
+// migration after the writes (Step 6). Both commands read only; they write no file. The
+// meaning of each line and the reaction to it live in the SKILL.md of claude-md-migration.
 //
 // Usage (from any folder inside the repository, or from the project folder outside git):
 //   node bridge-check.mjs audit
 //   node bridge-check.mjs verify [--expect <path>]...
 //
 // Output lines:
-//   audit   nine `EXISTS <entry>` or `MISSING <entry>` lines, in the order AGENTS.md,
-//           CLAUDE.md (root), .claude/CLAUDE.md, CLAUDE.local.md, .agents/skills/,
-//           .claude/skills/, .claude/agents/, .claude/rules/, .claude/rules/claude-code.md;
-//           then one `legacy: <path>` line for each CLAUDE.md and .claude/CLAUDE.md, root
-//           and nested, and one `personal: <path>` line for each CLAUDE.local.md.
-//   verify  `BROKEN: <path>` for each `.claude/skills` entry that does not resolve;
-//           `BROKEN: AGENTS.md missing`; `BROKEN: legacy CLAUDE.md still present: <path>`;
+//   audit   four `EXISTS <entry>` or `MISSING <entry>` lines, in the order AGENTS.md,
+//           CLAUDE.md (root), .claude/CLAUDE.md, CLAUDE.local.md; then the legacy entries of
+//           the root .claude folder: `legacy external: <path> -> <link target>` for each of
+//           .claude, .claude/skills, and .claude/agents that is a symlink to a place outside
+//           the repository (no line for an entry below it), `legacy skills: .claude/skills`
+//           when that folder exists, one `legacy agents: <path>` line for each
+//           .claude/agents/*.md file, one `legacy settings: <path>` line for each of
+//           .claude/settings.json and .claude/settings.local.json, and one
+//           `legacy other: .claude/<name>` line for each other .claude entry; then one
+//           `legacy: <path>` line for each CLAUDE.md and .claude/CLAUDE.md, root and nested
+//           (the root ones also when git ignores them), or `legacy link: <path>` for one that
+//           is a symlink to the AGENTS.md of its folder; one `personal: <path>` line for each
+//           CLAUDE.local.md; and `plugin author: yes (.omp-plugin/marketplace.json)`,
+//           `plugin author: yes (package.json omp object)`, or `plugin author: no`.
+//   verify  `BROKEN: AGENTS.md missing`; `BROKEN: legacy CLAUDE.md still present: <path>`;
 //           `BROKEN: <path> missing` for each --expect path that is no file;
 //           `HANDOFF context-tree: unrouted node <path>`; `HANDOFF context-tree: dead route
 //           <path>`; `VOLATILE time-relative|bare-count <file>:<line>` and
 //           `VOLATILE line-anchor <file>:<line> (<path> exists)` for every AGENTS.md.
-//           No output means the bridge is complete. `HANDOFF` and `VOLATILE` lines are
-//           report items, not failures.
+//           No output means the migration is complete. `HANDOFF` and `VOLATILE` lines are
+//           report items, not failures. The .claude entries are no part of this check.
 //   Either command prints `ERROR <part>: file listing failed (see the message above)` for a
 //   listing that fails, and `ERROR <part>: cannot read <file>` for a file that is there but
-//   cannot be read, in place of the lines of that part (`skills`, `legacy`, `personal`,
-//   `routing`, or `volatile`). The cause is on stderr.
+//   cannot be read, in place of the lines of that part (`legacy entries:`, `legacy:`,
+//   `personal:`, `plugin author:`, `routing:`, or `volatile:`). The cause is on stderr.
 //   Paths are relative to the repository root, without a leading `./`. No listing enters
 //   node_modules. The CLAUDE.local.md listing, and every listing outside git, walks the
 //   folder and skips each .git, node_modules, vendor, dist, build, out, target, and .next
@@ -40,62 +48,74 @@ import {
   BRIDGE_PRUNE,
   durableDocScan,
   EXCLUDE_NODE_MODULES,
-  findEntries,
   guarded,
+  isAgentsLink,
   isFile,
-  isFolder,
+  legacyClaudeLines,
   listFiles,
+  ROOT_CONTEXT_FILES,
+  ROOT_PERSONAL_FILES,
+  readText,
   repositoryRoot,
   routingGaps,
+  withRootFiles,
 } from './agent-docs.mjs';
 
 const USAGE = 'usage: bridge-check.mjs audit | verify [--expect <path>]...';
-const CLAUDE_SKILLS = '.claude/skills';
-// The Step 2 entries in output order: [label, path, kind of entry].
-const AUDIT_ENTRIES = [
-  ['AGENTS.md', 'AGENTS.md', 'file'],
-  ['CLAUDE.md (root)', 'CLAUDE.md', 'file'],
-  ['.claude/CLAUDE.md', '.claude/CLAUDE.md', 'file'],
-  ['CLAUDE.local.md', 'CLAUDE.local.md', 'file'],
-  ['.agents/skills/', '.agents/skills', 'folder'],
-  ['.claude/skills/', '.claude/skills', 'folder'],
-  ['.claude/agents/', '.claude/agents', 'folder'],
-  ['.claude/rules/', '.claude/rules', 'folder'],
-  ['.claude/rules/claude-code.md', '.claude/rules/claude-code.md', 'file'],
-];
+// The Step 2 entries in output order: the label is the path.
+const AUDIT_FILES = ['AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md', 'CLAUDE.local.md'];
+const AUDIT_LABELS = { 'CLAUDE.md': 'CLAUDE.md (root)' };
+const PLUGIN_CATALOG = '.omp-plugin/marketplace.json';
+const PACKAGE_MANIFEST = 'package.json';
 
 // The listing arguments of one repository: the root and whether git answers for it.
 const listing = (repo) => ({ root: repo.root, prune: BRIDGE_PRUNE, inGit: repo.inGit });
 
-// Every CLAUDE.md and .claude/CLAUDE.md, root and nested; gitignored build output is skipped. The
-// walk outside git keeps only regular files, as the Step 2 `find -type f` did; the git listing
+// Every CLAUDE.md and .claude/CLAUDE.md, root and nested; gitignored build output is skipped,
+// but the root ones count also when git ignores them, because omp loads them. The walk
+// outside git keeps only regular files, as the Step 2 `find -type f` did; the git listing
 // keeps symlinks, as `git ls-files` did.
 function legacyFiles(repo) {
   const pathspecs = [':(glob)**/CLAUDE.md', EXCLUDE_NODE_MODULES];
-  return listFiles({ ...listing(repo), pathspecs, excludeStandard: true, filesOnly: true });
+  const files = listFiles({ ...listing(repo), pathspecs, excludeStandard: true, filesOnly: true });
+  return withRootFiles(files, ROOT_CONTEXT_FILES);
 }
 
 // CLAUDE.local.md is usually gitignored, so the walk finds it also inside git.
 function personalFiles(repo) {
-  return listFiles({ ...listing(repo), pathspecs: [':(glob)**/CLAUDE.local.md'], inGit: false, filesOnly: true });
+  const pathspecs = [':(glob)**/CLAUDE.local.md'];
+  const files = listFiles({ ...listing(repo), pathspecs, inGit: false, filesOnly: true });
+  return withRootFiles(files, ROOT_PERSONAL_FILES);
 }
 
+// The plugin-author line: an omp plugin catalog, or a package.json with an `omp` object, makes
+// the repository the source of an omp plugin. A package.json that does not parse has no
+// `omp` object.
+function pluginAuthorLine() {
+  if (isFile(PLUGIN_CATALOG)) return `plugin author: yes (${PLUGIN_CATALOG})`;
+  const text = readText(PACKAGE_MANIFEST);
+  let manifest = null;
+  try {
+    manifest = text === null ? null : JSON.parse(text);
+  } catch {
+    manifest = null;
+  }
+  const omp = manifest?.omp;
+  const hasOmpObject = omp !== null && typeof omp === 'object' && !Array.isArray(omp);
+  return hasOmpObject ? `plugin author: yes (${PACKAGE_MANIFEST} omp object)` : 'plugin author: no';
+}
+
+// The root .claude entries are only reported; agent-first-setup cleans them up.
 function auditLines(repo) {
-  const exists = (file, kind) => (kind === 'file' ? isFile(file) : isFolder(file));
   return [
-    ...AUDIT_ENTRIES.map(([label, file, kind]) => `${exists(file, kind) ? 'EXISTS' : 'MISSING'} ${label}`),
-    ...guarded('legacy:', () => legacyFiles(repo).map((file) => `legacy: ${file}`)),
+    ...AUDIT_FILES.map((file) => `${isFile(file) ? 'EXISTS' : 'MISSING'} ${AUDIT_LABELS[file] ?? file}`),
+    ...guarded('legacy entries:', legacyClaudeLines),
+    ...guarded('legacy:', () =>
+      legacyFiles(repo).map((file) => (isAgentsLink(file) ? `legacy link: ${file}` : `legacy: ${file}`)),
+    ),
     ...guarded('personal:', () => personalFiles(repo).map((file) => `personal: ${file}`)),
+    ...guarded('plugin author:', () => [pluginAuthorLine()]),
   ];
-}
-
-// Each `.claude/skills` entry that is a link or a folder must resolve.
-function brokenSkillLines() {
-  return findEntries(CLAUDE_SKILLS)
-    .filter((entry) => entry.isSymbolicLink() || entry.isDirectory())
-    .map((entry) => `${CLAUDE_SKILLS}/${entry.name}`)
-    .filter((entry) => !fs.existsSync(entry))
-    .map((entry) => `BROKEN: ${entry}`);
 }
 
 // The root routing belongs to context-tree; this skill only reports it.
@@ -109,7 +129,6 @@ function routingLines(repo) {
 
 function verifyLines(repo, expectedFiles) {
   return [
-    ...guarded('skills:', brokenSkillLines),
     ...(isFile('AGENTS.md') ? [] : ['BROKEN: AGENTS.md missing']),
     ...guarded('legacy:', () => legacyFiles(repo).map((file) => `BROKEN: legacy CLAUDE.md still present: ${file}`)),
     ...expectedFiles.filter((file) => !isFile(file)).map((file) => `BROKEN: ${file} missing`),

@@ -4,8 +4,8 @@ description: "Use when authoring a new skill for the docks plugin skill tree or 
 user-invocable: true
 metadata:
   pattern: meta-skill
-  updated: "2026-11-19"
-  content_hash: "84a178d07258db272b85da0ee3c49b8290551848390911d52d2f79aed4da7052"
+  updated: "2026-11-20"
+  content_hash: "22dc7c9ee1d29dab436481fe20b2b24240c8b55aa23da6aeb4885e2e27f23c31"
 ---
 
 # Write a Skill (docks conventions)
@@ -188,7 +188,7 @@ Skill bodies and `references/` are durable docs, and so is every AGENTS.md or RE
 | A. Durable vs point-in-time | every skill that writes docs | durable outputs (AGENTS.md nodes, README-style docs, skills) follow B and C; point-in-time outputs (findings, plan evidence, audit records) carry a date and keep `file:line` |
 | B. One fact, one home | every skill that writes docs | each fact has one owning file; other files name it as a backticked repo-root-relative path; `@path` import only when the target must always be in context; a fact is copied only when it is deleted from its source |
 | C. Durable facts only | every skill that writes docs | no live `path:NN`, no bare version/count/size/date, no "currently"/"as of"/"recently", no hand list of changing things unless a check compares it with disk; each volatile value has `(verify: <command>)` or the rule that produces it; one stale-tolerance line per generated durable doc |
-| D. Agent-first | every skill that writes or changes files in a user repo | findable (a root AGENTS.md routes to every nested node and canonical location; skills in `.agents/skills/`, symlinked from `.claude/skills/`); fast to understand (root holds commands and repo-wide rules only, folder rules live in the folder AGENTS.md); trustworthy (C holds, behavior claims carry a probe); verifiable (the skill ends with a check an agent can run — commands, not prose); no CLAUDE.md files (one home for instructions; a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md) |
+| D. Agent-first | every skill that writes or changes files in a user repo | findable (a root AGENTS.md routes to every nested node and canonical location; skills in `.agents/skills/`, with no `.claude/skills` link); fast to understand (root holds commands and repo-wide rules only, folder rules live in the folder AGENTS.md); trustworthy (C holds, behavior claims carry a probe); verifiable (the skill ends with a check an agent can run — commands, not prose); no CLAUDE.md files (one home for instructions: a CLAUDE.md is legacy context that omp ignores next to an AGENTS.md; `claude-md-migration` moves its content into AGENTS.md) |
 
 A failed row is a defect in the skill, not in one output: fix the template or the instruction that produces the doc.
 

@@ -22,11 +22,11 @@ Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never na
 
 **Agent-first.** Every skill that writes or changes files in a user repo must leave that repo easier for an agent to use:
 
-1. Findable: a root AGENTS.md routes to every nested node and every canonical location (skills in `.agents/skills/`, symlinked from `.claude/skills/`); names say what a thing does.
+1. Findable: a root AGENTS.md routes to every nested node and every canonical location (skills in `.agents/skills/`, with no `.claude/skills` link); names say what a thing does.
 2. Fast to understand: the root states commands (build/test/lint) and repo-wide rules only; per-folder rules live in the folder AGENTS.md; no duplicated facts.
 3. Trustworthy: durable facts only; every volatile value has a verify command; behavior claims carry a probe.
 4. Verifiable: the skill ends with a check an agent can run (commands, not prose).
-5. No CLAUDE.md files (one home for instructions; a CLAUDE.md without an `@AGENTS.md` import makes Claude read it instead of AGENTS.md).
+5. No CLAUDE.md files (one home for instructions): a CLAUDE.md is legacy context that omp ignores next to an AGENTS.md; `claude-md-migration` moves its content into AGENTS.md.
 
 One-shot whole-repo setup and audit go through the `agent-first-setup` skill.
 

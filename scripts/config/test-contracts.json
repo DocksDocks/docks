@@ -156,7 +156,7 @@
     {
       "id": "unit-agent-docs-scripts",
       "version": 1,
-      "title": "Agent-first-setup, multi-tool-bridge, and plan-workspace check script contracts",
+      "title": "Agent-first-setup, claude-md-migration, and plan-workspace check script contracts",
       "owner": {
         "suite": "scripts/tests/unit/agent-docs-scripts.test.mjs",
         "layer": "unit"
@@ -164,7 +164,7 @@
       "selection": {
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/agent-docs-scripts.test.mjs",
-        "expected_min": 52
+        "expected_min": 76
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["bun-1"],
