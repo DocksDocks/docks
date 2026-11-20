@@ -169,7 +169,7 @@ To use the changed plugins in one interactive session, first disable each enable
 2. Disable each enabled scope. Give `--scope`: when `docks@docks` is installed at both scopes, `omp plugin disable docks@docks` without `--scope` fails.
 
    ```bash
-   omp plugin disable --scope user docks@docks
+   omp plugin disable --scope user docks@docks      # only for an enabled user install
    omp plugin disable --scope project docks@docks   # only for an enabled project install
    ```
 
@@ -182,7 +182,7 @@ To use the changed plugins in one interactive session, first disable each enable
 4. After the session, enable again only the scopes that were enabled before:
 
    ```bash
-   omp plugin enable --scope user docks@docks
+   omp plugin enable --scope user docks@docks       # only if the user install was enabled before
    omp plugin enable --scope project docks@docks    # only if the project install was enabled before
    ```
 

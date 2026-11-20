@@ -37,14 +37,14 @@ The [Develop locally](https://github.com/DocksDocks/docks#develop-locally) secti
 2. Disable each enabled scope with `--scope <scope>`, then start the session:
 
    ```bash
-   omp plugin disable --scope user docks@docks      # also --scope project for an enabled project install
+   omp plugin disable --scope <scope> docks@docks   # once for each enabled scope: user, project
    omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle -e ./plugins/docks
    ```
 
 3. After the session, enable again only the scopes that were enabled before:
 
    ```bash
-   omp plugin enable --scope user docks@docks       # also --scope project if the project install was enabled
+   omp plugin enable --scope <scope> docks@docks    # once for each scope that was enabled before
    ```
 
 If an install of `docks@docks` stays enabled, omp loads the docks extensions two times. Each loaded copy of `verify-gate` checks each `bash` call that holds a commit. In `observe` mode, a call with an unverified commit writes one log line for each copy. In `enforce` mode, each copy adds a denial, so the two-denial rule does not work as the `commit-discipline` skill describes.
