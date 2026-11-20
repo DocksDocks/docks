@@ -847,6 +847,86 @@ describe('agent-first-check.mjs convert-agent', () => {
     ]);
   });
 
+  // omp parses the frontmatter as YAML and skips an agent whose name or description is no string. A YAML 1.2
+  // core-schema reader reads each value as a boolean, a number, a flow collection, an anchor, an alias, a tag, a
+  // block sequence, or a reserved indicator, not as a string.
+  test('refuses a name or description that is no YAML string', () => {
+    const tools = 'tools: Read';
+    for (const value of ['true', 'TRUE', 'False', '123', '0x1f', '1e5', '[rev]', '{a: b}']) {
+      expectRun(convertAgent(claudeAgent(`name: ${value}`, AGENT_DESCRIPTION, tools)), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: name is no YAML string; port it by hand`,
+      ]);
+    }
+    for (const lines of [
+      ['description: [review]'],
+      ['description: true'],
+      ['description: True # a comment'],
+      ['description: 42'],
+      ['description: -7'],
+      ['description: 1.5'],
+      ['description: 2e3'],
+      ['description: 0x1F'],
+      ['description: 0o17'],
+      ['description: .inf'],
+      ['description: -.Inf'],
+      ['description: .NaN'],
+      ['description: {a: b}'],
+      ['description: &d Reviews a diff.'],
+      ['description: *d'],
+      ['description: !tag Reviews a diff.'],
+      ['description: - Reviews a diff.'],
+      ['description: ? Reviews a diff.'],
+      ['description: %Reviews'],
+      ['description: @Reviews'],
+      ['description: `Reviews`'],
+      ['description:', '  - Reviews a diff.', '  - Finds bugs.'],
+      ['description: # the list', '- Reviews a diff.'],
+      ['description:', '  [review]'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, ...lines, tools)), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: description is no YAML string; port it by hand`,
+      ]);
+    }
+  });
+
+  test('converts a quoted or block scalar description and a plain one that only starts like a number; quotes a name that would read as no string', () => {
+    for (const lines of [
+      ['description: "true"'],
+      ["description: '42'"],
+      ['description: "[review]" # quoted'],
+      ['description: >-', '  Reviews a diff', '  for bugs.'],
+      ['description: |', '  Reviews a diff.'],
+      ['description:', '  "true"'],
+      ['description: true story'],
+      ['description: 42 reviews'],
+      ['description: Reviews [a] diff - for bugs.'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, ...lines, 'tools: Read')), 0, [
+        '---',
+        AGENT_NAME,
+        ...lines,
+        'tools: read',
+        '---',
+        '',
+        'You review diffs.',
+      ]);
+    }
+    for (const [value, name] of [
+      ['"123"', '"123"'],
+      ["'true' # quoted", '"true"'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(`name: ${value}`, AGENT_DESCRIPTION, 'tools: Read')), 0, [
+        '---',
+        `name: ${name}`,
+        AGENT_DESCRIPTION,
+        'tools: read',
+        '---',
+        '',
+        'You review diffs.',
+      ]);
+    }
+  });
+
   test('converts each tools form: comma list, quoted scalar, trailing comment, flow list, block list, with comments', () => {
     const expected = ['---', AGENT_NAME, AGENT_DESCRIPTION, 'tools: read, grep', '---', '', 'You review diffs.'];
     for (const tools of [
@@ -936,7 +1016,7 @@ describe('bridge-check.mjs audit', () => {
   test('a dangling CLAUDE.local.md or CLAUDE.md symlink is no file', () => {
     const links = { 'CLAUDE.local.md': 'missing.md', 'api/CLAUDE.local.md': 'missing.md' };
     expectRun(run(BRIDGE, ['audit'], fixture({ links })), 0, [...audit(), NO_PLUGIN]);
-    // Outside git, the Step 2 `find -type f` listed no symlink either.
+    // Outside git, a dangling symlink resolves to no file either.
     const outside = fixture({
       git: false,
       files: { 'api/CLAUDE.md': 'rules\n' },
@@ -982,6 +1062,16 @@ describe('bridge-check.mjs audit', () => {
       'BROKEN: legacy CLAUDE.md still present: docs/CLAUDE.md',
       'HANDOFF context-tree: unrouted node docs/AGENTS.md',
     ]);
+  });
+
+  test('outside git a nested CLAUDE.md symlink to a file is listed, a dangling one is not; verify reports the listed one', () => {
+    const fx = fixture({
+      git: false,
+      files: { 'AGENTS.md': routed('docs/AGENTS.md'), 'docs/AGENTS.md': STALE },
+      links: { 'docs/CLAUDE.md': 'AGENTS.md', 'api/CLAUDE.md': 'missing.md' },
+    });
+    expectRun(run(BRIDGE, ['audit'], fx), 0, [...audit('AGENTS.md'), 'legacy link: docs/CLAUDE.md', NO_PLUGIN]);
+    expectRun(run(BRIDGE, ['verify'], fx), 0, ['BROKEN: legacy CLAUDE.md still present: docs/CLAUDE.md']);
   });
 });
 
@@ -1298,5 +1388,27 @@ describe('.claude entries and root context files in detect, check, and audit', (
       check: [C3_LINK('.claude/CLAUDE.md'), C3_LINK('CLAUDE.md'), C3_NEXT_TO('docs/CLAUDE.md')],
       audit: ['legacy link: .claude/CLAUDE.md', 'legacy link: CLAUDE.md', 'legacy: docs/CLAUDE.md'],
     });
+  });
+
+  // Removing such a CLAUDE.md would leave the AGENTS.md that links to it dangling.
+  test('C3 a CLAUDE.md or .claude/CLAUDE.md that the AGENTS.md of its folder links to is no link to that AGENTS.md', () => {
+    const noAgents = { ...BASE_FILES, 'AGENTS.md': undefined };
+    for (const [files, links, legacy, c3] of [
+      [
+        { ...noAgents, 'rules.md': ROOT_AGENTS },
+        { 'AGENTS.md': 'CLAUDE.md', 'CLAUDE.md': 'rules.md' },
+        'CLAUDE.md',
+        C3_NEXT_TO,
+      ],
+      [{ ...noAgents, 'CLAUDE.md': ROOT_AGENTS }, { 'AGENTS.md': 'CLAUDE.md' }, 'CLAUDE.md', C3_NEXT_TO],
+      [
+        { ...noAgents, 'rules.md': ROOT_AGENTS },
+        { 'AGENTS.md': '.claude/CLAUDE.md', '.claude/CLAUDE.md': '../rules.md' },
+        '.claude/CLAUDE.md',
+        C3_CLAUDE_FOLDER,
+      ],
+    ]) {
+      expectClaudeLines(fixture({ files, links }), 0, { detect: [`legacy: ${legacy}`], check: [c3(legacy)] });
+    }
   });
 });
