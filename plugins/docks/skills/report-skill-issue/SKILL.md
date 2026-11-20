@@ -4,8 +4,8 @@ description: "Use when reporting a problem with a docks or plan-lifecycle skill,
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-19"
-  content_hash: "cb913e85a72a512e351209c9d5abd76e2036a6deaf4ffddbe67366ff16358552"
+  updated: "2026-11-20"
+  content_hash: "5f04b653e8c8262268be2917f01cc9e5631e53738f067b171cbeffd6dc596326"
 ---
 
 # Report a Skill Issue

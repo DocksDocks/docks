@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-20"
-  content_hash: "ecf0969762f3dc65969314bf75e854ec27a96868a4bf0dbb47d5bd10da3b5d15"
+  content_hash: "914c5883cca86fd4adf689127dd016813a2e8e3d96a126080bc76db7a52bc414"
 ---
 
 # CLAUDE.md Migration

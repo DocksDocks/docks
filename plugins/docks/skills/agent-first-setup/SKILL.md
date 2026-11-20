@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "fd27e9149964bc099b3cd86b0d6dce798d1b5890bbac44fa8d09da35f5fe75c1"
+  content_hash: "cb0676bd86ef66dcf50a18fe797d50f8f91f7e95e565b980d6a6356069a5c42b"
 ---
 
 # Agent-First Setup

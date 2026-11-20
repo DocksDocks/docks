@@ -4,8 +4,8 @@ description: "Use when project-local SKILL.md files need validation or refresh a
 user-invocable: false
 metadata:
   pattern: reviewer
-  updated: "2026-11-19"
-  content_hash: "3651437e41301e6bddb3ca40cad6dc071eedb117d3380c88f3d4494261dd9d79"
+  updated: "2026-11-20"
+  content_hash: "201a53c45f5c25bcea2c2934acd62ce2413346edfd293839a9049accec24649e"
 ---
 
 # Skill Maintenance

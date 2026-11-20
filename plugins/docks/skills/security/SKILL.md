@@ -4,8 +4,8 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-11-19"
-  content_hash: "f3efe4f4712da4969e15f0e8f90421b01c1cfb58fb39e7c3be1c527d98841f62"
+  updated: "2026-11-20"
+  content_hash: "d99e1acfb4e41f6448f1544be50b74519707126d12f1fe6ab6c2d2dd1dce6528"
 ---
 
 # Security Audit (sequential pipeline)
