@@ -579,7 +579,7 @@ function gateCatalog() {
 
 // True when git tracks a file at or under `relative`. Outside a git checkout of REPO (the gate tests run on a copy
 // of the working tree without `.git`), every file stands for a tracked one. An ignored file in a checkout does not
-// count: `.gitignore` ignores local `.claude/agents/review-bench-*` files.
+// count.
 function hasTrackedEntry(relative) {
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
   if (top.status === 0 && fs.realpathSync(top.stdout.trim()) === fs.realpathSync(REPO)) {

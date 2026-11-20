@@ -6,4 +6,3 @@
 node_modules/
 /.omp/agents/review-bench-*
 /.omp/settings.json
-/.claude/agents/review-bench-*

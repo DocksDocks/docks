@@ -138,9 +138,9 @@ const REVIEWER_SKILL = new RegExp(
 );
 // The name of the self-review agent of a configuration starts with this prefix (see prepare.mjs selfReviewAgent).
 export const SELF_REVIEW_AGENT_PREFIX = 'review-bench-selfreview-';
-// The path `<project>/.omp/agents/<self-review agent>.md` (or `.claude/agents/`). The self-review agent has no plugin
-// root, so its text names its own agent file. The groups hold the full path.
-const SELF_REVIEW_AGENT_TAIL = String.raw`\/\.(?:omp|claude)\/agents\/${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md`;
+// The path `<project>/.omp/agents/<self-review agent>.md`. The self-review agent has no plugin root, so its text names
+// its own agent file. The groups hold the full path.
+const SELF_REVIEW_AGENT_TAIL = String.raw`\/\.omp\/agents\/${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md`;
 const SELF_REVIEW_AGENT_FILE = new RegExp(
   String.raw`([\x60'"])(\/[^\x60'"\r\n]*${SELF_REVIEW_AGENT_TAIL})\1|` +
     String.raw`(?<=^|[\s\x60'"(<])(\/[^\s\x60'"]*${SELF_REVIEW_AGENT_TAIL})(?=$|[\s\x60'")>])`,

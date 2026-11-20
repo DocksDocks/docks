@@ -1147,10 +1147,11 @@ function commitTree(tree) {
   git('commit', '-q', '-m', 'gate fixture');
 }
 
-// A git checkout whose only .claude entry is a file that `.gitignore` ignores: git tracks no .claude entry, so the
-// gate must pass, although the entry is on disk.
+// A git checkout whose only .claude entry is a file that `.git/info/exclude` ignores: git tracks no .claude entry, so
+// the gate must pass, although the entry is on disk.
 const addIgnoredClaudeFile = (tree) => {
   commitTree(tree);
+  fs.appendFileSync(path.join(tree, '.git/info/exclude'), '/.claude/\n');
   writeTreeFile(tree, '.claude/agents/review-bench-x.md', '# Review benchmark\n');
 };
 
