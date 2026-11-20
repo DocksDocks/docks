@@ -3,7 +3,7 @@ import { delimiter, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import type { OmpSessionModel } from "../../src/engine-native/harnesses";
+import type { OmpSessionModel } from "../../src/engine-native/ompSession";
 import {
   buildOmpArgs,
   ladderCeiling,

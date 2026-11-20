@@ -55,7 +55,7 @@ const OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
 const COMMAND_TEXT_LIMIT = 120;
 const LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const LABEL_ERROR = "label must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
-const NOT_ON_PATH = "docks-kit is not on PATH; install docks-kit and run docks-kit sync omp";
+const NOT_ON_PATH = "docks-kit is not on PATH; install docks-kit and run docks-kit sync";
 
 /**
  * A bash command that does not match this pattern creates no tracked

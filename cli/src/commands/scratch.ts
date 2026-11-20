@@ -4,7 +4,7 @@ import { Argument, Command } from "effect/cli";
 import { Console, Effect } from "effect";
 
 import { bail } from "../engine";
-import { engineHome } from "../engine-native/harnesses";
+import { engineHome } from "../engine-native/ompSession";
 import {
   allowedRemovalRoots,
   createScratchDir,

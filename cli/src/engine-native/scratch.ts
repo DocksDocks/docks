@@ -35,7 +35,7 @@ export function syncLockPath(home: string): string {
 }
 
 /**
- * The `kitLock.ts` lock inside an agents or omp folder that a sync
+ * The `kitLock.ts` lock inside an omp folder that a sync
  * writes. Syncs of different homes that share the folder all take it.
  */
 export function folderSyncLockPath(folder: string): string {

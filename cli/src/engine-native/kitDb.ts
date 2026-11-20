@@ -11,13 +11,14 @@ import { p } from "./exec";
 
 /**
  * Append-only. Never edit or reorder a shipped entry. A release that changes the
- * schema appends one SQL string. State tables (harness_selection, omp_session)
- * get data-preserving migrations; cache_entry may be dropped and recreated
+ * schema appends one SQL string. The state table omp_session gets
+ * data-preserving migrations; cache_entry may be dropped and recreated
  * because every row can be refetched.
  */
 const MIGRATIONS: ReadonlyArray<string> = [
-  // omp_session.advisor_thinking has had no use since 0.22.22. It stays only
-  // to keep schema 1, which older kits still open; nothing reads or writes it.
+  // omp_session.advisor_thinking has had no use since 0.22.22, and
+  // harness_selection has had no use since 0.24.0. They stay only to keep
+  // schema 1, which older kits still open; nothing reads or writes them.
   `CREATE TABLE harness_selection (
   harness TEXT PRIMARY KEY CHECK (harness IN ('claude','codex','agents','omp'))
 ) STRICT, WITHOUT ROWID;
@@ -88,9 +89,9 @@ function migrate(db: DatabaseSync): boolean {
   });
 }
 
-interface LegacyState {
-  readonly harnesses: ReadonlyArray<string>;
-  readonly session?: { selector: string; thinking: string | null };
+interface LegacySession {
+  readonly selector: string;
+  readonly thinking: string | null;
 }
 
 export function isNonBlankString(value: unknown): value is string {
@@ -103,9 +104,9 @@ export function nonBlankOrNull(value: unknown): string | null {
 }
 
 // Same validation the JSON store applied: root object, version 1, non-blank
-// selector and levels. Unknown or duplicate harness names are dropped by the
-// table's CHECK and PRIMARY KEY through INSERT OR IGNORE.
-function parseLegacyState(file: string): LegacyState | undefined {
+// selector and levels. The legacy harness selection is not imported: sync
+// has one harness and reads no selection.
+function parseLegacySession(file: string): LegacySession | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
@@ -115,43 +116,26 @@ function parseLegacyState(file: string): LegacyState | undefined {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
   if (!("version" in parsed) || parsed.version !== 1) return undefined;
 
-  const rawHarnesses = "harnesses" in parsed ? parsed.harnesses : undefined;
-  const harnesses = Array.isArray(rawHarnesses)
-    ? rawHarnesses.filter((value): value is string => typeof value === "string")
-    : [];
   const entry = "ompSession" in parsed ? parsed.ompSession : undefined;
-  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return { harnesses };
+  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return undefined;
   const selector = nonBlankOrNull("selector" in entry ? entry.selector : undefined);
-  if (selector === null) return { harnesses };
+  if (selector === null) return undefined;
   return {
-    harnesses,
-    session: {
-      selector,
-      thinking: nonBlankOrNull("thinking" in entry ? entry.thinking : undefined),
-    },
+    selector,
+    thinking: nonBlankOrNull("thinking" in entry ? entry.thinking : undefined),
   };
 }
 
 function importLegacyState(db: DatabaseSync, legacy: string): void {
   inTransaction(db, () => {
-    const rows = db
-      .prepare(
-        "SELECT (SELECT count(*) FROM harness_selection) + (SELECT count(*) FROM omp_session) AS n",
-      )
-      .get()?.["n"];
+    const rows = db.prepare("SELECT count(*) AS n FROM omp_session").get()?.["n"];
     if (rows !== 0) return;
-    const state = parseLegacyState(legacy);
-    if (state === undefined) return;
-    const insertHarness = db.prepare(
-      "INSERT OR IGNORE INTO harness_selection (harness) VALUES (?)",
+    const session = parseLegacySession(legacy);
+    if (session === undefined) return;
+    db.prepare("INSERT INTO omp_session (id, selector, thinking) VALUES (1, ?, ?)").run(
+      session.selector,
+      session.thinking,
     );
-    for (const harness of state.harnesses) insertHarness.run(harness);
-    if (state.session !== undefined) {
-      db.prepare("INSERT INTO omp_session (id, selector, thinking) VALUES (1, ?, ?)").run(
-        state.session.selector,
-        state.session.thinking,
-      );
-    }
   });
   // An invalid file is renamed too, so no later run parses it again.
   try {

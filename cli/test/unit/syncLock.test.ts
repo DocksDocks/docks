@@ -8,13 +8,12 @@
  * `another docks-kit sync holds <path>; run sync again after it ends` and
  * returns exit code 1.
  *
- * A writing sync also takes a folder lock in each agents and omp
+ * A writing sync also takes a folder lock in each omp
  * folder that it writes: the omp agent folder, the omp intercom folder, and
  * the omp data root. Syncs of different homes can share these folders.
  *
  * Wait bound seam: both call sites read `DOCKS_KIT_SYNC_LOCK_WAIT_MS` from
- * `process.env` at the start of the run, as `engineSync` reads
- * `DOCKS_KIT_SYNC_CONCURRENCY`. Unset or empty means `SYNC_LOCK_WAIT_MS`
+ * `process.env` at the start of the run. Unset or empty means `SYNC_LOCK_WAIT_MS`
  * (120 000 ms); a non-negative safe integer is the wait in ms. These tests
  * set it to a small value, so that a held lock ends the run quickly.
  *
@@ -33,7 +32,6 @@ import {
   rmSync,
   statSync,
   symlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -68,20 +66,16 @@ import {
 import { folderLockPaths } from "../../src/engine-native/syncDispatch";
 
 const WAIT_MS = "100";
-const CONCURRENCY_ERROR = "DOCKS_KIT_SYNC_CONCURRENCY must be 1, 2, or 3";
+const UNKNOWN_ARG_ERROR = "Unknown arg: --bogus";
 const WAIT_ERROR = "DOCKS_KIT_SYNC_LOCK_WAIT_MS must be a non-negative safe integer";
 
 const ENV_KEYS = [
   "HOME",
   "USERPROFILE",
-  "AGENTS_DIR",
   "DOCKS_KIT_HOME",
   "DRY_RUN",
   "DOCKS_KIT_VERBOSE",
-  "DOCKS_KIT_INTERACTIVE",
-  "DOCKS_KIT_SYNC_CONCURRENCY",
   "DOCKS_KIT_SYNC_LOCK_WAIT_MS",
-  "PRUNE",
   "PI_CODING_AGENT_DIR",
   "OMP_PROFILE",
   "PI_PROFILE",
@@ -98,8 +92,6 @@ async function withHome(body: (home: string) => Promise<void>): Promise<void> {
     // engineHome reads USERPROFILE on win32, so both keys point at the temp home.
     process.env["HOME"] = home;
     process.env["USERPROFILE"] = home;
-    process.env["AGENTS_DIR"] = p(home, ".agents");
-    process.env["DOCKS_KIT_INTERACTIVE"] = "0";
     process.env["DOCKS_KIT_SYNC_LOCK_WAIT_MS"] = WAIT_MS;
     await body(home);
   } finally {
@@ -198,7 +190,7 @@ async function probe(home: string): Promise<string> {
   return result.kind;
 }
 
-/** The lock file that a writing sync takes inside an agents or omp folder. */
+/** The lock file that a writing sync takes inside an omp folder. */
 const FOLDER_LOCK = ".docks-kit-sync-lock.db";
 
 function heldLineFor(lock: string): string {
@@ -240,28 +232,6 @@ describe("sync under the sync lock", () => {
         const before = snapshot(home);
         const records: Array<string> = [];
 
-        expect(await runEngineNative(["sync", "agents"], recordingServices(records))).toBe(1);
-
-        expect(records).toContain(heldLine(home));
-        expect(snapshot(home)).toEqual(before);
-      });
-    });
-  });
-
-  it("does not read the harness selection while another sync holds the lock", async () => {
-    await withHome(async (home) => {
-      // The selection read of a sync with no target would import this file into
-      // kit.db and rename it to state.json.migrated.
-      mkdirSync(p(home, ".docks-kit"), { recursive: true });
-      writeFileSync(
-        p(home, ".docks-kit", "state.json"),
-        `${JSON.stringify({ version: 1, harnesses: ["agents"] })}\n`,
-      );
-
-      await holdingLock(home, async () => {
-        const before = snapshot(home);
-        const records: Array<string> = [];
-
         expect(await runEngineNative(["sync"], recordingServices(records))).toBe(1);
 
         expect(records).toContain(heldLine(home));
@@ -275,9 +245,7 @@ describe("sync under the sync lock", () => {
       await holdingLock(home, async () => {
         const records: Array<string> = [];
 
-        expect(
-          await runEngineNative(["sync", "agents", "--dry-run"], recordingServices(records)),
-        ).toBe(0);
+        expect(await runEngineNative(["sync", "--dry-run"], recordingServices(records))).toBe(0);
 
         expect(records).not.toContain(heldLine(home));
       });
@@ -296,7 +264,7 @@ describe("sync under the sync lock", () => {
 
           // Only the raw channel reads the env globals.
           expect(
-            await runEngineNative(["sync", "agents", "omp"], recordingServices(records), {
+            await runEngineNative(["sync"], recordingServices(records), {
               envGlobals: true,
             }),
           ).toBe(0);
@@ -317,7 +285,7 @@ describe("sync under the sync lock", () => {
         const records: Array<string> = [];
 
         // The public CLI ignores DRY_RUN, so this run writes and must wait.
-        expect(await runEngineNative(["sync", "agents"], recordingServices(records))).toBe(1);
+        expect(await runEngineNative(["sync"], recordingServices(records))).toBe(1);
 
         expect(records).toContain(heldLine(home));
         expect(snapshot(home)).toEqual(before);
@@ -341,22 +309,21 @@ describe("sync under the sync lock", () => {
 
   it("releases the lock when the run stops with an ExitError", async () => {
     await withHome(async (home) => {
-      process.env["DOCKS_KIT_SYNC_CONCURRENCY"] = "7";
       const failed: Array<string> = [];
 
-      expect(await runEngineNative(["sync", "agents"], recordingServices(failed))).toBe(2);
+      expect(await runEngineNative(["sync", "--bogus"], recordingServices(failed))).toBe(2);
 
-      expect(failed).toContain(CONCURRENCY_ERROR);
+      expect(failed).toContain(UNKNOWN_ARG_ERROR);
       expect(await probe(home)).toBe("acquired");
 
       // The same run takes the lock before the check that throws the ExitError.
       await holdingLock(home, async () => {
         const blocked: Array<string> = [];
 
-        expect(await runEngineNative(["sync", "agents"], recordingServices(blocked))).toBe(1);
+        expect(await runEngineNative(["sync", "--bogus"], recordingServices(blocked))).toBe(1);
 
         expect(blocked).toContain(heldLine(home));
-        expect(blocked).not.toContain(CONCURRENCY_ERROR);
+        expect(blocked).not.toContain(UNKNOWN_ARG_ERROR);
       });
     });
   });
@@ -369,7 +336,7 @@ describe("sync under the sync lock", () => {
         process.env["DOCKS_KIT_SYNC_LOCK_WAIT_MS"] = waitMs;
         const records: Array<string> = [];
 
-        expect(await runEngineNative(["sync", "agents"], recordingServices(records))).toBe(2);
+        expect(await runEngineNative(["sync"], recordingServices(records))).toBe(2);
 
         expect(records).toContain(WAIT_ERROR);
         expect(snapshot(home)).toEqual(before);
@@ -378,49 +345,7 @@ describe("sync under the sync lock", () => {
   });
 });
 
-describe("folder locks of a shared agents folder", () => {
-  it("makes a sync of another home wait while a sync holds the shared agents folder", async () => {
-    await withHome(async (home) => {
-      await withSharedFolder(async (shared) => {
-        process.env["AGENTS_DIR"] = shared;
-
-        await holdingFolderLock(shared, async (lock) => {
-          const before = snapshot(shared);
-          const records: Array<string> = [];
-
-          // `AGENTS_DIR` is an env global, which only the raw channel reads.
-          expect(
-            await runEngineNative(["sync", "agents"], recordingServices(records), {
-              envGlobals: true,
-            }),
-          ).toBe(1);
-
-          expect(records).toContain(heldLineFor(lock));
-          expect(snapshot(shared)).toEqual(before);
-        });
-        expect(await probe(home)).toBe("acquired");
-      });
-    });
-  });
-
-  it("takes no folder lock in a dry run", async () => {
-    await withHome(async () => {
-      await withSharedFolder(async (shared) => {
-        process.env["AGENTS_DIR"] = shared;
-
-        await holdingFolderLock(shared, async (lock) => {
-          const records: Array<string> = [];
-
-          await runEngineNative(["sync", "agents", "--dry-run"], recordingServices(records), {
-            envGlobals: true,
-          });
-
-          expect(records).not.toContain(heldLineFor(lock));
-        });
-      });
-    });
-  });
-
+describe("folder lock paths", () => {
   it("takes one lock per real folder, in the sorted order of the lock paths", async () => {
     await withSharedFolder(async (base) => {
       const first = join(base, "a");
@@ -448,7 +373,7 @@ describe("folder locks of a shared omp folder", () => {
           const before = snapshot(shared);
           const records: Array<string> = [];
 
-          expect(await runEngineNative(["sync", "omp"], recordingServices(records))).toBe(1);
+          expect(await runEngineNative(["sync"], recordingServices(records))).toBe(1);
 
           expect(records).toContain(heldLineFor(lock));
           expect(snapshot(shared)).toEqual(before);
@@ -469,7 +394,7 @@ describe("folder locks of a shared omp folder", () => {
           const mode = statSync(shared).mode;
           const records: Array<string> = [];
 
-          expect(await runEngineNative(["sync", "omp"], recordingServices(records))).toBe(1);
+          expect(await runEngineNative(["sync"], recordingServices(records))).toBe(1);
 
           expect(records).toContain(heldLineFor(lock));
           expect(existsSync(join(shared, "intercom"))).toBe(false);
@@ -494,7 +419,7 @@ describe("folder locks of a shared omp folder", () => {
           const mode = statSync(intercom).mode;
           const records: Array<string> = [];
 
-          expect(await runEngineNative(["sync", "omp"], recordingServices(records))).toBe(1);
+          expect(await runEngineNative(["sync"], recordingServices(records))).toBe(1);
 
           expect(records).toContain(heldLineFor(lock));
           expect(existsSync(join(intercom, "config.json"))).toBe(false);
@@ -520,7 +445,7 @@ describe("folder locks of a shared omp folder", () => {
             const before = snapshot(shared);
             const records: Array<string> = [];
 
-            expect(await runEngineNative(["sync", "omp"], recordingServices(records))).toBe(1);
+            expect(await runEngineNative(["sync"], recordingServices(records))).toBe(1);
 
             expect(records).toContain(heldLineFor(lock));
             expect(snapshot(shared)).toEqual(before);
@@ -541,7 +466,7 @@ describe("folder locks of a shared omp folder", () => {
         process.env["PI_CONFIG_DIR"] = configDir;
 
         // The first sync creates the missing data root and takes its lock.
-        expect(await runEngineNative(["sync", "omp"], recordingServices([]))).toBe(0);
+        expect(await runEngineNative(["sync"], recordingServices([]))).toBe(0);
         expect(existsSync(join(dataRoot, FOLDER_LOCK))).toBe(true);
 
         await withHome(async (secondHome) => {
@@ -550,7 +475,7 @@ describe("folder locks of a shared omp folder", () => {
           await holdingFolderLock(dataRoot, async (lock) => {
             const records: Array<string> = [];
 
-            expect(await runEngineNative(["sync", "omp"], recordingServices(records))).toBe(1);
+            expect(await runEngineNative(["sync"], recordingServices(records))).toBe(1);
 
             expect(records).toContain(heldLineFor(lock));
           });
@@ -570,9 +495,7 @@ describe("folder locks of a shared omp folder", () => {
           const before = { home: snapshot(home), shared: snapshot(shared) };
           const records: Array<string> = [];
 
-          expect(
-            await runEngineNative(["sync", "omp", "--dry-run"], recordingServices(records)),
-          ).toBe(0);
+          expect(await runEngineNative(["sync", "--dry-run"], recordingServices(records))).toBe(0);
 
           expect(records).not.toContain(heldLineFor(lock));
           expect({ home: snapshot(home), shared: snapshot(shared) }).toEqual(before);
@@ -611,7 +534,7 @@ describe("omp children of a sync", () => {
 
               // A later omp process adopts the candidate and does not see the
               // plugins of the locked root, so the sync must not report success.
-              expect(await runEngineNative(["sync", "omp"], services)).toBe(1);
+              expect(await runEngineNative(["sync"], services)).toBe(1);
               const moved = `omp data root moved to ${candidate} during the sync; run docks-kit sync again`;
               expect(records).toContain(moved);
               expect(records).toContain("--- Failures ---");

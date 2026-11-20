@@ -1,5 +1,5 @@
 /**
- * EngineNative `sync omp` retired-entry pruning. `ompYaml.ts mergeOmpConfig` and
+ * EngineNative sync retired-entry pruning. `ompYaml.ts mergeOmpConfig` and
  * `mergeOmpModels` are additive: their `mergeMappings, deployed-key retention
  * loop` returns every deployed key absent from the SoT to the merged result,
  * and `mergeBashPatterns` keeps a deployed rule the SoT stops shipping as a user

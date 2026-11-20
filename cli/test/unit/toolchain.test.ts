@@ -16,12 +16,15 @@ describe("toolchain report", () => {
   it(
     "reports a present tool with an unreadable version as unknown instead of ok",
     () => {
-      // omp is not installed on the CI runners, so the stub is the only omp on
-      // PATH; a Windows runner's own git would shadow a git stub.
-      const stubs = makeStubDir({
-        omp: `if (args[0] === "--version") process.exitCode = 9`,
-      });
-      const run = runPublicCli(["toolchain", "check"], "home-fresh", stubs);
+      // The native host pairing puts each stub first on PATH in a form that
+      // the host runs (`omp.cmd` on Windows), so a runner's own omp or git
+      // cannot shadow it.
+      const nativeHost = { nativeHost: true } as const;
+      const stubs = makeStubDir(
+        { omp: `if (args[0] === "--version") process.exitCode = 9` },
+        nativeHost,
+      );
+      const run = runPublicCli(["toolchain", "check"], "home-fresh", stubs, nativeHost);
 
       try {
         expect(run.exitCode).toBe(0);

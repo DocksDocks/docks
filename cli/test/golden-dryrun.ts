@@ -32,12 +32,7 @@ interface DryRunCaseGolden {
 }
 
 const FIXTURES = ["home-fresh", "home-drift"];
-const COMMANDS: Array<Array<string>> = [
-  ["sync", "--dry-run"],
-  ["sync", "agents", "--dry-run"],
-  ["sync", "omp", "--dry-run"],
-  ["sync", "--dry-run", "--prune"],
-];
+const COMMANDS: Array<Array<string>> = [["sync", "--dry-run"]];
 
 /**
  * Public-CLI characterization. These rows run the real effect/cli parser and
@@ -49,12 +44,11 @@ const PUBLIC_COMMANDS: Array<Array<string>> = [
   ["--help"],
   ["--version"],
   ["docs"],
-  ["skills", "list"],
   ["update", "--help"],
-  // Read-only success contracts: stored harness selection and the toolchain
-  // doctor table.
-  ["harnesses"],
+  // Read-only success contract: the toolchain doctor table.
   ["toolchain", "check"],
+  // The flag-less public sync dry run: it plans omp writes only.
+  ["sync", "--dry-run"],
   // These rows pin the kit's argument-rejection diagnostics so they cannot drift.
   ["update", "--no-no-sync"],
   ["sync", "--bogus"],

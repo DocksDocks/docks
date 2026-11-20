@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 export const PAYLOAD_PATHS = [
-  "SoT/.agents/skills.txt",
   "SoT/toolchain.json",
   "SoT/.omp/AGENTS.md",
   "SoT/.omp/config.yml",

@@ -59,8 +59,6 @@ export async function installedVersion(ctx: Ctx, tool: ToolId): Promise<string> 
   switch (tool) {
     case "git":
       return firstLineField(await version(), 2);
-    case "node":
-      return (await version()).replace(/^v/, "");
     case "jq":
       return (await version()).replace(/^jq-/, "");
     case "curl":
@@ -93,9 +91,7 @@ export async function report(ctx: Ctx): Promise<void> {
     const dash = (v: string): string => (v !== "" ? v : "-");
     if (kind === "pin") {
       const via = field(tool, "via");
-      echo(
-        row([tool, kind, `(${via !== "" ? via : "npx"})`, dash(floor), dash(verified), "pinned"]),
-      );
+      echo(row([tool, kind, `(${via})`, dash(floor), dash(verified), "pinned"]));
       continue;
     }
     let installed: string;

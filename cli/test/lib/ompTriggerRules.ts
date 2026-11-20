@@ -270,9 +270,11 @@ function topLevelBars(pattern: string): Array<number> {
  *
  * This check cannot prove that a scan takes linear time: a later part of a
  * condition can still backtrack or walk back far. `ompTriggerBackstop.ts`
- * proves it by measurement under Bun: the time budget, the fire check,
- * scaling with the JIT off, escape-dense text, a head-then-run buffer, and
- * an open buffer.
+ * tests the measured input families for linear time under Bun: the time
+ * budget, the fire check, scaling with the JIT off, escape-dense text, a
+ * head-then-run buffer, and an open buffer. A condition can still backtrack
+ * on a run that no generator holds, so a new condition needs a new family
+ * when its shape is new.
  */
 export function conditionShapeFaults(source: string): Array<string> {
   const flagGroup = INLINE_FLAG_GROUP.exec(source);

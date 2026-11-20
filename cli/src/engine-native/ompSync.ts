@@ -1,5 +1,5 @@
 /**
- * EngineNative `sync omp` pipeline. config.yml merges through mergeOmpConfig
+ * EngineNative sync pipeline. config.yml merges through mergeOmpConfig
  * and models.yml through mergeOmpModels. Both preserve user-only keys.
  * Paths come from ompPaths because profiles, PI_CONFIG_DIR,
  * PI_CODING_AGENT_DIR, and XDG roots each move them. `runSync` resolves them

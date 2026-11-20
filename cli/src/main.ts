@@ -12,16 +12,12 @@ const root = Command.make("docks-kit", {}, () =>
     yield* Console.log("docks-kit — portable AI coding agent config kit");
     yield* Console.log("");
     yield* Console.log(
-      "  docks-kit sync [agents|omp]               deploy the SoT to this machine",
-    );
-    yield* Console.log(
-      "  docks-kit harnesses                       choose the flag-less sync selection",
+      "  docks-kit sync [--dry-run]                deploy the SoT to this machine",
     );
     yield* Console.log(
       "  docks-kit update [--no-sync]              self-update the kit, then sync",
     );
     yield* Console.log("  docks-kit toolchain [check|ensure|outdated] verified-version floors");
-    yield* Console.log("  docks-kit skills list                      universal skills");
     yield* Console.log("  docks-kit docs [topic]                     self-documentation");
     yield* Console.log("  docks-kit omp [--model|--pick] [...]       free-model omp session");
     yield* Console.log(
@@ -38,7 +34,7 @@ const root = Command.make("docks-kit", {}, () =>
   }),
 ).pipe(
   Command.withDescription(
-    "Portable AI coding agent config kit — SoT sync engine + helpers for Oh My Pi and universal agent skills.",
+    "Portable AI coding agent config kit — SoT sync engine + helpers for Oh My Pi.",
   ),
   Command.withSubcommands(COMMANDS),
 );
@@ -54,7 +50,7 @@ const bareVersionFormatter: CliOutput.Formatter = {
 // Harness-private raw channel:
 // `DOCKS_KIT_ENGINE=native-raw` bypasses effect/cli and hands the raw engine
 // argv to EngineNative so golden tests drive the internal vocabulary directly.
-// Only this channel honors the unprefixed env globals (DRY_RUN, PRUNE, and so on).
+// Only this channel honors the unprefixed env globals DRY_RUN and DOCKS_KIT_VERBOSE.
 // PUBLIC engine execution lives at the engine.ts seam after the CLI has
 // parsed/normalized pickers, --flag value forms, and non-engine commands.
 if (process.env["DOCKS_KIT_ENGINE"] === "native-raw") {

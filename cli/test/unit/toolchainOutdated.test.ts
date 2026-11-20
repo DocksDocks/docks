@@ -112,8 +112,13 @@ describe("toolchain outdated", () => {
       .mockResolvedValueOnce(jsonResponse({ version: "1.7.0" }))
       .mockResolvedValueOnce(jsonResponse({ version: "1.8.0" }));
 
-    const first = await latestUpstream("skills-cli", { home, refresh: false, now: NOW, fetchImpl });
-    const cached = await latestUpstream("skills-cli", {
+    const first = await latestUpstream("pi-intercom", {
+      home,
+      refresh: false,
+      now: NOW,
+      fetchImpl,
+    });
+    const cached = await latestUpstream("pi-intercom", {
       home,
       refresh: false,
       now: NOW + 23 * 3600_000,
@@ -123,7 +128,7 @@ describe("toolchain outdated", () => {
     expect(cached).toEqual(first);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
-    const refreshed = await latestUpstream("skills-cli", {
+    const refreshed = await latestUpstream("pi-intercom", {
       home,
       refresh: true,
       now: NOW + 23 * 3600_000,
@@ -138,13 +143,13 @@ describe("toolchain outdated", () => {
       .fn(async () => jsonResponse({ version: "1.7.0" }))
       .mockRejectedValueOnce(new Error("network unavailable"));
 
-    const failed = await latestUpstream("skills-cli", {
+    const failed = await latestUpstream("pi-intercom", {
       home,
       refresh: false,
       now: NOW,
       fetchImpl,
     });
-    const recovered = await latestUpstream("skills-cli", {
+    const recovered = await latestUpstream("pi-intercom", {
       home,
       refresh: false,
       now: NOW,

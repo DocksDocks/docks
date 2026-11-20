@@ -15,10 +15,8 @@ import { COMMANDS, prepareArgv, subcommandName } from "../../src/argv";
 /** The subcommands in registration order, which is also the `--help` order. */
 const REGISTERED_SUBCOMMANDS = [
   "sync",
-  "harnesses",
   "update",
   "toolchain",
-  "skills",
   "docs",
   "omp",
   "scratch",
@@ -64,33 +62,8 @@ describe("argument validation", () => {
       ["--log-level", "debug", "sync"],
       ["--log-level", "debug", "sync"],
     ],
-    [
-      "accepts a target word after a boolean flag",
-      ["sync", "--dry-run", "omp"],
-      ["sync", "--dry-run", "omp"],
-    ],
   ] as const)("%s", (_name, input, args) => {
     expect(prepareArgv(input)).toEqual({ kind: "accept", args });
-  });
-
-  it.each([
-    [
-      "rejects legacy --remove-plugins with its prune rename hint",
-      "--remove-plugins",
-      "--remove-plugins was renamed to --prune",
-    ],
-    [
-      "rejects legacy --agents with its positional-target rename hint",
-      "--agents",
-      "--agents was renamed: pass the target as a word, e.g. 'sync agents'",
-    ],
-    [
-      "rejects legacy --omp with its positional-target rename hint",
-      "--omp",
-      "--omp was renamed: pass the target as a word, e.g. 'sync omp'",
-    ],
-  ] as const)("%s", (_name, flag, message) => {
-    expect(prepareArgv(["sync", flag])).toEqual({ kind: "reject", message, exitCode: 2 });
   });
 
   it.each([
@@ -126,10 +99,34 @@ describe("argument validation", () => {
       "tidy",
     ],
     [
-      "rejects a sync legacy flag as unknown outside the sync scope",
+      "rejects --agents as unknown outside the sync scope",
       ["docs", "--agents"],
       "--agents",
       "docs",
+    ],
+    [
+      "rejects --agents as unknown now that the agents target is gone",
+      ["sync", "--agents"],
+      "--agents",
+      "sync",
+    ],
+    [
+      "rejects --omp as unknown now that its target rename hint is gone",
+      ["sync", "--omp"],
+      "--omp",
+      "sync",
+    ],
+    [
+      "rejects --remove-plugins as unknown now that its prune rename hint is gone",
+      ["sync", "--remove-plugins"],
+      "--remove-plugins",
+      "sync",
+    ],
+    [
+      "rejects --prune as unknown now that universal skills are gone",
+      ["sync", "--prune"],
+      "--prune",
+      "sync",
     ],
     [
       "rejects --skip-rtk as unknown now that its bubblewrap rename hint is gone",
@@ -171,14 +168,6 @@ describe("argument validation", () => {
     });
   });
 
-  it("rejects an unknown flag on harnesses and names its scope", () => {
-    expect(prepareArgv(["harnesses", "--bogus"])).toEqual({
-      kind: "reject",
-      message: "unknown flag --bogus for 'harnesses'",
-      exitCode: 2,
-    });
-  });
-
   it.each([
     [
       "rejects an unknown subcommand before blaming one of its flags",
@@ -189,6 +178,11 @@ describe("argument validation", () => {
       "rejects an Object.prototype name as an unknown subcommand instead of crashing",
       ["toString", "--dry-run"],
       "unknown command 'toString'",
+    ],
+    [
+      "rejects a removed subcommand before blaming one of its flags",
+      ["harnesses", "--bogus"],
+      "unknown command 'harnesses'",
     ],
     [
       "rejects a repeated value-taking global action rather than silently keeping the first",
@@ -205,7 +199,6 @@ describe("argument validation", () => {
       ["sync", "--dry-run=false"],
       "--dry-run",
     ],
-    ["rejects an inline value for the sync prune boolean", ["sync", "--prune=true"], "--prune"],
     ["rejects an inline value for the tidy apply boolean", ["tidy", "--apply=false"], "--apply"],
     [
       "rejects a separate boolean literal after the sync dry-run boolean",
@@ -213,14 +206,14 @@ describe("argument validation", () => {
       "--dry-run",
     ],
     [
-      "rejects a separate numeric literal after a target and the dry-run boolean",
-      ["sync", "omp", "--dry-run", "0"],
+      "rejects a separate numeric literal after the dry-run boolean",
+      ["sync", "--dry-run", "0"],
       "--dry-run",
     ],
     [
-      "rejects a separate boolean literal after the prune boolean",
-      ["sync", "--prune", "no"],
-      "--prune",
+      "rejects a separate boolean literal after the verbose boolean",
+      ["sync", "--verbose", "no"],
+      "--verbose",
     ],
     [
       "rejects a separate boolean literal after the update no-sync boolean",
@@ -238,8 +231,8 @@ describe("argument validation", () => {
   it.each([
     [
       "rejects duplicate uses of a non-repeatable boolean flag",
-      ["sync", "--prune", "--prune"],
-      "--prune",
+      ["sync", "--dry-run", "--dry-run"],
+      "--dry-run",
     ],
     [
       "rejects duplicate uses of a non-repeatable value flag",

@@ -4,7 +4,7 @@ import { Command, Flag } from "effect/cli";
 import { Console, Effect, Option } from "effect";
 
 import { bail } from "../engine";
-import { engineHome } from "../engine-native/harnesses";
+import { engineHome } from "../engine-native/ompSession";
 import { acquireKitLock, releaseKitLock } from "../engine-native/kitLock";
 import { scratchRoot, tidyApplyLockPath } from "../engine-native/scratch";
 import {

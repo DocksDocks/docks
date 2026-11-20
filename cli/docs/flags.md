@@ -3,29 +3,22 @@
 Convention: global flags are unprefixed; a flag that touches one tool's
 deployed config is `--<tool>-<setting>`.
 
-## Targets (positional)
+## Sync
 
 ```
-docks-kit sync                      # stored harness selection
-docks-kit sync omp                  # one
-docks-kit sync agents omp           # two
+docks-kit sync                      # deploy the omp SoT
+docks-kit sync --dry-run            # preview it
 ```
 
-Positional targets are `agents` and `omp`. A flag-less `sync` deploys the
-per-machine harness selection stored in `~/.docks-kit/kit.db`. A missing
-selection or an unreadable store selects `agents` and `omp`. Choose the stored
-selection with `docks-kit harnesses`. With no stored selection, its picker
-pre-ticks both harnesses; a flag-less `sync` does not change until the picker
-saves a selection. In the picker, Enter or Space ticks or unticks the harness
-under the cursor, Enter on the Save row stores the selection, and Escape
-leaves it unchanged.
+`sync` deploys the omp SoT and takes no positional argument. A word after
+`sync`, such as `omp`, stops it with `Unexpected positional argument` and
+exit 1.
 
 ## Global flags
 
 | Flag | Effect |
 |------|--------|
 | `--dry-run` | Preview without applying; takes no sync lock and no folder lock |
-| `--prune` | Remove the kit-managed universal skills that `~/.agents/.kit-owned-skills` names and SoT no longer lists |
 | `--skip-plugin-refresh` | Install missing omp plugins but skip refresh-only updates |
 | `--verbose` / `-v` | Also print no-op confirmations (already in sync, up to date, left as-is); accepted on `sync` and `toolchain` |
 
@@ -33,7 +26,6 @@ leaves it unchanged.
 
 | Variable | Effect |
 |----------|--------|
-| `DOCKS_KIT_SYNC_CONCURRENCY=1\|2\|3` | Maximum selected sync pipelines running at once. Default `3`; use `1` for serial golden/debug execution. Invalid values fail `sync` with exit 2 but do not affect `toolchain`. |
 | `DOCKS_KIT_SYNC_LOCK_WAIT_MS=<ms>` | Time that `sync` and `omp --fast` wait for another sync to release a sync lock. A non-negative safe integer in milliseconds (at most `9007199254740991`); unset or empty means `120000` (120 s). Any other value prints `DOCKS_KIT_SYNC_LOCK_WAIT_MS must be a non-negative safe integer` and exits 2. |
 
 ## Sync lock
@@ -45,12 +37,11 @@ runs never write the same files at once.
   (`DOCKS_KIT_SYNC_LOCK_WAIT_MS` changes the wait). It then prints
   `another docks-kit sync holds <path>; run sync again after it ends` and
   exits 1 with no change.
-- Two homes can share an agents folder (`AGENTS_DIR`) or an omp folder
-  (`PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `XDG_DATA_HOME`, or a symlink). So a
-  writing sync also holds `.docks-kit-sync-lock.db` inside each such folder
-  that it writes. For `agents` this is the agents folder. For `omp` it is the
-  omp agent folder, the intercom folder, and the omp data root. The held line
-  then names that lock file.
+- Two homes can share an omp folder (`PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`,
+  `XDG_DATA_HOME`, or a symlink). So a writing sync also holds
+  `.docks-kit-sync-lock.db` inside each such folder that it writes: the omp
+  agent folder, the intercom folder, and the omp data root. The held line then
+  names that lock file.
 - A writing sync creates a missing folder of this set just before it takes the
   lock of that folder, after the locks of its ancestors in the set. Each folder
   that it creates gets mode 0700. The lock step does not change the mode of an
@@ -132,12 +123,3 @@ forwarded `--model` stops the launcher with exit 2, also behind `--`.
 | `tidy --apply` | Take the lock `~/.cache/docks-kit/tidy-lock.db`, then plan, perform those actions, and append the outcomes to `~/.cache/docks-kit/tidy.log`; exit 1 when an action fails. When another run holds the lock, print only `another docks-kit tidy run holds <path>`, with no plan and no report, and exit 0. A dry run (`tidy` without `--apply`) and the `--report` sections take no lock |
 | `tidy --repo <path>` | Take the worktree candidates only from that repository, at any location |
 | `tidy --report` | After the plan, print read-only sections on memory, temporary directories, processes, Docker, caches, Trash, git, agent histories, scheduled jobs, and global installs |
-
-## Renamed legacy flags (pre-CLI sync.sh)
-
-Old flags exit with a rename hint — there is no compat behavior.
-
-| Old | New |
-|-----|-----|
-| `--agents` / `--omp` | positional `agents` / `omp` |
-| `--remove-plugins` | `--prune` |

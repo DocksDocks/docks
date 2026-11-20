@@ -10,12 +10,12 @@
 import { isAbsolute } from "node:path";
 
 import { capture, captureWithin, commandExists, p, which, type CaptureOutcome } from "./exec";
-import { engineHome } from "./harnesses";
+import { engineHome } from "./ompSession";
 import { hostOs, platformName, rawPlatform } from "./os";
 import type { Invocation } from "./os/types";
 import { field } from "./toolchain";
 
-export type ToolId = "git" | "jq" | "curl" | "node" | "npm" | "npx" | "omp" | "bun";
+export type ToolId = "git" | "jq" | "curl" | "npm" | "omp" | "bun";
 
 export type ProbeResult =
   | { readonly state: "present"; readonly path?: string }
@@ -144,13 +144,8 @@ export const DEPENDENCIES: Record<ToolId, DependencySpec> = {
   git: spec("git", (pf = rawPlatform()) => hostOs(platformName(pf)).installHint("git")),
   jq: spec("jq", (pf = rawPlatform()) => hostOs(platformName(pf)).installHint("jq")),
   curl: spec("curl", (pf = rawPlatform()) => hostOs(platformName(pf)).installHint("curl")),
-  node: spec("node", () => "install Node.js via https://nodejs.org (or your package manager)"),
   npm: spec(
     "npm",
-    () => "ships with Node.js — install via https://nodejs.org (or your package manager)",
-  ),
-  npx: spec(
-    "npx",
     () => "ships with Node.js — install via https://nodejs.org (or your package manager)",
   ),
   omp: spec(

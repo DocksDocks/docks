@@ -1,5 +1,81 @@
 # Changelog
 
+## Unreleased - docks-kit 0.24.0: omp-only sync
+
+docks-kit now manages omp only. `docks-kit sync` syncs omp, and it does not
+read or write `~/.agents` or `~/.claude`. This version completes the sync part
+of plan #179 (#183). A later version changes the omp settings (#184).
+
+### Removed
+
+- Universal skills and the `agents` sync target. Sync no longer installs the
+  skills of `SoT/.agents/skills.txt` with `npx skills add`, and it no longer
+  links them into `~/.claude/skills`. `SoT/.agents/skills.txt` and the
+  `universal-skills-context` skill are gone.
+- Every positional sync target: `docks-kit sync agents` and
+  `docks-kit sync omp` are gone. Run `docks-kit sync`.
+- The `docks-kit harnesses` command (the harness checklist) and the
+  `docks-kit skills` command.
+- The `--prune` flag of `docks-kit sync`. It removed the kit-owned skills
+  that SoT no longer listed.
+- The rename hints for the old flags `--agents`, `--omp`, and
+  `--remove-plugins`.
+- The environment variables `AGENTS_DIR`, `PRUNE`,
+  `DOCKS_KIT_SYNC_CONCURRENCY`, and `DOCKS_KIT_INTERACTIVE`. The kit ignores
+  them now.
+- The `node` and `skills-cli` toolchain rows. `docks-kit toolchain check` no
+  longer lists them. The `npm` row stays, because `docks-kit update` uses
+  `npm`.
+
+### Changed
+
+- `docks-kit sync` takes no target and always syncs omp. Where an older note
+  says `docks-kit sync omp`, run `docks-kit sync`.
+- Each removed input now fails with a message and an exit code:
+  - `docks-kit sync <word>`, for example `sync agents`, `sync omp`,
+    `sync claude`, or `sync codex`: `Unexpected positional argument:
+    "<word>"`, exit 1. Before, `sync agents` and `sync omp` ran a sync, and
+    `sync claude` and `sync codex` failed with `Unknown sync target(s)` and
+    exit 2.
+  - `docks-kit sync --prune`: `unknown flag --prune for 'sync'`, exit 2.
+    Before, sync accepted the flag.
+  - `docks-kit sync --agents`, `--omp`, or `--remove-plugins`:
+    `unknown flag <flag> for 'sync'`, exit 2. Before, the exit code was also
+    2, with a rename hint.
+  - `docks-kit harnesses` and `docks-kit skills`:
+    `Unknown subcommand "<name>" for "docks-kit"`, exit 1. Before, both
+    commands ran.
+- The stored harness selection stays in kit.db, and the kit ignores it. The
+  `harness_selection` table keeps its rows, and the kit.db schema does not
+  change. So an older docks-kit can still open kit.db. A new schema version
+  would make an older kit refuse the file.
+- Sync no longer repairs or removes the `~/.claude/skills/<name>` links. The
+  0.23.0 entry named these links as the one exception in its list of files
+  that stay on your machine. That exception ends with this version.
+
+### Files that stay on your machine
+
+Sync no longer reads, writes, or removes these files. Before you delete
+them, read the kit records: `~/.agents/.kit-owned-skills` names each skill
+that the kit installed. Check each folder before you delete it, because
+`~/.agents/skills/` and `~/.claude/skills/` can hold your own skills, which
+you or another tool installed. Delete only the skills that you do not use.
+
+- The `~/.agents/skills/<name>/` folders that `npx skills add` created for
+  the kit.
+- The kit records `~/.agents/.kit-owned-skills`,
+  `~/.agents/.kit-pending-skills`, and `~/.agents/.kit-managed-skills`. An
+  older kit also wrote your own skill folders into `.kit-managed-skills`, so
+  do not use that file alone to find the kit skills.
+- The sync lock `~/.agents/.docks-kit-sync-lock.db` and the
+  `~/.agents/skills/` folder, which each writing `agents` sync created.
+  Delete the folder only when it is empty.
+- The `~/.claude/skills/<name>` entries of the kit skills. Each entry is a
+  symlink, a Windows junction, or a copy with the marker file
+  `.docks-kit-copied-skill`. Delete a symlink or a junction as a link, not
+  with a recursive delete, so that the target folder stays. Delete a copy
+  only when it holds the marker file.
+
 ## 2026-11-19 - docks-kit 0.23.0: Codex and Claude Code removal, omp trigger-rule fix
 
 docks-kit moves to managing omp only (plan #179). 0.23.0 is the first part of

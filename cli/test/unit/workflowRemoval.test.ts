@@ -8,7 +8,7 @@ import { SPAWN_TIMEOUT_MS } from "../lib/spawnTimeout";
 
 const CLI = cliEntry();
 const home = mkdtempSync(join(tmpdir(), "workflow-removal-"));
-const env = { ...process.env, HOME: home, AGENTS_DIR: join(home, ".agents") };
+const env = { ...process.env, HOME: home };
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 describe("removed workflow configuration surface", () => {

@@ -4,7 +4,7 @@
 
 | Field | Meaning |
 |-------|---------|
-| `kind` | `check` (doctor visibility) / `managed` (kit-managed install) / `pin` (no binary — a version pin for a package that the kit installs through another tool: `npx` for `skills-cli`, `omp install` for `pi-intercom`; the optional `via` field names that tool in the doctor table, and the default is `npx`) |
+| `kind` | `check` (doctor visibility) / `managed` (kit-managed install) / `pin` (no binary — a version pin for a package that the kit installs through another tool, such as `omp install` for `pi-intercom`; the required `via` field names that tool in the doctor table) |
 | `policy` | Installation policy; `present` installs when missing and never upgrades |
 | `floor` | Minimum acceptable version shown in the doctor table |
 | `verified` | Last kit-tested version and the exact pin for kit-driven installs |
@@ -31,11 +31,11 @@ an installer. An already-present Bun skips that download on every host.
 
 ## Supply-chain stance
 
-Every kit-driven package install from npm, npx, GitHub releases, or
+Every kit-driven package install from npm, GitHub releases, or
 `omp install` is pinned to a `SoT/toolchain.json` `verified` version — never
 floating `@latest` (the npm-worm / Shai-Hulud attack surface). That includes
-the `npx skills@<verified>` invocations on agents sync and the release workflow
-(actions pinned to commit SHAs, exact bun/npm versions). The existing omp
+the release workflow (actions pinned to commit SHAs, exact bun/npm versions).
+The existing omp
 marketplace plugins have no manifest pin: sync installs and refreshes them at
 the version that their marketplace publishes (see `sync-layers`). Any new
 install surface, a new marketplace or plugin source included, needs a

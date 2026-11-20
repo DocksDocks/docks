@@ -50,16 +50,7 @@ function stubServices(records: Array<LogRecord>): EngineServices {
   return { logger, deps, platform };
 }
 
-const ENV_KEYS = [
-  "HOME",
-  "USERPROFILE",
-  "AGENTS_DIR",
-  "DRY_RUN",
-  "DOCKS_KIT_VERBOSE",
-  "DOCKS_KIT_INTERACTIVE",
-  "PRUNE",
-  "DOCKS_KIT_SYNC_CONCURRENCY",
-] as const;
+const ENV_KEYS = ["HOME", "USERPROFILE", "DRY_RUN", "DOCKS_KIT_VERBOSE"] as const;
 
 describe("engine env globals", () => {
   let root = "";
@@ -72,7 +63,6 @@ describe("engine env globals", () => {
     // engineHome reads USERPROFILE on win32, so both keys point at the temp home.
     process.env["HOME"] = root;
     process.env["USERPROFILE"] = root;
-    process.env["AGENTS_DIR"] = join(root, ".agents");
   });
 
   afterEach(() => {
@@ -84,23 +74,21 @@ describe("engine env globals", () => {
   });
 
   it("ignores env globals unless the raw channel enables them", async () => {
-    process.env["PRUNE"] = "1";
-    const mentionsPrune = (records: Array<LogRecord>): boolean =>
-      records.some(({ message }) => message.includes("(--prune)"));
+    process.env["DOCKS_KIT_VERBOSE"] = "1";
+    // A dry run changes nothing, so only --verbose prints the restart advice.
+    const advice = "Restart omp to load any refreshed plugins, skills, or tools.";
 
     const publicRecords: Array<LogRecord> = [];
-    expect(
-      await runEngineNative(["sync", "agents", "--dry-run"], stubServices(publicRecords)),
-    ).toBe(0);
-    expect(mentionsPrune(publicRecords)).toBe(false);
+    expect(await runEngineNative(["sync", "--dry-run"], stubServices(publicRecords))).toBe(0);
+    expect(publicRecords.some(({ message }) => message === advice)).toBe(false);
 
     const rawRecords: Array<LogRecord> = [];
     expect(
-      await runEngineNative(["sync", "agents", "--dry-run"], stubServices(rawRecords), {
+      await runEngineNative(["sync", "--dry-run"], stubServices(rawRecords), {
         envGlobals: true,
       }),
     ).toBe(0);
-    expect(mentionsPrune(rawRecords)).toBe(true);
+    expect(rawRecords.some(({ message }) => message === advice)).toBe(true);
   });
 
   it("ignores flags when selecting a toolchain operation", async () => {

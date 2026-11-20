@@ -1,6 +1,6 @@
 ---
 name: omp-sync-context
-description: "Use when changing the docks-kit omp harness: the sync omp pipeline (ompSync.ts, syncDispatch.ts engineSync), omp paths (ompPaths.ts), deploy, YAML merge, and retired-key prune of config.yml and models.yml (ompFileDeploy.ts, ompYaml.ts, ompRemovals.ts), marketplace and plugin passes (ompMarketplace.ts, ompPlugins.ts, ompKitPlugin.ts, ompChild.ts), harness selection and session model in kit.db (harnesses.ts, kitDb.ts, parseArgs.ts), or the docks-kit omp free-session launcher (commands/omp.ts, ompOverlay.ts). Covers dry-run and --skip-plugin-refresh boundaries, the omp folder locks and the omp child environment (ompWriteFolders, spawnOmp, omp --fast), and private file modes. Not for cross-cutting sync flags (use sync-orchestration-context) or tool pins (use toolchain-context)."
+description: "Use when changing the docks-kit omp harness: the omp sync pipeline (ompSync.ts, syncDispatch.ts engineSync), omp paths (ompPaths.ts), deploy, YAML merge, and retired-key prune of config.yml and models.yml (ompFileDeploy.ts, ompYaml.ts, ompRemovals.ts), marketplace and plugin passes (ompMarketplace.ts, ompPlugins.ts, ompKitPlugin.ts, ompChild.ts), the session model in kit.db (ompSession.ts, kitDb.ts), or the docks-kit omp free-session launcher (commands/omp.ts, ompOverlay.ts). Covers dry-run and --skip-plugin-refresh boundaries, the omp folder locks and the omp child environment (ompWriteFolders, spawnOmp, omp --fast), and private file modes. Not for cross-cutting sync flags (use sync-orchestration-context) or tool pins (use toolchain-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -23,32 +23,28 @@ metadata:
       lines: "1-123"
     - path: cli/src/engine-native/ompYaml.ts
       lines: "1-213"
-    - path: cli/src/engine-native/harnesses.ts
-      lines: "1-138"
+    - path: cli/src/engine-native/ompSession.ts
+      lines: "1-67"
     - path: cli/src/engine-native/kitDb.ts
-      lines: "1-256"
+      lines: "1-240"
     - path: cli/src/engine-native/ompOverlay.ts
       lines: "1-264"
     - path: cli/src/commands/omp.ts
       lines: "1-426"
     - path: cli/src/engine-native/syncDispatch.ts
-      lines: "1-290"
-    - path: cli/src/engine-native/parseArgs.ts
-      lines: "1-93"
+      lines: "1-224"
     - path: cli/src/engine-native/atomicWrite.ts
       lines: "1-123"
     - path: cli/src/engine-native/ompFastMode.ts
       lines: "1-63"
     - path: cli/src/engine-native/ompChild.ts
       lines: "1-26"
-    - path: cli/src/commands/harnesses.ts
-      lines: "1-77"
   updated: "2026-11-19"
 ---
 
 # omp Sync Context
 
-EngineNative owns omp configuration deployment, plugin reconciliation, and harness selection.
+EngineNative owns omp configuration deployment, plugin reconciliation, and the omp session model.
 Use this context for omp-specific behavior only.
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.
@@ -102,12 +98,11 @@ and `bunx vitest run cli/test/unit/ompPaths.test.ts -t "prefers OMP_PROFILE even
 - Change omp deployment file modes, backups, or restart triggers.
 - Change the retired-entry prune in `ompRemovals.ts` — `syncOmpRemovals` or `syncOmpModelRemovals`.
 - Change omp marketplace registration or plugin reconciliation.
-- Change `readHarnessSelection`, `writeHarnessSelection`, `readOmpSessionModel`, or `writeOmpSessionModel` in `harnesses.ts`.
+- Change `readOmpSessionModel` or `writeOmpSessionModel` in `ompSession.ts`.
 - Change the free-session run overlay in `ompOverlay.ts` or the launcher in `cli/src/commands/omp.ts`.
-- Change the omp pipeline branch in `syncDispatch.ts` — `engineSync`.
-- Change default harness resolution in `parseArgs`.
+- Change the omp pipeline call in `syncDispatch.ts` — `engineSync`.
 
-Use `sync-orchestration-context` for a flag or target affecting several harnesses.
+Use `sync-orchestration-context` for a sync flag.
 Use `toolchain-context` for the omp binary floor or the `pi-intercom` pin.
 
 ## Deployment Ownership
@@ -188,10 +183,12 @@ The `bash.patterns` denies in `config.yml` still enforce.
 Verify the conditions: `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`.
 Its shape guard checks only the key prefix and that no `|` stands outside
 every group.
-Its Bun backstop (`cli/test/lib/ompTriggerBackstop.ts`) proves linear time by
-measurement in JavaScriptCore: a time budget, a fire check, scaling with the
-JIT off, and dense and head-and-run lines with the JIT on, in bash, open
-bash, and Python.
+Its Bun backstop (`cli/test/lib/ompTriggerBackstop.ts`) tests the measured
+input families for linear time in JavaScriptCore: a time budget, a fire
+check, scaling with the JIT off, and dense and head-and-run lines with the
+JIT on, in bash, open bash, and Python.
+A condition can still backtrack on a run that no generator holds, so a new
+condition needs a new family when its shape is new.
 The 64 KB time must stay at most 8 times the 16 KB time plus 15 ms, and at
 most 100 ms.
 When you rewrite a condition, run the old and the new condition on each
@@ -223,7 +220,7 @@ and `bunx vitest run cli/test/unit/ompFastMode.test.ts -t "keeps a symlinked con
 
 Two homes can share an omp folder through `PI_CODING_AGENT_DIR`, a symlink,
 `XDG_DATA_HOME`, or a `PI_CONFIG_DIR` with `..`. Their home locks differ.
-So a writing `sync omp` also takes `<folder>/.docks-kit-sync-lock.db` in each
+So a writing sync also takes `<folder>/.docks-kit-sync-lock.db` in each
 folder of `ompSync.ts ompWriteFolders`: the `ompPaths` `agentDir`, the
 resolved intercom directory, and the `ompPaths` `dataRoot`.
 
@@ -288,7 +285,7 @@ and `bunx vitest run cli/test/unit/ompKitPlugin.test.ts -t "removes stale files 
 
 - `references/yaml-merge.md` - YAML merge contract and the retired-entry prune.
 - `references/plugins-and-marketplace.md` - plugin and marketplace constraints, inventory contract, dry-run and refresh rules.
-- `references/state-and-launcher.md` - kit.db state store, harness selection, session model, and the free-session launcher.
+- `references/state-and-launcher.md` - kit.db state store, session model, and the free-session launcher.
 
 ## Change Checklist
 
@@ -300,5 +297,5 @@ and `bunx vitest run cli/test/unit/ompKitPlugin.test.ts -t "removes stale files 
 6. Verify npm identity through `name` and `version`.
 7. Keep every omp subprocess behind the dry-run boundary.
 8. Test missing and present plugin paths for refresh skipping.
-9. Keep sync free of selection prompts and state writes.
+9. Keep sync free of prompts and kit.db writes.
 10. Use durable module, function, and semantic anchors in tests or notes.

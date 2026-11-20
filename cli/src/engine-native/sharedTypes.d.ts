@@ -9,7 +9,7 @@ import type { Json } from "./jq";
 export type JsonObject = { [key: string]: Json };
 
 /**
- * omp session model (moved from harnesses.ts, which re-exports it so existing
+ * omp session model (moved from ompSession.ts, which re-exports it so existing
  * import paths keep working).
  */
 export interface OmpSessionModel {

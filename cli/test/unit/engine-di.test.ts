@@ -4,74 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runBounded, runEngineNative } from "../../src/engine-native";
-import { p } from "../../src/engine-native/exec";
-import { DEPENDENCIES } from "../../src/engine-native/deps";
-import type { Ctx } from "../../src/engine-native";
-import {
-  makeEngineServices,
-  makePlatform,
-  type DependencyManager,
-  type EngineServices,
-  type Logger,
-} from "../../src/engine-native/services";
-import { skillsNextSteps, skillsSummary } from "../../src/engine-native/skillsSync";
-import { kitHome } from "../../src/kitHome";
-
-type LogLevel = "change" | "verbose" | "warn" | "err" | "echo";
-interface LogRecord {
-  readonly level: LogLevel;
-  readonly message: string;
-}
-
-function stubServices(records: Array<LogRecord>): EngineServices {
-  const logger: Logger = {
-    change: (message) => void records.push({ level: "change", message }),
-    progress: () => {},
-    clearProgress: () => {},
-    verbose: (message) => void records.push({ level: "verbose", message }),
-    warn: (message) => void records.push({ level: "warn", message }),
-    err: (message) => void records.push({ level: "err", message }),
-    echo: (message) => void records.push({ level: "echo", message }),
-    acquireTerminal: () => ({
-      update: () => {},
-      withExclusive: async (action) => await action(),
-      release: () => {},
-    }),
-  };
-  const platform = makePlatform("linux");
-  const deps: DependencyManager = {
-    spec: (id) => DEPENDENCIES[id],
-    probe: (id) => ({ state: "present", path: `/stub-bin/${id}` }),
-    version: async () => "",
-    versionReading: async () => ({ kind: "version", value: "" }),
-    path: async (id) => `/stub-bin/${id}`,
-    warnMissing: () => {},
-  };
-  return { logger, deps, platform };
-}
-
-function summaryCtx(home: string, records: Array<LogRecord>): Ctx {
-  return {
-    repoDir: kitHome(),
-    home,
-    agentsDir: p(home, ".agents"),
-    interactive: false,
-    dryRun: false,
-    verbose: true,
-    prune: false,
-    syncConcurrency: 3,
-    services: stubServices(records),
-    targetFilterSet: true,
-    syncAgents: true,
-    syncOmp: false,
-    nextStepTriggers: {
-      skillsRestart: false,
-      ompRestart: false,
-      ompPluginUpgraded: false,
-    },
-    failures: [],
-  };
-}
+import { makeEngineServices } from "../../src/engine-native/services";
 
 describe("sync pipeline coordinator", () => {
   function deferred<T>() {
@@ -161,46 +94,10 @@ describe("sync pipeline coordinator", () => {
   });
 });
 
-describe("skills sync summary", () => {
-  it("reports the installed count only for a real sync and advises a restart after changes", () => {
-    const records: Array<LogRecord> = [];
-    const ctx = summaryCtx("/fixture-home", records);
-    ctx.verbose = false;
-
-    skillsSummary(ctx, { present: 2 });
-    expect(records.filter(({ level }) => level === "echo")).toEqual([
-      { level: "echo", message: `Skills:   ${p(ctx.agentsDir, "skills")}` },
-      { level: "echo", message: "          2 universal skill(s) installed" },
-    ]);
-    expect(skillsNextSteps(ctx)).toEqual([]);
-
-    ctx.nextStepTriggers.skillsRestart = true;
-    expect(skillsNextSteps(ctx)).toEqual([
-      "Restart Claude Code to discover newly installed universal skills.",
-    ]);
-    ctx.dryRun = true;
-    records.length = 0;
-    skillsSummary(ctx, { present: 2 });
-    expect(records.filter(({ level }) => level === "echo")).toEqual([
-      { level: "echo", message: `Skills:   ${p(ctx.agentsDir, "skills")}` },
-    ]);
-  });
-});
-
 describe("native CLI argument and output behavior", () => {
   async function withIsolatedHome(run: (home: string) => Promise<void>): Promise<void> {
     const home = mkdtempSync(join(tmpdir(), "engine-di-"));
-    const keys = [
-      "HOME",
-      "USERPROFILE",
-      "AGENTS_DIR",
-      "DOCKS_KIT_HOME",
-      "DRY_RUN",
-      "DOCKS_KIT_VERBOSE",
-      "DOCKS_KIT_INTERACTIVE",
-      "DOCKS_KIT_SYNC_CONCURRENCY",
-      "PRUNE",
-    ] as const;
+    const keys = ["HOME", "USERPROFILE", "DOCKS_KIT_HOME", "DRY_RUN", "DOCKS_KIT_VERBOSE"] as const;
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]])) as Record<
       (typeof keys)[number],
       string | undefined
@@ -210,8 +107,6 @@ describe("native CLI argument and output behavior", () => {
       // engineHome reads USERPROFILE on win32, so both keys point at the temp home.
       process.env["HOME"] = home;
       process.env["USERPROFILE"] = home;
-      process.env["AGENTS_DIR"] = p(home, ".agents");
-      process.env["DOCKS_KIT_INTERACTIVE"] = "0";
       await run(home);
     } finally {
       for (const key of keys) {
@@ -223,7 +118,7 @@ describe("native CLI argument and output behavior", () => {
     }
   }
 
-  it("lists the agents and omp targets and the global flags in sync help", async () => {
+  it("lists the global flags in sync help and no sync target", async () => {
     await withIsolatedHome(async () => {
       const stdout: Array<string> = [];
       const stderr: Array<string> = [];
@@ -235,11 +130,11 @@ describe("native CLI argument and output behavior", () => {
       });
       expect(await runEngineNative(["sync", "--help"], services)).toBe(0);
       const help = stdout.join("");
-      expect(help).toContain("Usage: docks-kit sync [agents] [omp] [flags]");
-      for (const flag of ["--dry-run", "--prune", "--skip-plugin-refresh", "--verbose"]) {
+      expect(help).toContain("Usage: docks-kit sync [flags]");
+      for (const flag of ["--dry-run", "--skip-plugin-refresh", "--verbose"]) {
         expect(help).toContain(flag);
       }
-      expect(help).not.toContain("claude");
+      for (const removed of ["agents", "--prune", "claude"]) expect(help).not.toContain(removed);
       expect(stderr).toEqual([]);
     });
   });

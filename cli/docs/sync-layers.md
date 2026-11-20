@@ -1,13 +1,7 @@
 # Sync layers
 
-`docks-kit sync [agents] [omp]` — targets are positional words; no target
-means this machine's harness selection in `~/.docks-kit/kit.db`. The default
-is `agents omp`, and `docks-kit harnesses` changes it.
-
-## agents (→ ~/.agents/skills, ~/.claude/skills symlinks)
-
-`npx skills add` per missing manifest slug, `~/.claude/skills` symlink
-healing, and the kit-owned record that `--prune` removes against.
+`docks-kit sync` deploys the omp SoT. It takes no positional target and writes
+nothing under `~/.agents` or `~/.claude`.
 
 ## omp (→ resolved agent dir, intercom root)
 
@@ -118,7 +112,9 @@ into `<agent directory>/intercom`. Otherwise it goes into
 `$PI_CODING_AGENT_DIR/intercom` when that variable is set, else
 `~/.pi/agent/intercom`.
 
-## Prune flag
+## Additive by default
 
-- `--prune` — the universal skills that `~/.agents/.kit-owned-skills` names
-  and SoT no longer lists are removed.
+Sync has no removal flag. A key, plugin, or file that only the user added
+stays. Two passes remove kit content on every sync: the `ompRemovals.ts`
+retired-key inventory above, and the kit plugin pass, which removes stale
+files from the kit-owned `~/.docks-kit/omp-plugin`.

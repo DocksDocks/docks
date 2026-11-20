@@ -2,7 +2,8 @@
  * The public CLI refuses each name that the omp-only cutover removed, with
  * the message and exit code that a user sees, and writes nothing into the
  * home folder. Codex left in 0.23.0 (#181), Claude Code in the same release
- * (#182).
+ * (#182), and universal skills, the sync targets, `--prune`, and the
+ * `harnesses` and `skills` commands left in 0.24.0 (#183).
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -15,15 +16,10 @@ import { SPAWN_TIMEOUT_MS } from "../lib/spawnTimeout";
 const CLI = cliEntry();
 const home = mkdtempSync(join(tmpdir(), "removed-names-"));
 // The CLI reads its home from USERPROFILE on Windows and from HOME elsewhere.
-const env = {
-  ...process.env,
-  HOME: home,
-  USERPROFILE: home,
-  AGENTS_DIR: join(home, ".agents"),
-};
+const env = { ...process.env, HOME: home, USERPROFILE: home };
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
-const HARNESS_FILES = [".claude", ".claude.json", ".codex"];
+const HARNESS_FILES = [".agents", ".claude", ".claude.json", ".codex"];
 
 /** Run the public CLI, then check that the refusal wrote no harness file. */
 function run(args: ReadonlyArray<string>) {
@@ -40,14 +36,18 @@ function run(args: ReadonlyArray<string>) {
 
 describe("names removed by the omp-only cutover", () => {
   it(
-    "refuses the removed sync targets and lists the remaining ones",
+    "refuses each sync target word as an unexpected positional argument",
     () => {
-      for (const target of ["claude", "codex"]) {
-        const result = run(["sync", target, "--dry-run"]);
-        expect(result.status, target).toBe(2);
-        expect(result.stderr, target).toContain(
-          `Unknown sync target(s): ${target} (valid: agents, omp)`,
-        );
+      for (const args of [
+        ["sync", "agents", "--dry-run"],
+        ["sync", "omp", "--dry-run"],
+        ["sync", "claude"],
+        ["sync", "codex"],
+      ]) {
+        const word = args[1];
+        const result = run(args);
+        expect(result.status, word).toBe(1);
+        expect(result.stderr, word).toContain(`Unexpected positional argument: "${word}"`);
       }
     },
     SPAWN_TIMEOUT_MS,
@@ -67,6 +67,10 @@ describe("names removed by the omp-only cutover", () => {
         "--codex-model=x",
         "--codex-effort=low",
         "--skip-bubblewrap",
+        "--prune",
+        "--agents",
+        "--omp",
+        "--remove-plugins",
       ]) {
         const result = run(["sync", "--dry-run", flag]);
         expect(result.status, flag).toBe(2);
@@ -79,7 +83,7 @@ describe("names removed by the omp-only cutover", () => {
   it(
     "refuses the removed commands as unknown subcommands",
     () => {
-      for (const command of ["model", "plugins", "models", "status"]) {
+      for (const command of ["model", "plugins", "models", "status", "harnesses", "skills"]) {
         const result = run([command]);
         expect(result.status, command).toBe(1);
         expect(result.stderr, command).toContain(`Unknown subcommand "${command}" for "docks-kit"`);

@@ -66,18 +66,10 @@ function testCtx(root: string, dryRun = false, stdout: Array<string> = []): Ctx 
   return {
     repoDir: kitHome(),
     home,
-    agentsDir: p(home, ".agents"),
-    interactive: false,
     dryRun,
     verbose: false,
     skipPluginRefresh: false,
-    prune: false,
-    syncConcurrency: 3,
-    targetFilterSet: true,
-    syncAgents: false,
-    syncOmp: true,
     nextStepTriggers: {
-      skillsRestart: false,
       ompRestart: false,
       ompPluginUpgraded: false,
     },

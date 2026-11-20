@@ -1,6 +1,6 @@
 ---
 name: engine-native-context
-description: "Use when modifying cli/src/engine-native, the cli/src/engine.ts engine seam or requireSupportedHost, the cli/src/main.ts native-raw harness path, cli/test/golden-dryrun.ts, cli/test/golden-mutation.ts, cli/test/lib/golden*.ts, or cli/test/goldens; covers the golden-regression contract, the removed-engine failure for DOCKS_KIT_ENGINE value bash, the p() slash-join rule, ExitError aborts, jq.ts JSON helpers, prove-red, GOLDEN_FILTER, and supported-host rejection before engine execution. Not for sync flags or target dispatch (use sync-orchestration-context) or toolchain pins and installs (use toolchain-context)."
+description: "Use when modifying cli/src/engine-native, the cli/src/engine.ts engine seam or requireSupportedHost, the cli/src/main.ts native-raw harness path, cli/test/golden-dryrun.ts, cli/test/golden-mutation.ts, cli/test/lib/golden*.ts, or cli/test/goldens; covers the golden-regression contract, the removed-engine failure for DOCKS_KIT_ENGINE value bash, the p() slash-join rule, ExitError aborts, jq.ts JSON helpers, prove-red, GOLDEN_FILTER, and supported-host rejection before engine execution. Not for sync flags or sync dispatch (use sync-orchestration-context) or toolchain pins and installs (use toolchain-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -10,23 +10,23 @@ metadata:
     - path: cli/src/engine.ts
       lines: "1-59"
     - path: cli/src/main.ts
-      lines: "1-93"
+      lines: "1-89"
     - path: cli/src/engine-native/exec.ts
       lines: "1-346"
     - path: cli/src/engine-native/jq.ts
       lines: "1-38"
     - path: cli/src/engine-native/parseHelp.ts
-      lines: "1-31"
+      lines: "1-26"
     - path: cli/src/engine-native/os/targets.ts
       lines: "1-77"
     - path: cli/test/unit/engine.test.ts
       lines: "1-112"
     - path: cli/test/golden-dryrun.ts
-      lines: "1-205"
+      lines: "1-199"
     - path: cli/test/golden-mutation.ts
-      lines: "1-411"
+      lines: "1-398"
     - path: cli/test/lib/goldenResources.ts
-      lines: "1-318"
+      lines: "1-316"
     - path: cli/test/lib/goldenExecution.ts
       lines: "1-298"
     - path: cli/test/lib/goldenSnapshot.ts
@@ -34,7 +34,7 @@ metadata:
     - path: cli/test/lib/goldenCli.ts
       lines: "1-52"
     - path: cli/test/lib/goldenMutationCatalog.ts
-      lines: "1-65"
+      lines: "1-58"
     - path: cli/test/lib/goldenPlatform.ts
       lines: "1-18"
     - path: cli/test/lib/goldenProveRed.ts
@@ -111,8 +111,8 @@ verify: `GOLDEN_FILTER='(' bun run golden:dryrun` must exit 2 with
 
 - `jq.ts compareCodepoints` mirrors jq string order: it compares Unicode
   codepoints, not UTF-16 code units. `toolchain.ts report` and
-  `skillsRecords.ts` sort with it (verify: `grep -rn compareCodepoints
-  cli/src/engine-native` lists every caller).
+  `syncDispatch.ts folderLockPaths` sort with it (verify: `grep -rn
+  compareCodepoints cli/src/engine-native` lists every caller).
 - `jq.ts parseJson` returns `undefined` for invalid JSON instead of throwing;
   `isObject` narrows a parsed value to a plain object.
 

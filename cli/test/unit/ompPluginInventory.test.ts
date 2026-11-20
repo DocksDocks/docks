@@ -140,10 +140,8 @@ function makeCtx(
   };
   return {
     home: root,
-    agentsDir: join(root, ".agents"),
     dryRun: options.dryRun ?? false,
     verbose: false,
-    prune: false,
     skipPluginRefresh: options.skipPluginRefresh ?? false,
     services,
     nextStepTriggers: { ompRestart: false, ompPluginUpgraded: false },
