@@ -3,7 +3,7 @@
 EngineNative is the only supported sync engine. It lives in
 `cli/src/engine-native/`. The `sync` and `toolchain` commands invoke it
 through `cli/src/engine.ts` and pass normalized argv to that seam. Other
-commands, such as `omp`, `harnesses`, `update`, `skills`, `scratch`, and
+commands, such as `omp`, `update`, `scratch`, and
 `tidy`, import engine-native modules directly. The former
 shell engine was removed after the `bash-engine-final` tag.
 `DOCKS_KIT_ENGINE=bash` is now an explicit removed-engine diagnostic and exits
@@ -12,11 +12,12 @@ shell engine was removed after the `bash-engine-final` tag.
 ## Selection Contract
 
 - The public `sync` and `toolchain` commands route through `engine(args)`
-  after `effect/cli` (the CLI module inside `effect` 4) parses pickers, target
-  words, and flag spellings.
+  after `effect/cli` (the CLI module inside `effect` 4) parses pickers and flag
+  spellings. `sync` takes no positional argument, so `effect/cli` refuses a
+  word such as `omp` with `Unexpected positional argument` and exit 1.
 - Other public commands call engine-native modules directly, for example
   `tidy.ts` `planTidy` and `applyTidy`, `scratch.ts` `createScratchDir`, and
-  `harnesses.ts` `readHarnessSelection`.
+  `ompSession.ts` `readOmpSessionModel`.
 - `DOCKS_KIT_ENGINE=native-raw` is harness-private: it bypasses `effect/cli`
   and hands argv directly to EngineNative so tests can exercise the internal
   engine vocabulary.
@@ -40,14 +41,10 @@ shell engine was removed after the `bash-engine-final` tag.
   intercom configuration, materializes the kit plugin, and only then runs the
   marketplace and plugin passes, because the plugin pass links the kit plugin
   directory.
-- **Pipeline concurrency is bounded.** The selected skills and omp pipelines
-  run through one input-ordered pool (`syncConcurrency.ts` `runBounded`). The
-  production default cap is 3, so both pipelines run at once. After the first
-  rejection, started pipelines drain and queued pipelines never start.
-  `DOCKS_KIT_SYNC_CONCURRENCY=1` restores serial execution for golden tests
-  and debugging. Each individual pipeline remains serial, and summaries keep
-  the skills, omp order.
-- **External CLIs stay external.** `omp`, `npx`, `npm`, `bun`, and `curl` are
+- **One pipeline.** Sync runs only the omp pipeline, which is serial.
+  `syncConcurrency.ts` `runBounded` stays for the parallel probes of `tidy`
+  and the tidy report.
+- **External CLIs stay external.** `omp`, `npm`, `bun`, and `curl` are
   spawned with argv arrays, not shell command strings except where an external
   installer contract requires a script interpreter.
 - **Backups precede mutation.** Deployed settings/config files write `.bak`
@@ -117,14 +114,13 @@ bootstrap needs an installer download.
 the deliverable (the report table for `toolchain check`), so nothing prints
 after it. The schema below applies to `sync` only.
 
-The `--- Sync complete ---` block (stdout, `echo`) prints after the selected
-pipelines settle, also on dry-run. When a pipeline rejects, `syncDispatch.ts`
+The `--- Sync complete ---` block (stdout, `echo`) prints after the omp
+pipeline settles, also on dry-run. When the pipeline rejects, `syncDispatch.ts`
 `engineSync` skips the block and prints only the `--- Failures ---` ledger.
-The block starts with a `Repo:` line and adds the inventory lines of each
-selected target: `Skills:` and `omp:`/`omp plugins:`. Dry-run leaves out the
-`omp plugins:` line. Next-step advice lines print only when their trigger
-changed this run (an omp plugin upgraded → `/reload-plugins` line; omp files
-changed → restart line; skills changed → discovery line) or under
+The block starts with a `Repo:` line and adds the `omp:` and `omp plugins:`
+inventory lines. Dry-run leaves out the `omp plugins:` line. Next-step advice
+lines print only when their trigger changed this run (an omp plugin upgraded
+→ `/reload-plugins` line; omp files changed → restart line) or under
 `--verbose`.
 
 ### Platform seam
@@ -134,7 +130,7 @@ holds the engine's host-detection `process.platform` read and keeps platform
 normalization injectable for tests. These direct reads remain:
 
 - the POSIX-only `chmod` guard in `kitDb.ts`;
-- the default `platform` argument of `harnesses.ts` `engineHome`;
+- the default `platform` argument of `ompSession.ts` `engineHome`;
 - `exec.ts` `WINDOWS_PROCESS`;
 - `tidy.ts` `listProcesses`;
 - `tidyReport.ts` `memorySection`, `processSection`, `trashSection`,
@@ -161,8 +157,8 @@ on the host directly.
 `--verbose` / `-v` on the public `sync` and `toolchain` commands selects
 verbose output. On the harness-private raw channel,
 `DOCKS_KIT_VERBOSE=1` also selects it. Only the raw channel honors the
-unprefixed `Ctx` env globals (`engineCtx.ts makeCtx` reads `DRY_RUN`,
-`DOCKS_KIT_VERBOSE`, `PRUNE`, and `AGENTS_DIR`). `main.ts` passes `{ envGlobals: true }` to
+unprefixed `Ctx` env globals (`engineCtx.ts makeCtx` reads `DRY_RUN` and
+`DOCKS_KIT_VERBOSE`). `main.ts` passes `{ envGlobals: true }` to
 `runEngineNative` only on that channel. The public `engine()` seam ignores
 these variables.
 The default service factory returns a raw Logger. `runEngineNative` wraps the
@@ -175,14 +171,13 @@ active logger binding.
 
 | Module               | Owns                                                                                                                                                                                                                                                                                                        |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `parseArgs.ts`       | engine usage, target selection, argv dispatch loop, legacy rename hints; re-exports the `parseHelp.ts` help text and early-exit error                                                                                                                                                                       |
+| `parseArgs.ts`       | engine usage and the argv dispatch loop; re-exports the `parseHelp.ts` help text and early-exit error                                                                                                                                                                                                       |
 | `index.ts`           | entry routing (`toolchain`/`sync`) and the run-scoped verbosity gate                                                                                                                                                                                                                                        |
 | `engineCtx.ts`       | `Ctx` shape and `makeCtx`; the unprefixed env globals apply only on the native-raw channel                                                                                                                                                                                                                  |
-| `syncDispatch.ts`    | pipeline selection, pool dispatch, run summary, next-step blocks, and the `--- Failures ---` ledger                                                                                                                                                                                                         |
-| `syncConcurrency.ts` | input-ordered bounded pool (`runBounded`)                                                                                                                                                                                                                                                                   |
+| `syncDispatch.ts`    | sync and folder locks, the omp pipeline call, run summary, next-step blocks, and the `--- Failures ---` ledger                                                                                                                                                                                              |
+| `syncConcurrency.ts` | input-ordered bounded pool (`runBounded`) for the tidy probes                                                                                                                                                                                                                                               |
 | `../payload.ts`      | generated text payload reads and presentation-only source labels                                                                                                                                                                                                                                            |
 | `bun.ts`             | per-run memoized Bun resolution/bootstrap shared by the omp pipeline and direct toolchain ensure                                                                                                                                                                                                            |
-| `skillsSync.ts`      | universal-skill pipeline orchestration; `skillsManifest.ts` parses the manifest, `skillsInstall.ts` owns the install pass, `skillsLinks.ts` the ordered symlink/junction/copy fallback and `~/.claude/skills` entry healing, and `skillsPrune.ts` the prune and managed-skill snapshot                      |
 | `ompSync.ts`         | omp pipeline orchestration and summary; `ompFileDeploy.ts`, `ompMarketplace.ts`, `ompPlugins.ts`, and `ompRemovals.ts` own the file, marketplace, plugin, and retired-key passes; `ompPaths.ts` resolves roots; `ompYaml.ts` merges YAML                                                                    |
 | `toolchain.ts`       | tool presence/version probes, verified-version floor reporting, report table                                                                                                                                                                                                                                |
 | `modes.ts`           | direct `toolchain` mode                                                                                                                                                                                                                                                                                     |
@@ -199,11 +194,6 @@ active logger binding.
   x64.
 - Unsupported hosts fail before launcher fallback, dependency probes, downloads,
   settings writes, or sync work.
-- Directory linking is capability-driven. The host module supplies only the
-  order while the runtime decides the outcome: symlink, then a Windows junction
-  with an absolute target, then a recursive copy. Copies carry a kit marker so
-  later sync can heal them back to a real link and prune can reclaim them
-  without touching user-owned directories.
 
 ## Tests
 

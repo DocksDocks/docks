@@ -1,6 +1,6 @@
 ---
 name: verify
-description: "Use when checking a change to docks-kit end to end: run the CLI the way a user does (sync dry run, toolchain doctor, unknown target), the dry-run goldens, and the real omp on the kit trigger rules, and inspect exit codes and output lines. Not for unit tests (run `bun run test:unit`), lint, or a release."
+description: "Use when checking a change to docks-kit end to end: run the CLI the way a user does (sync dry run, toolchain doctor, removed target and flag), the dry-run goldens, and the real omp on the kit trigger rules, and inspect exit codes and output lines. Not for unit tests (run `bun run test:unit`), lint, or a release."
 metadata:
   updated: "2026-11-19"
 ---
@@ -23,10 +23,10 @@ Hosts: the commands below are POSIX shell for Linux and macOS. On Windows, run `
 
 | Id | Flow | Command or tool action | Expected result |
 |---|---|---|---|
-| V1 | omp sync plan | `./docks-kit sync omp --dry-run; echo "exit $?"` | Lines that start with `[dry-run]`, then `--- Sync complete ---`, then `exit 0` |
+| V1 | omp sync plan | `./docks-kit sync --dry-run; echo "exit $?"` | Lines that start with `[dry-run]` and name only omp, `~/.pi/agent/intercom`, and `~/.docks-kit/omp-plugin` paths, never `~/.agents` or `~/.claude`; then `--- Sync complete ---`, a `Repo:` line, an `omp:` line, and `exit 0`. Observed 2026-11-19 on Linux x64 with omp 19.0.0: 18 `[dry-run]` lines (`cp embedded:SoT/.omp/...` deploys, then `omp plugin install --scope user docks@docks`, `omp plugin install --scope user plan-lifecycle@docks`, `omp install pi-intercom@0.14.0`, `omp plugin link /home/<user>/.docks-kit/omp-plugin`), a blank line, `--- Sync complete ---`, `Repo:     <checkout>`, `omp:      /home/<user>/.omp/agent`, `exit 0` |
 | V2 | Toolchain doctor | `./docks-kit toolchain check 2>&1 \| grep -E '^omp '` | One omp row whose INSTALLED, FLOOR, and VERIFIED columns are equal and whose STATUS is `ok` |
 | V3 | Dry-run goldens through the engine and the public CLI | `bun run golden:dryrun` | A line `golden-dryrun: OK (<n> case(s))` and exit 0 |
-| V4 | Unknown sync target | `./docks-kit sync bogus --dry-run; echo "exit $?"` | `Unknown sync target(s): bogus` and `exit 2` |
+| V4 | Removed sync target and flag | `./docks-kit sync omp --dry-run; echo "exit $?"; ./docks-kit sync --dry-run --prune; echo "exit $?"` | First the sync help on stdout, then `ERROR` and `Unexpected positional argument: "omp"` on stderr, and `exit 1`. Then `unknown flag --prune for 'sync'` and `exit 2`. Observed 2026-11-19 on Linux x64: exactly these lines |
 | V5 | Trigger rules on a large tool call, in the real omp | `bun .agents/skills/verify/scripts/ttsr-snippet.ts big-reset \| omp ttsr test --rule SoT/.omp/plugin/rules/git-safety.md --source tool --tool eval --file -`, then the same command with `big-quiet` | For `big-reset`, `Triggered (1)` and a `git-safety` line within a few seconds. For `big-quiet`, `No rules triggered. (evaluated 1)`. The `big-reset` snippet is a 21 KB eval cell with many `\"` escapes that ends with `sh("git reset --hard HEAD")`. The rules of 0.22.29 stayed quiet on it after 4.7 s: JavaScriptCore stopped at its match limit and reported no match, so the rule failed open |
 
 ## Failure signs

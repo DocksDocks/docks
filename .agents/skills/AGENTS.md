@@ -8,10 +8,10 @@ Read this file before you add, edit, or cite code from a skill.
 **Project-skill scope.** Keep project skills within three classes: kit-mechanic skills, the `unslop` repo-prose skill, and the `verify` skill, which holds the end-to-end checks that run the CLI the way a user does.
 Canonical project skills live in `.agents/skills/<name>/SKILL.md`. The repository tracks no symlinks.
 Kit-mechanic skills document regression-prone kit logic. Most of it is TypeScript in `cli/src/engine-native/`, in the CLI commands under `cli/src/commands/`, and in the top-level `cli/src/*.ts` modules such as `cli/src/services.ts`. The rest is in the `docks-kit` launcher and in the omp extension `SoT/.omp/plugin/extensions/hygiene.ts`.
-Kit-mechanic skills: `engine-native-context`, `sync-orchestration-context`, `toolchain-context`, `universal-skills-context`, `omp-sync-context`, `tidy-context`, and `host-platform-context`.
+Kit-mechanic skills: `engine-native-context`, `sync-orchestration-context`, `toolchain-context`, `omp-sync-context`, `tidy-context`, and `host-platform-context`.
 **Pipeline content** (multi-agent slash commands, refactor/security/docs workflows, parallel-scanner agents) belongs in the separate [DocksDocks/docks](https://github.com/DocksDocks/docks) plugin — not here.
 
-`npx skills add cursor/plugins -s unslop -y -a claude-code codex` installs `unslop`, and root `skills-lock.json` pins it.
+A maintainer refreshes `unslop` with `npx skills@1.7.0 add cursor/plugins -s unslop -y -a universal`, and root `skills-lock.json` pins it. The kit never runs this command. The skills CLI 1.7.0 installs the `universal` agent into the project path `.agents/skills/`. A newer skills CLI rewrites the version 1 `skills-lock.json` to version 2, so keep the 1.7.0 pin.
 The repository vendors upstream `unslop` text and pins it by the lockfile hash, so never edit it locally.
 Upstream licenses `pstack/` under MIT (Copyright (c) 2026 Lauren Tan), so redistribution is permitted.
 MIT requires the notice to travel with the copy, so `.agents/skills/unslop/LICENSE` vendors it verbatim and must stay beside `SKILL.md`.
@@ -25,7 +25,6 @@ When a kit-mechanic skill or its `references/` cites EngineNative internals, nam
 
 ## Owned elsewhere
 
-- Universal-skill opt-in (`SoT/.agents/skills.txt`, `skillsInstall.ts syncUniversal`): `AGENTS.md` (`## Skills`).
 - The guard for `metadata.source_files[].lines`: `cli/test/unit/skillMetadata.test.ts` (probe: set one range end past the line count of its file; `bunx vitest run cli/test/unit/skillMetadata.test.ts` must fail and name it; revert).
 - The `unslop` pin: `skills-lock.json`.
 - The EngineNative rules that the kit-mechanic skills document: `cli/AGENTS.md`.

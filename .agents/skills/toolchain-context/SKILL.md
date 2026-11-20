@@ -1,6 +1,6 @@
 ---
 name: toolchain-context
-description: "Use when modifying cli/src/commands/toolchain.ts MANAGED; cli/src/engine-native/modes.ts modeToolchain; cli/src/engine-native/toolchain.ts report, installedVersion, belowFloor, latestUpstream, or outdatedReport; cli/src/engine-native/bun.ts bunBootstrap; SoT/toolchain.json tool entries, verified pins, or upstream fields; or the Bun managed install. Not for the skills-cli and pi-intercom install passes (use universal-skills-context or omp-sync-context)."
+description: "Use when modifying cli/src/commands/toolchain.ts MANAGED; cli/src/engine-native/modes.ts modeToolchain; cli/src/engine-native/toolchain.ts report, installedVersion, belowFloor, latestUpstream, or outdatedReport; cli/src/engine-native/bun.ts bunBootstrap; SoT/toolchain.json tool entries, verified pins, or upstream fields; or the Bun managed install. Not for the pi-intercom install pass (use omp-sync-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -10,19 +10,19 @@ metadata:
     - path: cli/src/engine-native/modes.ts
       lines: "1-67"
     - path: cli/src/engine-native/toolchain.ts
-      lines: "1-257"
+      lines: "1-253"
     - path: cli/src/engine-native/bun.ts
       lines: "1-120"
     - path: cli/src/engine-native/deps.ts
-      lines: "1-229"
+      lines: "1-224"
     - path: cli/src/engine-native/kitDb.ts
-      lines: "1-256"
+      lines: "1-240"
     - path: cli/src/engine-native/ompSync.ts
       lines: "1-155"
     - path: cli/src/engine-native/sharedTypes.d.ts
       lines: "1-23"
     - path: SoT/toolchain.json
-      lines: "1-22"
+      lines: "1-18"
   updated: "2026-11-19"
 ---
 
@@ -48,7 +48,7 @@ the exact `verified` pin from `SoT/toolchain.json`. The exemptions and their
 reasons live in that file's `$comment` (supply-chain stance). Any new install
 surface, a new marketplace or plugin source included, needs a manifest pin first.
 verify: `grep -rn '"verified")' cli/src/engine-native` lists every `verified`
-read; each install site (`bun.ts`, `skillsInstall.ts`, `ompPlugins.ts`) must
+read; each install site (`bun.ts`, `ompPlugins.ts`) must
 appear there. `deps.ts` also appears: its Bun install hint prints the same pin
 and installs nothing.
 verify: `bunx vitest run cli/test/unit/deps.test.ts -t "pinned download-then-run Bun hint"`.
@@ -57,8 +57,8 @@ verify: `bunx vitest run cli/test/unit/deps.test.ts -t "pinned download-then-run
 ## Manifest Split
 
 - `kind: check/managed/pin` describes whether the tool is reported, managed by
-  the kit, or a version pin for a package installed through another tool (`npx`
-  or `omp install`). `check` rows such as jq and curl are report-only;
+  the kit, or a version pin for a package installed through another tool
+  (`omp install`, named by the required `via` field). `check` rows such as jq and curl are report-only;
   consumers decide whether a missing optional tool prevents an operation.
 - `policy: present` installs a missing managed tool and leaves a present tool
   alone.

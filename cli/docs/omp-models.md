@@ -800,7 +800,7 @@ bare selectors with no `:level` suffix, because an invented level makes omp
 fail when the session starts.
 
 The choice persists per machine in `~/.docks-kit/kit.db` (table
-`omp_session`), next to the harness selection. It survives across sessions. It is never
+`omp_session`). It survives across sessions. It is never
 committed. `--model <selector>` records one selector and derives the level
 from the catalog row. `--pick` opens an interactive wizard.
 

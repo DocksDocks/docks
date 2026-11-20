@@ -1,6 +1,6 @@
 ---
 name: host-platform-context
-description: "Use when modifying cli/src/engine-native/exec.ts spawnHost, spawnProcess, capture, captureWithin, which; os/*.ts HostOs facts (invoke, executableSuffixes, directoryLinkKinds, installHint, bunInstaller) or os/targets.ts HOST_TARGETS; deps.ts DEPENDENCIES, findBun, resolveVersionReading; services.ts makeDependencyManager or the cli/src/services.ts Effect layers; atomicWrite.ts replaceFile, replaceTextIfChanged, or removeStaleTemporaries; processes.ts processExited; or logger.ts terminal lease. Covers Windows cmd-shim encoding, pathless-spawn refusal, bounded process-group kills, version-probe time limits, symlink-preserving atomic writes and the cleanup of their killed-write leftovers, and the host support matrix. Not for golden harness rules (use engine-native-context) or toolchain pins and the doctor table (use toolchain-context)."
+description: "Use when modifying cli/src/engine-native/exec.ts spawnHost, spawnProcess, capture, captureWithin, which; os/*.ts HostOs facts (invoke, executableSuffixes, installHint, bunInstaller) or os/targets.ts HOST_TARGETS; deps.ts DEPENDENCIES, findBun, resolveVersionReading; services.ts makeDependencyManager or the cli/src/services.ts Effect layers; atomicWrite.ts replaceFile, replaceTextIfChanged, or removeStaleTemporaries; processes.ts processExited; or logger.ts terminal lease. Covers Windows cmd-shim encoding, pathless-spawn refusal, bounded process-group kills, version-probe time limits, symlink-preserving atomic writes and the cleanup of their killed-write leftovers, and the host support matrix. Not for golden harness rules (use engine-native-context) or toolchain pins and the doctor table (use toolchain-context)."
 user-invocable: false
 metadata:
   pattern: tool-wrapper
@@ -8,19 +8,19 @@ metadata:
     - path: cli/src/engine-native/exec.ts
       lines: "1-346"
     - path: cli/src/engine-native/deps.ts
-      lines: "1-229"
+      lines: "1-224"
     - path: cli/src/engine-native/os/types.ts
-      lines: "1-44"
+      lines: "1-40"
     - path: cli/src/engine-native/os/index.ts
       lines: "1-41"
     - path: cli/src/engine-native/os/posix.ts
-      lines: "1-39"
+      lines: "1-38"
     - path: cli/src/engine-native/os/linux.ts
       lines: "1-12"
     - path: cli/src/engine-native/os/darwin.ts
       lines: "1-12"
     - path: cli/src/engine-native/os/windows.ts
-      lines: "1-135"
+      lines: "1-134"
     - path: cli/src/engine-native/os/targets.ts
       lines: "1-77"
     - path: cli/src/engine-native/atomicWrite.ts

@@ -1,21 +1,20 @@
 # docks-kit
 
-Portable configuration kit for AI coding agents. Per-tool **Single Source of
-Truth (SoT)** directories deploy to each tool's user-config location. Clone
-once to get a consistent AI-assisted environment on supported Linux, macOS,
-and Windows machines. Tuned for **token efficiency without sacrificing quality**.
+Portable configuration kit for AI coding agents. The **Single Source of
+Truth (SoT)** directory `SoT/.omp/` deploys to the omp user-config location.
+Clone once to get a consistent AI-assisted environment on supported Linux,
+macOS, and Windows machines. Tuned for **token efficiency without sacrificing
+quality**.
 
 Supported harness: **Oh My Pi (`omp`)**.
-The kit also deploys [agentskills.io](https://agentskills.io) universal skills.
 
 ## Quick start
 
 ```bash
 git clone https://github.com/DocksDocks/public.git ~/projects/public
 cd ~/projects/public
-./docks-kit harnesses       # choose this machine's flag-less sync harnesses
-./docks-kit sync            # deploy this machine's harness selection
-./docks-kit sync omp        # deploy omp explicitly
+./docks-kit sync            # deploy the omp SoT
+./docks-kit sync --dry-run  # preview the sync without a write
 ./docks-kit toolchain       # doctor view: verified-version floors for external tools
 ```
 
@@ -35,7 +34,7 @@ Download the platform release binary from GitHub Releases and run it directly.
 The executable carries the generated sync payload; no checkout or adjacent
 `SoT/` directory is required.
 
-Source and global installs require Bun. npm-global tools require Node/npm.
+Source and global installs require Bun. An npm-global install needs npm.
 `jq` is optional doctor/test tooling. `curl` is needed only to download Bun's
 upstream installer when Bun is absent: by the POSIX launcher and installer, and
 by sync's Bun bootstrap, which a release binary can also run. The Windows
@@ -44,13 +43,11 @@ launcher and installer use Invoke-WebRequest.
 ## CLI
 
 ```text
-docks-kit sync [agents] [omp]                   deploy explicit targets or the machine selection
-docks-kit harnesses                             view or change this machine's selection
+docks-kit sync [--dry-run]                      deploy the omp SoT to this machine
 docks-kit update [--no-sync]                    self-update the kit (autodetects checkout vs global install), then sync
 docks-kit omp [--model <m>|--pick] [args...]    one omp session on a free model, nothing deployed changes
 docks-kit omp --fast                            toggle omp fast mode for OpenAI/Codex models, then exit
 docks-kit toolchain [check|ensure <tool>|outdated]  verified-version floors for external tools
-docks-kit skills list [--json]                  universal skills vs manifest
 docks-kit scratch new|remove                    agent temporary files and directories
 docks-kit tidy [--apply] [--report]             remove safe agent leftovers
 docks-kit docs [topic]                          self-documentation (9 topics)
@@ -75,21 +72,15 @@ here.
 | Flag | Effect |
 |------|--------|
 | `--dry-run` | Preview without applying |
-| `--prune` | Remove kit-managed universal skills not in `SoT/.agents/skills.txt` |
 | `--skip-plugin-refresh` | Install missing omp plugins but skip refresh-only updates |
 | `--verbose` | Also print no-op confirmations |
 
-Full reference: `docks-kit docs flags` (includes the old→new rename table for
-the pre-CLI `sync.sh` flags).
+Full reference: `docks-kit docs flags`.
 
 ## How syncing works
 
-- **Additive by default** — user-only settings keys, plugins, and skills
-  survive a plain sync. Removing kit-managed universal skills that left the
-  SoT is explicit (`--prune`).
-- **Per-machine selection** — `~/.docks-kit/kit.db` drives a flag-less sync.
-  A missing selection selects universal skills and omp. Use
-  `docks-kit harnesses` to view or change the selection.
+- **Additive by default** — user-only settings keys and plugins survive a
+  plain sync.
 - **Idempotent** — every step is safe to re-run; no-change syncs are no-ops.
 - **Toolchain floors** — `SoT/toolchain.json` records the kit-verified version
   floors for external tools (bun, omp, …). `docks-kit toolchain check` prints
@@ -116,7 +107,6 @@ the pre-CLI `sync.sh` flags).
 | Path | Purpose |
 |------|---------|
 | `SoT/.omp/` | omp SoT (AGENTS.md, config.yml, models.yml, mcp.json, intercom.json, and the `plugin/` source of `docks-kit-omp`) |
-| `SoT/.agents/` | Universal-skill manifest |
 | `SoT/toolchain.json` | Verified-version floors |
 | `cli/src/engine-native/` | EngineNative sync/toolchain implementation |
 | `cli/src/generated/sotPayload.ts` | Generated in-memory payload used by standalone and npm installs |
