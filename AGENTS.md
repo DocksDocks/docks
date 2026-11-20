@@ -53,7 +53,7 @@ AGENTS.md files on disk.
 | `.github/workflows/release-cli.yml` | `cli-v*` release: four binaries (Linux x64 and arm64, macOS arm64, Windows x64), plus `SHA256SUMS` and npm publish |
 | `README.md` | Front door |
 | `package.json` / `bun.lock` | npm package: `bin` = `cli/src/main.ts`; bundles `cli/` with the generated in-memory SoT payload |
-| `docs/PLAN.md` | Plan record standard. The plan record is a GitHub issue; no plan markdown is tracked. `docs/AGENTS.md` routes to it. |
+| `docs/PLAN.md` | Plan pointer and project plan rules. The plan record is a GitHub issue; no plan markdown is tracked. `docs/AGENTS.md` routes to it. |
 | `AGENTS.md` | This file — tool-agnostic instructions |
 
 Module map for `cli/` (engine axes, commands, kit store, test fixtures, and the release-binary build `bun run build:binaries`): `cli/AGENTS.md`.
@@ -128,85 +128,14 @@ Project-skill authoring rules (scope, canonical layout, vendored `unslop`, citat
 
 ## Plans
 
-Use direct implementation for one clear, reversible, low-risk local diff with one
-bounded acceptance path; it creates no plan issue, reviewer, or automatic
-commit. Use a canonical plan for explicit planning, multi-commit or
-cross-repository work, cold handoff, an unresolved decision, a cross-subsystem or
-public-contract change, security-sensitive or destructive work, or any
-non-`local` effect.
-
-<constraint>
-The plan record is a GitHub issue. Its body starts with
-`<!-- plan-contract: v4 -->`, followed by one blank line and seven `##`
-sections. It has no frontmatter. GitHub owns the title, open-work phase, owner,
-timestamps, and completion. The repository tracks no plan markdown.
-Three skills own the workflow. `plan-workspace` maintains the workspace.
-Main-context `plan-manager` runs six phases: decide, draft, research, plan
-review, implement, and code review. It uses bounded repair and fresh re-review
-in both review phases, then archives. Internal `plan-reviewer` returns one
-readable pre-implementation verdict block per round. Two read-only reviewer
-wrappers ship: `plan-reviewer` and `code-reviewer`.
-The explicit-only `yolo` skill runs the same workflow. It still asks before merge, on a review stall, before a production cleanup, and before a step after the landing merge, as the contract's Yolo runs section says.
-</constraint>
-
-After the marker and blank line, the record carries exactly seven sections.
-They appear once each in this order: `## Goal`, `## Research`, `## Steps`,
-`## Acceptance`, `## Do not touch`, `## Open questions`, and
-`## Verification Results`. `## Goal` carries exactly one mode line.
-Open-work phase is `drafting`, `planned`, `ongoing`, or `blocked`.
-Every plan carries `plan`. A `plan:<phase>` label stores the open phase.
-A blocked plan starts `## Open questions` with `Blocked: <one-line reason>`.
-GitHub `state` and `stateReason` determine closed status. Review records live
-only in issue comments. Each reviewer returns one markdown block.
-The manager posts that block as one issue comment. The latest trusted eligible
-comment per review kind wins. Its author must equal the plan's sole assignee.
-Both review phases use fresh inputs for each round. They stop on
-pass. Ask the user to continue or block when a round makes no progress, the
-same finding returns after a repair, round 5 does not pass, or dispatch fails
-again without a relevant change. If no answer is available, record the reason
-and block. A yolo run uses the round ceiling of the contract's Yolo runs
-section instead.
-A plan-review `blocked` verdict routes its user-only decision through
-`## Open questions` and `ask`.
-
-The record carries no hash, permit, run identity, lock, or bundle, and the
-`plan.mjs` shipped inside the installed `plan-lifecycle` plugin is the only
-lifecycle tool. An `export` writes the sha256 of the body it copied beside the
-copy so a stale copy cannot revert the record; that digest detects staleness and
-authorizes nothing. Routine plan issue publication, implement-start linked
-branch creation, commits, normal pushes, and the closing pull request carry the
-settled mode's authorization and need no repeated prompt. Before any branch
-checkout, including `gh issue develop --checkout`, require
-`git status --porcelain` to be empty. If it is dirty, never stash, move, or
-commit ambient work; set the plan `blocked` and name the dirty paths, or use an
-authorized clean worktree.
-Immediately after setting the plan `ongoing`, every `gh issue develop` call uses
-`--repo`; the manager reuses a linked branch or creates one with
-`--base <default> --checkout`, then re-lists and recovers after failure.
-Implementation stops when no linked branch can be verified; there is no local
-fallback. After the checks policy passes, the manager asks immediately before
-merge. Without a fresh `Merge now` answer, it leaves the pull request and issue
-open. `plan.mjs archive` verifies the latest trusted code-review result and
-merged closing pull request after landing.
-
-Every Steps row carries an `Effect` of exactly
-`local|probe|production_access|publish|push|release|deploy`. A step whose
-`Effect` is not `local` requires an in-session `ask` confirmation immediately
-before it runs; when `ask` is unavailable the step is set `blocked` and the plan
-reason becomes the first `## Open questions` line, `Blocked: <reason>`.
-Persisted effects record intent only. Routine issue publication and landing
-actions are outside the Steps table.
-A user-invoked `yolo` run replaces these asks, the continue-or-block question of the review loop, and the `blocked`-verdict question with the Yolo runs section of the installed `plan-lifecycle` contract.
-
-Render a plan body verbatim only when the user names that plan and asks to see it. After a write, report the one-line header strip and the changed lines only; a write never re-renders the body.
-
-No plan markdown is tracked. The pre-GitHub records under
-`docs/plans/finished/` were deleted; `git log -- docs/plans/finished/` recovers
-them as history, and no lifecycle command restores them. The complete contract
-lives in `docs/PLAN.md`; `docs/AGENTS.md` routes to it.
-
-Plugin-internal work (skills, commands, agents) belongs in each plugin's
-own repo, not here.
+Read `docs/PLAN.md` before plan work; `docs/AGENTS.md` holds the docs-folder
+rules. The installed `plan-lifecycle` plugin's
+`plan-manager/references/plan-contract.md` is the canonical contract.
+Use `plan-workspace` for setup, main-context `plan-manager` for the six phases,
+and read-only `plan-reviewer` and `code-reviewer` wrappers for review.
+Use direct implementation only for a clear, reversible, low-risk local diff
+with one bounded acceptance path. Otherwise follow the plan-manager decision.
+Plan issues are the live records. Leave `docs/plans/finished/` frozen.
 
 ## Notes for nested overrides
 
