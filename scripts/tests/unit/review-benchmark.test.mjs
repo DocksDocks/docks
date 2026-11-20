@@ -4361,8 +4361,8 @@ test('the self-review lead lists the known defects that only the lead found, aga
 //   prompt of the lens, with the lens description of a baseline lens). Both dispatch the self-review agent and take
 //   no --loop.
 // - readScope takes `agentFiles`, a list of absolute paths that the reviewer may read. transcriptsCommand gives the
-//   paths `<dir>/.omp/agents/review-bench-selfreview-<x>.md` and `<dir>/.claude/agents/review-bench-selfreview-<x>.md`
-//   that the system prompt of the `session_init` entry names.
+//   paths `<dir>/.omp/agents/review-bench-selfreview-<x>.md` that the system prompt of the `session_init` entry names.
+//   A path in `<dir>/.claude/agents/` is no self-review agent file: omp does not load agents from that folder.
 
 // The `key: value` lines of the frontmatter of an agent file.
 function frontmatter(file) {
@@ -4538,14 +4538,13 @@ test('report accepts a null-tier run served without a tier and refuses an OpenAI
 });
 
 // Plan #115 code review: omp tells an OpenAI model by the provider part of its selector, the text before the first
-// `/`. So with `--runtime omp`, agents refuses a `--model` or `--fixer-model` selector without a provider part, before
-// it writes a file: `<option> <selector> has no provider part; give <provider>/<model>, for example
-// openai-codex/gpt-6.1-sol`. It prints one line for each model that gets the tier null: `<model> gets the tier null:
-// omp sets a service tier only for a model whose provider starts with openai, so --tiers <tiers> does not apply to
-// it`. Claude Code takes model names without a provider part. The fixer follows the same provider rule: a fixer model
-// whose provider does not start with `openai` gets the tier null, so no tier override and no served-tier check of its
-// loop entries, and agents refuses `--fixer-tier` for it: `--fixer-tier: omp sets no service tier for <model>, whose
-// provider does not start with openai; omit --fixer-tier`.
+// `/`. So agents refuses a `--model` or `--fixer-model` selector without a provider part, before it writes a file:
+// `<option> <selector> has no provider part; give <provider>/<model>, for example openai-codex/gpt-6.1-sol`. It
+// prints one line for each model that gets the tier null: `<model> gets the tier null: omp sets a service tier only
+// for a model whose provider starts with openai, so --tiers <tiers> does not apply to it`. The fixer follows the same
+// provider rule: a fixer model whose provider does not start with `openai` gets the tier null, so no tier override
+// and no served-tier check of its loop entries, and agents refuses `--fixer-tier` for it: `--fixer-tier: omp sets no
+// service tier for <model>, whose provider does not start with openai; omit --fixer-tier`.
 
 // The result of `fn` and the lines that it logs with console.log.
 function logged(fn) {
@@ -4570,10 +4569,10 @@ const agentsOptions = ({ root, project }) => ({
   project,
 });
 
-test('agents --runtime omp refuses a selector without a provider part and prints each model without a tier', (t) => {
+test('agents refuses a selector without a provider part and prints each model without a tier', (t) => {
   const grid = { model: `${MODEL},${CLAUDE_MODEL}`, efforts: 'xhigh', tiers: 'priority,default' };
   const { result, lines } = logged(() => selfReviewAgents(t, 'project', grid));
-  const { root, project } = result;
+  const { root } = result;
   assert.deepEqual(
     lines.filter((line) => line.includes('tier null')),
     [
@@ -4594,16 +4593,16 @@ test('agents --runtime omp refuses a selector without a provider part and prints
     // agents refuses before it writes a file.
     assert.deepEqual(treeState(root), state);
   }
-  // Claude Code takes model names without a provider part. It sets no tier at all, so it prints no tier line.
-  const claudeOptions = { ...options, runtime: 'claude', tiers: undefined, model: 'opus', 'fixer-model': 'sonnet' };
-  const claude = logged(() => prepare.prepareAgents(claudeOptions, repo));
-  assert.deepEqual(
-    claude.lines.filter((line) => line.includes('tier null')),
-    [],
-  );
-  const { configs, fixer } = readJson(path.join(project, '.claude', 'agents', 'review-bench-configs.json'));
-  assert.deepEqual(configs, [{ name: 'low', model: 'opus', effort: 'low', tier: null }]);
-  assert.deepEqual(fixer, { model: 'sonnet', effort: 'high', tier: null });
+});
+
+// Plan #175: the agents of the benchmark are omp agents only, so the CLI has no `--runtime` option and rejects it.
+test('agents CLI rejects --runtime', () => {
+  const script = path.join(import.meta.dirname, '../../../.agents/skills/review-benchmark/scripts/prepare.mjs');
+  for (const runtime of ['claude', 'omp']) {
+    const result = spawnSync(process.execPath, [script, 'agents', '--runtime', runtime], { encoding: 'utf8' });
+    assert.equal(result.status, 1, result.stdout);
+    assert.equal(result.stderr.split('\n')[0], "prepare.mjs: Unknown option '--runtime'");
+  }
 });
 
 test('agents gives a non-OpenAI fixer model the tier null and refuses --fixer-tier for it', (t) => {
@@ -4775,6 +4774,40 @@ for (const folder of ['project', 'review project']) {
     assert.deepEqual(score.readScope(reads(own), { runDir: run, cwd: LIVE }), { outside: [own] });
   });
 }
+
+test('transcripts gives no read-scope allowance to a self-review agent file in .claude/agents', (t) => {
+  const { root, project, agentDir } = selfReviewAgents(t);
+  const ws = path.join(root, 'ws');
+  const sessions = path.join(root, 'sessions');
+  const caseDir = path.join(ws, 'code-7');
+  const run = path.join(caseDir, 'S1-low', 'run-1');
+  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+  put(caseDir, 'full.diff', '');
+  put(run, 'prompts/self-review.txt', 'agent: review-bench-selfreview-low\n\nReview.\n');
+  put(run, 'meta.json', { config: CONFIGS.low });
+  const own = path.join(agentDir, 'review-bench-selfreview-low.md');
+  const legacy = path.join(project, '.claude', 'agents', 'review-bench-selfreview-low.md');
+  const calls = [
+    ['read', { path: path.join(run, 'prompts', 'self-review.txt') }],
+    ['read', { path: legacy }],
+  ];
+  // The system prompt names the agent file in `.claude/agents/` instead of `.omp/agents/`.
+  const transcript = toolTranscript(caseDir, 30, calls, 'review-bench-selfreview-low')
+    .split('\n')
+    .map((line) => {
+      const entry = JSON.parse(line);
+      if (entry.type === 'session_init') {
+        entry.systemPrompt = ['You are a coding assistant.', readText(own).replaceAll(own, legacy)];
+      }
+      return JSON.stringify(entry);
+    })
+    .join('\n');
+  put(sessions, 'Code7S1LowR1SelfReview.jsonl', transcript);
+  assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7S1LowR1SelfReview']);
+  assert.deepEqual(readJson(path.join(run, 'meta.json')).reviewers['self-review'].readScope, {
+    outside: [legacy],
+  });
+});
 
 // Changed export:
 // - readScope puts these reads outside for every reviewer: a `skill://code-reviewer` or `skill://plan-reviewer` URI,
@@ -6224,7 +6257,6 @@ test('agents --variants writes an agent per variant and configuration from the p
       const rendered = prepare.renderAgent(atRef('agents/plan-reviewer.md'), {
         name: agent,
         model,
-        effortKey: 'thinking-level',
         effort,
         pluginRoot,
       });

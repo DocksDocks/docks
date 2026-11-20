@@ -4,8 +4,8 @@ description: Use when fixing a specific bug, security finding, performance regre
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-10-23"
-  content_hash: "e1d85256c77c5a5255502ea2bc8ecec68b5910e04df672ee3d2f85ab7eaaacfa"
+  updated: "2026-11-20"
+  content_hash: "b42ef18caa259900af30e5d5c75f847e499a5b1e9418f0e8cd3444ee7ac5f3f1"
 ---
 
 # Fix Workflow
@@ -121,7 +121,7 @@ For each finding, fill in this template before writing any code:
 Normalize upstream findings into these fields before planning. For a `security` finding, map `location` plus `evidence` to **Files/Before**, `remediation` to **After**, `CWE` plus `exploitation` to **Why/Blast radius**, and derive **Test strategy/Revert trigger** from the exploitation path and its narrowest deterministic signal. For a `code-review` line (`SEVERITY / category / locator / defect / fix`), map `locator` plus `defect` to **Files/Before**, `fix` to **After**, `SEVERITY` plus `category` and `defect` to **Why/Blast radius**, and derive **Test strategy/Revert trigger** from the defect's observable behavior.
 
 Route any fix with non-local effects through the `plan-manager` skill (from the `plan-lifecycle` plugin); do not treat the local fix table as approval to bypass that lifecycle.
-Show the user the table grouped by tier. If the plan contains any Tier 2/3 fix, ask for approval with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`, or whatever question tool the harness registers). By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, sends the request as non-blocking (`isBlocking: false`), which the client may resolve without the user. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Put all open questions for this plan in one call. Do not call Edit/Write until the user approves. Silence is not consent; an ambiguous answer means show the table again. A plain-text "Approve? yes/no" in the reply is wrong when a question tool exists. If the harness has no question tool (for example, a headless or print-mode run), print the table as your final message and end the turn. Do not invent a tool call. A Tier-1-only plan may proceed directly.
+Show the user the table grouped by tier. If the plan contains any Tier 2/3 fix, ask for approval with the omp `ask` tool. Put all open questions for this plan in one form; `ask` takes one form per call. Do not call `edit` or `write` until the user approves. An error, a cancel, or a timeout result is not approval: write nothing and end the turn. Silence is not consent; an ambiguous answer means show the table again. A plain-text "Approve? yes/no" in the reply is wrong when `ask` is available. If `ask` is not available or returns an error (for example, in a headless subagent or a print-mode run), put the table and the open questions in your final answer and end the turn. Do not invent a tool call. A Tier-1-only plan may proceed directly.
 
 **For finding-type-specific test strategies and revert triggers**, load the matching reference file from the routing table above.
 

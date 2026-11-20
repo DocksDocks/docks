@@ -410,8 +410,8 @@ another input keeps the route of plan-manager phase 6: resolve that input
 before you request a verdict.
 
 Dispatch every lens and every delta round as the `code-reviewer` agent. A
-per-agent model setting, such as omp `task.agentModelOverrides.code-reviewer`
-or the `model` key of a Codex agent file, then applies to each of them.
+per-agent model setting, such as omp `task.agentModelOverrides.code-reviewer`,
+then applies to each of them.
 
 ## Helper commands and output
 

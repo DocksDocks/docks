@@ -4,8 +4,8 @@ description: "Use when a goal may need the six-phase plan flow: decide, draft, r
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-19"
-  content_hash: "abbf1bdc6e9d450c0117c5b20e83fe318fca3eb3612374b4cff7a3d4fb718632"
+  updated: "2026-11-20"
+  content_hash: "63f423ae746599ea193bedde7f2a73b79b3b0890d0b6eb6897cab4a5ce96dcdd"
 ---
 
 # Plan Manager

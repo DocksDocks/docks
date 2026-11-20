@@ -22,7 +22,6 @@ Per-finding reproduction is mandatory. Before a drift finding lands, re-open the
 - [Agents (existing) — same loop, lighter](#agents-existing--same-loop-lighter)
 - [Prompt-style sub-check](#prompt-style-sub-check-every-existing-skill-and-agent-body)
 - [2a reconciliation (feedback to the delta)](#2a-reconciliation-feedback-to-the-delta)
-- [Optional Claude-only acceleration](#optional-claude-only-acceleration-output-identical-non-normative)
 - [Output](#output-write-under--phase-2c-content-accuracy-audit)
 - [Gotcha](#gotcha)
 - [Sources](#sources)
@@ -61,9 +60,11 @@ Soft prose with no source anchor — heuristics, style advice ("prefer early ret
    - `REWRITE` — **any** `fictional-api`, OR drift ≥ 30% of claims checked.
    - `REFRESH` — otherwise, ≥1 drift.
 
+Run this loop sequentially, in this context, one artifact at a time. This is the most expensive phase by design — that cost is the point; it is the only one that catches pre-baseline drift, so never substitute a sample to make it cheaper.
+
 ## Agents (existing) — same loop, lighter
 
-Run the identical enumerate → verify → taxonomy over each on-disk agent body (`.claude/agents/*.md`). Audit the **logical** agent once — the `.codex/agents/*.toml` twin shares its prose, so don't double-count. A non-`CLEAN` agent escalates to **regenerate** in Phase 5 (agents are not part of the Phase 2a skills delta).
+Run the identical enumerate → verify → taxonomy over each on-disk agent body (`.omp/agents/*.md`). A legacy `.claude/agents/*.md` is not a live omp agent: Phase 1 routes it to `agent-first-setup` (`convert-agent`), so do not audit it here. A non-`CLEAN` agent escalates to **regenerate** in Phase 5 (agents are not part of the Phase 2a skills delta).
 
 ## Prompt-style sub-check (every existing skill and agent body)
 
@@ -86,7 +87,7 @@ Git history is allowed here only to find where a rule came from. It is still not
 1. **Context is not cruft.** Facts only the author knows (audience, environment, quality bar, tool contracts, and the reasons for constraints) stay.
 2. **Length is not cruft.** Never propose a removal only because a section is long. The harm comes from specific outdated instructions.
 3. **Fragile operations keep exact scripts.** Where only one sequence is safe (destructive commands, auth, release, migrations), exact low-freedom text is correct.
-4. **Blocking approval gates stay.** A gate that stops all writes until the user answers is load-bearing. Do not soften it. The harness question tool (for example omp `ask`, Claude Code `AskUserQuestion`) is the gate; "print the question as your final message and end the turn" is the fallback when no question tool exists. Flag the defect: a plain-text question ("Approve? yes/no") with no block, where the agent can keep writing.
+4. **Blocking approval gates stay.** A gate that stops all writes until the user answers is load-bearing. Do not soften it. The omp `ask` tool is the gate; when `ask` is not available (a headless fork gets an error from it), "print the question as your final message and end the turn" is the fallback. Flag the defect: a plain-text question ("Approve? yes/no") with no block, where the agent can keep writing.
 5. **Calibrated urgency in trigger text can stay.** A description may be firm about when to load the skill, because skills tend to under-trigger. Flag shouting in bodies, not routing text.
 
 **Verdict shape.** Each finding is a proposal, not an edit. Record the file, the quoted text, the pattern, the provenance (commit or "unknown"), and a proposed rewrite. Prefer a rewrite over a bare removal when the rule still has a purpose. A removal is a hypothesis: before it lands, run a baseline check (see `write-skill`) on the old and the new text. If the old text gives better results, keep it or restore it in its simplest form.
@@ -101,10 +102,6 @@ Write "no prompt-style findings" when the table is empty. A clean result changes
 ## 2a reconciliation (feedback to the delta)
 
 After this phase, return to the `### Phase 2a` block and amend each non-`CLEAN` **skill** action inline: append `→ escalated by 2c: REFRESH|REWRITE (<top finding>)`. For a skill with prompt-style findings, append `→ style: <n> findings` so Phase 3 applies the proposed rewrites. Route non-`CLEAN` **agents** to the Phase 5 regenerate list. The gate then reads one reconciled delta, not two conflicting ones.
-
-## Optional Claude-only acceleration (output-identical, non-normative)
-
-On Claude Code only, the orchestrator MAY dispatch one read-only auditor per artifact in parallel and merge results into the single `### Phase 2c` subheading — the output table MUST be byte-identical to the sequential procedure. This is a runtime accelerator, not part of the portable pipeline; other runtimes run the loop sequentially in this context. This is the most expensive phase by design — that cost is the point; it is the only one that catches pre-baseline drift, so never substitute a sample to make it cheaper.
 
 ## Output (write under `### Phase 2c: Content-Accuracy Audit`)
 
@@ -124,7 +121,7 @@ Then a roll-up line — total claims checked / total drift / skills CLEAN·REFRE
 | Reporting a skill CLEAN after reading 3 of 40 refs | State claims-checked; CLEAN requires every checkable claim opened |
 | Treating `metadata.updated`="today" or a matching `content_hash` as accuracy | They prove the text changed, not that it matches source — re-verify regardless |
 | Bucketing a heuristic ("prefer early return") as `drifted-description` | Mark it `unverifiable` — only source-anchored assertions get a drift verdict |
-| Auditing the `.toml` twin separately from its `.md` | One logical agent, one audit — the prose is shared |
+| Auditing a legacy `.claude/agents/*.md` as a live agent | omp does not load it; Phase 1 routes it to `agent-first-setup` (`convert-agent`); audit `.omp/agents/*.md` only |
 | Reading git history to judge staleness | Pre-baseline drift predates every diff — judge against current source only |
 | Using `git blame` output as proof that a rule is accurate | Git history shows where a rule came from (prompt-style provenance), never whether it matches source |
 | Deleting every caps `NEVER` in a sweep | Keep-list items stay; each finding needs a pattern, a reason, and a proposed rewrite, and a removal needs a baseline check |

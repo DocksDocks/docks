@@ -1,7 +1,7 @@
 Third-party notice
 
 Source: https://github.com/anthropics/skills (Apache License 2.0)
-references/content-auditor.md (Prompt-style sub-check) adapts skills/claude-api/shared/prompt-audit.md; references/verifier.md (Behavioral grading) adapts skills/skill-creator/agents/grader.md. Changes: paraphrased, reduced to docks pipeline checks, made cross-tool.
+references/content-auditor.md (Prompt-style sub-check) adapts skills/claude-api/shared/prompt-audit.md; references/verifier.md (Behavioral grading) adapts skills/skill-creator/agents/grader.md. Changes: paraphrased, reduced to docks pipeline checks, adapted to omp (each graded run is an omp task subagent or a new omp session).
 The rest of this skill is docks content under the repository license.
 
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for agentskills.io-compliant runtimes (Codex, Claude Code, OpenCode, VS Code Copilot), including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the GitHub-issue plan lifecycle instead of runtime-specific Plan Mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin ships read-only reviewer wrappers under `plugins/plan-lifecycle/agents/`. Both plugins ship as native omp packages.
+docks is an engineering skill kit and plugin marketplace for omp. It ships **skills** for omp, including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the GitHub-issue plan lifecycle instead of runtime-specific Plan Mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin ships read-only reviewer wrappers under `plugins/plan-lifecycle/agents/`. Both plugins ship as native omp packages.
 
 This root file stays **repo-wide**. Per-area authoring details - skill/agent frontmatter, scoring, the release flow, CI triggers - live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
@@ -20,9 +20,9 @@ Bun runs this repository's tooling and is the package manager; its version is th
 .
 ├── plugins/docks/                    plugin payload (shipped to consumers)
 │   ├── package.json                  native omp package manifest (name, version, `omp` object)
-│   ├── skills/   (cross-tool)        surfaced in every runtime - incl. security/refactor/skill-agent-pipeline pipelines
+│   ├── skills/                       skills omp loads from the package - incl. security/refactor/skill-agent-pipeline pipelines
 │   └── extensions/ (omp)             verify-gate commit check and context-tree nudge: omp extensions (`.ts` adapters over `.mjs` cores)
-├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin (cross-tool): lifecycle skills, shipped plan.mjs, plan contract reference, and read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
+├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin: lifecycle skills, shipped plan.mjs, plan contract reference, and read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
 ├── .omp-plugin/marketplace.json      omp marketplace catalog (one entry per plugin)
 ├── .agents/skills/                   project-local skills (omp loads project skills from here)
 ├── docs/                             plan routing (rules: docs/AGENTS.md)
@@ -51,7 +51,7 @@ Plugin-shipped agents are omp task agents: omp loads each `agents/*.md` of a nat
 The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): omp loads every `*.md` under `agents/` as a task agent, and the gate (`scripts/ci.mjs`) checks each one as an agent, so an `AGENTS.md` there fails. These authoring rules therefore live in this root file instead of a nested node.
 
 - **Description (CSO):** lead with "Use when …" AND include a "Not …" exclusion clause (both required by `scripts/agents/guard.mjs`); ≥80 and ≤500 chars; concrete triggers; no slop words.
-- **Frontmatter:** `name` (required, kebab-case, matches filename, no `anthropic`/`claude` substring); `description` (required, with the "Not …" clause); **no `model` key** - `scripts/agents/guard.mjs` rejects any value, `inherit` included. omp falls back to the parent session model when `model` is omitted; every literal (`inherit`, `sonnet`, `claude-*`) is handed to omp as a model ID, resolves to nothing, and kills the spawn with "No model selected" (a plugin agent carrying `model: inherit` fails to spawn; the identical file without the key runs). Consumers pin per-agent models with `task.agentModelOverrides.<agent>`. `tools` (allowlist; omitted = the omp default tool set; omp also adds MCP, extension, and custom tools to a listed set).
+- **Frontmatter:** `name` (required, kebab-case, matches filename, not the omp reserved names `main` or `sub`); `description` (required, with the "Not …" clause); **no `model` key** - `scripts/agents/guard.mjs` rejects any value, `inherit` included. omp falls back to the parent session model when `model` is omitted; every literal (`inherit`, `sonnet`, `claude-*`) is handed to omp as a model ID, resolves to nothing, and kills the spawn with "No model selected" (a plugin agent carrying `model: inherit` fails to spawn; the identical file without the key runs). Consumers pin per-agent models with `task.agentModelOverrides.<agent>`. `tools` (allowlist; omitted = the omp default tool set; omp also adds MCP, extension, and custom tools to a listed set).
 - **Skill files:** an agent loads its skill with `autoload-skills: <skill>` and names each further file as `skill://<skill>/<path>`. omp sets no plugin root variable, so `scripts/agents/guard.mjs` and the gate refuse each `${...}` variable in an agent.
 - **Body:** hard cap 500 lines (`scripts/agents/guard.mjs`); scorer sweet spot 60–300 lines (`scripts/agents/score.mjs`). Same patterns as skills (`<constraint>` blocks - up to 2 rewarded - lookup tables, BAD/GOOD, gotchas, validation loop); structure as context-acknowledgment (step 1), then `## Workflow`, `## Output Format`, `## Anti-Hallucination Checks`, `## Success Criteria`.
 - **No author-script refs (consumer-safety):** a plugin-shipped agent body must not name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/agents/*`, `scripts/tree/*`, …) as a step - they don't ship to a consumer's project. Refer to "the project's CI / validators, if present", or make the check self-contained. `scripts/skills/no-author-scripts.mjs` scans agent bodies alongside shipped skills (verify: append a line naming `bun scripts/ci.mjs` to a non-allowlisted skill body → the guard run must FAIL naming that file; revert).
@@ -109,6 +109,6 @@ CI always runs `scripts/ci.mjs`: in full, per `--lane <shard>`, or per `--plugin
 - `disable-claudeai-connectors.sh` - same reason, it's an opinionated user-machine hook
 - Plugin version numbers in prose (AGENTS.md, README) - let `package.json`, the catalog, and GitHub Releases be the source of truth
 
-(Cross-tool entry point. Per-area rules live in the Context tree nodes above.)
+(Repository entry point. Per-area rules live in the Context tree nodes above.)
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.

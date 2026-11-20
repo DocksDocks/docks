@@ -1,7 +1,7 @@
 Third-party notice
 
 Source: https://github.com/anthropics/skills (Apache License 2.0)
-references/blind-comparison.md adapts skills/skill-creator/agents/comparator.md and agents/analyzer.md. Changes: paraphrased, made cross-tool (fresh agent or session instead of Claude subagents), merged into one reference with docks decision rules.
+references/blind-comparison.md adapts skills/skill-creator/agents/comparator.md and agents/analyzer.md. Changes: paraphrased, adapted to omp (each role runs in an omp task subagent or a new omp session), merged into one reference with docks decision rules.
 The rest of this skill is docks content under the repository license.
 
 

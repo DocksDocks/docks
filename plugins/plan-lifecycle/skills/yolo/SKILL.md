@@ -5,8 +5,8 @@ user-invocable: true
 disable-model-invocation: true
 metadata:
   pattern: pipeline
-  updated: "2026-11-19"
-  content_hash: "4605432f398f80a8c0837f8bb58a87bb6c498e38eb3b0aeeff6146b32ee0222b"
+  updated: "2026-11-20"
+  content_hash: "9ff996f6afe40c671015589155027edaa74f48c31e3a03fb8a4ad8f00086ba3b"
 ---
 
 # Yolo
@@ -32,9 +32,9 @@ repository root. If these files are missing, stop and name the missing
 `plan-lifecycle` plugin.
 
 <constraint>
-Start only when the user's own message invokes yolo: `/plan-lifecycle:yolo`,
-`/skill:yolo`, `$yolo`, or a sentence that names the yolo skill. Otherwise stop
-and use `plan-manager`. Do not call `ask` before the merge question. The only
+Start only when the user's own message invokes yolo: `/skill:yolo` or a
+sentence that names the yolo skill. Otherwise stop and use `plan-manager`. Do
+not call `ask` before the merge question. The only
 exception is the stall question of the Stall rule in the contract's Delegated
 decisions, which this run asks as the contract's Round ceiling says.
 After the merge, each production cleanup in the contract's Teardown needs its

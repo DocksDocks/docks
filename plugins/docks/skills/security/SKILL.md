@@ -4,16 +4,16 @@ description: "Use when running a security audit on a codebase — OWASP Top 10, 
 user-invocable: true
 metadata:
   pattern: pipeline
-  updated: "2026-11-19"
-  content_hash: "f3efe4f4712da4969e15f0e8f90421b01c1cfb58fb39e7c3be1c527d98841f62"
+  updated: "2026-11-20"
+  content_hash: "c8b3c961c9ddaf3f62b08411f4619398f342043535b294b155f6b02b34253e4d"
 ---
 
-# Security Audit (cross-tool pipeline)
+# Security Audit (sequential pipeline)
 
-A full OWASP-aware security audit run as one sequential pass: discovery, three analysis lenses, and a synthesis that challenges every finding before it reaches the report. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. The expertise for each phase lives in `references/<phase>.md`; this body is the orchestration.
+A full OWASP-aware security audit run as one sequential pass: discovery, three analysis lenses, and a synthesis that challenges every finding before it reaches the report. Single-agent — no slash command, no Plan Mode, and no subagent dispatch. The expertise for each phase lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
-Single-agent sequential. Execute the five phases IN ORDER, in THIS context. There is no parallel fan-out or subagent dispatch — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply that checklist. Hand each phase's output to `plan-manager` as you finish it so the audit issue remains resumable after compaction.
+Single-agent sequential. Execute the five phases IN ORDER, in THIS context, with no subagent dispatch. Before running each phase, read its `references/<phase>.md` and apply that checklist. Hand each phase's output to `plan-manager` as you finish it so the audit issue remains resumable after compaction.
 </constraint>
 
 <constraint>
@@ -21,7 +21,7 @@ Read-only. This pipeline never modifies source. Its only deliverable is the audi
 </constraint>
 
 <constraint>
-Intent controls the handoff, not Plan Mode. Hand the full report to `plan-manager`, which owns the GitHub plan issue through the six manager lifecycle phases — decide, draft, research, plan review, implement, and code review; these are separate from the audit's five internal analysis phases below. Do NOT call `ExitPlanMode` (Claude-only). `plan-workspace` owns label and workspace setup. An audit-only request ends after the report. If the current request explicitly includes remediation, keep this pipeline read-only, then hand confirmed findings to `fix-workflow` and continue through `plan-manager` without requiring another user-issued lifecycle command. If no GitHub-backed plan lifecycle is available, STOP and report that prerequisite; never write a tracked or untracked plan file.
+Intent controls the handoff, not Plan Mode. Hand the full report to `plan-manager`, which owns the GitHub plan issue through the six manager lifecycle phases — decide, draft, research, plan review, implement, and code review; these are separate from the audit's five internal analysis phases below. `plan-workspace` owns label and workspace setup. An audit-only request ends after the report. If the current request explicitly includes remediation, keep this pipeline read-only, then hand confirmed findings to `fix-workflow` and continue through `plan-manager` without requiring another user-issued lifecycle command. If no GitHub-backed plan lifecycle is available, STOP and report that prerequisite; never write a tracked or untracked plan file.
 </constraint>
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.

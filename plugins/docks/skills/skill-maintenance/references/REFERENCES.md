@@ -16,13 +16,19 @@ skill set or cleaning up local maintenance skills.
 
 ## Loader Warnings
 
+The first two rows come from a loader that validates frontmatter, such as the
+omp `agent-plugins` loader. omp lists a project skill with invalid YAML or a
+description over 1024 chars without a warning, so check project skills with
+`skill-guard.mjs validate` and the YAML parse in
+[Validation Without Project Scripts](#validation-without-project-scripts).
+
 | Warning | Likely cause | Fix |
 |---|---|---|
 | `invalid YAML: mapping values are not allowed` | Unquoted `: ` inside a frontmatter scalar | Quote `description` or use a block scalar |
 | `invalid description: exceeds maximum length of 1024 characters` | Description is carrying body/reference detail | Keep trigger words, move detail below frontmatter |
-| Skill does not appear in Codex prompt input | Bad frontmatter, wrong skill root, or plugin not installed | Validate YAML, list roots, run `codex plugin list` (subcommand set moves between releases — confirm via `codex --help` first) |
-| Claude sees skill but Codex skips it | Claude path symlink works, but `.agents/skills` copy is invalid | Validate canonical `.agents/skills` content |
-| Codex sees local duplicate and plugin skill | Project-local skill shadows or duplicates plugin behavior | Compare content, keep only project-specific local rules |
+| Skill missing from `omp skill list --json` | Bad frontmatter, wrong skill root, or plugin not installed | Validate YAML, list roots, run `omp plugin list` |
+| A `.claude/skills` copy wins over the `.agents/skills` copy | omp loads `.claude/skills` before `.agents/skills`; the first copy keeps the bare name | Validate canonical `.agents/skills` content; remove or sync the legacy copy |
+| omp lists a `<namespace>/<name>` alias or a collision warning | A project-local skill and a plugin skill share a name but differ | Compare content, keep only project-specific local rules |
 
 ## Description Budgeting
 
@@ -59,7 +65,6 @@ metadata:
 Rules:
 
 - Quote descriptions by default.
-- Do not use angle brackets in descriptions; use concrete words instead.
 - Keep `name` equal to the directory name.
 - Use `metadata.source_files` when a skill is tied to code paths.
 - Use `references/` for long examples, schemas, or subsystem notes.
@@ -111,8 +116,13 @@ When a project has no validator, use direct inspection:
 
 ```bash
 find .agents/skills .claude/skills -name SKILL.md -maxdepth 3 -print 2>/dev/null
-# codex debug surface moves between releases — confirm via codex debug --help first
-codex debug prompt-input | grep -A20 'Skipped loading' || true
+# omp loader check: read the "warnings" array; a missing skill is not in "skills".
+# It does not check YAML validity or the 1024 cap of a project skill; only the
+# agent-plugins loader validates name and description. skill-guard.mjs validate
+# checks the cap on the parsed description value (block scalars too) and rejects
+# a YAML alias, anchor, or tag there; check YAML syntax with the parser command
+# below.
+omp skill list --json
 ```
 
 If the project has Node dependencies and the `yaml` package installed, parse

@@ -34,7 +34,7 @@ A fenced code block that teaches a BAD example is exempt inside a durable doc.
    repo-root-relative, so an agent can open it from anywhere. A path inside the doc's own
    folder may be folder-relative (in `scripts/AGENTS.md`, `tests/idempotency.mjs`).
 2. Use a plain backticked path by default. Use an `@path` import only when the target must
-   always be in context: Claude expands `@` imports at load time, so each import costs
+   always be in context: omp expands `@` imports at load time, so each import costs
    context in every session.
 3. Copy a fact into a second file only when you delete it from the first.
 4. A node stays actionable alone. It states the rules an agent needs to edit files in ITS

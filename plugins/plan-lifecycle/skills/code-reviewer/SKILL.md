@@ -4,8 +4,8 @@ description: "Use when plan-manager dispatches a read-only code-review round for
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-17"
-  content_hash: "0947b9ce6ba067c8c4c0c5054f310e3fc956fd47fef66b34c64046a1784eb47f"
+  updated: "2026-11-20"
+  content_hash: "e06101bf26ca1d5cfe353fe6c01838b0f69f90b62eff8c0e6c332f05b321cc01"
 ---
 
 # Code Reviewer

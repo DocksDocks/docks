@@ -3,7 +3,7 @@
 Draft complete `SKILL.md` bodies and `references/` files for every delta the categorizer proposed, using Phase 2b's `file:line` evidence — **converted to durable anchors** in what you emit (2b notes are point-in-time evidence; the skill you write outlives them).
 
 <constraint>
-References split is mandatory. If a drafted SKILL.md body would exceed 310 lines, move the most-detailed sections into `references/<topic>.md` (30–150 lines each) and leave a 1–2 line pointer in the body. After compaction, Claude Code re-attaches only the first 5,000 tokens of each invoked skill (https://code.claude.com/docs/en/skills), and drops the rest without a warning. The kit chose 310 lines as a line budget that keeps a typical body inside that token budget; it is kit policy, not a documented line limit. The verifier (Phase 6) hard-fails a 310–500 line body with no `references/`.
+References split is mandatory. If a drafted SKILL.md body would exceed 310 lines, move the most-detailed sections into `references/<topic>.md` (30–150 lines each) and leave a 1–2 line pointer in the body. The agentskills.io specification (https://agentskills.io/specification) advises a SKILL.md body under 5000 tokens and 500 lines, with detail in reference files that load on demand. The kit chose 310 lines as a line budget that keeps a typical body inside that token budget; it is kit policy, not a documented line limit. The verifier (Phase 6) hard-fails a 310–500 line body with no `references/`.
 </constraint>
 
 <constraint>
@@ -49,15 +49,14 @@ A generated skill outlives the commit it was written at, so bare `file:line` anc
 - Include one stale-tolerance line in each generated body, verbatim: "Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting."
 - Self-check before handing to Phase 6: `grep -nE '[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+'` over the drafted files; any hit whose path exists in the project is a live line anchor — convert it. Then `grep -nEi '\b(currently|as of today|now has|recently)\b'` — rewrite every hit outside a BAD example.
 
-## Codex + Claude frontmatter rules
+## Frontmatter rules
 
-Generated skills must load in both Codex and Claude Code:
+Generated skills follow the agentskills.io specification, which omp loads:
 
 | Rule | Why |
 |---|---|
 | Quote every `description` string | YAML treats `: ` as a mapping and `#` as a comment in plain scalars |
-| Keep `description` ≤1024 chars | Codex rejects longer descriptions |
-| Avoid `<` and `>` in `description` | Codex skill validation rejects angle brackets |
+| Keep `description` ≤1024 chars | The agentskills.io specification caps `description` at 1024 chars; a loader that validates against the specification rejects a longer one |
 | Put concrete triggers first | The body loads only after the skill triggers |
 | Move enumerations to `references/` | Prevent overlong descriptions and session-listing bloat |
 
@@ -71,7 +70,7 @@ description: "Use when editing checkout routes, STRIPE_WEBHOOK_SECRET handling, 
 
 ## Maintenance skill (if proposed)
 
-Prefer the plugin-provided `docks:skill-maintenance`. Create a local `skill-maintenance` only for project-specific behavior not covered by the plugin. If proposed: `pattern: reviewer`, body ≤100 lines, quoted description ≤1024 chars. Workflow: identify modified files → cross-reference skill `source_files` → update affected skills → bump `metadata.updated` ONLY when the skill's meaning changed (normalized body or any `references/*.md` differs). Re-running on an unchanged skill MUST be a no-op. Describe checks as inline read/search/list steps — do NOT reference kit-internal validators, which don't ship to downstream projects.
+Prefer the plugin skill `skill-maintenance`. Create a local `skill-maintenance` only for project-specific behavior not covered by the plugin. If proposed: `pattern: reviewer`, body ≤100 lines, quoted description ≤1024 chars. Workflow: identify modified files → cross-reference skill `source_files` → update affected skills → bump `metadata.updated` ONLY when the skill's meaning changed (normalized body or any `references/*.md` differs). Re-running on an unchanged skill MUST be a no-op. Describe checks as inline read/search/list steps — do NOT reference kit-internal validators, which don't ship to downstream projects.
 
 ## Output (write under `### Phase 3: Skills Plan`)
 
@@ -86,4 +85,4 @@ Per skill, a delimited block: `#### File: <skills-dir>/<name>/SKILL.md`, then ea
 | Body restates what the model already knows ("TypeScript is typed…") | Cut — the body is for project-specific knowledge only |
 | `name:` ≠ directory name | Rename so they match (kebab-case) — guards fail otherwise |
 | Touching AGENTS.md / CLAUDE.md | Out of scope here — legacy `CLAUDE.md` content goes to `claude-md-migration`; the root `AGENTS.md` and the `.claude/` cleanup go to `agent-first-setup` |
-| Unquoted description with `: ` or `#` | Quote it before the plan reaches approval — Codex will skip the skill |
+| Unquoted description with `: ` or `#` | Quote it before the plan reaches approval — a YAML loader fails or reads a different value |

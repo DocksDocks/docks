@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-// guard.mjs — run the combined skill frontmatter validator, the Codex-fact
-// drift guard, and the reference-hygiene guard, then check that every skill
-// ends with the canonical Report section and that each shared file copy
-// matches its canonical file. Usage: guard.mjs [skills-dir]
+// guard.mjs — run the skill frontmatter validator and the reference-hygiene
+// guard, then check that every skill ends with the canonical Report section
+// and that each shared file copy matches its canonical file.
+// Usage: guard.mjs [skills-dir]
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -135,8 +135,7 @@ function sharedFileFailures() {
 
 const lib = path.join(REPO_DIR, 'scripts/lib/validate-skills.mjs');
 const target = DIR || path.join(REPO_DIR, 'plugins/docks/skills');
-run([lib, '--runtime', 'all', target]);
-run([path.join(REPO_DIR, 'scripts/skills/codex-facts.mjs')]);
+run([lib, target]);
 run([path.join(REPO_DIR, 'scripts/skills/refs-guard.mjs'), ...(DIR ? [DIR] : [])]);
 
 const sharedFailures = sharedFileFailures();
@@ -151,4 +150,4 @@ if (reportFailures.length > 0) {
 }
 if (sharedFailures.length > 0 || reportFailures.length > 0) process.exit(1);
 
-console.log('Guard PASSED: skills match Codex and Claude conventions and end with the canonical Report section');
+console.log('Guard PASSED: skills match the skill frontmatter rules and end with the canonical Report section');

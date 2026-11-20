@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "fd27e9149964bc099b3cd86b0d6dce798d1b5890bbac44fa8d09da35f5fe75c1"
+  content_hash: "1b0737973cbb366bab1c41158aeaa6138099c4265f8f92c87278c33c0f07b931"
 ---
 
 # Agent-First Setup
@@ -42,7 +42,7 @@ Ask every question with the omp `ask` tool. This includes approval gates, owner 
 ## When to Use
 
 - A new or inherited repository must work for omp agents, and the user wants it done in one pass.
-- The user says "make this repo agent-first", "set up this repo for agents", or `/docks:agent-first-setup`.
+- The user says "make this repo agent-first", "set up this repo for agents", or `/skill:agent-first-setup`.
 - A repository still has a Claude Code `.claude/` folder with skills, agents, or settings.
 - A health check after a large restructure: run `audit` for a pass/fail table with the owning skill for each fix.
 
@@ -152,8 +152,8 @@ The `.claude/` folder at the root is the Claude Code configuration. omp still re
 
 The rules of `convert-agent` follow. omp reads an agent from `.omp/agents/<name>.md` and adds its MCP, extension, and custom tools to every explicit `tools` list, and a Claude denial has no omp form. So only a simple agent converts:
 
-- **Converted:** the frontmatter holds only `name`, `description`, `tools`, `model`, `color`, and `effort`; `tools` is an explicit list (a comma-separated value, with or without quotes, a `[...]` list, or `- <tool>` lines; a trailing `# <comment>` outside quotes is removed); each tool has an omp name: `Read` → `read`, `Grep` → `grep`, `Glob` → `glob`, `Bash` → `bash`, `Edit` → `edit`, `Write` → `write`, `WebSearch` → `web_search`. The output keeps `name`, `description`, the mapped `tools`, and the body. It drops `model`, `color`, and `effort`, and names them on stderr, because a Claude model alias fails in omp. The command exits 0.
-- **Refused:** no `tools` list, a `disallowedTools` field, a tool with no omp name, a tool with a pattern such as `Bash(git status)`, no `name` or `description` (also an empty, `""`, `''`, `~`, or `null` value), a field that appears twice, the name `main` or `sub` (omp reserves them), a name that is not a safe file name (only lower-case letters and digits, in groups joined by single hyphens), or any other field (for example `permissionMode`, `hooks`, `mcpServers`, `skills`, `maxTurns`, or an unknown field). The command prints one `ERROR convert-agent <path>: <reason>; port it by hand` line and no agent text, and exits 2.
+- **Converted:** the frontmatter holds only `name`, `description`, `tools`, `model`, `color`, and `effort`; `tools` is an explicit list (a comma-separated value, with or without quotes, a `[...]` list, or `- <tool>` lines; a trailing `# <comment>` outside quotes is removed); each tool has an omp name: `Read` → `read`, `Grep` → `grep`, `Glob` → `glob`, `Bash` → `bash`, `Edit` → `edit`, `Write` → `write`, `WebSearch` → `web_search`. A value that YAML 1.2 reads as a string converts: a mixed-case spelling such as `tRue`, `.iNf`, or `nUll`, and a colon inside a block scalar, inside quotes, or before a non-space character (`https://x`), are text. The output keeps `name` (in double quotes when YAML would read the bare name as a number or a boolean, for example `"123"`), `description`, the mapped `tools`, and the body. It drops `model`, `color`, and `effort`, and names them on stderr, because a Claude model alias fails in omp. The command exits 0.
+- **Refused:** no `tools` list, a `disallowedTools` field, a tool with no omp name, a tool with a pattern such as `Bash(git status)`, no `name` or `description` (also an empty, `""`, `''`, `~`, `null`, `Null`, or `NULL` value, or a `|` or `>` block scalar with no content line; the reason is `no <field> field`), a `name` or `description` that YAML reads as no string (the reason is `<field> is no YAML string`: an unquoted boolean, number, or special float in a YAML 1.2 core-schema spelling, such as `true`, `True`, `FALSE`, `12`, `0x1F`, `1e3`, `.inf`, or `.NaN`; a value that starts with `[`, `{`, `]`, `}`, `,`, `*`, `- `, `? `, `%`, `@`, or a backtick; a `|` or `>` header that is not valid, such as `|x` or `|0`; a `- ` list; or a block mapping, that is a continuation line in `key: value` form), a `name` or `description` that starts with an anchor `&` or a tag `!`, also on a continuation line (the reason is `<field> uses a YAML anchor or tag`), a field that appears twice, the name `main` or `sub` (omp reserves them), a name that is not a safe file name (only lower-case letters and digits, in groups joined by single hyphens), or any other field (for example `permissionMode`, `hooks`, `mcpServers`, `skills`, `maxTurns`, or an unknown field). The command prints one `ERROR convert-agent <path>: <reason>; port it by hand` line and no agent text, and exits 2.
 
 In `audit` mode, run steps 1 to 3 without the question, and record the table. Write nothing.
 

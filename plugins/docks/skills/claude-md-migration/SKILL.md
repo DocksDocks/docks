@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-20"
-  content_hash: "ecf0969762f3dc65969314bf75e854ec27a96868a4bf0dbb47d5bd10da3b5d15"
+  content_hash: "914c5883cca86fd4adf689127dd016813a2e8e3d96a126080bc76db7a52bc414"
 ---
 
 # CLAUDE.md Migration
@@ -51,7 +51,7 @@ Everything this skill writes into `AGENTS.md` is durable: every session reads it
 ## When to Use
 
 - A project has a `CLAUDE.md` or `.claude/CLAUDE.md`, at the root or nested, and the user wants omp to load its content
-- The user says "migrate CLAUDE.md to AGENTS.md", "remove CLAUDE.md", or `/docks:claude-md-migration`
+- The user says "migrate CLAUDE.md to AGENTS.md", "remove CLAUDE.md", or `/skill:claude-md-migration`
 - agent-first-setup or context-tree found a legacy file and sent the user here
 
 ## Workflow

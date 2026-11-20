@@ -4,8 +4,8 @@ description: "Use when reporting a problem with a docks or plan-lifecycle skill,
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-19"
-  content_hash: "cb913e85a72a512e351209c9d5abd76e2036a6deaf4ffddbe67366ff16358552"
+  updated: "2026-11-20"
+  content_hash: "5f04b653e8c8262268be2917f01cc9e5631e53738f067b171cbeffd6dc596326"
 ---
 
 # Report a Skill Issue
@@ -59,7 +59,7 @@ In that copy, the plugin root is the folder that holds `skills/<skill>/SKILL.md`
 | `<plugin>:<skill>` | `name` in the plugin root's `package.json`, and `name` in the skill's frontmatter. For an agent, omp extension, or script, use its path relative to the plugin root |
 | Plugin version | `version` in the plugin root's `package.json`. In a checkout of the marketplace, the plugin's entry in `.omp-plugin/marketplace.json` holds the same `version` |
 | Skill metadata | `metadata.updated` and the first 12 characters of `metadata.content_hash` in the skill's frontmatter |
-| Runtime | Claude Code, Codex, OpenCode, VS Code Copilot, or omp, and its version (for example from its `--version` output) |
+| omp version | The output of `omp --version` |
 | Model | The model name, if the runtime shows it |
 
 ```bash
@@ -177,7 +177,7 @@ Title: <plugin>:<skill>: <symptom in one line>
 - Skill: `<plugin>:<skill>` (or the agent, omp extension, or script path relative to the plugin root)
 - Plugin version: <x.y.z or unknown>
 - Skill metadata: updated <YYYY-MM-DD>, content_hash <first 12 characters>
-- Runtime: <Claude Code, Codex, OpenCode, VS Code Copilot, or omp> <version or unknown>
+- omp: <version or unknown>
 - Model: <model name or unknown>
 
 ## What the skill says

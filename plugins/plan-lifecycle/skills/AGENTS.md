@@ -43,7 +43,7 @@ present". `scripts/skills/no-author-scripts.mjs` enforces this.
 
 ## Roles (closed set)
 
-`plan-workspace` maintains workspace routing and reviewer setup; `new` creates
+`plan-workspace` maintains workspace routing; `new` creates
 the repository plan labels. Main-context `plan-manager` runs decide, draft,
 research, plan review, implement, and code review, with fresh review after
 repairs, a parent plan with one child plan per landing pull request, and user
@@ -62,10 +62,9 @@ its skill with `autoload-skills` and names each further file as
 an agent, so an `AGENTS.md` there fails validation).
 The explicit-only `yolo` skill is a user entry point. It runs `plan-manager`'s
 six phases under the contract's Yolo runs section and asks only the merge
-question and the stall question. `disable-model-invocation` keeps Claude Code
-and omp from loading it on their own, and its `agents/openai.yaml` does the
-same for Codex. Its delegation line includes the grant of the contract's
-Delegated decisions. It holds only what yolo adds: it points to
+question and the stall question. `disable-model-invocation` keeps omp from
+offering it to the model. Its delegation line includes the grant of the
+contract's Delegated decisions. It holds only what yolo adds: it points to
 `plan-manager/references/practices.md` for each practice, and to the
 contract's Delegated decisions for each question that the grant answers. A
 question replacement that the grant and `yolo` share lives in the contract
@@ -94,11 +93,10 @@ the helper's behavior; no test pins skill prose.
 The reviewer agents and the reviewer skills own the exact review block
 they return. Keep that block inside the comment rules in `plan-contract.md`
 (Phases and review comments). Keep the plan-review block identical in
-`../agents/plan-reviewer.md` and the `plan-reviewer` skill. The Codex templates
-in `plan-workspace/references/codex-agent-templates.md` point
-to the agent's Output Format and do not copy it. A review round posts one
-comment that holds every block of that round, then the manager response to the
-previous round under `#### Manager response to round <k>`. The helper reads no
+`../agents/plan-reviewer.md` and the `plan-reviewer` skill. A review round
+posts one comment that holds every block of that round, then the manager
+response to the previous round under `#### Manager response to round <k>`.
+The helper reads no
 verdict or severity below that heading, and the manager writes the reviewer's
 repair record and rejection files from it, so reviewer inputs keep their shape
 (`plan-contract.md`, Phases and review comments).

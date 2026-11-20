@@ -8,7 +8,7 @@
 //                           [--self-review-roots <name>=<git-ref>|<name>=worktree[,...]]
 //                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
 //                           [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
-//                           [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
+//                           [--project <dir>] (--out <ws> | --baseline-dir <dir>)
 //   node prepare.mjs sequential-plan --cases <case.json,...> --reference <arm>@<config>
 //                         --candidates <arm>@<config>[,...] --looks <1,...,k> --out <ws> [--project <dir>]
 //   node prepare.mjs case --case <case.json> --arms <B0,C3,...> (--runs <k> | --sequential) --out <ws>
@@ -89,22 +89,21 @@ const LEGACY_PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
 const SKILL_URI = /skill:\/\/([a-z0-9][a-z0-9-]*)(\/[^\s\x60'")]*)?/g;
 // The marker file of a plugin copy (the baseline or a variant) records the commit of the copy.
 const PLUGIN_COPY_MARKER = '.review-bench-ref';
-const RUNTIME_AGENT_DIRS = { omp: '.omp/agents', claude: '.claude/agents' };
+// omp loads the project agents from this folder.
+const AGENT_DIR = '.omp/agents';
 // Every file and setting that `agents` writes starts with this prefix, so `clean` finds them without a record.
 const GENERATED_PREFIX = 'review-bench-';
 // The list of configurations and the fixer and manager settings that `agents` wrote, `{ configs, fixer, manager }`, in
-// the agent folder of the runtime. `case` and `probe` read it; `case --loop` records the fixer setting in each round-1
-// meta.json, and `case` records the manager setting in the meta.json of each run (round 1 of a loop).
+// AGENT_DIR. `case` and `probe` read it; `case --loop` records the fixer setting in each round-1 meta.json, and `case`
+// records the manager setting in the meta.json of each run (round 1 of a loop).
 const CONFIGS_FILE = `${GENERATED_PREFIX}configs.json`;
 // omp reads this JSON file and merges `.omp/config.yml` over it, so the script edits its own entries without a
 // YAML parser and leaves the user's config files unchanged.
 const OMP_SETTINGS = '.omp/settings.json';
-// The frontmatter key and the levels that pin the effort of an agent in each runtime.
-const RUNTIME_EFFORTS = {
-  omp: { key: 'thinking-level', levels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
-  claude: { key: 'effort', levels: ['low', 'medium', 'high', 'xhigh', 'max'] },
-};
-// The OpenAI service tiers of omp (`tier.openai`). Only omp sets a tier per agent.
+// The frontmatter key and the levels of omp that pin the effort of an agent.
+const EFFORT_KEY = 'thinking-level';
+const EFFORT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+// The OpenAI service tiers of omp (`tier.openai`), which omp sets per agent.
 const OMP_TIERS = ['none', 'auto', 'default', 'flex', 'scale', 'priority', 'ultrafast'];
 // The part of a configuration name that a tier adds. Every other tier adds `-<tier>`.
 const TIER_NAMES = { default: '', priority: '-fast' };
@@ -370,10 +369,10 @@ function takesServiceTier(model) {
   return model.split('/')[0].startsWith('openai');
 }
 
-// Every model at every effort with every tier. A name is the effort plus the part of the tier (`TIER_NAMES`; a
-// runtime without tiers adds nothing). With more than one model, the model slug comes first. The report uses the
-// names as column names, so the same lists always give the same names. A model that takes no service tier (see
-// takesServiceTier) gets the single tier null: no name part, no tier override, and no served-tier check.
+// Every model at every effort with every tier. A name is the effort plus the part of the tier (`TIER_NAMES`; the tier
+// null adds nothing). With more than one model, the model slug comes first. The report uses the names as column
+// names, so the same lists always give the same names. A model that takes no service tier (see takesServiceTier)
+// gets the single tier null: no name part, no tier override, and no served-tier check.
 export function buildConfigs({ models, efforts, tiers }) {
   const configs = [];
   for (const model of models) {
@@ -626,10 +625,11 @@ export function pluginRootText(text, pluginRoot) {
     .replace(SKILL_URI, (_, skill, rest) => `${pluginRoot}/skills/${skill}${rest ?? '/SKILL.md'}`);
 }
 
-// Copies a plugin agent under `name` and pins its model and effort. `effortKey` is the effort key of the runtime. With
-// `pluginRoot`, the copy reads its skill from that plugin copy: it loses `autoload-skills`, which would load the
-// installed skill, and each skill path names the plugin copy (pluginRootText).
-export function renderAgent(source, { name, model, effortKey, effort, pluginRoot }) {
+// Copies a plugin agent under `name` and pins its model and effort (EFFORT_KEY). It removes every model and effort key
+// of the source, also the `effort` key that an agent at an old ref can have. With `pluginRoot`, the copy reads its
+// skill from that plugin copy: it loses `autoload-skills`, which would load the installed skill, and each skill path
+// names the plugin copy (pluginRootText).
+export function renderAgent(source, { name, model, effort, pluginRoot }) {
   const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(source);
   if (!frontmatter) throw new Error('the agent file has no frontmatter');
   const pinned = /^(model|thinking-level|thinking|effort):/;
@@ -639,7 +639,7 @@ export function renderAgent(source, { name, model, effortKey, effort, pluginRoot
   const nameAt = lines.findIndex((line) => line.startsWith('name:'));
   if (nameAt < 0) throw new Error('the agent frontmatter has no name');
   const modelValue = /^[A-Za-z0-9][\w./+-]*$/.test(model) ? model : JSON.stringify(model);
-  lines.splice(nameAt, 1, `name: ${name}`, `model: ${modelValue}`, `${effortKey}: ${effort}`);
+  lines.splice(nameAt, 1, `name: ${name}`, `model: ${modelValue}`, `${EFFORT_KEY}: ${effort}`);
   const body = source.slice(frontmatter[0].length);
   const text = `---\n${lines.join('\n')}\n---\n${body}`;
   return pluginRoot === undefined ? text : pluginRootText(text, pluginRoot);
@@ -2093,42 +2093,33 @@ function requireProvider(option, model) {
   }
 }
 
-function parseModels(value, runtime) {
+function parseModels(value) {
   if (!value) fail('agents needs --model <selector>[,<selector>...]');
   const models = parseList(value, '--model');
   const suffixed = models.find((model) => EFFORT_SUFFIX.test(model));
   if (suffixed) fail(`--model ${suffixed} has an effort suffix; give the effort with --efforts`);
-  if (runtime === 'omp') for (const model of models) requireProvider('--model', model);
+  for (const model of models) requireProvider('--model', model);
   return models;
 }
 
-function parseTiers(value, runtime) {
-  if (runtime === 'claude') {
-    if (value) fail('Claude Code sets no service tier per agent; omit --tiers with --runtime claude');
-    return [null];
-  }
+function parseTiers(value) {
   if (!value) fail('agents needs --tiers <list>, for example --tiers priority,default');
   return parseList(value, '--tiers', OMP_TIERS);
 }
 
 // The model, effort, and tier of the helper agent of `role`, `fixer` or `manager`, from the options
 // `--<role>-model`, `--<role>-effort`, and `--<role>-tier` and the setting `defaults` ({ model, effort, tier }). The
-// fixer defaults hold for omp; Claude Code needs a fixer model of its own and takes no tier. The manager defaults are
-// the fixer setting. With omp, a model that takes no service tier (see takesServiceTier) gets the tier null and takes
-// no `--<role>-tier`; another model without a tier option takes the default tier, else the tier of FIXER_DEFAULTS.
-function parseHelper(options, runtime, levels, role, defaults) {
+// manager defaults are the fixer setting. A model that takes no service tier (see takesServiceTier) gets the tier
+// null and takes no `--<role>-tier`; another model without a tier option takes the default tier, else the tier of
+// FIXER_DEFAULTS.
+function parseHelper(options, role, defaults) {
   const model = options[`${role}-model`] ?? defaults.model;
-  if (!model) fail(`Claude Code cannot run the default ${role} model; give --${role}-model with --runtime claude`);
   if (EFFORT_SUFFIX.test(model)) {
     fail(`--${role}-model ${model} has an effort suffix; give the effort with --${role}-effort`);
   }
   const effort = options[`${role}-effort`] ?? defaults.effort;
-  if (!levels.includes(effort)) fail(`--${role}-effort does not take ${effort}; use ${levels.join(', ')}`);
-  if (runtime === 'claude') {
-    if (options[`${role}-tier`]) {
-      fail(`Claude Code sets no service tier per agent; omit --${role}-tier with --runtime claude`);
-    }
-    return { model, effort, tier: null };
+  if (!EFFORT_LEVELS.includes(effort)) {
+    fail(`--${role}-effort does not take ${effort}; use ${EFFORT_LEVELS.join(', ')}`);
   }
   requireProvider(`--${role}-model`, model);
   if (!takesServiceTier(model)) {
@@ -2186,23 +2177,19 @@ function removeIfEmpty(dir) {
   if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
 }
 
-// Removes every file and setting that `agents` writes for any runtime. A folder that this call empties goes too.
+// Removes every file and setting that `agents` writes. A folder that this call empties goes too.
 function removeGenerated(project) {
-  const changed = new Set();
-  if (removeTierOverrides(project)) changed.add(path.dirname(path.join(project, OMP_SETTINGS)));
-  for (const dir of Object.values(RUNTIME_AGENT_DIRS)) {
-    const agentDir = path.join(project, dir);
-    if (!fs.existsSync(agentDir)) continue;
-    const generated = fs
-      .readdirSync(agentDir, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.startsWith(GENERATED_PREFIX));
-    if (generated.length === 0) continue;
-    for (const entry of generated) fs.rmSync(path.join(agentDir, entry.name));
-    console.log(`removed ${generated.length} files from ${agentDir}`);
-    removeIfEmpty(agentDir);
-    changed.add(path.dirname(agentDir));
-  }
-  for (const dir of changed) removeIfEmpty(dir);
+  if (removeTierOverrides(project)) removeIfEmpty(path.dirname(path.join(project, OMP_SETTINGS)));
+  const agentDir = path.join(project, AGENT_DIR);
+  if (!fs.existsSync(agentDir)) return;
+  const generated = fs
+    .readdirSync(agentDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.startsWith(GENERATED_PREFIX));
+  if (generated.length === 0) return;
+  for (const entry of generated) fs.rmSync(path.join(agentDir, entry.name));
+  console.log(`removed ${generated.length} files from ${agentDir}`);
+  removeIfEmpty(agentDir);
+  removeIfEmpty(path.dirname(agentDir));
 }
 
 // The configurations that --configs names, in its order, or else every configuration that `agents` wrote; the
@@ -2210,17 +2197,14 @@ function removeGenerated(project) {
 // variants and the self-review roots that `agents` wrote (none in a file without them); and the file that holds them.
 function selectConfigs(options, repo) {
   const project = projectDir(options, repo);
-  const files = Object.values(RUNTIME_AGENT_DIRS)
-    .map((dir) => path.join(project, dir, CONFIGS_FILE))
-    .filter((file) => fs.existsSync(file));
-  if (files.length === 0) fail(`${project} has no configurations; run prepare.mjs agents with the same --project`);
-  if (files.length > 1) fail(`${files.join(' and ')} both exist; run prepare.mjs clean and then agents`);
-  const { configs, fixer, manager, variants = [], selfReviewRoots = [], candidateContractDiff } = readJson(files[0]);
+  const file = path.join(project, AGENT_DIR, CONFIGS_FILE);
+  if (!fs.existsSync(file)) fail(`${project} has no configurations; run prepare.mjs agents with the same --project`);
+  const { configs, fixer, manager, variants = [], selfReviewRoots = [], candidateContractDiff } = readJson(file);
   const known = configs.map((config) => config.name);
   const selected = options.configs
     ? parseList(options.configs, '--configs', known).map((name) => configs[known.indexOf(name)])
     : configs;
-  return { configs: selected, fixer, manager, variants, selfReviewRoots, candidateContractDiff, file: files[0] };
+  return { configs: selected, fixer, manager, variants, selfReviewRoots, candidateContractDiff, file };
 }
 
 // The diff of the plan contract from the baseline commit `sha` (at the ref `ref`) to the working tree: the contract
@@ -2428,20 +2412,13 @@ function parseSelfReviewRoots(options, repo, { baselineDir, variants, configName
 
 export function prepareAgents(options, repo) {
   if (!options['baseline-ref']) fail('agents needs --baseline-ref <git ref of the last release>');
-  const runtime = options.runtime ?? 'omp';
-  if (!Object.hasOwn(RUNTIME_AGENT_DIRS, runtime)) fail('--runtime must be omp or claude');
   if (!options.efforts) fail('agents needs --efforts <list>, for example --efforts low,medium,high,xhigh');
-  const { key: effortKey, levels } = RUNTIME_EFFORTS[runtime];
-  const models = parseModels(options.model, runtime);
-  const efforts = parseList(options.efforts, '--efforts', levels);
-  const tiers = parseTiers(options.tiers, runtime);
+  const models = parseModels(options.model);
+  const efforts = parseList(options.efforts, '--efforts', EFFORT_LEVELS);
+  const tiers = parseTiers(options.tiers);
   const configs = buildConfigs({ models, efforts, tiers });
-  const fixer = parseHelper(options, runtime, levels, 'fixer', {
-    model: runtime === 'omp' ? FIXER_DEFAULTS.model : null,
-    effort: FIXER_DEFAULTS.effort,
-    tier: FIXER_DEFAULTS.tier,
-  });
-  const manager = parseHelper(options, runtime, levels, 'manager', fixer);
+  const fixer = parseHelper(options, 'fixer', FIXER_DEFAULTS);
+  const manager = parseHelper(options, 'manager', fixer);
   const project = projectDir(options, repo);
   let baselineDir;
   if (options['baseline-dir']) baselineDir = path.resolve(options['baseline-dir']);
@@ -2489,13 +2466,13 @@ export function prepareAgents(options, repo) {
   }
 
   removeGenerated(project);
-  const agentDir = path.join(project, RUNTIME_AGENT_DIRS[runtime]);
+  const agentDir = path.join(project, AGENT_DIR);
   fs.mkdirSync(agentDir, { recursive: true });
   const overrides = {};
   for (const config of configs) {
     for (const { side, role, text, pluginRoot } of sources) {
       const name = agentName(side, role, config.name);
-      const agent = renderAgent(text, { name, model: config.model, effortKey, effort: config.effort, pluginRoot });
+      const agent = renderAgent(text, { name, model: config.model, effort: config.effort, pluginRoot });
       fs.writeFileSync(path.join(agentDir, `${name}.md`), agent);
       if (config.tier !== null) overrides[name] = config.tier;
     }
@@ -2507,7 +2484,6 @@ export function prepareAgents(options, repo) {
       const selfReviewText = renderAgent(selfReviewSource(selfReview, selfReviewFile, root?.skills), {
         name: selfReview,
         model: config.model,
-        effortKey,
         effort: config.effort,
       });
       fs.writeFileSync(selfReviewFile, selfReviewText);
@@ -2518,7 +2494,7 @@ export function prepareAgents(options, repo) {
     [FIXER_AGENT, FIXER_SOURCE, fixer],
     [MANAGER_AGENT, MANAGER_SOURCE, manager],
   ]) {
-    const text = renderAgent(source, { name: agentFile, model: setting.model, effortKey, effort: setting.effort });
+    const text = renderAgent(source, { name: agentFile, model: setting.model, effort: setting.effort });
     fs.writeFileSync(path.join(agentDir, `${agentFile}.md`), text);
     if (setting.tier !== null) overrides[agentFile] = setting.tier;
   }
@@ -2540,14 +2516,12 @@ export function prepareAgents(options, repo) {
   const names = configs.map((config) => config.name).join(', ');
   const perConfig = sources.length + 1 + roots.length;
   console.log(`wrote ${configs.length * perConfig} agent files to ${agentDir} for ${names}`);
-  if (runtime === 'omp') {
-    // A model that takes no service tier drops the --tiers list. The line makes that visible.
-    for (const model of models.filter((item) => !takesServiceTier(item))) {
-      const dropped = `--tiers ${tiers.join(',')} does not apply to it`;
-      console.log(
-        `${model} gets the tier null: omp sets a service tier only for a model whose provider starts with openai, so ${dropped}`,
-      );
-    }
+  // A model that takes no service tier drops the --tiers list. The line makes that visible.
+  for (const model of models.filter((item) => !takesServiceTier(item))) {
+    const dropped = `--tiers ${tiers.join(',')} does not apply to it`;
+    console.log(
+      `${model} gets the tier null: omp sets a service tier only for a model whose provider starts with openai, so ${dropped}`,
+    );
   }
   for (const [label, agentFile, setting] of [
     ['fixer', FIXER_AGENT, fixer],
@@ -2556,7 +2530,7 @@ export function prepareAgents(options, repo) {
     const tier = setting.tier === null ? '' : `, tier ${setting.tier}`;
     console.log(`wrote the ${label} agent ${agentFile}: ${setting.model}, effort ${setting.effort}${tier}`);
   }
-  if (runtime === 'omp') writeTierOverrides(project, overrides);
+  writeTierOverrides(project, overrides);
 }
 
 // One run per configuration: the candidate code agent of the configuration gets a short task, so its transcript
@@ -2638,7 +2612,6 @@ const COMMANDS = {
       'manager-effort': { type: 'string' },
       'manager-tier': { type: 'string' },
       'self-review-roots': { type: 'string' },
-      runtime: { type: 'string' },
       out: { type: 'string' },
       'baseline-dir': { type: 'string' },
       ...PROJECT_OPTION,
@@ -2669,7 +2642,7 @@ const USAGE = `usage:
                      [--candidate-contract-overlay] [--self-review-roots <name>=<git-ref>|<name>=worktree[,...]]
                      [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
                      [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
-                     [--runtime omp|claude] [--project <dir>] (--out <ws> | --baseline-dir <dir>)
+                     [--project <dir>] (--out <ws> | --baseline-dir <dir>)
   prepare.mjs sequential-plan --cases <case.json,...> --reference <arm>@<config> --candidates <arm>@<config>[,...]
                    --looks <1,...,k> --out <ws> [--project <dir>]
   prepare.mjs case --case <case.json> --arms <list> (--runs <k> | --sequential) --out <ws> [--configs <list>]

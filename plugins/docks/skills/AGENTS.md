@@ -1,6 +1,6 @@
 # Authoring skills (plugins/docks/skills/)
 
-Skills are the cross-tool payload — every skill here surfaces in Claude Code, Codex, and any agentskills.io runtime. Each skill is a directory `<name>/SKILL.md` (+ optional `references/`) one level below `plugins/docks/skills/`; no category folder sits between them (verify: `ls -d plugins/docks/skills/*/`). The description is surfaced in the session listing (loaded every session); the body loads only on activation — spend the effort on the description.
+Skills are the omp payload — omp loads every skill of the installed package. Each skill is a directory `<name>/SKILL.md` (+ optional `references/`) one level below `plugins/docks/skills/`; no category folder sits between them (verify: `ls -d plugins/docks/skills/*/`). omp puts every skill name and description in the system prompt (loaded every session); the body loads only on activation — spend the effort on the description.
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.
 
@@ -13,7 +13,7 @@ After changing a skill's meaning, run `bun scripts/skills/content-hash.mjs --bac
 </constraint>
 
 <constraint>
-Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.mjs`, `scripts/config/*`, `scripts/lib/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.mjs` enforces this; only the tooling-authoring skills that seed/describe that tooling (`scaffold`, `write-skill`) are allowlisted. This applies to plugin-shipped agent bodies too.
+Shipped skill bodies (SKILL.md + `references/`) are consumer-facing — never name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/tree/*`, `scripts/agents/*`, `scripts/release.mjs`, `scripts/config/*`, `scripts/lib/*`) as a step. They are author-side only (`scripts/AGENTS.md`) and absent from a consumer's project, so the instruction breaks the moment the skill runs anywhere but this repo. Make verification SELF-CONTAINED (an inline check) or refer GENERICALLY to "the project's CI / validators, if present". `scripts/skills/no-author-scripts.mjs` enforces this; only the tooling-authoring skill that describes that tooling (`write-skill`) is allowlisted. This applies to plugin-shipped agent bodies too.
 </constraint>
 
 ## Durable docs and agent-first (kit rules)
@@ -33,10 +33,10 @@ One-shot whole-repo setup and audit go through the `agent-first-setup` skill.
 ## Description (the thing that gets matched)
 
 1. **Lead with "Use when …"** — the guard enforces this prefix (verify: temporarily reword one description to drop the prefix → `bun scripts/skills/guard.mjs` must fail on it; revert).
-2. **Key use case first** — Claude Code truncates the combined description in the listing (limit: Skills docs in `## Sources`); the first ~100 chars matter most.
+2. **Key use case first** — omp puts every name + description in the system prompt (`omp://skills.md` in `## Sources`), so all skills share that listing; the first ~100 chars matter most.
 3. **≤500 chars** for full scorer credit; the hard cap is 1,024 (agentskills.io spec). Point values: `plugins/docks/skills/write-skill/scripts/skill-guard.mjs` (verify: `node plugins/docks/skills/write-skill/scripts/skill-guard.mjs score --per-file | grep <name>`).
 4. **Say what the skill does as well as when.** After the "Use when" trigger, name the job the skill does (for example "produces a tiered fix plan"). The agent picks a skill from the description alone, so a description with triggers but no job cannot be told apart from a neighbor. Move long "Covers X, Y, Z" enumerations into the body, but keep one clause that states the job. Source: the agentskills.io spec `description` field (`## Sources`).
-5. **Name categories of user intent; concrete nouns are fine.** "Use when running bun audit, pnpm audit, pip-audit…" beats "Use when working with dependency security", because commands and file types are what users type. But group them under the user intent they serve, and do not add one keyword per missed query: an ever-growing list overfits to the queries you saw, uses up the shared listing budget, and still misses the next phrasing. When a skill under-triggers, fix the intent category and confirm with the `write-skill` trigger check, not by adding tokens. Source: upstream anthropics/skills skill-creator `improve_description.py` (`## Sources`).
+5. **Name categories of user intent; concrete nouns are fine.** "Use when running bun audit, pnpm audit, pip-audit…" beats "Use when working with dependency security", because commands and file types are what users type. But group them under the user intent they serve, and do not add one keyword per missed query: an ever-growing list overfits to the queries you saw, uses up the shared listing budget, and still misses the next phrasing. When a skill under-triggers, fix the intent category and confirm with the `write-skill` trigger check, not by adding tokens. Source: the agentskills.io optimizing-descriptions guide; first adapted from the skill-creator `improve_description.py` (Apache-2.0) (`## Sources`).
 6. **No slop words** (`comprehensive`, `robust`, `elegant`, `seamless`) — each costs scorer points (`skill-guard.mjs`).
 7. **Collision-check against siblings** — 3 near-miss prompts (share keywords, belong to a neighboring skill) must each route away via a `Not for…` clause. `tests/skill-trigger-collision.mjs` fails an unrouted pair whose shared positive-surface trigger tokens reach its `OVERLAP_FAIL` threshold, but the subtle collisions still need the manual near-miss pass; `write-skill`'s near-miss table is the procedure.
 
@@ -58,7 +58,7 @@ Structural rules are enforced by `scripts/skills/guard.mjs`.
 
 ## Body (loads on activation — every line is a recurring cost)
 
-Conciseness test: "would removing this line cause Claude to make mistakes? If not, cut it." Don't restate what Claude already knows.
+Conciseness test: "would removing this line cause the agent to make mistakes? If not, cut it." Don't restate what the agent already knows. Source: the agentskills.io best practices (`## Sources`).
 
 **No surprises.** A skill must do only what its name and description say. Do not put in actions a user would be surprised by if the skill's intent were described to them: no hidden network calls or data exfiltration, no unrelated file or git changes, no malware. Docks skills run in other people's repositories with the agent's permissions, and the user approves a skill by its description, not by reading the body. Source: the Principle of Lack of Surprise in skill-creator `SKILL.md` (`## Sources`).
 
@@ -69,17 +69,17 @@ Conciseness test: "would removing this line cause Claude to make mistakes? If no
 | BAD/GOOD code blocks | fragile decisions; scorer rewards both idioms |
 | Gotchas | concrete corrections to repeat mistakes |
 | Validation loop | do → run validator → fix → repeat |
-| `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each); a long reference with several headings needs a `## Contents` TOC (thresholds: `scripts/skills/refs-guard.mjs`, Anthropic best-practice) |
+| `references/<topic>.md` | when body crosses ~310 lines, split detail out (30–150 lines each); a long reference with several headings needs a `## Contents` TOC (thresholds: `scripts/skills/refs-guard.mjs`; a docks rule for the focused reference files that the agentskills.io spec asks for) |
 | `scripts/` / `assets/` bundle | executable helpers every invocation would re-derive (execution is token-free) / copy-only output templates; neither is content-hashed — bump `metadata.updated` manually when they change |
 | Durable anchors | reference code as `` `path` — `symbol` — purpose (verify: `command`) ``, never a live `path:NN` line anchor. CI's repo-wide durable-anchors guard fails on any `path:NN` whose path resolves (verify: append a `<real-repo-path>:1` anchor to a body → `bun scripts/skills/durable-anchors.mjs` exits 1 naming it; revert). Rules for volatile facts and behavior claims: `plugins/docks/skills/write-skill/references/durable-anchors.md` |
 
-Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). Past ~310, post-compaction re-attachment may silently drop content (Cross-tool wording, item 1).
+Body sweet spot **80–310 lines** (scorer; ≤500 hard cap). The agentskills.io spec recommends a body under 5000 tokens, about 310 lines (omp wording, item 1).
 
 ## Data preservation for transforming skills
 
 A skill that **moves, splits, migrates, or rewrites existing content** (root → nodes, `CLAUDE.md` → `AGENTS.md`, `SKILL.md` → `references/`, code refactors) can drop content with no error. The kit standard (checklist + copy-paste templates) lives in `plugins/docks/skills/write-skill/references/data-preservation.md`. Two non-negotiables, both **copied inline** into the skill (never cross-linked — a sibling-skill reference is a dangling pointer; agentskills.io says keep references one level deep):
 
-1. A preservation `<constraint>` near the top of the body (survives the post-compaction window).
+1. A preservation `<constraint>` near the top of the body (the agent reads it before any step).
 2. A `## Verification` block doing **per-section presence** + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split (scaffolding makes output ≥100% of input, so a lost section hides under it).
 
 `scripts/skills/transform-guard.mjs` enforces both across the curated transformer list (`scripts/AGENTS.md`).
@@ -130,17 +130,15 @@ The text above is identical in `plugins/plan-lifecycle/skills/AGENTS.md` (Adding
 
 Every shipped skill of the docks and plan-lifecycle plugins ends with one byte-identical `## Report a problem with this skill` section, so an agent that uses a skill sees where and how to report a problem with it. The section points to the docks `report-skill-issue` skill. For a runtime without docks, it allows only a draft for the user, because the publication safeguards live in that skill. A new skill copies the section unchanged. The skills guard checks every copy against `scripts/config/report-section.md` (verify: `bun scripts/skills/guard.mjs plugins/docks/skills` and `bun scripts/skills/guard.mjs plugins/plan-lifecycle/skills`); a change to the section changes that file and every copy in the same commit.
 
-## Cross-tool wording (Claude Code + Codex)
+## omp wording
 
-Skills run in both runtimes; phrase for both. Sources: the Claude Code skills docs (`## Sources`) and the openai/codex source.
+Skills run in omp; phrase for omp. Sources: `omp://skills.md`, `omp://compaction.md`, `omp://tools/ask.md`, `omp://tools/task.md`, and the agentskills.io spec (`## Sources`).
 
-1. **Constraints at the top.** After compaction Claude Code re-attaches only the first ~5,000 tokens of each invoked skill (25,000-token shared budget, oldest-invoked dropped first). Put non-negotiable/safety rules in `<constraint>` blocks near the top — a rule at the bottom is dropped first.
-2. **Turn-ending approval gates.** No runtime "pause" primitive exists for skills (`disable-model-invocation` only gates auto-invoke). The only enforceable pause is ending the turn: "print the proposal as your final message and STOP; don't call Write/Edit until the user replies." "STOP and await" alone gets bypassed (frontier models follow instructions literally).
-3. **Front-load the description.** When the Codex skills *catalog* overflows its budget (2% of the context window in tokens; the ~8,000-char figure is only the fallback when the window is unknown), descriptions are truncated EVENLY first — every description loses its tail — but Codex may still omit skills from the initial list with a warning. The per-skill `description` cap is still 1,024. Primary trigger in the first ~100 chars (Claude truncates its listing too).
-4. **Codex reads bodies as plain markdown** — it does not weight `<constraint>` XML. A safety rule must read correctly as plain prose, not lean on the tag for emphasis.
-5. **`isolation: worktree` is Claude-only.** Don't rely on it (or plugin-subagent `hooks`/`mcpServers`/`permissionMode`) for cross-tool safety.
-6. **Goals over step-lists for frontier models.** Frontier-model prompting guides warn that skills written for prior models are often too prescriptive and can degrade output; literal-following models won't generalize an instruction beyond its stated scope. Write the goal + the non-negotiable constraints, state scope explicitly, and skip micro-step choreography the model can derive.
-7. **Test on the smallest model expected to run the skill.** A larger model fills gaps in a thin instruction; a smaller model follows the text literally and shows where the skill is under-specified. Run the `write-skill` baseline check on the smallest model tier (and runtime) the skill targets, not only on the model you author with. Source: the Agent Skills best-practices guide, "test with all models you plan to use" (`## Sources`).
+1. **Constraints at the top.** The agentskills.io spec recommends a body under 5000 tokens. omp does not prune `skill://` reads before compaction, but compaction still summarizes earlier reads, so an agent re-reads the skill after a compaction. The agent also reads the top of the body first. Put non-negotiable/safety rules in `<constraint>` blocks near the top.
+2. **Turn-ending approval gates.** Ask with the omp `ask` tool. `disable-model-invocation` only hides a skill from the model; it does not pause a skill. A headless subagent gets an error from `ask` and must put open questions in its final answer, so the enforceable fallback is ending the turn: "print the proposal as your final message and STOP; don't call `write` or `edit` until the user replies." "STOP and await" alone gets bypassed (frontier models follow instructions literally).
+3. **Isolation needs `isolated: true`.** omp runs a task subagent in a separate checkout only when the task item sets `isolated: true`, `task.isolation.enabled` is true, and plan mode is off. Other task subagents share the parent checkout, so do not rely on isolation for safety.
+4. **Goals over step-lists for frontier models.** Frontier-model prompting guides warn that skills written for prior models are often too prescriptive and can degrade output; literal-following models won't generalize an instruction beyond its stated scope. Write the goal + the non-negotiable constraints, state scope explicitly, and skip micro-step choreography the model can derive.
+5. **Test on the smallest model expected to run the skill.** A larger model fills gaps in a thin instruction; a smaller model follows the text literally and shows where the skill is under-specified. Run the `write-skill` baseline check on the smallest model tier the skill targets, not only on the model you author with.
 
 ## Scoring
 
@@ -154,8 +152,9 @@ omp keeps the bare frontmatter `name` of each skill, with no plugin prefix (e.g.
 
 ## Sources
 
-- Skills: <https://code.claude.com/docs/en/skills>
+- omp skills: `omp://skills.md`
 - agentskills.io spec: <https://agentskills.io/specification>
-- Agent Skills best practices: <https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>
+- agentskills.io best practices: <https://agentskills.io/skill-creation/best-practices>
+- agentskills.io optimizing descriptions: <https://agentskills.io/skill-creation/optimizing-descriptions>
 - skill-creator `SKILL.md` (Apache-2.0): <https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md>
-- upstream anthropics/skills skill-creator `improve_description.py` (Apache-2.0): <https://github.com/anthropics/skills/blob/main/skills/skill-creator/scripts/improve_description.py>
+- skill-creator `improve_description.py` (Apache-2.0): <https://github.com/anthropics/skills/blob/main/skills/skill-creator/scripts/improve_description.py>

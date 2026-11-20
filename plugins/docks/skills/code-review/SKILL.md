@@ -4,8 +4,8 @@ description: Use when reviewing code for bugs, security vulnerabilities (OWASP T
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-18"
-  content_hash: "74e205617f16eddf22fdaaeb91bf39569dfc397ee734e169afcdc80241be91f9"
+  updated: "2026-11-20"
+  content_hash: "eba6cec63e3ea3d4d3fa9cad5857084c8c3ae4fa65885eefc2c98264ad1ea4bc"
 ---
 
 # Code Review
@@ -123,7 +123,7 @@ SEVERITY · CATEGORY · file:line
   Suggested fix: <one sentence or short snippet>
 ```
 
-Then ask "Apply fixes?" with the harness question tool (omp `ask`, Claude Code `AskUserQuestion`, Codex `request_user_input` where the mode has it, OpenCode `question`, or whatever question tool the harness registers). By default Codex offers the tool only in Plan mode; in Default mode the call returns an "unavailable" error, or, with the under-development `default_mode_request_user_input` feature, sends the request as non-blocking (`isBlocking: false`), which the client may resolve without the user. An error, empty, or default result is not approval: print the question, write nothing, and end the turn. Codex takes at most 3 questions per call, and each question needs options (Codex adds a free-text "Other"); split a larger set into consecutive calls. Give four options: all / critical-only / specific findings / none. Do not call Edit/Write until the user answers. Silence is not consent. If the answer is ambiguous, show the findings again and ask again. Do not write "Apply fixes? yes/no" as plain reply text when a question tool exists. If the harness has no question tool (for example, a headless or print-mode run), print the question as your final message and end the turn. Do not invent a tool call.
+Then ask "Apply fixes?" with the omp `ask` tool. Send one form per call, with four options: all / critical-only / specific findings / none. Do not call `edit` or `write` until the user answers. An error, a cancel, or a timeout result is not approval: write nothing and end the turn. Silence is not consent. If the answer is ambiguous, show the findings again and ask again. Do not write "Apply fixes? yes/no" as plain reply text when `ask` is available. If `ask` is not available or returns an error (for example, in a headless subagent or a print-mode run), put the question in your final answer and end the turn. Do not invent a tool call.
 
 If the user approves fixes:
 
@@ -171,7 +171,7 @@ each citing the spec line + the diff line>
 - Worst issue per axis: Standards <one line>; Spec <one line> (do not pick one winner across axes — that is the reranking the constraint forbids)
 ```
 
-Run the two passes sequentially within one turn — the discipline that matters is keeping the reports separate, not how they're scheduled. (A runtime with isolated workers MAY split the axes so one doesn't bleed into the other's context, but sequential is the portable default.)
+Run the two passes sequentially within one turn, in this context — the discipline that matters is keeping the reports separate, not how they're scheduled.
 
 Pattern adapted from Matt Pocock's `code-review` skill (formerly `review`; MIT): <https://github.com/mattpocock/skills/blob/main/skills/engineering/code-review/SKILL.md>.
 
@@ -182,7 +182,7 @@ Pattern adapted from Matt Pocock's `code-review` skill (formerly `review`; MIT):
 | "Findings" without code evidence | "Authentication seems weak" with no file:line | Drop the finding; an audit without evidence is worse than no audit |
 | Severity inflation to look thorough | Mark everything HIGH so the report looks weighty | Calibrate to actual blast radius; drop unjustified severity |
 | Reviewing code in a vacuum (no test/lint context) | Skip Step 1; jump straight to reading source | Read `package.json` scripts; know what the project's quality bar already is before adding "issues" |
-| Same false positive appears every run | Project uses an idiom that looks wrong but isn't | Document the idiom in the project's skills directory (`.agents/skills/` or `.claude/skills/`) so future runs skip it |
+| Same false positive appears every run | Project uses an idiom that looks wrong but isn't | Document the idiom in a project skill in `.agents/skills/` so future runs skip it |
 | Mid-review fix pollution | Edit a "obviously broken" line during analysis | Stay read-only until Step 5. Never edit mid-analysis. |
 | Reporting "potential issues" | "There MIGHT be a SQL injection here" | Either it is one (file:line + evidence) or you don't know yet (run another search pass before deciding) |
 | Self-censoring evidenced-but-uncertain findings | Drop everything below high confidence to look precise | Report with a `confidence:` label; recall is the review's job, filtering is the user's — silent drops hide real bugs |

@@ -210,18 +210,64 @@ export function withRootFiles(files, names) {
   return [...new Set([...files, ...found])].sort(byteOrder);
 }
 
-// True when `file`, a CLAUDE.md or a .claude/CLAUDE.md, is a symlink whose target resolves to
-// the AGENTS.md of its folder (for a .claude/CLAUDE.md, of the folder above). Such a link
-// holds no text of its own, so there is nothing to migrate.
+// The most symlinks that one chain follows; Linux stops after 40 too, so a longer chain or a
+// loop resolves to no file.
+const MAX_LINK_HOPS = 40;
+
+// `file` as an absolute path with the real path of its folder, so that two paths to one entry
+// through folder symlinks compare equal; the last part stays as is, because it may be a
+// symlink. Null when the folder cannot be resolved.
+function canonical(file) {
+  try {
+    return path.join(fs.realpathSync(path.dirname(path.resolve(file))), path.basename(file));
+  } catch {
+    return null;
+  }
+}
+
+// The canonical path that the symlink `link`, itself a canonical path, points to. The kernel
+// walks the target part by part, so a `..` after a folder symlink leaves the target of that
+// symlink: `alias/..` with `alias -> nested/sub` is nested. Thus the target joins the folder of
+// the link as a string, and only its real parent folder gets the base name; path.resolve would
+// drop `alias/..` before any symlink is read. Throws when a part cannot be resolved.
+function linkTarget(link) {
+  const target = fs.readlinkSync(link);
+  const joined = path.isAbsolute(target) ? target : `${path.dirname(link)}/${target}`;
+  const cut = joined.lastIndexOf('/');
+  return path.join(fs.realpathSync.native(joined.slice(0, cut) || '/'), joined.slice(cut + 1));
+}
+
+// The canonical paths that the symlink chain of `file` reaches, hop by hop, as the kernel
+// resolves them. The chain stops at an entry that is no symlink or cannot be read, or after
+// MAX_LINK_HOPS.
+function linkChain(file) {
+  const chain = [];
+  let current = canonical(file);
+  while (current !== null && chain.length < MAX_LINK_HOPS && isSymlink(current)) {
+    try {
+      current = linkTarget(current);
+    } catch {
+      break;
+    }
+    chain.push(current);
+  }
+  return chain;
+}
+
+// True when `file`, a CLAUDE.md or a .claude/CLAUDE.md, is a symlink whose own chain reaches
+// the AGENTS.md path of its folder (for a .claude/CLAUDE.md, of the folder above), and that
+// AGENTS.md is a file. Such a link holds no text of its own, so there is nothing to migrate.
+// A CLAUDE.md that the AGENTS.md links to is no such link: its removal would leave the
+// AGENTS.md dangling. No separate test of the chain of the AGENTS.md is needed for that: each
+// hop follows from its canonical path alone, so a chain from `file` through the AGENTS.md and
+// a chain from the AGENTS.md back to `file` make a loop of symlinks, and then the AGENTS.md
+// resolves to no file.
 export function isAgentsLink(file) {
   if (!isSymlink(file)) return false;
   let folder = path.posix.dirname(file);
   if (path.posix.basename(folder) === CLAUDE_FOLDER) folder = path.posix.dirname(folder);
-  try {
-    return fs.realpathSync(file) === fs.realpathSync(`${folder}/${ROOT_AGENTS}`);
-  } catch {
-    return false;
-  }
+  const agents = canonical(path.resolve(folder, ROOT_AGENTS));
+  return agents !== null && isFile(agents) && linkChain(file).includes(agents);
 }
 
 // The text of a file, or null when no file is there; grep and awk then fail the same way. A

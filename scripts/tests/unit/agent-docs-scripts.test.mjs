@@ -847,6 +847,227 @@ describe('agent-first-check.mjs convert-agent', () => {
     ]);
   });
 
+  // omp parses the frontmatter as YAML and skips an agent whose name or description is no string. A YAML 1.2
+  // core-schema reader reads each value as a boolean, a number, a flow collection, an alias, a block sequence, a block
+  // mapping, or a reserved indicator, not as a string.
+  test('refuses a name or description that is no YAML string', () => {
+    const tools = 'tools: Read';
+    for (const value of ['true', 'TRUE', 'False', '123', '0x1f', '1e5', '[rev]', '{a: b}']) {
+      expectRun(convertAgent(claudeAgent(`name: ${value}`, AGENT_DESCRIPTION, tools)), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: name is no YAML string; port it by hand`,
+      ]);
+    }
+    for (const lines of [
+      ['description: [review]'],
+      ['description: true'],
+      ['description: True # a comment'],
+      ['description: 42'],
+      ['description: -7'],
+      ['description: 1.5'],
+      ['description: 2e3'],
+      ['description: 0x1F'],
+      ['description: 0o17'],
+      ['description: .inf'],
+      ['description: -.Inf'],
+      ['description: .NaN'],
+      ['description: {a: b}'],
+      ['description: *d'],
+      ['description: - Reviews a diff.'],
+      ['description: ? Reviews a diff.'],
+      ['description: %Reviews'],
+      ['description: @Reviews'],
+      ['description: `Reviews`'],
+      ['description:', '  - Reviews a diff.', '  - Finds bugs.'],
+      ['description: # the list', '- Reviews a diff.'],
+      ['description:', '  [review]'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, ...lines, tools)), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: description is no YAML string; port it by hand`,
+      ]);
+    }
+  });
+
+  test('refuses a block mapping value as no YAML string; a colon in a block scalar, in quotes, or before no space is text', () => {
+    for (const lines of [
+      ['description:', '  purpose: review'],
+      ['description:', '  purpose:'],
+      ['description: # the mapping', '  review: diff', '  scope: all'],
+      ['description:', '  "purpose": review'],
+      ['description:', "  'purpose':\treview"],
+      ['description: Reviews a diff', '  scope: all'],
+      ['description: Reviews a diff', '  for bugs.', '  scope: all # a comment'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, ...lines, 'tools: Read')), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: description is no YAML string; port it by hand`,
+      ]);
+    }
+    expectRun(convertAgent(claudeAgent('name:', '  rev: x', AGENT_DESCRIPTION, 'tools: Read')), 2, [
+      `ERROR convert-agent ${AGENT_PATH}: name is no YAML string; port it by hand`,
+    ]);
+    for (const lines of [
+      ['description: |', '  purpose: review'],
+      ['description:', '  "purpose: review"'],
+      ['description: Reviews a diff', '  for bugs.'],
+      ['description: Reviews a diff', '  at https://example.com/x for bugs.'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, ...lines, 'tools: Read')), 0, [
+        '---',
+        AGENT_NAME,
+        ...lines,
+        'tools: read',
+        '---',
+        '',
+        'You review diffs.',
+      ]);
+    }
+  });
+
+  test('refuses a block scalar without content lines as an empty field', () => {
+    for (const lines of [
+      ['description: |'],
+      ['description: >-'],
+      ['description: |+ # empty'],
+      ['description: >2', '', '  '],
+      ['description:', '  |'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, ...lines, 'tools: Read')), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: no description field; port it by hand`,
+      ]);
+    }
+    expectRun(convertAgent(claudeAgent('name: >', AGENT_DESCRIPTION, 'tools: Read')), 2, [
+      `ERROR convert-agent ${AGENT_PATH}: no name field; port it by hand`,
+    ]);
+  });
+
+  test('refuses a block scalar header that is not valid, and converts each valid header form', () => {
+    for (const header of ['|x', '>x', '| x', '|0', '|--', '>+-', '|2-3', '|#c', '>10']) {
+      expectRun(
+        convertAgent(claudeAgent(AGENT_NAME, `description: ${header}`, '  Reviews a diff.', 'tools: Read')),
+        2,
+        [`ERROR convert-agent ${AGENT_PATH}: description is no YAML string; port it by hand`],
+      );
+    }
+    for (const header of ['|', '>', '|-', '>+', '|2', '>2-', '|-2', '> # folded']) {
+      const lines = [`description: ${header}`, '  Reviews a diff.'];
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, ...lines, 'tools: Read')), 0, [
+        '---',
+        AGENT_NAME,
+        ...lines,
+        'tools: read',
+        '---',
+        '',
+        'You review diffs.',
+      ]);
+    }
+  });
+
+  test('refuses a plain value that starts with ], }, or , as no YAML string', () => {
+    for (const value of ['] Reviews a diff.', '}Reviews', ', Reviews a diff.']) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, `description: ${value}`, 'tools: Read')), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: description is no YAML string; port it by hand`,
+      ]);
+    }
+    expectRun(convertAgent(claudeAgent('name: ,rev', AGENT_DESCRIPTION, 'tools: Read')), 2, [
+      `ERROR convert-agent ${AGENT_PATH}: name is no YAML string; port it by hand`,
+    ]);
+  });
+
+  test('refuses a name or description with a YAML anchor or tag', () => {
+    for (const lines of [
+      ['description: &d Reviews a diff.'],
+      ['description: !tag Reviews a diff.'],
+      ['description: !!str 5'],
+      ['description:', '  &d Reviews a diff.'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, ...lines, 'tools: Read')), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: description uses a YAML anchor or tag; port it by hand`,
+      ]);
+    }
+    for (const value of ['&n rev', '!!str rev']) {
+      expectRun(convertAgent(claudeAgent(`name: ${value}`, AGENT_DESCRIPTION, 'tools: Read')), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: name uses a YAML anchor or tag; port it by hand`,
+      ]);
+    }
+  });
+
+  // The YAML 1.2 core schema reads only these spellings as a boolean, a special float, a number, or a null.
+  test('refuses only the core-schema spellings of a boolean, a special float, and a number; other spellings convert', () => {
+    for (const value of [
+      'true',
+      'True',
+      'TRUE',
+      'false',
+      'False',
+      'FALSE',
+      '.inf',
+      '.Inf',
+      '.INF',
+      '+.inf',
+      '-.INF',
+      '.nan',
+      '.NaN',
+      '.NAN',
+      '1E5',
+      '0x1f',
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, `description: ${value}`, 'tools: Read')), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: description is no YAML string; port it by hand`,
+      ]);
+    }
+    for (const value of ['tRue', 'fALSE', 'TRue', '.iNf', '-.InF', '.nAn', '.Nan', '0X1F', '0O17', 'nUll']) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, `description: ${value}`, 'tools: Read')), 0, [
+        '---',
+        AGENT_NAME,
+        `description: ${value}`,
+        'tools: read',
+        '---',
+        '',
+        'You review diffs.',
+      ]);
+    }
+    expectRun(convertAgent(claudeAgent(AGENT_NAME, 'description: Null', 'tools: Read')), 2, [
+      `ERROR convert-agent ${AGENT_PATH}: no description field; port it by hand`,
+    ]);
+  });
+
+  test('converts a quoted or block scalar description and a plain one that only starts like a number; quotes a name that would read as no string', () => {
+    for (const lines of [
+      ['description: "true"'],
+      ["description: '42'"],
+      ['description: "[review]" # quoted'],
+      ['description: >-', '  Reviews a diff', '  for bugs.'],
+      ['description: |', '  Reviews a diff.'],
+      ['description:', '  "true"'],
+      ['description: true story'],
+      ['description: 42 reviews'],
+      ['description: Reviews [a] diff - for bugs.'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, ...lines, 'tools: Read')), 0, [
+        '---',
+        AGENT_NAME,
+        ...lines,
+        'tools: read',
+        '---',
+        '',
+        'You review diffs.',
+      ]);
+    }
+    for (const [value, name] of [
+      ['"123"', '"123"'],
+      ["'true' # quoted", '"true"'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(`name: ${value}`, AGENT_DESCRIPTION, 'tools: Read')), 0, [
+        '---',
+        `name: ${name}`,
+        AGENT_DESCRIPTION,
+        'tools: read',
+        '---',
+        '',
+        'You review diffs.',
+      ]);
+    }
+  });
+
   test('converts each tools form: comma list, quoted scalar, trailing comment, flow list, block list, with comments', () => {
     const expected = ['---', AGENT_NAME, AGENT_DESCRIPTION, 'tools: read, grep', '---', '', 'You review diffs.'];
     for (const tools of [
@@ -936,7 +1157,7 @@ describe('bridge-check.mjs audit', () => {
   test('a dangling CLAUDE.local.md or CLAUDE.md symlink is no file', () => {
     const links = { 'CLAUDE.local.md': 'missing.md', 'api/CLAUDE.local.md': 'missing.md' };
     expectRun(run(BRIDGE, ['audit'], fixture({ links })), 0, [...audit(), NO_PLUGIN]);
-    // Outside git, the Step 2 `find -type f` listed no symlink either.
+    // Outside git, a dangling symlink resolves to no file either.
     const outside = fixture({
       git: false,
       files: { 'api/CLAUDE.md': 'rules\n' },
@@ -982,6 +1203,16 @@ describe('bridge-check.mjs audit', () => {
       'BROKEN: legacy CLAUDE.md still present: docs/CLAUDE.md',
       'HANDOFF context-tree: unrouted node docs/AGENTS.md',
     ]);
+  });
+
+  test('outside git a nested CLAUDE.md symlink to a file is listed, a dangling one is not; verify reports the listed one', () => {
+    const fx = fixture({
+      git: false,
+      files: { 'AGENTS.md': routed('docs/AGENTS.md'), 'docs/AGENTS.md': STALE },
+      links: { 'docs/CLAUDE.md': 'AGENTS.md', 'api/CLAUDE.md': 'missing.md' },
+    });
+    expectRun(run(BRIDGE, ['audit'], fx), 0, [...audit('AGENTS.md'), 'legacy link: docs/CLAUDE.md', NO_PLUGIN]);
+    expectRun(run(BRIDGE, ['verify'], fx), 0, ['BROKEN: legacy CLAUDE.md still present: docs/CLAUDE.md']);
   });
 });
 
@@ -1298,5 +1529,103 @@ describe('.claude entries and root context files in detect, check, and audit', (
       check: [C3_LINK('.claude/CLAUDE.md'), C3_LINK('CLAUDE.md'), C3_NEXT_TO('docs/CLAUDE.md')],
       audit: ['legacy link: .claude/CLAUDE.md', 'legacy link: CLAUDE.md', 'legacy: docs/CLAUDE.md'],
     });
+  });
+
+  // Removing such a CLAUDE.md would leave the AGENTS.md that links to it dangling.
+  test('C3 a CLAUDE.md or .claude/CLAUDE.md that the AGENTS.md of its folder links to is no link to that AGENTS.md', () => {
+    const noAgents = { ...BASE_FILES, 'AGENTS.md': undefined };
+    for (const [files, links, legacy, c3] of [
+      [
+        { ...noAgents, 'rules.md': ROOT_AGENTS },
+        { 'AGENTS.md': 'CLAUDE.md', 'CLAUDE.md': 'rules.md' },
+        'CLAUDE.md',
+        C3_NEXT_TO,
+      ],
+      [{ ...noAgents, 'CLAUDE.md': ROOT_AGENTS }, { 'AGENTS.md': 'CLAUDE.md' }, 'CLAUDE.md', C3_NEXT_TO],
+      [
+        { ...noAgents, 'rules.md': ROOT_AGENTS },
+        { 'AGENTS.md': '.claude/CLAUDE.md', '.claude/CLAUDE.md': '../rules.md' },
+        '.claude/CLAUDE.md',
+        C3_CLAUDE_FOLDER,
+      ],
+    ]) {
+      expectClaudeLines(fixture({ files, links }), 0, { detect: [`legacy: ${legacy}`], check: [c3(legacy)] });
+    }
+  });
+
+  // Each hop resolves against the real folder of its link, as the kernel resolves it, not against the path as written.
+  test('C3 an absolute link through a symlinked folder to the AGENTS.md of its folder is a link to it', () => {
+    const fx = fixture({ ...BASE, links: { alias: '.' } });
+    fs.symlinkSync(path.join(fx.dir, 'alias', 'AGENTS.md'), path.join(fx.dir, 'CLAUDE.md'));
+    expectClaudeLines(fx, 0, {
+      detect: ['legacy: CLAUDE.md'],
+      check: [C3_LINK('CLAUDE.md')],
+      audit: ['legacy link: CLAUDE.md'],
+    });
+  });
+
+  // `.claude` is a symlink, so `../../AGENTS.md` of its CLAUDE.md starts at config/claude: the root AGENTS.md.
+  test('C3 a .claude/CLAUDE.md in a symlinked .claude folder that reaches the root AGENTS.md is a link to it', () => {
+    const fx = fixture({
+      ...BASE,
+      dirs: ['config/claude'],
+      links: { '.claude': 'config/claude', 'config/claude/CLAUDE.md': '../../AGENTS.md' },
+    });
+    expectClaudeLines(fx, 0, {
+      detect: ['legacy: .claude/CLAUDE.md', 'legacy: config/claude/CLAUDE.md'],
+      check: [C3_LINK('.claude/CLAUDE.md'), C3_ALONE('config/claude/CLAUDE.md')],
+      audit: ['legacy link: .claude/CLAUDE.md', 'legacy: config/claude/CLAUDE.md'],
+    });
+  });
+
+  // Here `../AGENTS.md` starts at nested/sub: it reaches nested/AGENTS.md, which is not the root AGENTS.md.
+  test('C3 a .claude/CLAUDE.md in a symlinked .claude folder that reaches another AGENTS.md is no link', () => {
+    const fx = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, 'nested/AGENTS.md': STALE },
+      links: { '.claude': 'nested/sub', 'nested/sub/CLAUDE.md': '../AGENTS.md' },
+    });
+    expectClaudeLines(fx, 0, {
+      detect: ['legacy: .claude/CLAUDE.md', 'legacy: nested/sub/CLAUDE.md'],
+      check: [C3_CLAUDE_FOLDER('.claude/CLAUDE.md'), C3_ALONE('nested/sub/CLAUDE.md')],
+    });
+  });
+
+  // `alias` is a symlink to nested/sub, so the kernel reads `alias/..` as nested: both links reach nested/AGENTS.md,
+  // not the root AGENTS.md that a lexical `..` gives.
+  test('C3 a CLAUDE.md or .claude/CLAUDE.md link through alias/.. that reaches another AGENTS.md is no link', () => {
+    const fx = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, 'nested/AGENTS.md': STALE },
+      dirs: ['nested/sub'],
+      links: { alias: 'nested/sub', 'CLAUDE.md': 'alias/../AGENTS.md', '.claude/CLAUDE.md': '../alias/../AGENTS.md' },
+    });
+    expectClaudeLines(fx, 0, {
+      detect: ['legacy: .claude/CLAUDE.md', 'legacy: CLAUDE.md'],
+      check: [C3_CLAUDE_FOLDER('.claude/CLAUDE.md'), C3_NEXT_TO('CLAUDE.md')],
+    });
+  });
+
+  test('C3 a chain of two links from a CLAUDE.md to the AGENTS.md of its folder is a link to it', () => {
+    const fx = fixture({ ...BASE, links: { 'CLAUDE.md': 'x.md', 'x.md': 'AGENTS.md' } });
+    expectClaudeLines(fx, 0, {
+      detect: ['legacy: CLAUDE.md'],
+      check: [C3_LINK('CLAUDE.md')],
+      audit: ['legacy link: CLAUDE.md'],
+    });
+  });
+
+  // A CLAUDE.md and an AGENTS.md that link to each other make a loop: the AGENTS.md is no file, so there is no link.
+  test('C3 a CLAUDE.md in a loop with the AGENTS.md of its folder is no link to it', () => {
+    const fx = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, 'AGENTS.md': undefined },
+      links: { 'CLAUDE.md': 'AGENTS.md', 'AGENTS.md': 'CLAUDE.md' },
+    });
+    const lines = claudeLines(fx);
+    expectRun(lines.detect, 0, ['legacy: CLAUDE.md']);
+    expectRun(lines.audit, 0, ['legacy: CLAUDE.md']);
+    // The check cannot read the AGENTS.md (ELOOP), so it also prints ERROR lines of other checks and exits 2.
+    assert.deepEqual(lines.check.lines, [C3_ALONE('CLAUDE.md')]);
   });
 });

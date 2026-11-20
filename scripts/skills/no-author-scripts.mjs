@@ -18,7 +18,7 @@ const AGENTS_DIR = argSkills
     ? path.resolve(process.argv[3])
     : null
   : path.join(REPO_DIR, 'plugins/docks/agents');
-const ALLOWLIST = ['scaffold', 'write-skill'];
+const ALLOWLIST = ['write-skill'];
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const scriptEntries = fs.readdirSync(path.join(REPO_DIR, 'scripts'), { withFileTypes: true });
@@ -37,7 +37,7 @@ const authorScriptTails = [...topLevelScriptTails, `(?:${firstLevelScriptDirs.jo
 // prefix - bare, ./, ../, variables, substitutions, alternate clone roots -
 // of a real author tail is therefore a violation, with no exemption logic.
 const PATTERN = new RegExp(
-  `scripts/(?:${authorScriptTails.join('|')})\\b|tree/guard\\.sh|content-hash\\.sh|transform-guard\\.sh|no-author-scripts\\.sh|codex-facts\\.sh|guard-spec\\.sh`,
+  `scripts/(?:${authorScriptTails.join('|')})\\b|tree/guard\\.sh|content-hash\\.sh|transform-guard\\.sh|no-author-scripts\\.sh|guard-spec\\.sh`,
 );
 
 function namesAuthorScript(line) {

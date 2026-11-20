@@ -579,7 +579,7 @@ function gateCatalog() {
 
 // True when git tracks a file at or under `relative`. Outside a git checkout of REPO (the gate tests run on a copy
 // of the working tree without `.git`), every file stands for a tracked one. An ignored file in a checkout does not
-// count: `.gitignore` ignores local `.claude/agents/review-bench-*` files.
+// count.
 function hasTrackedEntry(relative) {
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
   if (top.status === 0 && fs.realpathSync(top.stdout.trim()) === fs.realpathSync(REPO)) {
@@ -679,8 +679,8 @@ async function extensionProblem(pluginRoot, entry) {
   return typeof module.default === 'function' ? null : 'has no default function export';
 }
 
-// Each agent file loads as an omp task agent: it has a name and a description, no `model` key (a Claude Code alias
-// such as `sonnet` fails in omp), and no `${...}` variable.
+// Each agent file loads as an omp task agent: it has a name and a description, no `model` key (omp reads the value
+// as a model id, and a value that resolves to no model fails the spawn), and no `${...}` variable.
 function gateAgentFiles(p) {
   let agentsOk = true;
   for (const file of fs

@@ -11,29 +11,36 @@ Per-finding reproduction is mandatory. Before any finding lands in the `#### Iss
 | Check | Rule |
 |---|---|
 | Frontmatter | valid YAML; `name` (lowercase+hyphens), quoted `description`, `user-invocable`, `metadata.pattern`, `source_files`, `updated` |
-| CSO | starts `Use when…`; ends with a `Not for …` clause; ≥5 project-specific identifiers; ≤1024 chars; no angle brackets; no unquoted `: ` or `#` hazards |
-| Existing-skill cap | any ON-DISK skill whose parsed `description` >1024 chars that Phase 2a did NOT flag `rewrite-description` → **hard fail** (Codex silently skips an over-cap skill, so it never loads) |
+| CSO | starts `Use when…`; ends with a `Not for …` clause; ≥5 project-specific identifiers; ≤1024 chars; no unquoted `: ` or `#` hazards |
+| Existing-skill cap | any ON-DISK skill whose parsed `description` >1024 chars that Phase 2a did NOT flag `rewrite-description` → **hard fail** (the agentskills.io specification caps `description` at 1024 chars, and a loader that validates against the specification rejects the skill) |
 | Size | body ≤500 (hard cap). **Hard fail** 310–500 lines with NO references/ — split required |
 | Content accuracy | apply `references/content-auditor.md` to every drafted/refreshed skill — verify EVERY ref, code snippet, and asserted identifier against current source, **not a sample**. State claims-checked; pass only at zero unreproduced drift |
 | Durable anchors | `grep -nE '[A-Za-z0-9_./-]+\.[a-z]{1,5}:[0-9]+'` over each drafted body + references/ — any hit whose path EXISTS in the project is a `line-anchor` finding: convert to the durable grammar (`path` — `symbol` — purpose — `verify:` command). Fictional example paths (no such file) pass. **Hard fail** a plan that ships live line anchors |
 | Durable facts | apply `references/skills-builder.md` § Durable anchors to each drafted body + references/: `grep -nEi '\b(currently\|as of today\|now has\|recently)\b'` hits outside a BAD example; a version, count, size, or port with no `verify:` command; a hand-maintained list of routes/tables/skills/nodes; a fact copied from an `AGENTS.md` node or config file instead of pointed at; a backticked path that does not resolve → `volatile-fact` finding. `grep -qF 'Pointers here name concepts, not coordinates'` must hit once per drafted `SKILL.md`. **Hard fail** a plan that ships any of these |
-| Maintenance skill | use plugin `docks:skill-maintenance` when available; local copy only for project-specific rules; `pattern: reviewer`, `user-invocable: false`; **hard fail** if body references kit-internal validators that do not ship downstream |
+| Maintenance skill | use the plugin skill `skill-maintenance` when available; local copy only for project-specific rules; `pattern: reviewer`, `user-invocable: false`; **hard fail** if body references kit-internal validators that do not ship downstream |
 | Prompt style | apply `references/content-auditor.md` § Prompt-style sub-check to each drafted/refreshed body + references/, keep list included. Each kept finding goes to `Issues to Fix` as should-fix with its proposed rewrite. It is not a hard fail, because a removal stays a hypothesis until a baseline check confirms it |
 | No prose-config edits | Phase 3 must contain no AGENTS.md / CLAUDE.md edits |
 
-## Agent checks (every Phase 5 agent — BOTH formats)
+## Agent checks (every Phase 5 agent — `.omp/agents/<name>.md`)
 
-**Claude `.claude/agents/*.md`:** `name` kebab-case ≤64, no "anthropic"/"claude" · description <1024, 3rd person, specific · system prompt <200 lines · tools minimal · no scope overlaps.
-
-**Codex `.codex/agents/*.toml`:** parses as TOML; all three required keys present (`name`, `description`, `developer_instructions`); `model` omitted, or a model ID that the Codex models page lists today (verify at https://developers.openai.com/codex/models; do not check against a hand-kept list); `sandbox_mode` ∈ {`read-only`, `workspace-write`, `danger-full-access`} or omitted; `name` matches its Claude twin. An `Agent`-dispatching agent still ships a `.toml`; put its delegation in `developer_instructions` (built-in `worker`/`explorer` or a custom agent). Codex docs state no nesting-depth key, so flag nested delegation for the user to verify.
+| Check | Rule |
+|---|---|
+| Path | the file is `.omp/agents/<name>.md`; no `.claude/agents/` file is drafted |
+| `name` | a YAML string, kebab-case, ≤64 chars, equal to the file name; not `main` or `sub` (omp reserves them and skips the file); not a bundled agent name (`task`, `scout`, `sonic`, `reviewer`, `security-reviewer`) unless the plan states the override |
+| `description` | a YAML string, ≤1024 chars, 3rd person, specific; starts `Use when` and has a `Not for` clause |
+| `tools` | omp tool names only, minimal; or omitted for the default set. The report states that omp adds MCP, extension, and custom tools to an explicit list |
+| `spawns` | present only on an agent that delegates, and then it names its child agents; a nested delegation chain fits inside `task.maxRecursionDepth` (default 2) |
+| Skill sources | the body names each source it needs (`autoload-skills`, a `skill://<name>/…` read, or an explicit file read); no rule that depends on `AGENTS.md`, which a subagent does not get |
+| Forbidden keys | no `model` (a user pin goes to `task.agentModelOverrides.<agent>`), no `maxTurns`, no `disallowedTools` |
+| Body | system prompt <200 lines; no scope overlaps with another agent |
 
 ## Cross-layer integrity (critical)
 
-Every skill path (`<skills-dir>/…`, or its `.claude/skills/…` symlink twin) referenced by a Phase 5 agent MUST exist in the Phase 3 Skills Plan. `<skills-dir>` is the directory `skills-builder.md` writes to. Split→two skills or merged→sibling: flag for path update. Path neither on disk nor proposed: **hard fail**, regenerate Phase 5.
+Every skill path (`<skills-dir>/…` or `skill://<name>/…`) and every `autoload-skills` name referenced by a Phase 5 agent MUST exist in the Phase 3 Skills Plan. `<skills-dir>` is the directory `skills-builder.md` writes to. Split→two skills or merged→sibling: flag for path update. Path neither on disk nor proposed: **hard fail**, regenerate Phase 5.
 
 ## Replaced-skill sentinel
 
-For each split/merge in Phase 3, the gate presentation MUST include the cleanup of the old skill: `git rm -r <skills-dir>/<old-name>`, plus `git rm .claude/skills/<old-name>` (no trailing slash) when `<skills-dir>` is `.agents/skills` and that entry is a symlink. Flag if missing.
+For each split, merge, or replaced skill in Phase 3, the gate presentation MUST include the cleanup of the old skill: `git rm -r <skills-dir>/<old-name>`. When `<skills-dir>` is `.agents/skills` and `.claude/skills/<old-name>` is a symlink into `.agents/skills`, the cleanup MUST also remove that link, with no trailing slash so the command removes the link and not its target: `git rm .claude/skills/<old-name>` when git tracks the link (`git ls-files .claude/skills/<old-name>` prints it), else `rm .claude/skills/<old-name>`. Flag a missing cleanup. Report each `.claude/skills/<name>` symlink whose target does not exist as a dangling link, and route it to `agent-first-setup`.
 
 ## SKILL.md split preservation (per-section, not byte-%)
 
@@ -53,7 +60,7 @@ Any `LOST SECTION` (relocated prose must be verbatim) / `NET SHRINK` ⇒ **hard 
 
 ## Behavioral grading (drafted or refreshed skills)
 
-Apply these rules whenever the pipeline checks a drafted or refreshed skill behaviorally, for example a baseline check (see `write-skill`) that runs realistic prompts with and without the skill. Each run is a fresh agent, subagent, or session, so it works on every runtime; on Claude Code, the `skill-creator` skill is an optional tool for full benchmarks. The static checks above prove the text is well formed; only a behavioral run shows that the skill changes what the agent does. Grade each expectation of each run, ideally in a separate agent that did not produce the run:
+Apply these rules whenever the pipeline checks a drafted or refreshed skill behaviorally, for example a baseline check (see `write-skill`) that runs realistic prompts with and without the skill. Each run is a fresh subagent from the omp `task` tool or a fresh session, so no conversation history helps the run. The static checks above prove the text is well formed; only a behavioral run shows that the skill changes what the agent does. Grade each expectation of each run, ideally in a separate agent that did not produce the run:
 
 1. **Quoted evidence for every verdict.** A pass needs a quote from the transcript or the output files that shows the expectation is true. Read the output files themselves, not the run's own summary of them. With no quote, or when you are unsure, the expectation fails: the expectation must prove itself.
 2. **No partial credit.** Each expectation is pass or fail. "Mostly done" is a fail with the missing part named in the evidence.
@@ -78,8 +85,8 @@ Write this subheading inside `## Research`. Use `####` or lower for every block 
 | Gotcha | Fix |
 |---|---|
 | Flagging a path "missing" from a stale earlier scan | Re-list it now — paths drift between scan and verify |
-| Skipping Codex `.toml` validation as "agents are Claude-only" | Both formats now ship — validate the `.toml` schema (required keys, model/sandbox values, name parity) too |
-| Letting an overlong or invalid YAML description through because the body is good | Fix frontmatter first — Codex skips invalid skills before reading the body |
+| Passing an agent file that has `model`, `maxTurns`, or `disallowedTools` | omp has no `maxTurns` or `disallowedTools` key, and the pipeline emits no `model`; remove the key before the plan reaches approval |
+| Letting an overlong or invalid YAML description through because the body is good | Fix frontmatter first — a loader skips a skill with invalid frontmatter before it reads the body |
 | Passing a freshly-drafted skill on a 5-ref spot-check | Newly authored skills hallucinate APIs too — run `content-auditor.md` over every drafted/refreshed skill, all claims not a sample |
 | Passing a baseline-check expectation because the output file exists | Open the file and quote the content that proves the expectation; existence alone is surface compliance |
 

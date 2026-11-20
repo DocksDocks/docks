@@ -35,7 +35,7 @@ const fail = (m) => {
 
 for (const file of files) {
   const name = path.basename(file, '.md');
-  if (['.gitkeep', 'AGENTS', 'CLAUDE'].includes(name)) continue;
+  if (['.gitkeep', 'AGENTS'].includes(name)) continue;
   const content = fs.readFileSync(file, 'utf8');
   const lines = splitLines(content);
 
@@ -48,8 +48,8 @@ for (const file of files) {
     continue;
   }
 
-  // Claude Code and Codex read agent metadata only from YAML frontmatter; a
-  // body line that looks like a field must not satisfy this structural guard.
+  // omp reads agent fields only from the YAML frontmatter; a body line that
+  // looks like a field must not satisfy this structural guard.
   const frontmatterEnd = lines.indexOf('---', 1);
   const getField = (key) => {
     const prefix = `${key}:`;
@@ -63,7 +63,9 @@ for (const file of files) {
   const nameField = getField('name');
   if (nameField !== name) fail(`${name} — name field ('${nameField}') does not match filename`);
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(nameField)) fail(`${name} — name not kebab-case or >64 chars ('${nameField}')`);
-  if (/anthropic|claude/i.test(nameField)) fail(`${name} — name must not contain 'anthropic' or 'claude'`);
+  // omp refuses an agent named `main` or `sub`; it trims and lowercases the name before the check.
+  if (['main', 'sub'].includes(nameField.trim().toLowerCase()))
+    fail(`${name} — name '${nameField}' is reserved: omp refuses an agent named main or sub`);
 
   const desc = getField('description');
   const descLen = [...desc].length;
@@ -73,17 +75,14 @@ for (const file of files) {
   if (!/\bnot\b/i.test(desc))
     fail(`${name} — description missing 'Not for…' exclusion clause (prevents delegation collisions)`);
 
-  // Plugin-shipped agents are consumed by Claude Code AND by omp, which discovers
-  // Claude plugin `agents/` dirs. Claude's model vocabulary (`inherit`, `sonnet`,
-  // `claude-*`) is not omp's: omp passes any literal straight through as a model ID,
-  // resolves nothing, and the spawn dies with "No model selected". Omitting the key
-  // is the only portable form — Claude Code documents `model` as defaulting to
-  // `inherit`, and omp falls back to the parent session model. Per-agent tiering
-  // belongs in consumer settings, not in shipped payload.
+  // omp reads a `model` value as a model id. A value that resolves to no model
+  // fails the spawn with "No model selected". Without the key, the agent uses
+  // the parent session model. A consumer pins a per-agent model in the
+  // `task.agentModelOverrides.<agent>` setting, not in the shipped agent file.
   const model = getField('model');
   if (model !== '')
     fail(
-      `${name} — remove 'model: ${model}'; plugin agents must omit it (Claude defaults to inherit; omp inherits the parent session). Pin per-agent models in consumer settings instead`,
+      `${name} — remove 'model: ${model}'; plugin agents must omit it (omp reads the value as a model id, and without the key the agent uses the parent session model). Pin per-agent models with task.agentModelOverrides.<agent> instead`,
     );
 
   const tools = getField('tools');
@@ -110,7 +109,7 @@ for (const file of files) {
   }
   if (/(^|[, ])Agent([,(]| |$)/.test(tools))
     fail(
-      `${name} — 'Agent' in tools is inert for a plugin subagent (subagents cannot spawn subagents); remove it and dispatch from the main conversation`,
+      `${name} — 'Agent' is not an omp tool name; remove it, and list the agents that this agent starts in 'spawns'`,
     );
 }
 
