@@ -1,6 +1,6 @@
 ---
 name: write-skill
-description: "Use when authoring a new skill for the docks plugin skill tree or a kit that follows docks conventions. Guides the `Use when…` description, body size and `references/` split, constraint blocks, BAD/GOOD pairs, baseline and trigger checks, and the bundled `skill-guard.mjs` scorer and validators. Not for refreshing an existing skill after source changes (use skill-maintenance) or measured benchmarks and description optimization (Anthropic's skill-creator)."
+description: "Use when authoring a new skill for the docks plugin skill tree or a kit that follows docks conventions. Guides the `Use when…` description, body size and `references/` split, constraint blocks, BAD/GOOD pairs, baseline and trigger checks, and the bundled `skill-guard.mjs` scorer and validators. Not for refreshing an existing skill after source changes (use skill-maintenance) or measured benchmarks and description optimization (follow the agentskills.io guides)."
 user-invocable: true
 metadata:
   pattern: meta-skill
@@ -19,7 +19,7 @@ Description-first. The description is surfaced in the skill listing every sessio
 </constraint>
 
 <constraint>
-Body sweet spot: 80–310 lines (the bundled `skill-guard.mjs` scorer awards 2 pts here). Under 80 lines is allowed but loses the 2 pts. Over 310 is also allowed (`skill-guard.mjs` fails past 500; agentskills.io recommends under 500) but you're past Claude Code's post-compaction re-attachment window (5,000 tokens ≈ 310 lines), so content past that may be silently dropped after auto-compaction. When the body crosses ~310 lines, move detail into `references/<topic>.md` files (30–150 lines each) and leave a one-line pointer in the body. Pattern: see `react-component-patterns/SKILL.md` and its `references/` folder.
+Body sweet spot: 80–310 lines (the bundled `skill-guard.mjs` scorer awards 2 pts here). Under 80 lines is allowed but loses the 2 pts. Over 310 is also allowed (`skill-guard.mjs` fails past 500) but the agentskills.io specification asks for a body under 5000 tokens and 500 lines, and 5000 tokens is about 310 lines. Every line past that costs context on each activation. When the body crosses ~310 lines, move detail into `references/<topic>.md` files (30–150 lines each) and leave a one-line pointer in the body. Pattern: see `react-component-patterns/SKILL.md` and its `references/` folder.
 </constraint>
 
 <constraint>
@@ -60,7 +60,7 @@ metadata:
 
 | # | Bucket | Pts | What earns it |
 |---|---|---|---|
-| 1 | CSO description starts `Use when` | 2 | Anthropic doc convention; literal prefix match |
+| 1 | CSO description starts `Use when` | 2 | docks convention; literal prefix match |
 | 2 | Description tightness | 2 | ≤500 chars = 2; ≤1000 = 1; >1000 = 0 |
 | 3 | Freshness | 1 | `metadata.updated` within last 180 days |
 | 4 | `<constraint>` blocks | up to 3 | 1 pt each, max 3 — promote non-negotiable rules to constraint blocks |
@@ -81,7 +81,7 @@ metadata:
 4. **Baseline check.** Re-run the step 0 prompts with the skill and compare (see "Behavioral checks"). A gap that stays open means the body does not reach it; fix the body, not the prompt.
 5. **Trigger check.** Run the query set against the description (see "Behavioral checks").
 6. **Score check.** `node <write-skill-dir>/scripts/skill-guard.mjs score --per-file | grep <name>` — the bundled scorer the kit CI also scores with (one rubric, no mirror). Validate one skill: `node …/skill-guard.mjs validate <skill-dir>`. If < 14, find the missing point in the rubric.
-7. **Structural check.** Kit: `bun scripts/skills/guard.mjs` (frontmatter for both runtimes + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
+7. **Structural check.** Kit: `bun scripts/skills/guard.mjs` (frontmatter rules + `refs-guard.mjs`: broken `references/` links, orphan reference files, the long-reference TOC rule below). Elsewhere: `node skill-guard.mjs validate --strict` covers the portable subset. Failures are non-negotiable — fix them.
 8. **Docs check.** Run the self-check in `references/durable-anchors.md` on the body and every reference. If the skill writes docs, check rows A–C of "Durable docs and agent-first output" below against the docs it emits; if it writes into a user repo, check row D too.
 9. **Targeted CI while iterating.** In a multi-plugin kit, run the owning plugin's gate after each meaningful change — in this kit, `bun scripts/ci.mjs --plugin <changed-plugin>`. Do not rerun unrelated plugin gates during the edit loop.
 10. **Full CI once.** Run `bun scripts/ci.mjs` at the final pre-commit/release gate, or earlier only when shared/repo-wide files changed. It must be green before commit.
@@ -89,7 +89,7 @@ metadata:
 
 ## Behavioral checks
 
-Two checks decide whether a skill works. Both use fresh agents: a subagent, or a new session in Claude Code, Codex, or OpenCode, with no authoring context. Neither check needs a Claude-only CLI. For measured trigger rates, repeated runs, and variance benchmarks in Claude Code, use Anthropic's `skill-creator` (anthropics/skills, Apache-2.0) as an optional tool; its eval set uses the same `query` / `should_trigger` fields as below.
+Two checks decide whether a skill works. Both use fresh agents with no authoring context: an omp task subagent (it gets no conversation history) or a new omp session. For measured trigger rates, repeated runs, and variance, follow the agentskills.io guides: <https://agentskills.io/skill-creation/optimizing-descriptions> and <https://agentskills.io/skill-creation/evaluating-skills>. Their eval sets use the same `query` / `should_trigger` fields as below.
 
 **Baseline check.** Use 2–3 realistic prompts (the step 0 prompts). Run each one in a fresh agent without the skill (for a rewrite: with the old version) and in a fresh agent with the new skill. Compare the pairs against assertions you write before you read the "with" outputs. The skill passes when the "with" runs close the recorded gaps and break nothing the "without" runs got right.
 
@@ -106,9 +106,9 @@ Judge each query in its own fresh session with the full skill listing installed,
 
 **Assertions.** Each assertion must be checkable from the output and must cite its evidence (a quoted line, a file path, a command result). A pass needs that evidence; surface compliance, such as the right file name with empty content, fails. An assertion that a wrong output also passes is worse than none, because it reports a gap as closed. Test each assertion against the "without" output: if that output passes too, the assertion does not discriminate. Replace it or drop it. Do not force assertions onto subjective output; for that, compare the two outputs side by side.
 
-## Fresh-instance QA (the Claude-A / Claude-B test)
+## Fresh-instance QA (the author / fresh reviewer test)
 
-The author of a skill (or plan) can't see its own gaps — they fill them from memory the description and body never state. Standing QA: hand the finished artifact to a **fresh instance** with no authoring context (Claude-A authors, Claude-B reviews cold — in this kit, a fresh-context subagent). Claude-B does exactly one thing: act on the artifact using only what it says, and every place it has to guess is a handoff defect Claude-A could not perceive. Run it before shipping any skill, agent, or substantive plan — a fresh-context read finding no material gap is a stronger stop than the author's own re-read.
+The author of a skill (or plan) can't see its own gaps — they fill them from memory the description and body never state. Standing QA: hand the finished artifact to a **fresh reviewer** with no authoring context (in omp, a task subagent, which gets no conversation history). The fresh reviewer does exactly one thing: act on the artifact using only what it says, and every place it has to guess is a handoff defect the author could not perceive. Run it before shipping any skill, agent, or substantive plan — a fresh-context read finding no material gap is a stronger stop than the author's own re-read.
 
 ## BAD / GOOD descriptions
 
@@ -120,7 +120,7 @@ description: A comprehensive, robust solution for working with dependencies in y
 description: "Use when running bun/pnpm/npm/yarn audit, pip-audit, cargo audit, or govulncheck; responding to a CVE/GHSA advisory; bumping framework majors (next/react/typescript/django/fastapi/tokio/axum); handling peer-dep or version-resolution conflicts after an upgrade; investigating transitive vulnerabilities; deciding auto-patch vs hold-back; setting dependency-update cadence. Not for fixing the vulnerable code path itself (use fix-workflow) or full security audits (use security)."
 ```
 
-The good example fires reliably because each clause names a category of user intent (run an audit, answer an advisory, bump a major, resolve a conflict, set a cadence) and the concrete nouns only anchor those categories. The bad example matches nothing specific — Claude can't disambiguate it from any other dep-related skill. When the trigger check finds a miss, add or sharpen a category; do not append the missed query's words.
+The good example fires reliably because each clause names a category of user intent (run an audit, answer an advisory, bump a major, resolve a conflict, set a cadence) and the concrete nouns only anchor those categories. The bad example matches nothing specific — the agent can't disambiguate it from any other dep-related skill. When the trigger check finds a miss, add or sharpen a category; do not append the missed query's words.
 
 ## Near-miss negatives (trigger collision)
 
@@ -143,7 +143,7 @@ If a near-miss has no clean route, the new skill's `Not for…` clause (or the s
 | Multiple languages share the same principle but need per-language code | One body section explaining the principle, language-specific BAD/GOOD in `references/<lang>-<topic>.md`. Pattern: `solid/references/typescript-solid.md`, `…/rust-solid.md`. |
 | A scenario applies but is the exception, not the rule | `references/` keeps it out of the per-session-loaded body. |
 
-Reference file sweet spot: 30–150 lines. Past 150, split again. Any reference file over **100 lines** with 3+ section headings needs a `## Contents` TOC at the top — Claude often partial-reads long references (`head`-style), and the TOC keeps the full scope visible (Anthropic best-practice). `refs-guard.mjs` enforces this; the heading gate auto-exempts embedded output templates whose sections live inside a verbatim code fence.
+Reference file sweet spot: 30–150 lines. Past 150, split again. Any reference file over **100 lines** with 3+ section headings needs a `## Contents` TOC at the top — an agent can read only a range of a long file, and the TOC keeps the full scope visible. This is a docks rule; the agentskills.io specification asks for focused reference files (<https://agentskills.io/specification>). `refs-guard.mjs` enforces this; the heading gate auto-exempts embedded output templates whose sections live inside a verbatim code fence.
 
 ### `scripts/` and `assets/` — the other two bundles
 
@@ -162,7 +162,7 @@ The scorer rewards up to 3 `<constraint>` blocks per skill — promote rules tha
 |---|---|
 | Violation has shipped a real bug or wasted user time before | "Generally a good idea" |
 | The model's training pulls it toward the wrong default | Aligns with default model behaviour anyway |
-| It costs the user trust if Claude gets it wrong silently | Cosmetic preference |
+| It costs the user trust if the agent gets it wrong silently | Cosmetic preference |
 | A concrete consequence is statable in the rule itself ("…because X breaks Y") | Vague "this is cleaner" |
 
 A skill with 4 constraint blocks scores the same as 3. Pick the 3 most load-bearing rules; demote the rest.
@@ -197,7 +197,7 @@ A failed row is a defect in the skill, not in one output: fix the template or th
 | Trap | Fix |
 |---|---|
 | Description = "Skill for working with X" | Replace with triggers: "Use when running X, fixing Y, debugging Z" |
-| Body restates what Claude already knows ("TypeScript is a typed superset of JavaScript…") | Cut. The body is for project-specific knowledge the agent lacks. |
+| Body restates what the agent already knows ("TypeScript is a typed superset of JavaScript…") | Cut. The body is for project-specific knowledge the agent lacks. |
 | BAD/GOOD pair is two snippets of similar code with no annotation | Add the `// BAD — <one-line reason>` and `// GOOD — <one-line reason>` comments; the agent pattern-matches on the comments |
 | Every paragraph wrapped in `<constraint>` | Demote to prose — past 3 constraints the scorer gives nothing, and the pattern stops signalling "non-negotiable" |
 | `name:` doesn't match directory name | Guard fails. Rename directory to match (kebab-case, `[a-z0-9-]+`, ≤64 chars). |
@@ -211,7 +211,7 @@ A failed row is a defect in the skill, not in one output: fix the template or th
 
 ## Transforming skills (split / migrate / rewrite existing content)
 
-A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no error. Before authoring one, read [`references/data-preservation.md`](references/data-preservation.md): inventory → per-section approval table → two-phase write → read-back verification. Two non-negotiables, copied **inline** into the skill (never cross-linked): a preservation `<constraint>` near the top (survives the 5,000-token compaction window) and a `## Verification` block doing per-section presence + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split. `scripts/skills/transform-guard.mjs` enforces both on the curated transformer list.
+A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no error. Before authoring one, read [`references/data-preservation.md`](references/data-preservation.md): inventory → per-section approval table → two-phase write → read-back verification. Two non-negotiables, copied **inline** into the skill (never cross-linked): a preservation `<constraint>` near the top (the agent reads it before any step) and a `## Verification` block doing per-section presence + a net-shrink tripwire — NOT a byte-percentage floor, which is backwards for a split. `scripts/skills/transform-guard.mjs` enforces both on the curated transformer list.
 
 ## When this skill does NOT apply
 
@@ -220,7 +220,7 @@ A skill that MOVES, SPLITS, or REWRITES existing files can drop content with no 
 
 ## Source attribution
 
-Framing ("the description is the only thing your agent sees") adapted from Matt Pocock's `write-a-skill` (MIT; removed upstream in June 2026 and replaced by `writing-for-agents`, <https://github.com/mattpocock/skills/blob/main/skills/productivity/writing-for-agents/SKILL.md>). Last version: <https://github.com/mattpocock/skills/blob/ab7196a1584ac60688aeb63cf0b56a5114c4a6f3/skills/productivity/write-a-skill/SKILL.md>. Step 0, the baseline check, the trigger check (query set with `query` / `should_trigger`, held-back queries, intent categories over keyword lists), and the stop condition are paraphrased from Anthropic's `skill-creator` (Apache-2.0; <https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md>). The assertion rules (evidence per pass, surface compliance fails, non-discriminating assertions flagged) are paraphrased from its grader prompt (Apache-2.0; <https://github.com/anthropics/skills/blob/main/skills/skill-creator/agents/grader.md>). Degrees-of-freedom and the near-miss negative idea adapted from Anthropic's skill authoring best practices (<https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices>) and its `skill-creator` plugin. Body / rubric / loop are docks-specific — `skill-creator` covers evals and benchmarking; this one covers the kit conventions neither generic skill knows. The markdown + frontmatter + progressive-disclosure shape itself is convergent prior art: Google's Open Knowledge Format (OKF v0.1, Apache-2.0 — markdown files with YAML frontmatter; <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>, spec in <https://github.com/GoogleCloudPlatform/knowledge-catalog>) and Karpathy's LLM-Wiki pattern (raw sources / wiki / schema layers with Ingest–Query–Lint ops; <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>) standardize the same idea independently.
+Framing ("the description is the only thing your agent sees") adapted from Matt Pocock's `write-a-skill` (MIT; removed upstream in June 2026 and replaced by `writing-for-agents`, <https://github.com/mattpocock/skills/blob/main/skills/productivity/writing-for-agents/SKILL.md>). Last version: <https://github.com/mattpocock/skills/blob/ab7196a1584ac60688aeb63cf0b56a5114c4a6f3/skills/productivity/write-a-skill/SKILL.md>. Step 0, the baseline check, the trigger check (query set with `query` / `should_trigger`, held-back queries, intent categories over keyword lists), and the stop condition are paraphrased from Anthropic's `skill-creator` (Apache-2.0; <https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md>). The assertion rules (evidence per pass, surface compliance fails, non-discriminating assertions flagged) are paraphrased from its grader prompt (Apache-2.0; <https://github.com/anthropics/skills/blob/main/skills/skill-creator/agents/grader.md>). Degrees-of-freedom and the near-miss negative idea adapted from the agentskills.io best practices (<https://agentskills.io/skill-creation/best-practices>), the agentskills.io optimizing-descriptions guide (<https://agentskills.io/skill-creation/optimizing-descriptions>), and Anthropic's `skill-creator`. Body / rubric / loop are docks-specific — `skill-creator` covers evals and benchmarking; this one covers the kit conventions neither generic skill knows. The markdown + frontmatter + progressive-disclosure shape itself is convergent prior art: Google's Open Knowledge Format (OKF v0.1, Apache-2.0 — markdown files with YAML frontmatter; <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>, spec in <https://github.com/GoogleCloudPlatform/knowledge-catalog>) and Karpathy's LLM-Wiki pattern (raw sources / wiki / schema layers with Ingest–Query–Lint ops; <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>) standardize the same idea independently.
 
 ## Report a problem with this skill
 

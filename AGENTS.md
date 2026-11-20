@@ -1,6 +1,6 @@
 # AGENTS.md
 
-docks is a cross-tool engineering skill kit and plugin marketplace. It ships **skills** for agentskills.io-compliant runtimes (Codex, Claude Code, OpenCode, VS Code Copilot), including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the GitHub-issue plan lifecycle instead of runtime-specific Plan Mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin ships read-only reviewer wrappers under `plugins/plan-lifecycle/agents/`. Both plugins ship as native omp packages.
+docks is an engineering skill kit and plugin marketplace for omp. It ships **skills** for omp, including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the GitHub-issue plan lifecycle instead of runtime-specific Plan Mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin ships read-only reviewer wrappers under `plugins/plan-lifecycle/agents/`. Both plugins ship as native omp packages.
 
 This root file stays **repo-wide**. Per-area authoring details - skill/agent frontmatter, scoring, the release flow, CI triggers - live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
 
@@ -20,9 +20,9 @@ Bun runs this repository's tooling and is the package manager; its version is th
 .
 ├── plugins/docks/                    plugin payload (shipped to consumers)
 │   ├── package.json                  native omp package manifest (name, version, `omp` object)
-│   ├── skills/   (cross-tool)        surfaced in every runtime - incl. security/refactor/skill-agent-pipeline pipelines
+│   ├── skills/                       skills omp loads from the package - incl. security/refactor/skill-agent-pipeline pipelines
 │   └── extensions/ (omp)             verify-gate commit check and context-tree nudge: omp extensions (`.ts` adapters over `.mjs` cores)
-├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin (cross-tool): lifecycle skills, shipped plan.mjs, plan contract reference, and read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
+├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin: lifecycle skills, shipped plan.mjs, plan contract reference, and read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
 ├── .omp-plugin/marketplace.json      omp marketplace catalog (one entry per plugin)
 ├── .agents/skills/                   project-local skills (omp loads project skills from here)
 ├── docs/                             plan routing (rules: docs/AGENTS.md)
@@ -109,6 +109,6 @@ CI always runs `scripts/ci.mjs`: in full, per `--lane <shard>`, or per `--plugin
 - `disable-claudeai-connectors.sh` - same reason, it's an opinionated user-machine hook
 - Plugin version numbers in prose (AGENTS.md, README) - let `package.json`, the catalog, and GitHub Releases be the source of truth
 
-(Cross-tool entry point. Per-area rules live in the Context tree nodes above.)
+(Repository entry point. Per-area rules live in the Context tree nodes above.)
 
 Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.

@@ -1,6 +1,6 @@
 # docks
 
-A cross-tool engineering skill kit for any agentskills.io runtime (Claude Code, Codex, OpenCode), shipped as a native omp plugin. Sequential pipeline skills (security, refactor, skill-agent-pipeline) plus a library of engineering-convention skills.
+An engineering skill kit for omp, shipped as a native omp plugin. Sequential pipeline skills (security, refactor, skill-agent-pipeline) plus a library of engineering-convention skills.
 
 ## Install
 
@@ -104,13 +104,13 @@ omp plugin install plan-lifecycle@docks
 
 ## Why sequential, single-context?
 
-Earlier versions ran each pipeline as parallel Claude subagents. The kit now runs each pipeline as one sequential pass so the *same* skill works on every runtime. Plugin-shipped subagents remain Claude-only; Codex can use project-local `.codex/agents/*.toml` custom agents when explicitly delegated, with inline skill execution as the portable fallback. The plan issue (issue body + review comments) is the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval record. Each pipeline still uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (recorded in the same plan issue) before anything is applied.
+Earlier versions ran each pipeline as parallel Claude subagents. The kit now runs each pipeline as one sequential pass in a single context; that sequential path stays the reference. omp loads the agents that a plugin ships in its `agents/` folder. The plan issue (issue body + review comments) is the explicit handoff (inter-phase IPC, auto-compact resilience) and the approval record. Each pipeline still uses a **Builder-Verifier** shape: a verifier phase challenges the builder's output (recorded in the same plan issue) before anything is applied.
 
 ## Validators (plugin-author tooling)
 
 Quality gates live in the marketplace repo's `scripts/` directory and are NOT shipped to user installs — they validate plugin authoring before release:
 
-- `scripts/skills/guard.mjs` + the bundled `write-skill/scripts/skill-guard.mjs` (`score`) — Codex + Claude compatibility and quality (max 16)
+- `scripts/skills/guard.mjs` + the bundled `write-skill/scripts/skill-guard.mjs` (`score`) — skill frontmatter and quality (max 16)
 - `scripts/agents/guard.mjs` / `scripts/agents/score.mjs` — structural + quality (max 15)
 
 `bun scripts/ci.mjs` runs the full local gate. CI gates merges (PRs to main) and releases (`docks--v*` tag pushes). See [the marketplace repo](https://github.com/DocksDocks/docks) for contributor docs.

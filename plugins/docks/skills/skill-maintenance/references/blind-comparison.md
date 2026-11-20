@@ -24,8 +24,8 @@ Skip it for mechanical fixes. It costs several fresh agent runs per prompt.
 
 ## Roles and Blindness
 
-Every role is a separate agent step. In Claude Code, spawn a subagent. In Codex
-or OpenCode, start a fresh session or a fresh subagent. Each role gets only the
+Every role is a separate agent step. Spawn one omp task subagent per role; a
+task subagent gets no conversation history. Each role gets only the
 inputs listed below, because a judge that knows which output came from the new
 skill tends to favor it.
 
@@ -125,7 +125,7 @@ Loser skill: <path>    Loser transcript: <path>
 Do not fit the skill to the test prompts. A suggestion that only helps one
 prompt adds text that every later session pays for. Two or three prompts show
 direction, not statistics; for repeated runs with variance, use a full
-benchmark tool (in Claude Code, the optional skill-creator plugin).
+benchmark (https://agentskills.io/skill-creation/evaluating-skills).
 
 ## Source
 
@@ -137,5 +137,5 @@ skill-creator (Apache-2.0):
 - License: https://github.com/anthropics/skills/blob/main/skills/skill-creator/LICENSE.txt
 
 Changes: rewritten in docks wording; JSON output schemas and file layout
-removed; random label assignment, baseline snapshot, and cross-tool agent steps
-added.
+removed; random label assignment, baseline snapshot, and omp task subagent
+steps added.

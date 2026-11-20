@@ -1,6 +1,6 @@
 # docks
 
-Native omp plugin marketplace publishing the **docks** plugin - a cross-tool engineering skill kit. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially on any agentskills.io runtime; a library of convention skills covers test-first, coverage, fix, review, design tokens, SOLID, type-safety, and React patterns; and a GitHub-issue lifecycle tracks multi-commit work.
+Native omp plugin marketplace publishing the **docks** plugin - an engineering skill kit for omp. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially; a library of convention skills covers test-first, coverage, fix, review, design tokens, SOLID, type-safety, and React patterns; and a GitHub-issue lifecycle tracks multi-commit work.
 
 ## Install
 
@@ -40,7 +40,7 @@ After install, the pipeline skills are user-invocable - ask "run a security audi
 
 ## What's inside
 
-### Pipeline skills (sequential, cross-tool)
+### Pipeline skills (sequential)
 
 Each runs as one sequential pass in a single context and gates approval through GitHub plan issues managed by the `plan-manager` skill, not a runtime-specific Plan Mode. Per-phase expertise lives in each skill's `references/`.
 
@@ -116,7 +116,7 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 ├── plugins/
 │   ├── docks/                         ← the engineering kit plugin (only plugin dirs get cached on user install)
 │   │   ├── package.json               ← native omp package manifest (name, version, `omp` object)
-│   │   ├── skills/                    ← cross-tool skills
+│   │   ├── skills/                    ← omp skills
 │   │   └── README.md                  ← plugin-facing docs
 │   └── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin (lifecycle skills + internal plan-reviewer and code-reviewer skills + explicit-only yolo skill + plan.mjs + marker contract + two read-only reviewer wrappers)
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
@@ -144,7 +144,7 @@ Four validators mirror the kit-side conventions:
 
 ```bash
 bun install --frozen-lockfile
-bun scripts/skills/guard.mjs    # Codex + Claude skill compatibility + reference hygiene
+bun scripts/skills/guard.mjs    # skill frontmatter rules + reference hygiene
 node plugins/docks/skills/write-skill/scripts/skill-guard.mjs score --per-file   # skill quality score (max 16)
 bun scripts/agents/guard.mjs    # frontmatter, "Use when…" / "Not…" CSO, no `model` key, tools declared, Workflow + Success Criteria
 bun scripts/agents/score.mjs    # quality score (max 15) - no `model` key, tools declared, Workflow + Success Criteria

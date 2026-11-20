@@ -1,6 +1,6 @@
 ---
 name: skill-maintenance
-description: "Use when project-local SKILL.md files need validation or refresh after source changes, Codex skipped a skill (invalid YAML, description over 1024 chars), .agents/skills and .claude/skills drift, stale source_files/metadata.updated/content_hash need no-op maintenance, review rules need pruning, or a skill rewrite needs a blind old-vs-new comparison. Not for authoring new Docks plugin skills (use write-skill), whole-set bootstrap/audit with agent emission (use skill-agent-pipeline), or prose docs."
+description: "Use when project-local SKILL.md files need validation or refresh after source changes, omp warns about or does not list a skill (invalid YAML, description over 1024 chars), a .claude/skills copy shadows .agents/skills, stale source_files/metadata.updated/content_hash need no-op maintenance, review rules need pruning, or a skill rewrite needs a blind old-vs-new comparison. Not for authoring new Docks plugin skills (use write-skill), whole-set bootstrap/audit with agent emission (use skill-agent-pipeline), or prose docs."
 user-invocable: false
 metadata:
   pattern: reviewer
@@ -11,8 +11,9 @@ metadata:
 # Skill Maintenance
 
 Maintain project-local skills as living, loadable artifacts. The job is not to
-invent new skills; it is to keep existing `SKILL.md` files accurate, valid for
-Codex and Claude Code, and idempotent when re-run on unchanged content.
+invent new skills; it is to keep existing `SKILL.md` files accurate, loadable
+by omp, valid against the agentskills.io spec, and idempotent when re-run on
+unchanged content.
 
 <constraint>
 Do not rewrite a skill just because it exists. First identify the source change,
@@ -21,7 +22,7 @@ necessary. A no-op scan must report "no changes" and leave files untouched.
 </constraint>
 
 <constraint>
-Codex compatibility is a hard gate. Every maintained `SKILL.md` needs valid YAML
+Frontmatter validity is a hard gate. Every maintained `SKILL.md` needs valid YAML
 frontmatter, `name`, `description`, a hyphen-case name no longer than 64 chars,
 and a description string no longer than 1024 chars. Quote descriptions that
 contain `: `, `#`, brackets, quotes, or code-like punctuation.
@@ -29,7 +30,7 @@ contain `: `, `#`, brackets, quotes, or code-like punctuation.
 
 <constraint>
 Project-local `skill-maintenance` copies are disposable only after inspection.
-If the Docks plugin already provides `docks:skill-maintenance`, compare the
+If the installed docks plugin already provides `skill-maintenance`, compare the
 local skill for project-specific rules. Propose removal only when it adds no
 local behavior, and wait for explicit user approval before deleting files.
 </constraint>
@@ -83,27 +84,22 @@ Judge and analyzer prompts, the rubric, and the decision table are in
 
 ## Compatibility Matrix
 
-| Check | Codex | Claude Code | Fix |
-|---|---|---|---|
-| Frontmatter parses as YAML | required | required | Quote risky scalars; use block scalars for long text |
-| `name` is lowercase hyphen-case | required | required | Rename folder or frontmatter so they match |
-| Description length | max 1024 | max 1024 | Move detail to body or `references/` |
-| Description trigger quality | strongly needed | strongly needed | Start with concrete "Use when..." triggers |
-| `user-invocable` | tolerated metadata | useful convention | Keep boolean in Docks-style project skills |
-| `metadata.source_files` | optional | optional | Use for maintenance targeting when available |
-| Body length | keep lean | keep under 500 lines | Split detailed material into `references/` |
-| Frontmatter keys for Claude.ai `.skill` upload | n/a | n/a | Packaging and skill-creator `quick_validate` accept only `name`, `description`, `license`, `allowed-tools`, `metadata`, `compatibility`; strip every other key (in Docks skills, `user-invocable` and `paths`) from the packaged copy |
+| Check | omp / agentskills.io rule | Fix |
+|---|---|---|
+| Frontmatter parses as YAML | required | Quote risky scalars; use block scalars for long text |
+| `name` is lowercase hyphen-case | required, max 64 chars, equal to the folder name | Rename folder or frontmatter so they match |
+| Description length | 1-1024 chars | Move detail to body or `references/` |
+| Description trigger quality | omp puts every name and description in the system prompt | Start with concrete "Use when..." triggers |
+| `user-invocable` | omp keeps unknown keys as metadata | Keep boolean in Docks-style project skills |
+| `metadata.source_files` | optional | Use for maintenance targeting when available |
+| Body length | under 500 lines and 5000 tokens | Split detailed material into `references/` |
 
-The `.skill` row applies only to a copy made for upload. Keep `user-invocable`
-and `paths` in the source skill, because Docks-style tooling and Claude Code
-read them. Key allowlist source:
-https://github.com/anthropics/skills/blob/main/skills/skill-creator/scripts/quick_validate.py
-(Apache-2.0).
+Source: https://agentskills.io/specification.
 
 ## Frontmatter Rules
 
-Use quoted descriptions by default. This avoids the two most common Codex skip
-warnings: invalid YAML from colon-space and accidental comment truncation from
+Use quoted descriptions by default. This avoids the two most common YAML
+failures: invalid YAML from colon-space and accidental comment truncation from
 `#`.
 
 ```yaml
@@ -187,7 +183,7 @@ already exists:
 
 1. Read its `SKILL.md` and references.
 2. Classify each rule as generic maintenance, project-specific, or stale.
-3. If every rule is generic or stale and `docks:skill-maintenance` is available,
+3. If every rule is generic or stale and the docks `skill-maintenance` is available,
    propose deleting the local copy.
 4. If project-specific rules exist, either keep the local skill or move those
    rules into a project-specific skill such as `project-skill-maintenance`.
@@ -199,7 +195,7 @@ already exists:
 |---|---|
 | Rewrite all skills after touching one source file | Update only skills whose `source_files` or references mention the changed area |
 | Shorten a long description by deleting trigger words | Move secondary detail to `references/`, keep the first trigger concrete |
-| Fix Codex YAML by removing `# noqa` from the trigger list | Quote the YAML string so the trigger remains visible |
+| Fix the YAML by removing `# noqa` from the trigger list | Quote the YAML string so the trigger remains visible |
 | Delete local `skill-maintenance` because the plugin ships one | Compare first; preserve project-specific rules or ask before deleting |
 
 ## Verification
@@ -211,11 +207,10 @@ Use the narrowest available command:
 
 # if the docks plugin is installed, write-skill bundles a portable validator —
 # frontmatter guard + 16-pt score, no kit tooling needed (--strict for kit conventions):
-node <docks-plugin>/skills/write-skill/scripts/skill-guard.mjs validate .agents/skills
+node skill://write-skill/scripts/skill-guard.mjs validate .agents/skills
 
-# generic Codex loader check (debug subcommands move between releases —
-# confirm the surface first: codex debug --help)
-codex debug prompt-input | sed -n '/Skipped loading/,/Available skills/p'
+# omp loader check: read the "warnings" array; a missing skill is not in "skills"
+omp skill list --json
 
 # Generic filesystem check
 find .agents/skills .claude/skills -name SKILL.md -maxdepth 3 -print 2>/dev/null
@@ -226,7 +221,7 @@ generic checks — never hard-depend on it.
 
 ## References
 
-Read `references/REFERENCES.md` when a maintenance run involves multi-tool
+Read `references/REFERENCES.md` when a maintenance run involves several
 skill roots, source-file targeting, local `skill-maintenance` cleanup, or a
 loader warning that is not fixed by quoting the description.
 
