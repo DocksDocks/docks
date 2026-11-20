@@ -210,18 +210,38 @@ export function withRootFiles(files, names) {
   return [...new Set([...files, ...found])].sort(byteOrder);
 }
 
-// True when `file`, a CLAUDE.md or a .claude/CLAUDE.md, is a symlink whose target resolves to
-// the AGENTS.md of its folder (for a .claude/CLAUDE.md, of the folder above). Such a link
-// holds no text of its own, so there is nothing to migrate.
+// The most symlinks that one chain follows; Linux stops after 40 too, so a longer chain or a
+// loop resolves to no file.
+const MAX_LINK_HOPS = 40;
+
+// The absolute paths that the symlink chain of `file` reaches, hop by hop: each link target
+// resolves against the folder of its link, without following the symlinks of those folders.
+// The chain stops at an entry that is no symlink or cannot be read, or after MAX_LINK_HOPS.
+function linkChain(file) {
+  const chain = [];
+  let current = path.resolve(file);
+  while (chain.length < MAX_LINK_HOPS && isSymlink(current)) {
+    try {
+      current = path.resolve(path.dirname(current), fs.readlinkSync(current));
+    } catch {
+      break;
+    }
+    chain.push(current);
+  }
+  return chain;
+}
+
+// True when `file`, a CLAUDE.md or a .claude/CLAUDE.md, is a symlink whose own chain reaches
+// the AGENTS.md path of its folder (for a .claude/CLAUDE.md, of the folder above), and that
+// AGENTS.md is a file whose chain does not pass through `file`. Such a link holds no text of
+// its own, so there is nothing to migrate. A CLAUDE.md that the AGENTS.md links to is no such
+// link: its removal would leave the AGENTS.md dangling.
 export function isAgentsLink(file) {
   if (!isSymlink(file)) return false;
   let folder = path.posix.dirname(file);
   if (path.posix.basename(folder) === CLAUDE_FOLDER) folder = path.posix.dirname(folder);
-  try {
-    return fs.realpathSync(file) === fs.realpathSync(`${folder}/${ROOT_AGENTS}`);
-  } catch {
-    return false;
-  }
+  const agents = path.resolve(folder, ROOT_AGENTS);
+  return isFile(agents) && linkChain(file).includes(agents) && !linkChain(agents).includes(path.resolve(file));
 }
 
 // The text of a file, or null when no file is there; grep and awk then fail the same way. A
