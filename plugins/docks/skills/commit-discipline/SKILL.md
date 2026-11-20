@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-20"
-  content_hash: "174cd8a5826bee11236e0e6d03a3385c0f00e9470f67a62b8e62e305d2a8769a"
+  content_hash: "c4faa83f7892fd0a6d873290052c23cc075b8706a926b0a7dc25537ebccf1d9b"
 ---
 
 # Commit & PR Discipline
