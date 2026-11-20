@@ -1,8 +1,13 @@
+autoresearch-results.tsv
 .DS_Store
 *.swp
 *.swo
-.idea/
-.vscode/
+*~
 node_modules/
-/.omp/agents/review-bench-*
-/.omp/settings.json
+settings.json.bak
+cli/dist/
+cli/dist-test/
+# A bundle build with --outfile and a source map writes next to its entry.
+cli/src/**/*.js
+cli/src/**/*.js.map
+.pi/

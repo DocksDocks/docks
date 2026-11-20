@@ -1,113 +1,112 @@
 # AGENTS.md
 
-docks is an engineering skill kit and plugin marketplace for omp. It ships **skills** for omp, including the sequential `security`, `refactor`, and `skill-agent-pipeline` pipelines. Pipeline approval uses the GitHub-issue plan lifecycle instead of the omp plan mode; the lifecycle itself ships as the self-versioned `plan-lifecycle` plugin. That plugin ships read-only reviewer wrappers under `plugins/plan-lifecycle/agents/`. Both plugins ship as native omp packages.
+Canonical instructions for coding agents working on this project. Compatible with Oh My Pi (`omp`), OpenCode, VS Code Copilot, and any other [agents.md](https://agents.md/)-aware tool.
 
-This root file stays **repo-wide**. Per-area authoring details - skill/agent frontmatter, scoring, the release flow, CI triggers - live in nested `AGENTS.md` nodes, loaded lazily when you work in that folder. See **Context tree** below for the map.
+Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.
 
-## Commands
+## Repository purpose
 
-```bash
-bun install --frozen-lockfile                         # one-time setup
-bun scripts/ci.mjs --plugin <name>                   # authoritative gate for one plugin and its owned release tooling
-bun scripts/ci.mjs                                   # full gate for repo-wide, shared, or multi-plugin changes
-```
+Portable configuration kit for AI coding agents. The kit manages one coding harness, Oh My Pi (`omp`). Its Single Source of Truth (SoT) directory deploys to omp's user-config location through `./docks-kit sync`. Sync writes no `.agents` or `.claude` folder of its own; omp's folders follow `PI_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, and `XDG_DATA_HOME`, so an override that points into one of those folders makes omp's files go there. Sync also writes the kit plugin to `~/.docks-kit/omp-plugin`. Clone once to get a consistent AI-assisted environment on supported Linux, macOS, and Windows hosts. The kit focuses on **token efficiency without sacrificing quality**. Every setting and hook minimizes token use while preserving rigorous output. When you add or edit anything, ask: *does this change reduce tokens without weakening correctness?*
 
-Bun runs this repository's tooling and is the package manager; its version is the `packageManager` pin in `package.json`. Node runs the shipped plugin files that the gate tests, because consumers run them with `node`; its version is the `node-version` in `.github/workflows/ci.yml` (verify: `grep -n node-version .github/workflows/ci.yml; grep -n packageManager package.json`). The docks omp extensions are the exception: omp loads them into its own process, so the gate tests them on Bun.
+omp uses this `AGENTS.md` file plus the omp SoT under `SoT/.omp/`.
 
-## Repository scope
-
-```
-.
-├── plugins/docks/                    plugin payload (shipped to consumers)
-│   ├── package.json                  native omp package manifest (name, version, `omp` object)
-│   ├── skills/                       skills omp loads from the package - incl. security/refactor/skill-agent-pipeline pipelines
-│   └── extensions/ (omp)             verify-gate commit check and context-tree nudge: omp extensions (`.ts` adapters over `.mjs` cores)
-├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin: lifecycle skills, shipped plan.mjs, plan contract reference, and read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
-├── .omp-plugin/marketplace.json      omp marketplace catalog (one entry per plugin)
-├── .agents/skills/                   project-local skills (omp loads project skills from here)
-├── docs/                             plan routing (rules: docs/AGENTS.md)
-├── scripts/                          plugin-author tooling (NOT shipped to consumers)
-└── .github/workflows/                gh-side CI on PR + tag push
-```
+docks-kit runtime and standalone binary support covers Linux x64/arm64, macOS arm64, and Windows x64. Hosts outside this matrix fail before either launcher can fall back to Bun source.
 
 ## Context tree
 
-Per-area conventions load lazily from nested `AGENTS.md` nodes. A node is a single `AGENTS.md`. omp loads a node when a session starts in its folder or below; otherwise open the node from the table below. Do not add a `CLAUDE.md`: omp ignores a `CLAUDE.md` next to an `AGENTS.md`, and this repo keeps one home for instructions. Drill into the node for the local rules - this root carries only repo-wide concerns:
+Per-folder conventions live in nested `AGENTS.md` nodes. An agent can load only the nodes from the root down to its working directory, so open the node for the folder you edit from this table. Edit the node, not this list, when a folder's rules change. `context-tree audit` checks this table against the AGENTS.md files on disk.
 
-| Node | Covers |
+| Node | Governs |
 |---|---|
-| `docs/AGENTS.md` | plan-record routing, GitHub issue backend |
-| `plugins/docks/skills/AGENTS.md` | skill authoring - description CSO, frontmatter, body rules, scoring |
-| `plugins/plan-lifecycle/skills/AGENTS.md` | plan-lifecycle skill authoring - the lifecycle skills and yolo, contract sync, fail-loud routing |
-| `scripts/AGENTS.md` | validators, edit→release workflow, double-layer gating, versioning |
-| `.github/AGENTS.md` | CI trigger model, keep-in-sync with `ci.mjs` |
+| `docs/AGENTS.md` | Plan-record routing to `docs/PLAN.md` |
+| `cli/AGENTS.md` | Effect CLI, EngineNative sync engine, bundled docs topics, build scripts, unit and golden suites, SoT notes |
+| `.agents/skills/AGENTS.md` | Project skills; omp reads `.agents/skills/` directly |
 
-The table must name every `AGENTS.md` below the root, and every row must resolve. `scripts/tree/guard.mjs` enforces both, plus the node contract (size cap, no legacy `CLAUDE.md`) (verify: delete one row from a scratch copy, then run `bun scripts/tree/guard.mjs <copy>`; it must fail naming the node). The `context-tree` skill (`plugins/docks/skills/context-tree/`) scaffolds, audits, and refreshes these nodes.
+## Repository layout (cross-cutting)
 
-## Authoring agents
+| Path | Purpose |
+|------|---------|
+| `docks-kit` / `docks-kit.ps1` | POSIX and Windows CLI launchers. On supported hosts, each runs the matching binary in `cli/dist/` only when its `--version` matches `package.json` and no file under `cli/src/` or `cli/docs/` is newer than the binary. Otherwise it runs Bun-from-source and auto-installs Bun plus `node_modules`, and the mismatch or newer-source warning names the rebuild remedy. A launcher never deletes a binary: on a host without Bun it is the only remaining recovery path. Hosts outside the support matrix fail before source fallback. The standalone platform release binary provides no-Bun recovery. |
+| `.oxlintrc.json` / `bunfig.toml` | Mechanical lint (correctness, suspicious, eqeqeq, no-var, prefer-const, no-unused) and the `bun fmt` code format settings (`[fmt]`) |
+| `cli/` | Effect 4 CLI + bundled docs topics |
+| `SoT/toolchain.json` | Toolchain floors manifest (verified pins consumed by EngineNative; optional `upstream` source read by `docks-kit toolchain outdated`) |
+| `SoT/.omp/` | Kit-owned omp SoT: `AGENTS.md`, `config.yml`, `models.yml`, `mcp.json`, `intercom.json`, and the kit plugin source `plugin/` |
+| `install.sh` / `install.ps1` | POSIX and Windows global installers. Each installer stops on a host outside the support matrix before it downloads anything. |
+| `.github/workflows/release-cli.yml` | `cli-v*` release: four binaries (Linux x64 and arm64, macOS arm64, Windows x64), plus `SHA256SUMS`, the bundle's source map `docks-kit.js.map`, and npm publish |
+| `README.md` | Front door |
+| `package.json` / `bun.lock` | npm package: `bin` = `cli/dist/docks-kit.js`, a minified bundle of the CLI and the generated in-memory SoT payload that `prepack` builds (`bun run build:bundle`); `cli/src` ships too, for the checkout launchers |
+| `docs/PLAN.md` | Plan pointer and project plan rules. The plan record is a GitHub issue; no plan markdown is tracked. `docs/AGENTS.md` routes to it. |
+| `AGENTS.md` | This file — tool-agnostic instructions |
 
-Plugin-shipped agents are omp task agents: omp loads each `agents/*.md` of a native package. `plugins/plan-lifecycle/agents/` holds thin read-only reviewer wrappers as flat `agents/*.md` files for task-agent dispatch (verify: `ls plugins/plan-lifecycle/agents`). Main context invokes the canonical `plan-manager` skill directly.
+Module map for `cli/` (engine axes, commands, kit store, test fixtures, and the release-binary build `bun run build:binaries`): `cli/AGENTS.md`.
 
-The `agents/` folder deliberately carries **no context-tree node** (hence its absence from the table above): omp loads every `*.md` under `agents/` as a task agent, and the gate (`scripts/ci.mjs`) checks each one as an agent, so an `AGENTS.md` there fails. These authoring rules therefore live in this root file instead of a nested node.
+SoT notes (the shared prompt authorization, the omp deploy targets, the config and model merges, the retired inventories, the role map, the kit plugin sync, and the cleanup scope): `cli/AGENTS.md` (`### SoT notes`).
 
-- **Description (CSO):** lead with "Use when …" AND include a "Not …" exclusion clause (both required by `scripts/agents/guard.mjs`); ≥80 and ≤500 chars; concrete triggers; no slop words.
-- **Frontmatter:** `name` (required, kebab-case, matches filename, not the omp reserved names `main` or `sub`); `description` (required, with the "Not …" clause); **no `model` key** - `scripts/agents/guard.mjs` rejects any value, `inherit` included. omp falls back to the parent session model when `model` is omitted; every literal (`inherit`, `sonnet`, `claude-*`) is handed to omp as a model ID, resolves to nothing, and kills the spawn with "No model selected" (a plugin agent carrying `model: inherit` fails to spawn; the identical file without the key runs). Consumers pin per-agent models with `task.agentModelOverrides.<agent>`. `tools` (allowlist; omitted = the omp default tool set; omp also adds MCP, extension, and custom tools to a listed set).
-- **Skill files:** an agent loads its skill with `autoload-skills: <skill>` and names each further file as `skill://<skill>/<path>`. omp sets no plugin root variable, so `scripts/agents/guard.mjs` and the gate refuse each `${...}` variable in an agent.
-- **Body:** hard cap 500 lines (`scripts/agents/guard.mjs`); scorer sweet spot 60–300 lines (`scripts/agents/score.mjs`). Same patterns as skills (`<constraint>` blocks - up to 2 rewarded - lookup tables, BAD/GOOD, gotchas, validation loop); structure as context-acknowledgment (step 1), then `## Workflow`, `## Output Format`, `## Anti-Hallucination Checks`, `## Success Criteria`.
-- **No author-script refs (consumer-safety):** a plugin-shipped agent body must not name docks plugin-author scripts (`scripts/ci.mjs`, `scripts/skills/*`, `scripts/agents/*`, `scripts/tree/*`, …) as a step - they don't ship to a consumer's project. Refer to "the project's CI / validators, if present", or make the check self-contained. `scripts/skills/no-author-scripts.mjs` scans agent bodies alongside shipped skills (verify: append a line naming `bun scripts/ci.mjs` to a non-allowlisted skill body → the guard run must FAIL naming that file; revert).
-- **Validators:** `bun scripts/agents/guard.mjs` (structural) + `bun scripts/agents/score.mjs --per-file` (quality score; the rubric maximum is defined in `scripts/agents/score.mjs`). The per-file floor lives in `scripts/config/scoring.json` (verify: `bun scripts/config/read-floor.mjs agents`). Use up to two `<constraint>` blocks when they express distinct load-bearing invariants, not to manage score slack. Both validators run inside `scripts/ci.mjs`; the validator table lives in `scripts/AGENTS.md`.
-- **Sources:** the omp doc `omp://task-agent-discovery.md` (agent definition shape, discovery roots, `tools`).
+## Engineering rules
 
-## Plans
+- **EngineNative and CLI rules** (idempotency, failure ledger, removed bash engine, Effect stack and skill routing, kit store, module boundaries): `cli/AGENTS.md`.
+- **One sync.** `./docks-kit sync` deploys the omp SoT and takes no positional target. Combine it with `--dry-run`, `--skip-plugin-refresh` (install missing omp plugins without refreshing existing ones), and `--verbose`.
+- **Additive by default.** Keys present in deployed config but absent from SoT are preserved on default sync. This protects user-only additions, but means drift accumulates. The exceptions are the omp retired inventories: `ompRemovals.ts` force-prunes retired kit-owned keys, `bash.patterns` rules, and model blocks on every sync (see the omp SoT notes in `cli/AGENTS.md`). Sync has no removal flag.
+- **Small, reviewable changes.** Bundled multi-concern PRs are harder to review and revert. Split an engine/CLI change and a per-tool config change unless the change requires atomicity.
+- **Version bumps.** Bump `package.json` on user-visible behavior change; bump a `SoT/toolchain.json` `verified` pin only after testing that release. Refactors, splits, and doc edits bump nothing.
+- **Regenerate the payload.** After `SoT/` or `package.json` changes, run `bun cli/scripts/generate-sot-payload.ts`; `bun run check:generated` verifies it. After file moves, clamp cited `metadata.source_files[].lines` ranges so `skillMetadata.test.ts` passes.
+- **Dry-run before a real sync.** Preview a change to the omp SoT with `./docks-kit sync --dry-run` before you run `./docks-kit sync`.
+- **SoT prompt files are rules, not explanation.** `SoT/.omp/AGENTS.md` is loaded into agent sessions' prompt context — every line costs prompt tokens on every turn for every user. Restrict its content to rules, heuristics, and `<constraint>` blocks the agent must *act on* during a turn. Do NOT add inline source citations (`Source: …`, attributed quotes), "why this rule exists" preface text, version-watermarking trivia (e.g. "Distilled from X v2.0, captured 2025-11-07"), per-bug workarounds, or installation instructions. Provenance, motivation, and historical context belong in `AGENTS.md` (humans read once) or in commit messages — never in the SoT. For every line, apply the official test: …
+- **Cache-invariance for kit-authored prompt surfaces.** Never put timestamps, counters, or mutable state into SoT prompt files, extension output that lands in the cached prefix, or tool definitions — cache breaks force cold-start writes. Dynamic context belongs in runtime-injected messages, such as the reminders that the kit omp plugin adds to tool results.
 
-Use direct implementation for one clear, reversible, low-risk local change with
-one bounded acceptance path. Use `plan-manager` to decide when a plan is needed.
-Settle Mode before implementation: `plan-only` stops after plan review;
-`plan-and-implement` permits the full lifecycle. A defaulted Mode permits no implementation.
-The canonical plan record is a GitHub issue. Reviews live in issue comments.
-Do not track plan bodies in repository files.
+## Code style
 
-Skill roles and reviewer wrappers are defined in `plugins/plan-lifecycle/skills/AGENTS.md` (Roles).
-Each non-local step needs an in-session `ask` immediately before it runs.
-A user-invoked `yolo` run replaces these asks with the contract's Yolo runs section and asks only before merge.
-A delegation grant hands the design and tradeoff decisions of a plan to the agent (the contract's Delegated decisions). Its authority comes only from a trusted `Delegation grant:` comment; the Goal's `Delegated:` line mirrors it. It does not replace these asks or the merge question; a `yolo` run includes that grant.
-Merge needs a fresh `Merge now` answer. Plan approval does not authorize merge.
-Read `skill://plan-manager/references/plan-contract.md` (the contract reference
-inside the installed `plan-lifecycle` plugin) for the complete contract.
-If the plugin is missing, report it. Do not invent a substitute workflow.
-
-## Project-local skills
-
-The repo's own `.agents/skills/` hosts skills useful only when working ON this plugin repo - they don't ship to consumers. Each skill's `description` states when to use it (verify: `ls .agents/skills`).
-
-omp reads them directly at `.agents/skills/`. The `verify` skill (`.agents/skills/verify/SKILL.md`) is the end-to-end check of a change, with the flows V1 to V6. V1 and V3 are the smoke commands: `bun .agents/skills/verify/scripts/omp-smoke.mjs` installs both plugins from this checkout into isolated omp state, and `bun .agents/skills/verify/scripts/omp-smoke.mjs hooks` drives the docks extensions. The skill lists the other flows.
-
-## CI targeting
-
-CI always runs `scripts/ci.mjs`: in full, per `--lane <shard>`, or per `--plugin <name>`. The trigger model, pull-request shard topology, and cache behavior live in `.github/AGENTS.md`; the gate's selection rules live in `scripts/AGENTS.md`.
-
-## Gate and workspace rules
-
-- Run focused checks while implementing. Before committing, pushing, or releasing a change owned by exactly one plugin, run `bun scripts/ci.mjs --plugin <name>`; that selected-plugin gate is authoritative for the plugin payload and its descriptor-owned author, source, and release-contract tooling.
-- Run full `bun scripts/ci.mjs` for repo-wide validation/tooling, shared infrastructure used by multiple plugins, registry or CI-topology changes, changes spanning multiple plugins, and manual full-gate requests. Do not run it merely because a single-plugin release is imminent.
-- Reuse a green gate only while its validated implementation bytes are unchanged. A relevant source change requires rerunning the same smallest authoritative gate; plan-issue-only lifecycle changes do not.
-- Don't loosen validator floors to pass; fix the file instead
-- Plugin version numbers stay in lockstep per plugin (`package.json` and the catalog entry); `scripts/AGENTS.md` (Versioning) owns the rule, its enforcement, and its verify command
-- Skill body limits live in `plugins/docks/skills/AGENTS.md`
-- Agent scratch worktrees live under `$XDG_DATA_HOME/agent-worktrees/<repo>/<slug>` (default `~/.local/share/agent-worktrees/…`) - never as a sibling of the repository, and never under `/tmp` or `/var/tmp`, which are tmpfs on some hosts (a worktree there is a RAM claim, and `systemd-tmpfiles` ages out individual files, silently corrupting the checkout). Teardown is `git worktree remove` followed by `git worktree prune`; removing the directory by hand leaves an orphan admin record. The artifact set to delete before teardown is stack-dependent - `target/`, `node_modules/`, `dist/`, `.next/`, `__pycache__`, `.venv` - not a fixed `cargo clean`, because a worktree's reclaimable bytes are almost entirely build output. This rule binds agents working in **this** repository; cross-repository coverage requires the user-global omp agent file (`~/.omp/agent/AGENTS.md`), which is outside every repository and therefore a user action.
-- Other agent scratch follows the same principle as worktrees: **never the home root, never a repository sibling.** Review bundles and plan-body exports belong in the `docks-review` directory that `git rev-parse --git-path docks-review` resolves - `.git/docks-review` in a plain clone, the worktree-private equivalent in a linked worktree, whose `.git` is a file that makes a literal `.git/…` path fail with `ENOTDIR`. `plan-manager` writes the diff bundle there in phase 6 and `plan.mjs export` writes `plan-<issue>.md` there, both created mode `0700`, untracked, and discarded with the clone or worktree; scratch written anywhere else falls outside the lifecycle's contract. One-shot drivers, candidate plan bodies, measurement output, and the cross-session handoff index belong under `$XDG_STATE_HOME/docks/…` (default `~/.local/state/docks/…`, mode `0700`), extending the release tooling's existing `~/.local/state/docks-release/<plugin>-<version>/run.<id>/`.
+- Bash: for launchers and installers, use `set -euo pipefail`, quoted variables, `[[ ]]` over `[ ]`, and function-scoped `local`.
+- JSON and YAML config: edit the SoT (`SoT/<tool>/`) and run `./docks-kit sync`. Never edit deployed config under `~/.omp/agent/` directly.
 
 ## Security
 
-- Don't expose secrets in plugin manifests, marketplace catalogs, or scripts
-- Don't perform destructive git operations (force-push, hard reset, branch delete) without explicit user confirmation
-- Treat third-party plugin sources and downloaded artifacts as untrusted
+- No secrets in SoT. The kit's SoT directories are committed; treat them as declarative config only.
+- Treat external plugin marketplaces and installer downloads as untrusted input. Prefer download-then-run over `curl … | bash` so a truncated stream cannot execute a partial script.
+- **Pin, never float.** Every kit-driven install of third-party software is pinned to a `SoT/toolchain.json` `verified` version, except the exemption in the next item — no `@latest` npm/bun installs (Shai-Hulud-class worm surface), no mutable action tags in workflows (commit SHAs only), installer scripts fetched from version tags where upstream supports it. New third-party install surface ⇒ manifest pin first. The rule also covers a transitive dependency whose declared range is a caret or tilde over a prerelease: `^4.0.0-rc.109` admits every later prerelease of the same version tuple, and a published install resolves that range fresh because `bun.lock` is not packaged, so a runtime pinned in `package.json` meets a newer sibling and the process fails at startup. The fix is an exact root pin plus both guards: the offline `cli/test/unit/dependencyPins.test.ts` and the clean-room `bun run smoke:package`. Moving the Effect release is therefore one lockstep commit: set `effect`, `@effect/platform-bun`, and `@effect/platform-node-shared` to the same version together, then run `bun run smoke:package`. The offline guard fails when a lag breaks a declared range. Its peer-range check fails when the installed `effect` is outside a non-optional peer range of the runtime closure. Its nested-copy check fails when `@effect/platform-node-shared` lags. A lagging `@effect/platform-bun` can keep every declared range satisfied (4.1.1 accepts `@effect/platform-node-shared` `^4.1.1`), so only the lockstep commit keeps it in step. Details: the `toolchain-context` skill and `cli/docs/toolchain.md`.
+- **Exemption: the kit's own package.** `install.sh` and `install.ps1` end with `bun add -g docks-kit@latest`, because a global installer that pinned itself would install a fixed old kit forever, and pinning it to `package.json` would request an unpublished version between the release-prep commit and the npm publish. The `@latest` exemption covers `docks-kit` alone. Both installers still pin the Bun installer they download to the manifest's verified version. `cli/test/unit/hostTargets.test.ts` asserts that pin in all four launcher and installer scripts, and `cli/test/unit/install.test.ts` proves `install.sh` passes it to the Bun installer. Any new install surface, a new marketplace or plugin source included, needs a manifest pin first.
+## Testing
 
-## What does NOT belong in this repo
+Run `bun run check` before and after each change: oxlint, `lint:effect` (Effect rules through `effect-tsgo diagnostics --strict`), `bun fmt --check`, `bun check`, the generated-payload check (`check:generated`), unit tests, and both golden suites. Scripts: `lint`, `lint:effect`, `format:check`, `typecheck`, `check:generated`, `test:unit`, `test:integration` (goldens), `test`, `format`; CI runs `check` on pushes to `main` and on pull requests with Bun 1.4.4. Prove-red modes must exit non-zero after detecting planted mismatches. The golden writer emits two-space JSON that `bun fmt` re-serializes, so run `bun run format` after `--update-goldens` or `format:check` fails. For Effect diagnostics in the editor, set the TypeScript language server command to `node_modules/.bin/effect-tsgo tsc --lsp --stdio`. Keep the `@effect/language-service` plugin entry in `cli/tsconfig.json`: without it, `lint:effect` checks no file and passes. Also verify user-facing changes via `./docks-kit sync --dry-run` and `bun run smoke:native`.
 
-- Consumer-side env vars / permissions / RTK config - those live in [DocksDocks/public](https://github.com/DocksDocks/public)
-- Plugin version numbers in prose (AGENTS.md, README) - let `package.json`, the catalog, and GitHub Releases be the source of truth
+Use direct acceptance and focused regressions while iterating, then run the full unit/golden gate once at the pre-commit or release boundary. Reuse still-matching evidence; a later relevant edit invalidates only the affected rung and final gate, not every prior check.
 
-(Repository entry point. Per-area rules live in the Context tree nodes above.)
+Spawning-suite bundle and `DOCKS_KIT_TEST_CLI_ENTRY`: `cli/AGENTS.md`.
 
-Pointers here name concepts, not coordinates — if a path or symbol moved, trust the stated purpose and re-locate it (grep the symbol) before acting.
+## Landing changes
+
+Open a pull request when the change can alter what CI proves: `cli/`, `SoT/`, `.github/`, the launchers, the installers, `package.json`, `bun.lock`. Wait for every reported check to finish, then ask before merge. A failed or cancelled check blocks the merge. Push direct to `main` only for prose: root Markdown and code comments.
+
+Never rewrite published `main` history to correct a routing mistake. Use a follow-up commit and say what happened.
+
+## Skills
+
+Project-skill authoring rules (scope, canonical layout, vendored `unslop`, citation constraint): `.agents/skills/AGENTS.md`.
+
+**Vendored `unslop`.** The kit never runs the skills CLI. Only a maintainer refreshes the vendored `.agents/skills/unslop/` copy, with `npx skills@1.7.0 add cursor/plugins -s unslop -y -a universal`. The skills CLI 1.7.0 installs the `universal` agent into the project path `.agents/skills/`, which omp reads.
+
+## Kit plugin content
+
+`SoT/.omp/plugin/` holds skills at `skills/<name>/SKILL.md`, task agents at `agents/<name>.md`, and the extensions that `package.json` `omp.extensions` names. It ships the 32 docks and plan-lifecycle skills, the `workspace-hygiene` skill, the `code-reviewer` and `plan-reviewer` agents, the `hygiene`, `verify-gate`, and `context-tree-nudge` extensions, the trigger rules in `rules/`, and the `/cleanup` command. A skill reports a problem in DocksDocks/docks-kit. `bun run check` checks this content with four tests in `cli/test/unit/plugin/`: `skills.test.ts` (layout and name, frontmatter, report section, shared copies, references, durable anchors, transform guard, trigger collisions, score floor), `contentHash.test.ts`, `agents.test.ts` (agent rules, score floor), and `extensions.test.ts` (each entry imports and has a default function export).
+After a skill edit, run `bun cli/scripts/skill-content-hash.ts --write` to refresh its `metadata.content_hash` and `metadata.updated`; `--check` names each stale skill. The skill checks, the 16-point rubric, and the check data in `config.json` (floors, report section, shared-copy groups, transform list) are in `cli/src/skills/`, which `docks-kit skill guard` and `docks-kit skill score` also use; the agent, reference, trigger, extension, and content-hash checks are in `cli/scripts/pluginContent/`.
+
+## Plans
+
+Read `docs/PLAN.md` before plan work; `docs/AGENTS.md` holds the docs-folder rules. The canonical contract is `skill://plan-manager/references/plan-contract.md` in the docks-kit kit plugin. Use `plan-workspace` for setup, main-context `plan-manager` for the six phases, and read-only `plan-reviewer` and `code-reviewer` wrappers for review. Use direct implementation only for a clear, reversible, low-risk local diff with one bounded acceptance path. Otherwise follow the plan-manager decision. Plan issues are the live records. Leave `docs/plans/finished/` frozen.
+
+## Notes for nested overrides
+
+Per the agents.md open standard, place an `AGENTS.md` inside any subdirectory that needs different rules. The closest `AGENTS.md` to the file being edited wins; explicit user prompts override everything.
+
+## Setup
+
+```bash
+# Clone and sync the kit
+git clone <this-repo> ~/projects/docks-kit
+cd ~/projects/docks-kit
+./docks-kit sync --dry-run           # preview before applying
+./docks-kit sync                     # deploy the omp SoT (additive)
+./docks-kit toolchain check          # verify installed tools against SoT/toolchain.json floors
+```
+
+On Windows, replace `./docks-kit` with `.\docks-kit.ps1` in these checkout commands.

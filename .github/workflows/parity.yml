@@ -1,0 +1,337 @@
+name: golden-regression
+
+# EngineNative portable and Linux-canonical golden-regression gates. The
+# portable lane runs as one job each on Linux and macOS. On Windows, two
+# unit-test shards and one checks job run in parallel, and the gate job
+# `portable (windows-2025)` passes only when all three pass.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cli/**"
+      - "SoT/**"
+      - "docks-kit"
+      - "docks-kit.ps1"
+      - "install.sh"
+      - "install.ps1"
+      - "package.json"
+      - "bun.lock"
+      - "vitest.config.ts"
+      - ".github/actions/setup-bun-cache/**"
+      - ".github/workflows/*.yml"
+  pull_request:
+    paths:
+      - "cli/**"
+      - "SoT/**"
+      - "docks-kit"
+      - "docks-kit.ps1"
+      - "install.sh"
+      - "install.ps1"
+      - "package.json"
+      - "bun.lock"
+      - "vitest.config.ts"
+      - ".github/actions/setup-bun-cache/**"
+      - ".github/workflows/*.yml"
+  workflow_dispatch:
+
+concurrency:
+  # A pull request keeps one group, so a newer head cancels the stale run.
+  # Every other run gets its own group. In one group, GitHub replaces a
+  # pending run with the newer run, also with `cancel-in-progress: false`.
+  # The old shared `main` group did this to run 39826349216 (2026-10-22): it
+  # ended cancelled with 0 jobs, so its `main` commit got no green run. With
+  # a group per run, every `main` run finishes.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Workflow lint runs once on its pinned Linux actionlint artifact.
+  lint:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04 # pinned label, never *-latest
+    # 3 x p90 8 s = 24 s, so the 2-minute floor applies.
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Lint workflows (actionlint)
+        env:
+          # Pinned release + published checksum: a mutable tag or an unverified
+          # download would let a compromised asset run in CI.
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl -fsSLo "$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color
+
+  # Portable lane proves the typed CLI and the native host artifact on Linux
+  # and macOS. The Windows jobs below run the same lane.
+  portable:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    runs-on: ${{ matrix.os }}
+    # 3 x (p90 + cold setup), rounded up: Ubuntu 3 x (48 s + 9 s) = 171 s,
+    # macOS 3 x (102 s + 8 s) = 330 s.
+    timeout-minutes: ${{ matrix.os == 'macos-26' && 6 || 3 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-bun-cache
+
+      - name: Install dependencies
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun install --frozen-lockfile
+
+      - name: Audit dependencies for vulnerabilities
+        if: matrix.os == 'ubuntu-24.04'
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun audit
+
+      - name: Generated payload is fresh
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run check:generated
+
+      - name: Typecheck
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run typecheck
+
+      - name: Unit tests (vitest)
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run test:unit
+
+      - name: Clean-room package install smoke
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run smoke:package
+
+      - name: Compile and execute the native host artifact
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run smoke:native
+
+  # Windows unit tests in two Vitest shards. One Windows job ran every step
+  # in series and was the longest leg (`pull_request` median 111 s, p90
+  # 118 s over 27 warm runs); its unit-test step alone took a median of 68 s
+  # (p90 76 s). Two shards run in parallel on separate runners. The shard
+  # file lists together equal the unsharded list, and the test counts add up.
+  portable-windows-unit:
+    name: portable (windows-2025) unit ${{ matrix.shard }}/2
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    runs-on: windows-2025 # pinned label, never *-latest
+    # Measured run p90 of the slower shard: 65 s (10 warm PR #154 runs).
+    # 3 x (65 s + 21 s cold setup) = 258 s, rounded up.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-bun-cache
+
+      - name: Install dependencies
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun install --frozen-lockfile
+
+      - name: Unit tests (vitest shard)
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run test:unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+  # Every Windows step except the unit tests. The checks and the native smoke
+  # do not read the unit-test bundle, so they run on their own runner in
+  # parallel with the shards.
+  portable-windows-checks:
+    name: portable (windows-2025) checks
+    permissions:
+      contents: read
+    runs-on: windows-2025 # pinned label, never *-latest
+    # Measured run p90: 47 s (10 warm PR #154 runs), before the global-install
+    # step, which packs, builds the bundle, and installs (not yet measured,
+    # 40 s assumed): 3 x (87 s + 21 s cold setup) = 324 s, rounded up.
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-bun-cache
+
+      - name: Install dependencies
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun install --frozen-lockfile
+
+      - name: Generated payload is fresh
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run check:generated
+
+      - name: Typecheck
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run typecheck
+
+      - name: Compile and execute the native host artifact
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run smoke:native
+
+      # install.ps1 installs the CLI with `bun add -g` and runs the Bun shim
+      # $BUN_INSTALL\bin\docks-kit.exe, which runs the bundle that bin names.
+      # An isolated BUN_INSTALL keeps the runner's own Bun install untouched.
+      - name: Global install runs the bundle
+        shell: pwsh
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: |
+          $pack = Join-Path $env:RUNNER_TEMP 'docks-kit-pack'
+          New-Item -ItemType Directory -Force -Path $pack | Out-Null
+          bun pm pack --destination $pack
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (Get-Content -Raw -LiteralPath package.json | ConvertFrom-Json).version
+          $env:BUN_INSTALL = Join-Path $env:RUNNER_TEMP 'docks-kit-bun-install'
+          bun add -g (Join-Path $pack "docks-kit-$version.tgz")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $shim = Join-Path $env:BUN_INSTALL 'bin\docks-kit.exe'
+          if (-not (Test-Path -LiteralPath $shim -PathType Leaf)) { throw "no Bun shim at $shim" }
+          $unrelated = Join-Path $env:RUNNER_TEMP 'docks-kit-unrelated'
+          New-Item -ItemType Directory -Force -Path $unrelated | Out-Null
+          Set-Location -LiteralPath $unrelated
+          $reported = (& $shim --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($reported -ne $version) { throw "docks-kit.exe --version printed '$reported', expected '$version'" }
+          Write-Output "docks-kit.exe --version: $reported"
+          & $shim sync --dry-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Output "docks-kit.exe sync --dry-run: exit 0"
+
+  # Gate for the split Windows lane. It keeps the check name
+  # `portable (windows-2025)` of the former single Windows job, and it fails
+  # when a shard or the checks job fails, or is cancelled or skipped while
+  # the run goes on. When the whole run is cancelled, `!cancelled()` skips the
+  # gate, and GitHub counts a skipped job as passing for a required check; the
+  # shard and checks jobs then report `cancelled`.
+  portable-windows:
+    name: portable (windows-2025)
+    needs: [portable-windows-unit, portable-windows-checks]
+    if: ${{ !cancelled() }}
+    # No checkout and no API call, so the job token gets no scope.
+    permissions: {}
+    runs-on: ubuntu-24.04 # pinned label, never *-latest
+    # No checkout and no install, so the 2-minute floor applies.
+    timeout-minutes: 2
+    steps:
+      - name: All Windows jobs passed
+        env:
+          UNIT: ${{ needs.portable-windows-unit.result }}
+          CHECKS: ${{ needs.portable-windows-checks.result }}
+        run: test "$UNIT" = success && test "$CHECKS" = success
+
+  # Snapshot lane keeps Linux-canonical goldens and their prove-red checks.
+  golden-dryrun:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04 # pinned label, never *-latest
+    # 3 x (p90 40 s + 9 s cold setup) = 147 s, rounded up.
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-bun-cache
+
+      - name: Install dependencies
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun install --frozen-lockfile
+
+      - name: Dry-run golden regression
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run golden:dryrun
+
+      # The suites spawn a bundle of the CLI so Bun transpiles it once instead
+      # of once per child. This step runs the same cases against the
+      # TypeScript entry, which the checkout launchers run, so a defect the
+      # bundler hides cannot pass unseen. It is the cheapest lane, and the
+      # two forms must agree on every case.
+      - name: Dry-run golden regression (source entry)
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+          DOCKS_KIT_TEST_CLI_ENTRY: ${{ github.workspace }}/cli/src/main.ts
+        run: bun run golden:dryrun
+
+      - name: Dry-run golden can fail (prove-red)
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: |
+          set +e
+          out="$(bun run golden:dryrun --prove-red 2>&1)"
+          code=$?
+          printf '%s\n' "$out"
+          if [[ "$code" -eq 0 ]]; then
+            echo "::error::prove-red unexpectedly exited 0"
+            exit 1
+          fi
+          if ! grep -q "prove-red OK: golden-dryrun" <<<"$out"; then
+            echo "::error::prove-red failed without proving the planted mismatch"
+            exit 1
+          fi
+
+  golden-mutation:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04 # pinned label, never *-latest
+    # 3 x (p90 49 s + 9 s cold setup) = 174 s, rounded up.
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-bun-cache
+
+      - name: Install dependencies
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun install --frozen-lockfile
+
+      - name: Mutation golden regression
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run golden:mutation
+
+      - name: Mutation golden can fail (prove-red)
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: |
+          set +e
+          out="$(bun run golden:mutation --prove-red 2>&1)"
+          code=$?
+          printf '%s\n' "$out"
+          if [[ "$code" -eq 0 ]]; then
+            echo "::error::prove-red unexpectedly exited 0"
+            exit 1
+          fi
+          if ! grep -q "prove-red OK: golden-mutation" <<<"$out"; then
+            echo "::error::prove-red failed without proving the planted mismatch"
+            exit 1
+          fi

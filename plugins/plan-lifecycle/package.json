@@ -1,9 +1,0 @@
-{
-  "name": "plan-lifecycle",
-  "version": "0.27.0",
-  "description": "GitHub-issue plan lifecycle with marker-based plan bodies, a normalizing helper, comment-backed review records, implement-start linked branches, 10-round plan and code review loops whose continuation the user authorizes or delegates, two read-only reviewer agents, and an explicit-only yolo skill that runs the whole lifecycle and asks only before merge.",
-  "license": "MIT",
-  "private": true,
-  "type": "module",
-  "omp": {}
-}

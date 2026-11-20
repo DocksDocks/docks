@@ -1,0 +1,1520 @@
+import { spawn, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import type * as FsModule from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join, resolve } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const faults = vi.hoisted(() => ({
+  /**
+   * Errors to throw once: the next `call` of `node:fs` on a matching path
+   * throws `code`. An "exact" fault matches only `path`; a "prefix" fault
+   * matches each path that starts with `path`.
+   */
+  pending: [] as Array<{ call: string; path: string; code: string; match: "exact" | "prefix" }>,
+  /** Each wrapped call and its path, also a call that throws an injected fault. */
+  seen: [] as Array<{ call: string; path: string }>,
+}));
+
+vi.mock("node:fs", async () => {
+  const actual = await vi.importActual<typeof FsModule>("node:fs");
+  /** Wrap `real` so that a pending fault for `call` on the path throws once. */
+  function faulty<Real extends (path: FsModule.PathLike, ...rest: Array<never>) => unknown>(
+    call: string,
+    real: Real,
+  ): Real {
+    return ((path: FsModule.PathLike, ...rest: Array<never>) => {
+      const target = String(path);
+      faults.seen.push({ call, path: target });
+      const index = faults.pending.findIndex(
+        (fault) =>
+          fault.call === call &&
+          (fault.match === "prefix" ? target.startsWith(fault.path) : target === fault.path),
+      );
+      if (index !== -1) {
+        const { code } = faults.pending.splice(index, 1)[0]!;
+        throw Object.assign(new Error(`${code}: injected fault, ${call} '${target}'`), {
+          code,
+        });
+      }
+      return real(path, ...rest);
+    }) as Real;
+  }
+  return {
+    ...actual,
+    openSync: faulty("openSync", actual.openSync),
+    readFileSync: faulty("readFileSync", actual.readFileSync),
+    unlinkSync: faulty("unlinkSync", actual.unlinkSync),
+  };
+});
+
+import docksKitOmp, {
+  claimSweep,
+  cleanupCommand,
+  creationReminder,
+  detectResources,
+  resolveDocksKit,
+  run,
+  splitShellSegments,
+  stopReminder,
+  sweepDue,
+  type DockerTarget,
+  type ExtensionApi,
+  type HygieneResource,
+} from "../../../SoT/.omp/plugin/extensions/hygiene.ts";
+import { BUN_RUNTIME } from "../lib/cliEntry";
+import { createGitSandbox, type GitSandbox } from "../lib/gitSandbox";
+
+const EXTENSION = resolve(import.meta.dirname, "../../../SoT/.omp/plugin/extensions/hygiene.ts");
+const HOME = resolve("/h");
+const HOUR_MS = 60 * 60 * 1000;
+const CONTAINER_ID = "0123456789abcdef".repeat(4);
+const SHORT_ID = CONTAINER_ID.slice(0, 12);
+const DEFAULT_DAEMON: DockerTarget = { environment: {}, options: [] };
+const roots: Array<string> = [];
+
+function sandbox(): string {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "omp-hygiene-")));
+  roots.push(root);
+  return root;
+}
+
+function detect(command: string, cwd = "/w", output = "") {
+  return detectResources(command, resolve(cwd), output, HOME);
+}
+
+function categories(command: string): Array<string> {
+  return detect(command).resources.flatMap((resource) =>
+    resource.kind === "other" ? [resource.category] : [],
+  );
+}
+
+function worktrees(command: string): Array<string> {
+  return detect(command).resources.flatMap((resource) =>
+    resource.kind === "worktree" ? [resource.path] : [],
+  );
+}
+
+afterEach(() => {
+  faults.pending.length = 0;
+  faults.seen.length = 0;
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe("splitShellSegments", () => {
+  it("removes quotes and splits on control operators", () => {
+    expect(splitShellSegments(`a 'b c' "d\\"e" && f || g; h | i &`)).toEqual([
+      { words: ["a", "b c", 'd"e'], background: false },
+      { words: ["f"], background: false },
+      { words: ["g"], background: false },
+      { words: ["h"], background: false },
+      { words: ["i"], background: true },
+    ]);
+  });
+
+  it("keeps a redirection to a file descriptor in the word", () => {
+    expect(splitShellSegments("make > log 2>&1 &")).toEqual([
+      { words: ["make", ">", "log", "2>&1"], background: true },
+    ]);
+  });
+
+  it("puts a command substitution before its segment", () => {
+    expect(splitShellSegments("S=$(docks-kit scratch new x)")).toEqual([
+      { words: ["docks-kit", "scratch", "new", "x"], background: false },
+      { words: ["S=$(docks-kit scratch new x)"], background: false },
+    ]);
+  });
+
+  it("skips a heredoc body", () => {
+    expect(splitShellSegments("cat > f <<'EOF'\ndon't run & this\nEOF\necho done")).toEqual([
+      { words: ["cat", ">", "f", "<<EOF"], background: false },
+      { words: ["echo", "done"], background: false },
+    ]);
+  });
+});
+
+describe("detectResources", () => {
+  it("finds a worktree relative to the working directory", () => {
+    expect(detect("git worktree add -b feat ../wt main", "/r/main").resources).toEqual([
+      { kind: "worktree", path: resolve("/r/main", "../wt") },
+    ]);
+  });
+
+  it("finds a worktree with git -C", () => {
+    expect(detect("git -C /r/main worktree add /w/x").resources).toEqual([
+      { kind: "worktree", path: resolve("/w/x") },
+    ]);
+  });
+
+  it("follows cd before a worktree add", () => {
+    expect(detect("cd /a && git worktree add b").resources).toEqual([
+      { kind: "worktree", path: resolve("/a", "b") },
+    ]);
+  });
+
+  it("treats --orphan as a flag", () => {
+    expect(detect("git worktree add --orphan -b fresh ../o").resources).toEqual([
+      { kind: "worktree", path: resolve("/w", "../o") },
+    ]);
+  });
+
+  it("gives a generic note for a worktree path that is not literal", () => {
+    const result = detect('git worktree add "$WT"');
+    expect(result.resources).toEqual([]);
+    expect(result.notes).toEqual([
+      "You created a git worktree. When the task no longer needs it, run `git worktree remove -- <path>`.",
+    ]);
+  });
+
+  it("ignores git worktree list", () => {
+    expect(detect("git worktree list")).toEqual({ resources: [], notes: [], stashes: [] });
+  });
+
+  it("finds a compose project from its first file", () => {
+    const [resource] = detect("docker compose -f /x/docker-compose.yml up -d").resources;
+    expect(resource?.kind).toBe("compose");
+    if (resource?.kind !== "compose") return;
+    expect(resource.workingDir).toBe(resolve("/x"));
+    if (process.platform !== "win32") {
+      expect(resource.down).toContain("-f /x/docker-compose.yml down");
+    }
+  });
+
+  it("finds a compose project in the working directory", () => {
+    const [resource] = detect("docker compose up -d", "/w").resources;
+    expect(resource?.kind).toBe("compose");
+    if (resource?.kind !== "compose") return;
+    expect(resource.workingDir).toBe(resolve("/w"));
+    expect(resource.down).toMatch(/^docker compose --project-directory .+ down$/);
+  });
+
+  it("finds a detached container from its id", () => {
+    const result = detect("docker run -d --rm img", "/w", `${CONTAINER_ID}\n`);
+    expect(result.resources).toEqual([
+      { kind: "container", id: SHORT_ID, down: `docker stop ${SHORT_ID}`, docker: DEFAULT_DAEMON },
+    ]);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("finds the id of a detached container that omp follows with a wall-time notice", () => {
+    const output = `${CONTAINER_ID}\n\n\nWall time: 1.2 seconds`;
+    expect(detect("docker run -d --rm img", "/w", output).resources).toEqual([
+      { kind: "container", id: SHORT_ID, down: `docker stop ${SHORT_ID}`, docker: DEFAULT_DAEMON },
+    ]);
+  });
+
+  it.each([
+    "docker run -d --rm img 2>&1",
+    "docker run -d --rm img 2>/dev/null",
+    "docker run -d --rm img 2> err.log",
+    "docker run -d --rm img 2>>err.log",
+    "2>/dev/null docker run -d --rm img",
+    "2> err.log docker run -d --rm img",
+  ])("finds the id when %s redirects only standard error", (command) => {
+    expect(detect(command, "/w", `${CONTAINER_ID}\n`).resources).toEqual([
+      { kind: "container", id: SHORT_ID, down: `docker stop ${SHORT_ID}`, docker: DEFAULT_DAEMON },
+    ]);
+  });
+
+  it.each([
+    "docker run -d img > /dev/null; docker inspect -f '{{.Id}}' other",
+    "docker inspect -f '{{.Id}}' other || docker run -d --rm img",
+    "docker run -d --rm img > id.txt",
+    "env docker run -d --rm img",
+    "docker run -d --rm img >&2",
+    "docker run -d --rm img 1>/dev/null",
+    "docker run -d --rm img &>run.log",
+    "docker run -d --rm img 2>/dev/null</dev/null",
+    "docker run -d --rm img 2>&1>run.log",
+    "docker run -d --rm img 2>err.log<<EOF\nx\nEOF",
+    "docker run -d --rm img 2>|err.log",
+    "2>/dev/null env docker run -d --rm img",
+  ])("does not take a container id from output that the run does not own: %s", (command) => {
+    const result = detect(command, "/w", `${CONTAINER_ID}\n`);
+    expect(result.resources).toEqual([]);
+    expect(result.notes).toContain(
+      "You created a detached container. When the task no longer needs it, run `docker stop <id>`.",
+    );
+  });
+
+  it("asks for --rm on docker run", () => {
+    expect(detect("docker run img").notes).toEqual([
+      "Add `--rm` to `docker run` so that Docker removes the container when it stops.",
+    ]);
+  });
+
+  it("finds a scratch directory from the output", () => {
+    const path = "/h/.cache/docks-kit/scratch/eval-ab12";
+    expect(detect("docks-kit scratch new eval", "/w", `${path}\n`).resources).toEqual([
+      { kind: "scratch", path },
+    ]);
+  });
+
+  it.each([
+    ["docks-kit scratch new eval 2>/dev/null", "scratch"],
+    ["mktemp 2>/dev/null", "tempFile"],
+    ["2>/dev/null mktemp -d", "tempDir"],
+  ])("finds the path when %s redirects only standard error", (command, kind) => {
+    const path = join(tmpdir(), "tmp.E");
+    expect(detect(command, "/w", `${path}\n`).resources).toEqual([{ kind, path }]);
+  });
+
+  it("finds a mktemp directory and points to the scratch tools", () => {
+    const path = join(tmpdir(), "tmp.X");
+    const result = detect("mktemp -d", "/w", `${path}\n`);
+    expect(result.resources).toEqual([{ kind: "tempDir", path }]);
+    expect(result.notes).toHaveLength(1);
+    expect(result.notes[0]).toContain("scratch_new");
+    expect(result.notes[0]).toContain("docks-kit scratch new");
+  });
+
+  it("finds a mktemp file, but not a dry-run name, and points to the scratch tools", () => {
+    const path = join(tmpdir(), "tmp.Y");
+    const result = detect("mktemp", "/w", `${path}\n`);
+    expect(result.resources).toEqual([{ kind: "tempFile", path }]);
+    expect(result.notes).toHaveLength(1);
+    expect(result.notes[0]).toContain("scratch_new");
+    expect(detect("mktemp -u", "/w", `${join(tmpdir(), "tmp.Z")}\n`)).toEqual({
+      resources: [],
+      notes: [],
+      stashes: [],
+    });
+  });
+
+  it.each(["mktemp -du", "mktemp -d --dry-run", "mktemp --directory -u"])(
+    "records nothing for %s, a dry run that creates nothing",
+    (command) => {
+      expect(detect(command, "/w", "/tmp/tmp.Z\n")).toEqual({
+        resources: [],
+        notes: [],
+        stashes: [],
+      });
+    },
+  );
+
+  it("names a temporary file when the mktemp path is not in the output", () => {
+    const result = detect("f=$(mktemp)");
+    expect(result.resources).toEqual([]);
+    const fileNote = result.notes.find((note) => note.includes("a temporary file"));
+    expect(fileNote).toContain("docks-kit scratch remove <path>");
+  });
+
+  it("does not take another command's output for a captured mktemp file", () => {
+    const other = join(tmpdir(), "other-task");
+    const result = detect(`f=$(mktemp); printf '%s\\n' "$OTHER"`, "/w", `${other}\n`);
+    expect(result.resources).toEqual([]);
+    const fileNote = result.notes.find((note) => note.includes("a temporary file"));
+    expect(fileNote).toContain("docks-kit scratch remove <path>");
+  });
+
+  it("does not take another command's output for a captured scratch directory", () => {
+    const other = join(tmpdir(), "other-task");
+    const result = detect('S=$(docks-kit scratch new x); echo "$OTHER"', "/w", `${other}\n`);
+    expect(result.resources).toEqual([]);
+    expect(result.notes.some((note) => note.includes("scratch directory"))).toBe(true);
+  });
+
+  it.each([
+    ["mktemp > >(sed 's@.*@/tmp/other-task@')", "a temporary file"],
+    ["docks-kit scratch new x > >(sed 's@.*@/tmp/other-task@')", "a scratch directory"],
+  ])("does not take redirected output for %s", (command, noun) => {
+    const result = detect(command, "/w", `${join(tmpdir(), "other-task")}\n`);
+    expect(result.resources).toEqual([]);
+    expect(result.notes.some((note) => note.includes(noun))).toBe(true);
+  });
+
+  it.each([
+    "mktemp --suffix -upload",
+    "mktemp --s -upload",
+    "mktemp --suffix -dir",
+    "mktemp -- -dXXXXXX",
+  ])("reads the options of %s, not an option value or the template", (command) => {
+    const path = join(tmpdir(), "tmp.V");
+    expect(detect(command, "/w", `${path}\n`).resources).toEqual([{ kind: "tempFile", path }]);
+  });
+
+  it("reads the -t prefix of macOS mktemp as a value", () => {
+    const path = join(tmpdir(), "upload.V");
+    const result = detectResources("mktemp -tupload", resolve("/w"), `${path}\n`, HOME, "darwin");
+    expect(result.resources).toEqual([{ kind: "tempFile", path }]);
+  });
+
+  it("does not take the output of a command that a wrapper runs", () => {
+    const result = detect(
+      `env -a mktemp printf '%s\\n' "$OTHER"`,
+      "/w",
+      `${join(tmpdir(), "other-task")}\n`,
+    );
+    expect(result.resources).toEqual([]);
+    expect(result.notes.some((note) => note.includes("temporary file"))).toBe(false);
+  });
+
+  it.each([
+    "env -S true git worktree add /tmp/existing",
+    "env -C /srv/new docker compose up -d",
+    "env --chdir /srv/new docker compose up -d",
+    "sudo -D /srv/new docker compose up -d",
+    "sudo -i docker compose up -d",
+  ])(
+    "records nothing for %s, whose wrapper option can change the command or its directory",
+    (command) => {
+      expect(detect(command, "/srv/old").resources).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["npm run dev &", "background process"],
+    ["nohup srv", "background process"],
+    ["kind create cluster", "cluster or virtual machine"],
+    ["ssh -fN -L 5432:db:5432 host", "tunnel"],
+    ["bun add -g x", "global install"],
+    ["supabase branches create t", "remote resource"],
+    ["disown -h %1", "background process"],
+  ])("puts %s in the category %s", (command, category) => {
+    expect(categories(command)).toEqual([category]);
+  });
+
+  it.each([
+    ["git stash", "/w"],
+    ["git stash push -q -m x", "/w"],
+    ["git -C /r stash push -q", "/r"],
+    ["cd /a && git stash save x", "/a"],
+  ])("gives the directory of %s as a stash directory and records no resource", (command, dir) => {
+    const result = detect(command);
+    expect(result.stashes).toEqual([resolve(dir)]);
+    expect(result.resources).toEqual([]);
+  });
+
+  it.each(["git stash list", "git stash pop", "git stash drop", 'cd "$X" && git stash'])(
+    "gives no stash directory for %s",
+    (command) => {
+      expect(detect(command)).toEqual({ resources: [], notes: [], stashes: [] });
+    },
+  );
+});
+
+describe("Docker daemon targets", () => {
+  function compose(command: string): Extract<HygieneResource, { kind: "compose" }> | undefined {
+    const [resource] = detect(command).resources;
+    return resource?.kind === "compose" ? resource : undefined;
+  }
+
+  function container(command: string): Extract<HygieneResource, { kind: "container" }> | undefined {
+    const [resource] = detect(command, "/w", `${CONTAINER_ID}\n`).resources;
+    return resource?.kind === "container" ? resource : undefined;
+  }
+
+  it.each([
+    ["docker --context dev compose -p app up -d", ["--context", "dev"]],
+    ["docker -c dev compose -p app up -d", ["--context", "dev"]],
+    ["docker --context=dev compose -p app up -d", ["--context", "dev"]],
+    ["docker -l debug --host=ssh://u@h compose -p app up -d", ["--host", "ssh://u@h"]],
+    [
+      "docker --tlsverify -H tcp://h:2376 compose -p app up -d",
+      ["--tlsverify", "--host", "tcp://h:2376"],
+    ],
+  ])("keeps the daemon options of %s", (command, options) => {
+    const resource = compose(command);
+    expect(resource?.docker).toEqual({ environment: {}, options });
+    expect(resource?.down.startsWith(`docker ${options.join(" ")} compose -p app `)).toBe(true);
+  });
+
+  it("keeps a DOCKER_CONTEXT assignment and an exported DOCKER_HOST", () => {
+    expect(compose("DOCKER_CONTEXT=dev docker compose -p app up -d")?.down).toMatch(
+      /^DOCKER_CONTEXT=dev docker compose -p app /,
+    );
+    expect(compose("export DOCKER_HOST=ssh://u@h && docker compose -p app up -d")?.docker).toEqual({
+      environment: { DOCKER_HOST: "ssh://u@h" },
+      options: [],
+    });
+  });
+
+  it("records nothing when env -u removes a daemon variable", () => {
+    const command =
+      "export DOCKER_HOST=ssh://u@h && env -u DOCKER_HOST docker compose -p app up -d";
+    expect(detect(command).resources).toEqual([]);
+  });
+
+  it.each([
+    'name=DOCKER_HOST; export DOCKER_HOST=ssh://u@h; env -u "$name" docker compose -p app up -d',
+    'name=DOCKER_HOST; export DOCKER_HOST=ssh://u@h; env --unset "$name" docker compose -p app up -d',
+  ])("records nothing for %s, whose unset variable is not literal", (command) => {
+    expect(detect(command).resources).toEqual([]);
+  });
+
+  it.each([
+    "sudo docker compose -p app up -d",
+    "export DOCKER_HOST=ssh://u@h && sudo docker compose -p app up -d",
+    "DOCKER_HOST=ssh://u@h sudo DOCKER_CONTEXT=dev docker compose -p app up -d",
+  ])("records nothing for %s, whose daemon the sudoers policy selects", (command) => {
+    expect(detect(command).resources).toEqual([]);
+  });
+
+  const GENERIC_COMPOSE_NOTES = detect('docker --context "$CTX" compose -p app up -d').notes;
+
+  it.each([
+    'name=DOCKER_HOST; export DOCKER_HOST=ssh://dev; unset "$name"',
+    "export DOCKER_HOST=ssh://dev; export -n DOCKER_HOST",
+    'v=DOCKER_HOST; export "$v=ssh://dev"',
+    "DOCKER_HOST=ssh://dev; export DOCKER_HOST",
+    "export DOCKER_HOST=ssh://dev; unset -f DOCKER_HOST",
+    "declare -x DOCKER_HOST=ssh://dev",
+    "source env.sh",
+    ". env.sh",
+    'eval "$cmd"',
+    "source env.sh; export DOCKER_HOST=ssh://dev",
+  ])("records no stack and gives the generic note after %s", (before) => {
+    const result = detect(`${before}; docker compose -p app up -d`);
+    expect(result.resources).toEqual([]);
+    expect(result.notes).toEqual(GENERIC_COMPOSE_NOTES);
+  });
+
+  it.each([
+    "export DOCKER_HOST=ssh://dev; unset -v DOCKER_HOST",
+    "export DOCKER_HOST=ssh://dev; unset DOCKER_HOST",
+    'export PATH="/x:$PATH"',
+    'local dir="$1"',
+  ])("records the stack on the local daemon after %s", (before) => {
+    expect(compose(`${before}; docker compose -p app up -d`)?.docker).toEqual(DEFAULT_DAEMON);
+  });
+
+  it("repeats the daemon options in the cleanup of a detached container", () => {
+    expect(container("docker -H ssh://u@h run -d img")?.down).toBe(
+      `docker --host ssh://u@h stop ${SHORT_ID} && docker --host ssh://u@h rm ${SHORT_ID}`,
+    );
+    expect(container("DOCKER_HOST=ssh://u@h docker run -d --rm img")).toEqual({
+      kind: "container",
+      id: SHORT_ID,
+      down: `DOCKER_HOST=ssh://u@h docker stop ${SHORT_ID}`,
+      docker: { environment: { DOCKER_HOST: "ssh://u@h" }, options: [] },
+    });
+  });
+
+  it("records the same project on two daemons as two resources", () => {
+    const result = detect("docker compose up -d; docker --context dev compose up -d");
+    expect(result.resources).toHaveLength(2);
+  });
+
+  it("gives a generic note when the daemon is not literal", () => {
+    const result = detect('docker --context "$CTX" compose up -d');
+    expect(result.resources).toEqual([]);
+    expect(result.notes).toHaveLength(1);
+  });
+});
+
+describe("subshell scopes", () => {
+  it("keeps a cd inside parentheses in the subshell", () => {
+    expect(worktrees("(cd /a); git worktree add wt")).toEqual([resolve("/w", "wt")]);
+  });
+
+  it("applies a cd inside parentheses to later commands of the same subshell", () => {
+    expect(worktrees("(cd /a && git worktree add wt)")).toEqual([resolve("/a", "wt")]);
+  });
+
+  it("keeps a cd inside a command substitution in the substitution", () => {
+    expect(worktrees("x=$(cd /a; pwd); git worktree add wt")).toEqual([resolve("/w", "wt")]);
+    expect(worktrees("x=`cd /a`; git worktree add wt")).toEqual([resolve("/w", "wt")]);
+  });
+
+  it("shares the outer scope with a brace group", () => {
+    expect(worktrees("{ cd /a; }; git worktree add wt")).toEqual([resolve("/a", "wt")]);
+  });
+
+  it("starts a subshell from the directory of its parent", () => {
+    expect(worktrees("cd /a; (cd b; (git worktree add wt)); git worktree add top")).toEqual([
+      resolve("/a", "b", "wt"),
+      resolve("/a", "top"),
+    ]);
+  });
+
+  it("keeps an unknown Docker environment inside a subshell", () => {
+    expect(detect('(unset "$n"); docker compose -p app up -d').resources).toEqual([
+      expect.objectContaining({ kind: "compose", docker: DEFAULT_DAEMON }),
+    ]);
+  });
+
+  it("applies an unknown Docker environment to later commands of the same subshell", () => {
+    expect(detect('(unset "$n"; docker compose -p app up -d)').resources).toEqual([]);
+  });
+});
+
+describe("setup commands that may not run", () => {
+  const WORKTREE_NOTE =
+    "You created a git worktree. When the task no longer needs it, run `git worktree remove -- <path>`.";
+
+  it.each([
+    "true || cd /a; git worktree add wt",
+    "false && cd /a; git worktree add wt",
+    "cd /a | true; git worktree add wt",
+    "cd /a & git worktree add wt",
+    "if false; then cd /a; fi; git worktree add wt",
+    "f() { cd /a; }; git worktree add wt",
+    "case x in y) cd /a;; esac; git worktree add wt",
+    "x=$(true || cd /a; git worktree add wt)",
+    "! cd /missing && git worktree add wt",
+    "true ||\n  cd /a\ngit worktree add wt",
+    "false &&\n  cd /a\ngit worktree add wt",
+    "(true;) || cd /a; git worktree add wt",
+    "(true;) | cd /a; git worktree add wt",
+    "time ! cd /missing && git worktree add wt",
+    "f () { cd /a; }; git worktree add wt",
+    "(\n  false\n) || cd /a\ngit worktree add wt",
+    "(false;) && cd /a; git worktree add wt",
+    "echo '>'| cd /a; git worktree add wt",
+    "true '>'|| cd /a; git worktree add wt",
+    "echo \\>| cd /a; git worktree add wt",
+  ])("gives the generic note when the cd of %s may not run", (command) => {
+    const result = detect(command);
+    expect(result.resources).toEqual([]);
+    expect(result.notes).toContain(WORKTREE_NOTE);
+  });
+
+  it.each([
+    "true || export DOCKER_HOST=ssh://dev; docker compose -p app up -d",
+    "export DOCKER_HOST=ssh://dev; true || unset DOCKER_HOST; docker compose -p app up -d",
+    "false || unset DOCKER_HOST; docker compose -p app up -d",
+  ])("records no stack when the daemon of %s may not be set", (command) => {
+    const result = detect(command);
+    expect(result.resources).toEqual([]);
+    expect(result.notes).toEqual(detect('docker --context "$CTX" compose -p app up -d').notes);
+  });
+
+  it("keeps the daemon when an export that may not run changes no daemon variable", () => {
+    expect(detect("true || export FOO=1; docker compose -p app up -d").resources).toEqual([
+      expect.objectContaining({ kind: "compose", docker: DEFAULT_DAEMON }),
+    ]);
+  });
+
+  it.each([
+    ["cd /a && git worktree add b\n", resolve("/a", "b")],
+    ["cd /a &&\n  git worktree add b", resolve("/a", "b")],
+    ["git worktree add wt || true", resolve("/w", "wt")],
+    ["x=$(a || b); cd /c; git worktree add wt", resolve("/c", "wt")],
+    ["true || cd .; git worktree add wt", resolve("/w", "wt")],
+    ["# setup\ncd /a && git worktree add wt", resolve("/a", "wt")],
+    ["\ncd /a && git worktree add wt", resolve("/a", "wt")],
+    ["(\n  cd /a && git worktree add wt\n)", resolve("/a", "wt")],
+    ["cd /a && git worktree add wt && npm run dev &", resolve("/a", "wt")],
+    ["cd /a && git commit -m 'feat(' && git worktree add wt", resolve("/a", "wt")],
+    ["cd /a && time (make) && git worktree add wt", resolve("/a", "wt")],
+    ["echo x >| f; cd /a; git worktree add wt", resolve("/a", "wt")],
+    ['cd /a; echo "x">|file; git worktree add wt', resolve("/a", "wt")],
+    ["cd /a; echo \\x>|file; git worktree add wt", resolve("/a", "wt")],
+  ])("keeps the directory of %s", (command, path) => {
+    expect(worktrees(command)).toEqual([path]);
+  });
+});
+
+describe("reminders", () => {
+  const resources: Array<HygieneResource> = [
+    { kind: "worktree", path: "/w/feat" },
+    {
+      kind: "compose",
+      workingDir: "/w/feat",
+      down: "docker compose --project-directory /w/feat down",
+      docker: DEFAULT_DAEMON,
+    },
+    {
+      kind: "container",
+      id: "0123456789ab",
+      down: "docker stop 0123456789ab",
+      docker: DEFAULT_DAEMON,
+    },
+    { kind: "scratch", path: "/h/.cache/docks-kit/scratch/a b" },
+    { kind: "tempDir", path: "/tmp/tmp.X" },
+    { kind: "tempFile", path: "/tmp/tmp.Y" },
+    {
+      kind: "stash",
+      directory: "/w/feat",
+      gitDir: "/w/.git",
+      id: "0123456789abcdef0123456789abcdef01234567",
+      shortId: "0123456",
+      message: "On main: wip",
+    },
+  ];
+  const other: HygieneResource = {
+    kind: "other",
+    category: "background process",
+    command: "npm run dev",
+    hint: "Stop it before your final answer, or start it as a named bash service.",
+  };
+
+  it("quotes a path with a space", () => {
+    expect(cleanupCommand(resources[3] as HygieneResource)).toBe(
+      "docks-kit scratch remove '/h/.cache/docks-kit/scratch/a b'",
+    );
+  });
+
+  it("names the cleanup command in a creation reminder", () => {
+    expect(creationReminder(resources[0] as HygieneResource)).toBe(
+      "You created the worktree /w/feat. When the task no longer needs it, run `git worktree remove -- /w/feat`.",
+    );
+    expect(creationReminder(other)).toBe(
+      "This command created a background process (`npm run dev`). Stop it before your final answer, or start it as a named bash service.",
+    );
+  });
+
+  it("names a temporary file and its cleanup command in a creation reminder", () => {
+    const reminder = creationReminder({ kind: "tempFile", path: "/tmp/tmp.Y" });
+    expect(reminder).toContain("the temporary file /tmp/tmp.Y");
+    expect(reminder).toContain("`docks-kit scratch remove /tmp/tmp.Y`");
+  });
+
+  it("lists every cleanup command and the keep sentence at stop", () => {
+    const text = stopReminder(resources, [other]);
+    for (const resource of resources) expect(text).toContain(cleanupCommand(resource));
+    expect(text).toContain("These resources from this session still exist:");
+    expect(text).toContain(
+      "These commands from this session may have left something running, installed, or created:",
+    );
+    expect(text).toContain("- background process: `npm run dev` (Stop it before");
+    expect(text.split("\n").at(-1)).toBe(
+      "Remove each resource that the task no longer needs. Keep a resource only when the user asked for it or a later step needs it, and name it with the reason in your final answer. Never stop or delete a production resource without an ask in the main session.",
+    );
+  });
+
+  it("names the production rule at stop and for a remote resource", () => {
+    expect(stopReminder([], [other])).toContain(
+      "Never stop or delete a production resource without an ask in the main session.",
+    );
+    const [remote] = detectResources(
+      "supabase branches create t",
+      resolve("/w"),
+      "",
+      HOME,
+    ).resources;
+    const hint = remote?.kind === "other" ? remote.hint : "";
+    expect(hint).toContain("For a production target, ask the user first.");
+    expect(hint).toContain(
+      "only when its target is local, development, dev, test, homolog, homologation, staging, or preview,",
+    );
+  });
+});
+
+describe("sweep scheduling", () => {
+  it("is due without a stamp and after 12 hours", () => {
+    const now = Date.now();
+    expect(sweepDue(undefined, now)).toBe(true);
+    expect(sweepDue(now - 11 * HOUR_MS, now)).toBe(false);
+    expect(sweepDue(now - 12 * HOUR_MS, now)).toBe(true);
+  });
+
+  /**
+   * Each child imports the extension, prints `ready`, waits for one line on
+   * stdin, calls claimSweep, and prints the result. The extension path comes
+   * from argv, so the child imports it dynamically. The children run on Bun,
+   * which loads the TypeScript module without a build step.
+   */
+  const CHILD_SOURCE = [
+    'import { pathToFileURL } from "node:url";',
+    "const [extension, cacheDir] = process.argv.slice(2);",
+    "const { claimSweep } = await import(pathToFileURL(extension).href);",
+    'process.stdin.once("data", () => {',
+    "  const result = `${claimSweep(cacheDir, Date.now())}\\n`;",
+    "  // Exit only after the pipe has the result; an early exit can drop it.",
+    "  process.stdout.write(result, () => process.exit(0));",
+    "});",
+    'process.stdout.write("ready\\n");',
+  ].join("\n");
+
+  /** Starts `count` children together on one start barrier and returns their results. */
+  async function raceClaims(cacheDir: string, count: number): Promise<Array<string>> {
+    const script = join(sandbox(), "claim-child.mjs");
+    writeFileSync(script, CHILD_SOURCE);
+    const children = Array.from({ length: count }, () =>
+      spawn(BUN_RUNTIME, [script, EXTENSION, cacheDir], { stdio: ["pipe", "pipe", "inherit"] }),
+    );
+    try {
+      const outputs = children.map(() => "");
+      // `close` comes after the stdout stream ends; `exit` can come before the last chunk.
+      const closed = children.map((child) => {
+        const { promise, resolve: done } = Promise.withResolvers<void>();
+        child.on("close", () => done());
+        return promise;
+      });
+      const ready = children.map((child, index) => {
+        const { promise, resolve: done } = Promise.withResolvers<void>();
+        child.stdout.setEncoding("utf8");
+        child.stdout.on("data", (chunk: string) => {
+          outputs[index] += chunk;
+          if (outputs[index]?.includes("ready\n") === true) done();
+        });
+        return Promise.race([promise, closed[index]]);
+      });
+      await Promise.all(ready);
+      for (const child of children) child.stdin.write("go\n");
+      await Promise.all(closed);
+      return outputs.map((output) => output.replace("ready\n", "").trim());
+    } finally {
+      for (const child of children) {
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+      }
+    }
+  }
+
+  function makeStale(path: string, nowMs: number): void {
+    writeFileSync(path, "1 stale-token");
+    const twoMinutesAgo = (nowMs - 2 * 60 * 1000) / 1000;
+    utimesSync(path, twoMinutesAgo, twoMinutesAgo);
+  }
+
+  it("lets exactly one of eight processes start the sweep", async () => {
+    const cacheDir = join(sandbox(), "cache");
+    const results = await raceClaims(cacheDir, 8);
+    expect([...results].sort()).toEqual([
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+      "true",
+    ]);
+    expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(true);
+    expect(existsSync(join(cacheDir, "tidy.stamp.claim"))).toBe(false);
+  });
+
+  it("lets exactly one of eight processes replace a stale claim", async () => {
+    const cacheDir = sandbox();
+    makeStale(join(cacheDir, "tidy.stamp.claim"), Date.now());
+    const results = await raceClaims(cacheDir, 8);
+    expect([...results].sort()).toEqual([
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+      "true",
+    ]);
+    expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(true);
+  });
+
+  it("replaces a stale claim and removes its own files", () => {
+    const cacheDir = sandbox();
+    const now = Date.now();
+    makeStale(join(cacheDir, "tidy.stamp.claim"), now);
+
+    expect(claimSweep(cacheDir, now)).toBe(true);
+    expect(existsSync(join(cacheDir, "tidy.stamp.claim"))).toBe(false);
+    expect(existsSync(join(cacheDir, "tidy.stamp.takeover"))).toBe(false);
+  });
+
+  it("does not replace a stale claim while another process holds the takeover mutex", () => {
+    const cacheDir = sandbox();
+    const now = Date.now();
+    const claim = join(cacheDir, "tidy.stamp.claim");
+    makeStale(claim, now);
+    writeFileSync(join(cacheDir, "tidy.stamp.takeover"), "2 other-token");
+
+    expect(claimSweep(cacheDir, now)).toBe(false);
+    expect(readFileSync(claim, "utf8")).toBe("1 stale-token");
+    expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(false);
+  });
+
+  it("replaces a stale takeover mutex one time", () => {
+    const cacheDir = sandbox();
+    const now = Date.now();
+    makeStale(join(cacheDir, "tidy.stamp.claim"), now);
+    makeStale(join(cacheDir, "tidy.stamp.takeover"), now);
+
+    expect(claimSweep(cacheDir, now)).toBe(true);
+    expect(existsSync(join(cacheDir, "tidy.stamp.takeover"))).toBe(false);
+  });
+
+  it("loses to a fresh claim and leaves it in place", () => {
+    const cacheDir = sandbox();
+    const claim = join(cacheDir, "tidy.stamp.claim");
+    writeFileSync(claim, "");
+
+    expect(claimSweep(cacheDir, Date.now())).toBe(false);
+    expect(existsSync(claim)).toBe(true);
+    expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(false);
+  });
+
+  /**
+   * On Windows, a file that one process deletes stays "delete pending" while a
+   * handle to it is open. libuv then reports EPERM when a process opens or
+   * deletes that name, and EBUSY when an open handle does not share delete
+   * access. Each test injects one such error where a process can meet it.
+   */
+  describe("claimSweep on Windows while another process deletes a claim file", () => {
+    function onWindows(): void {
+      vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    }
+
+    /**
+     * Make the next `call` of `node:fs` throw an error with `code`, once: on
+     * `path` itself ("exact") or on each path that starts with `path` ("prefix").
+     */
+    function inject(
+      call: "openSync" | "readFileSync" | "unlinkSync",
+      path: string,
+      code: string,
+      match: "exact" | "prefix" = "exact",
+    ): void {
+      faults.pending.push({ call, path, code, match });
+    }
+
+    /** Call claimSweep once: `true`, `false`, or `threw <code>` for an error that escapes. */
+    function attempt(cacheDir: string, nowMs: number): string {
+      try {
+        return String(claimSweep(cacheDir, nowMs));
+      } catch (cause) {
+        return `threw ${String((cause as NodeJS.ErrnoException).code)}`;
+      }
+    }
+
+    it("returns false and changes no file when the create of the claim fails with EPERM", () => {
+      const cacheDir = sandbox();
+      const now = Date.now();
+      const claim = join(cacheDir, "tidy.stamp.claim");
+      const takeover = join(cacheDir, "tidy.stamp.takeover");
+      makeStale(claim, now);
+      // Another process holds the takeover mutex and deletes the stale claim now.
+      writeFileSync(takeover, "2 other-token");
+      onWindows();
+      inject("openSync", claim, "EPERM");
+
+      expect(attempt(cacheDir, now)).toBe("false");
+      expect(faults.pending).toEqual([]);
+      expect(readFileSync(claim, "utf8")).toBe("1 stale-token");
+      expect(readFileSync(takeover, "utf8")).toBe("2 other-token");
+      expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(false);
+    });
+
+    it("returns false when the removal of a stale takeover mutex fails with EBUSY, then claims on the next call", () => {
+      const cacheDir = sandbox();
+      const now = Date.now();
+      const claim = join(cacheDir, "tidy.stamp.claim");
+      const takeover = join(cacheDir, "tidy.stamp.takeover");
+      makeStale(claim, now);
+      makeStale(takeover, now);
+      onWindows();
+      inject("unlinkSync", takeover, "EBUSY");
+
+      expect(attempt(cacheDir, now)).toBe("false");
+      expect(faults.pending).toEqual([]);
+      expect(readFileSync(claim, "utf8")).toBe("1 stale-token");
+      expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(false);
+      // The next process replaces the stale takeover mutex and the stale claim.
+      expect(attempt(cacheDir, now)).toBe("true");
+      expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(true);
+      expect(existsSync(claim)).toBe(false);
+      expect(existsSync(takeover)).toBe(false);
+    });
+
+    it("returns false and releases the takeover mutex when the removal of a stale claim fails with EPERM, then claims on the next call", () => {
+      const cacheDir = sandbox();
+      const now = Date.now();
+      const claim = join(cacheDir, "tidy.stamp.claim");
+      const takeover = join(cacheDir, "tidy.stamp.takeover");
+      makeStale(claim, now);
+      onWindows();
+      inject("unlinkSync", claim, "EPERM");
+
+      expect(attempt(cacheDir, now)).toBe("false");
+      expect(faults.pending).toEqual([]);
+      expect(existsSync(takeover)).toBe(false);
+      expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(false);
+      // The next process replaces the stale claim.
+      expect(attempt(cacheDir, now)).toBe("true");
+      expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(true);
+      expect(existsSync(claim)).toBe(false);
+    });
+
+    it("returns true and writes the stamp when the removal of its claim at release fails with EPERM", () => {
+      const cacheDir = sandbox();
+      const now = Date.now();
+      onWindows();
+      inject("unlinkSync", join(cacheDir, "tidy.stamp.claim"), "EPERM");
+
+      expect(attempt(cacheDir, now)).toBe("true");
+      expect(faults.pending).toEqual([]);
+      expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(true);
+    });
+
+    it("returns true and writes the stamp when the read of its claim at release fails with EPERM", () => {
+      const cacheDir = sandbox();
+      const now = Date.now();
+      onWindows();
+      inject("readFileSync", join(cacheDir, "tidy.stamp.claim"), "EPERM");
+
+      expect(attempt(cacheDir, now)).toBe("true");
+      expect(faults.pending).toEqual([]);
+      expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(true);
+    });
+
+    it.each([
+      { platform: "win32", code: "EACCES" },
+      { platform: "win32", code: "EIO" },
+      { platform: "linux", code: "EPERM" },
+    ] as const)("throws $code from the create of the claim on $platform", ({ platform, code }) => {
+      const cacheDir = sandbox();
+      vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+      inject("openSync", join(cacheDir, "tidy.stamp.claim"), code);
+
+      expect(attempt(cacheDir, Date.now())).toBe(`threw ${code}`);
+      expect(existsSync(join(cacheDir, "tidy.stamp"))).toBe(false);
+    });
+
+    /**
+     * Seam (D-G): on win32, after an EPERM from the `wx` create of a claim file
+     * (`openSync`), from its removal (`unlinkSync`), or from the read at release
+     * (`readFileSync`), the claim code makes a probe. It creates
+     * `<path>.<pid>.<16 lowercase hex>.probe` with `openSync(probe, "wx")`, then
+     * removes it with `unlinkSync(probe)`. `<path>` is the path of the failed
+     * call and `<pid>` is `process.pid`. When both probe calls succeed, the
+     * EPERM is contention. When a probe call fails with EPERM, claimSweep throws
+     * the original EPERM. EBUSY is contention and makes no probe. claimSweep
+     * removes a `.probe` file of the claim or of the takeover mutex when its
+     * PID has exited, and keeps it while its PID runs.
+     */
+    describe("probe after an EPERM", () => {
+      interface Site {
+        site: string;
+        call: "openSync" | "readFileSync" | "unlinkSync";
+        /** Makes the files that the claim code finds before the fault. */
+        prepare(claim: string, nowMs: number): void;
+        /** The result of claimSweep when the EPERM is contention. */
+        contention: "true" | "false";
+      }
+
+      const SITES: Array<Site> = [
+        {
+          site: "the create of the claim",
+          call: "openSync",
+          prepare: (claim) => writeFileSync(claim, ""),
+          contention: "false",
+        },
+        {
+          site: "the removal of a stale claim",
+          call: "unlinkSync",
+          prepare: (claim, nowMs) => makeStale(claim, nowMs),
+          contention: "false",
+        },
+        {
+          site: "the read of its claim at release",
+          call: "readFileSync",
+          prepare: () => {},
+          contention: "true",
+        },
+      ];
+
+      const PROBE_STEPS = [
+        { step: "create", probeCall: "openSync" },
+        { step: "removal", probeCall: "unlinkSync" },
+      ] as const;
+
+      const PROBE_TAIL = /^[0-9a-f]{16}\.probe$/;
+
+      /** The start of each probe name of `path` in this process: `<path>.<pid>.`. */
+      function probePrefix(path: string): string {
+        return `${path}.${process.pid}.`;
+      }
+
+      /** The probe paths of `path` that `call` of `node:fs` received. */
+      function probeCalls(call: "openSync" | "unlinkSync", path: string): Array<string> {
+        const prefix = probePrefix(path);
+        return faults.seen
+          .filter(
+            (seen) =>
+              seen.call === call &&
+              seen.path.startsWith(prefix) &&
+              PROBE_TAIL.test(seen.path.slice(prefix.length)),
+          )
+          .map((seen) => seen.path);
+      }
+
+      /** The names of the `.probe` files in `cacheDir`. */
+      function probeFiles(cacheDir: string): Array<string> {
+        return readdirSync(cacheDir)
+          .filter((name) => name.endsWith(".probe"))
+          .sort();
+      }
+
+      it.each(SITES)(
+        "returns $contention when $site fails with EPERM and the probe works",
+        ({ call, prepare, contention }) => {
+          const cacheDir = sandbox();
+          const now = Date.now();
+          const claim = join(cacheDir, "tidy.stamp.claim");
+          prepare(claim, now);
+          onWindows();
+          inject(call, claim, "EPERM");
+
+          expect(attempt(cacheDir, now)).toBe(contention);
+          expect(faults.pending).toEqual([]);
+          const created = probeCalls("openSync", claim);
+          expect(created).toHaveLength(1);
+          expect(probeCalls("unlinkSync", claim)).toEqual(created);
+          expect(probeFiles(cacheDir)).toEqual([]);
+        },
+      );
+
+      it.each(SITES.flatMap((site) => PROBE_STEPS.map((step) => ({ ...site, ...step }))))(
+        "throws the EPERM of $site when the $step of the probe fails with EPERM",
+        ({ call, prepare, probeCall }) => {
+          const cacheDir = sandbox();
+          const now = Date.now();
+          const claim = join(cacheDir, "tidy.stamp.claim");
+          prepare(claim, now);
+          onWindows();
+          inject(call, claim, "EPERM");
+          inject(probeCall, probePrefix(claim), "EPERM", "prefix");
+
+          expect(() => claimSweep(cacheDir, now)).toThrow(
+            `EPERM: injected fault, ${call} '${claim}'`,
+          );
+          expect(faults.pending).toEqual([]);
+        },
+      );
+
+      it("returns false and makes no probe when the create of the claim fails with EBUSY", () => {
+        const cacheDir = sandbox();
+        const now = Date.now();
+        const claim = join(cacheDir, "tidy.stamp.claim");
+        writeFileSync(claim, "");
+        onWindows();
+        inject("openSync", claim, "EBUSY");
+
+        expect(attempt(cacheDir, now)).toBe("false");
+        expect(faults.pending).toEqual([]);
+        expect(probeCalls("openSync", claim)).toEqual([]);
+        expect(probeFiles(cacheDir)).toEqual([]);
+      });
+
+      it("removes the probe files of an exited process and keeps the probe file of a live process", async () => {
+        const cacheDir = sandbox();
+        const exited = spawnSync(process.execPath, ["-e", ""]).pid;
+        // The child runs until its stdin closes or it is killed.
+        const live = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
+          stdio: ["pipe", "ignore", "ignore"],
+        });
+        const { promise: liveExit, resolve: exitDone } = Promise.withResolvers<void>();
+        live.once("exit", () => exitDone());
+        try {
+          expect(live.pid).toBeTypeOf("number");
+          const liveProbe = `tidy.stamp.claim.${String(live.pid)}.0123456789abcdef.probe`;
+          for (const name of [
+            `tidy.stamp.claim.${exited}.0123456789abcdef.probe`,
+            `tidy.stamp.takeover.${exited}.fedcba9876543210.probe`,
+            liveProbe,
+          ]) {
+            writeFileSync(join(cacheDir, name), "");
+          }
+          onWindows();
+
+          expect(attempt(cacheDir, Date.now())).toBe("true");
+          expect(probeFiles(cacheDir)).toEqual([liveProbe]);
+        } finally {
+          live.kill();
+          await liveExit;
+        }
+      });
+
+      it("makes no probe for an exited probe file that the folder does not let it remove", () => {
+        const cacheDir = sandbox();
+        const exited = spawnSync(process.execPath, ["-e", ""]).pid;
+        const deadProbe = join(cacheDir, `tidy.stamp.claim.${exited}.0123456789abcdef.probe`);
+        writeFileSync(deadProbe, "");
+        onWindows();
+        // The folder denies deletes: the removal fails, and so would the removal of a probe of it.
+        inject("unlinkSync", deadProbe, "EPERM");
+        inject("unlinkSync", `${deadProbe}.`, "EPERM", "prefix");
+
+        expect(attempt(cacheDir, Date.now())).toBe("true");
+        expect(probeCalls("openSync", deadProbe)).toEqual([]);
+        expect(probeFiles(cacheDir)).toEqual([basename(deadProbe)]);
+      });
+    });
+  });
+});
+
+describe("subprocesses", () => {
+  it("passes shell syntax to the child as one literal argument", async () => {
+    const argument = "a;b $(x) | c";
+    const result = await run(
+      process.execPath,
+      ["-e", "console.log(process.argv[process.argv.length - 1])", argument],
+      { timeoutMs: 20_000 },
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe(argument);
+  });
+
+  it.skipIf(process.platform === "win32")("finds docks-kit only in an absolute PATH entry", () => {
+    const bin = sandbox();
+    const launcher = join(bin, "docks-kit");
+    writeFileSync(launcher, "#!/bin/sh\n");
+    chmodSync(launcher, 0o755);
+
+    expect(resolveDocksKit({ PATH: `relative:${bin}` }, "linux")).toBe(launcher);
+    expect(() => resolveDocksKit({ PATH: "relative" }, "linux")).toThrow(
+      "docks-kit is not on PATH; install docks-kit and run docks-kit sync",
+    );
+  });
+});
+
+describe("extension handlers", () => {
+  type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
+
+  /** Loads the extension into a fake omp API that keeps the handlers and the tool names. */
+  function load(): { handlers: Map<string, Handler>; tools: Array<string> } {
+    const handlers = new Map<string, Handler>();
+    const tools: Array<string> = [];
+    const schema = { describe: () => schema };
+    const api = {
+      zod: { object: () => schema, string: () => schema, array: () => schema },
+      on: (event: string, handler: Handler) => handlers.set(event, handler),
+      registerTool: (definition: { name: string }) => tools.push(definition.name),
+    } as unknown as ExtensionApi;
+    docksKitOmp(api);
+    return { handlers, tools };
+  }
+
+  let callCount = 0;
+
+  /**
+   * Sends tool_call and tool_result for one bash call, the same as omp does.
+   * `execute` runs between the two events in place of the command.
+   */
+  async function bash(
+    handlers: Map<string, Handler>,
+    command: string,
+    output = "",
+    call: { cwd?: string; execute?: () => void } = {},
+  ): Promise<string | undefined> {
+    callCount++;
+    const event = {
+      toolName: "bash",
+      toolCallId: `call-${callCount}`,
+      input: call.cwd === undefined ? { command } : { command, cwd: call.cwd },
+    };
+    expect(await handlers.get("tool_call")?.(event, { cwd: "/w" })).toBeUndefined();
+    call.execute?.();
+    const result = (await handlers.get("tool_result")?.(
+      { ...event, content: [{ type: "text", text: output }], isError: false },
+      { cwd: "/w" },
+    )) as { additionalContext: string } | undefined;
+    return result?.additionalContext;
+  }
+
+  it("registers the three tools and the five handlers", () => {
+    const { handlers, tools } = load();
+    expect(tools).toEqual(["scratch_new", "scratch_remove", "tidy_report"]);
+    expect([...handlers.keys()]).toEqual([
+      "tool_call",
+      "tool_result",
+      "tool_execution_end",
+      "session_stop",
+      "session_start",
+    ]);
+  });
+
+  describe("git stash entries", () => {
+    let open: GitSandbox | undefined;
+    afterEach(() => {
+      open?.dispose();
+      open = undefined;
+    });
+
+    /** The sandbox repository `main`, with one older stash entry of the user. */
+    function repository(): GitSandbox {
+      open = createGitSandbox();
+      writeFileSync(join(open.main, "README"), "user draft\n");
+      open.git(open.main, "stash", "push", "-q", "-m", "user draft");
+      return open;
+    }
+
+    function shortStash(repo: GitSandbox): string {
+      return repo.git(repo.main, "rev-parse", "--short", "refs/stash").trim();
+    }
+
+    /** Runs `git stash push -q -m agent` in `main` as a bash call of the agent. */
+    function pushAgentStash(handlers: Map<string, Handler>, repo: GitSandbox) {
+      return bash(handlers, "git stash push -q -m agent", "", {
+        cwd: repo.main,
+        execute: () => repo.git(repo.main, "stash", "push", "-q", "-m", "agent"),
+      });
+    }
+
+    async function stopText(handlers: Map<string, Handler>): Promise<string> {
+      const result = (await handlers.get("session_stop")?.(
+        { stop_hook_active: false },
+        { cwd: "/w" },
+      )) as { additionalContext: string } | undefined;
+      return result?.additionalContext ?? "";
+    }
+
+    it("names the kept entry once at stop and never the older entry", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      const user = shortStash(repo);
+      writeFileSync(join(repo.main, "README"), "agent change\n");
+
+      const created = await pushAgentStash(handlers, repo);
+      const agent = shortStash(repo);
+      const description = `the git stash entry ${agent} (On main: agent) in ${repo.main}`;
+      expect(created).toContain(`The stash list got ${description} while this command ran.`);
+      expect(created).not.toContain(user);
+
+      const text = await stopText(handlers);
+      const stashLines = text.split("\n").filter((line) => line.includes("git stash entry"));
+      expect(stashLines).toHaveLength(1);
+      expect(stashLines[0]).toContain(`- ${description}: run \`git -C `);
+      expect(stashLines[0]).toContain(`and find ${agent}. Pop that entry`);
+      expect(text).not.toContain(user);
+      expect(text).not.toContain("Apply the stash");
+    });
+
+    it("gives no stop reminder after the agent pops its entry", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      writeFileSync(join(repo.main, "README"), "agent change\n");
+
+      expect(await pushAgentStash(handlers, repo)).toContain("the git stash entry");
+      repo.git(repo.main, "stash", "pop", "-q");
+
+      expect(await stopText(handlers)).not.toContain("git stash");
+    });
+
+    it("records nothing for a stash push with nothing to save", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      const before = shortStash(repo);
+
+      // refs/stash still names the older entry of the user after the push.
+      expect(await pushAgentStash(handlers, repo)).toBeUndefined();
+      expect(shortStash(repo)).toBe(before);
+      expect(await stopText(handlers)).not.toContain("git stash");
+    });
+
+    it("records the entry of a failed call that still pushed a stash", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      writeFileSync(join(repo.main, "README"), "agent change\n");
+      const event = {
+        toolName: "bash",
+        toolCallId: "failed-call",
+        input: { command: "git stash push -q -m agent && false", cwd: repo.main },
+      };
+
+      await handlers.get("tool_call")?.(event, { cwd: "/w" });
+      repo.git(repo.main, "stash", "push", "-q", "-m", "agent");
+      const result = (await handlers.get("tool_result")?.(
+        { ...event, content: [], isError: true },
+        { cwd: "/w" },
+      )) as { additionalContext: string } | undefined;
+      expect(result?.additionalContext).toContain(
+        `the git stash entry ${shortStash(repo)} (On main: agent)`,
+      );
+      await stopText(handlers);
+    });
+
+    it("asks only to name the entry after its worktree is removed", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      const linked = join(repo.base, "linked");
+      repo.git(repo.main, "worktree", "add", "-q", "--detach", linked);
+      writeFileSync(join(linked, "README"), "agent change\n");
+
+      await bash(handlers, "git stash push -q -m agent", "", {
+        cwd: linked,
+        execute: () => repo.git(linked, "stash", "push", "-q", "-m", "agent"),
+      });
+      repo.git(repo.main, "worktree", "remove", linked);
+
+      const text = await stopText(handlers);
+      const line = text.split("\n").find((entry) => entry.includes("git stash entry")) ?? "";
+      expect(line).toContain(`(On (no branch): agent) in ${linked}: its worktree was removed.`);
+      expect(line).toContain("Run `git --git-dir=");
+      expect(line).toContain("Do not pop or drop it, and name it in your final answer");
+      expect(line).not.toContain("Pop that entry");
+      expect(line).not.toContain("git -C");
+    });
+
+    it("drops the stash list of a call at tool_execution_end", async () => {
+      const { handlers } = load();
+      const repo = repository();
+      writeFileSync(join(repo.main, "README"), "agent change\n");
+      const event = {
+        toolName: "bash",
+        toolCallId: "blocked-call",
+        input: { command: "git stash push -q -m agent", cwd: repo.main },
+      };
+
+      // omp sends tool_execution_end and no tool_result for a blocked call.
+      // A later tool_result with the same ID then has no list to compare.
+      await handlers.get("tool_call")?.(event, { cwd: "/w" });
+      await handlers.get("tool_execution_end")?.({ toolCallId: "blocked-call" }, { cwd: "/w" });
+      repo.git(repo.main, "stash", "push", "-q", "-m", "agent");
+      const result = await handlers.get("tool_result")?.(
+        { ...event, content: [], isError: false },
+        { cwd: "/w" },
+      );
+      expect(result).toBeUndefined();
+    });
+  });
+
+  it.each([
+    ["npm i -g x", "global install"],
+    ["npm i --global x", "global install"],
+    ["bun add x -g", "global install"],
+    ["disown -h %1", "background process"],
+    ["sleep 100 & disown", "background process"],
+  ])("reminds after %s", async (command, category) => {
+    const { handlers } = load();
+    expect(await bash(handlers, command)).toContain(`This command created a ${category}`);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "checks a Docker resource at stop on the daemon that created it",
+    async () => {
+      const bin = sandbox();
+      const log = join(bin, "docker.log");
+      const fakeDocker = join(bin, "docker");
+      writeFileSync(
+        fakeDocker,
+        `#!/bin/sh\nprintf '%s|%s\\n' "$DOCKER_HOST" "$*" >> '${log}'\necho present\n`,
+      );
+      chmodSync(fakeDocker, 0o755);
+      const savedPath = process.env["PATH"];
+      const savedHost = process.env["DOCKER_HOST"];
+      process.env["PATH"] = `${bin}:${savedPath ?? ""}`;
+      delete process.env["DOCKER_HOST"];
+      try {
+        const { handlers } = load();
+        await bash(handlers, "docker --context dev compose -p app up -d");
+        await bash(handlers, "DOCKER_HOST=ssh://u@h docker run -d --rm img", `${CONTAINER_ID}\n`);
+        const stop = (await handlers.get("session_stop")?.({ stop_hook_active: false }, {})) as {
+          additionalContext: string;
+        };
+
+        expect(stop.additionalContext).toContain(
+          "run `docker --context dev compose -p app --project-directory /w down`",
+        );
+        expect(stop.additionalContext).toContain(
+          `run \`DOCKER_HOST=ssh://u@h docker stop ${SHORT_ID}\``,
+        );
+        expect(readFileSync(log, "utf8").trim().split("\n").sort()).toEqual(
+          [
+            "|--context dev ps -q --filter label=com.docker.compose.project.working_dir=/w",
+            `ssh://u@h|ps -aq --filter id=${SHORT_ID}`,
+          ].sort(),
+        );
+      } finally {
+        process.env["PATH"] = savedPath;
+        if (savedHost === undefined) delete process.env["DOCKER_HOST"];
+        else process.env["DOCKER_HOST"] = savedHost;
+      }
+    },
+  );
+
+  it("reminds at creation and again at stop while the directory exists", async () => {
+    const { handlers } = load();
+    const directory = join(sandbox(), "scratch", "eval-ab12");
+    mkdirSync(directory, { recursive: true });
+
+    expect(await bash(handlers, "docks-kit scratch new eval", `${directory}\n`)).toBe(
+      creationReminder({ kind: "scratch", path: directory }),
+    );
+
+    const stop = handlers.get("session_stop");
+    const first = (await stop?.({ stop_hook_active: false }, { cwd: "/w" })) as {
+      continue: boolean;
+      additionalContext: string;
+    };
+    expect(first.continue).toBe(true);
+    expect(first.additionalContext).toContain(`the scratch directory ${directory}`);
+    expect(await stop?.({ stop_hook_active: true }, { cwd: "/w" })).toBeUndefined();
+    expect(await stop?.({ stop_hook_active: false }, { cwd: "/w" })).toBeUndefined();
+    expect(statSync(directory).isDirectory()).toBe(true);
+  });
+
+  it("reminds at stop while a mktemp file exists", async () => {
+    const { handlers } = load();
+    const file = join(sandbox(), "tmp.Y");
+    writeFileSync(file, "");
+
+    await bash(handlers, "mktemp", `${file}\n`);
+
+    const stop = handlers.get("session_stop");
+    const result = (await stop?.({ stop_hook_active: false }, { cwd: "/w" })) as
+      | { additionalContext: string }
+      | undefined;
+    expect(result?.additionalContext).toContain(`the temporary file ${file}`);
+  });
+
+  it("ignores a failed bash call", async () => {
+    const { handlers } = load();
+    const result = await handlers.get("tool_result")?.(
+      { toolName: "bash", input: { command: "git stash" }, content: [], isError: true },
+      { cwd: "/w" },
+    );
+    expect(result).toBeUndefined();
+  });
+
+  /**
+   * Seam (D-G): the session_start handler keeps the message of an error that
+   * stops the sweep. The next tool_result of the main session (`ctx.agent`
+   * absent or `kind: "main"`) adds the line
+   * `docks-kit sweep did not start: <message>` to its additionalContext, one
+   * time. A tool_result of a subagent does not show or use the line.
+   */
+  it("shows a sweep error once, on the next tool result of the main session", async () => {
+    const home = sandbox();
+    const bin = sandbox();
+    // resolveDocksKit only checks the file; the sweep stops before it starts docks-kit.
+    const launcher = join(bin, process.platform === "win32" ? "docks-kit.exe" : "docks-kit");
+    writeFileSync(launcher, "#!/bin/sh\n");
+    chmodSync(launcher, 0o755);
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("USERPROFILE", home);
+    vi.stubEnv("PATH", bin);
+    const claim = join(home, ".cache", "docks-kit", "tidy.stamp.claim");
+    faults.pending.push({ call: "openSync", path: claim, code: "EACCES", match: "exact" });
+    const { handlers } = load();
+
+    expect(await handlers.get("session_start")?.({}, { cwd: "/w" })).toBeUndefined();
+    expect(faults.pending).toEqual([]);
+    const subagentResult = await handlers.get("tool_result")?.(
+      { toolName: "bash", input: { command: "ls" }, content: [], isError: false },
+      { cwd: "/w", agent: { kind: "sub" } },
+    );
+    expect(subagentResult).toBeUndefined();
+    expect(await bash(handlers, "ls")).toBe(
+      `docks-kit sweep did not start: EACCES: injected fault, openSync '${claim}'`,
+    );
+    expect(await bash(handlers, "ls")).toBeUndefined();
+  });
+
+  it("shows no sweep error and makes no claim when docks-kit is not on PATH", async () => {
+    const home = sandbox();
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("USERPROFILE", home);
+    // A checkout user who runs ./docks-kit has no launcher on PATH.
+    vi.stubEnv("PATH", sandbox());
+    const { handlers } = load();
+
+    expect(await handlers.get("session_start")?.({}, { cwd: "/w" })).toBeUndefined();
+    expect(await bash(handlers, "ls")).toBeUndefined();
+    expect(existsSync(join(home, ".cache", "docks-kit", "tidy.stamp.claim"))).toBe(false);
+  });
+});

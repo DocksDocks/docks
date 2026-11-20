@@ -1,0 +1,301 @@
+name: release-cli
+
+# Build and verify the docks-kit release payload, attach binaries to the tagged
+# GitHub release, then publish the exact package tarball through npm OIDC.
+#
+# The release identity is resolved exactly once, in `resolve`, and every later
+# job consumes that output. A tag push supplies it through `github.ref_name`; a
+# manual dispatch supplies it through `inputs.tag`.
+#
+# Both paths check out the ref that triggered the run, never an override. That
+# is deliberate: `npm publish --provenance` builds its attestation from
+# GITHUB_REF and GITHUB_SHA, not from what the build checked out, so a checkout
+# override would mint an attestation naming a ref that did not produce the
+# bytes. The dispatch path instead proves that every packaged file is
+# byte-identical to the tag's tree, and the packed bundle to a build of that
+# tree, which makes the attested ref and the published content agree. It also
+# proves that the release build inputs (the lockfile, the build and proof
+# scripts, and the pinned Bun setup) match the tag before any of them runs.
+#
+# The dispatch path exists because a tag is burned on first push: it can never
+# be recreated, and re-running a failed run replays the workflow bytes from the
+# tag commit. Without a dispatch, one failure after the tag push strands the
+# release permanently.
+
+on:
+  push:
+    tags:
+      # Kept in step with the `resolve` job's exact pattern, so a tag that
+      # triggers this workflow is never rejected later as unparseable.
+      - "cli-v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing cli-v<version> tag to build and publish"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    permissions: {}
+    runs-on: ubuntu-24.04
+    # 3 x p90 4 s = 12 s, so the 2-minute floor applies.
+    timeout-minutes: 2
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+      release_version: ${{ steps.identity.outputs.release_version }}
+    steps:
+      - name: Resolve release identity
+        id: identity
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          tag="$REQUESTED_TAG"
+          if [[ ! "$tag" =~ ^cli-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release tag '$tag' must be cli-v<major>.<minor>.<patch>"
+            exit 1
+          fi
+          release_version="${tag#cli-v}"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'release_version=%s\n' "$release_version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    # 3 x (p90 74 s + 9 s cold setup) = 249 s, rounded up.
+    timeout-minutes: 5
+    steps:
+      # No `ref:` override. An empty `ref` makes actions/checkout pin the
+      # event's commit and assert it, which is exactly the guarantee a release
+      # build needs; supplying a ref name would disable that assertion and
+      # would resolve a same-named branch ahead of the tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # A dispatch builds the release from the branch, so the lockfile, the
+      # build and proof scripts, and the pinned Bun setup must match the tag
+      # before the job installs or compiles anything. A tag push checks out
+      # the tag, so only the tree can drift there.
+      - name: Prove the release build inputs are the tag's content
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          build_inputs=(
+            bun.lock
+            cli/build-binaries.sh
+            cli/scripts/build-bundle.ts
+            cli/scripts/release-build.sh
+            cli/scripts/tarball-proof.sh
+            .github/actions/setup-bun-cache/action.yml
+          )
+
+          status="$(git status --porcelain -- "${build_inputs[@]}")"
+          if [[ -n "$status" ]]; then
+            echo "::error::working tree differs from HEAD across release build inputs"
+            printf '%s\n' "$status"
+            exit 1
+          fi
+
+          if ! git diff --quiet "refs/tags/${RELEASE_TAG}" HEAD -- "${build_inputs[@]}"; then
+            echo "::error::release build inputs differ from ${RELEASE_TAG}"
+            git diff --name-status "refs/tags/${RELEASE_TAG}" HEAD -- "${build_inputs[@]}"
+            exit 1
+          fi
+
+      - uses: ./.github/actions/setup-bun-cache
+
+      - name: Install dependencies
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun install --frozen-lockfile
+
+      - name: Validate release version
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+          RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
+        run: |
+          package_version="$(bun -p 'require("./package.json").version')"
+          if [[ "$RELEASE_VERSION" != "$package_version" ]]; then
+            echo "::error::tag version '$RELEASE_VERSION' does not match package.json version '$package_version'"
+            exit 1
+          fi
+
+      - name: Full test gate
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run test:ci
+
+      # Builds the bundle and its map, the four binaries with SHA256SUMS, and
+      # the tarball, then fails unless cli/dist holds exactly those files with
+      # one debug id across the map, the bundle, and the packed bundle.
+      - name: Build, pack, and check the release files
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+          RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
+        run: bash cli/scripts/release-build.sh "$RELEASE_VERSION"
+
+      - name: Prove the packed tarball is the tag's content
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
+        run: |
+          set -euo pipefail
+
+          # `bun pm pack` packs the WORKING TREE, so neither trigger proves by
+          # itself that the tarball is the tag's bytes. A dispatch runs from a
+          # branch, so `npm publish --provenance` would otherwise attest that
+          # branch; a tag push checks out the tag, so only the tree can drift.
+          # Both failures publish the wrong bytes under a correct-looking
+          # attestation, so this runs unconditionally. The proof reads the
+          # tag locally, so fetch it first.
+          git fetch --no-tags --depth=1 origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          bash cli/scripts/tarball-proof.sh "$RELEASE_TAG" "cli/dist/docks-kit-${RELEASE_VERSION}.tgz"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-cli-${{ needs.resolve.outputs.tag }}
+          if-no-files-found: error
+          # A re-run of this job is the documented recovery for a failed
+          # release, and it uploads the same artifact name into the same run.
+          # Without this the second attempt fails on the existing artifact.
+          overwrite: true
+          path: |
+            cli/dist/docks-kit-linux-x64
+            cli/dist/docks-kit-linux-arm64
+            cli/dist/docks-kit-darwin-arm64
+            cli/dist/docks-kit-windows-x64.exe
+            cli/dist/SHA256SUMS
+            cli/dist/docks-kit.js.map
+            cli/dist/docks-kit-${{ needs.resolve.outputs.release_version }}.tgz
+
+      # Runs last on purpose: the smoke installs the tarball at the given path
+      # rather than packing a second one, so the bytes it exercises are the
+      # bytes the equality proof accepted and the upload published. Earlier
+      # placement would smoke a tarball the proof had not yet accepted, and
+      # placement between the proof and the upload would delay the only step
+      # that saves those bytes. It still gates publication, because
+      # `github-release` and `npm-publish` declare `needs: build`, so a failure
+      # here stops both.
+      - name: Clean-room package install smoke
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
+        run: bun run smoke:package cli/dist/docks-kit-${{ needs.resolve.outputs.release_version }}.tgz
+
+  github-release:
+    needs: [resolve, build]
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    # 3 x p90 43 s = 129 s, rounded up. Known risk: the artifact download
+    # took 9.5 minutes in the cli-v0.20.1 run, and a cancelled release needs
+    # a manual dispatch.
+    timeout-minutes: 3
+    steps:
+      - name: Download release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-cli-${{ needs.resolve.outputs.tag }}
+          path: release-dist
+
+      - name: Create release and upload only missing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 \
+            || gh release create "$RELEASE_TAG" --verify-tag --generate-notes
+
+          # Never replace a published asset: a release asset is immutable
+          # evidence that the Docks parent release lane pins. Upload only what
+          # is absent, so a re-driven run is idempotent instead of destructive.
+          # The listing's exit status is checked explicitly, because reading it
+          # through a process substitution would turn a transient API failure
+          # into a silently empty "nothing is published yet".
+          present="$(mktemp)"
+          if ! gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > "$present"; then
+            echo "::error::could not list existing assets for $RELEASE_TAG"
+            exit 1
+          fi
+          for asset in docks-kit-linux-x64 docks-kit-linux-arm64 docks-kit-darwin-arm64 docks-kit-windows-x64.exe SHA256SUMS docks-kit.js.map; do
+            if grep -Fxq "$asset" "$present"; then
+              echo "asset already published, leaving untouched: $asset"
+              continue
+            fi
+            gh release upload "$RELEASE_TAG" "release-dist/$asset"
+          done
+
+  npm-publish:
+    needs: [resolve, build, github-release]
+    permissions:
+      id-token: write
+    runs-on: ubuntu-24.04
+    # 3 x p90 45 s = 135 s, rounded up. One of the last 30 successful runs
+    # took 241 s, which is more than this limit.
+    timeout-minutes: 3
+    steps:
+      - name: Download release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-cli-${{ needs.resolve.outputs.tag }}
+          path: release-dist
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install pinned npm
+        run: npm install --global npm@11.18.0
+
+      - name: Publish exact version when absent
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
+        run: |
+          expected_tgz="release-dist/docks-kit-${RELEASE_VERSION}.tgz"
+          shopt -s nullglob
+          tarballs=(release-dist/*.tgz)
+          if [[ "${#tarballs[@]}" -ne 1 || "${tarballs[0]}" != "$expected_tgz" ]]; then
+            echo "::error::expected exactly one downloaded tarball at '$expected_tgz'"
+            exit 1
+          fi
+          # npm-package-arg only treats an argument as a local tarball when it
+          # starts with ./, ../, / or file:. A bare `dir/name.tgz` is parsed as
+          # the GitHub shorthand <owner>/<repo>, so npm resolves it over SSH and
+          # the publish fails with "Permission denied (publickey)". Keep the ./.
+          tgz="./${tarballs[0]}"
+
+          view_error="$(mktemp)"
+          trap 'rm -f "$view_error"' EXIT
+          set +e
+          published_version="$(npm view "docks-kit@${RELEASE_VERSION}" version 2>"$view_error")"
+          view_status=$?
+          set -e
+
+          if [[ "$view_status" -eq 0 ]]; then
+            cat "$view_error" >&2
+            if [[ "$published_version" != "$RELEASE_VERSION" ]]; then
+              echo "::error::npm returned version '$published_version', expected '$RELEASE_VERSION'"
+              exit 1
+            fi
+            echo "docks-kit@${RELEASE_VERSION} is already published"
+            exit 0
+          fi
+
+          cat "$view_error" >&2
+          if grep -qE '(^|[[:space:]])E404([[:space:]]|$)' "$view_error"; then
+            npm publish "$tgz" --provenance --access public
+            exit 0
+          fi
+
+          exit "$view_status"

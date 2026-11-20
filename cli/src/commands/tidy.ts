@@ -1,0 +1,148 @@
+import { resolve } from "node:path";
+
+import { Command, Flag } from "effect/cli";
+import { Console, Effect, Option } from "effect";
+
+import { bail } from "../engine";
+import { engineHome } from "../engine-native/ompSession";
+import { acquireKitLock, releaseKitLock } from "../engine-native/kitLock";
+import { scratchRoot, tidyApplyLockPath } from "../engine-native/scratch";
+import {
+  actionSubject,
+  actionVerb,
+  agentWorktreeRoot,
+  applyTidy,
+  defaultTidyHost,
+  mainRepository,
+  planTidy,
+  type TidyHost,
+  type TidyInputs,
+  type TidyPlan,
+} from "../engine-native/tidy";
+import { buildTidyReport } from "../engine-native/tidyReport";
+
+const apply = Flag.Boolean("apply").pipe(
+  Flag.withDescription("Perform the listed actions"),
+  Flag.withDefault(false),
+);
+const repo = Flag.String("repo").pipe(
+  Flag.withDescription("Take worktree candidates only from this repository, at any location"),
+  Flag.optional,
+);
+const report = Flag.Boolean("report").pipe(
+  Flag.withDescription("Also list other disk and memory use (read-only)"),
+  Flag.withDefault(false),
+);
+
+export interface TidyOptions {
+  readonly apply: boolean;
+  readonly report: boolean;
+}
+
+/** Print the plan, then perform it when `perform` is true or print the dry-run line. Return the plan. */
+function planAndApply(
+  perform: boolean,
+  inputs: TidyInputs,
+  host: TidyHost,
+): Effect.Effect<TidyPlan> {
+  return Effect.gen(function* () {
+    const plan = yield* Effect.promise(() => planTidy(inputs, host));
+    for (const action of plan.actions) {
+      yield* Console.log(`${actionVerb(action)} ${actionSubject(action)}: ${action.reason}`);
+    }
+    for (const kept of plan.kept) yield* Console.log(`keep ${kept.subject}: ${kept.reason}`);
+    for (const note of plan.notes) yield* Console.log(`note: ${note}`);
+
+    if (plan.actions.length === 0) {
+      yield* Console.log("Nothing to tidy.");
+    } else if (perform) {
+      const outcome = yield* Effect.promise(() => applyTidy(plan, inputs, host));
+      for (const line of outcome.lines) yield* Console.log(line);
+      if (outcome.failures > 0) {
+        yield* Effect.sync(() => {
+          process.exitCode = 1;
+        });
+      }
+    } else {
+      // In --repo mode a bare `tidy --apply` would perform a different plan.
+      const applyCommand =
+        inputs.repo === undefined
+          ? "docks-kit tidy --apply"
+          : `docks-kit tidy --repo ${inputs.repo} --apply`;
+      yield* Console.log(
+        `Dry run: ${plan.actions.length} actions. Run '${applyCommand}' to perform them.`,
+      );
+    }
+    return plan;
+  });
+}
+
+/**
+ * Plan and apply under the tidy lock, so that a second run cannot act on a
+ * plan that the first run makes stale. When another run holds the lock, print
+ * only the held line, with no plan, and return `undefined`. The exit code
+ * stays unset.
+ */
+function planAndApplyUnderLock(
+  inputs: TidyInputs,
+  host: TidyHost,
+): Effect.Effect<TidyPlan | undefined> {
+  const path = tidyApplyLockPath(inputs.home);
+  return Effect.acquireUseRelease(
+    Effect.promise(() => acquireKitLock(path, { waitMs: 0 })),
+    (result) =>
+      result.kind === "acquired"
+        ? planAndApply(true, inputs, host)
+        : Console.log(`another docks-kit tidy run holds ${path}`).pipe(Effect.as(undefined)),
+    (result) =>
+      Effect.sync(() => {
+        if (result.kind === "acquired") releaseKitLock(result.lock);
+      }),
+  );
+}
+
+/**
+ * Run `docks-kit tidy` with resolved inputs. `apply` takes the tidy lock
+ * before `planTidy`; a dry run and `--report` take no lock.
+ */
+export function runTidy(
+  options: TidyOptions,
+  inputs: TidyInputs,
+  host: TidyHost,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const plan = options.apply
+      ? yield* planAndApplyUnderLock(inputs, host)
+      : yield* planAndApply(false, inputs, host);
+    if (plan === undefined || !options.report) return;
+    const sections = yield* Effect.promise(() => buildTidyReport(inputs, host, plan.docker));
+    for (const section of sections) {
+      yield* Console.log(`== ${section.title}`);
+      for (const line of section.lines) yield* Console.log(line);
+    }
+  });
+}
+
+export const tidyCommand = Command.make("tidy", { apply, repo, report }, (config) =>
+  Effect.gen(function* () {
+    const host = defaultTidyHost();
+    const home = engineHome();
+    let repository: string | undefined;
+    if (Option.isSome(config.repo)) {
+      const typed = config.repo.value;
+      repository = yield* Effect.promise(() => mainRepository(resolve(process.cwd(), typed), host));
+      if (repository === undefined) return yield* bail(`--repo ${typed} is not a git repository`);
+    }
+    const inputs: TidyInputs = {
+      home,
+      worktreeRoot: agentWorktreeRoot(home, process.env),
+      scratchRoot: scratchRoot(home),
+      ...(repository === undefined ? {} : { repo: repository }),
+    };
+    yield* runTidy({ apply: config.apply, report: config.report }, inputs, host);
+  }),
+).pipe(
+  Command.withDescription(
+    "List or remove safe agent leftovers (merged idle worktrees, their containers, orphaned processes in agent directories, idle scratch directories); --report lists other disk and memory use.",
+  ),
+);

@@ -1,0 +1,640 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parse } from "yaml";
+import type * as ExecModule from "../../src/engine-native/exec";
+
+const mocks = vi.hoisted(() => ({
+  payloadText: vi.fn<(path: string) => string>(),
+  spawnProcess: vi.fn(),
+}));
+
+vi.mock("../../src/payload", () => ({
+  payloadText: mocks.payloadText,
+  payloadDisplayPath: (path: string) => `embedded:${path}`,
+  // ompSync also writes the kit plugin files; these cases need none of them.
+  payloadPaths: () => [],
+}));
+vi.mock("../../src/engine-native/exec", async () => {
+  const actual = await vi.importActual<typeof ExecModule>("../../src/engine-native/exec");
+  return { ...actual, spawnProcess: mocks.spawnProcess };
+});
+vi.mock("../../src/engine-native/bun", () => ({
+  bunBootstrap: async () => ({ kind: "ready", executable: "bun" }),
+}));
+
+import { syncOmpModelRemovals, syncOmpRemovals } from "../../src/engine-native/ompRemovals";
+import { ompSync, ompWriteFolders } from "../../src/engine-native/ompSync";
+import { DEPENDENCIES } from "../../src/engine-native/deps";
+import { p } from "../../src/engine-native/exec";
+import type { Ctx } from "../../src/engine-native";
+import { makeLogger } from "../../src/engine-native/logger";
+import { makePlatform, type EngineServices } from "../../src/engine-native/services";
+import { kitHome } from "../../src/kitHome";
+
+const roots: Array<string> = [];
+
+function testCtx(root: string, dryRun = false, stdout: Array<string> = []): Ctx {
+  const home = p(root, "home");
+  const services: EngineServices = {
+    logger: makeLogger({
+      stderr: () => {},
+      progress: () => {},
+      stdout: (chunk) => stdout.push(chunk),
+    }),
+    platform: makePlatform("linux"),
+    deps: {
+      spec: (id) => DEPENDENCIES[id],
+      probe: vi.fn(() => ({ state: "missing" as const })),
+      version: async () => "",
+      versionReading: async () => ({ kind: "version" as const, value: "" }),
+      path: async () => "",
+      warnMissing: () => {},
+    },
+  };
+  return {
+    repoDir: kitHome(),
+    home,
+    dryRun,
+    verbose: false,
+    skipPluginRefresh: false,
+    nextStepTriggers: {
+      ompRestart: false,
+    },
+    services,
+    failures: [],
+  };
+}
+
+function deployConfig(content: string): { file: string; root: string } {
+  const root = mkdtempSync(join(tmpdir(), "omp-removals-"));
+  roots.push(root);
+  const dir = join(root, "home", ".omp", "agent");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, "config.yml");
+  writeFileSync(file, content);
+  return { file, root };
+}
+
+/**
+ * Runs ompSync with home at `root` and the omp env keys cleared.
+ * PI_CODING_AGENT_DIR relocates the whole agent directory, so an ambient
+ * value would send these writes outside the temporary root.
+ */
+async function runOmpSync(root: string): Promise<void> {
+  const ompEnvKeys = [
+    "XDG_DATA_HOME",
+    "OMP_PROFILE",
+    "PI_PROFILE",
+    "PI_CONFIG_DIR",
+    "PI_CODING_AGENT_DIR",
+  ] as const;
+  const restore: Record<string, string | undefined> = {};
+  for (const key of ompEnvKeys) {
+    restore[key] = process.env[key];
+    delete process.env[key];
+  }
+  mocks.payloadText.mockImplementation((path) => {
+    if (path === "SoT/.omp/config.yml") return "startup:\n  quiet: true\n";
+    if (path === "SoT/.omp/models.yml") return "providers: {}\n";
+    if (path === "SoT/.omp/AGENTS.md") return "# omp\n";
+    return "{}\n";
+  });
+  mocks.spawnProcess.mockResolvedValue({
+    error: undefined,
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+  });
+
+  try {
+    const ctx = { ...testCtx(root), home: root };
+    await ompSync(ctx, ompWriteFolders(ctx));
+  } finally {
+    for (const [key, value] of Object.entries(restore)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe("retired omp config keys", () => {
+  it("prunes a key whose deployed value still matches the value the kit shipped", () => {
+    const { file, root } = deployConfig("symbolPreset: unicode\nuserOnly: 1\n");
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({ userOnly: 1 });
+  });
+
+  it("keeps a retired key the user changed away from the shipped value", () => {
+    const { file, root } = deployConfig("theme:\n  dark: nord\n");
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(0);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({ theme: { dark: "nord" } });
+  });
+
+  it("prunes an outright-retired key at a value the kit never shipped", () => {
+    const { file, root } = deployConfig(
+      "providers:\n  webSearchOrder:\n    - brave\n  webSearchTimeoutSeconds: 45\n",
+    );
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({
+      providers: { webSearchTimeoutSeconds: 45 },
+    });
+  });
+
+  it("removes a mapping emptied by pruning and keeps one that still holds a key", () => {
+    const { file, root } = deployConfig(
+      "tui:\n  textSizing: false\n  tight: false\nstatusLine:\n  transparent: false\n  compactThinkingLevel: true\n",
+    );
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(3);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({
+      statusLine: { compactThinkingLevel: true },
+    });
+  });
+
+  // The owner returned these 18 overrides to the omp 19.0.0 defaults. Each one
+  // holds its shipped value here, so sync prunes all 18 in one pass. The user
+  // edited `compaction.thresholdTokens`, which an earlier kit retired at -1
+  // and 231200, so sync keeps it. `task` keeps the reviewer override that the
+  // kit still ships.
+  it("prunes all 18 returned overrides at their shipped values and keeps an edited retired value", () => {
+    const { file, root } = deployConfig(
+      [
+        "statusLine:",
+        "  compactThinkingLevel: false",
+        "github:",
+        "  enabled: true",
+        "find:",
+        "  enabled: true",
+        "browser:",
+        "  idleCloseSec: 600",
+        "task:",
+        "  eager: always",
+        "  showResolvedModelBadge: true",
+        "  enableLsp: true",
+        "  maxEffort: xhigh",
+        "  maxConcurrency: 16",
+        "  maxRuntimeMs: 3600000",
+        "  agentIdleTtlMs: 120000",
+        "  agentModelOverrides:",
+        '    reviewer: "@reviewer"',
+        "providers:",
+        "  webSearchTimeoutSeconds: 30",
+        "commands:",
+        "  enableOpencodeProject: false",
+        "steeringMode: all",
+        "compaction:",
+        "  idleEnabled: true",
+        "  handoffSaveToDisk: true",
+        "  thresholdTokens: 150000",
+        "doubleEscapeAction: tree",
+        "features:",
+        "  unexpectedStopDetection: smart",
+        "",
+      ].join("\n"),
+    );
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(18);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({
+      compaction: { thresholdTokens: 150000 },
+      task: { agentModelOverrides: { reviewer: "@reviewer" } },
+    });
+  });
+
+  it("prunes the shipped advisor block, role, and empty retry chain", () => {
+    const { file, root } = deployConfig(
+      [
+        "advisor:",
+        "  enabled: false",
+        '  syncBacklog: "1"',
+        "modelRoles:",
+        "  advisor: anthropic/claude-opus-5-5:medium",
+        "  default: anthropic/claude-opus-5-5:high",
+        "retry:",
+        "  fallbackChains:",
+        "    advisor: []",
+        "    default:",
+        "      - openai-codex/gpt-6.1-sol:high",
+        "",
+      ].join("\n"),
+    );
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(4);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({
+      modelRoles: { default: "anthropic/claude-opus-5-5:high" },
+      retry: { fallbackChains: { default: ["openai-codex/gpt-6.1-sol:high"] } },
+    });
+  });
+
+  it("keeps advisor settings and a non-empty advisor chain the user changed", () => {
+    const source = [
+      "advisor:",
+      '  syncBacklog: "3"',
+      "modelRoles:",
+      "  advisor: anthropic/claude-fable-5-2:medium",
+      "retry:",
+      "  fallbackChains:",
+      "    advisor:",
+      "      - anthropic/claude-opus-5-5:medium",
+      "",
+    ].join("\n");
+    const { file, root } = deployConfig(source);
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(0);
+    expect(readFileSync(file, "utf8")).toBe(source);
+  });
+
+  // A comment separated by a blank line belongs to the document and must
+  // survive. A comment written directly above a key belongs to that key, so it
+  // is correct for it to leave with the key rather than be orphaned onto the
+  // next one.
+  it("keeps document and neighbour comments while a pruned key takes its own", () => {
+    const { file, root } = deployConfig(
+      "# kit-owned omp configuration\n\n# no longer set by the kit\nautoResume: false\n\n# roles below\nmodelRoles:\n  default: anthropic/claude-opus-5\n",
+    );
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
+    const after = readFileSync(file, "utf8");
+    expect(after).toContain("# kit-owned omp configuration");
+    expect(after).toContain("# roles below");
+    expect(after).toContain("default: anthropic/claude-opus-5");
+    expect(after).not.toContain("autoResume");
+    expect(after).not.toContain("# no longer set by the kit");
+  });
+
+  it("reports the count under dry run and leaves the file byte-identical", () => {
+    const source = "symbolPreset: unicode\nautoResume: false\n";
+    const { file, root } = deployConfig(source);
+
+    expect(syncOmpRemovals(testCtx(root, true), file, false)).toBe(2);
+    expect(readFileSync(file, "utf8")).toBe(source);
+  });
+
+  it("leaves an unparseable config untouched instead of throwing", () => {
+    const source = "symbolPreset: unicode\n  : : broken\n   - [\n";
+    const { file, root } = deployConfig(source);
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(0);
+    expect(readFileSync(file, "utf8")).toBe(source);
+  });
+
+  // With no later key to carry it, a header would otherwise vanish. This is the
+  // one position where the carry-over has nowhere obvious to go.
+  it("keeps a carried header when the pruned key was last in its mapping", () => {
+    const { file, root } = deployConfig(
+      "userOnly: 1\n\n# kit-owned omp configuration\n\n# about autoResume\nautoResume: false\n",
+    );
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
+    const after = readFileSync(file, "utf8");
+    expect(after).toContain("# kit-owned omp configuration");
+    expect(after).toContain("userOnly: 1");
+    expect(after).not.toContain("autoResume");
+    expect(after).not.toContain("# about autoResume");
+  });
+
+  // A trailing comment belongs to the mapping that holds it, not to the
+  // document. Hoisting it to the document instead would drag a nested section
+  // header to the top of the file.
+  it("keeps a carried header inside the mapping it came from", () => {
+    const { file, root } = deployConfig(
+      "tui:\n  keepMe: 1\n\n  # tui section header\n\n  # about tight\n  tight: false\nuserOnly: 1\n",
+    );
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
+    const after = readFileSync(file, "utf8");
+    const header = after.indexOf("# tui section header");
+    expect(header).toBeGreaterThan(after.indexOf("keepMe: 1"));
+    expect(header).toBeLessThan(after.indexOf("userOnly: 1"));
+    expect(after).not.toContain("tight: false");
+  });
+
+  // Without this the call site is unguarded: a refactor could drop it and every
+  // direct test above would still pass.
+  it("runs as part of ompSync, after the additive config merge", async () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-removals-sync-"));
+    roots.push(root);
+    const agentDir = join(root, ".omp", "agent");
+    mkdirSync(agentDir, { recursive: true });
+    const file = join(agentDir, "config.yml");
+    writeFileSync(file, "symbolPreset: unicode\nproviders:\n  webSearchOrder:\n    - brave\n");
+
+    await runOmpSync(root);
+
+    expect(parse(readFileSync(file, "utf8"))).toEqual({ startup: { quiet: true } });
+  });
+
+  it("merges a symlinked config.yml into the link target and keeps the link", async () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-removals-link-"));
+    roots.push(root);
+    const dotfiles = join(root, "dotfiles");
+    mkdirSync(dotfiles);
+    const linkTarget = join(dotfiles, "config.yml");
+    writeFileSync(linkTarget, "userOnly: 1\n");
+    const agentDir = join(root, ".omp", "agent");
+    mkdirSync(agentDir, { recursive: true });
+    const file = join(agentDir, "config.yml");
+    symlinkSync(linkTarget, file);
+
+    await runOmpSync(root);
+
+    expect(lstatSync(file).isSymbolicLink()).toBe(true);
+    expect(parse(readFileSync(linkTarget, "utf8"))).toEqual({
+      userOnly: 1,
+      startup: { quiet: true },
+    });
+  });
+
+  it("backs up a pruned config.yml and keeps mode 0600", () => {
+    const source = "symbolPreset: unicode\nuserOnly: 1\n";
+    const { file, root } = deployConfig(source);
+    chmodSync(file, 0o644);
+    // The logger writes `change` lines to stderr.
+    const stderr: Array<string> = [];
+    const base = testCtx(root);
+    const logger = makeLogger({ stderr: (chunk) => stderr.push(chunk), progress: () => {} });
+    const ctx: Ctx = { ...base, services: { ...base.services, logger } };
+
+    expect(syncOmpRemovals(ctx, file, false)).toBe(1);
+
+    expect(readFileSync(`${file}.bak`, "utf8")).toBe(source);
+    // Windows has no POSIX permission bits, so only POSIX hosts can check 0600.
+    if (process.platform !== "win32") {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(`${file}.bak`).mode & 0o777).toBe(0o600);
+    }
+    expect(stderr.join("")).toContain("backup at config.yml.bak");
+  });
+
+  // A second backup in the same sync would replace the pre-sync bytes with
+  // the merged bytes, so the prune must keep the backup of the merge.
+  it("keeps the pre-sync backup when the merge and the prune both change config.yml", async () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-removals-backup-"));
+    roots.push(root);
+    const agentDir = join(root, ".omp", "agent");
+    mkdirSync(agentDir, { recursive: true });
+    const file = join(agentDir, "config.yml");
+    const source = "symbolPreset: unicode\nuserOnly: 1\n";
+    writeFileSync(file, source);
+
+    await runOmpSync(root);
+
+    expect(parse(readFileSync(file, "utf8"))).toEqual({ userOnly: 1, startup: { quiet: true } });
+    expect(readFileSync(`${file}.bak`, "utf8")).toBe(source);
+  });
+});
+
+/**
+ * bash.patterns as an earlier kit sync left them: retired kit rules, one of
+ * them respaced and recased, among a kit deny and allow that the kit still
+ * ships, and three user rules that only resemble retired ones.
+ */
+const DEPLOYED_RULES = [
+  "bash:",
+  "  patterns:",
+  '    - { match: "rm *-rf *", approval: deny }',
+  "    # Allow, ahead of the prompts below.",
+  '    - { match: "git rm -- *", approval: allow }',
+  "    # Prompt: every other rm.",
+  '    - { match: "rm", approval: prompt }',
+  '    - { match: " rm   * ", approval: PROMPT }',
+  '    - { match: "find * -delete*", approval: prompt }',
+  '    - { match: "gio trash *", approval: prompt }',
+  '    - { match: "rm *", approval: deny }',
+  '    - { match: "rm -i *", approval: prompt }',
+  '    - { match: "git clean -x *", approval: prompt }',
+  '    - { match: "trash *", approval: allow }',
+  "",
+].join("\n");
+
+const KEPT_RULES = [
+  { match: "rm *-rf *", approval: "deny" },
+  { match: "rm *", approval: "deny" },
+  { match: "rm -i *", approval: "prompt" },
+  { match: "git clean -x *", approval: "prompt" },
+  { match: "trash *", approval: "allow" },
+];
+
+describe("retired omp bash.patterns rules", () => {
+  it("prunes retired kit rules and keeps kit and user rules that differ", () => {
+    const { file, root } = deployConfig(DEPLOYED_RULES);
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(5);
+    const after = readFileSync(file, "utf8");
+    expect(parse(after)).toEqual({ bash: { patterns: KEPT_RULES } });
+    expect(after).not.toContain("# Allow, ahead of the prompts below.");
+    expect(after).not.toContain("# Prompt: every other rm.");
+  });
+
+  // One rule from each family of the 492 prompt rules that the kit shipped up
+  // to 0.22.7, beside a user prompt that resembles them and a user deny that
+  // reuses a retired match.
+  it("prunes every family of the retired kit prompt rules", () => {
+    const retired = [
+      "git clean",
+      "git clean *",
+      "git reset *--hard*",
+      "git push -f*",
+      "git push * -vf*",
+      "git push -6u*",
+      "git push --f*",
+      "git push * --mi*",
+      "git push +*",
+      "*git * --no-v*",
+      "*git commit -n*",
+      "*git commit * -zn*",
+      "*git commit -qa*",
+      "*git am * -n*",
+      "*git am -3n*",
+      "*git am * -rr*",
+      "*git *core.hooksPath*",
+      "*git *core.hookspath*",
+      "*GIT_CONFIG_PARAMETERS*",
+      "*GIT_CONFIG_COUNT*",
+    ];
+    const kept = [
+      { match: "git push -fv*", approval: "prompt" },
+      { match: "*git *core.hooksPath*", approval: "deny" },
+    ];
+    const deployed = [
+      "bash:",
+      "  patterns:",
+      ...retired.map((match) => `    - { match: "${match}", approval: prompt }`),
+      ...kept.map(({ match, approval }) => `    - { match: "${match}", approval: ${approval} }`),
+      "",
+    ].join("\n");
+    const { file, root } = deployConfig(deployed);
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(retired.length);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({ bash: { patterns: kept } });
+  });
+
+  it("reports the retired rules under dry run and leaves the file byte-identical", () => {
+    const { file, root } = deployConfig(DEPLOYED_RULES);
+    const stdout: Array<string> = [];
+
+    expect(syncOmpRemovals(testCtx(root, true, stdout), file, false)).toBe(5);
+    expect(readFileSync(file, "utf8")).toBe(DEPLOYED_RULES);
+    expect(stdout.join("")).toContain(
+      `[dry-run] prune ${file}: bash.patterns "git rm -- *" (allow), bash.patterns "rm" (prompt)`,
+    );
+  });
+
+  it("changes nothing on a second run", () => {
+    const { file, root } = deployConfig(DEPLOYED_RULES);
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(5);
+    const once = readFileSync(file, "utf8");
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(0);
+    expect(readFileSync(file, "utf8")).toBe(once);
+  });
+
+  it("retires no key or rule the SoT config still ships", () => {
+    const source = readFileSync(join(kitHome(), "SoT", ".omp", "config.yml"), "utf8");
+    const { file, root } = deployConfig(source);
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(0);
+    expect(readFileSync(file, "utf8")).toBe(source);
+  });
+
+  it("prunes retired rules that the ompSync config merge kept", async () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-removals-rules-"));
+    roots.push(root);
+    const agentDir = join(root, ".omp", "agent");
+    mkdirSync(agentDir, { recursive: true });
+    const file = join(agentDir, "config.yml");
+    writeFileSync(file, DEPLOYED_RULES);
+
+    await runOmpSync(root);
+
+    expect(parse(readFileSync(file, "utf8"))).toEqual({
+      bash: { patterns: KEPT_RULES },
+      startup: { quiet: true },
+    });
+  });
+});
+
+/** The claude-opus-5-5 override block exactly as SoT/.omp/models.yml shipped it. */
+const SHIPPED_OPUS_BLOCK = `      claude-opus-5-5:
+        name: Claude Opus 5.5
+        reasoning: true
+        input:
+          - text
+          - image
+        contextWindow: 1000000
+        maxTokens: 128000
+        cost:
+          input: 4
+          output: 20
+          cacheRead: 0.2
+          cacheWrite: 5
+        thinking:
+          mode: effort
+          efforts:
+            - low
+            - medium
+            - high
+            - xhigh
+            - max
+          defaultLevel: high
+`;
+
+/** The gpt-6-astra ladder override exactly as SoT/.omp/models.yml shipped it. */
+const SHIPPED_GPT_6_ASTRA_BLOCK = `      gpt-6-astra:
+        thinking:
+          mode: effort
+          efforts:
+            - low
+            - medium
+            - high
+            - xhigh
+            - max
+          defaultLevel: xhigh
+`;
+
+function deployModels(content: string): { file: string; root: string } {
+  const { file: configFile, root } = deployConfig("");
+  const file = join(configFile, "..", "models.yml");
+  writeFileSync(file, content);
+  return { file, root };
+}
+
+describe("retired omp models.yml blocks", () => {
+  it("prunes the shipped Opus 5.5 override and the provider mapping it empties", () => {
+    const { file, root } = deployModels(
+      `providers:\n  anthropic:\n    modelOverrides:\n${SHIPPED_OPUS_BLOCK}  openai-codex:\n    baseUrl: https://example.test\n`,
+    );
+
+    expect(syncOmpModelRemovals(testCtx(root), file, false)).toBe(1);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({
+      providers: { "openai-codex": { baseUrl: "https://example.test" } },
+    });
+  });
+
+  it("keeps an Opus 5.5 override the user edited, and a provider key beside it", () => {
+    const edited = SHIPPED_OPUS_BLOCK.replace("defaultLevel: high", "defaultLevel: max");
+    const { file, root } = deployModels(
+      `providers:\n  anthropic:\n    apiKey: secret\n    modelOverrides:\n${edited}`,
+    );
+
+    expect(syncOmpModelRemovals(testCtx(root), file, false)).toBe(0);
+    expect(parse(readFileSync(file, "utf8"))).toHaveProperty(
+      ["providers", "anthropic", "modelOverrides", "claude-opus-5-5", "thinking", "defaultLevel"],
+      "max",
+    );
+  });
+
+  it("prunes the shipped GPT-6 Astra ladder override and keeps the GPT-6.2 Astra override beside it", () => {
+    const { file, root } = deployModels(
+      `providers:\n  openai-codex:\n    modelOverrides:\n${SHIPPED_GPT_6_ASTRA_BLOCK}${SHIPPED_GPT_6_ASTRA_BLOCK.replace("gpt-6-astra:", "gpt-6.2-astra:")}`,
+    );
+
+    expect(syncOmpModelRemovals(testCtx(root), file, false)).toBe(1);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({
+      providers: {
+        "openai-codex": {
+          modelOverrides: {
+            "gpt-6.2-astra": {
+              thinking: {
+                mode: "effort",
+                efforts: ["low", "medium", "high", "xhigh", "max"],
+                defaultLevel: "xhigh",
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps a GPT-6 Astra ladder override the user edited", () => {
+    const edited = SHIPPED_GPT_6_ASTRA_BLOCK.replace("defaultLevel: xhigh", "defaultLevel: max");
+    const { file, root } = deployModels(
+      `providers:\n  openai-codex:\n    modelOverrides:\n${edited}`,
+    );
+
+    expect(syncOmpModelRemovals(testCtx(root), file, false)).toBe(0);
+    expect(parse(readFileSync(file, "utf8"))).toHaveProperty(
+      ["providers", "openai-codex", "modelOverrides", "gpt-6-astra", "thinking", "defaultLevel"],
+      "max",
+    );
+  });
+});

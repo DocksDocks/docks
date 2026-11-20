@@ -1,0 +1,125 @@
+# Flag reference
+
+Convention: global flags are unprefixed; a flag that touches one tool's
+deployed config is `--<tool>-<setting>`.
+
+## Sync
+
+```
+docks-kit sync                      # deploy the omp SoT
+docks-kit sync --dry-run            # preview it
+```
+
+`sync` deploys the omp SoT and takes no positional argument. A word after
+`sync`, such as `omp`, stops it with `Unexpected positional argument` and
+exit 1.
+
+## Global flags
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Preview without applying; takes no sync lock and no folder lock |
+| `--skip-plugin-refresh` | Install missing omp plugins but skip refresh-only updates |
+| `--verbose` / `-v` | Also print no-op confirmations (already in sync, up to date, left as-is); accepted on `sync` and `toolchain` |
+
+## Environment overrides
+
+| Variable | Effect |
+|----------|--------|
+| `DOCKS_KIT_SYNC_LOCK_WAIT_MS=<ms>` | Time that `sync` and `omp --fast` wait for another sync to release a sync lock. A non-negative safe integer in milliseconds (at most `9007199254740991`); unset or empty means `120000` (120 s). Any other value prints `DOCKS_KIT_SYNC_LOCK_WAIT_MS must be a non-negative safe integer` and exits 2. |
+
+## Sync lock
+
+`sync` holds the lock `~/.cache/docks-kit/sync-lock.db` while it runs, so two
+runs never write the same files at once.
+
+- A run waits up to 120 s for another run to release the lock
+  (`DOCKS_KIT_SYNC_LOCK_WAIT_MS` changes the wait). It then prints
+  `another docks-kit sync holds <path>; run sync again after it ends` and
+  exits 1 with no change.
+- Two homes can share an omp folder (`PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`,
+  `XDG_DATA_HOME`, or a symlink). So a writing sync also holds
+  `.docks-kit-sync-lock.db` inside each such folder that it writes: the omp
+  agent folder, the intercom folder, and the omp data root. The held line then
+  names that lock file.
+- A writing sync creates a missing folder of this set just before it takes the
+  lock of that folder, after the locks of its ancestors in the set. Each folder
+  that it creates gets mode 0700. The lock step does not change the mode of an
+  existing folder. The omp pipeline then sets mode 0700 on the omp agent folder
+  and the intercom folder.
+- A sync finds the omp folders once, before it takes the locks. The omp
+  pipeline and each `omp` command that it starts use these folders. When the
+  locked data root is the omp config root, each `omp` command starts without
+  `XDG_DATA_HOME`. So a `$XDG_DATA_HOME/omp` folder that appears during the
+  sync does not move the plugin data to a folder without a lock. A later
+  `omp` uses that new folder, so the sync then prints
+  `omp data root moved to <root> during the sync; run docks-kit sync again`
+  and exits 1. The next sync locks the new folder and installs the plugins
+  there.
+- The locks cover the folder that the kit writes into, not the target of a
+  symlinked file. Two homes whose `config.yml` (or another deployed file) links
+  to one shared file can still overwrite the merge of each other.
+- `docks-kit omp --fast` checks `config.yml` before it takes a lock. When the
+  file is missing, it exits 2 and creates no omp folder. Otherwise it holds the
+  sync lock and the omp agent folder lock while it rewrites `config.yml`. The
+  wait and the held line are those of a sync.
+- A run with `--dry-run`, `-h`, or `--help` takes no lock. A dry run through
+  the `DRY_RUN=1` env global of the private `native-raw` engine channel takes
+  no lock either.
+- The lock goes when the run ends, also when the process is killed.
+- A held lock also delays the error of an invalid argument until the wait
+  ends.
+
+## `omp` session flags
+
+| Flag | Effect |
+|------|--------|
+| `--model <selector>` | Session model for this run and later runs; rejected unless the live catalog reports zero input and output cost with `pricingStatus` `free` or `unknown`; recorded in `~/.docks-kit/kit.db` (table `omp_session`) |
+| `--pick` | Interactive picker over free catalog models; records the choice the same way |
+| `--fast` | Toggle `tier.openai` between `priority` and `none` in the deployed `~/.omp/agent/config.yml`, print the change, and exit; the same tier omp's `/fast on` selects for OpenAI and Codex models |
+
+The launcher starts omp as
+`omp launch --config <overlay> --model <selector>[:<level>]`, followed by the
+remaining arguments in the same order. `docks-kit omp -p "..."` runs one
+prompt. `docks-kit omp --continue` resumes the previous session on the free
+model. A bare `docks-kit omp` opens an interactive session. `launch` makes omp
+read every forwarded word as message text, so no omp subcommand runs through
+the launcher; run `omp` directly for a subcommand.
+
+The launcher rejects a forwarded `--config`, `--model`, `--smol`, `--slow`,
+`--plan`, `--models`, `--provider`, `--prewalk-into`, or `--plan-yolo-into`,
+in the `--flag value` and the `--flag=value` form and also after a `--`. It
+exits with code 2 before omp starts. The error names the flag and the
+recoveries: `--model <selector>` before the other arguments or `--pick` for a
+free model, and `omp` directly for a paid model. For a forwarded `--config`, it
+also names `PI_CONFIG_FILES` for another config file. The launcher sets
+`PI_SMOL_MODEL`, `PI_SLOW_MODEL`, and `PI_PLAN_MODEL` to the free role values,
+warns once for each exported value that it replaces, and appends the overlay
+to `PI_CONFIG_FILES`. See
+[omp-models.md](omp-models.md#free-session-launcher-docks-kit-omp) for the
+full policy and the paths that stay outside the launcher.
+
+The launcher changes no deployed file and never invokes `sync`, except for
+`--fast`, which changes only `tier.openai` and launches nothing. `--fast` over
+`ultrafast` selects `priority`.
+The boundary opens at the first token that is neither a declared launcher
+flag nor a declared global flag. Declared flags stay with docks-kit and
+never reach omp:
+
+- `--model`, `--pick`, `--fast`
+- `--help`, `--version`, `--log-level`, `--wizard`, `--completions`
+
+The same names, except `--model`, stay reachable on omp behind an explicit
+delimiter. `docks-kit omp -- --help` prints the help of `omp launch`. A
+forwarded `--model` stops the launcher with exit 2, also behind `--`.
+
+## `scratch` and `tidy`
+
+| Command | Effect |
+|------|--------|
+| `scratch new <label>` | Create a private directory (mode 0700) `~/.cache/docks-kit/scratch/<label>-XXXXXX` and print its path; the label matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` |
+| `scratch remove <path>...` | Remove each path whose real path is strictly inside the scratch root, the system temporary directory, or `/var/tmp`; print `removed <path>` or `refused <path>: <reason>`; exit 1 when any path is refused |
+| `tidy` | List the safe leftover actions (`remove`, `stop`) and the kept candidates (`keep`) with reasons; change nothing |
+| `tidy --apply` | Take the lock `~/.cache/docks-kit/tidy-lock.db`, then plan, perform those actions, and append the outcomes to `~/.cache/docks-kit/tidy.log`; exit 1 when an action fails. When another run holds the lock, print only `another docks-kit tidy run holds <path>`, with no plan and no report, and exit 0. A dry run (`tidy` without `--apply`) and the `--report` sections take no lock |
+| `tidy --repo <path>` | Take the worktree candidates only from that repository, at any location |
+| `tidy --report` | After the plan, print read-only sections on memory, temporary directories, processes, Docker, caches, Trash, git, agent histories, scheduled jobs, and global installs |

@@ -1,0 +1,2291 @@
+/**
+ * docks-kit-omp extension: workspace hygiene for omp sessions.
+ *
+ * - The tools scratch_new, scratch_remove, and tidy_report run docks-kit.
+ * - The tool_result handler records each resource that a bash command
+ *   creates, and it adds a reminder that names the cleanup command.
+ * - The tool_call handler reads the stash list before a `git stash` command,
+ *   so the tool_result handler can name the stash entry that the command
+ *   added. The tool_execution_end handler drops the list of a blocked call.
+ * - The session_stop handler lists the recorded resources that still exist.
+ * - The session_start handler of a main session starts `docks-kit tidy --apply`
+ *   in the background, at most one time in each sweep interval. When the
+ *   sweep cannot start, the next tool result of the main session tells why.
+ *
+ * The module imports only node: modules, so omp loads it without a package
+ * install. No subprocess uses a command interpreter, so a tool argument never
+ * gets to a shell.
+ */
+import { execFile, spawn } from "node:child_process";
+import { randomBytes, randomUUID } from "node:crypto";
+import {
+  accessSync,
+  chmodSync,
+  closeSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, posix, resolve, win32 } from "node:path";
+
+// ------------------------------------------------------------- constants ----
+
+const SWEEP_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const CLAIM_STALE_MS = 60 * 1000;
+const STAMP_FILE = "tidy.stamp";
+const CLAIM_FILE = "tidy.stamp.claim";
+const TAKEOVER_FILE = "tidy.stamp.takeover";
+const DOCKER_CHECK_TIMEOUT_MS = 5000;
+const GIT_CHECK_TIMEOUT_MS = 5000;
+/** The pre-call stash read delays the command, so it gets a short timeout. */
+const STASH_SNAPSHOT_TIMEOUT_MS = 1000;
+/** One line for each stash entry: full ID, short ID, and reflog message, split by NUL. */
+const STASH_LIST_FORMAT = "--format=%H%x00%h%x00%gs";
+const SCRATCH_TIMEOUT_MS = 60_000;
+const REPORT_TIMEOUT_MS = 120_000;
+const OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
+const COMMAND_TEXT_LIMIT = 120;
+const LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const LABEL_ERROR = "label must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
+const NOT_ON_PATH = "docks-kit is not on PATH; install docks-kit and run docks-kit sync";
+
+/**
+ * A bash command that does not match this pattern creates no tracked
+ * resource. Each detection rule below has a word in this pattern.
+ */
+const TRIGGER =
+  /worktree\s+add|compose|docker|scratch\s+new|mktemp|nohup|setsid|disown|&|tmux|screen|ngrok|cloudflared|port-forward|ssh|cluster|minikube|multipass|limactl|machine|colima|crontab|\bat\b|systemctl|systemd-run|launchctl|install|(?:^|\s)-g(?:\s|$)|global|branches|branch\s+create|vercel|netlify|wrangler|fly\s|fork|codespace|stash/;
+
+/** The scope of the top-level command; a subshell scope extends it with `/<n>`. */
+const ROOT_SCOPE = "0";
+
+const UNRESOLVED = /[$`*]/;
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const REDIRECT_OPERATOR = /^(?:\d+|&)?(?:<<<|<<-?|>>|>&|<&|>\||<>|>|<)$/;
+const ATTACHED_REDIRECT = /^(?:\d+|&)?[<>]/;
+/**
+ * A word that is one redirection of the standard error alone: `2>&1`, `2>&-`,
+ * `2>file`, `2>>file`, or the operator `2>` before its target. A second `<`
+ * or `>` in the word is a second redirection. The segment parser splits
+ * `2>|file` at the `|`, so that form gives the generic note.
+ */
+const STDERR_REDIRECT = /^2(?:>&(?:\d+|-)|>>?[^<>]*)$/;
+const SHORT_CLUSTER_WITH_D = /^-[A-Za-z]*d[A-Za-z]*$/;
+/** The long options of GNU mktemp, which also accepts a unique prefix of each. */
+const MKTEMP_LONG_OPTIONS: ReadonlyArray<string> = [
+  "--directory",
+  "--dry-run",
+  "--quiet",
+  "--suffix",
+  "--tmpdir",
+  "--help",
+  "--version",
+];
+const CONTAINER_ID = /^[0-9a-f]{64}$/;
+const SAFE_WORD = /^[A-Za-z0-9_/.:@%+=,-]+$/;
+const RESERVED_WORDS: Record<string, true> = {
+  "{": true,
+  "}": true,
+  "!": true,
+  if: true,
+  then: true,
+  else: true,
+  elif: true,
+  do: true,
+  while: true,
+  until: true,
+  time: true,
+};
+/**
+ * Reserved words of a conditional, a loop, or a function body, where a
+ * command may run once, many times, or never. The list holds the closing
+ * words too, because a segment can start with one of them.
+ */
+const COMPOUND_WORDS: Record<string, true> = {
+  if: true,
+  then: true,
+  else: true,
+  elif: true,
+  fi: true,
+  for: true,
+  select: true,
+  while: true,
+  until: true,
+  do: true,
+  done: true,
+  case: true,
+  esac: true,
+  function: true,
+  coproc: true,
+};
+/** A shell function name, as in `name()` or `name ()`. */
+const FUNCTION_NAME = /^[A-Za-z_][A-Za-z0-9_.:-]*$/;
+
+const GIT_VALUE_OPTIONS: Record<string, true> = { "-C": true, "-c": true };
+const WORKTREE_VALUE_OPTIONS: Record<string, true> = { "-b": true, "-B": true, "--reason": true };
+/** Docker global options that select the daemon, mapped to their long names. */
+const DOCKER_CONNECTION_VALUE_OPTIONS: Record<string, string> = {
+  "-c": "--context",
+  "--context": "--context",
+  "-H": "--host",
+  "--host": "--host",
+  "--config": "--config",
+  "--tlscacert": "--tlscacert",
+  "--tlscert": "--tlscert",
+  "--tlskey": "--tlskey",
+};
+const DOCKER_CONNECTION_FLAGS: Record<string, true> = { "--tls": true, "--tlsverify": true };
+const DOCKER_LOG_LEVEL_OPTIONS: Record<string, true> = { "-l": true, "--log-level": true };
+/** Environment variables that select the Docker daemon. */
+const DOCKER_ENVIRONMENT: Record<string, true> = {
+  DOCKER_HOST: true,
+  DOCKER_CONTEXT: true,
+  DOCKER_CONFIG: true,
+  DOCKER_TLS_VERIFY: true,
+  DOCKER_CERT_PATH: true,
+};
+/** Builtins that declare shell variables, with options and `NAME=value` words. */
+const DECLARATION_COMMANDS: Record<string, true> = {
+  declare: true,
+  typeset: true,
+  local: true,
+  readonly: true,
+};
+/** Builtins that run shell code that detection does not read. */
+const SHELL_CODE_COMMANDS: Record<string, true> = { eval: true, source: true, ".": true };
+const COMPOSE_VALUE_OPTIONS: Record<string, true> = {
+  "-f": true,
+  "--file": true,
+  "-p": true,
+  "--project-name": true,
+  "--project-directory": true,
+  "--env-file": true,
+  "--profile": true,
+  "--ansi": true,
+  "--progress": true,
+};
+const SSH_VALUE_FLAGS = "BbcDEeFIiJLlmOoPpQRSWw";
+const STASH_WITHOUT_ENTRY: Record<string, true> = {
+  list: true,
+  show: true,
+  pop: true,
+  apply: true,
+  drop: true,
+  clear: true,
+  branch: true,
+};
+
+const RM_NOTE = "Add `--rm` to `docker run` so that Docker removes the container when it stops.";
+const SCRATCH_NOTE =
+  "Create temporary files and directories inside a directory from the `scratch_new` tool or `docks-kit scratch new <label>`, not in `/tmp`.";
+const KEEP_SENTENCE =
+  "Remove each resource that the task no longer needs. Keep a resource only when the user asked for it or a later step needs it, and name it with the reason in your final answer. Never stop or delete a production resource without an ask in the main session.";
+
+interface OtherRule {
+  readonly category: string;
+  readonly hint: string;
+}
+
+const BACKGROUND: OtherRule = {
+  category: "background process",
+  hint: "Stop it before your final answer, or start it as a named bash service.",
+};
+const TERMINAL: OtherRule = {
+  category: "detached terminal session",
+  hint: "Kill the session when the task no longer needs it.",
+};
+const TUNNEL: OtherRule = {
+  category: "tunnel",
+  hint: "Stop the tunnel when the task no longer needs it.",
+};
+const CLUSTER: OtherRule = {
+  category: "cluster or virtual machine",
+  hint: "Stop or delete it with the same tool when the task no longer needs it.",
+};
+const DOCKER_RESOURCE: OtherRule = {
+  category: "Docker resource",
+  hint: "Remove it with docker volume rm, docker network rm, or docker buildx rm when the task no longer needs it.",
+};
+const SCHEDULED: OtherRule = {
+  category: "scheduled job or service",
+  hint: "Remove the entry or unit that you added, or name it in your final answer.",
+};
+const GLOBAL_INSTALL: OtherRule = {
+  category: "global install",
+  hint: "Uninstall it unless the user asked for it.",
+};
+const REMOTE: OtherRule = {
+  category: "remote resource",
+  hint: "Delete it with the provider's command only when its target is local, development, dev, test, homolog, homologation, staging, or preview, and the task no longer needs it. For a production target, ask the user first. If you do not delete it, name it in your final answer.",
+};
+
+const CLUSTER_COMMANDS: ReadonlyArray<ReadonlyArray<string>> = [
+  ["kind", "create", "cluster"],
+  ["k3d", "cluster", "create"],
+  ["minikube", "start"],
+  ["multipass", "launch"],
+  ["limactl", "start"],
+  ["podman", "machine", "start"],
+  ["colima", "start"],
+];
+const REMOTE_COMMANDS: ReadonlyArray<ReadonlyArray<string>> = [
+  ["supabase", "branches", "create"],
+  ["neonctl", "branches", "create"],
+  ["pscale", "branch", "create"],
+  ["netlify", "deploy"],
+  ["wrangler", "deploy"],
+  ["fly", "deploy"],
+  ["fly", "launch"],
+  ["gh", "repo", "fork"],
+  ["gh", "codespace", "create"],
+];
+
+// ----------------------------------------------------------------- types ----
+
+/**
+ * The Docker daemon that a command used: the `DOCKER_*` environment variables
+ * and the global options before the subcommand. An empty target is the
+ * default daemon of the omp process.
+ */
+export interface DockerTarget {
+  environment: Record<string, string>;
+  options: Array<string>;
+}
+
+export type HygieneResource =
+  | { kind: "worktree"; path: string }
+  | { kind: "compose"; workingDir: string; down: string; docker: DockerTarget }
+  | { kind: "container"; id: string; down: string; docker: DockerTarget }
+  | { kind: "scratch"; path: string }
+  | { kind: "tempDir"; path: string }
+  | { kind: "tempFile"; path: string }
+  | {
+      kind: "stash";
+      /** The directory where the command ran; the reminder names it. */
+      directory: string;
+      /** The common git directory. A linked worktree shares its stash list with it. */
+      gitDir: string;
+      id: string;
+      shortId: string;
+      message: string;
+    }
+  | { kind: "other"; category: string; command: string; hint: string };
+
+type PathResource = Exclude<HygieneResource, { kind: "other" }>;
+
+/** One line of `git stash list`. */
+interface StashEntry {
+  readonly id: string;
+  readonly shortId: string;
+  readonly message: string;
+}
+
+export interface ShellSegment {
+  words: Array<string>;
+  background: boolean;
+}
+
+/** The operator between two segments of one parse level; a newline counts as `;`. */
+type Separator = ";" | "&&" | "||" | "|" | "&";
+
+/** A segment with its subshell scope. A `cd` changes only its own scope. */
+interface ScopedSegment extends ShellSegment {
+  scope: string;
+  /**
+   * False when the control syntax of the segment's parse level can skip a
+   * setup command (`cd`, `pushd`, `export`, `unset`) or run it in a subshell
+   * while a later command still runs. See setupStateKnown.
+   */
+  setupKnown: boolean;
+}
+
+export interface RunOptions {
+  readonly signal?: AbortSignal;
+  readonly timeoutMs: number;
+  readonly env?: NodeJS.ProcessEnv;
+}
+
+export interface RunResult {
+  /** The exit code, or null when a signal or the timeout stopped the process. */
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+// The local structural types below name only the omp extension API parts
+// that this module uses. The module does not import @oh-my-pi packages.
+
+interface TextContent {
+  readonly type: string;
+  readonly text?: string;
+}
+
+interface ExtensionContext {
+  readonly cwd: string;
+  readonly agent?: { readonly kind: "main" | "sub" };
+}
+
+interface ToolCallEvent {
+  readonly toolName: string;
+  readonly toolCallId?: string;
+  readonly input?: Readonly<Record<string, unknown>>;
+}
+
+interface ToolResultEvent extends ToolCallEvent {
+  readonly content?: ReadonlyArray<TextContent>;
+  readonly isError?: boolean;
+}
+
+interface SessionStopEvent {
+  readonly stop_hook_active?: boolean;
+}
+
+interface Schema {
+  describe(description: string): Schema;
+}
+
+interface SchemaBuilder {
+  object(shape: Record<string, Schema>): Schema;
+  string(): Schema;
+  array(item: Schema): Schema;
+}
+
+interface ToolResult {
+  content: Array<{ type: "text"; text: string }>;
+  details: Record<string, unknown>;
+}
+
+interface ToolDefinition<Params> {
+  name: string;
+  label: string;
+  description: string;
+  parameters: Schema;
+  execute(
+    toolCallId: string,
+    params: Params,
+    signal: AbortSignal | undefined,
+    onUpdate: unknown,
+    ctx: ExtensionContext,
+  ): Promise<ToolResult>;
+}
+
+export interface ExtensionApi {
+  readonly zod: SchemaBuilder;
+  on(
+    event: "tool_call",
+    handler: (event: ToolCallEvent, ctx: ExtensionContext) => Promise<undefined>,
+  ): void;
+  on(
+    event: "tool_execution_end",
+    handler: (event: { readonly toolCallId?: string }, ctx: ExtensionContext) => Promise<undefined>,
+  ): void;
+  on(
+    event: "tool_result",
+    handler: (
+      event: ToolResultEvent,
+      ctx: ExtensionContext,
+    ) => Promise<{ additionalContext: string } | undefined>,
+  ): void;
+  on(
+    event: "session_stop",
+    handler: (
+      event: SessionStopEvent,
+      ctx: ExtensionContext,
+    ) => Promise<{ continue: true; additionalContext: string } | undefined>,
+  ): void;
+  on(
+    event: "session_start",
+    handler: (event: unknown, ctx: ExtensionContext) => Promise<undefined>,
+  ): void;
+  registerTool<Params>(definition: ToolDefinition<Params>): void;
+}
+
+// ------------------------------------------------------------ subprocess ----
+
+/**
+ * Runs `command` with `args` through execFile without a shell. Each argument
+ * gets to the child as one literal argv entry. A non-zero exit, a signal, or
+ * the timeout resolves; a spawn failure or an abort rejects.
+ */
+export function run(
+  command: string,
+  args: ReadonlyArray<string>,
+  options: RunOptions,
+): Promise<RunResult> {
+  const { promise, resolve: resolveRun, reject: rejectRun } = Promise.withResolvers<RunResult>();
+  execFile(
+    command,
+    [...args],
+    {
+      encoding: "utf8",
+      env: options.env,
+      maxBuffer: OUTPUT_LIMIT_BYTES,
+      shell: false,
+      signal: options.signal,
+      timeout: options.timeoutMs,
+      windowsHide: true,
+    },
+    (error, stdout, stderr) => {
+      if (error === null) resolveRun({ code: 0, stdout, stderr });
+      else if (typeof error.code === "number") resolveRun({ code: error.code, stdout, stderr });
+      else if (
+        error.name !== "AbortError" &&
+        (error.killed === true || (error.signal ?? null) !== null)
+      ) {
+        resolveRun({ code: null, stdout, stderr });
+      } else rejectRun(error);
+    },
+  );
+  return promise;
+}
+
+/**
+ * Finds docks-kit on PATH. Windows accepts only `docks-kit.exe`, because
+ * execFile without a shell cannot start a `.cmd` or `.bat` shim. A relative
+ * PATH entry is skipped.
+ */
+export function resolveDocksKit(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const windows = platform === "win32";
+  const paths = windows ? win32 : posix;
+  const searchPath = env["PATH"] ?? env["Path"] ?? "";
+  for (const entry of searchPath.split(windows ? ";" : ":")) {
+    const directory = entry.replace(/^"(.*)"$/, "$1");
+    if (directory === "" || !paths.isAbsolute(directory)) continue;
+    const candidate = paths.join(directory, windows ? "docks-kit.exe" : "docks-kit");
+    if (isRunnableFile(candidate, windows)) return candidate;
+  }
+  throw new Error(NOT_ON_PATH);
+}
+
+function isRunnableFile(path: string, windows: boolean): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
+    if (!windows) accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function errorCode(error: unknown): unknown {
+  return typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+}
+
+function toError(error: unknown): Error {
+  if (errorCode(error) === "ENOENT") return new Error(NOT_ON_PATH);
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+async function runDocksKit(
+  args: ReadonlyArray<string>,
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): Promise<string> {
+  const result = await run(resolveDocksKit(), args, { signal, timeoutMs });
+  const output = [result.stdout.trim(), result.stderr.trim()].filter((text) => text !== "");
+  if (result.code === 0) return result.stdout;
+  const status = result.code === null ? "was stopped" : `exited with code ${result.code}`;
+  throw new Error(output.length > 0 ? output.join("\n") : `docks-kit ${args.join(" ")} ${status}`);
+}
+
+// --------------------------------------------------------- shell parsing ----
+
+/**
+ * Splits a bash command into simple-command segments. This is a minimal
+ * tokenizer: it removes single quotes, double quotes, and backslash escapes,
+ * and it splits on `&&`, `||`, `;`, `|`, `&`, parentheses, and newlines.
+ * `background` is true when a single `&` ended the segment. The command of a
+ * `$(...)` or backtick substitution becomes a segment before its container.
+ * A heredoc body is skipped.
+ */
+export function splitShellSegments(command: string): Array<ShellSegment> {
+  return scopedSegments(command, ROOT_SCOPE).map(({ words, background }) => ({
+    words,
+    background,
+  }));
+}
+
+/**
+ * Does the work of splitShellSegments, and gives each segment its subshell
+ * scope. A `( ... )` group, a `$( ... )` substitution, and a backtick
+ * substitution each get a new scope `<parent>/<n>`. A `{ ...; }` group stays
+ * in the scope around it, as in bash.
+ *
+ * Each call parses one level: the command, or the text of one substitution.
+ * It stamps the segments of its level with setupStateKnown for the control
+ * syntax of that level.
+ */
+function scopedSegments(command: string, rootScope: string): Array<ScopedSegment> {
+  const segments: Array<ScopedSegment> = [];
+  const nested: Array<ScopedSegment> = [];
+  const ownSegments: Array<ScopedSegment> = [];
+  const separators = new Set<Separator>();
+  const heredocs: Array<{ delimiter: string; strip: boolean }> = [];
+  const scopes = [rootScope];
+  let childScopes = 0;
+  let words: Array<string> = [];
+  let word = "";
+  let inWord = false;
+  /** True when the current word holds a quoted or escaped character. */
+  let wordQuoted = false;
+  /** The source index of the last character that the word took without quoting. */
+  let lastUnquoted = -1;
+  /** The strip flag of a `<<` operator whose delimiter is the next word. */
+  let heredocOperator: boolean | undefined;
+  /** The operators after the last segment; they count only when a segment follows. */
+  const pendingSeparators = new Set<Separator>();
+  let skipsCommands = false;
+
+  const currentScope = (): string => scopes.at(-1) ?? rootScope;
+  const childScope = (): string => `${currentScope()}/${childScopes++}`;
+  const finishWord = (): void => {
+    if (!inWord) return;
+    if (heredocOperator !== undefined) {
+      heredocs.push({ delimiter: word, strip: heredocOperator });
+      heredocOperator = undefined;
+    } else if (!word.includes("<<<")) {
+      const match = /^\d*<<(-?)(.*)$/.exec(word);
+      if (match !== null) {
+        const strip = match[1] === "-";
+        const delimiter = match[2] ?? "";
+        if (delimiter === "") heredocOperator = strip;
+        else heredocs.push({ delimiter, strip });
+      }
+    }
+    words.push(word);
+    word = "";
+    inWord = false;
+    wordQuoted = false;
+  };
+
+  /**
+   * Ends the current segment. `ending` is the operator that ends it; a `(` or
+   * a `)` passes undefined. Every operator between two segments counts, also
+   * one that ends an empty segment, so `(true;) || cd` keeps both its `;` and
+   * its `||`. An operator before the first segment of the level counts for
+   * nothing.
+   */
+  const finishSegment = (ending: Separator | undefined): void => {
+    finishWord();
+    segments.push(...nested.splice(0));
+    if (words.length > 0) {
+      for (const separator of pendingSeparators) separators.add(separator);
+      pendingSeparators.clear();
+      if (changesControlFlow(words)) skipsCommands = true;
+      const segment = {
+        words,
+        background: ending === "&",
+        scope: currentScope(),
+        setupKnown: true,
+      };
+      segments.push(segment);
+      ownSegments.push(segment);
+    }
+    if (ending !== undefined && ownSegments.length > 0) pendingSeparators.add(ending);
+    words = [];
+  };
+
+  const readSubstitution = (start: number): number => {
+    let depth = 0;
+    let openQuote: string | undefined;
+    let index = start + 1;
+    for (; index < command.length; index++) {
+      const char = command[index];
+      if (openQuote !== undefined) {
+        if (char === "\\" && openQuote === '"') index++;
+        else if (char === openQuote) openQuote = undefined;
+        continue;
+      }
+      if (char === "\\") index++;
+      else if (char === "'" || char === '"') openQuote = char;
+      else if (char === "(") depth++;
+      else if (char === ")" && --depth === 0) break;
+    }
+    nested.push(...scopedSegments(command.slice(start + 2, index), childScope()));
+    word += command.slice(start, index + 1);
+    inWord = true;
+    return index + 1;
+  };
+
+  const readBacktick = (start: number): number => {
+    let index = start + 1;
+    while (index < command.length && command[index] !== "`") {
+      index += command[index] === "\\" ? 2 : 1;
+    }
+    nested.push(...scopedSegments(command.slice(start + 1, index), childScope()));
+    word += command.slice(start, index + 1);
+    inWord = true;
+    return index + 1;
+  };
+
+  const readDoubleQuoted = (start: number): number => {
+    let index = start;
+    inWord = true;
+    while (index < command.length && command[index] !== '"') {
+      const char = command[index];
+      const next = command[index + 1];
+      if (char === "\\" && next !== undefined && '"\\$`\n'.includes(next)) {
+        if (next !== "\n") word += next;
+        index += 2;
+      } else if (char === "$" && next === "(") {
+        index = readSubstitution(index);
+      } else if (char === "`") {
+        index = readBacktick(index);
+      } else {
+        word += char;
+        index++;
+      }
+    }
+    return index + 1;
+  };
+
+  const skipHeredocBodies = (start: number): number => {
+    let index = start;
+    for (const { delimiter, strip } of heredocs.splice(0)) {
+      while (index < command.length) {
+        const newline = command.indexOf("\n", index);
+        const end = newline === -1 ? command.length : newline;
+        let line = command.slice(index, end);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        index = end + 1;
+        if ((strip ? line.replace(/^\t+/, "") : line) === delimiter) break;
+      }
+    }
+    heredocOperator = undefined;
+    return index;
+  };
+
+  let index = 0;
+  while (index < command.length) {
+    const char = command[index] ?? "";
+    const next = command[index + 1];
+    if (char === "'") {
+      const close = command.indexOf("'", index + 1);
+      const end = close === -1 ? command.length : close;
+      word += command.slice(index + 1, end);
+      inWord = true;
+      wordQuoted = true;
+      index = end + 1;
+    } else if (char === '"') {
+      wordQuoted = true;
+      index = readDoubleQuoted(index + 1);
+    } else if (char === "\\") {
+      if (next !== undefined && next !== "\n") {
+        word += next;
+        inWord = true;
+        wordQuoted = true;
+      }
+      index += 2;
+    } else if (char === "$" && next === "(") {
+      index = readSubstitution(index);
+    } else if (char === "`") {
+      index = readBacktick(index);
+    } else if (char === " " || char === "\t" || char === "\r") {
+      finishWord();
+      index++;
+    } else if (char === "#" && !inWord) {
+      const newline = command.indexOf("\n", index);
+      index = newline === -1 ? command.length : newline;
+    } else if (char === "\n") {
+      // A line break after `&&`, `||`, or `|` continues the command, so it
+      // separates nothing.
+      const continues = words.length === 0 && !inWord && pendingSeparators.size > 0;
+      finishSegment(continues ? undefined : ";");
+      index = skipHeredocBodies(index + 1);
+    } else if (char === "(" && !inWord) {
+      // `name ()` defines a function: its body runs only when it is called.
+      if (definesFunction(words)) skipsCommands = true;
+      finishSegment(undefined);
+      scopes.push(childScope());
+      index++;
+    } else if (char === ")") {
+      finishSegment(undefined);
+      if (scopes.length > 1) scopes.pop();
+      index++;
+    } else if (char === ";") {
+      finishSegment(";");
+      index++;
+    } else if (char === "|") {
+      // In `>|file` the `|` belongs to the redirection; the split stays as it
+      // was, but it separates nothing. Only an unquoted `>` directly before
+      // the `|` makes a clobber, so `echo '>'|` and `echo \>|` are pipes.
+      const clobber = inWord && command[index - 1] === ">" && lastUnquoted === index - 1;
+      if (clobber) {
+        finishSegment(undefined);
+        index++;
+      } else {
+        finishSegment(next === "|" ? "||" : "|");
+        index += next === "|" || next === "&" ? 2 : 1;
+      }
+    } else if (char === "&") {
+      if (next === "&") {
+        finishSegment("&&");
+        index += 2;
+      } else if (next === ">" || word.endsWith(">") || word.endsWith("<")) {
+        // A redirection such as `&>file` or `2>&1`.
+        word += char;
+        inWord = true;
+        index++;
+      } else {
+        finishSegment("&");
+        index++;
+      }
+    } else {
+      // `name()` without a space: an unquoted name word directly before `(`.
+      if (char === "(" && words.length === 0 && !wordQuoted && FUNCTION_NAME.test(word)) {
+        skipsCommands = true;
+      }
+      word += char;
+      inWord = true;
+      lastUnquoted = index;
+      index++;
+    }
+  }
+  finishSegment(undefined);
+  const setupKnown = setupStateKnown(separators, skipsCommands);
+  for (const segment of ownSegments) segment.setupKnown = setupKnown;
+  return segments;
+}
+
+/**
+ * True when each setup command of a parse level runs before every later
+ * command of the level. A pure `&&` chain and a pure `;` list qualify. These
+ * can skip a setup command, or run it in a subshell, while a later command
+ * runs:
+ *
+ * - `||`, a pipeline, or a background job before a later segment;
+ * - `!`, a conditional, a loop, or a function body;
+ * - `&&` together with `;` or a newline.
+ */
+function setupStateKnown(separators: ReadonlySet<Separator>, skipsCommands: boolean): boolean {
+  if (skipsCommands) return false;
+  if (separators.has("||") || separators.has("|") || separators.has("&")) return false;
+  return !(separators.has("&&") && separators.has(";"));
+}
+
+/**
+ * True when a segment starts or continues a conditional, a loop, or a
+ * function body, or negates its status with `!`. A negation lets a `&&` chain
+ * go on after a failed command. The scan passes the other leading reserved
+ * words, such as `{` and `time`, as commandWords does.
+ */
+function changesControlFlow(words: ReadonlyArray<string>): boolean {
+  for (const word of words) {
+    if (word === "!" || COMPOUND_WORDS[word] === true) return true;
+    if (RESERVED_WORDS[word] !== true) return false;
+  }
+  return false;
+}
+
+/**
+ * True when the words before a `(` define a function, as in `name ()`: one
+ * name word. A reserved word before `(` starts a subshell, as in `time (make)`.
+ */
+function definesFunction(words: ReadonlyArray<string>): boolean {
+  const name = words.length === 1 ? words[0] : undefined;
+  return name !== undefined && RESERVED_WORDS[name] !== true && FUNCTION_NAME.test(name);
+}
+
+/**
+ * Removes redirections and leading reserved words, then splits off the
+ * `NAME=value` words before the command, also after an `env`. The first of
+ * the returned words is the command name. The words are empty when `sudo`
+ * or an `env` option hides the command, its directory, or its Docker daemon.
+ * `assignsShell` is true when the segment has only `NAME=value` words, which
+ * then set shell variables.
+ */
+function commandWords(segmentWords: ReadonlyArray<string>): {
+  assignments: Array<string>;
+  words: Array<string>;
+  assignsShell: boolean;
+} {
+  const result: Array<string> = [];
+  for (let index = 0; index < segmentWords.length; index++) {
+    const word = segmentWords[index] ?? "";
+    if (REDIRECT_OPERATOR.test(word)) {
+      index++;
+      continue;
+    }
+    if (ATTACHED_REDIRECT.test(word)) continue;
+    result.push(word);
+  }
+  const assignments: Array<string> = [];
+  let start = 0;
+  while (RESERVED_WORDS[result[start] ?? ""] === true) start++;
+  while (ASSIGNMENT.test(result[start] ?? "")) assignments.push(result[start++] ?? "");
+  if (start === result.length) return { assignments, words: [], assignsShell: true };
+  // A command under sudo runs as another user, in an environment and a
+  // directory that the sudoers policy controls, so it records nothing.
+  if (result[start] === "sudo") return { assignments, words: [], assignsShell: false };
+  if (result[start] === "env") {
+    start++;
+    // `env -u NAME` keeps the command and its directory when NAME is a literal
+    // name that does not select the daemon. Another option can run another
+    // program (`env -S`), change the directory (`env -C`), or clear the
+    // environment (`env -i`), and `env -u DOCKER_HOST` or `env -u "$name"`
+    // can change the daemon, so the command records nothing.
+    while ((result[start] ?? "").startsWith("-")) {
+      const option = result[start] ?? "";
+      if (option === "--") {
+        start++;
+        break;
+      }
+      const name = result[start + 1] ?? "";
+      const keepsDaemon = VARIABLE_NAME.test(name) && DOCKER_ENVIRONMENT[name] !== true;
+      if ((option !== "-u" && option !== "--unset") || !keepsDaemon) {
+        return { assignments, words: [], assignsShell: false };
+      }
+      start += 2;
+    }
+  }
+  while (ASSIGNMENT.test(result[start] ?? "")) assignments.push(result[start++] ?? "");
+  return { assignments, words: result.slice(start), assignsShell: false };
+}
+
+/** Applies the `DOCKER_*=value` words of `assignments` to a copy of `environment`. */
+function dockerEnvironment(
+  environment: Readonly<Record<string, string>>,
+  assignments: ReadonlyArray<string>,
+): Record<string, string> {
+  const result = { ...environment };
+  for (const assignment of assignments) {
+    if (!ASSIGNMENT.test(assignment)) continue;
+    const equals = assignment.indexOf("=");
+    const variable = assignment.slice(0, equals);
+    if (DOCKER_ENVIRONMENT[variable] === true) result[variable] = assignment.slice(equals + 1);
+  }
+  return result;
+}
+
+/**
+ * The Docker environment after an `export` or an `unset`. When the command may
+ * not run, a change makes the environment unknown, because a later command
+ * can see either value.
+ */
+function settledEnvironment(
+  segment: ScopedSegment,
+  before: Readonly<Record<string, string>> | undefined,
+  after: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (segment.setupKnown) return after;
+  if (before === undefined || after === undefined) return undefined;
+  const variables = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...variables].every((variable) => before[variable] === after[variable])
+    ? after
+    : undefined;
+}
+
+/** True when the `NAME` or `NAME=value` word names a variable that selects the Docker daemon. */
+function namesDaemonVariable(word: string): boolean {
+  const equals = word.indexOf("=");
+  return DOCKER_ENVIRONMENT[equals < 0 ? word : word.slice(0, equals)] === true;
+}
+
+/**
+ * True when detection can apply the `export` arguments: each operand is a
+ * literal `NAME=value`, or a literal NAME that does not select the daemon.
+ * An option such as `-n`, an operand that is not literal, or a daemon
+ * variable without a value can give the daemon a value that detection does
+ * not know. For example, `export DOCKER_HOST` exports a shell variable that
+ * detection does not track.
+ */
+function exportIsTracked(args: ReadonlyArray<string>): boolean {
+  const operands = args[0] === "--" ? args.slice(1) : args;
+  return operands.every(
+    (word) => ASSIGNMENT.test(word) || (VARIABLE_NAME.test(word) && !namesDaemonVariable(word)),
+  );
+}
+
+/**
+ * Returns the variables that the `unset` arguments remove, or undefined when
+ * detection cannot know them. Only `-v` and literal names keep them known:
+ * `unset -f` and `unset -n` act on functions and name references, and
+ * `unset "$name"` removes a variable that the command does not name.
+ */
+function unsetVariables(args: ReadonlyArray<string>): ReadonlyArray<string> | undefined {
+  let start = 0;
+  while (args[start] === "-v") start++;
+  if (args[start] === "--") start++;
+  const operands = args.slice(start);
+  return operands.every((word) => VARIABLE_NAME.test(word)) ? operands : undefined;
+}
+
+/**
+ * True when the `declare`, `typeset`, `local`, or `readonly` arguments keep
+ * the daemon variables unchanged: each word is a literal option, a literal
+ * NAME, or a literal `NAME=value`, and no word names a daemon variable.
+ */
+function declarationIsTracked(args: ReadonlyArray<string>): boolean {
+  return args.every((word) => {
+    if (word.startsWith("-") || word.startsWith("+")) return !UNRESOLVED.test(word);
+    return (ASSIGNMENT.test(word) || VARIABLE_NAME.test(word)) && !namesDaemonVariable(word);
+  });
+}
+
+function quote(word: string): string {
+  return SAFE_WORD.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
+/** Resolves a path word, or returns undefined when the word is not literal. */
+function resolvePath(word: string, base: string | undefined, home: string): string | undefined {
+  if (UNRESOLVED.test(word)) return undefined;
+  if (word === "~") return resolve(home);
+  if (word.startsWith("~/")) return resolve(home, word.slice(2));
+  if (word.startsWith("~")) return undefined;
+  if (isAbsolute(word)) return resolve(word);
+  return base === undefined ? undefined : resolve(base, word);
+}
+
+function changeDirectory(
+  args: ReadonlyArray<string>,
+  directory: string | undefined,
+  home: string,
+): string | undefined {
+  const target = args.find((word) => word === "-" || !word.startsWith("-"));
+  if (target === undefined) return resolve(home);
+  if (target === "-") return undefined;
+  return resolvePath(target, directory, home);
+}
+
+function lastAbsoluteLine(output: string): string | undefined {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && isAbsolute(line))
+    .pop();
+}
+
+/** True when `sequence` occurs in `words` in order, with other words between. */
+function containsInOrder(words: ReadonlyArray<string>, sequence: ReadonlyArray<string>): boolean {
+  let position = 0;
+  for (const word of words) {
+    if (word === sequence[position]) position++;
+    if (position === sequence.length) return true;
+  }
+  return sequence.length === 0;
+}
+
+function matchesCommand(
+  name: string,
+  words: ReadonlyArray<string>,
+  pattern: ReadonlyArray<string>,
+): boolean {
+  return name === pattern[0] && containsInOrder(words.slice(1), pattern.slice(1));
+}
+
+/** Skips git global options and returns the effective directory and arguments. */
+function gitArguments(
+  words: ReadonlyArray<string>,
+  directory: string | undefined,
+  home: string,
+): { directory: string | undefined; args: Array<string> } {
+  let current = directory;
+  let index = 1;
+  while (index < words.length) {
+    const word = words[index] ?? "";
+    if (GIT_VALUE_OPTIONS[word] === true) {
+      const value = words[index + 1];
+      if (word === "-C")
+        current = value === undefined ? undefined : resolvePath(value, current, home);
+      index += 2;
+    } else if (word.startsWith("-")) {
+      index++;
+    } else {
+      break;
+    }
+  }
+  return { directory: current, args: words.slice(index) };
+}
+
+/**
+ * Reads a docker command: the daemon target and the arguments after the
+ * global options. `target` is undefined when the Docker environment is
+ * unknown or a value of the target is not literal. Returns undefined for a
+ * command that is not docker.
+ */
+function dockerCommand(
+  name: string,
+  words: ReadonlyArray<string>,
+  environment: Readonly<Record<string, string>> | undefined,
+): { target: DockerTarget | undefined; args: Array<string> } | undefined {
+  if (name !== "docker" && name !== "docker-compose") return undefined;
+  const target: DockerTarget = { environment: {}, options: [] };
+  let literal = environment !== undefined;
+  for (const [variable, value] of Object.entries(environment ?? {})) {
+    if (value === "") continue;
+    if (UNRESOLVED.test(value)) literal = false;
+    target.environment[variable] = value;
+  }
+  if (name === "docker-compose") {
+    return { target: literal ? target : undefined, args: ["compose", ...words.slice(1)] };
+  }
+
+  let index = 1;
+  while (index < words.length && (words[index] ?? "").startsWith("-")) {
+    const word = words[index] ?? "";
+    const equals = word.indexOf("=");
+    const option = equals > 0 ? word.slice(0, equals) : word;
+    const longName = DOCKER_CONNECTION_VALUE_OPTIONS[option];
+    if (longName !== undefined) {
+      const value = equals > 0 ? word.slice(equals + 1) : words[index + 1];
+      index += equals > 0 ? 1 : 2;
+      if (value === undefined) break;
+      if (UNRESOLVED.test(value)) literal = false;
+      target.options.push(longName, value);
+    } else {
+      if (DOCKER_CONNECTION_FLAGS[option] === true) target.options.push(word);
+      index += DOCKER_LOG_LEVEL_OPTIONS[option] === true && equals < 0 ? 2 : 1;
+    }
+  }
+  return { target: literal ? target : undefined, args: words.slice(index) };
+}
+
+/** The docker command prefix that reaches `target`, for a cleanup command. */
+function dockerPrefix(target: DockerTarget): string {
+  return [
+    ...Object.entries(target.environment).map(([variable, value]) => `${variable}=${quote(value)}`),
+    "docker",
+    ...target.options.map(quote),
+  ].join(" ");
+}
+
+function sshFlags(args: ReadonlyArray<string>): Set<string> {
+  const flags = new Set<string>();
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index] ?? "";
+    if (!word.startsWith("-") || word.startsWith("--") || word === "-") continue;
+    for (let position = 1; position < word.length; position++) {
+      const letter = word[position] ?? "";
+      flags.add(letter);
+      if (SSH_VALUE_FLAGS.includes(letter)) {
+        if (position === word.length - 1) index++;
+        break;
+      }
+    }
+  }
+  return flags;
+}
+
+function unresolvedNote(noun: string, command: string): string {
+  return `You created a ${noun}. When the task no longer needs it, run \`${command}\`.`;
+}
+
+// ---------------------------------------------------------------- detect ----
+
+interface Findings {
+  readonly resource: (resource: HygieneResource) => void;
+  readonly note: (note: string) => void;
+}
+
+/** The state that a `cd` or an `export` changes, one for each subshell scope. */
+interface ScopeState {
+  directory: string | undefined;
+  /**
+   * The `DOCKER_*` variables that the scope exported, or undefined when a
+   * command changed them in a way that detection does not know. An unknown
+   * environment stays unknown for the rest of the scope.
+   */
+  dockerEnvironment: Record<string, string> | undefined;
+}
+
+/** One simple command, with the state of its scope applied. */
+interface CommandContext {
+  readonly name: string;
+  readonly words: ReadonlyArray<string>;
+  readonly directory: string | undefined;
+  /** The Docker environment of the command, or undefined when it is unknown. */
+  readonly dockerEnvironment: Readonly<Record<string, string>> | undefined;
+}
+
+/**
+ * Finds the resources that a successful bash command created. A resource
+ * whose path or id is not literal in the command or the output gives a
+ * generic note in place of a ledger entry.
+ *
+ * `stashes` lists the directories where a `git stash` command that can add a
+ * stash entry ran. The command text cannot tell which entry it added, or if
+ * it added one, so the handlers compare the stash list before and after the
+ * command (see stashesBefore and createdStashes).
+ */
+export function detectResources(
+  command: string,
+  cwd: string,
+  output: string,
+  home: string,
+  platform: NodeJS.Platform = process.platform,
+): { resources: Array<HygieneResource>; notes: Array<string>; stashes: Array<string> } {
+  const found = new Map<string, HygieneResource>();
+  const notes: Array<string> = [];
+  const stashes = new Set<string>();
+  const findings: Findings = {
+    resource: (resource) => {
+      found.set(resourceKey(resource), resource);
+    },
+    note: (note) => {
+      if (!notes.includes(note)) notes.push(note);
+    },
+  };
+
+  // A subshell scope starts with a copy of its parent state at its first
+  // command, so a `cd` or an unknown Docker environment in a subshell does
+  // not change the commands after it.
+  const states = new Map<string, ScopeState>([
+    [ROOT_SCOPE, { directory: cwd, dockerEnvironment: {} }],
+  ]);
+  const stateOf = (scope: string): ScopeState => {
+    const known = states.get(scope);
+    if (known !== undefined) return known;
+    const parent = stateOf(scope.slice(0, scope.lastIndexOf("/")));
+    const environment = parent.dockerEnvironment;
+    const state = {
+      directory: parent.directory,
+      dockerEnvironment: environment === undefined ? undefined : { ...environment },
+    };
+    states.set(scope, state);
+    return state;
+  };
+
+  const segments = scopedSegments(command, ROOT_SCOPE);
+  const owned = ownedOutput(segments, output);
+  for (const segment of segments) {
+    const { assignments, words, assignsShell } = commandWords(segment.words);
+    const first = words[0];
+    if (first === undefined) {
+      // `DOCKER_HOST=value` without a command changes the daemon when the
+      // shell already exports DOCKER_HOST, which detection does not know.
+      if (assignsShell && assignments.some(namesDaemonVariable)) {
+        stateOf(segment.scope).dockerEnvironment = undefined;
+      }
+      continue;
+    }
+    const name = (first.split(/[\\/]/).pop() ?? first).replace(/\.exe$/i, "");
+    const state = stateOf(segment.scope);
+    const args = words.slice(1);
+    if (name === "cd" || name === "pushd") {
+      const directory = changeDirectory(args, state.directory, home);
+      state.directory = segment.setupKnown || directory === state.directory ? directory : undefined;
+      continue;
+    }
+    if (name === "export") {
+      const environment =
+        state.dockerEnvironment !== undefined && exportIsTracked(args)
+          ? dockerEnvironment(state.dockerEnvironment, args)
+          : undefined;
+      state.dockerEnvironment = settledEnvironment(segment, state.dockerEnvironment, environment);
+      continue;
+    }
+    if (name === "unset") {
+      const variables = unsetVariables(args);
+      let environment: Record<string, string> | undefined;
+      if (variables !== undefined && state.dockerEnvironment !== undefined) {
+        environment = { ...state.dockerEnvironment };
+        for (const variable of variables) delete environment[variable];
+      }
+      // The shell can inherit a daemon variable that the tracked environment
+      // does not hold, so an unset that may not run leaves the daemon unknown.
+      const inheritedChange =
+        !segment.setupKnown && (variables === undefined || variables.some(namesDaemonVariable));
+      state.dockerEnvironment = inheritedChange
+        ? undefined
+        : settledEnvironment(segment, state.dockerEnvironment, environment);
+      continue;
+    }
+    if (
+      SHELL_CODE_COMMANDS[name] === true ||
+      (DECLARATION_COMMANDS[name] === true && !declarationIsTracked(args))
+    ) {
+      state.dockerEnvironment = undefined;
+    }
+    const context: CommandContext = {
+      name,
+      words,
+      directory: state.directory,
+      dockerEnvironment:
+        state.dockerEnvironment === undefined
+          ? undefined
+          : dockerEnvironment(state.dockerEnvironment, assignments),
+    };
+    detectCreation(context, home, owned, platform, findings);
+    const text = segment.words.map(quote).join(" ").slice(0, COMMAND_TEXT_LIMIT);
+    for (const rule of otherRules(context, segment.background)) {
+      findings.resource({ kind: "other", category: rule.category, command: text, hint: rule.hint });
+    }
+    const stash = stashDirectory(context, home);
+    if (stash !== undefined) stashes.add(stash);
+  }
+  return { resources: [...found.values()], notes, stashes: [...stashes] };
+}
+
+/**
+ * The tool output when one command owns it, else undefined. A command owns
+ * the output only when it runs alone, without a wrapper, and prints to the
+ * output. These cases fail:
+ *
+ * - A substitution such as `f=$(mktemp)` captures what mktemp prints.
+ * - Another command can print an unrelated path or container ID, or `||`
+ *   can skip the command.
+ * - A wrapper such as `env` or `time` stands between the command and the
+ *   output.
+ * - A redirection or a process substitution sends the output elsewhere.
+ *
+ * The callers then give the generic note.
+ */
+function ownedOutput(segments: ReadonlyArray<ScopedSegment>, output: string): string | undefined {
+  const sole = segments.length === 1 ? segments[0] : undefined;
+  return sole !== undefined && printsToOutput(sole.words) && runsWithoutWrapper(sole.words)
+    ? output
+    : undefined;
+}
+
+function detectCreation(
+  context: CommandContext,
+  home: string,
+  owned: string | undefined,
+  platform: NodeJS.Platform,
+  findings: Findings,
+): void {
+  const { name, words, directory } = context;
+  if (name === "git") {
+    const git = gitArguments(words, directory, home);
+    if (git.args[0] === "worktree" && git.args[1] === "add") {
+      detectWorktree(git.args.slice(2), git.directory, home, findings);
+    }
+    return;
+  }
+
+  const docker = dockerCommand(name, words, context.dockerEnvironment);
+  if (docker !== undefined) {
+    const { target, args } = docker;
+    if (args[0] === "compose") detectCompose(args.slice(1), target, directory, home, findings);
+    else if (args[0] === "run") detectContainer(args.slice(1), target, owned, findings);
+    else if (args[0] === "container" && args[1] === "run") {
+      detectContainer(args.slice(2), target, owned, findings);
+    }
+    return;
+  }
+
+  const ownPath = owned === undefined ? undefined : lastAbsoluteLine(owned);
+  if (name === "docks-kit" && words[1] === "scratch" && words[2] === "new") {
+    if (ownPath === undefined) {
+      findings.note(unresolvedNote("scratch directory", "docks-kit scratch remove <path>"));
+    } else {
+      findings.resource({ kind: "scratch", path: ownPath });
+    }
+    return;
+  }
+
+  if (name === "mktemp") detectMktemp(words.slice(1), ownPath, platform, findings);
+}
+
+/** mktemp creates a file, or a directory with `-d`; a dry run (`-u`) creates nothing. */
+function detectMktemp(
+  args: ReadonlyArray<string>,
+  path: string | undefined,
+  platform: NodeJS.Platform,
+  findings: Findings,
+): void {
+  const effect = mktempEffect(args, platform);
+  if (effect === "nothing") return;
+  const directory = effect === "directory";
+  if (path === undefined) {
+    const noun = directory ? "temporary directory" : "temporary file";
+    findings.note(unresolvedNote(noun, "docks-kit scratch remove <path>"));
+  } else {
+    findings.resource({ kind: directory ? "tempDir" : "tempFile", path });
+  }
+  findings.note(SCRATCH_NOTE);
+}
+
+/**
+ * Reads the options of an mktemp call. GNU mktemp accepts options before and
+ * after the template and a unique prefix of each long option; macOS mktemp
+ * takes a prefix after `-t`. An option value, the template, and every word
+ * after `--` are not options, so `--suffix -upload` is no dry run.
+ */
+function mktempEffect(
+  args: ReadonlyArray<string>,
+  platform: NodeJS.Platform,
+): "file" | "directory" | "nothing" {
+  let directory = false;
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index] ?? "";
+    if (word === "--") break;
+    if (!word.startsWith("-") || word === "-") continue;
+    if (word.startsWith("--")) {
+      const typed = word.split("=", 1)[0] ?? word;
+      const matches = MKTEMP_LONG_OPTIONS.filter((option) => option.startsWith(typed));
+      const option = matches.includes(typed)
+        ? typed
+        : matches.length === 1
+          ? matches[0]
+          : undefined;
+      // mktemp stops on an unknown or ambiguous option, so it creates nothing.
+      if (option === undefined || option === "--dry-run" || option === "--help") return "nothing";
+      if (option === "--version") return "nothing";
+      if (option === "--directory") directory = true;
+      if (option === "--suffix" && !word.includes("=")) index++;
+      continue;
+    }
+    for (let at = 1; at < word.length; at++) {
+      const flag = word[at];
+      if (flag === "u") return "nothing";
+      if (flag === "d") directory = true;
+      if (flag === "p" || (flag === "t" && platform === "darwin")) {
+        // `-p DIR` takes the next word; in `-pDIR` the rest of the word is the value.
+        if (at === word.length - 1) index++;
+        break;
+      }
+    }
+  }
+  return directory ? "directory" : "file";
+}
+
+/**
+ * True when the command of the segment is its first word after the
+ * `NAME=value` words and the redirections. A redirection before the command,
+ * as in `2>/dev/null mktemp`, applies to the command itself, so it is no
+ * wrapper.
+ */
+function runsWithoutWrapper(words: ReadonlyArray<string>): boolean {
+  let first: string | undefined;
+  for (let index = 0; index < words.length && first === undefined; index++) {
+    const word = words[index] ?? "";
+    if (REDIRECT_OPERATOR.test(word)) index++;
+    else if (!ATTACHED_REDIRECT.test(word) && !ASSIGNMENT.test(word)) first = word;
+  }
+  return first !== undefined && first === commandWords(words).words[0];
+}
+
+/**
+ * True when the standard output of the segment reaches the tool output: no
+ * word redirects the standard output or the input, and no word runs a
+ * process substitution. A redirection of the standard error alone, such as
+ * `2>&1` or `2>/dev/null`, keeps the standard output in place.
+ */
+function printsToOutput(words: ReadonlyArray<string>): boolean {
+  return !words.some(
+    (word) =>
+      ((REDIRECT_OPERATOR.test(word) || ATTACHED_REDIRECT.test(word)) &&
+        !STDERR_REDIRECT.test(word)) ||
+      word.includes("<(") ||
+      word.includes(">("),
+  );
+}
+
+function detectWorktree(
+  args: ReadonlyArray<string>,
+  directory: string | undefined,
+  home: string,
+  findings: Findings,
+): void {
+  let optionsEnded = false;
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index] ?? "";
+    if (!optionsEnded && word === "--") {
+      optionsEnded = true;
+    } else if (!optionsEnded && WORKTREE_VALUE_OPTIONS[word] === true) {
+      index++;
+    } else if (optionsEnded || !word.startsWith("-") || word === "-") {
+      const path = resolvePath(word, directory, home);
+      if (path === undefined) {
+        findings.note(unresolvedNote("git worktree", "git worktree remove -- <path>"));
+      } else {
+        findings.resource({ kind: "worktree", path });
+      }
+      return;
+    }
+  }
+}
+
+function detectCompose(
+  args: ReadonlyArray<string>,
+  target: DockerTarget | undefined,
+  directory: string | undefined,
+  home: string,
+  findings: Findings,
+): void {
+  const files: Array<string> = [];
+  let project: string | undefined;
+  let projectDirectory: string | undefined;
+  let subcommand: string | undefined;
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index] ?? "";
+    const equals = word.startsWith("-") ? word.indexOf("=") : -1;
+    const option = equals > 0 ? word.slice(0, equals) : word;
+    if (COMPOSE_VALUE_OPTIONS[option] === true) {
+      const value = equals > 0 ? word.slice(equals + 1) : args[++index];
+      if (value === undefined) break;
+      if (option === "-f" || option === "--file") files.push(value);
+      else if (option === "-p" || option === "--project-name") project = value;
+      else if (option === "--project-directory") projectDirectory = value;
+    } else if (!word.startsWith("-")) {
+      subcommand = word;
+      break;
+    }
+  }
+  if (subcommand !== "up" && subcommand !== "start") return;
+
+  const unresolved = unresolvedNote(
+    "detached container",
+    "docker compose --project-directory <path> down",
+  );
+  const resolvedFiles: Array<string> = [];
+  for (const file of files) {
+    const path = file === "-" ? undefined : resolvePath(file, directory, home);
+    if (path === undefined) {
+      findings.note(unresolved);
+      return;
+    }
+    resolvedFiles.push(path);
+  }
+  const firstFile = resolvedFiles[0];
+  const workingDir =
+    projectDirectory !== undefined
+      ? resolvePath(projectDirectory, directory, home)
+      : firstFile !== undefined
+        ? dirname(firstFile)
+        : directory;
+  if (
+    target === undefined ||
+    workingDir === undefined ||
+    (project !== undefined && UNRESOLVED.test(project))
+  ) {
+    findings.note(unresolved);
+    return;
+  }
+
+  const down = [dockerPrefix(target), "compose"];
+  if (project !== undefined) down.push("-p", quote(project));
+  if (projectDirectory !== undefined || resolvedFiles.length === 0) {
+    down.push("--project-directory", quote(workingDir));
+  }
+  for (const file of resolvedFiles) down.push("-f", quote(file));
+  down.push("down");
+  findings.resource({ kind: "compose", workingDir, down: down.join(" "), docker: target });
+}
+
+function detectContainer(
+  args: ReadonlyArray<string>,
+  target: DockerTarget | undefined,
+  owned: string | undefined,
+  findings: Findings,
+): void {
+  const detached = args.some(
+    (word) => word === "--detach" || word === "--detach=true" || SHORT_CLUSTER_WITH_D.test(word),
+  );
+  const removesItself = args.some((word) => word === "--rm" || word === "--rm=true");
+  if (detached) {
+    const fullId = owned === undefined ? undefined : lastContainerIdLine(owned);
+    if (target !== undefined && fullId !== undefined) {
+      const id = fullId.slice(0, 12);
+      const prefix = dockerPrefix(target);
+      const down = removesItself
+        ? `${prefix} stop ${id}`
+        : `${prefix} stop ${id} && ${prefix} rm ${id}`;
+      findings.resource({ kind: "container", id, down, docker: target });
+    } else {
+      findings.note(unresolvedNote("detached container", "docker stop <id>"));
+    }
+  }
+  if (!removesItself) findings.note(RM_NOTE);
+}
+
+/**
+ * The last line that is a full container ID. omp appends notices such as
+ * `Wall time: N seconds` after the command output, so the ID need not be the
+ * last line.
+ */
+function lastContainerIdLine(output: string): string | undefined {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => CONTAINER_ID.test(line))
+    .pop();
+}
+
+function otherRules(context: CommandContext, background: boolean): Array<OtherRule> {
+  const { name, words } = context;
+  const rules: Array<OtherRule> = [];
+  const args = words.slice(1);
+  const has = (word: string): boolean => args.includes(word);
+  const hasAny = (...candidates: Array<string>): boolean => candidates.some(has);
+  const global = hasAny("-g", "--global");
+
+  if (background || name === "nohup" || name === "setsid" || name === "disown" || has("disown")) {
+    rules.push(BACKGROUND);
+  }
+
+  const detachFlag = args.some((word) => SHORT_CLUSTER_WITH_D.test(word));
+  if (((name === "tmux" && hasAny("new", "new-session")) || name === "screen") && detachFlag) {
+    rules.push(TERMINAL);
+  }
+
+  const ssh = name === "ssh" ? sshFlags(args) : undefined;
+  if (
+    name === "ngrok" ||
+    (name === "cloudflared" && has("tunnel")) ||
+    (name === "kubectl" && has("port-forward")) ||
+    (ssh !== undefined &&
+      (ssh.has("L") || ssh.has("R") || ssh.has("D")) &&
+      (ssh.has("N") || ssh.has("f")))
+  ) {
+    rules.push(TUNNEL);
+  }
+
+  if (CLUSTER_COMMANDS.some((pattern) => matchesCommand(name, words, pattern))) {
+    rules.push(CLUSTER);
+  }
+
+  const docker = dockerCommand(name, words, context.dockerEnvironment)?.args;
+  if (
+    docker !== undefined &&
+    (docker[0] === "volume" || docker[0] === "network" || docker[0] === "buildx") &&
+    docker[1] === "create"
+  ) {
+    rules.push(DOCKER_RESOURCE);
+  }
+
+  if (
+    (name === "crontab" && !has("-l")) ||
+    name === "at" ||
+    (name === "systemctl" && has("--user") && hasAny("enable", "start")) ||
+    (name === "systemd-run" && has("--user")) ||
+    (name === "launchctl" && hasAny("load", "bootstrap"))
+  ) {
+    rules.push(SCHEDULED);
+  }
+
+  if (
+    (name === "npm" && hasAny("i", "install") && global) ||
+    (name === "bun" && hasAny("add", "install", "i") && global) ||
+    (name === "pnpm" && has("add") && global) ||
+    (name === "yarn" && containsInOrder(args, ["global", "add"])) ||
+    (/^pip[0-9.]*$/.test(name) && has("install") && has("--user")) ||
+    ((name === "pipx" || name === "cargo" || name === "go") && has("install"))
+  ) {
+    rules.push(GLOBAL_INSTALL);
+  }
+
+  if (
+    (name === "vercel" && !has("env")) ||
+    REMOTE_COMMANDS.some((pattern) => matchesCommand(name, words, pattern))
+  ) {
+    rules.push(REMOTE);
+  }
+  return rules;
+}
+
+/**
+ * The directory of a `git stash` command that can add a stash entry, else
+ * undefined. An unknown directory also gives undefined: the handlers can then
+ * read no stash list, so they record nothing and give no note.
+ */
+function stashDirectory(context: CommandContext, home: string): string | undefined {
+  if (context.name !== "git") return undefined;
+  const git = gitArguments(context.words, context.directory, home);
+  if (git.args[0] !== "stash" || STASH_WITHOUT_ENTRY[git.args[1] ?? ""] === true) return undefined;
+  return git.directory;
+}
+
+// ----------------------------------------------------------- reminders ----
+
+function resourceKey(resource: HygieneResource): string {
+  switch (resource.kind) {
+    case "worktree":
+    case "scratch":
+    case "tempDir":
+    case "tempFile":
+      return `${resource.kind}:${resource.path}`;
+    case "compose":
+      return `compose:${dockerPrefix(resource.docker)}:${resource.workingDir}`;
+    case "container":
+      return `container:${dockerPrefix(resource.docker)}:${resource.id}`;
+    case "stash":
+      return `stash:${resource.gitDir}:${resource.id}`;
+    case "other":
+      return `other:${resource.category}:${resource.command}`;
+  }
+}
+
+function describeResource(resource: PathResource): string {
+  switch (resource.kind) {
+    case "worktree":
+      return `the worktree ${resource.path}`;
+    case "compose":
+      return `the compose project in ${resource.workingDir}`;
+    case "container":
+      return `the container ${resource.id}`;
+    case "scratch":
+      return `the scratch directory ${resource.path}`;
+    case "tempDir":
+      return `the temporary directory ${resource.path}`;
+    case "tempFile":
+      return `the temporary file ${resource.path}`;
+    case "stash":
+      return `the git stash entry ${resource.shortId} (${resource.message}) in ${resource.directory}`;
+  }
+}
+
+/**
+ * The command that removes the resource. For a stash entry, the command that
+ * shows its current `stash@{n}` name: the name of an entry changes when
+ * another entry is added or removed, so no fixed pop or drop command is safe.
+ * When the worktree of the entry is gone, a read-only list of the common git
+ * directory; it needs no worktree.
+ */
+export function cleanupCommand(resource: HygieneResource): string {
+  switch (resource.kind) {
+    case "worktree":
+      return `git worktree remove -- ${quote(resource.path)}`;
+    case "compose":
+    case "container":
+      return resource.down;
+    case "scratch":
+    case "tempDir":
+    case "tempFile":
+      return `docks-kit scratch remove ${quote(resource.path)}`;
+    case "stash":
+      return existsSync(resource.directory)
+        ? `git -C ${quote(resource.directory)} stash list --format='%h %gd %gs'`
+        : `git --git-dir=${quote(resource.gitDir)} stash list --format='%h %gd %gs'`;
+    case "other":
+      return resource.hint;
+  }
+}
+
+export function creationReminder(resource: HygieneResource): string {
+  if (resource.kind === "other") {
+    return `This command created a ${resource.category} (\`${resource.command}\`). ${resource.hint}`;
+  }
+  if (resource.kind === "stash") {
+    return `The stash list got ${describeResource(resource)} while this command ran. When the task no longer needs it, ${cleanupAction(resource)}.`;
+  }
+  return `You created ${describeResource(resource)}. When the task no longer needs it, ${cleanupAction(resource)}.`;
+}
+
+/**
+ * Names the entry, so the agent does not pop a stash entry of another owner.
+ * The user or another session can add an entry while the command runs (see
+ * createdStashes). A default message such as `WIP on main: abc1234 subject`
+ * does not prove the owner, because two sessions on one branch make the same
+ * message. So the agent pops the entry only when it holds a unique message
+ * that the agent gave with `-m`, and it never drops the entry. When the
+ * worktree of the entry is gone, a pop in another worktree would put the
+ * changes into a checkout of the user or of another task, so the reminder
+ * then asks only to name the entry.
+ */
+function cleanupAction(resource: PathResource): string {
+  if (resource.kind === "stash" && !existsSync(resource.directory)) {
+    return `its worktree was removed. Run \`${cleanupCommand(resource)}\` to see ${resource.shortId}. Do not pop or drop it, and name it in your final answer`;
+  }
+  if (resource.kind === "stash") {
+    return `run \`${cleanupCommand(resource)}\` and find ${resource.shortId}. Pop that entry by its \`stash@{n}\` name only when its message is a unique message that you gave with \`-m\`. Otherwise do not pop or drop it, and name it in your final answer`;
+  }
+  return `run \`${cleanupCommand(resource)}\``;
+}
+
+function stopLine(resource: HygieneResource): string {
+  if (resource.kind === "other") {
+    return `- ${resource.category}: \`${resource.command}\` (${resource.hint})`;
+  }
+  return `- ${describeResource(resource)}: ${cleanupAction(resource)}`;
+}
+
+export function stopReminder(
+  verified: ReadonlyArray<HygieneResource>,
+  unverified: ReadonlyArray<HygieneResource>,
+): string {
+  const lines: Array<string> = [];
+  if (verified.length > 0) {
+    lines.push("These resources from this session still exist:", ...verified.map(stopLine));
+  }
+  if (unverified.length > 0) {
+    lines.push(
+      "These commands from this session may have left something running, installed, or created:",
+      ...unverified.map(stopLine),
+    );
+  }
+  lines.push(KEEP_SENTENCE);
+  return lines.join("\n");
+}
+
+// ----------------------------------------------------------------- sweep ----
+
+export function sweepDue(stampMtimeMs: number | undefined, nowMs: number): boolean {
+  return stampMtimeMs === undefined || nowMs - stampMtimeMs >= SWEEP_INTERVAL_MS;
+}
+
+function mtimeMs(path: string): number | undefined {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A probe file of the claim or of the takeover mutex: `<file>.<pid>.<16 hex>.probe`. */
+const PROBE_FILE = /^tidy\.stamp\.(?:claim|takeover)\.(\d+)\.[0-9a-f]{16}\.probe$/;
+
+/**
+ * Creates `<path>.<pid>.<16 hex>.probe` with `wx`, then removes it. True when
+ * both calls succeed: the folder lets this process create and delete files.
+ * False when a call fails: the folder can deny the operation. A process that
+ * stops between the two calls leaves the probe file, and removeExitedProbes
+ * removes it later.
+ */
+function probeSucceeds(path: string): boolean {
+  const probe = `${path}.${process.pid}.${randomBytes(8).toString("hex")}.probe`;
+  try {
+    closeSync(openSync(probe, "wx", 0o600));
+    unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True on Windows for an error of an operation on `path` that another process
+ * causes when it deletes or holds `path`. libuv runs the `node:fs` calls of
+ * Bun and Node.js on Windows. It gives EBUSY only for a sharing or lock
+ * violation, so EBUSY is always contention. It gives EPERM for
+ * ERROR_ACCESS_DENIED. Windows returns that error for an open or a delete of a
+ * "delete pending" name. Such a name is a deleted file that another process
+ * still has open. Windows also returns the error for a folder that denies the
+ * operation. Thus EPERM counts as contention only when the probe succeeds;
+ * otherwise the caller throws the EPERM. On POSIX, EPERM and EBUSY are real
+ * faults, so they stay errors.
+ */
+function isWindowsContention(error: unknown, path: string): boolean {
+  if (process.platform !== "win32") return false;
+  const code = errorCode(error);
+  return code === "EBUSY" || (code === "EPERM" && probeSucceeds(path));
+}
+
+/**
+ * Removes `path`. Ignores a path that is absent or, on Windows, a path that
+ * another process deletes or holds.
+ */
+function removeIfPresent(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT" && !isWindowsContention(error, path)) throw error;
+  }
+}
+
+/**
+ * Creates `path` with `wx` and writes an owner token into it. Returns the
+ * token, or undefined when the file exists or, on Windows, when another
+ * process deletes or holds it now.
+ */
+function createOwned(path: string): string | undefined {
+  let descriptor: number;
+  try {
+    descriptor = openSync(path, "wx", 0o600);
+  } catch (error) {
+    if (errorCode(error) === "EEXIST" || isWindowsContention(error, path)) return undefined;
+    throw error;
+  }
+  const token = `${process.pid} ${randomUUID()}`;
+  try {
+    writeFileSync(descriptor, token);
+  } finally {
+    closeSync(descriptor);
+  }
+  return token;
+}
+
+/**
+ * Removes `path` only when it still holds `token`, so that no process removes
+ * the file of another. Ignores a path that is absent or, on Windows, a path
+ * that another process deletes or holds. Such a file stays until it is stale.
+ */
+function releaseOwned(path: string, token: string): void {
+  try {
+    if (readFileSync(path, "utf8") === token) unlinkSync(path);
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT" && !isWindowsContention(error, path)) throw error;
+  }
+}
+
+/** True when no process has `pid`: `process.kill(pid, 0)` fails with ESRCH. */
+function hasExited(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return errorCode(error) === "ESRCH";
+  }
+}
+
+/**
+ * Removes each probe file of the claim and of the takeover mutex whose process
+ * has exited. Keeps the probe file of a running process, which removes it.
+ * The removal is best effort and makes no probe. So a folder that denies
+ * deletes keeps the file and cannot get a new probe file on each sweep.
+ */
+function removeExitedProbes(cacheDir: string): void {
+  for (const name of readdirSync(cacheDir)) {
+    const pid = PROBE_FILE.exec(name)?.[1];
+    if (pid === undefined || !hasExited(Number(pid))) continue;
+    try {
+      unlinkSync(join(cacheDir, name));
+    } catch {
+      // The next sweep tries again.
+    }
+  }
+}
+
+/** True when `path` is missing or older than CLAIM_STALE_MS: its process stopped. */
+function isStale(path: string, nowMs: number): boolean {
+  const mtime = mtimeMs(path);
+  return mtime === undefined || nowMs - mtime > CLAIM_STALE_MS;
+}
+
+/**
+ * Creates the claim and returns its token, or returns undefined when another
+ * process holds it. Only the holder of the takeover mutex replaces a stale
+ * claim, and it checks the claim again while it holds the mutex. A stale
+ * takeover can still let two processes claim the sweep. Each then starts
+ * `docks-kit tidy --apply`, and the second one finds `tidy-lock.db` held and
+ * stops, or plans from the current state after the first one ends. Thus a
+ * duplicate claim only adds load; the claim limits load and does not protect
+ * files. On Windows, a create that fails because another process deletes or
+ * holds the file gives no token for that attempt. When the claim is then stale
+ * or gone, the takeover path can still take it; otherwise a later main session
+ * claims the sweep. A delete or a release that fails this way removes nothing.
+ */
+function acquireClaim(cacheDir: string, nowMs: number): string | undefined {
+  const claim = join(cacheDir, CLAIM_FILE);
+  const token = createOwned(claim);
+  if (token !== undefined || !isStale(claim, nowMs)) return token;
+
+  const takeover = join(cacheDir, TAKEOVER_FILE);
+  let mutex = createOwned(takeover);
+  if (mutex === undefined && isStale(takeover, nowMs)) {
+    removeIfPresent(takeover);
+    mutex = createOwned(takeover);
+  }
+  if (mutex === undefined) return undefined;
+  try {
+    if (!isStale(claim, nowMs)) return undefined;
+    removeIfPresent(claim);
+    return createOwned(claim);
+  } finally {
+    releaseOwned(takeover, mutex);
+  }
+}
+
+/**
+ * Lets one process in each sweep interval start the sweep. It first removes
+ * the probe files of exited processes. The process that holds
+ * `tidy.stamp.claim` reads the stamp again. When the sweep is still due, it
+ * writes the stamp and returns true. In each case, it then releases its claim.
+ * When the release fails on Windows because of contention, the claim stays
+ * until it is stale.
+ */
+export function claimSweep(cacheDir: string, nowMs: number): boolean {
+  mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+  chmodSync(cacheDir, 0o700);
+  removeExitedProbes(cacheDir);
+  const token = acquireClaim(cacheDir, nowMs);
+  if (token === undefined) return false;
+  try {
+    const stamp = join(cacheDir, STAMP_FILE);
+    if (!sweepDue(mtimeMs(stamp), nowMs)) return false;
+    writeFileSync(stamp, "", { mode: 0o600 });
+    chmodSync(stamp, 0o600);
+    const seconds = nowMs / 1000;
+    utimesSync(stamp, seconds, seconds);
+    return true;
+  } finally {
+    releaseOwned(join(cacheDir, CLAIM_FILE), token);
+  }
+}
+
+// ---------------------------------------------------------------- ledger ----
+
+/**
+ * One omp process shares module state across its sessions, so the main
+ * session also sees the resources that its subagents created.
+ */
+const ledger = new Map<string, HygieneResource>();
+const reminded = new Set<string>();
+/**
+ * The stash IDs of each directory of a bash call before the call ran, keyed
+ * by tool call ID. The tool_result handler takes the snapshot out. omp sends
+ * no tool_result for a call that it blocks or that the user denies after the
+ * tool_call handler, but it sends tool_execution_end for each call after its
+ * tool_result, so that handler removes the snapshot of such a call.
+ */
+const stashSnapshots = new Map<string, ReadonlyMap<string, ReadonlySet<string>>>();
+
+async function dockerListsAny(target: DockerTarget, args: ReadonlyArray<string>): Promise<boolean> {
+  try {
+    const result = await run("docker", [...target.options, ...args], {
+      env: { ...process.env, ...target.environment },
+      timeoutMs: DOCKER_CHECK_TIMEOUT_MS,
+    });
+    return result.code === 0 && result.stdout.trim() !== "";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The entries of `git <location> stash list`, or undefined when git fails or
+ * the timeout stops it.
+ */
+async function stashList(
+  location: ReadonlyArray<string>,
+  timeoutMs: number,
+): Promise<Array<StashEntry> | undefined> {
+  try {
+    const result = await run("git", [...location, "stash", "list", STASH_LIST_FORMAT], {
+      timeoutMs,
+    });
+    if (result.code !== 0) return undefined;
+    return result.stdout
+      .split(/\r?\n/)
+      .filter((line) => line !== "")
+      .map((line) => {
+        const [id = "", shortId = "", message = ""] = line.split("\0");
+        return { id, shortId, message };
+      });
+  } catch {
+    return undefined;
+  }
+}
+
+/** The absolute common git directory of `directory`, or undefined when git fails. */
+async function commonGitDir(directory: string): Promise<string | undefined> {
+  try {
+    const result = await run("git", ["-C", directory, "rev-parse", "--git-common-dir"], {
+      timeoutMs: GIT_CHECK_TIMEOUT_MS,
+    });
+    const path = result.stdout.trim();
+    return result.code === 0 && path !== "" ? resolve(directory, path) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function stillExists(resource: HygieneResource): Promise<boolean> {
+  switch (resource.kind) {
+    case "worktree":
+    case "scratch":
+    case "tempDir":
+    case "tempFile":
+      return existsSync(resource.path);
+    case "compose":
+      return dockerListsAny(resource.docker, [
+        "ps",
+        "-q",
+        "--filter",
+        `label=com.docker.compose.project.working_dir=${resource.workingDir}`,
+      ]);
+    case "container":
+      return dockerListsAny(resource.docker, ["ps", "-aq", "--filter", `id=${resource.id}`]);
+    case "stash": {
+      // The read uses the common git directory, so it also works after the
+      // agent removes the worktree where the command ran. A failed read gives
+      // no reminder, the same as dockerListsAny. The read fails mainly when
+      // the repository is gone, and its stash list is then gone too. A
+      // reminder that the extension cannot check is a possible false reminder.
+      const entries = await stashList([`--git-dir=${resource.gitDir}`], GIT_CHECK_TIMEOUT_MS);
+      return entries?.some((entry) => entry.id === resource.id) === true;
+    }
+    case "other":
+      return true;
+  }
+}
+
+function textResult(text: string, details: Record<string, unknown>): ToolResult {
+  return { content: [{ type: "text", text }], details };
+}
+
+/** The command and the directory of a bash call that TRIGGER matches, else undefined. */
+function bashCall(
+  event: ToolCallEvent,
+  ctx: ExtensionContext,
+): { command: string; cwd: string } | undefined {
+  if (event.toolName !== "bash") return undefined;
+  const command = event.input?.["command"];
+  if (typeof command !== "string" || !TRIGGER.test(command)) return undefined;
+  return { command, cwd: resolve(ctx.cwd, String(event.input?.["cwd"] ?? ".")) };
+}
+
+/**
+ * Before a bash call runs, reads the stash list of each directory where the
+ * call can add a stash entry. createdStashes compares it with the list after
+ * the call. Only this comparison proves which entries the call can have
+ * added:
+ *
+ * - `git stash push -q` prints nothing, also when it adds an entry.
+ * - With nothing to save, it adds no entry, and `refs/stash` still names an
+ *   older entry, which can belong to the user.
+ * - A tool_result handler cannot read the list as it was before the call.
+ *
+ * The read delays the command, so it has a short timeout. A directory whose
+ * list git cannot read in that time gets no snapshot, so the call then
+ * records no stash there.
+ */
+async function stashesBefore(event: ToolCallEvent, ctx: ExtensionContext): Promise<void> {
+  const call = bashCall(event, ctx);
+  if (call === undefined || event.toolCallId === undefined) return;
+  const { stashes } = detectResources(call.command, call.cwd, "", homedir());
+  if (stashes.length === 0) return;
+  const snapshot = new Map<string, ReadonlySet<string>>();
+  await Promise.all(
+    stashes.map(async (directory) => {
+      const entries = await stashList(["-C", directory], STASH_SNAPSHOT_TIMEOUT_MS);
+      if (entries !== undefined) snapshot.set(directory, new Set(entries.map((entry) => entry.id)));
+    }),
+  );
+  stashSnapshots.set(event.toolCallId, snapshot);
+}
+
+/**
+ * The stash entries that are in the list after the call and not in its
+ * snapshot. The user or another session can add an entry between the two
+ * reads, for example while omp waits for the approval of the call, and that
+ * entry also counts. So the reminder names the entry and its message, and it
+ * tells the agent to check the message and never to drop the entry.
+ */
+async function createdStashes(
+  directories: ReadonlyArray<string>,
+  snapshot: ReadonlyMap<string, ReadonlySet<string>> | undefined,
+): Promise<Array<HygieneResource>> {
+  if (snapshot === undefined) return [];
+  const created = await Promise.all(
+    directories.map(async (directory): Promise<Array<HygieneResource>> => {
+      const before = snapshot.get(directory);
+      if (before === undefined) return [];
+      const [entries, gitDir] = await Promise.all([
+        stashList(["-C", directory], GIT_CHECK_TIMEOUT_MS),
+        commonGitDir(directory),
+      ]);
+      if (entries === undefined || gitDir === undefined) return [];
+      return entries
+        .filter((entry) => !before.has(entry.id))
+        .map((entry) => ({
+          kind: "stash",
+          directory,
+          gitDir,
+          id: entry.id,
+          shortId: entry.shortId,
+          message: entry.message.slice(0, COMMAND_TEXT_LIMIT),
+        }));
+    }),
+  );
+  return created.flat();
+}
+
+/**
+ * Records each resource that a bash command created and returns its reminder
+ * lines and the notes on resources that the command can create.
+ */
+async function resourceLines(event: ToolResultEvent, ctx: ExtensionContext): Promise<Array<string>> {
+  const id = event.toolCallId;
+  const snapshot = id === undefined ? undefined : stashSnapshots.get(id);
+  if (id !== undefined) stashSnapshots.delete(id);
+  const failed = event.isError === true;
+  // A failed call can still have added a stash entry, as in
+  // `git stash push -q && false`, so the stash lists are compared also then.
+  if (failed && snapshot === undefined) return [];
+  const call = bashCall(event, ctx);
+  if (call === undefined) return [];
+  const output = (event.content ?? [])
+    .map((block) => (block.type === "text" && typeof block.text === "string" ? block.text : ""))
+    .join("\n");
+  const detected = detectResources(call.command, call.cwd, output, homedir());
+  const resources: Array<HygieneResource> = failed ? [] : detected.resources;
+  resources.push(...(await createdStashes(detected.stashes, snapshot)));
+  for (const resource of resources) ledger.set(resourceKey(resource), resource);
+  return [...resources.map(creationReminder), ...(failed ? [] : detected.notes)];
+}
+
+// ------------------------------------------------------------- extension ----
+
+export default function docksKitOmp(pi: ExtensionApi): void {
+  const z = pi.zod;
+  /**
+   * The message of the error that stopped the last sweep start. The next tool
+   * result of the main session shows it one time.
+   */
+  let sweepError: string | undefined;
+
+  pi.registerTool<{ label: string }>({
+    name: "scratch_new",
+    label: "Scratch New",
+    description:
+      "Create a private temporary directory under the docks-kit scratch root and return its path. Use it instead of /tmp, also for a single temporary file. Remove it with scratch_remove when the task no longer needs it.",
+    parameters: z.object({
+      label: z.string().describe("Short name: letters, digits, dot, underscore, or hyphen"),
+    }),
+    async execute(_toolCallId, params, signal) {
+      try {
+        if (!LABEL_PATTERN.test(params.label)) throw new Error(LABEL_ERROR);
+        const output = await runDocksKit(
+          ["scratch", "new", params.label],
+          signal,
+          SCRATCH_TIMEOUT_MS,
+        );
+        const path = lastAbsoluteLine(output);
+        if (path === undefined) throw new Error(`docks-kit scratch new printed no path: ${output}`);
+        const resource: HygieneResource = { kind: "scratch", path };
+        ledger.set(resourceKey(resource), resource);
+        return textResult(path, { path });
+      } catch (error) {
+        throw toError(error);
+      }
+    },
+  });
+
+  pi.registerTool<{ paths: Array<string> }>({
+    name: "scratch_remove",
+    label: "Scratch Remove",
+    description:
+      "Remove temporary files and directories that you created. Use it instead of gio trash, which does not work on a tmpfs /tmp. Accepts only absolute paths inside the docks-kit scratch root, the system temporary directory, or /var/tmp; refuses every other path.",
+    parameters: z.object({
+      paths: z.array(z.string()).describe("Absolute paths"),
+    }),
+    async execute(_toolCallId, params, signal) {
+      try {
+        if (params.paths.length === 0) throw new Error("paths must not be empty");
+        const relative = params.paths.find((path) => !isAbsolute(path));
+        if (relative !== undefined) throw new Error(`path must be absolute: ${relative}`);
+        const output = await runDocksKit(
+          ["scratch", "remove", ...params.paths],
+          signal,
+          SCRATCH_TIMEOUT_MS,
+        );
+        return textResult(output.trim(), { paths: params.paths });
+      } catch (error) {
+        throw toError(error);
+      }
+    },
+  });
+
+  pi.registerTool<Record<string, never>>({
+    name: "tidy_report",
+    label: "Tidy Report",
+    description:
+      "List agent leftovers and other disk and memory use (worktrees, containers, orphaned processes, scratch, /tmp, caches, Trash, branches, scheduled jobs, global installs). Read-only.",
+    parameters: z.object({}),
+    async execute(_toolCallId, _params, signal) {
+      try {
+        const output = await runDocksKit(["tidy", "--report"], signal, REPORT_TIMEOUT_MS);
+        return textResult(output.trim(), {});
+      } catch (error) {
+        throw toError(error);
+      }
+    },
+  });
+
+  pi.on("tool_call", async (event, ctx) => {
+    // omp blocks the call when a tool_call handler throws, so a failed stash
+    // read must end here. The call then records no stash.
+    try {
+      await stashesBefore(event, ctx);
+    } catch {
+      // Nothing to do: createdStashes finds no snapshot.
+    }
+    return undefined;
+  });
+
+  pi.on("tool_result", async (event, ctx) => {
+    let lines: Array<string>;
+    try {
+      lines = await resourceLines(event, ctx);
+    } catch {
+      lines = [];
+    }
+    if (ctx.agent?.kind !== "sub" && sweepError !== undefined) {
+      lines.push(`docks-kit sweep did not start: ${sweepError}`);
+      sweepError = undefined;
+    }
+    return lines.length === 0 ? undefined : { additionalContext: lines.join("\n") };
+  });
+
+  pi.on("tool_execution_end", async (event) => {
+    if (event.toolCallId !== undefined) stashSnapshots.delete(event.toolCallId);
+    return undefined;
+  });
+
+  pi.on("session_stop", async (event) => {
+    try {
+      if (event.stop_hook_active === true) return undefined;
+      const pending = [...ledger].filter(([key]) => !reminded.has(key));
+      if (pending.length === 0) return undefined;
+      const states = await Promise.all(
+        pending.map(async ([key, resource]) => ({
+          key,
+          resource,
+          exists: await stillExists(resource),
+        })),
+      );
+      const verified: Array<HygieneResource> = [];
+      const unverified: Array<HygieneResource> = [];
+      for (const { key, resource, exists } of states) {
+        if (!exists) {
+          ledger.delete(key);
+          continue;
+        }
+        reminded.add(key);
+        if (resource.kind === "other") unverified.push(resource);
+        else verified.push(resource);
+      }
+      if (verified.length === 0 && unverified.length === 0) return undefined;
+      return { continue: true, additionalContext: stopReminder(verified, unverified) };
+    } catch {
+      return undefined;
+    }
+  });
+
+  pi.on("session_start", async (_event, ctx) => {
+    try {
+      if (ctx.agent?.kind === "sub") return undefined;
+      // The same directory as kitCacheDir in the docks-kit CLI.
+      const cacheDir = join(homedir(), ".cache", "docks-kit");
+      const now = Date.now();
+      if (!sweepDue(mtimeMs(join(cacheDir, STAMP_FILE)), now)) return undefined;
+      let docksKit: string;
+      try {
+        docksKit = resolveDocksKit();
+      } catch {
+        // A checkout user who runs ./docks-kit has no launcher on PATH. A line
+        // in each session would only repeat that, so the sweep stays silent.
+        return undefined;
+      }
+      if (!claimSweep(cacheDir, now)) return undefined;
+      const child = spawn(docksKit, ["tidy", "--apply"], {
+        cwd: homedir(),
+        detached: true,
+        shell: false,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.on("error", () => {});
+      child.unref();
+    } catch (error) {
+      // A sweep that cannot start must not stop the session; the next tool
+      // result of the main session reports it.
+      sweepError = error instanceof Error ? error.message : String(error);
+    }
+    return undefined;
+  });
+}

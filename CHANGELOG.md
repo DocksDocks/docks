@@ -1,0 +1,2741 @@
+# Changelog
+
+## Unreleased - docks-kit 0.26.0: docks-kit plan, agent-docs, and skill commands
+
+The plan helper of the `plan-manager` skill is now a docks-kit command,
+written in TypeScript with Effect (DocksDocks/public#203). The skills call `docks-kit plan`
+instead of `node .../plan.mjs`. The agent-doc checks of the `plan-workspace`,
+`agent-first-setup`, and `claude-md-migration` skills are now the
+`docks-kit agent-docs` command (DocksDocks/public#204); the skills call it instead of
+`node <skill-dir>/scripts/<helper>.mjs`. The SKILL.md validator and the
+16-point rubric of the `write-skill` skill are now the `docks-kit skill`
+command (DocksDocks/public#205); the `write-skill` and `skill-maintenance` skills call it
+instead of `node <write-skill-dir>/scripts/skill-guard.mjs`, and the kit
+gate scores the skills in the same process. These changes come from plan DocksDocks/public#198.
+
+### Added
+
+- `docks-kit plan <new|show|export|edit|status|step|list|archive|retire|reopen>`.
+  It takes the same arguments as the former `plan.mjs` and prints the same
+  bytes, except that a line which names the helper says `docks-kit plan`, for
+  example `run docks-kit plan export <n>`.
+- `docks-kit plan base-blob <commit> <path>` and
+  `docks-kit plan checkout-state <checkout>` replace the former shell helpers,
+  with the same output and exit codes.
+- `docks-kit agent-docs <pr-template|verify-skill|agent-first|bridge-check> <command> [args]`.
+  It takes the same arguments as the former `pr-template.mjs`,
+  `verify-skill.mjs`, `agent-first-check.mjs`, and `bridge-check.mjs` and
+  prints the same bytes with the same exit codes, except that a usage line
+  names `docks-kit agent-docs <helper>`, for example
+  `usage: docks-kit agent-docs pr-template detect | gate`, and that a failure
+  which stopped a script with a Node stack trace prints
+  `agent-docs: <message>` and exits 1. When docks-kit runs under Bun, Bun
+  also prints its own parse error on stderr, at a point that its event loop
+  picks, in a folder that holds, or sits below a folder that holds, an invalid
+  `package.json`.
+- `docks-kit skill guard [--strict] <skill-dir|skills-root>...` and
+  `docks-kit skill score [--per-file] [skills-root]`. They print the same
+  bytes with the same exit codes as `skill-guard.mjs validate` and
+  `skill-guard.mjs score`, except that the usage lines name
+  `docks-kit skill guard`, that `score` without a root reads `.agents/skills`
+  instead of `plugins/docks/skills`, and that a file error which stopped the
+  script with a Node stack trace prints the one line
+  `docks-kit skill: <message>` and exits 1.
+
+### Changed
+
+- The npm package runs a minified JavaScript bundle of the CLI,
+  `cli/dist/docks-kit.js`, instead of the TypeScript source (DocksDocks/public#212). It starts
+  about 2.5 times faster (a median of 64 against 162 ms for `--version` on
+  Linux). The build minifies whitespace and syntax but not identifiers, so a
+  stack trace keeps its names. The bundle's source map is attached to the
+  GitHub release as `docks-kit.js.map`, matched by its debug id, and is not
+  shipped in the package. `docks-kit update` of a package install chains the
+  sync through the new bundle.
+- The cores of the kit plugin's verify-gate and context-tree extensions are
+  TypeScript: `verify-gate-core.ts` and `context-tree-core.ts` replace the
+  `.mjs` files (DocksDocks/public#206). They behave the same, except that the verify-gate reads
+  a hand-edited denial count that is not a number as a number, and as 0 when
+  that is no finite number, so the denial file always holds a number.
+- The kit's home is DocksDocks/docks-kit (DocksDocks/public#213). The skills
+  report a problem there, and `package.json`, the installers, README, and
+  `cli/docs/install.md` name it. To move a checkout of DocksDocks/public, run
+  `git remote set-url origin https://github.com/DocksDocks/docks-kit.git` from
+  its root, then `./docks-kit update` and `./docks-kit sync` on Linux and macOS
+  or `.\docks-kit.ps1 update` and `.\docks-kit.ps1 sync` on Windows. A global
+  npm install needs nothing.
+
+### Removed
+
+- `plan-manager/scripts/plan.mjs`, `plan-manager/scripts/base-blob.sh`,
+  `plan-manager/scripts/checkout-state.sh`, and the copy of `base-blob.sh` in
+  `code-review/scripts/`. The skills need docks-kit 0.26.0 or later;
+  `docks-kit update` installs it.
+- `plan-workspace/scripts/pr-template.mjs` and `verify-skill.mjs`;
+  `agent-first-setup/scripts/agent-first-check.mjs`, `agent-docs.mjs`,
+  `pr-template.mjs`, and `verify-skill.mjs`; and
+  `claude-md-migration/scripts/bridge-check.mjs`, `agent-docs.mjs`, and
+  `verify-skill.mjs`, with their three shared-copy groups. The skills need
+  docks-kit 0.26.0 or later; `docks-kit update` installs it.
+- `write-skill/scripts/skill-guard.mjs`. The `write-skill` and
+  `skill-maintenance` skills need docks-kit 0.26.0 or later;
+  `docks-kit update` installs it.
+
+### Fixed
+
+- `docks-kit --version` prints the version and one newline. Before, it printed
+  an empty second line.
+- The context-tree nudge names nodes on Windows (DocksDocks/public#206). git prints the
+  repository root with `/` separators there, so the nudge compared it with no
+  native folder path and named no node. The nudge now writes each node name
+  with `/` separators on every platform, and on Windows a name that starts with
+  a drive prefix such as `C:/` stays a plain name.
+
+## 2026-11-20 - docks-kit 0.25.0: docks skills in the kit plugin, marketplace retirement
+
+The kit plugin `docks-kit-omp` now ships the content of the former `docks`
+and `plan-lifecycle` marketplace plugins (DocksDocks/public#200). `docks-kit sync` uninstalls
+their user-scope installs and, when no uninstall failed, removes the `docks` marketplace; it only
+warns about a project-scope install, and it skips a step whose inventory or
+registry it cannot read (DocksDocks/public#200). The plugin payload comes
+from a folder walk, and sync writes each plugin file atomically (DocksDocks/public#199).
+`bun run check` checks the plugin content (DocksDocks/public#201). The skills report a
+problem in DocksDocks/public (DocksDocks/public#202). These changes come from plan DocksDocks/public#198.
+
+### Removed
+
+- The marketplace plugins. Sync no longer installs `docks@docks` or
+  `plan-lifecycle@docks` from the `docks` marketplace, and it no longer adds
+  that marketplace (DocksDocks/public#200).
+- The plugin upgrade log, its folder `~/.cache/docks-kit/omp-plugin-upgrades/`,
+  the `pluginUpgrades.ts` extension, and the `/reload-plugins` upgrade advice
+  (DocksDocks/public#200). Each real sync removes the folder when it exists.
+
+### Changed
+
+- The kit plugin ships the 32 docks and plan-lifecycle skills, the
+  `code-reviewer` and `plan-reviewer` agents, and the `verify-gate` and
+  `context-tree-nudge` extensions (DocksDocks/public#200). They join the `workspace-hygiene`
+  skill, the `hygiene` extension, the trigger rules, and the `/cleanup`
+  command, so the kit plugin holds 33 skills.
+- Each real sync tries to retire the former marketplace plugins (DocksDocks/public#200). When
+  it can read the omp plugin inventory, it runs
+  `omp plugin uninstall --scope user <id>` for each user-scope row of
+  `docks@docks` and `plan-lifecycle@docks`. For a project-scope row, it warns
+  with the command `omp plugin uninstall --scope project <id>`, to run from
+  that project, and it changes nothing in that project. When no uninstall
+  failed and a registry lists `docks`, it runs
+  `omp plugin marketplace remove docks`. A registry that sync cannot read
+  gives a warning, and sync then removes no marketplace. A failed command
+  goes to the failure ledger, and sync exits 1. `--skip-plugin-refresh` does
+  not skip the retirement. A dry run prints the uninstall and remove lines.
+  When the inventory cannot be read, sync warns and skips the retirement, and
+  a later sync tries again.
+- The payload generator takes every file under `SoT/.omp/plugin/` from a
+  folder walk, so a new plugin file needs no list edit (DocksDocks/public#199). A payload file
+  that is not valid UTF-8 stops the generator with its path.
+- Sync writes each changed plugin file through a temporary file and a
+  rename (DocksDocks/public#199). A session that reads a skill file during a sync sees the
+  old file or the new file.
+- A dry run prints one plugin line,
+  `[dry-run] sync embedded:SoT/.omp/plugin/ -> <plugin dir>`, instead of one
+  line for each file (DocksDocks/public#199).
+- `bun run check` runs the plugin content checks in `cli/test/unit/plugin/`
+  (DocksDocks/public#201): the skill layout, frontmatter, report section, shared copies,
+  references, durable anchors, transform guard, trigger collisions, and
+  score floor; the agent rules and score floor; and an import check for each
+  extension. `contentHash.test.ts` checks the `metadata.content_hash` of each
+  skill. After a skill edit, run
+  `bun cli/scripts/skill-content-hash.ts --write` to refresh it.
+- The report section of each skill and the `report-skill-issue` skill name
+  DocksDocks/public as the report target (DocksDocks/public#202). A report gives the
+  docks-kit version (`docks-kit --version`), and the release tags have the
+  form `cli-v<version>`. The skills name the docks-kit kit plugin instead of
+  the `docks` and `plan-lifecycle` plugins.
+
+### Notes for an upgrade
+
+- The skill alias namespace changes from `docks/*` to `docks-kit-omp/*`. A
+  setting or a habit that names `docks/<skill>` stops matching. Use
+  `docks-kit-omp/<skill>`.
+- omp ranks a linked plugin above a marketplace plugin: a linked plugin
+  ranks 90, and a marketplace plugin ranks 70. If a project-scope install of
+  `docks@docks` or `plan-lifecycle@docks` stays, the kit plugin wins each
+  name that both provide.
+- `omp plugin disable plan-lifecycle` no longer applies. To turn off one
+  skill or extension of the kit plugin, use the omp settings
+  `skills.ignoredSkills` and `disabledExtensions`.
+
+## 2026-11-20 - docks-kit 0.24.0: omp-only sync and omp 19.0.0 tools
+
+docks-kit now manages omp only. `docks-kit sync` syncs omp. Sync writes no
+`.agents` or `.claude` folder of its own; omp's folders follow
+`PI_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, and `XDG_DATA_HOME`, so an override
+that points into one of those folders makes omp's files go there. Sync also
+writes the kit plugin to `~/.docks-kit/omp-plugin`. This version completes
+the sync part of plan DocksDocks/public#179 (DocksDocks/public#183). It also changes the omp settings (DocksDocks/public#184):
+it turns on two omp 19.0.0 tools and returns 18 kit overrides to the omp
+defaults.
+
+### Removed
+
+- Universal skills and the `agents` sync target. Sync no longer installs the
+  skills of `SoT/.agents/skills.txt` with `npx skills add`, and it no longer
+  links them into `~/.claude/skills`. `SoT/.agents/skills.txt` and the
+  `universal-skills-context` skill are gone.
+- Every positional sync target: `docks-kit sync agents` and
+  `docks-kit sync omp` are gone. Run `docks-kit sync`.
+- The `docks-kit harnesses` command (the harness checklist) and the
+  `docks-kit skills` command.
+- The `--prune` flag of `docks-kit sync`. It removed the kit-owned skills
+  that SoT no longer listed.
+- The rename hints for the old flags `--agents`, `--omp`, and
+  `--remove-plugins`.
+- The environment variables `AGENTS_DIR`, `PRUNE`,
+  `DOCKS_KIT_SYNC_CONCURRENCY`, and `DOCKS_KIT_INTERACTIVE`. The kit ignores
+  them now.
+- The `node` and `skills-cli` toolchain rows. `docks-kit toolchain check` no
+  longer lists them. The `npm` row stays, because `docks-kit update` uses
+  `npm`.
+
+### Changed
+
+- `docks-kit sync` takes no target and always syncs omp. Where an older note
+  says `docks-kit sync omp`, run `docks-kit sync`.
+- Each removed input now fails with a message and an exit code:
+  - `docks-kit sync <word>`, for example `sync agents`, `sync omp`,
+    `sync claude`, or `sync codex`: `Unexpected positional argument:
+    "<word>"`, exit 1. Before, `sync agents` and `sync omp` ran a sync, and
+    `sync claude` and `sync codex` failed with `Unknown sync target(s)` and
+    exit 2.
+  - `docks-kit sync --prune`: `unknown flag --prune for 'sync'`, exit 2.
+    Before, sync accepted the flag.
+  - `docks-kit sync --agents`, `--omp`, or `--remove-plugins`:
+    `unknown flag <flag> for 'sync'`, exit 2. Before, the exit code was also
+    2, with a rename hint.
+  - `docks-kit harnesses` and `docks-kit skills`:
+    `Unknown subcommand "<name>" for "docks-kit"`, exit 1. Before, both
+    commands ran.
+- The stored harness selection stays in kit.db, and the kit ignores it. The
+  `harness_selection` table keeps its rows, and the kit.db schema does not
+  change. So an older docks-kit can still open kit.db. A new schema version
+  would make an older kit refuse the file.
+- Sync no longer repairs or removes the `~/.claude/skills/<name>` links. The
+  0.23.0 entry named these links as the one exception in its list of files
+  that stay on your machine. That exception ends with this version.
+- `SoT/.omp/config.yml` turns on two omp 19.0.0 tools (DocksDocks/public#184): `ast_grep`
+  (`astGrep.enabled: true`), and `checkpoint` with `rewind`
+  (`checkpoint.enabled: true`). `rewind` restores the conversation only. It
+  does not restore files, git state, artifacts, or processes, and a new rule
+  line in `SoT/.omp/AGENTS.md` says so.
+- 18 kit overrides return to the omp 19.0.0 defaults (DocksDocks/public#184):
+  `task.maxConcurrency`, `task.maxEffort`, `task.maxRuntimeMs`,
+  `task.agentIdleTtlMs`, `task.enableLsp`, `task.eager`,
+  `task.showResolvedModelBadge`, `find.enabled`,
+  `providers.webSearchTimeoutSeconds`, `browser.idleCloseSec`,
+  `steeringMode`, `doubleEscapeAction`, `features.unexpectedStopDetection`,
+  `compaction.idleEnabled`, `compaction.handoffSaveToDisk`,
+  `commands.enableOpencodeProject`, `statusLine.compactThinkingLevel`, and
+  `github.enabled`. Sync prunes each key from `~/.omp/agent/config.yml` only
+  while it still holds the value that the kit shipped, so a value that you
+  changed stays. Sync cannot tell the shipped value from the same value that
+  you set again, so it prunes that value too. The omp defaults then apply,
+  for example `task.maxEffort` `max` instead of `xhigh`, and idle compaction
+  is off. With `github.enabled` at `false`, omp has no `github` tool, and the
+  `issue://` and `pr://` read schemes still work. `docks-kit docs omp-context`
+  lists each old kit value and its omp default.
+
+### Files that stay on your machine
+
+Sync no longer reads, writes, or removes these files, except the folder lock
+in the list below. Before you delete them, read the kit records. Each line of
+`~/.agents/.kit-owned-skills` holds a skill name and the device and inode
+pair (`<dev>:<ino>`) of the folder that the kit install created. That record
+can be stale, because you or another tool can have replaced the folder since
+the install. A folder counts as kit-installed only when its device and inode
+still match the recorded pair. On Linux, `stat -c '%d:%i' <folder>` prints
+the pair. On macOS, use `stat -f '%d:%i' <folder>`. When a line has no pair,
+or when you cannot read the pair of the folder, treat the folder as
+uncertain. Each entry in `~/.agents/.kit-pending-skills` is uncertain too:
+the kit started that install but did not record the result, so check that
+folder yourself. `~/.agents/skills/` and `~/.claude/skills/` can hold your own
+skills, which you or another tool installed. Delete only the skills that you
+do not use.
+
+- The `~/.agents/skills/<name>/` folders that `npx skills add` created for
+  the kit.
+- The kit records `~/.agents/.kit-owned-skills`,
+  `~/.agents/.kit-pending-skills`, and `~/.agents/.kit-managed-skills`. An
+  older kit also wrote your own skill folders into `.kit-managed-skills`, so
+  do not use that file alone to find the kit skills.
+- The sync lock `~/.agents/.docks-kit-sync-lock.db`. Keep the lock file
+  while an omp folder that sync writes is `~/.agents` or resolves to it
+  through a symlink. `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, and
+  `XDG_DATA_HOME` can each move an omp folder there, and a named omp profile
+  (`OMP_PROFILE` or `PI_PROFILE`) changes which of them apply. Sync then holds
+  that file as its folder lock. Never delete it while a `docks-kit sync` runs.
+- The `~/.agents/skills/` folder, which each writing `agents` sync created.
+  Delete the folder only when it is empty.
+- The `~/.claude/skills/<name>` entries of the kit skills. Each entry is a
+  symlink, a Windows junction, or a copy with the marker file
+  `.docks-kit-copied-skill`. Delete a symlink or a junction as a link, not
+  with a recursive delete, so that the target folder stays. Delete a copy
+  only when it holds the marker file.
+
+## 2026-11-19 - docks-kit 0.23.0: Codex and Claude Code removal, omp trigger-rule fix
+
+docks-kit moves to managing omp only (plan DocksDocks/public#179). 0.23.0 is the first part of
+that change. It removes Codex and Claude Code support, moves omp to 19.0.0, and
+fixes the omp trigger rules that froze sessions. The 0.22.29 changes below were
+not published on their own; they ship in 0.23.0. A later version makes `sync`
+omp-only (DocksDocks/public#183) and changes the omp settings (DocksDocks/public#184).
+
+### Removed
+
+- Codex support. `docks-kit sync codex` is gone, and so are the flags
+  `--codex-model`, `--codex-effort`, and `--skip-bubblewrap` and the
+  bubblewrap bootstrap. Each removed target or flag now fails with exit 2.
+  `docks-kit model codex` and `docks-kit models codex` went with the `model`
+  and `models` commands (see Claude Code support below).
+- A stored harness selection that lists `codex` drops it and syncs the other
+  harnesses. A selection that lists only removed harnesses falls back to the
+  default selection, `agents` and `omp`. Run `docks-kit harnesses` to choose
+  again.
+- `SoT/.codex/`, the project `.codex/agents/` wrappers, the
+  `codex-config-merge-context` skill, and the `codex` and `bwrap` toolchain
+  rows.
+- Claude Code support. `docks-kit sync claude`, `docks-kit model`,
+  `docks-kit plugins`, `docks-kit models`, `docks-kit status`, and
+  `docks-kit toolchain upgrade` are gone, and so are `--reconcile`, the flags
+  `--claude-model`, `--claude-effort`, `--claude-advisor`,
+  `--claude-compact-window`, `--claude-permissive`, and `--claude-plugin`, and
+  the old hints `--claude`, `--force`, `--680k`, `--permissive`,
+  `--supabase`, and `--n8n`. A removed target, flag, or `toolchain upgrade`
+  fails with exit 2; a removed command fails as an unknown subcommand with
+  exit 1. `docks-kit omp --model` sets the omp session model, `omp models`
+  lists models, and `docks-kit toolchain check` shows the toolchain.
+- A flag-less sync with no stored selection now syncs `agents` and `omp`
+  (before: `claude` and `agents`). A stored selection that lists `claude`
+  drops it, so a stored `claude, agents` selection now syncs only `agents`.
+  Run `docks-kit harnesses` and tick `omp`.
+- `SoT/.claude/`, `SoT/models.json`, `notification.mp3`, the project
+  `.claude/` folder (rules, settings, wrapper agents, and skill links), the
+  `settings-merge-context` and `plugin-bootstrap-context` skills, the
+  `plugins`, `modifiers`, and `models` docs topics, and the `claude`,
+  `ffplay`, `intelephense`, `typescript-language-server`, `tsc`, and
+  `rust-analyzer` toolchain rows.
+
+### Files that stay on your machine
+
+Sync no longer reads or writes these files, and it does not remove them; the
+last item of the list is the one exception. Some of them can hold your own
+settings or entries. Open each file before you delete it, and keep or move
+what you added yourself.
+
+Codex:
+
+- In the Codex home folder (`$CODEX_HOME`, by default `~/.codex`):
+  `config.toml` and its `config.toml.bak` (both can hold your own settings,
+  because sync merged the kit tables into your file), `AGENTS.md`,
+  `rules/docks.rules` and a `docks.rules.bak` when one exists,
+  `.kit-managed-rules`, and the sync lock `.docks-kit-sync-lock.db`.
+- The personal Codex marketplace file `$AGENTS_DIR/plugins/marketplace.json`
+  (by default `~/.agents/plugins/marketplace.json`). It can hold your own
+  marketplace entries, because sync kept them.
+- The Codex plugins that sync installed (`docks@docks`,
+  `plan-lifecycle@docks`): remove them with the Codex CLI's plugin commands.
+- The `bubblewrap` system package, when the kit installed it only for the
+  Codex Linux sandbox.
+
+Claude Code:
+
+- `~/.claude/settings.json` and its `settings.json.bak` (both can hold your
+  own settings, because sync merged the kit keys into your file).
+- `~/.claude/CLAUDE.md` and a `CLAUDE.md.bak` when one exists.
+- `~/.claude/bin/statusline.mjs`, `session-start.mjs`, and `notify.mjs`, and
+  `~/.claude/notification.mp3`. The `statusLine` setting and the hooks in
+  `settings.json` call these programs, so remove that setting and those hooks
+  before you delete the programs.
+- The `showTurnDuration` key that sync set in `~/.claude.json`. Sync also
+  merged an empty `mcpServers` object into that file, so every server under
+  `mcpServers` is your own: keep them. The file holds your own Claude Code
+  state, so edit only `showTurnDuration`.
+- The `ENABLE_CLAUDEAI_MCP_SERVERS=false` setting that turned off the
+  claude.ai cloud connectors. On Linux and macOS, sync added it with a
+  `# docks-kit:` comment line to your shell profile, such as `~/.bashrc`. On
+  Windows, sync stored it in your user environment with `setx`. Check the
+  value before you remove it, because you can have set it yourself.
+- The Claude Code plugins and marketplaces that sync installed: remove them
+  with the Claude Code CLI's plugin commands.
+- The language servers that sync installed with `npm install -g`
+  (`intelephense`, `typescript-language-server`, `typescript`) and with
+  `rustup component add rust-analyzer`.
+- The exception: the `~/.claude/skills/<name>` links of universal skills.
+  `docks-kit sync agents` still repairs them, and `--prune` still removes the
+  links of kit-owned skills that SoT no longer lists, until a later part of
+  this release removes universal skills.
+
+### Fixed
+
+- The omp trigger rules no longer freeze an omp session while a large tool
+  call streams (plan DocksDocks/public#187). omp 19.0.0 tests every rule condition on the
+  tool-call buffer at each streamed delta, on its main thread. Each condition
+  started with a lookbehind that walked back over the whole buffer from every
+  position. On a 20 KB bash command or eval cell with many `\"` escapes, one
+  pass of all conditions took 3.8 to 5.8 s in Bun, and omp logged
+  `ui.loop-blocked` records of up to 5.6 s.
+- Past the JavaScriptCore match limit, such a scan also reported no match, so
+  a rule did not fire on a large call. For example, `git-safety.md` stayed
+  quiet after 4.7 s on a 21 KB eval cell that ends with
+  `sh("git reset --hard HEAD")`. Now it fires in less than 0.1 s.
+- Each of the 69 conditions now starts its match at the `"command"` or
+  `"code"` key and walks the string forward. Each scan after a command start
+  is one lazy walk that stops at its first event: the flag of the condition,
+  a terminator, the end of the run, or the next command start. The regex
+  cannot backtrack into that walk, and two scans never read the same text.
+  One pass of all conditions on a 20 KB or 30 KB buffer takes 9 to 14 ms in
+  Bun.
+- The rules also stay linear on three input families that a forward start
+  alone does not cover. The first is one long line that repeats a command
+  start, such as `git restore `. The second is one command start and then
+  one long run, where a group loop inside a lookaround drops JavaScriptCore
+  out of its regex JIT. The third is an open buffer that stops before the
+  closing quote, which omp tests at each streamed delta.
+- The new conditions give the same result as the rules of 0.22.29. The
+  checks found no change on the 2697 rows of the test table, on a fuzz run of
+  5 times 310,825 buffers, or on each token sequence of up to 6 or 7 tokens
+  per condition, in closed and open buffers.
+- omp's `Matched:` excerpt is a bounded window around the match start, which
+  is now the `"command"` or `"code"` key: up to 60 characters before the key,
+  and at most 180 characters after it. So in a long call the trigger can be
+  outside the excerpt.
+- Two guards in `cli/test/unit/ompTriggerRules.test.ts` check new
+  conditions. The shape guard checks only what a static check can prove.
+  Each condition must start with the forward key prefix, which rejects the
+  leading lookbehind that froze omp, and no `|` can stand outside every
+  group. The Bun backstop (`cli/test/lib/ompTriggerBackstop.ts`) tests the
+  measured input families for linear time. It fails when one pass over a
+  20 KB or 30 KB buffer takes 250 ms or more, or when `git reset --hard` at
+  the end of a 20 KB cell does not fire.
+- The backstop also times each condition alone at 16 KB and 64 KB. It uses
+  adversarial shapes with the regex JIT off, and the first two input families
+  with the JIT on, in a bash command, an open bash command, and a Python
+  cell. The 64 KB time must stay at most 8 times the 16 KB time plus 15 ms,
+  and at most 100 ms. The `command-guards` topic states the rules for new
+  conditions, and the project `verify` skill adds flow V5, which runs the
+  real `omp ttsr test` on the 21 KB cell.
+- To get the fixed rules, run `./docks-kit sync omp`. Then run
+  `/reload-plugins` in each running omp session, or start a new session. A
+  running session keeps the old rules until you do one of the two.
+
+## 2026-11-19 - docks-kit 0.22.29: omp 19.0.0 support
+
+### Changed
+
+- The omp toolchain floor and verified pin move from 18.22.2 to 19.0.0.
+  `docks-kit toolchain check` reports an older omp as `below-floor`. On
+  2026-11-19, omp 19.0.0 listed every model selector of the kit roles exactly,
+  accepted every key of `SoT/.omp/config.yml`, and kept the JSON shapes that
+  the kit parses from `omp plugin list --json` and `omp models --json`.
+- omp 19.0.0 checks a bash `prompt` rule before its critical-command patterns.
+  In 18.17.0, the release that the kit oracle ported before, a prompt rule on
+  a critical command such as `rm -rf /x` let the command run under `yolo`; in
+  19.0.0 it asks. For a command with `;` or `|`, each segment takes its first
+  matching deny or prompt rule, and a deny chosen for one segment now wins
+  over a prompt chosen for another segment. A segment also matches without
+  its leading `NAME=value` words. The kit ships no
+  prompt rule, so no kit rule changes its outcome. A prompt rule that you
+  added now also asks on a critical command.
+- The test oracle `cli/test/lib/ompBashPatterns.ts` ports the omp 19.0.0
+  approval source. `AGENTS.md`, the `command-guards` topic, and the
+  `bash.patterns` comment describe the 19.0.0 order. The upstream doc
+  `omp://approval-mode.md` still describes the 18.17.0 order.
+- New project skill `.agents/skills/verify` holds the end-to-end checks of
+  the CLI: `./docks-kit sync omp --dry-run`, `./docks-kit toolchain check`,
+  and the dry-run goldens.
+
+## 2026-11-18 - docks-kit 0.22.28: Codex pin moves to GPT-6.2 Sol
+
+### Changed
+
+- `SoT/.codex/config.toml` pins Codex to `gpt-6.2-sol` instead of
+  `gpt-6.1-sol`. The reasoning settings are unchanged. The project Codex
+  reviewer agents (`.codex/agents/plan-reviewer.toml` and
+  `code-reviewer.toml`) use the same model.
+- The curated Codex model list in `SoT/models.json` (verified 2026-11-18)
+  starts with `gpt-6.2-sol` and adds `gpt-6.2-astra`. It keeps `gpt-6.1-sol`
+  and `gpt-6-astra` as the previous releases, because the list is the
+  fallback when the live Codex list is unavailable and a user pin can still
+  name them.
+- The kit did not run Codex against `gpt-6.2-sol`, because the Codex CLI is
+  not installed on the release machine. OpenAI's Codex model page lists the
+  model, and omp served it through the `openai-codex` provider on 2026-11-18.
+- The `bun audit` and macOS CI failures on the 0.22.26 and 0.22.27 pull
+  requests needed no code change: GitHub withdrew GHSA-fc5q-39xc-vjpf, and the
+  macOS runner was unavailable for a time.
+
+## 2026-11-18 - docks-kit 0.22.27: omp roles move to GPT-6.2 Sol and GPT-6.2 Astra
+
+### Changed
+
+- The omp retry chains that named GPT-6.1 Sol now name GPT-6.2 Sol at the
+  same levels: `retry.fallbackChains.default` and `.task` run
+  `openai-codex/gpt-6.2-sol:high`, and `.vision` runs
+  `openai-codex/gpt-6.2-sol:medium`. The `astra` role and the Fable retry chain
+  move from GPT-6 Astra to `openai-codex/gpt-6.2-astra:xhigh`, and the switcher
+  tag reads `GPT-6.2 Astra`. The `reviewer` role stays on GPT-6.1 Terra `high`,
+  because the review benchmark of DocksDocks/public#130 chose that model, and omp 18.22.2 lists
+  no GPT-6.2 Terra.
+- The Astra ladder override in `SoT/.omp/models.yml` moves from the
+  `gpt-6-astra` key to `gpt-6.2-astra`. Sync prunes the deployed
+  `gpt-6-astra` block while it equals the shipped block, so a user edit stays.
+- The `omp-models` topic adds GPT-6.2 Sol and GPT-6.2 Astra at Artificial
+  Analysis Intelligence Index v5.0.1 (captured 2026-11-18), and states that it
+  always records the `high` and `xhigh` rows of each model that an omp role or
+  retry chain uses. At the same capture, GPT-6.2 Sol outputs 78 tokens per
+  second at `high` and 81 at `xhigh`, against 65 and 65 for GPT-6.1 Terra.
+- The `SoT/toolchain.json` omp floor and verified pin move from 18.4.4 to
+  18.22.2, the release that lists and serves both GPT-6.2 ids. The floor is a
+  doctor check: sync does not read the omp catalog, so an older omp can match
+  a missing id to another model.
+
+## 2026-11-18 - docks-kit 0.22.26: global agent rules name the plan grant and the settled-Mode writes
+
+### Changed
+
+- The global agent rules of all three harnesses (`SoT/.omp/AGENTS.md`,
+  `SoT/.codex/AGENTS.md`, `SoT/.claude/CLAUDE.md`) now describe the plan
+  grant of plan-lifecycle 0.22.0 (DocksDocks/docks#149). A grant answers only
+  the asks that the contract's Delegated decisions section lists. Only trusted
+  `Delegation grant:` and `Delegation revoked` comments give or end it; the
+  latest comment on the plan decides, and a parent plan can end the grant of
+  its child. The agent runs the contract's grant check right before each
+  delegated decision and each write that relies on the grant. A grant never
+  answers the Mode, a non-local effect, the merge, a destructive action,
+  secrets, production, a temporary workaround, or a fact that only the user
+  holds (DocksDocks/public#172).
+- The rules also say that a settled plan Mode covers the routine
+  plan-lifecycle writes in the resolved repository: the plan issue, plan
+  edits, review comments, and each other issue or comment that the
+  plan-lifecycle contract requires, such as a grant event or a follow-up
+  issue. A `plan-and-implement` Mode also covers the landing work: the push
+  of the linked branch and the pull request. Before this change, the omp ask
+  list asked before every issue or comment, so a literal reading asked before
+  each review comment. Every other issue, comment, release, or upstream pull
+  request still needs an ask.
+- The Codex and Claude rules now carry the `yolo` sentence of the omp rules,
+  and all three files narrow it: a `yolo` invocation answers the routine asks
+  of its plan run until the merge question, or until the grant check of the
+  plan-lifecycle contract finds that its grant has ended. Before the grant
+  comment exists, the invoking message is the authority, as the grant check
+  says. The sentence never covers destructive work, secrets, production
+  systems, or a repository hook that fails; for a failed hook, the agent
+  follows the hook rule of the plan-lifecycle contract. Before this change,
+  the omp sentence answered every ask of the list. The Codex and Claude rule
+  that treats probe, production access, publish, push, release, and deploy
+  as literal current-request effects is unchanged.
+
+## 2026-11-16 - docks-kit 0.22.25: omp file-removal rule teaches the git folder form
+
+### Changed
+
+- The omp `file-removal.md` trigger rule now fires on `git rm -r` (also with
+  `--cached`, a flag cluster such as `-rq`, or a global option such as
+  `git -C <repo>`). omp denies `git rm -r`, so before this change an agent got
+  only the deny. The rule now teaches `git rm -- '<dir>/*'` to remove a
+  folder and `git rm --cached -- '<dir>/*'` to stop tracking it. Git matches
+  the quoted `*` across `/`, so the glob reaches every file in every
+  subfolder, and `git rm` still refuses a file with local changes. The
+  `bash.patterns` denies are unchanged.
+
+## 2026-11-16 - docks-kit 0.22.24: omp command rules move to trigger rules
+
+### Changed
+
+- The deployed omp global instructions (`SoT/.omp/AGENTS.md`) shrink from
+  120 lines to 36 lines. omp loads `~/.omp/agent/AGENTS.md` only into
+  main sessions and advisors, never into task subagents
+  (`omp://context-files.md`). So the subagent clauses in that file had no
+  effect. The file now holds only main-session rules: the documentation
+  check, assessment-only, the Docks plan review authorization, mannered
+  prose, a short `ask` list, the `yolo` scope, the fallback when `ask` is not
+  available, one cleanup line, and the Simplified Technical English output
+  standard. The output standard keeps the rules in 8 lines and bans humor
+  outright.
+- The `ask` list has a new trigger. Before the agent writes a feature that
+  the current structure cannot hold without a refactor, it proposes the
+  refactor through `ask`. The list also holds the former hook rule: when a
+  repository hook fails on a problem that the change did not cause, the agent
+  asks and does not skip the hook. It also holds the production cleanup
+  rule: an `ask` immediately before the cleanup, which must be rare.
+
+### Added
+
+- The kit omp plugin `docks-kit-omp` ships six omp Time Traveling Stream
+  Rules (TTSR, trigger rules) in `rules/`: `file-removal.md`,
+  `git-safety.md`, `temp-and-background.md`, `worktree-location.md`,
+  `literal-paths.md`, and `remote-cleanup.md`. They hold the command rules
+  that `SoT/.omp/AGENTS.md` carried before: file removal, git hooks and push
+  refs, temporary files, background processes, global installs, Docker
+  cleanup, worktree location, literal paths without `~` or `$HOME`, and
+  remote or production cleanup. `git-safety.md` and `remote-cleanup.md` also
+  cover forms that the former prompt did not name, such as `git branch -D`,
+  `git stash drop`, `git checkout .`, `git clean` without `-n`,
+  `git push origin +<ref>`, `rsync --delete` to a host, `rclone sync` to a
+  remote, `gh <noun> delete`, `aws s3 rb`, and `DROP TABLE` in a database
+  client. `temp-and-background.md` also names `go install`, `gem install`,
+  and `uv tool install` as global installs. `worktree-location.md` fires on
+  each `git worktree add`, also at the correct path, because a condition
+  cannot read `$XDG_DATA_HOME` or the home directory. The retry after the
+  reminder runs.
+- Each rule has a regex `condition` that aims at the wrong form. A condition
+  reads text, not a parsed command, so it has known false positives: a
+  quoted command word, such as `echo "rm x"` or a commit message that starts
+  with `rm`, and eval code after the closing quote of a `sh()` string. All
+  six rules have the scope `tool:bash, tool:eval`, because eval code can run
+  a shell command through `sh()`. When the model streams a matching tool
+  call, omp aborts the call before it runs, injects the rule, and retries.
+  All six rules have `repeatMode: always`, so each later wrong form in the
+  session fires the rule again. The retry that a reminder starts does not
+  fire it. After a session resume, a rule that fired before the resume does
+  not fire in the first turn.
+  The rules reach subagents, and they cost no prompt tokens until they fire.
+  Sync materializes the plugin to `~/.docks-kit/omp-plugin`, and omp's
+  `omp-plugins` provider loads `rules/*.md` from that linked root.
+- omp tests each condition on the partial argument buffer after each
+  streamed delta. So no condition matches a prefix of a correct command.
+  Each condition requires a delimiter after the token that it checks, and no
+  condition uses the end anchor `$` as that delimiter. The buffer is the
+  argument JSON text. The intent field `i` can come before or after
+  `command`, and a provider can put JSON white space around the colon, as
+  in `{"command": "ls"}`. So each condition starts its match inside the
+  `command` or `code` string with a lookbehind that allows that white space,
+  and each scan stops at an unescaped `"` and at a newline (`\n`). The intent
+  text or the next line does not fire a rule. A tab in a command is `\t` in
+  the buffer, and each condition reads it as shell white space. A scan that
+  looks for an option stops at a ` -- ` word, so `git clean -fd -- -n` fires
+  and `git rm -- -f` stays quiet.
+- The `bash.patterns` denies do not change. The trigger rules teach the
+  correct form, and the denies still enforce. `docks-kit docs command-guards`
+  lists each rule, its scope, the correct form that it teaches, and the known
+  false positives.
+- A new unit test, `cli/test/unit/ompTriggerRules.test.ts`, checks the
+  conditions of the six trigger rules with a port of the omp 18.21.0 matcher
+  (`cli/test/lib/ompTriggerRules.ts`). Each rule has a table of wrong forms
+  that must fire and correct forms that must stay quiet. Each shell row runs
+  through the bash tool, Python eval `sh("…")`, JavaScript eval `` sh`…` ``,
+  and JavaScript eval `sh("…");`. Every row runs in the compact and the
+  spaced JSON layout, and some rows use the pretty layout. Other rows put
+  trigger words in the intent field before or after the command, or add a
+  tab, a multi-line command, or eval code without a shell command. A correct
+  form must also stay quiet on each partial buffer, because omp tests the
+  buffer after each streamed delta. The test also checks that each condition
+  has a wrong row that fires it, that each rule has `repeatMode: always`, and
+  that the rule list equals the rule files.
+
+## 2026-11-16 - docks-kit 0.22.23: omp stash reminders name the entry
+
+### Fixed
+
+- The omp hygiene extension no longer reminds about a stash entry that is
+  gone. Before, each `git stash` command gave an unchecked reminder at session
+  stop, also after the agent popped the entry.
+- Before a `git stash` command runs, a new `tool_call` handler reads
+  `git stash list` in the directory of the command. After the command, the
+  extension records only an entry that was not in that list. So a
+  `git stash push -q` with nothing to save records nothing, and an older entry
+  of the user is never named. The `tool_execution_end` handler removes the
+  saved list of a call that omp blocks. A failed call that still added an
+  entry, such as `git stash push -q && false`, is also compared. The read
+  before the command has a 1-second timeout, so it delays the command little.
+- The user or another session can add an entry while the command runs, and
+  the extension then names that entry too. A default `WIP on <branch>`
+  message does not prove the owner either. So the reminder names the entry by
+  short ID, message, and directory. It tells the agent to pop the entry only
+  when its message is a unique message that the agent gave with `-m`.
+  Otherwise the agent must not pop or drop it and names it in the final
+  answer. The reminder no longer says "Apply the stash", which could make an
+  agent apply a stash of the user. The `workspace-hygiene` skill says the
+  same, and it tells the agent to give a unique `-m` message to each stash.
+- When the worktree of the command is gone, the stop reminder suggests no
+  pop, because a pop in another worktree would put the changes into a
+  checkout of the user or of another task. It says that the worktree was
+  removed, gives the read-only `git --git-dir=<common dir> stash list`
+  command, and tells the agent to name the entry in its final answer.
+- At session stop, the extension reads the stash list of the common git
+  directory and reminds only while the entry is in it. A failed read gives no
+  reminder, the same as a failed Docker check.
+
+## 2026-11-12 - docks-kit 0.22.22: omp advisor removed and config trimmed to non-defaults
+
+### Removed
+
+- The omp advisor is removed. `SoT/.omp/config.yml` no longer carries the
+  `advisor` block, `modelRoles.advisor`, or `retry.fallbackChains.advisor`.
+  The plan-lifecycle verification loop replaces it: acceptance checks, a
+  fresh code review of the diff, and a round limit. omp keeps the advisor off
+  by default. A session that runs `/advisor on` takes its advisor model from
+  the `slow` role. Subagents already ran without an advisor.
+- `docks-kit omp` no longer asks for an advisor thinking level. The
+  free-model overlay still sets `modelRoles.advisor` to the free model at the
+  session level, so `/advisor on` in a free session cannot reach a paid
+  model. It no longer empties an `advisor` fallback chain.
+
+### Changed
+
+- `SoT/.omp/config.yml` now carries only keys whose value differs from the
+  omp 18.19.0 default. These keys equal that default and are removed:
+  `defaultThinkingLevel`, `tier.anthropic`, `task.softRequestBudget`,
+  `task.softRequestBudgetNotice`, `task.batch`, `task.enableEffort`,
+  `task.maxRecursionDepth`, `providers.anthropic.serverSideFallback`,
+  `providers.fetch`, `includeWorkspaceTree`, `commands.enableOpencodeUser`,
+  the `skills` block, `compaction.thresholdTokens`, `textVerbosity`, and
+  `tools.approvalMode`. omp applies the same values, so behavior does not
+  change.
+- The sync merge is additive, so `ompRemovals.ts OMP_RETIRED_VALUES` records
+  each removed key with the value the kit shipped. Sync prunes a deployed key
+  only while it still holds that value, so a user edit survives. The same
+  pass prunes the advisor keys.
+- The `compaction.thresholdTokens` pins are retired. Sync prunes a deployed
+  `-1` and the former `231200` pin, and omp's reserve-based default applies.
+- `codexResets.autoRedeem: "no"` becomes `codexResets.autoRedeem5h: "no"` and
+  `codexResets.autoRedeemWeekly: "no"`. omp 18.19.0 migrates the legacy key in
+  memory to these two keys, so behavior does not change. Sync prunes the
+  deployed legacy key while it holds `"no"`.
+
+## 2026-11-12 - docks-kit 0.22.21: omp Fable roles on Fable 5.2
+
+### Changed
+
+- The omp `fable` and `switch_fable` roles move from
+  `anthropic/claude-fable-5-1:medium` to `anthropic/claude-fable-5-2:medium`.
+  `retry.fallbackChains.astra` follows to the same selector, and
+  `modelTags.fable` now reads `Fable 5.2`.
+- `cli/docs/omp-models.md` adds the Artificial Analysis capture for Fable 5.2,
+  read on 2026-11-12 at Intelligence Index v5.0.1. Fable 5.2 medium scores 56
+  at $3.80 per task and an 11.23 s time to first answer token. The Fable 5.1
+  table stays as the v4.3.2 baseline.
+
+## 2026-11-07 - docks-kit 0.22.20: omp folder locks and dry-run locks
+
+### Fixed
+
+These fixes close DocksDocks/public#163.
+
+- A writing `docks-kit sync omp` now holds `.docks-kit-sync-lock.db` in the
+  omp agent folder, the omp intercom folder, and the omp data root. Two homes
+  can share these folders through `PI_CODING_AGENT_DIR`, a symlink,
+  `XDG_DATA_HOME`, or a `PI_CONFIG_DIR` with `..`. Syncs of such homes now
+  wait for each other.
+- The folder locks now work for a missing folder. The sync creates the folder
+  after the locks of its ancestors in the set, with mode 0700, and then takes
+  its lock. Before, the sync created a Codex or agents folder before its
+  folder lock.
+- A sync no longer changes the mode of a shared folder that another sync
+  holds. It also creates no `intercom` folder in a held omp agent folder.
+- The sync finds the omp folders once, before it takes the locks, and the omp
+  pipeline writes only into them. Each `omp` command of the sync starts
+  without `XDG_DATA_HOME` when the locked data root is the omp config root. So
+  a `$XDG_DATA_HOME/omp` folder that another sync creates during the run
+  cannot move the plugin data to an unlocked folder. A later `omp` uses that
+  new folder and does not see the plugins of the sync, so the sync then
+  records a failure that names the new data root and exits 1. The next sync
+  installs the plugins there.
+- `docks-kit omp --fast` now holds the sync lock and the omp agent folder lock
+  while it rewrites `config.yml`. A sync and the toggle no longer overwrite
+  the change of each other. It checks `config.yml` before it takes a lock, so
+  a missing file ends the run with exit 2 and creates no omp folder.
+- A dry run through the `DRY_RUN=1` env global of the `native-raw` engine
+  channel now takes no sync lock, as `--dry-run` does. It no longer waits up
+  to 120 s for another sync.
+
+## 2026-11-07 - docks-kit 0.22.19: kit locks and ownership records
+
+### Fixed
+
+These fixes close DocksDocks/public#159.
+
+- `docks-kit tidy --apply` now holds an SQLite lock,
+  `~/.cache/docks-kit/tidy-lock.db`. The lock is a `BEGIN IMMEDIATE`
+  transaction, so exactly one of two runs that start together gets it. The OS
+  releases it when the holder ends. The old `tidy.lock` takeover could give
+  the lock to two runs.
+- `docks-kit tidy --apply` now makes its plan under the lock. Before, a
+  second run could apply a plan that it made while the first run changed the
+  same resources.
+- A second hygiene sweep claim now only starts a second `tidy --apply`. That
+  run finds the lock held and stops, or plans from the current state.
+- Each writing `docks-kit sync` and each `docks-kit model <tool> <value>` now
+  holds `~/.cache/docks-kit/sync-lock.db`. Two syncs can no longer write
+  ownership records that drop the items of the other.
+- Two homes can share a Codex folder (`CODEX_HOME`) or an agents folder
+  (`AGENTS_DIR`). A writing sync now also holds `.docks-kit-sync-lock.db` in
+  each Codex or agents folder that it writes, and a `model codex` write holds
+  the Codex one. So syncs of two homes that share a folder also wait for each
+  other.
+- A sync waits up to 120 s for the sync lock, then exits 1 with a message.
+  `DOCKS_KIT_SYNC_LOCK_WAIT_MS` sets another wait, a non-negative safe integer
+  in ms; any other value exits 2. A dry run and `--help` take no lock.
+- `sync codex` now writes each rules file through a temporary file and a
+  rename. An interrupted write no longer leaves a cut rules file.
+- `sync codex` now records the hash of each new rules file before it deploys
+  the file. A rules file that an interrupted sync deployed is now removed
+  when the SoT drops it.
+- Sync now adds a skill to `~/.agents/.kit-pending-skills` before it installs
+  it, and records it as owned before the next install starts. When a sync
+  stops after an install, the next sync records the skill as owned, so
+  `--prune` can remove it.
+- A write through the kit `replaceFile` helper now removes the temporary file
+  of a killed earlier write to the same file. The short temporary name now
+  holds the writer's PID.
+- On Windows, the omp hygiene extension now tells a pending delete from a
+  real access denial. After EPERM, it creates and deletes a probe file in the
+  same folder.
+- An error of the sweep claim files or the stamp, such as a failed probe, now
+  stops the sweep. The next tool result of the main session then shows
+  `docks-kit sweep did not start: <message>` once. A missing `docks-kit`
+  launcher on PATH shows no line.
+- `--prune` no longer removes a skill directory that the user made before the
+  SoT declared the same slug. The kit now records only the skills that it
+  installed, in `~/.agents/.kit-owned-skills`, with the `<dev>:<ino>` of each
+  installed directory. `--prune` removes a skill only while its directory
+  keeps that identity. Else it prints
+  `keep <slug>: the directory is not the one that the kit installed`.
+- When a declared skill directory existed before and no record names it, each
+  sync now warns that the kit reused it and that `--prune` keeps it.
+- The kit no longer writes `~/.agents/.kit-managed-skills`. `--prune` keeps
+  each skill directory that only this older record names, and prints a line
+  for it.
+
+## 2026-11-07 - docks-kit 0.22.18: Windows sweep claim and atomic ownership manifests
+
+### Fixed
+
+- On Windows, the omp hygiene extension no longer throws at session start
+  when another omp process deletes or holds a sweep claim file (DocksDocks/public#157). A new
+  open of a file whose delete is pending fails with EPERM. A delete of a file
+  that another process holds without delete sharing fails with EBUSY. The
+  extension now treats these codes as contention, as the `docks-kit tidy`
+  lock does. A failed create gives no token for that attempt. When the claim
+  is then stale or gone, the takeover path can still take it; otherwise a
+  later main session starts the due sweep. A failed stale-file delete removes
+  nothing, and the next exclusive create decides the claim. A failed release
+  leaves the claim file until it is stale. A real access denial on Windows
+  also gives EPERM, and the extension then also counts it as contention. On
+  other platforms, these codes stay errors.
+- `sync codex` now writes `~/.codex/.kit-managed-rules`, and the skills sync
+  writes `~/.agents/.kit-managed-skills`, through a temporary file and a
+  rename. Before, an interrupted write could cut the file. The next sync
+  could then keep a rules file that the SoT dropped, and `--prune` could keep
+  a skill that the SoT dropped. Each write through the kit `replaceFile`
+  helper now uses a temporary name that is unique to the write. A write that
+  throws tries to remove its temporary file. A failed removal, or a process
+  that is killed during a write, can leave one temporary file. A stale
+  `<file>.tmp` no longer blocks the write.
+- The release-artifact test now checks each artifact list of
+  `release-cli.yml` alone, so a name in one list cannot hide a gap in the
+  other. The root `AGENTS.md`, the skills, and the `syncRules` comment now
+  state how sync treats an existing rules file, recorded or not. Sync skips a
+  byte-identical file and backs up a file that differs before it replaces it.
+  The Open Concerns format line now names the `###` heading that the entries
+  use.
+
+## 2026-11-06 - docks-kit 0.22.17: thirteen source defects fixed
+
+### Fixed
+
+- `docks-kit omp --fast` now keeps a symlinked `~/.omp/agent/config.yml` a
+  link and writes the toggled tier into the file that the link names (DocksDocks/public#150).
+  Before, it replaced the link with a regular file.
+- When `sync omp` prunes retired entries from `config.yml` or `models.yml`, it
+  now writes the file atomically with mode 0600 and backs it up to `.bak`
+  first. When the merge of the same sync already made a backup, the prune
+  keeps that backup of the pre-sync bytes. Before, the prune wrote the file in
+  place, kept its old mode, and made no backup.
+- `docks-kit model codex` and `docks-kit status` now read a top-level Codex
+  `model` that follows a multi-line array, such as a multi-line `notify`, and a
+  quoted key such as `"model" = "…"`. Before, they showed no model.
+- `sync codex` now removes a rules file from `~/.codex/rules/` when the SoT no
+  longer ships it and the file still holds the kit bytes. Each sync records the
+  kit rules files in `~/.codex/.kit-managed-rules`. A dropped file that you
+  edited stays, and each sync warns about it. A file that the kit did not
+  write, such as `default.rules`, is never removed.
+- `docks-kit sync --omp` now fails with the rename hint `--omp was renamed:
+  pass the target as a word, e.g. 'sync omp'`, as the other target flags do.
+  Before, it failed with `unknown flag --omp for 'sync'`.
+- The Codex config merge no longer adds a blank line and a new `.bak` on each
+  sync when the SoT declares only one table.
+- The `docks-kit` overview line for `tidy` now names `--report`.
+- Internal fixes: one list registers the subcommands for both the argument
+  check and Effect; the engine and the public CLI read one table of rename
+  hints; the sync update check starts `git` through the host-aware launcher;
+  the missing-Bun hint is the pinned download-then-run installer instead of a
+  pipe into `bash`; the unread dependency `requirement` field is gone;
+  `bun run check` runs the generated-payload check; and two source comments
+  now match the code.
+
+## 2026-11-06 - docks-kit 0.22.16: documentation matches the code
+
+### Fixed
+
+- A documentation audit found about 100 claims that no longer matched the
+  code, the SoT, or the tests (DocksDocks/public#147). The corrections cover the root
+  `AGENTS.md`, `CLAUDE.md`, and `README.md`, `docs/PLAN.md`,
+  `cli/src/engine-native/DESIGN.md`, the `docks-kit docs` topics and their
+  summaries, the kit-mechanic skills and their references, and the Claude Code
+  and Codex wrapper agents.
+- The `docks-kit docs` summary of `sync-layers` now names the four sync
+  targets.
+- The omp hygiene reminder for a remote resource now names all eight
+  non-production target names: local, development, dev, test, homolog,
+  homologation, staging, and preview. Before, it named five.
+- `docks-kit toolchain check` now labels the `pi-intercom` pin
+  `(omp install)`, the tool that installs it. Before, it said `(npx)`.
+- The docs now say that omp 18.8.8 and later replace a compaction pin at or
+  above the context window with the reserve-based budget; omp 18.4.4 through
+  18.8.7 clamp it to one token below the window.
+- The Codex reviewer agents in `.codex/agents/` now take the inputs of the
+  issue-backed plan lifecycle (issue number, export path, round number, mode,
+  and diff paths) instead of a plan file path.
+
+## 2026-11-06 - docks-kit 0.22.15: omp hygiene ignores setup commands that may not run
+
+### Fixed
+
+- The omp hygiene extension no longer applies a `cd`, `pushd`, `export`, or
+  `unset` that may not run to the commands after it (DocksDocks/public#143, DocksDocks/public#145). Before,
+  `true || cd /a; git worktree add wt` recorded `/a/wt`, and
+  `true || export DOCKER_HOST=ssh://dev; docker compose -p app up -d` gave a
+  cleanup command for the `ssh://dev` daemon, where another project with the
+  same name can run. These commands now get the generic note.
+- The extension now checks whether each `cd`, `pushd`, `export`, and `unset`
+  of a command runs before the later commands. It trusts them only in a pure
+  `&&` chain or a pure `;` list. These make it treat the directory or the
+  Docker daemon as unknown:
+  - `||`, a pipeline, or a background job before a later command;
+  - `!`, a conditional, a loop, or a function definition;
+  - `&&` together with `;` or a line break.
+- The extension checks each `$( … )` or backtick substitution by itself. A
+  `&&`, `||`, or `|` at the end of a line continues on the next line, as in
+  the shell.
+  An `unset` of a daemon variable that may not run makes the daemon unknown,
+  because the shell can inherit that variable.
+- Cost: these commands now get the generic note, although every part runs:
+  - `cd /a && npm ci; git worktree add wt`;
+  - `cd /a || exit 1; git worktree add wt`;
+  - `cd /a && git worktree add wt 2>&1 | tail -n 5`;
+  - `cd /a; git worktree add wt || true`;
+  - `cd /a; if [ -d x ]; then echo y; fi; git worktree add wt`.
+
+  A command without a `cd`, `pushd`, `export`, or `unset` keeps its result.
+
+## 2026-11-06 - docks-kit 0.22.14: container IDs after omp notices, omp 18.17.0 matcher port
+
+### Fixed
+
+- The omp hygiene extension now finds the ID of a container that a single
+  `docker run -d` command starts, also when omp adds a notice after the
+  command output. omp adds `Wall time: N seconds` to each command that runs
+  1 s or longer. Before, a slow `docker run -d` got only the generic note
+  (DocksDocks/public#142).
+- The extension now reads a container ID only from output that the
+  `docker run -d` command owns. The `mktemp` and `docks-kit scratch new` paths
+  already use this rule. Before, the extension could take an ID that another
+  command of the same call printed. An example is
+  `docker inspect -f '{{.Id}}' other || docker run -d img`. The extension then
+  told the agent to stop that unrelated container.
+- These `docker run -d` commands now get the generic note, which still names
+  `docker stop <id>`:
+  - a compound command, such as `cd x && docker run -d img`;
+  - a command behind a wrapper, such as `env` or `time`;
+  - a command that redirects its standard output or its input.
+- A single redirection of the standard error, such as `2>&1`, `2>/dev/null`,
+  or `2>>err.log`, no longer hides the path or the ID from the extension. The
+  noclobber form `2>|file` still gets the generic note.
+
+### Changed
+
+- The test port of the omp matcher for bash approval rules
+  (`cli/test/lib/ompBashPatterns.ts`) now follows omp 18.17.0. Since omp
+  18.16.0, the `dd` critical pattern does not flag a write to a pseudo-device
+  sink such as `/dev/null`. The kit ships no `dd` rule, so no kit rule changes
+  its outcome. With omp 18.16.0 or later, a user prompt rule that matches such
+  a `dd` command takes effect: the main session asks, and a subagent rejects
+  the command. Before, the critical check let that command run under the
+  kit's `yolo` mode.
+
+## 2026-11-05 - docks-kit 0.22.13: advise /reload-plugins after an omp plugin upgrade
+
+### Changed
+
+- A test on omp 18.16.0 asked if `/reload-plugins` repairs a running session
+  after an upgrade removed its plugin folder (DocksDocks/public#139). After the upgrade, the
+  session lost the plugin agent, but `skill://` resolved the skill to the new
+  folder. After `/reload-plugins`, the agent and the skill both gave the new
+  version.
+- The `docks-kit sync omp` warning and next step for a marketplace upgrade that
+  changes the version now give one rule. Run `/reload-plugins` in each running
+  omp session, then read each plugin skill again through `skill://`. Restart
+  omp instead when an upgraded plugin ships hooks, extension modules, or
+  non-MCP tools, as the omp marketplace docs say.
+- A version-changing upgrade no longer sets the restart next step by itself.
+  Each other plugin operation still sets it: an install, a reinstall at the
+  same version, an npm install, or a link. A changed kit plugin or config file
+  also sets it. The restart next step then prints next to the upgrade rule.
+- A failed write of the upgrade log now warns that running omp sessions get no
+  reminder. The warning asks the user to give each session the advice above.
+- The `pluginUpgrades.ts` reminder now tells the agent to ask the user to run
+  `/reload-plugins`. It then tells the agent to read each plugin skill again
+  through `skill://` before it runs a skill script. It asks for a restart
+  instead for hooks, extension modules, or non-MCP tools. Old event files give
+  the same reminder.
+
+## 2026-11-05 - docks-kit 0.22.12: warn when an omp plugin upgrade removes a loaded folder
+
+### Added
+
+- omp deletes the previous plugin folder on `omp plugin upgrade`. A running omp
+  session then loses the plugin agents and skill script paths of that folder
+  (DocksDocks/public#129). For each marketplace upgrade that changes the version,
+  `docks-kit sync omp` now prints a warning that names the plugin and the
+  version change. The next step asks the user to restart running omp sessions.
+- Sync writes one event file for each such upgrade into
+  `~/.cache/docks-kit/omp-plugin-upgrades/` and keeps the newest 100. A failed
+  write of this log gives a warning, not a sync failure. The warning says that
+  running omp sessions get no reminder for these upgrades and must restart.
+- If sync cannot read the plugin versions after the upgrades, it warns. Each
+  upgrade of an installed marketplace plugin then counts as a change to the
+  version `unknown`, with its own warning and event.
+- The new kit plugin extension `pluginUpgrades.ts` reads that log. In a tool
+  result of each main omp session, it adds one reminder for the upgrades that
+  finished after its omp process started. The reminder names each plugin and
+  its version change, and it tells the agent to ask the user to restart omp.
+- Restart open omp sessions after `docks-kit sync omp`.
+
+### Limits
+
+- omp imports extension modules only at startup. An omp process that started
+  before a sync deployed `pluginUpgrades.ts` did not load it. Its sessions get
+  no reminder, also for the upgrades of that sync.
+- An upgrade that `docks-kit sync` did not run gives no reminder, for example
+  `omp plugin upgrade` by hand.
+- The warning, the next step, and the reminder assume that the session loaded
+  the user-scope install. omp keeps an old cache folder that a known project
+  registry still uses. So a session on a project-scope install keeps its
+  folder. For this reason, the reminder says "may".
+- A session that stays idle through more than 100 later upgrades loses the
+  oldest events.
+
+## 2026-11-05 - docks-kit 0.22.11: omp reviewers follow the OpenAI fast toggle
+
+### Changed
+
+- `task.agentServiceTierOverrides` sets the four review agents (`reviewer`,
+  `security-reviewer`, `code-reviewer`, `plan-reviewer`) to `inherit`, not
+  `default`. They now take the live tier of the main session for each
+  provider. In a new session, `docks-kit omp --fast` therefore switches them
+  between fast and normal with the other OpenAI work.
+- `--fast` never changes the Anthropic tier, and sync sets the deployed
+  `tier.anthropic` to the SoT value `none`. `/fast on` in an Opus session sets the
+  Anthropic tier to `priority` for that session, and the reviewers inherit it.
+  Use `docks-kit omp --fast` and a new session to keep Anthropic models normal.
+- The user chose this setting (DocksDocks/public#134). In the DocksDocks/public#130 benchmark, Terra `high` on
+  the fast tier let 35.15 known defects per 50 escape, against 34.90 on the
+  normal tier. A fast review took a median of 35.7 s, against 69.3 s.
+- Restart open omp sessions after `docks-kit sync omp`.
+
+## 2026-11-05 - docks-kit 0.22.10: omp reviewers run GPT-6.1 Terra high
+
+### Changed
+
+- The omp `reviewer` role changes from `openai-codex/gpt-6.1-sol:xhigh` to
+  `openai-codex/gpt-6.1-terra:high`. All four review agents use it:
+  `reviewer`, `security-reviewer`, `code-reviewer`, and `plan-reviewer`.
+- New `task.agentServiceTierOverrides` pins the same four agents to the
+  OpenAI `default` tier, so reviews keep that tier when
+  `docks-kit omp --fast` turns the session to `priority`.
+- The reviewer fallback changes from `anthropic/claude-opus-5-5:xhigh` to
+  `anthropic/claude-opus-5-5:high`.
+- The user set the effort `high`. A review benchmark chose the model and the
+  tier (DocksDocks/public#130): 24 held-out review cases, 2 runs each, `gpt-6.1-sol` and
+  `gpt-6.1-terra` at `high` on both tiers. Terra on the `default` tier let the
+  fewest known defects escape. No other setting stayed within the
+  pre-registered bounds. A Terra review took a median of 69.3 s, against
+  172.8 s for Sol, and used about a third of the tokens. It returned more wrong
+  findings: 0.49 against 0.20 per run.
+- `cli/docs/omp-models.md` adds the Artificial Analysis figures for
+  GPT-6.1 Terra, read at Intelligence Index v5.0.1.
+- Restart open omp sessions after `docks-kit sync omp`.
+
+## 2026-11-05 - docks-kit 0.22.9: omp subagents run their role level
+
+### Changed
+
+- omp `task.enableEffort` changes from `true` to `false`. The task tool no
+  longer has an `effort` field, so the main agent cannot set a thinking level
+  for one spawn. Each subagent runs the level of its role: `task` runs
+  Opus 5.5 `high`, the reviewers run GPT-6.1 Sol `xhigh`, and `scout` and
+  `sonic` run GPT-6 Luna `medium`.
+- Before, a caller `effort: hi` replaced the role level and gave the top of
+  the model ladder, capped at `task.maxEffort` (`xhigh`). Many `task` spawns
+  ran Opus 5.5 `xhigh` instead of the configured `high`.
+- `task.maxEffort` stays `xhigh`. It now bounds only a per-call `model` with
+  a `:level` suffix.
+- Restart open omp sessions after `docks-kit sync omp`. A session that started
+  before the sync keeps the old task tool.
+
+## 2026-11-05 - docks-kit 0.22.8: the kit ships no omp prompt rule
+
+### Changed
+
+- omp `bash.patterns` now ships only deny rules and the `trash *` allow. The
+  kit ships no prompt rule. Under `tools.approvalMode: yolo`, omp runs every
+  command that no deny matches without a question. This applies in the main
+  session and in subagents. A prompt rule that you add yourself still asks.
+- These commands asked before and now run: `git clean`, `git reset --hard`,
+  every `git push` that could force (`--force`, `-f`, clusters such as `-vf`,
+  `--mirror`, and a `+` refspec), `git push --follow-tags` (a former false
+  positive), and every git command that could skip the repository's hooks
+  (`--no-verify` and its prefixes, `git commit -n` and `git am -n`,
+  `core.hooksPath`, `GIT_CONFIG_COUNT`, and `GIT_CONFIG_PARAMETERS`).
+- The deny rules do not change. omp still denies an `rm` of the home
+  directory or `/`, `sudo rm`, a recursive `rm`, an `rm` with an `r` or `f`
+  option before an absolute path, `find -delete`, `find -exec rm`,
+  `xargs rm`, `HOME` reassignment, a `$` or a backtick after `git push`, and
+  a force push spelled `git push --force` or `git push -f` before
+  `origin main` or `origin master`. A force push to `main` in another
+  spelling, such as `git push origin main --force` or
+  `git push --force-with-lease origin main`, now runs.
+- This fixes DocksDocks/public#126. A read such as `git config --get core.hooksPath` no longer
+  asks. A command whose argument text names git and the hooks key, such as
+  `gh issue create --title`, no longer asks either.
+- `docks-kit sync omp` removes the 492 former kit prompt rules from
+  `~/.omp/agent/config.yml`. A user rule with another `match` or `approval`
+  stays.
+- The config merge no longer has a group for kit allow exceptions. The order
+  is kit deny, user deny, user prompt, kit prompt, the other user rules, and
+  kit allow.
+- Claude Code and Codex keep their ask tiers.
+
+## 2026-11-03 - docks-kit 0.22.7: Effect 4.1.2, the Effect language service, and bun fmt
+
+### Changed
+
+- `docks-kit --completions` now also accepts `powershell` and `pwsh`. Effect
+  4.0.3 added these shells to the built-in completions flag.
+- The CLI now runs on the stable Effect 4.1.2 release. The root
+  `package.json` pins `effect`, `@effect/platform-bun`, and
+  `@effect/platform-node-shared` at exactly `4.1.2`. The CLI imports its
+  command API from `effect/cli`.
+- Other dependency updates: `yaml` 2.9.1, `oxlint` 1.91.0, `vitest` 5.1.0,
+  and `@types/bun` 1.4.4. No GitHub advisory affects `vitest` 5.1.0.
+- This release removes the unused `@effect/vitest` package.
+- A global install with Bun 1.4.4 holds nine packages. No package has an
+  install script, and the install prints no peer dependency warning.
+
+### Development tooling
+
+- `bun run lint:effect` checks the Effect rules through `@effect/tsgo`, and
+  `bun run check` runs it. The editor language server can show the same
+  diagnostics through `node_modules/.bin/effect-tsgo tsc --lsp --stdio`.
+- `bun fmt` replaces the old formatter. `bunfig.toml` sets
+  `flavor = "oxfmt"`, so the output stays identical.
+- `cli/test/unit/dependencyPins.test.ts` also fails when the installed
+  version of a package does not satisfy a non-optional peer range in the
+  runtime closure.
+
+## 2026-11-03 - docks-kit 0.22.6: omp spends the full coding-plan quota
+
+### Changed
+
+- The kit no longer turns on omp's `retry.usageAwareFallback`. omp no longer
+  asks "Coding-plan reserve reached" when a plan has 10% quota or less left.
+  Subagents no longer move to a fallback model at that point without asking.
+- omp now moves to a model in `retry.fallbackChains` only after the provider
+  rejects a request with a usage-limit error.
+- Sync removes `retry.usageAwareFallback: true` from
+  `~/.omp/agent/config.yml`. A different value that a user set stays.
+
+## 2026-10-29 - docks-kit 0.22.5: omp denies a git push ref in a variable instead of asking
+
+### Changed
+
+- omp no longer stops on an approval prompt for a `git push` with a `$`
+  variable or a backtick substitution (DocksDocks/public#120). An example is
+  `B=$(git branch --show-current) && git push -u origin "$B"`. omp now denies
+  that command. The agent reads the refusal, writes the ref literally, and
+  pushes without a question. The deployed omp instructions name
+  `git push -u origin HEAD` for the current branch.
+- The deny covers a `$` or a backtick anywhere after `git push` in the same
+  command. The matcher reads the text before the shell expands it. So it
+  cannot tell a branch name from `+main` or `--force`, and an allow would let
+  a variable force a push. The deny also covers a `$` inside a ref, such as
+  `HEAD:$B`. Before, such a ref ran without a check.
+- The two deny rules, `*git push *$*` and ``*git push *`*``, start with `*`.
+  So they also reach a `git push` after a shell keyword such as `do`, a
+  wrapper such as `env`, or a path such as `/usr/bin/git`. Before, such a
+  command ran without a check.
+- Sync removes the four old prompt rules from `~/.omp/agent/config.yml`.
+  Claude Code and Codex keep their rules.
+- `docks-kit docs command-guards` lists the accepted false positives. A later
+  `$` in the same command, such as `git push origin HEAD && echo $?`, is
+  denied. Text that names `git push` before a `$`, such as a commit message,
+  is denied too; write such a message with `git commit -F`.
+
+## 2026-10-27 - docks-kit 0.22.4: a timed-out version probe ends its process tree
+
+### Fixed
+
+- When a `<tool> --version` probe passes its 60 s limit, sync now ends the
+  whole process tree of the probe, not only the direct child. Before, in
+  0.22.3, a process that the tool started, such as the real tool behind a
+  rustup proxy, kept running after sync moved on. On Linux and macOS, the
+  probe runs in its own process group, and sync kills the group. On Windows,
+  sync runs `taskkill /T /F` from `System32`, and it skips a probe that already
+  exited, so a reused process id cannot name an unrelated process.
+- When you press Ctrl-C or the CLI gets SIGTERM while a version probe runs,
+  docks-kit now ends that probe's process group before it exits, also in the
+  `docks-kit status` capture child.
+
+## 2026-10-27 - docks-kit 0.22.3: omp plugin version changes and a bounded rust-analyzer probe
+
+### Changed
+
+- `docks-kit sync omp` names each omp plugin that it installs, upgrades, or
+  links, with its version change, the way `docks-kit update` shows its own
+  version. The line `omp plugins synced (plugins: ~N)` is now, for example,
+  `omp plugins synced: docks@docks 0.21.1 -> 0.22.0, plan-lifecycle@docks 0.9.0 (current), pi-intercom 0.14.0 (new), docks-kit-omp linked`.
+  To get the new versions, the sync reads `omp plugin list --json` one more
+  time after a plugin operation. When omp does not report a version, the line
+  shows only the plugin id. `omp kit plugin files synced` also shows
+  `(docks-kit-omp <old> -> <new>)` when the kit version of the deployed plugin
+  changes.
+
+### Fixed
+
+- `docks-kit sync claude` no longer waits without a limit for
+  `rust-analyzer --version` (DocksDocks/public#114). On the GitHub macOS 26 arm64 runner image,
+  that command took 20 s, and a rustup proxy can wait on a download. Each
+  `<tool> --version` probe, except the Bun and omp probes, now stops after
+  60 s, and the tool version then reads as unknown. When the rust-analyzer
+  probe stops, sync warns and does not run `rustup component add rust-analyzer`
+  on that run. A rustup proxy that answers with no version still makes sync
+  add the component.
+
+## 2026-10-26 - docks-kit 0.22.2: omp asks before a git hook skip
+
+### Fixed
+
+- omp asks before a git command that skips the repository's hooks (DocksDocks/public#111).
+  Before, an agent ran `git push --no-verify` past a failing pre-push hook
+  without a prompt. The new `bash.patterns` prompt rules cover each unique
+  prefix of `--no-verify` in `git push`, `git commit`, `git merge`,
+  `git pull`, `git rebase`, and `git am`; a `git commit` or `git am`
+  short-option cluster that can hold `-n`; `core.hooksPath` after `git`; and
+  a line that sets `GIT_CONFIG_COUNT` or `GIT_CONFIG_PARAMETERS`. Each rule
+  also matches after a word before `git`, such as `HUSKY=0` or `env`. A subagent
+  cannot answer the prompt, so omp refuses the command there. The deployed omp
+  instructions also tell the agent not to skip a hook, and to report a hook
+  that fails on a problem outside its change. `docks-kit docs command-guards`
+  lists the accepted false positives and the known gaps.
+
+## 2026-10-23 - docks-kit 0.22.1: literal git push refs in omp
+
+### Fixed
+
+- The deployed omp global instructions (`SoT/.omp/AGENTS.md`) tell the agent
+  to write each `git push` ref as literal text, not as a `$` variable or a
+  backtick substitution (DocksDocks/public#108). To delete several remote branches, the agent
+  lists them in one `git push origin --delete` command. Before, an agent that
+  deleted branches in a loop with `git push origin --delete $b` got an
+  approval prompt on each run. The omp guard asks for every `git push` word
+  that starts with `$`, because a variable can expand to a `+` refspec that
+  forces the push. The guard does not change. `docks-kit docs command-guards`
+  explains why no allow rule can exempt this form.
+
+## 2026-10-22 - docks-kit 0.22.0: four supported platforms and a clear harnesses picker
+
+### Removed
+
+- docks-kit no longer supports macOS x64 (Intel Macs) or Windows arm64
+  (DocksDocks/public#105). No release download used their binaries. A release now builds
+  four binaries, `docks-kit-linux-x64`, `docks-kit-linux-arm64`,
+  `docks-kit-darwin-arm64`, and `docks-kit-windows-x64.exe`, plus
+  `SHA256SUMS`. The engine gate (exit 2) and both launchers (exit 1) stop a
+  removed host with a message that names the four supported targets.
+
+### Changed
+
+- `install.sh` and `install.ps1` check the host before they download Bun or
+  install the package, and stop a host outside the support matrix with
+  exit 1. Before, such a host installed the package and failed only at its
+  first sync.
+- `docks-kit harnesses` opens a new checklist picker (DocksDocks/public#104). Enter or Space
+  ticks the harness under the cursor, a Save row stores the selection, a hint
+  line names the keys, and Escape leaves the selection unchanged. The picker
+  fits the terminal width, uses ASCII on an old Windows console, and drops
+  color when `NO_COLOR` is set. Before, the picker started on a Select All or
+  Select None row, saved on Enter, and showed no key hints.
+
+## 2026-10-22 - docks-kit 0.21.1: omp temporary files, Bun 1.4.4, and free omp sessions
+
+### Fixed
+
+- The deployed omp global instructions (`SoT/.omp/AGENTS.md`) send a
+  temporary file or directory to the `scratch_remove` tool or
+  `docks-kit scratch remove <path>` before the trash rule, which now covers
+  every other path. `gio trash` refuses a path on a `tmpfs` `/tmp`, so an
+  agent that followed the trash rule failed on each temporary file there
+  (DocksDocks/public#93). The creation rule also names temporary files: put them in a scratch
+  directory, never in `/tmp`. The `workspace-hygiene` skill, the
+  `scratch_new` and `scratch_remove` tool descriptions, the extension
+  reminder, `docks-kit docs command-guards`, the README, and the
+  `docks-kit scratch` help say the same. The Claude Code and Codex rules do
+  not change.
+- The `docks-kit-omp` extension takes a created path only from a bash call
+  that runs `mktemp` or `docks-kit scratch new` alone. That call must have no
+  wrapper, no redirection, and no process substitution. Before, a compound
+  command made the extension report a line of unrelated output as a directory
+  that the agent created. A command under `sudo` now records nothing. A
+  command under `env` with an option other than `-u NAME` also records
+  nothing. The extension cannot know the directory or the Docker daemon of
+  these commands.
+- `docks-kit omp` now enforces the free session at launch (DocksDocks/public#53). It rejects a
+  forwarded `--config`, `--model`, `--smol`, `--slow`, `--plan`, `--models`,
+  `--provider`, `--prewalk-into`, or `--plan-yolo-into` with exit 2. It
+  starts `omp launch` with an explicit `--model`, so a forwarded subcommand
+  name becomes message text and `--continue` keeps the free model. It sets
+  `PI_SMOL_MODEL`, `PI_SLOW_MODEL`, and `PI_PLAN_MODEL` to the free roles and
+  warns for each value that it replaces. It appends the overlay to
+  `PI_CONFIG_FILES`. The overlay empties the retry chains keyed by the free
+  model. The catalog check covers each profile that the launch can select.
+  Run `omp` directly for an omp subcommand or a paid model.
+- The `docks-kit-omp` extension records no Docker stack or container after a
+  command that changes the daemon variables in a way it cannot follow (DocksDocks/public#100).
+  Such commands include `unset "$name"`, `export -n`, `export "$v=..."`,
+  `declare`, `source`, and `eval`. Before, the cleanup command of a later
+  `docker compose up -d` could name the wrong daemon. A literal
+  `unset DOCKER_HOST` or `unset -v DOCKER_HOST` still records the stack.
+- On Windows, `docks-kit tidy` reports that another run holds the lock when
+  the lock file is in the delete-pending state (DocksDocks/public#101). Before, the run
+  stopped with `EPERM`. Windows refuses a new file with the name of a deleted
+  file while a handle to that file is open. Other errors still stop the run.
+
+### Added
+
+- The `docks-kit-omp` extension reminds the agent of a temporary file that
+  `mktemp` creates, and its session-stop check lists that file while it
+  exists. A dry run (`mktemp -u`) records nothing.
+
+### Changed
+
+- The Bun floor, the verified Bun pin, and the Bun in CI move from 1.4.2 to
+  1.4.4 (`SoT/toolchain.json`). The generated launcher and installer blocks
+  install Bun 1.4.4. The checkout launchers stop on an older Bun and name
+  `bun upgrade`.
+- `bun run typecheck` runs `bun check --no-script -b -p cli` in place of
+  `tsc --noEmit -p cli`. `bun check` is the type checker that Bun 1.4.3 added,
+  ported from typescript-go, and it reports the same errors as TypeScript 7.
+  `bun run check`, CI, and the kit agent files use it. The `typescript`
+  devDependency stays for editors.
+
+## 2026-10-21 - docks-kit 0.21.0: agent resource hygiene for omp
+
+Agents left behind worktrees, temporary directories, processes, and
+containers, and the guards that protect the home directory also blocked their
+cleanup. This release adds checked cleanup commands and a kit-owned omp
+plugin. The Claude Code and Codex SoT files do not change.
+
+### Added
+
+- `docks-kit scratch new <label>` creates a private directory (mode 0700)
+  under `~/.cache/docks-kit/scratch/`. `docks-kit scratch remove <path>...`
+  removes a path only when its real path is strictly inside the scratch root,
+  the system temporary directory, or `/var/tmp`. It refuses a symbolic link,
+  a root itself, a path that contains the home directory, a path that another
+  user owns, and a path on another filesystem.
+- `docks-kit tidy` lists safe agent leftovers, and `--apply` removes them:
+  merged, clean, idle (24 h) worktrees under the agent worktree root and
+  their compose containers, orphaned processes (24 h) in agent directories,
+  and scratch directories idle for 7 days. It never passes `--force` to
+  `git worktree remove` and never removes a named volume. `--repo <path>`
+  takes the worktree candidates from one repository. When the host cannot
+  list processes with their working directories, tidy keeps every candidate
+  that a running process could use. Tidy acts only on a local Docker daemon:
+  it accepts a `unix:///` socket or a local `npipe:////./pipe/` endpoint and
+  passes it as `--host` to every Docker call. Any other endpoint, such as
+  `ssh://` or `tcp://`, skips every container rule and keeps the worktrees
+  that it would remove.
+- `docks-kit tidy --report` lists other disk and memory use without changing
+  anything: memory and swap, temporary directories, long-running processes
+  and their ports, Docker, package caches, Trash, merged branches, agent
+  histories, scheduled jobs, and recent global installs.
+- `docks-kit sync omp` materializes the kit omp plugin `docks-kit-omp` to
+  `~/.docks-kit/omp-plugin` and links it with `omp plugin link`. The plugin
+  registers the tools `scratch_new`, `scratch_remove`, and `tidy_report`,
+  reminds the agent of each resource that a bash command created, checks at
+  session stop that those resources are gone, and starts
+  `docks-kit tidy --apply` in the background at most once per 12 hours. It
+  also ships the `workspace-hygiene` skill and the `/cleanup` command. For a
+  plan run, the skill points to the Teardown rule of the `plan-lifecycle`
+  plan contract.
+- omp denies bulk removal that can empty the home directory: `find -delete`,
+  `find -exec rm` (also `-execdir`, `-ok`, `-okdir`), and `xargs rm`, in
+  every position and by path.
+- omp parks an idle subagent after 2 minutes (`task.agentIdleTtlMs: 120000`)
+  and closes an idle browser after 10 minutes (`browser.idleCloseSec: 600`).
+
+### Changed
+
+- The omp global instructions route temporary-directory removal through
+  `scratch_remove` or `docks-kit scratch remove`, permit one
+  `git worktree remove --force -- <path>` after the commits are on the
+  remote, and add `## Cleaning up what you create`.
+- By owner decision, resources on the workstation are always development.
+  An agent cleans up a remote resource that it reaches through SSH or a
+  provider CLI (for example `wrangler`, `vercel`, `kubectl`, or a remote
+  Docker host) only when its target is local, development, test, staging, or
+  preview. A production cleanup needs an `ask` immediately before it, and a
+  `yolo` invocation does not answer that ask. The prompt rules, the
+  `workspace-hygiene` skill, `/cleanup`, and the extension reminders carry
+  this rule.
+
+## 2026-10-19 - docks-kit 0.20.10: yolo runs answer omp ask rules
+
+### Changed
+
+- The deployed omp global instructions (`SoT/.omp/AGENTS.md`) add one rule
+  to `## Asking me things`. When the user invokes the `yolo` skill from
+  `plan-lifecycle`, that invocation answers every ask that section requires,
+  until the run asks its merge question. It does not cover destructive work,
+  secrets, or production systems. The root `AGENTS.md` and `docs/PLAN.md`
+  plan routing name the same exception.
+
+## 2026-10-16 - docks-kit 0.20.9: omp file-removal prompts removed
+
+omp asked for approval too often. By owner decision, omp no longer prompts
+for file removal. Claude Code and Codex guards do not change.
+
+### Removed
+
+- The 36 omp `bash.patterns` prompts for file removal: plain `rm` (also
+  `*/rm` and behind `xargs`, `env`, `command`, `exec`, `nohup`, `nice`,
+  `time`, `timeout`, and `stdbuf`), `find -delete`, `find -exec rm`, `git rm`,
+  `git worktree remove`, and `gio trash`.
+- The 3 allow exceptions `git rm -- *`, `git worktree remove -- *`, and
+  `gio trash -- *`. They only bypassed the removed prompts.
+
+### Added
+
+- omp denies a recursive `rm` behind any prefix: a `* rm ` copy of each bare
+  recursive-cluster deny. `env X=1 rm -rf b`, `xargs rm -rf`,
+  `nice rm -rf b`, `find . -exec rm -rf {} +`, `git rm -r dir`, and
+  `git rm -rf dir` were prompts and are now denied.
+- omp denies the `-ri`, `-ir`, `-Ri`, and `-iR` clusters for bare `rm`,
+  `*/rm`, and `* rm`.
+
+### Kept
+
+- Every omp deny rule. Recursive `rm`, `rm` of `/`, `~`, or `$HOME`,
+  `sudo rm`, and `rm` with an `r` or `f` option before an absolute path stay
+  denied.
+- The history-loss prompts: `git clean`, `git reset --hard`, and every
+  `git push` form that could force. The `trash *` allow stays.
+
+### Sync
+
+- `ompRemovals.ts syncOmpRemovals` prunes the 39 retired rules
+  (`OMP_RETIRED_BASH_RULES`) from `~/.omp/agent/config.yml` on every sync,
+  without `--reconcile`. It matches the exact `match` and `approval` pair, so
+  a different user rule survives.
+
+## 2026-10-15 - docks-kit 0.20.8: destructive-command guards
+
+On 2026-10-14 an omp subagent ran `rm -rf "$HOME"` after an
+`export HOME=$(mktemp -d)` in an earlier, separate bash call, and deleted the
+home directory. omp, Claude Code, and Codex now share one three-tier policy for
+destructive shell commands. The rule for agents is: to remove, use the trash
+(`gio trash -- <path>` on Linux, `trash <path>` on macOS), and to remove a path
+from the git index, use `git rm -- <path>`. The policy fails closed: only a
+canonical form that is safe by construction is allowed, and every other form
+that could force, empty, or delete asks. `docks-kit docs command-guards` has
+the per-tool tables and the gaps.
+
+### Deny
+
+- `rm` of `/`, `~`, `~/`, `$HOME`, and `${HOME}`, quoted or with a trailing `/`,
+  and `HOME=`, `export HOME=`, and `env HOME=` reassignment. Claude Code also
+  denies `rm /*`, the `/bin/rm` forms, and `sudo` called by its path. The old
+  Claude `Bash(rm -rf $HOME)` rule never matched the quoted `rm -rf "$HOME"`;
+  the kit now lists each quoted spelling.
+- omp denies every recursive `rm`, `sudo` anywhere before `rm` (also as
+  `/usr/bin/sudo`), and any `rm` with an `r` or `f` option before an absolute
+  path. omp's built-in critical-command check turns a prompt for those
+  commands into an allow under the kit's yolo mode, in subagents too, so only
+  a deny stops them. The user runs a recursive deletion by hand.
+- omp also denies a force push to `origin main` or `origin master`, as Claude
+  Code and Codex already did.
+- Codex denies `rm` of `/` as argv and the exact home and root scripts, because
+  Codex matches a script that holds `~` or `$HOME` only as a whole.
+
+### Ask
+
+- omp asks before every other `rm`, because omp cannot tell a glob from a file
+  name. omp rejects an ask in a subagent, so a subagent removes files only
+  through the trash.
+- Claude Code asks before a recursive `rm` and an `rm` with a glob, and before
+  `Remove-Item -Recurse` and its aliases in PowerShell.
+- All three tools ask before `find -delete`, `find -exec rm`, `git clean`,
+  `git reset --hard`, and any `git push` that could force: a `+` refspec, a
+  `--f*` option (`--force`, `--force-with-lease`, abbreviations such as
+  `--for`, and `--follow-tags` as an accepted false positive), `--mirror`, and
+  `-f` or a short-option cluster such as `-vf`, `-vvf`, or `-uvfq`.
+- omp asks before every `git rm`, `git worktree remove`, and `gio trash` form
+  except `-- <path>`. Claude Code asks before every `git rm` and
+  `git worktree remove`, and before `gio trash --empty` or `--restore`. Codex
+  asks before every `rm`, `git rm`, `git worktree remove`, and `gio trash`.
+  Claude Code and Codex rank an ask above an allow, so they cannot exempt the
+  `--` form.
+- A Codex prompt goes to the `auto_review` reviewer subagent, not always to a
+  person.
+
+### Allow
+
+- `trash <path>` (macOS 15 and later) runs without a prompt in all three
+  tools. `gio trash -- <path>` runs without a prompt in omp and Claude Code.
+  The `--` ends option parsing, so no path can empty the trash.
+- `git rm -- <path>` and `git worktree remove -- <path>` run without a prompt
+  in omp. After `--`, git reads every argument as a path, so no option can
+  force. Without force, git refuses to drop changes it has not recorded;
+  `git worktree remove` still deletes the worktree's ignored files.
+- The deployed agent prompts tell agents to use the trash, to use the `--`
+  forms, to ask before a recursive or bulk deletion, and to write literal paths
+  instead of `~` or `$HOME`.
+
+### Sync
+
+- The omp `config.yml` merge keeps user `bash.patterns` rules and groups all
+  rules as kit deny, user deny, user prompt, kit allow exceptions (the `-- *`
+  forms), kit prompt, other user rules, and kit allow. A user deny or prompt
+  thus precedes every kit allow, and no allow loosens a deny or a prompt. A
+  repeat sync changes nothing.
+- New tests port omp's pattern matcher, its critical-command check, and the
+  yolo resolution, and assert each command's final outcome. The Claude
+  oracle now matches deny and ask rules past a leading assignment and
+  PowerShell rules case-insensitively. The Claude cutover test proves that the
+  retired-rule prune keeps every new rule.
+
+## 2026-10-14 - docks-kit 0.20.7: verified audit fixes
+
+A multi-agent audit found these defects, and a second agent verified each one.
+Every runtime code fix has a regression test.
+
+### Data safety
+
+- Claude sync no longer deletes whole `hooks.PreToolUse` and `hooks.Stop`
+  arrays. It removes only the kit's retired handlers by exact command, keeps
+  user handlers, and writes `settings.json.bak` first.
+- Sync deletes a legacy `statusline.sh`, `fetch-usage.sh`, or `hooks/notify.sh`
+  only when its content matches a version the kit shipped. It keeps any other
+  content as `<path>.bak`.
+- `sync claude` copies a different `~/.claude/CLAUDE.md` to `CLAUDE.md.bak`
+  before it deploys the SoT copy.
+- `sync --prune` no longer runs `skills remove --global`, which deleted
+  same-named skill directories for every agent. It deletes only the
+  kit-created canonical directory and the kit-managed Claude link.
+- Rewritten Claude and Codex files keep their permission bits, and rewritten
+  omp files stay private (mode 0600). A symlinked omp `config.yml` or
+  `models.yml` stays a link.
+- A sync without `--prune` keeps tracking skills that SoT dropped, so a later
+  `--prune` still removes them.
+
+### Security
+
+- The Codex rules no longer allow `sort`, `uniq`, `tree`, `git diff`,
+  `git log`, `git show`, and `git grep` outside the sandbox, because their
+  flags can write files or run commands. `git mv` now prompts.
+- The documented POSIX install command and the Claude installer hint use
+  `mktemp` instead of a fixed `/tmp` path.
+- On Windows, every `.cmd` and `.bat` target gets two caret layers, and a run
+  of backslashes before a quote is escaped correctly.
+- The public CLI ignores the unprefixed `DRY_RUN`, `PRUNE`, `RECONCILE`,
+  `CLAUDE_PERMISSIVE`, `CLAUDE_MODEL`, `CODEX_MODEL`, and related variables.
+  Only the internal test channel reads them.
+- `sync --dry-run false` and other boolean flags followed by a separate
+  literal are rejected instead of running a real sync.
+- `toolchain ensure bun --dry-run` previews the install instead of running it.
+
+### Claude
+
+- Sync registers `anthropics/claude-plugins-official` when a kit plugin needs
+  it and Claude Code has not registered it yet.
+- `--claude-plugin` no longer fails when the install already enabled the
+  plugin. A host without git skips optional plugins with a warning.
+- Every `claude plugin` command runs from the temp directory, so a sync started
+  in a project never edits that project's `.claude` settings.
+  `plugin disable` passes `--scope user`.
+- Plugin update counts and the `/reload-plugins` hint work with the current
+  Claude Code output. A failed command reports its stderr cause.
+- Sync adds the rustup `rust-analyzer` component when the PATH entry is a
+  rustup proxy without the component.
+- A fresh install writes the merged settings form, so the next sync reports no
+  change.
+- When `~/.claude/settings.json` is not valid JSON, sync stops before any
+  pipeline starts and prints the failure list.
+- The statusline and the SessionStart line apply Claude Code's compact-window
+  clamp (100K to 1M, capped at the model window).
+- The notification hook no longer plays the MP3 through `aplay`, which played
+  noise.
+
+### Codex
+
+- Sync honors `CODEX_HOME`.
+- The `config.toml` merge handles header-like lines in multi-line strings,
+  comments after a managed table, and a UTF-8 byte order mark.
+- A repeated `--codex-model` or `--codex-effort` run keeps `config.toml.bak`,
+  and the second sync no longer rewrites the marketplace file.
+- Sync leaves a personal marketplace with a different name alone, warns, and
+  skips `codex plugin add` for the kit plugins.
+- SoT no longer sets the inert `personality = "pragmatic"`, and sync removes
+  that line from deployed files.
+
+### omp
+
+- `docks-kit omp` checks the free catalog on every launch. It refuses a
+  remembered model that is no longer free, instead of letting omp fall back
+  to a paid default.
+- The model picker excludes zero-cost models whose pricing is `variable` or
+  `included`.
+- The free overlay also sets the `judge` and `memory` roles. Its file name
+  covers both thinking levels, so a second launcher cannot change a running
+  session.
+- Under a named profile, sync deploys the intercom configuration into the
+  profile's agent directory. `PI_CODING_AGENT_DIR` resolves as omp resolves
+  it.
+- A dry run on a host without omp or git previews no omp command.
+- The docs say omp updates through `omp update` or through the tool that
+  manages the install, such as Tern.
+
+### Other
+
+- A read of `~/.docks-kit/kit.db` no longer changes permissions, so a
+  read-only home still reads the stored selection. A cache row with a future
+  time counts as stale.
+- `docks-kit harnesses` reports a corrupt or newer store, and it opens the
+  picker only when stdin and stdout are terminals.
+- `docks-kit status` reports a malformed `installed_plugins.json` as a
+  diagnostic instead of crashing. `docs constructor` is an unknown topic.
+- On Windows, the engine home is `USERPROFILE`, `which` strips quotes from
+  PATH entries, the PowerShell scripts are ASCII for Windows PowerShell 5.1,
+  and `install.ps1` keeps the CLI in Bun's bin directory.
+- On macOS, bash connector settings go to the first existing login file.
+- `update` reinstalls dependencies with the running Bun and compares package
+  homes correctly on Windows.
+- The launchers also count newer `cli/docs` files as evidence of a stale
+  binary.
+- The release workflow's tag filter matches the resolve job, and the dispatch
+  path checks the binary build inputs against the tag.
+- Docs, kit-mechanic skills, and wrapper agents now match the code.
+
+## 2026-10-09 - docks-kit 0.20.6: omp reviewer role on GPT-6.1 Sol xhigh
+
+- omp gains a kit-defined `reviewer` role, `openai-codex/gpt-6.1-sol:xhigh`,
+  hidden from the model switcher. Its retry chain falls back to
+  `anthropic/claude-opus-5-5:xhigh`.
+- All four `task.agentModelOverrides` entries (`reviewer`,
+  `security-reviewer`, `code-reviewer`, `plan-reviewer`) now point to
+  `@reviewer` instead of `@task`. The bundled `reviewer` and
+  `security-reviewer` agents now run GPT-6.1 Sol xhigh instead of Opus 5.5
+  high. `task` stays on Opus 5.5 high.
+- The `docks-kit omp` free-session overlay also sets the `reviewer` role and
+  empties its retry chain, so a free session never reaches the paid reviewer
+  model.
+
+## 2026-10-09 - docks-kit 0.20.5: harnesses picker pre-ticks omp
+
+- With no stored selection, the `docks-kit harnesses` picker now pre-ticks
+  all four harnesses, `omp` included, so a new machine opts out of omp
+  instead of opting in. A flag-less `sync` still selects `claude`, `codex`,
+  and `agents` until the picker saves a selection, and a stored selection
+  still pre-ticks only its own harnesses.
+
+## 2026-10-09 - docks-kit 0.20.4: omp task role on Opus 5.5
+
+- The omp `task` role moves from `openai-codex/gpt-6.1-sol:high` to
+  `anthropic/claude-opus-5-5:high`, the same model and level as `default`.
+  The bundled `task`, `reviewer`, and `security-reviewer` agents resolve
+  `@task`, so they now run Opus 5.5 high.
+- `retry.fallbackChains.task` now falls back to
+  `openai-codex/gpt-6.1-sol:high` instead of Opus 5.5 high, so a `task`
+  retry still changes vendor.
+- omp `task.maxEffort` drops from `max` to `xhigh`. omp maps a caller
+  `effort: hi` to the top of the model ladder, `max`, and caller effort
+  outranks the role's `:high` suffix, so `hi` spawns ran at `max`. Now `hi`
+  stops at `xhigh`; `lo` and `med` still give `low` and `high`.
+- The `omp-models` docs topic records the change and compares Opus 5.5 high
+  with GPT-6.1 Sol high: index 54 against 50, at $1.82 against $0.32 per
+  index task.
+
+### Full error lines in sync failure warnings
+
+- omp marketplace, omp plugin, and Codex plugin warnings now show the first
+  output line of the failed command plus the first later `fatal:` or `error:`
+  line, or the last line when no such line exists. Before, they kept only the
+  first line, which for a git-backed marketplace was often git's
+  `Cloning into` progress line, so the `fatal:` line that names the cause was
+  lost. With no output, the warning shows the spawn error message.
+
+## 2026-10-01 - docks-kit 0.20.3: omp fast mode toggle
+
+- `docks-kit omp --fast` toggles `tier.openai` in the deployed
+  `~/.omp/agent/config.yml` between `priority` and `none`, prints the old and
+  new values, and exits. `priority` is the tier omp's `/fast on` selects for
+  OpenAI and OpenAI-Codex models.
+- `SoT/.omp/config.yml` no longer declares `tier.openai`, so `sync omp` keeps
+  the toggled value. The deployed `none` stays until a toggle changes it.
+
+## 2026-09-29 - docks-kit 0.20.2: GPT-6.1 Sol and toolchain floors
+
+- Codex selects `gpt-6.1-sol` in `SoT/.codex/config.toml` and in the project
+  `code-reviewer` and `plan-reviewer` agents. The omp `task` role and the
+  `default` and `vision` retry chains select `gpt-6.1-sol` at the same
+  thinking levels as GPT-6 Sol.
+- `SoT/models.json` lists GPT-6.1 Sol first as the kit pin, marks GPT-6 Sol
+  the previous Sol release, and dates the curated Codex list 2026-09-29.
+- The omp floor and verified version are 18.4.4; the Codex floor is 0.159.0.
+  omp 18.4.4 listed and served `gpt-6.1-sol` through the `openai-codex`
+  provider. The Codex CLI serve check could not run because the Codex login
+  session had expired.
+- The `omp-models` docs topic uses a new Artificial Analysis capture from
+  2026-09-29 at Intelligence Index v4.3.2. The GPT-6 Sol table is gone, and a
+  GPT-6.1 Sol table replaces it. GPT-6.1 Sol high scores 50 at $0.32 per
+  index task, against 43 at $0.37 for GPT-6 Sol high. GPT-6.1 Sol max scores
+  52 at $0.72, against 48 at $1.06. AA now measures GPT-6.1 Sol latency: 57.26 s
+  TTFT at high. The other tables use the same capture. Opus 5.5 high TTFT
+  moves from 12.49 s to 52.85 s, and Astra xhigh from 188.20 s to 126.90 s.
+  The Coding Agent Index now lists 30 entries, with Opus 5.5 max at 66 and
+  Codex with GPT-6.1 Sol at 57 to 63 across its levels.
+- The omp advisor rule now excludes every GPT model, not only GPT-6 Sol. The
+  advisor stays on `anthropic/claude-opus-5-5:medium` with an empty fallback
+  chain. Astra also costs too much for this role.
+
+## 2026-09-25 - docks-kit 0.20.1: Opus override removal, upgrade link check
+
+- `SoT/.omp/models.yml` no longer carries the temporary
+  `anthropic.modelOverrides.claude-opus-5-5` block. The shared model catalog
+  now publishes the same context window, output cap, reasoning levels, and
+  prices. `sync omp` removes the deployed block from `~/.omp/agent/models.yml`
+  while it still equals the shipped block, and it keeps an edited block.
+  The removal also fixes how Opus 5.5 roles think. The block set
+  `thinking.mode: effort`, so omp sent a thinking token budget per level
+  (`medium` 8,192, `high` 16,384, `xhigh` and `max` 32,768) and no effort
+  value. The catalog row sets `anthropic-adaptive`, so omp now sends adaptive
+  thinking with the role's effort level, which is the setting the role map
+  was chosen for. A bare `claude-opus-5-5`
+  selector also loses the block's `defaultLevel: high`; no kit role uses a
+  bare selector.
+- `toolchain upgrade` follows links when it checks which copy of a server
+  PATH finds, and accepts only a file inside the npm package directory. A
+  link in another PATH directory, such as `~/.local/bin`, that resolves into
+  that directory no longer draws the other-copy warning. A distro binary under
+  a `/usr` npm prefix still does.
+
+## 2026-09-25 - docks-kit 0.20.0: toolchain upgrade
+
+- `docks-kit toolchain upgrade [--dry-run]` moves the npm-installed language
+  servers (`intelephense`, `typescript-language-server`, `typescript`) that
+  sit below their `verified` pin to that exact pin, in one `npm install -g`
+  call. It reads `npm ls -g` to see which copies npm owns. It skips, with a
+  warning, a binary that another installer put on PATH, and
+  `typescript-language-server` when Node is below the `node` floor. It warns
+  when the PATH copy is not the npm copy. After the install it reads
+  `npm ls -g` again and exits 1 when a pin did not land. It never
+  downgrades. Sync still installs only missing servers and never upgrades
+  them.
+- Codex has a floor: 0.157.0, the release installed on the owner's machine
+  on 2026-09-25. `docks-kit toolchain` marks an older Codex `below-floor`.
+
+## 2026-09-25 - docks-kit 0.19.3: Bun and omp floors
+
+- The Bun floor is 1.4.2, the same as the verified pin and the CI Bun. The
+  `docks-kit` and `docks-kit.ps1` checkout launchers now stop on Bun 1.4.0
+  and 1.4.1 before `bun install`, with exit 1 and `Run: bun upgrade`.
+- The omp floor is 18.3.1, the oldest release the kit tested with the
+  `gpt-6-sol` and `gpt-6-luna` roles. `docks-kit toolchain` marks an older
+  omp `below-floor`. Sync does not change its behavior.
+
+## 2026-09-25 - docks-kit 0.19.2: tested toolchain pins
+
+- `SoT/toolchain.json` moves four `verified` pins to tested releases:
+  - omp 18.3.1. `sync omp`, `omp models`, and a print-mode session with the
+    deployed config ran. omp now lists `gpt-6-sol` and `gpt-6-luna`, and a
+    run on each selector served that model, so the omp roles run GPT-6.
+  - pi-intercom 0.14.0. `sync omp` upgraded an installed 0.13.0 to 0.14.0,
+    and `omp plugin doctor` passed. An omp session with 0.14.0 loaded listed
+    the intercom sessions through the running broker. A 0.14.0 broker also
+    started under Bun when run by hand. The new `busyDelivery` setting is
+    optional.
+  - typescript-language-server 6.0.1. With TypeScript 6.0.3 on Node 24, the
+    server answered hover and reported a type error.
+  - skills-cli 1.7.0. The kit's `add <slug> -g -y -a claude-code codex` call
+    gave the same `~/.agents/skills` directories and Claude symlinks as
+    1.5.25.
+- `sync --verbose` prints one line for each Claude marketplace whose refresh
+  waits because the marketplace is not added yet.
+- The Bash and PowerShell launcher host tables, the default build targets,
+  and the exact `npx skills` command line have tests again.
+
+## 2026-09-25 - docks-kit 0.19.1: fixes from the test-suite audit
+
+- `docks-kit toolchain check <word>` and `toolchain outdated <word>` now exit
+  2 with the usage line. Before, the extra word was ignored and the report
+  ran. Only `ensure` takes a tool name.
+- `docks-kit update` detects a Bun global install when `BUN_INSTALL_GLOBAL_DIR`
+  or `BUN_INSTALL` ends with a slash, and on Windows when the path case
+  differs. Before, both cases updated through npm.
+- The Codex `config.toml` scanners follow TOML's rule that indentation before
+  a key or a table header does not matter. Retired-plugin cleanup no longer
+  deletes an indented user table that follows a retired table. A setting
+  replacement no longer adds a second copy of an indented key. An indented
+  table no longer counts as part of the plugin table before it.
+- `docks-kit model codex` and `status` read a single-quoted TOML string such
+  as `model = 'gpt-6-sol'`. `model codex` no longer reads a `model` key from
+  inside a table.
+- A first `sync claude --claude-plugin=n8n` no longer fails. The plugin pass
+  refreshed the `n8n-mcp-skills` marketplace before the optional step added
+  it, and Claude Code rejects an update of a marketplace that is not added.
+  The kit now skips the refresh of a marketplace that is absent from Claude
+  Code's `known_marketplaces.json`. When that file exists but cannot be read,
+  the refresh runs as before.
+- The unit suite now holds 641 tests (from 681), including regression tests
+  for the fixes above. Tests that pinned wiring, mock calls, copied SoT text,
+  or a duplicate path are gone. Error, boundary, and Windows path cases are
+  added.
+
+## 2026-09-24 - docks-kit 0.19.0: live model catalogs, SQLite kit store, toolchain outdated
+
+- `docks-kit models` lists the models of each enabled harness from the
+  harness itself. Claude uses the Claude Code login against the Anthropic
+  models API, and the kit caches that list for 6 hours. Codex reads
+  `~/.codex/models_cache.json`. omp runs `omp models --json`. `SoT/models.json`
+  keeps its aliases and notes as an overlay, and its id rows are the fallback
+  when a live list is unavailable. The output names the reason for a fallback.
+  `--refresh` bypasses the cache. `models omp` is new. `docks-kit model`, the
+  `models` engine mode, and the `--claude-model` and `--codex-model`
+  validators use the same resolved list.
+- Per-machine state moves from `~/.docks-kit/state.json` to the SQLite store
+  `~/.docks-kit/kit.db` (mode 0600), with versioned, append-only migrations.
+  The first run imports `state.json` once and renames it to
+  `state.json.migrated`. To go back to an older docks-kit, rename that file
+  back; an older kit ignores `kit.db`. A store from a newer kit is refused
+  and reads fall back to the defaults.
+- `docks-kit toolchain outdated [--refresh]` compares each `verified` pin in
+  `SoT/toolchain.json` with the newest upstream release, read from the new
+  optional `upstream` field (npm, optional major line, or GitHub releases).
+  Results cache for 24 hours in `kit.db`. The report never installs anything
+  and never edits a pin.
+
+## 2026-09-24 - docks-kit 0.18.1: omp advisor on Opus 5.5
+
+- `modelRoles.advisor` moves from `openai-codex/gpt-6-sol:medium` to
+  `anthropic/claude-opus-5-5:medium`, and `retry.fallbackChains.advisor`
+  becomes empty. Under an Opus 5.5 session, a GPT-6 Sol advisor looped on
+  repeated `read` calls, never called `advise`, and reached the Codex usage
+  limit. Upstream report: https://github.com/can1357/oh-my-pi/issues/13206.
+  `task` stays on `openai-codex/gpt-6-sol:high`.
+
+## 2026-09-22 - docks-kit 0.18.0: Claude Opus 5.5, GPT-6 Sol, and GPT-6 Luna
+
+- The five Anthropic omp roles (`default`, `slow`, `plan`, `designer`,
+  `vision`) and the five Anthropic retry chains move from
+  `anthropic/claude-opus-5` to `anthropic/claude-opus-5-5` at the same
+  thinking levels. The Fable roles are unchanged.
+- `SoT/.omp/models.yml` gains a temporary
+  `providers.anthropic.modelOverrides.claude-opus-5-5` block carrying the
+  1M context window, the 128K output limit, the five-level ladder, and the
+  published prices. The shared catalog still serves this id as a stub with
+  null limits and zero cost, which would break compaction sizing and cost
+  reporting. Remove the block once the catalog publishes the row.
+- The Claude floor rises from 2.1.219 to 2.1.280 in both
+  `SoT/.claude/settings.json` `minimumVersion` and the `SoT/toolchain.json`
+  `claude` pin. Claude Code 2.1.280 makes Opus 5.5 the default Opus, so the
+  `opus` alias now resolves to it. The kit keeps the alias rather than
+  pinning `claude-opus-5-5`, because the alias tracks the next Opus release
+  without a kit change.
+- `--claude-advisor=on` writes `advisorModel: opus` instead of `fable`. That
+  was the only Claude settings surface that selected a Fable model. A machine
+  synced earlier with `fable` is migrated on the next explicit `on`.
+- `SoT/models.json` adds the ids `claude-opus-5-5` and `claude-fable-5-1`,
+  marks `claude-fable-5`, `claude-opus-5`, and `claude-opus-4-8` legacy, and
+  rewrites the `best`, `opus`, and `fable` alias notes. `claude-fable-5-1`
+  previously validated only as an uncatalogued warning.
+- The omp `task` and `advisor` roles and the `default` and `vision` retry
+  chains move from `openai-codex/gpt-5.6-sol` to `openai-codex/gpt-6-sol`.
+  The `smol`, `commit`, and `tiny` roles and the Codex entry of the web chain
+  move from `openai-codex/gpt-5.6-luna` to `openai-codex/gpt-6-luna`. Every
+  thinking level is unchanged.
+- Codex moves from `model = "gpt-5.6-sol"` to `gpt-6-sol` in
+  `SoT/.codex/config.toml` and in the project `code-reviewer` and
+  `plan-reviewer` agents under `.codex/agents/`. The Codex catalog in
+  `SoT/models.json` adds `gpt-6-sol`, `gpt-6-luna`, and `gpt-6-astra`, and
+  marks the three GPT-5.6 models previous generation.
+- The omp web search fallback chain drops every entry that named an older
+  model: `google/gemini-2.5-flash`, `google-antigravity/gemini-2.5-flash`,
+  `anthropic/claude-haiku-4-5`, `openai-codex/gpt-5.6`,
+  `openai-codex/gpt-5.5`, `xai/grok-4.5`, and `xai-oauth/grok-4.5`. The
+  chain goes from 27 to 20 entries, and omp no longer tries those search
+  backends.
+- Warning: omp 18.2.9 does not list `gpt-6-sol` or `gpt-6-luna` in its
+  `openai-codex` catalog, so it fuzzy-matches the new selectors to the GPT-5.6
+  models without a warning. On 2026-09-22 the ChatGPT backend first rejected
+  both ids with HTTP 400 while the rollout was in progress, then listed both
+  for the same account twelve minutes later. `cli/docs/omp-models.md` records
+  the checks and how to confirm that omp resolves the new models.
+- `cli/docs/omp-models.md` replaces the whole 2026-09-08 snapshot with one
+  2026-09-22 capture at Intelligence Index v4.3.2 and Coding Agent Index v1.5.
+  Every per-level row comes from the metric table of an AA comparison page
+  whose title names that model and level. The capture covers every level AA
+  publishes for Opus 5.5, Fable 5.1, Astra, GPT-6 Sol, and GPT-6 Luna, and
+  keeps GPT-5.6 Sol and Luna as the previous-generation baseline. The Opus 5
+  table is gone. Each table gains a Terminal-Bench 4.0 column. Opus 5.5
+  latency is measured for every level except max. AA has not measured speed
+  or latency for GPT-6 Sol or GPT-6 Luna. GPT-6 Sol high scores 43 at $0.37
+  per index task, against 42 at $0.81 for GPT-5.6 Sol high. The Coding Agent
+  Index table lists the five entries for these families, including Codex with
+  GPT-6 Sol max at 56.7 and with GPT-6 Luna max at 41.1.
+
+## 2026-09-21 - docks-kit 0.17.3: omp compaction default, retired-key prune, and build hygiene
+
+- omp `compaction.thresholdTokens` changes from `231200` to `-1`, omp's
+  reserve-based default. The Codex lane still compacts at 231,200 tokens. The
+  Anthropic lane now compacts at 850,000 tokens instead of 231,200. The new
+  `omp-context` docs topic records the derivation and the measured evidence.
+- The retired `providers.webSearchOrder` key gives way to `modelRoles.web`
+  and an explicit `retry.fallbackChains.web` chain. The omp SoT also enables
+  the find tool and raises `task.maxEffort` to `max`.
+- `./docks-kit sync omp` force-prunes retired kit-owned keys from
+  `~/.omp/agent/config.yml` on every sync, without `--reconcile`. A key the
+  kit used to deploy is pruned only while it still holds the deployed value,
+  so a user edit survives. `providers.webSearchOrder` is pruned at any value.
+  A comment above a pruned key moves to the next key or to the end of its
+  mapping.
+- The omp SoT drops 18 presentation keys that only restated an omp default.
+  The prune removes them from a deployed file while their values are
+  unchanged.
+- `SHA256SUMS` lists only the six release binaries. The build stamps
+  `cli/dist/VERSION` and discards artifacts the stamp attributes to another
+  version. `--prune` also discards unstamped artifacts. An unknown build
+  option exits 2 with a usage line.
+- A launcher ignores a `cli/dist` binary when a file under `cli/src` is newer
+  than it, even if the versions match. The stale-binary warning now names the
+  rebuild-or-delete remedy.
+- `bun run check` and `test:ci` now include `format:check`.
+
+## 2026-09-17 - docks-kit 0.17.2: omp gets an Astra cycle stop
+
+- The new visible `astra` role uses `openai-codex/gpt-6-astra:xhigh` as the
+  fifth and last model-switcher stop. Astra is reserved for main orchestration.
+- `task` returns to `openai-codex/gpt-5.6-sol:high`. All four reviewer
+  overrides inherit it through `@task`. Bundled `reviewer` and
+  `security-reviewer` use it; `code-reviewer` and `plan-reviewer` stay dormant.
+- Astra's override declares `low, medium, high, xhigh, max` with
+  `defaultLevel: xhigh`. `models.yml` stays as the worked provider
+  ladder-override example, and in-session thinking controls can still select
+  `low`.
+- Astra falls back to `anthropic/claude-fable-5-1:medium`, and Fable falls
+  back to `openai-codex/gpt-6-astra:xhigh`. The `default` chain would send
+  either deliberate cycle stop to Sol high instead of the other vendor.
+  Concrete selectors prevent recursion between the pair.
+- `ompOverlay.ts` adds `astra` to `ROLE_ORDER` and `FALLBACK_ORDER`.
+  Without both additions, the free-session overlay would leave a paid
+  selector reachable through the Astra role or its retry chain.
+- Earlier free-session wording claimed more than the overlay can guarantee.
+  The topic now scopes the guarantee to the roles and retry chains the overlay
+  writes. Behavior did not change. Launcher enforcement remains tracked
+  separately.
+- No user-visible behavior changes in this part: one command proves a change.
+  `bun run check` runs oxlint, typecheck, unit tests, and both golden suites,
+  and CI runs it on push and pull request.
+- Oversized modules split along change axes with prior exports intact. Shared
+  shapes live once in `engine-native/sharedTypes.d.ts`, and shipped
+  JavaScript is typechecked.
+- oxlint covers mechanical mistakes and oxfmt formats code. `AGENTS.md`
+  records layout, invariants, version rules, and checks.
+
+## 2026-09-12 - docks-kit 0.17.1: the omp picker asks for thinking levels
+
+- `docks-kit omp --pick` now continues into a thinking-level wizard after the
+  model choice. It asks whether every role uses one level; `Yes` takes the
+  highest level the model offers, and `No` asks one level for all roles
+  except the advisor, then one level for the advisor.
+- `ompOverlay.ts planEffortChoice` decides which questions apply, so every
+  offered level comes from the ladder of the chosen model. A model with no
+  ladder is asked nothing and keeps bare selectors. A model with one level is
+  stated, not asked. omp rejects a `:level` suffix the model does not
+  publish, so no other list is safe to offer.
+- `ompOverlay.ts advisorRecommendation` leads the advisor question with a
+  level two steps down that model own ladder, clamped to its lowest level.
+  The recommendation is the first row, because `Prompt.Select` starts on the
+  first entry and accepts no initial index.
+- The launch line reports the advisor level when it differs from the other
+  roles.
+- `README.md` lists `docks-kit omp` in the command table. The 0.17.0 release
+  shipped the command without the row.
+
+## 2026-09-12 - docks-kit 0.17.0: the omp free-session launcher
+
+- `docks-kit omp` starts one omp session in which every model role resolves to
+  a free model, then exits leaving nothing changed on disk. The deployed
+  `~/.omp/agent/config.yml` and `models.yml` are never read or written, so the
+  next plain `omp` run uses the paid configuration again. Arguments after the
+  launcher flags forward verbatim, so `docks-kit omp -p "..."` runs one prompt
+  and a bare `docks-kit omp` opens an interactive session.
+- `--model <selector>` and `--pick` choose the free model and remember it per
+  machine in `~/.docks-kit/state.json` under `ompSession`, beside `harnesses`.
+  Both writers merge over the stored record, so neither key can drop the
+  other. The default is `opencode-zen/muse-spark-1.3-contributor-free`. The
+  picker lists zero-cost catalog models only.
+- `ompOverlay.ts` renders the run overlay in code and passes it through omp's
+  repeatable `--config` flag. Thinking levels come from the ladder of the
+  chosen model, never from a fixed list, because free ladders are not uniform:
+  of the 26 zero-cost models, three publish no `medium` and two publish no
+  ladder at all. A model without a ladder renders a bare selector. Every
+  fallback chain is emptied, so a retry can never reach a paid model.
+- Each model gets its own overlay file under `~/.cache/docks-kit/` at mode
+  0600. omp can re-read the overlay during a live session, so a second
+  launcher on another model must not rewrite it.
+- `exec.ts` gains `spawnHost`, the host-correct synchronous spawn seam moved
+  out of `update.ts`. It encodes the rule that a Windows `.cmd` shim runs only
+  under `cmd.exe /d /v:off /s /c` with verbatim arguments, which the launcher
+  needs in order to forward quoted arguments. The update command behavior is
+  unchanged.
+
+## 2026-09-11 - docks-kit 0.16.17: rust-analyzer joins the language-server pass
+
+- `SoT/.claude/settings.json` enables a third official LSP plugin,
+  `rust-analyzer-lsp@claude-plugins-official`. Like `php-lsp` and
+  `typescript-lsp`, it ships only a server command and a file-type mapping, so
+  it adds no prompt or skill context.
+- `./docks-kit sync claude` now provisions the Rust server. rust-analyzer has
+  no npm package, so the pass runs `rustup component add rust-analyzer` when
+  rustup is present. A successful run reports
+  `LSP server installed (rust-analyzer via rustup)`. A host without rustup does
+  no Rust work, so sync skips the component in silence and still reports the
+  other server binaries.
+- `SoT/toolchain.json` gains a `rust-analyzer` `check` row with no floor and no
+  `verified` pin. The component version follows the host Rust toolchain, the
+  stance `bubblewrap` already takes for a tool the kit does not publish. Sync
+  installs the component only when the binary is missing, and `rustup update`
+  is the user's remedy for an old component.
+
+## 2026-09-11 - docks-kit 0.16.16: the Node floor gates the language-server install
+
+- `claudeSync syncLspServers` now reads the `node` floor before it installs
+  `typescript-language-server`. On a Node older than 22.22.2 it skips that one
+  package, warns with the host Node version and the required floor, and
+  installs the other language servers. npm treats the `engines` field as
+  advisory, so the previous behavior installed a server that could not start.
+- `toolchain.ts` exports `belowFloor`. The doctor row and the install gate now
+  reach the same judgement from one place.
+- The public CLI parser carries every positional `sync` target. The engine
+  suites reach that code through `DOCKS_KIT_ENGINE=native-raw`, which bypasses
+  the parser, so a dropped variadic was invisible to them until now.
+
+## 2026-09-11 - docks-kit 0.16.15: Effect 4.0.0-rc.115, vitest 5, refreshed toolchain pins
+
+- The four Effect packages and vitest move together to `effect` 4.0.0-rc.115,
+  `@effect/platform-bun` 4.0.0-rc.115, `@effect/platform-node-shared`
+  4.0.0-rc.115, `@effect/vitest` 4.0.0-rc.115, and `vitest` 5.0.0.
+  `@effect/vitest` at this release requires vitest 5, so the five pins are one
+  lockstep. Command-line behavior, flag names, and help text are unchanged.
+- `SoT/toolchain.json` moves three pins: `typescript-language-server` to 6.0.0,
+  `pi-intercom` to 0.13.0, and the skills CLI to 1.5.25. Every kit-driven
+  install now uses those exact versions.
+- `node` gains a floor of 22.22.2, the engine floor
+  `typescript-language-server` 6 declares. `docks-kit toolchain check` now
+  reports `below-floor` for an older Node and changes nothing else. No sync
+  pass or install consults the floor.
+- Sync installs a language server only when its binary is missing, so a host
+  already holding `typescript-language-server` 5.3.0 keeps it and reports
+  `below-floor`. Run `npm install -g typescript-language-server@6.0.0` to move
+  it. `docks-kit docs toolchain` states this under "Language-server upgrades".
+
+## 2026-09-10 - docks-kit 0.16.14: complete the global-install recovery topic
+
+- `docks-kit docs install` now states the case a remove-then-add does not
+  repair. After a plain `bun add -g docks-kit@latest` over a broken tree, the
+  stale nested copy survives the remove, and the repair needs
+  `bun rm -g docks-kit && bun add -g docks-kit@latest --force`. `--force`
+  without the remove does not repair it, and other global packages survive
+  both sequences. An npm global install repairs itself with a plain
+  `npm install -g docks-kit@latest`. Each case was verified in a clean HOME on
+  Bun 1.4.2 and npm 11.
+- Documentation only. No runtime, sync, or dependency change.
+
+## 2026-09-10 - docks-kit 0.16.13: pinned a floating effect transitive
+
+- A fresh install from the registry (`bun add -g docks-kit@latest`, `bunx
+  docks-kit`, or `npm i -g docks-kit`) could fail at startup with
+  `Cannot find module 'effect/ByteSize'`. `@effect/platform-bun` requests
+  `@effect/platform-node-shared` through a caret range over a prerelease, so a
+  fresh resolution paired a newer shared package with the pinned
+  `effect@4.0.0-rc.109`. The root now pins
+  `@effect/platform-node-shared` at `4.0.0-rc.109`, and an install resolves one
+  copy of each with no peer dependency warning.
+- An existing broken global install needs a remove first:
+  `bun rm -g docks-kit && bun add -g docks-kit@latest`. A plain reinstall
+  leaves the previously resolved copy nested under
+  `node_modules/@effect/platform-bun/node_modules/` and still fails.
+- Two guards keep the range from floating again:
+  `cli/test/unit/dependencyPins.test.ts` asserts the exact pins offline, and
+  `bun run smoke:package` packs the tarball, installs it in a clean-room
+  temporary directory, and runs the CLI.
+
+## 2026-09-10 - docks-kit 0.16.12: documentation correction
+
+- `README.md`, the `sync-orchestration-context` flag table and its
+  `flag-matrix.md` reference, and the pass 3 comment in `claudePlugins.ts` no
+  longer state that `docks-kit update` passes `--skip-plugin-refresh`. Behavior
+  changed in 0.16.11; these four lines were missed. The flag remains a manual
+  opt-out on `sync`.
+
+## 2026-09-10 - docks-kit 0.16.11: docks-kit update delivers plugin bumps
+
+- `docks-kit update` no longer passes `--skip-plugin-refresh` to its chained
+  sync, and an already-current kit still syncs. Marketplace and plugin versions
+  move independently of the kit version, so the old install-missing-only path
+  could freeze a plugin: on one machine the Claude marketplace clone stayed at
+  an 08-25 commit while its manifest was rewritten 09-09. The `sync` flag
+  itself is unchanged and remains available by hand.
+- Test-only: the nine unit tests that assert a clean sync now pair their stubs
+  with the native host, so Windows exercises the harness plugin passes instead
+  of skipping them.
+
+## 2026-09-10 - docks-kit 0.16.10: causes in Claude plugin failure messages
+
+- Every recorded Claude plugin failure now names the cause and the command to
+  re-run by hand, matching the omp and Codex paths. A spawn error reports its
+  own message, so an unresolvable launcher on PATH is distinguishable from a
+  command the CLI rejected.
+- Test-only: the nine unit tests that assert a clean sync under the
+  Linux-canonical stub preload now skip on Windows, where a shell-script stub
+  launcher cannot be executed. They passed before 0.16.9 only because the
+  stubbed plugin calls failed silently.
+
+## 2026-09-10 - docks-kit 0.16.9: failed harness plugin commands fail the sync
+
+- A marketplace or plugin command that exits non-zero is now recorded, listed
+  under a `--- Failures ---` block after the summary, and makes `sync` exit 1.
+  Before this release such a command only printed a warning while the run still
+  reported `--- Sync complete ---` and exited 0, so a machine whose marketplace
+  clone was stuck at an old commit looked healthy and kept resolving a stale
+  plugin version.
+- A skip is still not a failure. A missing harness CLI, missing git, a missing
+  `SoT/toolchain.json` pin, and an unavailable plugin inventory keep exit 0, so
+  a host without Claude, Codex, or omp installed still syncs its deployed
+  config cleanly.
+- Claude plugin passes 2, 3, and 4 discarded their command results entirely.
+  They now record failures, which is the exact path behind the stale-clone
+  case above. Pass 3 also skips a marketplace that pass 2 already refreshed,
+  removing two redundant fetches from a fresh-home sync.
+
+## 2026-09-09 - docks-kit 0.16.8: omp YAML merge split; models.yml re-merge fix
+
+- `ompYaml.ts` now exposes `mergeOmpConfig` and `mergeOmpModels` over one
+  generic `mergeYamlDocuments` core. Only the config wrapper prunes stale
+  `retry.fallbackChains` wildcards; the models wrapper keeps every deployed-only
+  key, and each wrapper names its file in its diagnostics. Behavior of the
+  deployed files is unchanged.
+- Fixed a re-merge on every `sync omp` in 0.16.7: the yaml package
+  re-serialized `efforts: [low]` in `SoT/.omp/models.yml` as `[ low ]`, so the
+  merged text never matched the installed copy. The SoT now uses block
+  sequence form, and `ompSot.test.ts` asserts that both YAML files pass
+  through their own merge byte for byte.
+
+## 2026-09-09 - docks-kit 0.16.7
+
+- Patch release for the omp Astra per-model cap and the two post-0.16.6 doc
+  corrections (reviewer overrides dormant, vitest 4.1.11 rationale).
+
+## 2026-09-09 — omp: Astra capped at low per model; scout and sonic regain high
+
+- Added `SoT/.omp/models.yml` to restrict Astra's effort ladder to `[low]`.
+  `ompSync.ts syncMergedYaml` deploys it with the same recursive merge as
+  `config.yml`, preserving user-only provider settings and credentials.
+- Restored `task.maxEffort: high` so `scout` and `sonic` can reach Luna `high`
+  with `effort: hi` and keep Luna `medium` by default. The model ladder caps
+  every Astra spawn at `low` without lowering Luna's ceiling.
+- Fresh `omp -p` runs on 2026-09-09 confirmed Astra `low` for `task` with
+  `effort: hi` and with no hint on a complex prompt, `reviewer` with
+  `effort: hi`, and `security-reviewer` with no hint. `scout` and `sonic`
+  with `effort: hi` both resolved Luna `high`.
+- Updated the `omp-models` topic with the mechanism and verification table.
+  Astra's 272k window applies with `/extended-context off`;
+  `/extended-context on` uses 922k input and 1.05M total, matching AA's 1M.
+
+## 2026-09-09 — vitest 4.1.11; reviewer override correction
+
+- Bumped `vitest` to 4.1.11 for GHSA-82fw-gwwq-j7x9 (`@vitest/mocker` path
+  traversal, moderate). Dev dependency only; the pin stays inside the
+  `@effect/vitest` peer range `>=4.1.0 <5.0.0`. `bun audit` on `main` had
+  turned the `golden-regression` workflow red on the 0.16.6 release commit.
+- Corrected the 0.16.3 statement that all four reviewer entries in
+  `task.agentModelOverrides` run Astra. A fresh `omp -p` process lists only
+  `scout`, `reviewer`, `security-reviewer`, `task`, and `sonic`; the
+  `code-reviewer` and `plan-reviewer` entries are dormant until an OMP agent
+  with that name exists. `cli/docs/omp-models.md` and root `AGENTS.md` now
+  say so.
+
+## 2026-09-08 — omp: cap subagent thinking at `low`
+
+- Set `task.maxEffort: low` in `SoT/.omp/config.yml`. The bundled `task` agent
+  runs `thinking-level: auto`, which rated many prompts `high`, and a caller's
+  `effort: hi` also reached Astra `high`, so most `task` and reviewer spawns
+  ran `gpt-6-astra:high` instead of the configured `:low`. The ceiling clamps
+  both paths. Verified for the five bundled agents: `task`, `reviewer`, and
+  `security-reviewer` resolve `gpt-6-astra:low` with and without an effort
+  hint; `scout` and `sonic` resolve `gpt-5.6-luna:low`. The drop of `scout`
+  and `sonic` from Luna `medium` to `low` is the accepted cost.
+- `cli/docs/omp-models.md` (topic `omp-models`) gains a section on what
+  resolves to Astra low in practice: bundled agent frontmatter, the `auto`
+  classifier, the `effort` hint, and the `task.maxEffort` ceiling. The heading
+  for the role rationale now reads "Why `task` points at Astra low". The topic
+  also records that omp's catalog lists Astra with a 272k context window while
+  Artificial Analysis lists 1M.
+
+## 2026-09-08 — Refactor pass: dead code, duplication, and module boundaries in `cli/src`
+
+- Removed dead code found by the repository-wide refactor audit (plan DocksDocks/public#32):
+  unused effort type aliases in `cli/src/efforts.ts`, the unused
+  `toolchainManifest` reader in `cli/src/manifests.ts`, an unused
+  `commandExists` import in `ompSync.ts`, the `writeFileIfChanged` alias, and
+  the unused `ctx` parameter of `toolchain.ts field`. Nine module-internal
+  helpers in `codexSync.ts`, `exec.ts`, `toolchain.ts`, `models.ts`, and
+  `os/targets.ts` are no longer exported.
+- Folded the absent and malformed drift branches of `commands/status.ts` into
+  one `state !== "valid"` branch. Output is unchanged.
+- Added `cli/src/engine-native/os/posix.ts posixHost`, shared by the Linux and
+  macOS host definitions, so the POSIX members exist once.
+- Typed the model catalog: `engine-native/models.ts modelCatalog(tool)` parses
+  `SoT/models.json` once and drops entries whose `id` is not a string or whose
+  `kind` is not `alias` or `id`. `argv.ts`, `commands/model.ts`, and
+  `commands/models.ts` consume it. New `cli/test/unit/modelCatalog.test.ts`.
+- Moved the Codex top-level and table merge passes into
+  `engine-native/codexToml.ts`, and the Claude plugin, optional-plugin, and LSP
+  passes into new `engine-native/claudePlugins.ts`. `codexSync.ts` and
+  `claudeSync.ts` keep the orchestration only. Skill and agent anchors in
+  `.agents/skills/`, `.claude/agents/`, `.codex/agents/`, and root `AGENTS.md`
+  name the new modules.
+- No user-visible behavior change: `./docks-kit sync --dry-run` output is
+  identical to 0.16.4 except the `Repo:` line, and all goldens pass unchanged.
+
+## 2026-09-08 — `docks-kit update` parses the Bun 1.4.2 global root; verified Bun pin 1.4.2
+
+- Fixed `docks-kit update` on Bun 1.4.2. Bun changed the `bun pm -g ls` header
+  annotation from `(64)` to `(64 installed)`, and both patterns in
+  `resolveGlobalPackageHome` accepted digits only, so the update printed
+  `bun pm -g ls did not report its global package root` and skipped its chained
+  sync. Both patterns now accept any parenthetical annotation and keep the
+  ` node_modules` anchor, so a tree row still cannot match and unparseable
+  output still returns the diagnostic. The npm branch reads `npm root -g` and
+  was never affected.
+- Moved the kit-verified Bun pin to 1.4.2 in `SoT/toolchain.json`, which
+  regenerates the pins in `docks-kit`, `docks-kit.ps1`, `install.sh`, and
+  `install.ps1`. The Bun `floor` stays 1.4.0, because it states what this
+  checkout's `bun.lock` supports, and the toolchain report still marks an
+  installed 1.4.0 host `ok`.
+- Removed the hardcoded-pin decay class from the suites. New
+  `cli/test/lib/toolchainManifest.ts verifiedVersion` derives the value, the Bun
+  and install suites consume it, and the launcher test now asserts that its pin
+  substitution landed instead of silently rewriting nothing after a bump. A new
+  install case ties `.github/actions/setup-bun-cache/action.yml` to the manifest
+  across `bun-version`, the cache key, and the restore key.
+
+## 2026-09-08 — omp: Fable 5.1 cycle role, `task` on GPT-6 Astra, and the `omp-models` topic
+
+- Added a `fable` role to `SoT/.omp/config.yml` and appended it to
+  `cycleOrder`, so the model switcher reaches Fable 5.1 as its fourth stop.
+  `modelRoles.fable` is `anthropic/claude-fable-5-1:medium`, `modelTags.fable`
+  is visible, and `retry.fallbackChains.fable` is empty, because a role the
+  user selects on purpose must not fall back to another vendor.
+- Repointed the hidden `switch_fable` role from `anthropic/claude-fable-5:high`
+  to `anthropic/claude-fable-5-1:medium`. The old target is one generation
+  behind. The two Fable roles now resolve to the same model and level, one
+  hidden and one in the cycle. Removing the duplicate would need `--reconcile`,
+  because the additive merge preserves deployed-only keys.
+- Moved `modelRoles.task` from `openai-codex/gpt-5.6-sol:high` to
+  `openai-codex/gpt-6-astra:low`. Artificial Analysis measures 2.60 s to the
+  first answer token against 11.26 s, and 4k output tokens per task against
+  13k, at $0.82 against $0.81 per index task. The change buys latency and
+  token budget, not money: Astra lists 2.5 times the token price and spends
+  about one third the tokens, so the two effects cancel.
+- Accepted one measured regression with that move. AA-Briefcase, the evaluation
+  closest to this kit's agent workload, drops from 1361 to 1253, and Artificial
+  Analysis publishes no Coding Agent Index score for any Astra level except max.
+  `task.agentModelOverrides` maps `reviewer`, `security-reviewer`,
+  `code-reviewer`, and `plan-reviewer` to `@task`, so all four reviewer agents
+  now run Astra low. If review output degrades, pin those four agents to
+  `anthropic/claude-opus-5:high` instead of reverting the role.
+  `retry.fallbackChains.task` keeps `anthropic/claude-opus-5:high` as a
+  cross-vendor fallback.
+- Added the rule `Please remove all mannered prose.` to `SoT/.omp/AGENTS.md`.
+  Anthropic's Fable 5.1 prompting guide documents mannered prose as a Fable 5.1
+  behavior and gives that sentence as its short-version fix.
+- Added `cli/docs/omp-models.md` and registered it as the `docs` topic
+  `omp-models`. The topic records the role map, the Artificial Analysis
+  snapshot behind it (Intelligence Index v4.3 and Coding Agent Index v1.4, read
+  2026-09-08), and the rule that a role change and a snapshot refresh land in
+  the same commit.
+- Extended `cli/test/unit/argv.test.ts` with a tenth Markdown mock. That suite
+  mocks every `docs/*.md` text import. Without a mock, vite lexes the new file
+  as JavaScript and the suite fails in import analysis.
+
+## 2026-08-28 — Claude permissions: parseable rules, trimmed allow list, retired-rule prune, memory and dream off
+
+- Escaped the 14 `permissions.deny` PowerShell rules whose specifier ended in a
+  single backslash before the closing parenthesis, such as
+  `PowerShell(rm *-Recurse* *:\)`. Claude Code counts backslash parity, so the
+  `\` escaped the `)` and every session start printed `Invalid permission
+  rule … Mismatched parentheses` while the rule protected nothing. The SoT now
+  writes `\\` in those positions.
+- Trimmed `permissions.allow` to four read-only tools (`Read`, `Glob`, `Grep`,
+  and `WebSearch`) plus the working-directory edit rule `Edit(./)`. The 128
+  removed shell rules (`Bash(git *)`, `Bash(curl *)`, `Bash(docker *)`, and
+  their `PowerShell(...)` twins) resolved before both Claude Code's read-only
+  command analyzer and the auto-mode classifier, so destructive variants such
+  as `git clean -fdx` were pre-approved with no review step. The analyzer
+  already runs the safe read-only forms with no prompt. `WebFetch` was removed
+  for the same reason. Headless jobs that need a non-read-only shell command
+  now pass a narrow `--allowedTools` rule on the `claude -p` command line. The
+  SoT leaves `autoMode.classifyAllShell` unset because it ships no shell allow
+  rules; enabling the setting would send every shell command to the classifier
+  and add classifier calls without closing an allow-rule bypass.
+- Kept every `PowerShell(...)` deny and ask rule on every host. The tool is
+  opt-in off Windows, not unavailable, so a host that enables it must already
+  carry the guards. An earlier draft of this change gated the rules by platform
+  and was reverted before release.
+- Added `claudeRetired.ts RETIRED_PERMISSION_RULES, exact retired-rule
+  inventory` and extended `claudeSync.ts syncRemovals, retired-permission pass`
+  to force-prune its exact strings from the kit-managed
+  `~/.claude/settings.json` on every sync. `settings.ts mergeSettings,
+  permission-array union` would otherwise keep a dropped rule forever. A
+  different user-authored rule survives. A user can restore an exact retired
+  rule for one checkout in that checkout's `.claude/settings.local.json`.
+  Claude Code resolves that file against the working directory and merges it
+  over user settings. Sync never reads or writes the checkout-local file.
+  Claude Code has no user-scope local settings file. For a machine-wide
+  restoration, add the rule to `SoT/.claude/settings.json`. At the same time,
+  remove the exact string from `claudeRetired.ts RETIRED_PERMISSION_RULES,
+  exact retired-rule inventory`.
+- Set `autoMemoryEnabled: false` and `autoDreamEnabled: false`. Auto-memory
+  injects a mutable MEMORY.md head into the cached prompt prefix, which breaks
+  cache invariance; dream tasks bill extra model calls between turns.
+- Replaced the change-detector permission tests with invariants. Instead of
+  restating the rule list, `cli/test/lib/permissionRules.ts` ports the rule
+  grammar from the Claude Code 2.1.251 parser and the truth tests assert
+  behavior: every shipped rule parses, each retired malformed spelling is
+  rejected, the destructive command corpus is denied on both shells, an
+  ordinary recursive delete is left to the classifier, and the allow list
+  pre-approves no shell command.
+  `cli/test/unit/claudeRetiredPermissions.test.ts` covers the prune, the
+  surviving user rules, and the SoT PowerShell rules that stay deployed.
+
+## 2026-08-21 — Release proof states only the guarantee it enforces
+
+- The release workflow proves the published tarball holds the tag's files on
+  every run: it unpacks the tarball and compares every unpacked file with the
+  same list rebuilt from the tag. A file that `bun pm pack` ships while git
+  ignores it, a stale tarball with drifted contents, and a branch that deleted
+  a whole packaged directory now each fail the release instead of publishing
+  content that never existed at the tag.
+
+## 2026-08-21 — Bun 1.4.0 toolchain target, lockfile v2, and release-path hardening
+
+- Patched two transitive advisories inside their existing caret ranges:
+  `nanoid` 3.3.15 to 3.3.18 and `postcss` 8.5.16 to 8.5.23. Both are reached
+  only through `vitest`, so no pinned version moved.
+- Replaced the `/$bunfs/` path heuristic for detecting a compiled binary with
+  `Bun.isStandaloneExecutable`, which Bun 1.4.0 adds as public API and which
+  1.4.0 requires because the private path is gone. A `typeof Bun` guard keeps
+  the module importable under Node, where the unit suite loads it. `@types/bun`
+  moved to `^1.4.0` for the declaration.
+- CI installs Bun 1.4.0, and its install-cache keys moved with the version.
+- Bun's toolchain entry targets 1.4.0 for both `floor` and `verified`, and the
+  payload generator emits a second marked block, `BUN_FLOOR`, into the two
+  checkout launchers. `docks-kit` and `docks-kit.ps1` now refuse to run
+  `bun install --frozen-lockfile` on a Bun below that floor and name
+  `bun upgrade` in the error, because a 1.3.x runtime cannot read this
+  repository's lockfile. The floor is deliberately separate from the verified
+  install pin, which still selects the exact release for kit-driven installs.
+- `bun.lock` is now `lockfileVersion: 2`. Setting the field in place kept the
+  resolved graph byte-identical, so the format moved without moving a single
+  dependency.
+- The portable Linux lane runs `bun audit` at full scope after installing
+  dependencies, so a new advisory fails CI instead of only showing up in a
+  local report.
+- `bun run test:ci` runs typecheck, the unit suite, and both golden suites
+  through `bun run --parallel`, leaving the timing-sensitive runtime smoke on
+  its own leg. The gate finishes in about 25 s rather than about 50 s, and a
+  failing leg still fails the gate.
+- The release workflow proves on every run, not only on a manual dispatch, that
+  the packed tarball came from a clean tree matching the release tag.
+
+## 2026-08-16 — Effect 4.0.0-rc.109 pin, effect-kit retirement, and Windows shim hardening
+
+- Pinned the Effect graph to `4.0.0-rc.109` for `effect`, `@effect/platform-bun`,
+  and `@effect/vitest`, replacing `4.0.0-beta.107`. `vitest@4.1.10` is unchanged.
+  A byte-level diff of the published tarballs showed every declaration this CLI
+  imports is identical between the two releases, including all of
+  `effect/unstable/cli`, so the bump is a pin with no call-site change.
+- Removed the `effect-kit@docks` plugin from all three SoT configs. Sync now
+  withdraws the kit's enablement on already-synced machines: the curated Claude
+  removed manifest prunes the `enabledPlugins` key and the Codex config merge
+  strips the retired `[plugins."effect-kit@docks"]` table. The plugin package
+  itself is left to `--prune`, which the mutation goldens now record.
+- Removed `effect-solutions` as a managed tool, and with it the verified-version
+  install gate it was the last consumer of. `toolchain.ts` lost `ensure`, `gate`,
+  `latestVersion`, and `promptLine`; `deps.ts` lost `resolveLocation`, the
+  `DependencyLocation` type, and the `locate`/`latest` spec fields;
+  `DependencyManager` narrowed to `spec`, `probe`, `version`, `path`, and
+  `warnMissing`. `toolchain ensure` accepts only `bun`, whose `present` policy
+  never upgraded and so never consulted the gate. `docks-kit toolchain check`
+  still prints the doctor table against the manifest floors. Sync withdraws the
+  kit's own `~/.local/bin/effect-solutions` symlink on already-synced machines
+  but never touches the package: operators who also want the CLI gone should run
+  `bun remove -g effect-solutions` themselves.
+- Removed the public `--yes` flag and its `ASSUME_YES` environment seed from
+  `sync` and `toolchain`. It existed only to auto-accept the above-verified
+  prompt, which no longer exists. `--verbose` / `-v` is unaffected.
+- Restored the `--verbose` no-op confirmation for `toolchain ensure bun`. It was
+  only ever emitted by the removed gate, so deleting the gate left the flag
+  documented but silent on the one managed tool; the bootstrap now reports
+  `bun up to date (<version>)` when Bun is already installed.
+- Hardened the Windows command-shim invocation. A `.cmd` or `.bat` tool now runs
+  through the command interpreter with `/d /v:off /s /c` and the
+  cross-spawn-proven caret and backslash escaping, delayed expansion off, and
+  the npm shim double-escape case. A value carrying `%`, CR, or LF is refused
+  with the reason instead of being mis-parsed, because no quoting neutralizes
+  those on a `cmd` command line. The interpreter is always an absolute path -
+  `ComSpec` when it is absolute, otherwise rebuilt under `SystemRoot` - and a
+  tool the host cannot resolve is now reported as missing rather than spawned
+  by bare name, because `CreateProcess` searches the parent's current directory
+  before the system one. Every `update` child spawns through one helper, so the
+  verbatim-arguments flag can no longer be separated from the argv it encodes.
+- Fixed five pre-existing test defects that were unrelated to the changes above.
+  The global installer fixture inherited a real `BUN_INSTALL`, so `find_bun`
+  resolved a developer's own Bun, skipped the pinned bootstrap, and ran
+  `bun add -g` against the real global install; both fixtures now pin
+  `BUN_INSTALL` inside the sandbox and resolve coreutils by real path, because
+  macOS has no `/bin/mktemp`. The `toolchain check` cases spawn the real CLI and
+  now carry an explicit timeout instead of relying on Vitest's 5s default, which
+  they exceeded under full-suite parallel load.
+  The mutation golden harness isolated Bun's package cache but not its runtime
+  transpiler cache, which Bun writes into `$HOME/Library/Caches/bun` for sources
+  over 50 KB; because the fake home is tree-diffed, those files keyed every
+  golden to the current bytes of the generated SoT payload. The harness now
+  redirects `BUN_RUNTIME_TRANSPILER_CACHE_PATH` out of the fake home as well.
+  The golden snapshots are also host-dependent: the engine gates `bwrap` on a
+  Linux host, so the committed Linux-recorded snapshots could never be verified
+  or re-recorded from macOS. Every child the harness spawns — raw-engine and
+  public-CLI alike — now preloads a test-only shim that pins the platform,
+  which leaves production code with no way to spoof the host.
+
+- Ran the Claude, Codex, and skills sync pipelines concurrently instead of one
+  after another. Every EngineNative subprocess moved from a blocking
+  `spawnSync` to an awaited `spawn`, and a bounded coordinator runs the three
+  pipelines with a default cap of 3. Order inside each pipeline is unchanged and
+  stays serial, because a tool's plugin commands re-read their own installed
+  state between passes. Warm sync on the reference host fell from a 13.35 s
+  median to 8.93 s, a 4.42 s (33.1%) reduction. Set
+  `DOCKS_KIT_SYNC_CONCURRENCY=1` to force the previous serial order; the golden
+  suites pin it so recorded command order stays deterministic.
+- Added one run-scoped terminal lease so a concurrent pipeline can no longer
+  overprint the bubblewrap installer's sudo password prompt or steal input from
+  a toolchain upgrade prompt. Durable output is buffered while the terminal is
+  held and flushed afterward, and errors still print immediately.
+
+- Removed every Session Relay feature surface: the managed-release installer,
+  the status readiness probe, the `session-relay` toolchain entry, and the
+  `session-relay@docks` enablement in all three SoT configs. Sync now withdraws
+  the kit's enablement on already-synced machines — the curated Claude removed
+  manifest prunes the settings key and the stale `~/.local/bin/session-relay`
+  command, and the Codex config merge strips retired kit-owned
+  `[plugins."<id>"]` tables. Plugin packages are left to `--prune`.
+
+- Removed the Docks workflow model registry, prompt records, root override flags,
+  and `models workflow` selector. Plan orchestration now owns reviewer selection
+  at invocation time while ordinary Claude/Codex model and sync behavior remains
+  unchanged.
+- Added matching global prompt guidance for reuse-first selective skill routing,
+  Base UI-backed shadcn defaults, and literal external authority; aligned the
+  project plan contract and wrappers with the three-skill `PlanRunV1` workflow.
+
+- Removed RTK end to end, including its managed toolchain entry, Claude sync
+  install and initialization, `Bash(rtk *)` permission, and the whole
+  `hooks.PreToolUse` family. Added both Claude artifacts to the curated removed
+  manifest, so the next sync prunes them from already-synced machines. This
+  removed sync's only unconditional GitHub API call, an unauthenticated probe
+  capped at 60 requests per hour per address.
+- Renamed `--skip-rtk` to `--skip-bubblewrap` and `SKIP_RTK` to
+  `SKIP_BUBBLEWRAP`. Rejected the old flag with exit status 2 and a rename hint,
+  dropped the older `--no-rtk` hint, and left the Codex bubblewrap bootstrap as
+  the only remaining reader.
+- Removed agent-browser and its chrome-for-testing companion, and narrowed
+  `toolchain ensure` to `bun` and `effect-solutions`. This eliminated the
+  roughly 175 MB Chrome for Testing download on first install. Existing
+  behavior remained unchanged because the install required a line that the
+  universal skill manifest never carried.
+- Scoped the Claude plugin refresh to kit-owned plugins and marketplaces. Kept
+  automatic refresh enabled by default and left `--skip-plugin-refresh`
+  unchanged, while refreshing each declared marketplace by name and only
+  declared plugins at user scope instead of every installed plugin, including
+  project-scope plugins the kit never installed.
+- Added version probes for `bwrap`, `ffplay`, and
+  `typescript-language-server`, and read `intelephense` from one memoized
+  `npm ls -g --depth=0 --json` listing because its own `--version` prints
+  minified source. Those four tools had previously reported no version.
+- Added an evaluable floor to every tool that sync installs, removed the retired
+  manifest entries, and updated the pinned skills CLI to 1.5.22. This let
+  `docks-kit toolchain check` report a real `below-floor` status instead of an
+  unevaluable blank.
+- Added a transient sync progress line so long plugin and marketplace work
+  reports motion instead of showing nothing for about 13 seconds and then
+  printing every line at once. Limited the line to interactive terminals, so
+  logs and captured output remain unchanged.
+- Made `docks-kit update` report `Already at the latest version` for a global
+  package install that is already current and skip the chained sync, matching
+  the git checkout path.
+- Reduced steady-state sync on the reference host from 18.1 seconds to
+  13.2 seconds.
+
+## 2026-08-15 — Native Windows support and three-OS release lane
+
+- Added Windows x64/arm64 as supported hosts. Releases now publish six binaries
+  plus `SHA256SUMS`.
+- Centralized host facts in the `os/` seam. Added the `docks-kit.ps1` launcher
+  and `install.ps1` installer twins.
+- Mirrored the Claude `PowerShell(...)` permission rules beside the existing
+  Bash rules. Added the Codex `[windows]` sandbox configuration.
+- Replaced shell-bound test execution with a shell-free harness. Added a
+  portable CI lane on Ubuntu, macOS, and Windows.
+
+## 2026-07-22 — exact latest Opus workflow fallback (0.10.1 source)
+
+- Pinned the `claude-best` workflow fallback to Anthropic's current
+  `claude-opus-4-8` model ID. This avoids task runtimes resolving the bare
+  `opus` family alias to the invalid `claude-opus-4-0` catalog entry.
+
+## 2026-07-20 — Linux/macOS-only support cutover (0.10.0 source)
+
+- Removed Windows launcher, EngineNative, PowerShell, dependency-install,
+  symlink, binary-build, and positive test paths. Unsupported hosts now fail
+  before compiled-binary selection, Bun fallback, downloads, or sync work.
+- Reduced standalone release output to Linux x64/arm64 and macOS x64/arm64 plus
+  `SHA256SUMS`; removed the Windows entrypoint workflow and Windows parity jobs.
+- Declared the npm package and current installation/runtime documentation as
+  Linux/macOS-only. Historical release evidence remains unchanged.
+
+## 2026-07-17 — Session Relay CLI installation boundary (0.9.0 source)
+
+- Added a source-pinned prebuilt Session Relay `0.12.0` installer for Linux and
+  macOS on x64/arm64. Claude and Codex sync run it immediately before plugin
+  reconciliation; agents-only sync does not enter the installer boundary.
+- The installer requires the committed target digest, same-release
+  `SHA256SUMS` row, and downloaded bytes to agree before it marks the staged
+  command executable, verifies its exact version, and atomically replaces
+  `~/.local/bin/session-relay`. Failed fresh installs and upgrades preserve the
+  prior stable command.
+- This `0.9.0` source remains blocked from publication: the four committed
+  digests are deterministic test-fixture pins until the corresponding
+  `session-relay--v0.12.0` production assets are independently hashed.
+
+## 2026-07-10 — Claude statusline and hooks move to native Bun runtime
+
+- Replaced the deployed `statusline.sh`, `fetch-usage.sh`, and `hooks/notify.sh`
+  with dependency-free `statusline.mjs`, `session-start.mjs`, and `notify.mjs`
+  materialized under `~/.claude/bin/` from the embedded payload. SessionStart
+  and Notification direct-exec absolute Bun; the shell-evaluated statusline uses
+  a guarded POSIX or encoded-PowerShell command.
+- Preserved the existing single-line layout and palette while moving 5h/7d
+  quotas to Claude's native `rate_limits`. The Stop fetch hook, OAuth credential
+  reads, quota request, and shared usage/token caches are gone; unsupported or
+  pre-first-response sessions omit only the quota segment.
+- Made Bun bootstrap a shared, per-run memo used by Claude runtime and
+  effect-solutions. If Bun cannot be installed, sync keeps legacy hook/statusline
+  settings and files intact and reports a deferred migration; successful
+  cutover prunes those kit-owned legacy artifacts only after settings commit.
+- jq and curl are now optional toolchain check rows instead of preflight hard
+  dependencies. curl is consulted only at requested POSIX RTK/Bun download
+  boundaries. Old `/tmp/.claude_usage_cache`, `/tmp/.claude_token_cache`, and
+  `/tmp/.claude_usage_fetching` files are deliberately not unlinked: nothing
+  reads them now, and OS temp cleanup can age them out without touching global,
+  potentially shared or symlinked paths.
+
+## 2026-07-09 — log UX overhaul: quiet no-ops, `--verbose`, install hints, service seams
+
+Sync output now follows an explicit Output Policy (`cli/src/engine-native/DESIGN.md`):
+
+- **Quiet on no-ops**: operations detect changed vs unchanged; unchanged outcomes ("already in sync", "up to date", "left as-is") are hidden by default. `--verbose` / `-v` (on `sync`, `model`, `toolchain`; `DOCKS_KIT_VERBOSE=1` on the raw channel) prints them. Real changes, warnings, and errors stay always-visible on stderr; dry-run reports, summaries, and `--json` output stay unfiltered on stdout.
+- **`.bak` files are written only when a file is actually replaced**, not on every run.
+- **Missing tools warn once, with the fix**: tools routed through the dependency registry (`cli/src/engine-native/deps.ts` — git, jq, curl, npm, npx, …) warn exactly once per run in the uniform `[warn] <tool> not installed — <platform-correct install command>` shape. The claude/codex CLI checks keep their richer contextual warnings.
+- **Service seams (SOLID)**: a Logger with injectable sinks (`logger.ts`), a DependencyManager registry (`deps.ts`), and a Platform capability seam (`os.ts` — the single `process.platform` reader) are exposed through Effect `Context.Tag`s + live/test Layers (`cli/src/services.ts`), composed once at `main.ts`.
+- Test harness now captures stdout/stderr separately and enforces the channel contract; goldens gained same-HOME replay, verbose-leg, and missing-git cases (21 dry-run + 47 mutation cases).
+
+## 2026-07-08 — docks-kit CLI: typed front-end, tool-scoped flags, toolchain floors (sync.sh removed)
+
+The kit's entry point is now **`./docks-kit`** — an Effect-TS CLI (Bun; effect 3.21.4 + @effect/cli 0.75.2 — v3 stable because @effect/cli has no Effect-v4-beta-compatible release) over the unchanged bash engine. `sync.sh` is **deleted** (clean break); the zero-dependency escape hatch is `bash lib/engine.sh <same args>`. All mutation still lives in `lib/*.sh`; the CLI adds typed flags, an interactive model picker, `--json` outputs, shell completions/wizard, and 9 bundled self-documentation topics (`docks-kit docs`).
+
+**Flag taxonomy (breaking — old flags exit 2 with a rename hint, no compat behavior):**
+
+| Old | New |
+|-----|-----|
+| `--claude` / `--codex` / `--agents` | positional targets: `docks-kit sync claude codex agents` |
+| `--force` | `--reconcile` |
+| `--remove-plugins` | `--prune` |
+| `--680k` | `--claude-compact-window=<tokens>` (any value: `680k`/`680000`) |
+| `--permissive` | `--claude-permissive` |
+| `--supabase` / `--n8n` | `--claude-plugin=<name>` (repeatable; unknown names exit 2) |
+| `--no-rtk` | `--skip-rtk` |
+| (new) | `--claude-model=<m>`, `--codex-model=<m>`, `--yes` |
+
+**New model layer:** `SoT/models.json` (kit-verified catalog) drives validation (fail-fast, pre-mutation; codex charset gate blocks TOML-quote injection), `docks-kit models`, the TTY picker, and the bare-flag helper. `--claude-model=` / `--codex-model=` are deploy-time modifiers (deployed config only; flag-less sync reverts); `docks-kit model <tool> [value]` is the standalone get/set over the same engine functions (`claude::sync_model`, `codex::sync_model`; `default` deletes the deployed key). `codex::_replace_top_level_setting` was extracted from `merge_top_level_settings` (deployed-config output verified byte-identical) and shared with the codex modifier. `claude::sync_680k` → `claude::sync_compact_window`.
+
+**New toolchain layer:** `SoT/toolchain.json` (kind/policy/floor/verified/pinnable) + `lib/toolchain.sh` (present/version/compare/gate/ensure/report). Installs/upgrades above the kit-verified pin prompt on a TTY, `--yes` auto-accepts, non-TTY declines fall back to the pinned verified version when pinnable (RTK supports `RTK_VERSION=vX.Y.Z`, verified upstream). Fixes two standing defects: **effect-solutions never self-upgraded** (now `track` policy, like agent-browser — verified live, unknown→0.5.3), and **`rtk init --global` on a fresh machine clobbered deploy-time modifiers** (rtk now runs FIRST in `claude::sync`, so the settings merge normalizes its rewrite; `claude::_rtk_reassert_hook` and `claude::_warn_rtk_outdated` deleted as superseded). New doctor coverage: `docks-kit toolchain check` / `docks-kit status` (ffplay, bwrap, LSP binaries, claude floor).
+
+**Packaging:** root `package.json` (npm name `docks-kit`, confirmed available) bundles `cli/` + `lib/` + `SoT/` — releases are versioned config snapshots. `cli/build-binaries.sh` compiles five standalone binaries (docs embedded; linux-x64 verified); `.github/workflows/release-cli.yml` (repo's first workflow) attaches them + SHA256SUMS on `cli-v*` tags and npm-publishes when `NPM_TOKEN` exists. `install.sh` = download-then-run global install (Bun bootstrap + `bun add -g docks-kit`). New root `README.md`.
+
+Verified: dry-run step-list parity old-vs-new byte-identical; `bunx tsc --noEmit` clean; model round-trips (set → revert-on-sync → `default` deletes key) on live configs; all toolchain gate branches unit-tested; node_modules self-heal; `bun link` global smoke from outside the repo. Docs/skills/agents swept for the rename (tracked in `docs/plans/active/docks-kit-cli.md`).
+
+## 2026-06-08 — Re-assert SoT plugin enabled-state after install (pass 7)
+
+`claude plugin install` installs at its default `--scope user` and **enables** what it installs — writing `"<id>": true` into `~/.claude/settings.json`. The kit's plugin bootstrap (pass 2, `claude::_plugins_install`) deliberately installs `false`-keyed plugins too ("globally disabled, per-project enable has something to load"), so on a fresh machine the install flipped every `false`-keyed third-party plugin back to **enabled** — clobbering the `false` `claude::sync_settings` had written one step earlier (settings sync is `claude::sync` step 4; plugins step 8). Observed in a Claude-Code-on-the-web sandbox: `n8n-mcp-skills@n8n-mcp-skills` shipped `true` in `~/.claude/settings.json` despite SoT declaring `false`, while `supabase@claude-plugins-official` (built-in marketplace, different install path) correctly stayed `false`. The single plugin that got an actual `claude plugin install` was the only one flipped.
+
+Fix: added a 7th plugin pass, `claude::_plugins_reassert_enabled_state`, that runs **unconditionally** at the end of `claude::sync_plugins` and rewrites `enabledPlugins` so SoT-declared values win (`(.enabledPlugins // {}) * $sot`) while preserving user-only entries — the same SoT-wins invariant `claude::_settings_merge` already enforces, re-applied after the plugin CLI mutated the file. A full second `./sync.sh` would self-heal (pass 2 skips already-installed plugins, so the merge's `false` survives), but single-sync and ephemeral environments never get that second run — pass 7 makes the first run correct and deterministic. Built-in `claude-plugins-official` plugins are unaffected (they don't take the marketplace install path). Verified: the jq filter against the live sandbox settings yields `n8n=false`, `supabase=false`, `docks=true`, output byte-identical to SoT; `bash -n lib/claude.sh` clean. Updated the `plugin-bootstrap-context` skill (six-pass → seven-pass, new constraint + Pass 7 walkthrough, `references/seven-pass-flow.md`) and the `CLAUDE.md` plugin-pass table.
+
+## 2026-06-08 — Drop the rsync dependency (portable cp for hook sync)
+
+`claude::sync_hooks` used `rsync -a`, which isn't coreutils and is absent on minimal images — the Claude-Code-on-the-web **Ubuntu 24.04 sandbox has no `rsync`**, so a remote setup script running `./sync.sh` failed with **exit 127** at that line. Replaced with portable `cp -R "$SRC/." "$DST/"` (additive, same as rsync without `--delete`; the following `chmod +x` re-sets the exec bit), so the kit needs no external tool. Updated the living-doc "rsync has no --delete" mentions to "cp -R never deletes". Validated with `rsync` absent from PATH: hooks deploy + are executable, idempotent, dry-run safe.
+
+Remote note: installing it in a web-env setup script also works (`apt-get install -y rsync` — setup scripts run as root on Ubuntu 24.04 and the Trusted network reaches the Ubuntu mirrors), but this fix removes the need.
+
+## 2026-06-08 — Prune stale kit env vars via the `removed` manifest
+
+Added four env vars the kit no longer sets to `claude::_removed_manifest` `settingsKeys`, so drift from older kit versions is cleaned from the kit-managed `settings.json` on sync: `CLAUDE_CODE_SUBAGENT_MODEL` (kit now uses per-agent frontmatter), `ANTHROPIC_DEFAULT_OPUS_MODEL` (de-pinned), `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` (superseded by `CLAUDE_CODE_AUTO_COMPACT_WINDOW`), `CLAUDE_CODE_DISABLE_1M_CONTEXT` (1M now enabled).
+
+Policy made consistent. Sync prunes these keys from the kit-managed `settings.json`. A deliberate per-checkout override belongs in that checkout's **`.claude/settings.local.json`**. Sync never reads or writes that file, and the kit already uses it for `ANTHROPIC_DEFAULT_OPUS_MODEL`. Updated the manifest comment, the "Pruning stale artifacts" section, and the Troubleshooting `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` bullet, which now names the same checkout-local file.
+
+Validated: nested `env.X` `delpaths` prune (5 keys), with the kit's active `CLAUDE_CODE_EFFORT_LEVEL`, a user custom env var, theme, and permissions all preserved; JSON valid; idempotent.
+
+## 2026-06-08 — Add a `removed` manifest so sync prunes stale kit artifacts
+
+Default sync is additive (the jq merge keeps user-only keys; `rsync` has no `--delete`), so anything the kit *stops* shipping lingered forever on already-synced machines. New mechanism to clean that up:
+
+- **lib/claude.sh**: `claude::_removed_manifest` (declarative) + `claude::sync_removals` (+ `claude::_prune_json_keys` helper), wired into `claude::sync`. Categories: `hooks` (scripts under `~/.claude/hooks/`), `files` (other `~/.claude/` paths), `settingsKeys` (jq `delpaths` from `~/.claude/settings.json`), `claudeJsonKeys` (same for `~/.claude.json`). Idempotent (`rm -f`; `delpaths` ignores absent paths), honors `--dry-run`, bash-3.2-safe. A **narrow, deliberate exception** to "additive by default" — lists only unambiguous kit-owned artifacts, never user-tunable keys.
+- **Initial manifest**: the dead `disable-claudeai-connectors.sh` hook (cleans the leftover the previous two commits couldn't, since `rsync` has no `--delete`) + `showTurnDuration` (must not live in `settings.json` — schema warning; sync writes it to `~/.claude.json`).
+- **Docs**: CLAUDE.md § "Pruning stale artifacts"; AGENTS.md additive-by-default rule notes the exception. Also fixed a stale `CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000` → `300000` in the Troubleshooting section (drift from the earlier context-rot retune).
+
+Validated: syntax, hook deletion, settings-key prune with non-target keys preserved + JSON still valid, idempotent silent re-run, dry-run no-write, and the `sync.sh --claude --dry-run` wire-in.
+
+## 2026-06-08 — Remove the non-functional claude.ai connector hook
+
+Deleted `SoT/.claude/hooks/disable-claudeai-connectors.sh` and its SessionStart entry in `settings.json`. It patched `disabledMcpServers`, which gates only `.mcp.json`/`claude mcp add` servers — never claude.ai cloud connectors — so it did nothing. The working replacement (`ENABLE_CLAUDEAI_MCP_SERVERS=false` shell export via `claude::sync_connector_env`) shipped in the entry below. CLAUDE.md (Hooks bullet, repo-structure table, Open Concern) updated to past tense.
+
+Note: `sync.sh` rsyncs hooks without `--delete`, so a previously-synced `~/.claude/hooks/disable-claudeai-connectors.sh` lingers harmlessly (now unreferenced) until manually removed; any stale `claude.ai *` names it wrote to `~/.claude.json` `disabledMcpServers` are likewise inert.
+
+## 2026-06-08 — Automate the real claude.ai connector disable (sync.sh)
+
+Deeper research (prompted by "the disables don't work") found the `disable-claudeai-connectors.sh` hook is **non-functional**: it patches `disabledMcpServers`, which gates only `.mcp.json`/`claude mcp add` servers — claude.ai cloud connectors are fetched from the account at startup and consult no local config. The actual fix is `ENABLE_CLAUDEAI_MCP_SERVERS=false` as a **shell** env var (the official method); it's inert only in the settings.json `env` block, which the kit had conflated with "broken".
+
+- **lib/claude.sh**: new `claude::sync_connector_env` (wired into `claude::sync`) idempotently appends `export ENABLE_CLAUDEAI_MCP_SERVERS=false` to the user's shell rc (`~/.zshrc` for zsh, `~/.bashrc` for bash, `~/.profile` otherwise), multi-platform and bash-3.2-safe. Verifies-if-present across common rc files before adding; never clobbers an existing value (set `=true` to keep connectors). Surgical — disables only claude.ai connectors (MCP source no. 5); plugin/project/user servers (supabase, n8n, `.mcp.json`) are untouched. Respects `--dry-run`. Validated: syntax, idempotency, dry-run no-write, non-clobber, and the `sync.sh --claude --dry-run` wire-in.
+- **CLAUDE.md**: corrected the Hooks bullet and the Open Concern — the env-var shell export is the working fix; the `disabledMcpServers` hook is documented as non-functional and slated for removal; `--strict-mcp-config` recorded as the all-or-nothing fallback.
+
+Hook deletion (script + SessionStart entry) deferred until the env-var fix is confirmed clearing `/mcp` on a real account.
+
+## 2026-06-08 — Broaden the claude.ai connector blocklist
+
+`disable-claudeai-connectors.sh`: expanded `CONNECTORS` from 4 to 25 common claude.ai connectors — added **Figma** (the one that was still auto-loading because it was missing from the list) plus Atlassian, Box, Canva, ClickUp, Cloudflare, Dropbox, Excalidraw, HubSpot, Intercom, Linear, Microsoft Learn, Notion, PayPal, Sentry, Slack, Socket, Square, Stripe, Vercel, Zapier, on top of the existing Asana/Gmail/Google Calendar/Google Drive.
+
+Why the hook is still the mechanism: claude.ai account connectors OAuth-sync into every Claude Code session and load their tool defs into context even when unused (~100K tokens of bloat per anthropics/claude-code#50062). There is still **no clean global settings.json toggle** — `ENABLE_CLAUDEAI_MCP_SERVERS` is Statsig-gated and inert, `allowAllClaudeAiMcps` is managed-only, and `disabledCloudMcpServers` (seen in some search results) is **not a real key**. Patching per-project `disabledMcpServers` remains the only user-level path that survives auth-sync. Unknown names are harmless no-ops, so the list errs toward off; delete a line to keep a connector. Verified end-to-end (bash -n + jq merge + dedup) against a throwaway HOME.
+
+## 2026-06-08 — Context-rot optimization (Opus 4.8)
+
+Follow-up deep-research pass (parallel research agents + primary Anthropic docs + the Chroma "Context Rot" report) on whether the context/output settings are optimal for Opus 4.8. Both agents converged independently.
+
+### settings.json
+
+- **Compact earlier**: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` 400000 → 300000. The old ~380K autocompact trigger generated the compaction *summary* at a heavily-degraded context and rode to 95% of a 1M window. 300K fires the safety-net (~285K) earlier so the summary is produced while the model is sharper. Context rot is **gradual, not a cliff** (~2% effectiveness loss per 100K; Claude decays slowest of the models Chroma tested), so an even-tighter 250K buys only ~1% less rot than 300K — not worth the extra lossy compactions, especially as Opus 4.8 is tuned for "fewer compactions, better recovery." 1M stays enabled as headroom. (Briefly set to 250000, then revised up to 300000 after curve-shape research showed the rot difference is negligible.)
+- **Right-size output reservation**: `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 96000 → 64000. Anthropic's Opus 4.8 effort guide recommends a 64K starting point, and the env-vars doc confirms a higher cap *shrinks the effective input context before auto-compaction*. The earlier 96K bump was justified by "synthesis subagents truncating," but subagents are hard-capped at 32K regardless of this main-thread value — so it never helped them.
+
+### Docs (CLAUDE.md)
+
+- Rewrote the `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and `CLAUDE_CODE_MAX_OUTPUT_TOKENS` rows with the context-rot rationale and sources.
+- Updated the "centerpiece strategy" line (250K window, xhigh effort, 1M-as-headroom framing; also fixed a stale "max effort" → "xhigh").
+
+### Validated, kept as-is
+
+- `CLAUDE_CODE_EFFORT_LEVEL=xhigh` — exactly Anthropic's recommended default for Opus 4.8 agentic coding (`max` risks overthinking).
+- 1M context enabled — rot tracks tokens *used*, not window size; disabling it would only force more lossy compactions.
+- `minimumVersion`, the `xargs` dedup, and the `PostToolUseFailure` hook event all re-verified correct.
+
+Primary sources: Anthropic Context windows / Compaction / Effort / What's-new-4.8 docs; Chroma "Context Rot" (2025); NoLiMa; Lost in the Middle.
+
+## 2026-06-08 — Opus 4.8 settings refresh
+
+Audit of `SoT/.claude/` against the current Claude Code settings schema and Opus 4.8 behavior.
+
+### settings.json
+
+- **Version floor**: added `minimumVersion: "2.1.166"` — floors auto-updates and `claude update` so every synced machine carries the features the kit relies on (Opus 4.8 needs 2.1.154, `skillListingBudgetFraction` needs 2.1.129) plus the latest auto-mode/classifier hardening.
+- **Permissions dedup**: removed the inert `Bash(xargs *)` from `permissions.allow` — it was already in `permissions.ask`, and precedence (deny > ask > allow) made the `allow` copy dead. Zero behavior change; xargs still routes through `ask`.
+
+### Docs (CLAUDE.md)
+
+- Corrected the `CLAUDE_CODE_MAX_OUTPUT_TOKENS` row: documented `64000` → actual `96000` (Opus 4.8's real output ceiling is 128K).
+- Added env-table coverage for `CLAUDE_CODE_FORK_SUBAGENT` and a top-level-keys row for `minimumVersion`.
+- Documented `autoMode.environment` in that checkout's `.claude/settings.local.json`, which reduces auto-mode false positives for one checkout.
+- Recorded the deliberate **no-`fallbackModel`** decision (stay Opus-only; avoid mid-session prompt-cache cold-start).
+
+### Considered, not adopted
+
+- **`fallbackModel`** (v2.1.166): rejected — a mid-session Opus→Sonnet switch cold-starts the per-model prompt cache; the kit prefers a retried turn over a silent model swap.
+- **`skillOverrides`** (v2.1.129): does not affect plugin skills (where the kit's effect-kit/docks duplication lives) and is buggy upstream (anthropics/claude-code#50631, #54996).
+- **`attribution`**: the kit intentionally keeps the model-versioned `Co-Authored-By` trailer.
+
+## Superseded snapshot (Opus 4.6 era) — Token-efficient configuration overhaul
+
+> Historical record. Entries below predate the current kit: `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=45` is now `CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000`, effort is `xhigh` (not `high`), `CLAUDE_CODE_SUBAGENT_MODEL` is no longer set, and the command/score scripts have moved to the `docks` plugin.
+
+Re-evaluation of the entire kit for token efficiency while preserving multi-agent pipeline quality.
+
+### settings.json
+
+- **Enable 1M context**: removed `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`. 1M is now active by default on Max/Team/Enterprise plans for Opus 4.6.
+- **Early auto-compact**: added `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=45`. Compacts at ~450K tokens on a 1M window, well before the ~400K context-rot threshold.
+- **Effort level aligned**: `CLAUDE_CODE_EFFORT_LEVEL` changed from `max` to `high`. Saves significant tokens without sacrificing reasoning quality. Matches the top-level `effortLevel: "high"` setting.
+- **Subagent model fully qualified**: `CLAUDE_CODE_SUBAGENT_MODEL` changed from `"sonnet"` to `"claude-sonnet-4-6"` to avoid alias-resolution risk.
+- **Removed `showTurnDuration`** from settings.json (belongs in `~/.claude.json`, caused schema validation warnings). `sync.sh` writes it to the correct location.
+- **SubagentStop hook**: now allows "no issues found" and mode-selection responses through the file:line quality gate.
+- **SessionStart hook**: injects active config (context window, auto-compact %, effort level, thinking budget, subagent model) for visibility at session open.
+
+### Commands (all 9)
+
+- Stripped all inert `model="opus"` XML annotations from `<task>` blocks. These were text-only and had no programmatic effect on subagent routing — `CLAUDE_CODE_SUBAGENT_MODEL` is the actual control.
+- Updated Model Tiering note in every command: all subagents use sonnet; orchestrator runs on Opus.
+- Added `WebFetch`, `WebSearch` to Allowed Tools of `review.md`, `solid.md`, `test.md`, `fix.md`, `human-docs.md`, `docs.md`, `team.md`, `refactor.md`, and `security.md` (commands that instruct context7/WebFetch research).
+- Added `Bash(rtk:*)` to every command's Allowed Tools and "Use ONLY" lines (the RTK PreToolUse hook rewrites bash commands to `rtk <cmd>`).
+- `security.md`: removed dangling "offer to help fix specific issues" — command is read-only by design; users should run `/fix` for remediation.
+
+### Scripts
+
+- `sync.sh` **new**: auto-detecting portable sync entrypoint. Merges `settings.json` with explicit array concat+unique for permissions, writes `showTurnDuration` to `~/.claude.json`, and bootstraps RTK if missing. Flags: `--dry-run`, `--no-rtk`, `--force`.
+- `guard-commands.sh`: auto-detects script dir (no hardcoded `/home/docks/...` path). Added: Phase Transition Protocol required for commands with 3+ phases; WebFetch required if research is instructed.
+- `score-commands.sh`: auto-detects script dir. Flipped `model="opus"` reward → penalty (2pts if absent). Added WebFetch/Allowed-Tools consistency check.
+- `statusline.sh`: fixed misleading `Xk/200k` header comment to `Xk/Xk` (runtime already computed dynamically).
+- `fetch-usage.sh`: added numeric-range (0-100) validation before writing cache to prevent silent garbage writes on API schema changes.
+
+### Repo hygiene
+
+- `.gitignore` expanded (macOS junk, editor temp files, `node_modules`, `settings.json.bak`).
+- `CHANGELOG.md` added (this file).
+- `.github/workflows/validate.yml` added — runs guard + score on every push and PR.
+- Root `CLAUDE.md` extended with Environment Variables reference, Troubleshooting, and `sync.sh` usage.

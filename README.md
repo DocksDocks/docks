@@ -1,240 +1,192 @@
-# docks
+# docks-kit
 
-Native omp plugin marketplace that publishes two plugins:
+Portable configuration kit for AI coding agents. The **Single Source of
+Truth (SoT)** directory `SoT/.omp/` deploys to the omp user-config location.
+Clone once to get a consistent AI-assisted environment on supported Linux,
+macOS, and Windows machines. Tuned for **token efficiency without sacrificing
+quality**.
 
-- **docks** - an engineering skill kit for omp. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially; a library of convention skills covers test-first, coverage, fix, review, design tokens, SOLID, type-safety, and React patterns. The plugin also ships two omp extensions: one checks commits for a `Verified:` trailer, and the other asks the agent to refresh a context-tree node after an edit inside it.
-- **plan-lifecycle** - a GitHub-issue plan lifecycle that tracks multi-commit work, with read-only plan and code reviewers.
+Supported harness: **Oh My Pi (`omp`)**.
 
-## Install
-
-```bash
-omp plugin marketplace add DocksDocks/docks
-omp plugin install docks@docks
-omp plugin install plan-lifecycle@docks
-```
-
-To update installed copies:
+## Quick start
 
 ```bash
-omp plugin marketplace update docks
-omp plugin upgrade docks@docks
-omp plugin upgrade plan-lifecycle@docks
+git clone https://github.com/DocksDocks/docks-kit.git ~/projects/docks-kit
+cd ~/projects/docks-kit
+./docks-kit sync            # deploy the omp SoT
+./docks-kit sync --dry-run  # preview the sync without a write
+./docks-kit toolchain       # doctor view: verified-version floors for external tools
 ```
 
-`omp plugin marketplace update docks` refreshes the catalog only; `omp plugin upgrade` installs the new version. `omp plugin upgrade --dry-run` lists the installed plugins that have a newer version.
+POSIX hosts use the `./docks-kit` launcher on Linux x64 and arm64 and on macOS
+arm64. Windows uses `.\docks-kit.ps1` on x64. Each launcher prefers the matching compiled
+binary in `cli/dist/` only when its version matches the checkout. Otherwise it
+runs from source via Bun and auto-installs Bun plus dependencies when needed.
+Hosts outside this matrix fail immediately and never fall back to Bun source.
+Stale ignored build artifacts cannot mask newer checkout code.
 
-After an update, `/reload-plugins` refreshes the skills and task agents of an open session. omp loads the extensions of a plugin only when a session starts, so restart omp after an update that changes an extension.
+Other install paths include global `bun add -g docks-kit`, the POSIX curl
+installer, and the Windows PowerShell installer. See `./docks-kit docs install`.
+
+**No-Bun recovery path**:
+
+Download the platform release binary from GitHub Releases and run it directly.
+The executable carries the generated sync payload; no checkout or adjacent
+`SoT/` directory is required.
+
+Source and global installs require Bun. An npm-global install needs npm.
+`jq` is optional doctor/test tooling. `curl` is needed only to download Bun's
+upstream installer when Bun is absent: by the POSIX launcher and installer, and
+by sync's Bun bootstrap, which a release binary can also run. The Windows
+launcher and installer use Invoke-WebRequest.
+
+### Move a checkout of DocksDocks/public
+
+The kit moved from DocksDocks/public to DocksDocks/docks-kit. To move a
+checkout of DocksDocks/public, run these commands from the checkout's root:
+
+```
+git remote set-url origin https://github.com/DocksDocks/docks-kit.git
+./docks-kit update        # Linux and macOS
+.\docks-kit.ps1 update    # Windows
+./docks-kit sync          # Linux and macOS
+.\docks-kit.ps1 sync      # Windows
+```
+
+The update pulls from DocksDocks/docks-kit. The sync then deploys the skills
+with their new report target: a launcher that runs a fresh compiled binary
+skips the sync that the update chains. A global npm install needs nothing.
+
+## CLI
+
+```text
+docks-kit sync [--dry-run]                      deploy the omp SoT to this machine
+docks-kit update [--no-sync]                    self-update the kit (autodetects checkout vs global install), then sync
+docks-kit omp [--model <m>|--pick] [args...]    one omp session on a free model, nothing deployed changes
+docks-kit omp --fast                            toggle omp fast mode for OpenAI/Codex models, then exit
+docks-kit toolchain [check|ensure <tool>|outdated]  verified-version floors for external tools
+docks-kit scratch new|remove                    agent temporary files and directories
+docks-kit tidy [--apply] [--report]             remove safe agent leftovers
+docks-kit docs [topic]                          self-documentation (9 topics)
+--help --version --wizard --completions    built-in
+```
+
+The CLI is a typed Effect 4 front-end on Bun; all mutation runs through
+EngineNative in `cli/src/engine-native/`, with golden-regression coverage for
+dry-run output, mutation snapshots, and argv logs. Its dependency graph is
+`effect@4.1.2` (including `effect/cli`), `@effect/platform-bun@4.1.2`
+(`BunServices.layer` and `BunRuntime.runMain`), and
+`@effect/platform-node-shared@4.1.2`. Tests run on `vitest@5.1.0`.
+`bun run lint:effect` checks the Effect rules through `@effect/tsgo`. The
+same package can run as the editor's TypeScript language server
+(`node_modules/.bin/effect-tsgo tsc --lsp --stdio`).
+`@effect/cli` and `@effect/platform` are removed: neither has a 4.x release,
+the CLI API moved into core, and the standalone platform package was unused
+here.
+
+### Key flags (`docks-kit sync`)
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Preview without applying |
+| `--skip-plugin-refresh` | Install missing omp plugins but skip refresh-only updates |
+| `--verbose` | Also print no-op confirmations |
+
+Full reference: `docks-kit docs flags`.
+
+## How syncing works
+
+- **Additive by default** — user-only settings keys and plugins survive a
+  plain sync.
+- **Idempotent** — every step is safe to re-run; no-change syncs are no-ops.
+- **Toolchain floors** — `SoT/toolchain.json` records the kit-verified version
+  floors for external tools (bun, omp, …). `docks-kit toolchain check` prints
+  the full doctor table. Bun is the one managed install and is pinned to its
+  verified version.
+- **Command guards** — omp's policy for destructive shell commands: to
+  remove, agents use the trash (`gio trash -- <path>`, or `trash <path>` on
+  macOS) or remove a temporary file or directory with
+  `docks-kit scratch remove`. omp denies `rm` of the home directory or `/`,
+  `HOME` reassignment, every recursive `rm`, `find -delete`, `find -exec rm`,
+  and `xargs rm`. The kit ships no omp prompt rule, so omp runs every command
+  that no deny matches without a question, in subagents too. Details and
+  gaps: `docks-kit docs command-guards`.
+- **Agent cleanup (omp)** — `docks-kit scratch` creates agent temporary
+  directories and removes agent temporary files and directories with checked
+  paths. `docks-kit tidy` lists merged idle worktrees, their containers,
+  orphaned processes, and idle scratch directories, and `docks-kit tidy
+  --apply` removes them; `--report` lists other disk and memory use. The kit
+  omp plugin `docks-kit-omp` exposes these as tools, reminds the agent of
+  what it created, and runs the sweep at most once per 12 hours.
+
+## Kit plugin
+
+Sync writes the kit plugin `docks-kit-omp` to `~/.docks-kit/omp-plugin` and
+links it into omp. The kit plugin content comes from `SoT/.omp/plugin/`:
+
+- **Skills** — the 32 docks and plan-lifecycle skills, for example
+  `plan-manager`, `plan-workspace`, `code-review`, `security`, and
+  `refactor`, plus the `workspace-hygiene` skill.
+- **Agents** — the `code-reviewer` and `plan-reviewer` task agents.
+- **Extensions** — `verify-gate` checks that each `git commit` carries a
+  `Verified:` trailer, `context-tree-nudge` names the context-tree node of
+  each edited file, and `hygiene` gives the agent cleanup tools and
+  reminders.
+- **Rules and commands** — six trigger rules that teach the safe form of a
+  risky command, and the `/cleanup` command.
+
+The kit plugin replaces the former `docks` and `plan-lifecycle` plugins of
+the `docks` marketplace. `docks-kit sync` uninstalls their user-scope installs
+when it can read the omp plugin inventory, and then removes the `docks`
+marketplace when no uninstall failed and it can read the marketplace registry.
+It only warns about a project-scope install, with the manual command. When a
+read fails, sync warns and skips that step, and a later sync tries again.
+Report a problem with a skill, an agent, or the kit in
+[DocksDocks/docks-kit](https://github.com/DocksDocks/docks-kit/issues).
+
+## Repository map
+
+| Path | Purpose |
+|------|---------|
+| `SoT/.omp/` | omp SoT (AGENTS.md, config.yml, models.yml, mcp.json, intercom.json, and the `plugin/` source of `docks-kit-omp`) |
+| `SoT/toolchain.json` | Verified-version floors |
+| `cli/src/engine-native/` | EngineNative sync/toolchain implementation |
+| `cli/src/generated/sotPayload.ts` | Generated in-memory payload used by standalone and npm installs |
+| `cli/` | docks-kit CLI (Effect 4 on Bun) + bundled docs topics |
+| `docks-kit` / `docks-kit.ps1` | POSIX and Windows launchers (binary → Bun-from-source) |
+| `install.sh` / `install.ps1` | POSIX and Windows global installers |
+| `docs/PLAN.md` | Plan pointer and project plan rules; plans are GitHub issues |
+| `AGENTS.md` | Agent-facing engineering rules |
 
 ## Platform support
 
-The two plugins that ship from this repository support Linux and macOS only:
+| Platform | Architecture | docks-kit binary | Sync engine |
+|----------|--------------|------------------|-------------|
+| Linux | x64 | ✅ | ✅ native |
+| Linux | arm64 | ✅ | ✅ native |
+| macOS | arm64 | ✅ | ✅ native |
+| Windows | x64 | ✅ | ✅ native |
 
-| Plugin | Supported hosts |
-|---|---|
-| `docks` | Linux and macOS only |
-| `plan-lifecycle` | Linux and macOS only |
+Details: `docks-kit docs platforms`.
 
-After install, the pipeline skills are user-invocable - ask "run a security audit", "refactor `src/`", or "audit my skills", or invoke `/skill:security`, `/skill:refactor`, or `/skill:skill-agent-pipeline` directly. Every other skill triggers when its description matches the task. omp keeps the bare skill name: `/skill:<name>` invokes a skill and `skill://<name>` reads it.
+## Releases
 
-## What's inside
+Tagging `cli-v*` builds four standalone binaries: `docks-kit-linux-x64`,
+`docks-kit-linux-arm64`, `docks-kit-darwin-arm64`, and
+`docks-kit-windows-x64.exe`. The workflow attaches them plus `SHA256SUMS` and the
+bundle's source map `docks-kit.js.map` to the GitHub release. npm publishes the
+exact package tarball through trusted publishing with OIDC provenance.
+Published binaries, checksums, and release notes are available on
+[GitHub Releases](https://github.com/DocksDocks/docks-kit/releases).
+Each `docks-kit` npm release runs one minified JavaScript bundle of the CLI and
+its generated payload (`cli/dist/docks-kit.js`), so releases are versioned config
+snapshots without shipping the authoring `SoT/` tree. The package does not ship
+the source map; the bundle's last line `//# debugId=<hex>` matches the map of
+the same release.
 
-### Pipeline skills (sequential)
+## Deeper docs
 
-Each runs as one sequential pass in a single context and gates approval through GitHub plan issues managed by the `plan-manager` skill, not the omp plan mode. Per-phase expertise lives in each skill's `references/`.
-
-| Skill | Pipeline |
-|---|---|
-| `security` | discovery → vulnerability scan → logic analysis → adversarial hunt → synthesis that challenges every finding. Read-only; pipe findings to `fix-workflow`. |
-| `refactor` | exploration → dead-code + duplication scans → SOLID analysis (evidenced smells only) → tiered plan → pre-verify → approve → test-guarded one-change-at-a-time implementation → post-verify SOLID delta. |
-| `skill-agent-pipeline` | state detection → explore → categorize skills → content-accuracy audit → pattern-scan → build SKILL.md + references/ → map agent roles → extract agent patterns → build agents (`.omp/agents/*.md`) → verify → report, or implement through `plan-manager`. |
-
-### Convention skills
-
-Auto-trigger on matching tasks (all `user-invocable: false` except `make-interfaces-feel-better` and `code-guardrails`, which are also user-invocable):
-
-| Skill | Use when |
-|---|---|
-| `tdd-workflow` | Test-first development; tests as spec for code that doesn't exist yet |
-| `test-coverage` | Adding tests to existing code; backfilling coverage |
-| `code-review` | Reviewing a path / diff / working tree for bugs, security, perf, AI slop |
-| `accessibility` | Focus management, keyboard handling, ARIA roles/states, accessible names, live regions, landmarks, reduced motion - APG patterns, WCAG 2.2 |
-| `code-clarity` | Code that is hard to understand without narration - names, types, function boundaries, comments, docstrings, error messages, test names |
-| `code-guardrails` | Strict linter rules for TypeScript (oxlint, anti-slop), Rust, Swift, Python, and Bash - plus one mapped source for constants, values, and test data |
-| `commit-discipline` | Splitting work into atomic commits, commit messages, PR descriptions, squash vs merge vs rebase, fixup/autosquash cleanup |
-| `fix-workflow` | Fixing a specific bug, dependency vuln, or finding from `security` / `code-review` |
-| `design-tokenization` | Color/Tailwind work - semantic + brand tokens, no-hex, `:root`/`.dark` parity |
-| `dep-vuln-workflow` | CVE/GHSA triage, audit response, package upgrade decisions |
-| `lint-no-suppressions` | When tempted to add `eslint-disable` / `@ts-ignore` / `# noqa` |
-| `make-interfaces-feel-better` | UI polish, micro-interactions, optical alignment |
-| `react-component-patterns` | React 19+ effects (3 acceptable categories) + composition (compound, slot/`asChild`, polymorphic, headless, provider+hook, cva variants) |
-| `solid` | Generic SOLID for TS/Python/Go modules - strategy maps, discriminated unions, fat-interface splits, dependency injection |
-| `type-safety-discipline` | Branded/newtype IDs, discriminated unions, parse-don't-validate - TS primary; references for Rust/Kotlin/Python |
-| `ci-speed` | Slow or costly CI and test runs - queue time, checkout, installs, caches, lint, type check, tests, sharding, affected-only runs, pre-push hooks, Blacksmith runners with a GitHub-hosted fallback |
-| `effect-ts` | TypeScript code that uses Effect v4 - services, layers, typed errors, `@effect/vitest` tests, Effect diagnostics as lint rules, agent rules that keep code on the installed version |
-
-The kit also ships `agent-first-setup`, `claude-md-migration`, `context-tree`, `report-skill-issue`, `skill-maintenance`, `write-skill`, and `zoom-out`.
-
-### Extensions (the `docks` plugin)
-
-`verify-gate` checks each `git commit` that runs through the bash tool for a `Verified:` trailer. The `DOCKS_VERIFY_GATE` environment variable selects the mode: `observe` (default; writes metadata-only lines to `${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl`), `enforce`, or `off`. `context-tree-nudge` adds a message after an edit inside a context-tree node. `plugins/docks/README.md` describes both.
-
-### Plan lifecycle (the `plan-lifecycle` plugin)
-
-Directly implement one clear, reversible, low-risk local diff with one bounded
-acceptance path; it creates no plan issue, reviewer, or automatic commit. Use
-a canonical plan for explicit planning, multi-commit/cross-repository work,
-scheduling, cold handoff, unresolved decisions, cross-subsystem/public-contract
-changes, security-sensitive/destructive work, or an external effect.
-
-The self-versioned `plan-lifecycle` plugin ships the helper and the canonical
-contract. Plans live in GitHub issues, with reviews in issue comments.
-Do not track plan bodies as repository files.
-
-| Owner | Responsibility |
-|---|---|
-| `plan-workspace` skill | Maintain workspace routing |
-| Main-context `plan-manager` skill | Decide, draft, research, plan review, implement, code review |
-| Internal `plan-reviewer` skill | Review goal fit, research gaps, and security risk |
-| Internal `code-reviewer` skill | Review code by lens: correctness, spec and tests, text and safety |
-| Read-only `plan-reviewer` and `code-reviewer` wrappers | Run the two review roles as omp task agents; a large code-review round runs three lens reviewers at once, and a round that only checks repairs reviews the changes alone |
-| Explicit-only `yolo` skill | Run the whole lifecycle with the grant of the contract's Delegated decisions and without questions; ask only before merge |
-
-Settle Mode before implementation. `plan-only` stops after plan review;
-`plan-and-implement` permits the full lifecycle. A defaulted Mode permits no implementation.
-Each non-local step requires an in-session `ask` immediately before it runs.
-A user-invoked `yolo` run replaces these asks with the contract's Yolo runs section and asks only before merge.
-A delegation grant hands the design and tradeoff decisions of a plan to the agent (the contract's Delegated decisions). Its authority comes only from a trusted `Delegation grant:` comment; the Goal's `Delegated:` line mirrors it. It does not replace these asks or the merge question; a `yolo` run includes that grant.
-Merge requires a fresh `Merge now` answer. Without it, leave the pull request open.
-
-Read `skill://plan-manager/references/plan-contract.md` in omp for the complete
-contract and helper commands of the installed `plan-lifecycle` plugin.
-If the plugin is missing, report it. Do not invent a substitute workflow.
-
-## Repository layout
-
-The tree shows the main folders and files. `git ls-files` lists all tracked files.
-
-```
-.
-├── AGENTS.md                          ← root context-tree node: repository rules for agents
-├── package.json + bun.lock            ← author tooling dependencies and the Bun version pin
-├── biome.json + bunfig.toml           ← Biome format and lint rules, and Bun install rules
-├── .omp-plugin/marketplace.json       ← marketplace catalog (this file is what omp plugin marketplace add reads)
-├── plugins/
-│   ├── docks/                         ← the engineering kit plugin (only plugin dirs get cached on user install)
-│   │   ├── package.json               ← native omp package manifest (name, version, `omp` object with the extensions)
-│   │   ├── skills/                    ← omp skills, with the AGENTS.md node for skill authoring
-│   │   ├── extensions/                ← omp extensions: verify-gate and context-tree-nudge
-│   │   └── README.md                  ← plugin-facing docs
-│   └── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin
-│       ├── package.json               ← native omp package manifest
-│       ├── skills/                    ← lifecycle skills, internal reviewer skills, explicit-only yolo skill, plan.mjs, plan contract, AGENTS.md node
-│       ├── agents/                    ← two read-only reviewer wrappers (omp task agents)
-│       └── test/ + compatibility.json ← self-test and the minimum docks major version
-├── scripts/                           ← plugin-author tooling (NOT shipped to users)
-│   ├── AGENTS.md                      ← context-tree node: validator table, release flow
-│   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
-│   ├── skills/ + agents/ + tree/      ← validators and scorers
-│   └── config/ + lib/ + tests/
-├── tests/                             ← repo-wide checks (idempotency, skill trigger collisions)
-├── .agents/skills/                    ← project skills for this repository: verify (end-to-end omp check), review-benchmark
-├── docs/                              ← plan routing (PLAN.md) and its AGENTS.md node
-├── REVIEW.md                          ← review rules for pull requests
-└── .github/
-    ├── AGENTS.md                      ← context-tree node: workflows and pull request template
-    ├── pull_request_template.md
-    └── workflows/
-        ├── ci.yml                     ← validator CI on PR, release tag, and manual dispatch
-        └── dependency-integrity.yml   ← weekly npm audit signatures
-```
-
-**What ships to users**: only the `plugins/<name>/` directory of each installed plugin. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to the omp plugin cache on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism - the plugin cache copies only the directory pointed at by `source`.
-
-## Develop locally
-
-Test changes without pushing to GitHub. Run the commands from the checkout root. They need `omp`, `node`, `bun`, and `docks-kit`.
-
-The end-to-end check is the `verify` project skill (`.agents/skills/verify/SKILL.md`), with the flows V1 to V6. V1 and V3 are the two smoke commands below; the skill lists the other flows:
-
-```bash
-bun .agents/skills/verify/scripts/omp-smoke.mjs         # install both plugins from this checkout; list versions, skills, task agents, warnings
-bun .agents/skills/verify/scripts/omp-smoke.mjs hooks   # drive the verify-gate and context-tree-nudge extensions
-```
-
-The smoke installs this checkout into isolated omp state in a docks-kit scratch folder, so it does not change your omp install.
-
-To use the changed plugins in one interactive session, first disable each enabled install of `docks@docks`. If an install stays enabled, omp loads the docks extensions two times. Run these steps from the checkout root:
-
-1. Run `omp plugin list --json`. Note each entry of `docks@docks`: its `scope` (`user` or `project`) and its `enabled` value. `"enabled": false` shows a disabled install. An entry with `"enabled": true` or with no `enabled` field is enabled.
-2. Disable each enabled scope. Give `--scope`: when `docks@docks` is installed at both scopes, `omp plugin disable docks@docks` without `--scope` fails.
-
-   ```bash
-   omp plugin disable --scope user docks@docks      # only for an enabled user install
-   omp plugin disable --scope project docks@docks   # only for an enabled project install
-   ```
-
-3. Start the session:
-
-   ```bash
-   omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle -e ./plugins/docks
-   ```
-
-4. After the session, enable again only the scopes that were enabled before:
-
-   ```bash
-   omp plugin enable --scope user docks@docks       # only if the user install was enabled before
-   omp plugin enable --scope project docks@docks    # only if the project install was enabled before
-   ```
-
-`--plugin-dir` loads the skills and task agents of a plugin directory, but not its extensions; `-e ./plugins/docks` loads the extensions that the `omp` object of `plugins/docks/package.json` names. After edits, start a new session with the same flags.
-
-If an install of `docks@docks` stays enabled, each loaded copy of `verify-gate` checks each `bash` call that holds a commit. In `observe` mode, a call with an unverified commit writes one log line for each copy. In `enforce` mode, each copy adds a denial, so the two-denial rule does not work as the `commit-discipline` skill describes.
-
-## Validate before pushing
-
-```bash
-bun install --frozen-lockfile
-bun scripts/ci.mjs --plugin <name>   # a change in one plugin
-bun scripts/ci.mjs                   # a repo-wide change: both plugins and the repo-wide checks
-```
-
-`bun scripts/ci.mjs` is the full local gate. Among its checks are the skill and agent guards, the scorers, the native package checks, and the idempotency check. `ci.yml` runs the same file on CI. The validator table in `scripts/AGENTS.md` lists each validator with its command and what it checks; each scorer's rubric is in its script. `node plugins/docks/skills/write-skill/scripts/skill-guard.mjs score --per-file` prints one `<name> <score>` line for each docks skill, to find drift after an edit.
-
-Bun runs this repository's own tooling: `scripts/`, `tests/`, and the plan-lifecycle selftest. Bun is also the package manager. Its version is the `packageManager` pin in `package.json`.
-
-Node runs the shipped plugin files that consumers run with `node`, also inside the gate. The `skill-guard.mjs` scorer command above is one of them. Node's version is the `node-version` in `.github/workflows/ci.yml`. The docks omp extensions are the exception: omp loads them into its own process, so the gate tests them on Bun.
-
-On a PR to `main`, CI runs only the shards the changed paths resolve to - the repo-wide checks always, plus the lane owning any plugin you touched. On a `<plugin>--v<version>` release tag (docks and plan-lifecycle tag independently), CI resolves the tag to one registry plugin, runs `bun scripts/ci.mjs --lane repo` once over the released bytes, then runs `bun scripts/ci.mjs --plugin <name>` as the authoritative gate. The `--plugin` gate alone skips repo-wide checks. See `.github/workflows/ci.yml`; full trigger model below.
-
-## Versioning + releases
-
-Versions are per plugin. Each plugin's `version` in `plugins/<name>/package.json` and its entry in `.omp-plugin/marketplace.json` stay in lockstep. omp compares the catalog version when it checks for updates and when it upgrades all plugins:
-
-- **With a version**: users receive an update only when this field changes to a newer version. Bump it on every release.
-- **Without a version**: omp does not compare the entry, so it does not find or install updates for that plugin. Every catalog entry in this repository declares a version.
-
-`scripts/release.mjs` releases one plugin per run and wraps the full dance in one command (`--plugin` defaults to `docks`; `--dry-run` previews the bump + manifest diff without tagging):
-
-```bash
-bun scripts/release.mjs patch                          # docks: next patch version
-bun scripts/release.mjs minor                          # docks: next minor version
-bun scripts/release.mjs --plugin plan-lifecycle major  # plan-lifecycle: next major version
-bun scripts/release.mjs --plugin docks <X.Y.Z>         # docks: explicit version
-```
-
-The script runs `bun scripts/ci.mjs --plugin <name>` as a preflight, bumps that plugin's `package.json` plus its entry in the `.omp-plugin/marketplace.json` catalog, commits + pushes, creates the annotated `<name>--v<version>` tag with `git tag -a` and pushes it, **waits for the tag-CI run to pass** (`.github/workflows/ci.yml` is triggered by tag pushes), then calls `gh release create`. The release notes hold the `git log` subjects since the previous tag and an `## Install` block with the new-install and update commands for that plugin (`releaseInstallText` in `scripts/lib/plugins.mjs`). If CI fails, the GitHub Release is NOT created - the tag stays as a marker that the release was attempted, and the script prints recovery steps. Released versions appear at https://github.com/DocksDocks/docks/releases.
-
-CI runs only on (a) PRs to main, (b) tag pushes matching `<plugin>--v<version>`, and (c) manual `workflow_dispatch`. Pushes to main don't re-trigger CI - PR validation gates merges, tag-CI gates releases.
-
-Manually, from a clean checkout of the release commit (tag only, no GitHub Release):
-
-```bash
-v=$(node -p "require('./plugins/<name>/package.json').version")
-git tag -a "<name>--v$v" -m "<name> plugin v$v" && git push origin "<name>--v$v"
-```
-
-Tag CI fails when the tag version differs from the `package.json` version or from the catalog entry version at the tagged commit.
-
-## License
-
-MIT - see `LICENSE` at the repo root.
+- `docks-kit docs <topic>` - overview, sync-layers, flags, toolchain, install,
+  platforms, omp-models, omp-context, command-guards (works offline, bundled
+  with the CLI)
+- [`AGENTS.md`](AGENTS.md) — engineering rules for agents working on the kit

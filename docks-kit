@@ -1,0 +1,131 @@
+#!/bin/bash
+# docks-kit — launcher. Resolution order:
+#   1. version-matching compiled binary in cli/dist/ (bun build --compile output)
+#   2. Bun from source (auto-installs Bun + node_modules when missing)
+# No-Bun recovery path: download a release binary for your platform.
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# BEGIN GENERATED BUN PIN
+BUN_PIN="1.4.4"
+# END GENERATED BUN PIN
+
+# BEGIN GENERATED BUN FLOOR
+BUN_FLOOR="1.4.4"
+# END GENERATED BUN FLOOR
+
+HOST="$(uname -s)-$(uname -m)"
+case "$HOST" in
+  Linux-x86_64)  KIT_BIN="docks-kit-linux-x64" ;;
+  Linux-aarch64) KIT_BIN="docks-kit-linux-arm64" ;;
+  Darwin-arm64)  KIT_BIN="docks-kit-darwin-arm64" ;;
+  *)
+    echo "[docks-kit] unsupported host $HOST; docks-kit supports Linux on x64 and arm64, macOS on arm64, and Windows on x64 - on Windows run docks-kit.ps1 instead." >&2
+    exit 1
+    ;;
+esac
+if [[ -x "$REPO_DIR/cli/dist/$KIT_BIN" ]]; then
+  CHECKOUT_VERSION=""
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^[[:space:]]*\"version\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+      CHECKOUT_VERSION="${BASH_REMATCH[1]}"
+      break
+    fi
+  done < "$REPO_DIR/package.json"
+  BIN_VERSION="$("$REPO_DIR/cli/dist/$KIT_BIN" --version 2>/dev/null || true)"
+  BIN_VERSION="${BIN_VERSION%$'\r'}"
+  if [[ -n "$CHECKOUT_VERSION" && "$BIN_VERSION" == "$CHECKOUT_VERSION" ]]; then
+    # A matching version does not prove matching content. Unreleased work does
+    # not move package.json, so a binary compiled before it still reports the
+    # checkout version and would silently shadow the source it predates.
+    # The binary also embeds the cli/docs topics, so scan both trees.
+    NEWER_SOURCE=""
+    for scan_dir in "$REPO_DIR/cli/src" "$REPO_DIR/cli/docs"; do
+      if [[ -z "$NEWER_SOURCE" && -d "$scan_dir" ]]; then
+        NEWER_SOURCE="$(find "$scan_dir" -type f -newer "$REPO_DIR/cli/dist/$KIT_BIN" -print -quit 2>/dev/null || true)"
+      fi
+    done
+    if [[ -z "$NEWER_SOURCE" ]]; then
+      exec "$REPO_DIR/cli/dist/$KIT_BIN" "$@"
+    fi
+    echo "[docks-kit] ignoring cli/dist/$KIT_BIN; ${NEWER_SOURCE#"$REPO_DIR/"} is newer than the binary — running from source; run 'bun run build:binaries' to refresh it or delete it" >&2
+  else
+    echo "[docks-kit] ignoring stale cli/dist/$KIT_BIN ${BIN_VERSION:-<unknown>}; checkout is ${CHECKOUT_VERSION:-<unknown>} — running from source; run 'bun run build:binaries' to refresh it or delete it" >&2
+  fi
+fi
+
+# Locate bun: PATH, then the known install locations that sit off the
+# non-interactive PATH (~/.bun/bin, ~/.local/bin).
+find_bun() {
+  local c
+  c="$(command -v bun 2>/dev/null || true)"
+  [[ -n "$c" ]] && { printf '%s\n' "$c"; return 0; }
+  for c in "${BUN_INSTALL:-$HOME/.bun}/bin/bun" "$HOME/.bun/bin/bun" "$HOME/.local/bin/bun"; do
+    [[ -x "$c" ]] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 1
+}
+
+bun_version_at_least() {
+  local installed="${1%%[-+]*}"
+  local required="${2%%[-+]*}"
+  local installed_major installed_minor installed_patch
+  local required_major required_minor required_patch
+
+  if [[ "$installed" =~ ^([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})$ ]]; then
+    installed_major="${BASH_REMATCH[1]}"
+    installed_minor="${BASH_REMATCH[2]}"
+    installed_patch="${BASH_REMATCH[3]}"
+  else
+    return 2
+  fi
+  if [[ "$required" =~ ^([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})$ ]]; then
+    required_major="${BASH_REMATCH[1]}"
+    required_minor="${BASH_REMATCH[2]}"
+    required_patch="${BASH_REMATCH[3]}"
+  else
+    return 2
+  fi
+
+  if (( 10#$installed_major > 10#$required_major )); then return 0; fi
+  if (( 10#$installed_major < 10#$required_major )); then return 1; fi
+  if (( 10#$installed_minor > 10#$required_minor )); then return 0; fi
+  if (( 10#$installed_minor < 10#$required_minor )); then return 1; fi
+  if (( 10#$installed_patch >= 10#$required_patch )); then return 0; fi
+  return 1
+}
+
+if ! BUN="$(find_bun)"; then
+  echo "[docks-kit] Bun not found — installing (download-then-run)..." >&2
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "[docks-kit] curl missing too. Install Bun manually (https://bun.sh) or download a docks-kit release binary." >&2
+    exit 1
+  fi
+  # The installer takes a bun-vX.Y.Z release tag as $1. BUN_PIN is generated
+  # from the authoring toolchain manifest alongside the embedded payload.
+  tmp_installer=$(mktemp 2>/dev/null || echo "/tmp/bun-install-$$.sh")
+  curl -fsSL https://bun.sh/install -o "$tmp_installer" && bash "$tmp_installer" ${BUN_PIN:+"bun-v$BUN_PIN"} >/dev/null 2>&1 || true
+  rm -f "$tmp_installer"
+  if ! BUN="$(find_bun)"; then
+    echo "[docks-kit] Bun install failed. Download a docks-kit release binary for a no-Bun recovery path." >&2
+    exit 1
+  fi
+fi
+
+# Sentinel is a real dependency dir, not bare node_modules/ — a failed or
+# partial install leaves node_modules/ present and would suppress the repair.
+if [[ ! -d "$REPO_DIR/node_modules/effect" ]]; then
+  BUN_VERSION="$("$BUN" --version 2>/dev/null || true)"
+  BUN_VERSION="${BUN_VERSION%$'\r'}"
+  bun_version_status=0
+  bun_version_at_least "$BUN_VERSION" "$BUN_FLOOR" || bun_version_status=$?
+  if [[ "$bun_version_status" -eq 1 ]]; then
+    echo "[docks-kit] Bun $BUN_VERSION is below the required floor $BUN_FLOOR; this checkout's lockfile requires Bun $BUN_FLOOR or newer. Run: bun upgrade" >&2
+    exit 1
+  fi
+  echo "[docks-kit] Installing CLI dependencies (bun install --frozen-lockfile)..." >&2
+  (cd "$REPO_DIR" && "$BUN" install --frozen-lockfile >/dev/null)
+fi
+
+exec "$BUN" "$REPO_DIR/cli/src/main.ts" "$@"

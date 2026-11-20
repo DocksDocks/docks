@@ -1,0 +1,453 @@
+cycleOrder:
+  - smol
+  - default
+  - slow
+  - fable
+  - astra
+
+astGrep:
+  enabled: true
+
+checkpoint:
+  enabled: true
+
+task:
+  agentModelOverrides:
+    reviewer: "@reviewer"
+    security-reviewer: "@reviewer"
+    code-reviewer: "@reviewer"
+    plan-reviewer: "@reviewer"
+  agentServiceTierOverrides:
+    reviewer: inherit
+    security-reviewer: inherit
+    code-reviewer: inherit
+    plan-reviewer: inherit
+
+modelRoles:
+  smol: openai-codex/gpt-6-luna:medium
+  designer: anthropic/claude-opus-5-5:high
+  plan: anthropic/claude-opus-5-5:xhigh
+  commit: openai-codex/gpt-6-luna:medium
+  task: anthropic/claude-opus-5-5:high
+  vision: anthropic/claude-opus-5-5:medium
+  tiny: openai-codex/gpt-6-luna:low
+  default: anthropic/claude-opus-5-5:high
+  slow: anthropic/claude-opus-5-5:xhigh
+  fable: anthropic/claude-fable-5-2:medium
+  switch_fable: anthropic/claude-fable-5-2:medium
+  astra: openai-codex/gpt-6.2-astra:xhigh
+  reviewer: openai-codex/gpt-6.1-terra:high
+  web: web/firecrawl
+
+modelTags:
+  fable:
+    name: Fable 5.2
+  switch_fable:
+    name: Fable switch default
+    hidden: true
+  astra:
+    name: GPT-6.2 Astra
+  reviewer:
+    name: Reviewer
+    hidden: true
+
+display:
+  showTokenUsage: true
+
+retry:
+  fallbackChains:
+    default:
+      - openai-codex/gpt-6.2-sol:high
+    task:
+      - openai-codex/gpt-6.2-sol:high
+    vision:
+      - openai-codex/gpt-6.2-sol:medium
+    smol:
+      - anthropic/claude-opus-5-5:low
+    tiny:
+      - anthropic/claude-opus-5-5:low
+    commit:
+      - anthropic/claude-opus-5-5:medium
+    switch_fable: []
+    fable:
+      - openai-codex/gpt-6.2-astra:xhigh
+    astra:
+      - anthropic/claude-fable-5-2:medium
+    reviewer:
+      - anthropic/claude-opus-5-5:high
+    web:
+      - web/exa
+      - web/perplexity
+      - openai-codex/gpt-6-luna
+      - web/parallel
+      - web/zai
+      - web/tinyfish
+      - web/jina
+      - web/kagi
+      - web/tavily
+      - web/brave
+      - web/kimi
+      - web/synthetic
+      - web/ollama
+      - web/searxng
+      - web/startpage
+      - web/duckduckgo
+      - web/ecosia
+      - web/google
+      - web/mojeek
+      - web/public
+
+branchSummary:
+  enabled: true
+
+dev:
+  autoqa: false
+  autoqaConsent: denied
+
+codexResets:
+  autoRedeem5h: "no"
+  autoRedeemWeekly: "no"
+
+startup:
+  quiet: true
+
+bash:
+  # First match wins. omp checks deny rules against the whole line and each
+  # quote-stripped segment, so `rm -rf "$HOME"` matches `rm * $HOME`. `*`
+  # matches any text, spaces and slashes included; no escape spells a literal
+  # `*`.
+  # The kit ships no prompt rule, because a subagent rejects every prompt.
+  # A command that no deny rule matches runs under yolo, unless a prompt rule
+  # that the user added matches it: a plain rm, git rm, git worktree remove,
+  # gio trash, docks-kit scratch remove, git clean, git reset --hard, and
+  # every git push that the denies below do not stop.
+  # omp checks deny, then prompt, then its critical-command patterns, then
+  # allow. A critical command that no deny or prompt rule matches runs under
+  # yolo, so every rm shape that the critical check can flag is a deny.
+  patterns:
+    # Deny: rm of the home directory or the filesystem root, sudo before rm,
+    # rm with an r or f option before an absolute path, recursive rm (bare, by
+    # path, or after any word such as env, xargs, find -exec, or git), bulk
+    # removal through find -delete, find -exec rm, and xargs rm, HOME
+    # reassignment, a force push to main or master, and a $ or a backtick
+    # after git push.
+    - { match: "rm /", approval: deny }
+    - { match: "rm / *", approval: deny }
+    - { match: "rm * /", approval: deny }
+    - { match: "rm * / *", approval: deny }
+    - { match: "rm ~", approval: deny }
+    - { match: "rm ~ *", approval: deny }
+    - { match: "rm * ~", approval: deny }
+    - { match: "rm * ~ *", approval: deny }
+    - { match: "rm ~/", approval: deny }
+    - { match: "rm ~/ *", approval: deny }
+    - { match: "rm * ~/", approval: deny }
+    - { match: "rm * ~/ *", approval: deny }
+    - { match: "rm $HOME", approval: deny }
+    - { match: "rm $HOME *", approval: deny }
+    - { match: "rm * $HOME", approval: deny }
+    - { match: "rm * $HOME *", approval: deny }
+    - { match: "rm $HOME/", approval: deny }
+    - { match: "rm $HOME/ *", approval: deny }
+    - { match: "rm * $HOME/", approval: deny }
+    - { match: "rm * $HOME/ *", approval: deny }
+    - { match: "rm ${HOME}", approval: deny }
+    - { match: "rm ${HOME} *", approval: deny }
+    - { match: "rm * ${HOME}", approval: deny }
+    - { match: "rm * ${HOME} *", approval: deny }
+    - { match: "rm ${HOME}/", approval: deny }
+    - { match: "rm ${HOME}/ *", approval: deny }
+    - { match: "rm * ${HOME}/", approval: deny }
+    - { match: "rm * ${HOME}/ *", approval: deny }
+    - { match: "* rm /", approval: deny }
+    - { match: "* rm / *", approval: deny }
+    - { match: "* rm * /", approval: deny }
+    - { match: "* rm * / *", approval: deny }
+    - { match: "* rm ~", approval: deny }
+    - { match: "* rm ~ *", approval: deny }
+    - { match: "* rm * ~", approval: deny }
+    - { match: "* rm * ~ *", approval: deny }
+    - { match: "* rm ~/", approval: deny }
+    - { match: "* rm ~/ *", approval: deny }
+    - { match: "* rm * ~/", approval: deny }
+    - { match: "* rm * ~/ *", approval: deny }
+    - { match: "* rm $HOME", approval: deny }
+    - { match: "* rm $HOME *", approval: deny }
+    - { match: "* rm * $HOME", approval: deny }
+    - { match: "* rm * $HOME *", approval: deny }
+    - { match: "* rm $HOME/", approval: deny }
+    - { match: "* rm $HOME/ *", approval: deny }
+    - { match: "* rm * $HOME/", approval: deny }
+    - { match: "* rm * $HOME/ *", approval: deny }
+    - { match: "* rm ${HOME}", approval: deny }
+    - { match: "* rm ${HOME} *", approval: deny }
+    - { match: "* rm * ${HOME}", approval: deny }
+    - { match: "* rm * ${HOME} *", approval: deny }
+    - { match: "* rm ${HOME}/", approval: deny }
+    - { match: "* rm ${HOME}/ *", approval: deny }
+    - { match: "* rm * ${HOME}/", approval: deny }
+    - { match: "* rm * ${HOME}/ *", approval: deny }
+    - { match: "*/rm /", approval: deny }
+    - { match: "*/rm / *", approval: deny }
+    - { match: "*/rm * /", approval: deny }
+    - { match: "*/rm * / *", approval: deny }
+    - { match: "*/rm ~", approval: deny }
+    - { match: "*/rm ~ *", approval: deny }
+    - { match: "*/rm * ~", approval: deny }
+    - { match: "*/rm * ~ *", approval: deny }
+    - { match: "*/rm ~/", approval: deny }
+    - { match: "*/rm ~/ *", approval: deny }
+    - { match: "*/rm * ~/", approval: deny }
+    - { match: "*/rm * ~/ *", approval: deny }
+    - { match: "*/rm $HOME", approval: deny }
+    - { match: "*/rm $HOME *", approval: deny }
+    - { match: "*/rm * $HOME", approval: deny }
+    - { match: "*/rm * $HOME *", approval: deny }
+    - { match: "*/rm $HOME/", approval: deny }
+    - { match: "*/rm $HOME/ *", approval: deny }
+    - { match: "*/rm * $HOME/", approval: deny }
+    - { match: "*/rm * $HOME/ *", approval: deny }
+    - { match: "*/rm ${HOME}", approval: deny }
+    - { match: "*/rm ${HOME} *", approval: deny }
+    - { match: "*/rm * ${HOME}", approval: deny }
+    - { match: "*/rm * ${HOME} *", approval: deny }
+    - { match: "*/rm ${HOME}/", approval: deny }
+    - { match: "*/rm ${HOME}/ *", approval: deny }
+    - { match: "*/rm * ${HOME}/", approval: deny }
+    - { match: "*/rm * ${HOME}/ *", approval: deny }
+    - { match: "sudo rm", approval: deny }
+    - { match: "sudo rm *", approval: deny }
+    - { match: "sudo * rm", approval: deny }
+    - { match: "sudo * rm *", approval: deny }
+    - { match: "sudo */rm", approval: deny }
+    - { match: "sudo */rm *", approval: deny }
+    - { match: "* sudo rm", approval: deny }
+    - { match: "* sudo rm *", approval: deny }
+    - { match: "* sudo * rm", approval: deny }
+    - { match: "* sudo * rm *", approval: deny }
+    - { match: "* sudo */rm", approval: deny }
+    - { match: "* sudo */rm *", approval: deny }
+    - { match: "*/sudo rm", approval: deny }
+    - { match: "*/sudo rm *", approval: deny }
+    - { match: "*/sudo * rm", approval: deny }
+    - { match: "*/sudo * rm *", approval: deny }
+    - { match: "*/sudo */rm", approval: deny }
+    - { match: "*/sudo */rm *", approval: deny }
+    - { match: "rm *-*r* /*", approval: deny }
+    - { match: "rm *-*R* /*", approval: deny }
+    - { match: "rm *-*f* /*", approval: deny }
+    - { match: "rm *-*F* /*", approval: deny }
+    - { match: "rm *--no-preserve-root*", approval: deny }
+    - { match: "* rm *-*r* /*", approval: deny }
+    - { match: "* rm *-*R* /*", approval: deny }
+    - { match: "* rm *-*f* /*", approval: deny }
+    - { match: "* rm *-*F* /*", approval: deny }
+    - { match: "* rm *--no-preserve-root*", approval: deny }
+    - { match: "*/rm *-*r* /*", approval: deny }
+    - { match: "*/rm *-*R* /*", approval: deny }
+    - { match: "*/rm *-*f* /*", approval: deny }
+    - { match: "*/rm *-*F* /*", approval: deny }
+    - { match: "*/rm *--no-preserve-root*", approval: deny }
+    - { match: "rm *-r *", approval: deny }
+    - { match: "rm *-r", approval: deny }
+    - { match: "rm *-rf *", approval: deny }
+    - { match: "rm *-rf", approval: deny }
+    - { match: "rm *-fr *", approval: deny }
+    - { match: "rm *-fr", approval: deny }
+    - { match: "rm *-rv *", approval: deny }
+    - { match: "rm *-rv", approval: deny }
+    - { match: "rm *-vr *", approval: deny }
+    - { match: "rm *-vr", approval: deny }
+    - { match: "rm *-rfv *", approval: deny }
+    - { match: "rm *-rfv", approval: deny }
+    - { match: "rm *-rvf *", approval: deny }
+    - { match: "rm *-rvf", approval: deny }
+    - { match: "rm *-frv *", approval: deny }
+    - { match: "rm *-frv", approval: deny }
+    - { match: "rm *-fvr *", approval: deny }
+    - { match: "rm *-fvr", approval: deny }
+    - { match: "rm *-vrf *", approval: deny }
+    - { match: "rm *-vrf", approval: deny }
+    - { match: "rm *-vfr *", approval: deny }
+    - { match: "rm *-vfr", approval: deny }
+    - { match: "rm *-ri *", approval: deny }
+    - { match: "rm *-ri", approval: deny }
+    - { match: "rm *-ir *", approval: deny }
+    - { match: "rm *-ir", approval: deny }
+    - { match: "rm *-Ri *", approval: deny }
+    - { match: "rm *-Ri", approval: deny }
+    - { match: "rm *-iR *", approval: deny }
+    - { match: "rm *-iR", approval: deny }
+    - { match: "rm *-R *", approval: deny }
+    - { match: "rm *-R", approval: deny }
+    - { match: "rm *-Rf *", approval: deny }
+    - { match: "rm *-Rf", approval: deny }
+    - { match: "rm *-fR *", approval: deny }
+    - { match: "rm *-fR", approval: deny }
+    - { match: "rm *-Rv *", approval: deny }
+    - { match: "rm *-Rv", approval: deny }
+    - { match: "rm *-vR *", approval: deny }
+    - { match: "rm *-vR", approval: deny }
+    - { match: "rm *-Rfv *", approval: deny }
+    - { match: "rm *-Rfv", approval: deny }
+    - { match: "rm *-Rvf *", approval: deny }
+    - { match: "rm *-Rvf", approval: deny }
+    - { match: "rm *-fRv *", approval: deny }
+    - { match: "rm *-fRv", approval: deny }
+    - { match: "rm *-fvR *", approval: deny }
+    - { match: "rm *-fvR", approval: deny }
+    - { match: "rm *-vRf *", approval: deny }
+    - { match: "rm *-vRf", approval: deny }
+    - { match: "rm *-vfR *", approval: deny }
+    - { match: "rm *-vfR", approval: deny }
+    - { match: "rm *--recursive *", approval: deny }
+    - { match: "rm *--recursive", approval: deny }
+    - { match: "*/rm *-r *", approval: deny }
+    - { match: "*/rm *-r", approval: deny }
+    - { match: "*/rm *-rf *", approval: deny }
+    - { match: "*/rm *-rf", approval: deny }
+    - { match: "*/rm *-fr *", approval: deny }
+    - { match: "*/rm *-fr", approval: deny }
+    - { match: "*/rm *-rv *", approval: deny }
+    - { match: "*/rm *-rv", approval: deny }
+    - { match: "*/rm *-vr *", approval: deny }
+    - { match: "*/rm *-vr", approval: deny }
+    - { match: "*/rm *-rfv *", approval: deny }
+    - { match: "*/rm *-rfv", approval: deny }
+    - { match: "*/rm *-rvf *", approval: deny }
+    - { match: "*/rm *-rvf", approval: deny }
+    - { match: "*/rm *-frv *", approval: deny }
+    - { match: "*/rm *-frv", approval: deny }
+    - { match: "*/rm *-fvr *", approval: deny }
+    - { match: "*/rm *-fvr", approval: deny }
+    - { match: "*/rm *-vrf *", approval: deny }
+    - { match: "*/rm *-vrf", approval: deny }
+    - { match: "*/rm *-vfr *", approval: deny }
+    - { match: "*/rm *-vfr", approval: deny }
+    - { match: "*/rm *-ri *", approval: deny }
+    - { match: "*/rm *-ri", approval: deny }
+    - { match: "*/rm *-ir *", approval: deny }
+    - { match: "*/rm *-ir", approval: deny }
+    - { match: "*/rm *-Ri *", approval: deny }
+    - { match: "*/rm *-Ri", approval: deny }
+    - { match: "*/rm *-iR *", approval: deny }
+    - { match: "*/rm *-iR", approval: deny }
+    - { match: "*/rm *-R *", approval: deny }
+    - { match: "*/rm *-R", approval: deny }
+    - { match: "*/rm *-Rf *", approval: deny }
+    - { match: "*/rm *-Rf", approval: deny }
+    - { match: "*/rm *-fR *", approval: deny }
+    - { match: "*/rm *-fR", approval: deny }
+    - { match: "*/rm *-Rv *", approval: deny }
+    - { match: "*/rm *-Rv", approval: deny }
+    - { match: "*/rm *-vR *", approval: deny }
+    - { match: "*/rm *-vR", approval: deny }
+    - { match: "*/rm *-Rfv *", approval: deny }
+    - { match: "*/rm *-Rfv", approval: deny }
+    - { match: "*/rm *-Rvf *", approval: deny }
+    - { match: "*/rm *-Rvf", approval: deny }
+    - { match: "*/rm *-fRv *", approval: deny }
+    - { match: "*/rm *-fRv", approval: deny }
+    - { match: "*/rm *-fvR *", approval: deny }
+    - { match: "*/rm *-fvR", approval: deny }
+    - { match: "*/rm *-vRf *", approval: deny }
+    - { match: "*/rm *-vRf", approval: deny }
+    - { match: "*/rm *-vfR *", approval: deny }
+    - { match: "*/rm *-vfR", approval: deny }
+    - { match: "*/rm *--recursive *", approval: deny }
+    - { match: "*/rm *--recursive", approval: deny }
+    - { match: "* rm *-r *", approval: deny }
+    - { match: "* rm *-r", approval: deny }
+    - { match: "* rm *-rf *", approval: deny }
+    - { match: "* rm *-rf", approval: deny }
+    - { match: "* rm *-fr *", approval: deny }
+    - { match: "* rm *-fr", approval: deny }
+    - { match: "* rm *-rv *", approval: deny }
+    - { match: "* rm *-rv", approval: deny }
+    - { match: "* rm *-vr *", approval: deny }
+    - { match: "* rm *-vr", approval: deny }
+    - { match: "* rm *-rfv *", approval: deny }
+    - { match: "* rm *-rfv", approval: deny }
+    - { match: "* rm *-rvf *", approval: deny }
+    - { match: "* rm *-rvf", approval: deny }
+    - { match: "* rm *-frv *", approval: deny }
+    - { match: "* rm *-frv", approval: deny }
+    - { match: "* rm *-fvr *", approval: deny }
+    - { match: "* rm *-fvr", approval: deny }
+    - { match: "* rm *-vrf *", approval: deny }
+    - { match: "* rm *-vrf", approval: deny }
+    - { match: "* rm *-vfr *", approval: deny }
+    - { match: "* rm *-vfr", approval: deny }
+    - { match: "* rm *-R *", approval: deny }
+    - { match: "* rm *-R", approval: deny }
+    - { match: "* rm *-ri *", approval: deny }
+    - { match: "* rm *-ri", approval: deny }
+    - { match: "* rm *-ir *", approval: deny }
+    - { match: "* rm *-ir", approval: deny }
+    - { match: "* rm *-Ri *", approval: deny }
+    - { match: "* rm *-Ri", approval: deny }
+    - { match: "* rm *-iR *", approval: deny }
+    - { match: "* rm *-iR", approval: deny }
+    - { match: "* rm *-Rf *", approval: deny }
+    - { match: "* rm *-Rf", approval: deny }
+    - { match: "* rm *-fR *", approval: deny }
+    - { match: "* rm *-fR", approval: deny }
+    - { match: "* rm *-Rv *", approval: deny }
+    - { match: "* rm *-Rv", approval: deny }
+    - { match: "* rm *-vR *", approval: deny }
+    - { match: "* rm *-vR", approval: deny }
+    - { match: "* rm *-Rfv *", approval: deny }
+    - { match: "* rm *-Rfv", approval: deny }
+    - { match: "* rm *-Rvf *", approval: deny }
+    - { match: "* rm *-Rvf", approval: deny }
+    - { match: "* rm *-fRv *", approval: deny }
+    - { match: "* rm *-fRv", approval: deny }
+    - { match: "* rm *-fvR *", approval: deny }
+    - { match: "* rm *-fvR", approval: deny }
+    - { match: "* rm *-vRf *", approval: deny }
+    - { match: "* rm *-vRf", approval: deny }
+    - { match: "* rm *-vfR *", approval: deny }
+    - { match: "* rm *-vfR", approval: deny }
+    - { match: "* rm *--recursive *", approval: deny }
+    - { match: "* rm *--recursive", approval: deny }
+    # Bulk removal: find -delete, find -exec rm, and xargs rm, in every position.
+    - { match: "find *-delete*", approval: deny }
+    - { match: "*/find *-delete*", approval: deny }
+    - { match: "* find *-delete*", approval: deny }
+    - { match: "*-exec rm *", approval: deny }
+    - { match: "*-exec */rm *", approval: deny }
+    - { match: "*-execdir rm *", approval: deny }
+    - { match: "*-execdir */rm *", approval: deny }
+    - { match: "*-ok rm *", approval: deny }
+    - { match: "*-ok */rm *", approval: deny }
+    - { match: "*-okdir rm *", approval: deny }
+    - { match: "*-okdir */rm *", approval: deny }
+    - { match: "*xargs rm", approval: deny }
+    - { match: "*xargs rm *", approval: deny }
+    - { match: "*xargs * rm", approval: deny }
+    - { match: "*xargs * rm *", approval: deny }
+    - { match: "*xargs */rm", approval: deny }
+    - { match: "*xargs */rm *", approval: deny }
+    - { match: "HOME=*", approval: deny }
+    - { match: "export HOME=*", approval: deny }
+    - { match: "env HOME=*", approval: deny }
+    - { match: "env * HOME=*", approval: deny }
+    - { match: "git push --force origin main", approval: deny }
+    - { match: "git push --force origin main *", approval: deny }
+    - { match: "git push --force origin master", approval: deny }
+    - { match: "git push --force origin master *", approval: deny }
+    - { match: "git push -f origin main", approval: deny }
+    - { match: "git push -f origin main *", approval: deny }
+    - { match: "git push -f origin master", approval: deny }
+    - { match: "git push -f origin master *", approval: deny }
+    # A $ or a backtick anywhere after git push: the matcher reads the text
+    # before the shell expands it, so it cannot tell a branch name from +main
+    # or --force. An unquoted value inside a word also splits into more words.
+    # A deny, not a prompt: the agent reads the refusal and writes the ref
+    # literally (git push -u origin HEAD). No person is asked.
+    # The leading * also reaches a git push after a shell keyword such as do,
+    # after a wrapper such as env, and after a path such as /usr/bin/git.
+    - { match: "*git push *$*", approval: deny }
+    - { match: "*git push *`*", approval: deny }
+    # Allow: the macOS trash command.
+    - { match: "trash *", approval: allow }
