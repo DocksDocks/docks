@@ -249,6 +249,25 @@
       "skips": []
     },
     {
+      "id": "unit-context-tree-nudge",
+      "version": 1,
+      "title": "Context-tree nudge extension unit contracts",
+      "owner": {
+        "suite": "scripts/tests/unit/context-tree-nudge.test.mjs",
+        "layer": "unit"
+      },
+      "selection": {
+        "kind": "node-test-file",
+        "selector": "scripts/tests/unit/context-tree-nudge.test.mjs",
+        "expected_min": 21
+      },
+      "platforms": ["linux", "macos"],
+      "toolchains": ["bun-1"],
+      "release_role": "gate",
+      "replaces": [],
+      "skips": []
+    },
+    {
       "id": "unit-gate-memo",
       "version": 1,
       "title": "CI gate memo unit contracts",
@@ -365,7 +384,7 @@
     {
       "id": "unit-verify-gate",
       "version": 1,
-      "title": "Verify Gate hook unit contracts",
+      "title": "Verify Gate extension unit contracts",
       "owner": {
         "suite": "scripts/tests/unit/verify-gate.test.mjs",
         "layer": "unit"
@@ -373,7 +392,7 @@
       "selection": {
         "kind": "node-test-file",
         "selector": "scripts/tests/unit/verify-gate.test.mjs",
-        "expected_min": 10
+        "expected_min": 27
       },
       "platforms": ["linux", "macos"],
       "toolchains": ["bun-1"],

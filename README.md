@@ -18,6 +18,8 @@ omp plugin upgrade docks@docks
 omp plugin upgrade plan-lifecycle@docks
 ```
 
+Restart omp after an update. omp loads the extensions of a plugin only when a session starts, so an open session keeps the old ones.
+
 ## session-relay moved out
 
 session-relay is no longer part of this kit. It lives at
@@ -150,7 +152,7 @@ bun scripts/agents/score.mjs    # quality score (max 15) - no `model` key, tools
 
 Bun runs this repository's own tooling: `scripts/`, `tests/`, and the plan-lifecycle selftest. Bun is also the package manager. Its version is the `packageManager` pin in `package.json`.
 
-Node runs the shipped plugin files, also inside the gate, because consumers run them with `node`. The `skill-guard.mjs` scorer line above is one of them. Node's version is the `node-version` in `.github/workflows/ci.yml`.
+Node runs the shipped plugin files that consumers run with `node`, also inside the gate. The `skill-guard.mjs` scorer line above is one of them. Node's version is the `node-version` in `.github/workflows/ci.yml`. The docks omp extensions are the exception: omp loads them into its own process, so the gate tests them on Bun.
 
 `--per-file` on a scorer prints one `<name> <score>` line per item - useful for spotting drift after an edit. `bun scripts/ci.mjs` runs the full local gate (guards + scorers + native package checks + idempotency); `ci.yml` runs that same file on CI.
 

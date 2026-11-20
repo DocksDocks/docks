@@ -1,32 +1,32 @@
 ---
 name: report-skill-issue
-description: "Use when reporting a problem with a docks or plan-lifecycle skill, reviewer agent, hook, or script: a wrong, outdated, or unsafe instruction, or a shipped script that fails. Drafts a redacted, reproducible issue for DocksDocks/docks and files it with gh only after the user approves the exact text. Not for fixing the skill in place (use write-skill or skill-maintenance) or bugs in the user's own code (use fix-workflow). A security problem never becomes a public issue."
+description: "Use when reporting a problem with a docks or plan-lifecycle skill, reviewer agent, omp extension, or script: a wrong, outdated, or unsafe instruction, or a shipped script that fails. Drafts a redacted, reproducible issue for DocksDocks/docks and files it with gh only after the user approves the exact text. Not for fixing the skill in place (use write-skill or skill-maintenance) or bugs in the user's own code (use fix-workflow). A security problem never becomes a public issue."
 user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-19"
-  content_hash: "4e2039be6e66be1af4b5b80c0a44620145c28943ba09d611a6225cf2f8e2551a"
+  content_hash: "cb913e85a72a512e351209c9d5abd76e2036a6deaf4ffddbe67366ff16358552"
 ---
 
 # Report a Skill Issue
 
-The docks and plan-lifecycle plugins come from the public GitHub repository DocksDocks/docks. When one of their skills, reviewer agents, hooks, or scripts gives a wrong, outdated, or unsafe instruction, or a shipped script fails, this skill turns what you saw into one issue there. A useful report lets a maintainer reproduce the problem without access to the user's project. It identifies the exact skill text, quotes the instruction, and shows what happened. It contains nothing private, because anyone can read it.
+The docks and plan-lifecycle plugins come from the public GitHub repository DocksDocks/docks. When one of their skills, reviewer agents, omp extensions, or scripts gives a wrong, outdated, or unsafe instruction, or a shipped script fails, this skill turns what you saw into one issue there. A useful report lets a maintainer reproduce the problem without access to the user's project. It identifies the exact skill text, quotes the instruction, and shows what happened. It contains nothing private, because anyone can read it.
 
 <constraint>
 DocksDocks/docks is a public repository. Anyone can read its issues and comments, and search engines index them. File no issue and post no comment until the user has read and approved the exact title and body that you will send. Show the draft, ask for approval, and end your turn. Do not run `gh issue create` or `gh issue comment` in the turn that shows the draft. If the user changes the draft, show the new text and get approval again. An approval that the user gave before they saw the final text does not count. In a run where you cannot ask the user (a headless run, a scheduled job, or a subagent with no way to reach the user), print the draft and the prefilled URL as your final message and stop. The URL files nothing by itself: the user reads the draft and files it from the form. Give no prefilled URL for a security problem. File nothing in that run.
 </constraint>
 
 <constraint>
-Keep private data out of the title and the body. Leave out secret values and tokens (name the variable only, for example `GH_TOKEN`), names of private repositories, organizations, customers, and people, internal hostnames and URLs, absolute machine paths (write a path relative to the project or the plugin root), proprietary code or data, and titles of private plans and issues. Describe each one generically instead, for example "a private repository" or "a plan issue in a private repository". Decide whether a repository is private with the lookup in stage 4, not from memory. A security problem is a skill, agent, hook, or script that exposes secrets, runs unsafe commands, or weakens access control. A security problem never goes into a public issue or comment, not even in redacted form. Give the user the draft and tell them to send it privately to the repository owner. If a credential was exposed, tell the user to rotate it now, whether or not they send the report.
+Keep private data out of the title and the body. Leave out secret values and tokens (name the variable only, for example `GH_TOKEN`), names of private repositories, organizations, customers, and people, internal hostnames and URLs, absolute machine paths (write a path relative to the project or the plugin root), proprietary code or data, and titles of private plans and issues. Describe each one generically instead, for example "a private repository" or "a plan issue in a private repository". Decide whether a repository is private with the lookup in stage 4, not from memory. A security problem is a skill, agent, omp extension, or script that exposes secrets, runs unsafe commands, or weakens access control. A security problem never goes into a public issue or comment, not even in redacted form. Give the user the draft and tell them to send it privately to the repository owner. If a credential was exposed, tell the user to rotate it now, whether or not they send the report.
 </constraint>
 
 ## Scope
 
-Report problems in what ships with the docks or plan-lifecycle plugins: skills, reviewer agents, hooks, and scripts. A shipped skill sits at `<plugin-root>/skills/<skill>/SKILL.md`. The plugin root holds `package.json`, and its `name` is `docks` or `plan-lifecycle`.
+Report problems in what ships with the docks or plan-lifecycle plugins: skills, reviewer agents, omp extensions, and scripts. A shipped skill sits at `<plugin-root>/skills/<skill>/SKILL.md`, and a shipped omp extension sits in `<plugin-root>/extensions/`. The plugin root holds `package.json`, and its `name` is `docks` or `plan-lifecycle`.
 
 | The problem is in | Do this |
 |---|---|
-| A shipped skill, reviewer agent, hook, or script | Use this skill |
+| A shipped skill, reviewer agent, omp extension, or script | Use this skill |
 | A shipped item, and it exposes secrets, runs unsafe commands, or weakens access control | Write a private draft (see "Security problems"); file no issue |
 | The user's own project code | Not a skill problem; use `fix-workflow` |
 | Your own run: you skipped a step, changed a command, or acted on an assumption that the skill does not state | Not a report; correct the run and tell the user |
@@ -52,11 +52,11 @@ If the quoted text does not say what the user reports, or says the opposite, do 
 
 Read the copy of the skill that the runtime loaded for the run. Do not read it from a checkout of DocksDocks/docks or from another copy. Their text and version can differ, and a report that quotes the wrong copy blames the wrong text. Most runtimes show the path or base directory of a skill when they load it. If the problem happened in an earlier session, use the copy that the session loaded when its log shows it. Otherwise, use the installed copy and say so in the draft.
 
-In that copy, the plugin root is the folder that holds `skills/<skill>/SKILL.md`. For an agent, hook, or script, it is the folder that holds `package.json`. Collect these facts. Write `unknown` for any fact that you cannot read; never guess a version or a hash.
+In that copy, the plugin root is the folder that holds `skills/<skill>/SKILL.md`. For an agent, omp extension, or script, it is the folder that holds `package.json`. Collect these facts. Write `unknown` for any fact that you cannot read; never guess a version or a hash.
 
 | Fact | Where to read it |
 |---|---|
-| `<plugin>:<skill>` | `name` in the plugin root's `package.json`, and `name` in the skill's frontmatter. For an agent, hook, or script, use its path relative to the plugin root |
+| `<plugin>:<skill>` | `name` in the plugin root's `package.json`, and `name` in the skill's frontmatter. For an agent, omp extension, or script, use its path relative to the plugin root |
 | Plugin version | `version` in the plugin root's `package.json`. In a checkout of the marketplace, the plugin's entry in `.omp-plugin/marketplace.json` holds the same `version` |
 | Skill metadata | `metadata.updated` and the first 12 characters of `metadata.content_hash` in the skill's frontmatter |
 | Runtime | Claude Code, Codex, OpenCode, VS Code Copilot, or omp, and its version (for example from its `--version` output) |
@@ -154,7 +154,7 @@ If the full URL is longer than about 6,000 characters, give the title and the bo
 
 ## Security problems
 
-A skill, agent, hook, or script that exposes secrets, runs unsafe commands, or weakens access control has a security problem. Do not file it, comment on it, or describe it in any public place, not even in redacted form. Instead:
+A skill, agent, omp extension, or script that exposes secrets, runs unsafe commands, or weakens access control has a security problem. Do not file it, comment on it, or describe it in any public place, not even in redacted form. Instead:
 
 1. Tell the user to rotate every credential that was exposed, now.
 2. Draft the report with every section of the template below, and put "Private security report" above the title. A private report needs the same facts as a public one.
@@ -174,7 +174,7 @@ Title: <plugin>:<skill>: <symptom in one line>
 
 ## Skill
 
-- Skill: `<plugin>:<skill>` (or the agent, hook, or script path relative to the plugin root)
+- Skill: `<plugin>:<skill>` (or the agent, omp extension, or script path relative to the plugin root)
 - Plugin version: <x.y.z or unknown>
 - Skill metadata: updated <YYYY-MM-DD>, content_hash <first 12 characters>
 - Runtime: <Claude Code, Codex, OpenCode, VS Code Copilot, or omp> <version or unknown>

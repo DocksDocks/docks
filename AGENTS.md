@@ -12,7 +12,7 @@ bun scripts/ci.mjs --plugin <name>                   # authoritative gate for on
 bun scripts/ci.mjs                                   # full gate for repo-wide, shared, or multi-plugin changes
 ```
 
-Bun runs this repository's tooling and is the package manager; its version is the `packageManager` pin in `package.json`. Node runs the shipped plugin files that the gate tests, because consumers run them with `node`; its version is the `node-version` in `.github/workflows/ci.yml` (verify: `grep -n node-version .github/workflows/ci.yml; grep -n packageManager package.json`).
+Bun runs this repository's tooling and is the package manager; its version is the `packageManager` pin in `package.json`. Node runs the shipped plugin files that the gate tests, because consumers run them with `node`; its version is the `node-version` in `.github/workflows/ci.yml` (verify: `grep -n node-version .github/workflows/ci.yml; grep -n packageManager package.json`). The docks omp extensions are the exception: omp loads them into its own process, so the gate tests them on Bun.
 
 ## Repository scope
 
@@ -21,7 +21,7 @@ Bun runs this repository's tooling and is the package manager; its version is th
 ├── plugins/docks/                    plugin payload (shipped to consumers)
 │   ├── package.json                  native omp package manifest (name, version, `omp` object)
 │   ├── skills/   (cross-tool)        surfaced in every runtime - incl. security/refactor/skill-agent-pipeline pipelines
-│   └── hooks/    (cross-tool)        context-tree-nudge PostToolUse hook and verify-gate PreToolUse hook (Claude + Codex)
+│   └── extensions/ (omp)             verify-gate commit check and context-tree nudge: omp extensions (`.ts` adapters over `.mjs` cores)
 ├── plugins/plan-lifecycle/           GitHub-issue plan lifecycle plugin (cross-tool): lifecycle skills, shipped plan.mjs, plan contract reference, and read-only reviewer wrappers under agents/; self-versioned with a closed compatibility.json checked by its self-test
 ├── .omp-plugin/marketplace.json      omp marketplace catalog (one entry per plugin)
 ├── .agents/skills/                   project-local skills (canonical, multi-tool)

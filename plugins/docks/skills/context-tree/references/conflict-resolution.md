@@ -4,7 +4,7 @@
 
 - [Existing-node detection](#existing-node-detection-run-first-always) · [Legacy CLAUDE.md](#legacy-claudemd-report-and-route) · [Merge vs overwrite](#merge-vs-overwrite) · [Per-section relocation](#per-section-relocation-init--full-refresh)
 - [Drift detection (`audit`)](#drift-detection-audit--content-accuracy-not-existence) — checkable claims, per-claim verdicts, durable-docs findings, [Graph Lint](#graph-lint-cross-node-health--after-the-per-claim-pass), pre-filter
-- [No-op refresh (hook safety)](#no-op-refresh-hook-safety)
+- [No-op refresh (nudge safety)](#no-op-refresh-nudge-safety)
 
 ## Existing-node detection (run first, always)
 
@@ -137,9 +137,9 @@ Scope the read with the node's `## tree` `sources:` list (the files its claims c
 
 Output per node: `claims checked | confirmed | broken-ref | stale-snippet | fictional-identifier | drifted-claim | volatile-value | duplicated-fact | dead-pointer | unchecked-list | line-anchor | eager-import | verdict`, plus a dropped-on-failed-reproduction list. Report drift; do not auto-fix in `audit`. The user decides whether to `refresh`.
 
-## No-op refresh (hook safety)
+## No-op refresh (nudge safety)
 
-The `PostToolUse` hook nudges the agent (via injected context) to run `refresh <folder>` after every edit inside a node — it never invokes refresh itself. `refresh` MUST therefore be a no-op when nothing semantic changed, or the nudge-refresh cycle write-loops. Reuse the `skill-maintenance` update-only-when-meaning-changed pattern:
+The docks `context-tree-nudge` omp extension nudges the agent (via added context) to run `refresh <folder>` after every edit inside a node — it never invokes refresh itself. `refresh` MUST therefore be a no-op when nothing semantic changed, or the nudge-refresh cycle write-loops. Reuse the `skill-maintenance` update-only-when-meaning-changed pattern:
 
 ```bash
 # only rewrite when the derived content actually differs from disk

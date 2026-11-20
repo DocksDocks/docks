@@ -487,7 +487,7 @@ async function testFocusedCiCommandSelection() {
     'scripts/tests/test-contracts.mjs',
   ];
   const planLifecycleBiomeCiArgv = ['run', 'biome', 'ci', 'plugins/plan-lifecycle/test'];
-  const coreBiomeCiArgv = ['run', 'biome', 'ci', 'scripts', 'plugins/docks/hooks', 'plugins/plan-lifecycle/test'];
+  const coreBiomeCiArgv = ['run', 'biome', 'ci', 'scripts', 'plugins/docks/extensions', 'plugins/plan-lifecycle/test'];
   const docksSkillScripts = [
     'plugins/docks/skills/write-skill/scripts',
     'plugins/docks/skills/agent-first-setup/scripts',
@@ -599,7 +599,7 @@ async function testFocusedCiCommandSelection() {
       } else {
         assert.equal(countToolInvocation(selected.calls, 'bun', ['run', 'check:js']), 0);
         assert.equal(
-          countToolInvocation(selected.calls, 'bun', ['run', 'biome', 'ci', 'scripts', 'plugins/docks/hooks']),
+          countToolInvocation(selected.calls, 'bun', ['run', 'biome', 'ci', 'scripts', 'plugins/docks/extensions']),
           1,
         );
         assert.equal(countToolInvocation(selected.calls, 'bun', docksBiomeLintArgv), 1);
@@ -807,6 +807,11 @@ const writeTreeFile = (tree, relative, text) => {
   fs.mkdirSync(path.dirname(path.join(tree, relative)), { recursive: true });
   fs.writeFileSync(path.join(tree, relative), text);
 };
+// A symbolic link at `relative` in the tree that points to `target`, a path relative to the folder of the link.
+const linkTreeFile = (tree, relative, target) => {
+  fs.mkdirSync(path.dirname(path.join(tree, relative)), { recursive: true });
+  fs.symlinkSync(target, path.join(tree, relative));
+};
 const editTreeText = (tree, relative, change) => {
   const file = path.join(tree, relative);
   const before = fs.readFileSync(file, 'utf8');
@@ -939,6 +944,111 @@ const NATIVE_GATE_CASES = [
     /\bomp\b/,
   ],
   [
+    'an omp.extensions entry that does not exist',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-missing.ts'];
+      }),
+    /extensions\/zz-missing\.ts is not a file/,
+  ],
+  [
+    // The module has a default export and a function export, but its default export is not a function.
+    'an omp.extensions entry without a default function export',
+    (tree) => {
+      writeTreeFile(
+        tree,
+        'plugins/docks/extensions/zz-no-default.ts',
+        'export const register = () => undefined;\nexport default { register };\n',
+      );
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-no-default.ts'];
+      });
+    },
+    /extensions\/zz-no-default\.ts/,
+  ],
+  [
+    'an omp.extensions value that is not an array of strings',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = './extensions/verify-gate.ts';
+      }),
+    /docks omp\.extensions must be an array of strings$/,
+  ],
+  [
+    // An explicit null is not an absent property: the gate must not read it as an empty list.
+    'an omp.extensions value of null',
+    (tree) =>
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = null;
+      }),
+    /docks omp\.extensions must be an array of strings$/,
+  ],
+  [
+    // The module loads, so only the folder rule refuses the entry: the install copies only the plugin folder.
+    'an omp.extensions entry outside the plugin folder',
+    (tree) => {
+      writeTreeFile(tree, 'plugins/zz-outside.ts', 'export default () => undefined;\n');
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), '../zz-outside.ts'];
+      });
+    },
+    /entry \.\.\/zz-outside\.ts is outside the plugin folder$/,
+  ],
+  [
+    // The entry path is inside the plugin folder, but the file is a link to a module outside it.
+    'an omp.extensions entry that is a symbolic link to a module outside the plugin folder',
+    (tree) => {
+      writeTreeFile(tree, 'plugins/zz-outside-module.ts', 'export default () => undefined;\n');
+      linkTreeFile(tree, 'plugins/docks/extensions/zz-link.ts', '../../zz-outside-module.ts');
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-link.ts'];
+      });
+    },
+    /entry \.\/extensions\/zz-link\.ts is outside the plugin folder after symbolic links resolve$/,
+  ],
+  [
+    // The folder entry is inside the plugin folder, but the index.ts that omp loads is a link to a file outside it.
+    'an omp.extensions folder entry whose index.ts is a symbolic link outside the plugin folder',
+    (tree) => {
+      writeTreeFile(tree, 'plugins/zz-outside-index.ts', 'export default () => undefined;\n');
+      linkTreeFile(tree, 'plugins/docks/extensions/zz-linked-folder/index.ts', '../../../zz-outside-index.ts');
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-linked-folder'];
+      });
+    },
+    /entry \.\/extensions\/zz-linked-folder is outside the plugin folder after symbolic links resolve$/,
+  ],
+  [
+    // The folder entry is a link to a folder outside the plugin folder, and the index.ts there links back to a module
+    // inside it. The file that omp loads is inside, but the folder of the entry is missing after install.
+    'an omp.extensions folder entry that is a symbolic link to a folder outside the plugin folder',
+    (tree) => {
+      writeTreeFile(tree, 'plugins/docks/extensions/zz-inside-module.ts', 'export default () => undefined;\n');
+      linkTreeFile(tree, 'plugins/zz-outside-folder/index.ts', '../docks/extensions/zz-inside-module.ts');
+      linkTreeFile(tree, 'plugins/docks/extensions/zz-escaping-folder', '../../zz-outside-folder');
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-escaping-folder'];
+      });
+    },
+    /entry \.\/extensions\/zz-escaping-folder is outside the plugin folder after symbolic links resolve$/,
+  ],
+  [
+    // The gate must record one failure line for the module and go on to its summary.
+    'an omp.extensions entry that throws at import',
+    (tree) => {
+      writeTreeFile(
+        tree,
+        'plugins/docks/extensions/zz-throws.ts',
+        "throw new Error('zz import failure');\nexport default () => undefined;\n",
+      );
+      editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+        pluginPackage.omp.extensions = [...(pluginPackage.omp.extensions ?? []), './extensions/zz-throws.ts'];
+      });
+    },
+    /entry \.\/extensions\/zz-throws\.ts throws at import: zz import failure$/,
+    { exactlyOne: true },
+  ],
+  [
     'a catalog without owner.name',
     (tree) =>
       editTreeJson(tree, NATIVE_CATALOG, (catalog) => {
@@ -1013,6 +1123,15 @@ function gateFailures(stdout) {
     .map((line) => line.slice(4));
 }
 
+// One more `omp.extensions` entry that names a folder with an `index.ts`. omp loads that index file, so the gate
+// must pass with it.
+const addFolderExtension = (tree) => {
+  writeTreeFile(tree, 'plugins/docks/extensions/zz-folder/index.ts', 'export default () => undefined;\n');
+  editTreeJson(tree, 'plugins/docks/package.json', (pluginPackage) => {
+    pluginPackage.omp.extensions = [...pluginPackage.omp.extensions, './extensions/zz-folder'];
+  });
+};
+
 // The native package rules run inside scripts/ci.mjs. So the gate finds each defect above also when every child
 // command is stubbed green. Each case runs the untargeted gate on a copy of the working tree with one defect, and
 // the defect must add a failure line that names it. The clean copy must pass, and no run may call claude.
@@ -1043,7 +1162,7 @@ async function testNativePackageGate() {
       return { result, calls, failures: gateFailures(result.stdout) };
     };
     // A few gates at a time: each gate starts many stubbed children.
-    const jobs = [null, ...NATIVE_GATE_CASES.map(([, mutate]) => mutate)];
+    const jobs = [null, addFolderExtension, ...NATIVE_GATE_CASES.map(([, mutate]) => mutate)];
     const outcomes = new Array(jobs.length);
     let next = 0;
     await Promise.all(
@@ -1056,14 +1175,20 @@ async function testNativePackageGate() {
       }),
     );
 
-    const [clean, ...broken] = outcomes;
+    const [clean, folderEntry, ...broken] = outcomes;
     assert.equal(
       clean.result.status,
       0,
       `the clean copy must pass the gate:\n${clean.result.stdout}\n${clean.result.stderr}`,
     );
     assert.deepEqual(clean.failures, []);
-    for (const [index, [label, , pattern]] of NATIVE_GATE_CASES.entries()) {
+    assert.equal(
+      folderEntry.result.status,
+      0,
+      `a folder entry with an index.ts must pass the gate:\n${folderEntry.result.stdout}\n${folderEntry.result.stderr}`,
+    );
+    assert.match(folderEntry.result.stdout, /docks omp\.extensions entries have a default function export \(3\)/);
+    for (const [index, [label, , pattern, { exactlyOne = false } = {}]] of NATIVE_GATE_CASES.entries()) {
       const { result, calls, failures } = broken[index];
       assert.deepEqual(
         calls.filter(({ tool }) => tool === 'claude'),
@@ -1071,10 +1196,12 @@ async function testNativePackageGate() {
         `${label}: the gate must run no claude command`,
       );
       assert.notEqual(result.status, 0, `${label} must fail the gate:\n${result.stdout}\n${result.stderr}`);
+      const matching = failures.filter((line) => pattern.test(line));
       assert.ok(
-        failures.some((line) => pattern.test(line)),
+        matching.length > 0,
         `${label} must add a gate failure that matches ${pattern}; the failures are:\n${failures.join('\n')}`,
       );
+      if (exactlyOne) assert.equal(matching.length, 1, `${label} must add one gate failure that matches ${pattern}`);
     }
     assert.deepEqual(
       clean.calls.filter(({ tool }) => tool === 'claude'),

@@ -429,7 +429,7 @@ test('changed scopes are attributed from git status, and a git failure advises n
   ];
   const from = (status) => changedScopes({ repo: '.', plugins, git: () => status });
   assert.deepEqual(from(''), { plugins: [], outside: false });
-  assert.deepEqual(from(' M plugins/docks/hooks/a.mjs\0?? plugins/docks/b.mjs\0'), {
+  assert.deepEqual(from(' M plugins/docks/extensions/a.mjs\0?? plugins/docks/b.mjs\0'), {
     plugins: ['docks'],
     outside: false,
   });

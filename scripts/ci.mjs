@@ -8,6 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { beginCommand, startTask, summarizeCommands } from './lib/ci-background-task.mjs';
 import { resolveCiLane, resolveCiTargets, selectedAuthorChecks } from './lib/ci-targeting.mjs';
 import { changedScopes, computeGateKey, lookupMemo, memoRoot, recordMemo, renderGateCost } from './lib/gate-memo.mjs';
@@ -165,6 +166,8 @@ const LEFTOVER_REPO_PATHS = ['.claude-plugin', '.agents/plugins', '.codex'];
 const LEFTOVER_PLUGIN_PATHS = ['.claude-plugin', '.codex-plugin'];
 // The string fields of each plugin package.json; it also declares `private: true`, `type: "module"`, and `omp`.
 const PACKAGE_FIELDS = ['name', 'version', 'description', 'license'];
+// The files that omp loads for an `omp.extensions` entry that names a folder, in its order.
+const EXTENSION_INDEX_FILES = ['index.ts', 'index.js', 'index.mjs', 'index.cjs'];
 // A `${...}` variable. omp sets no plugin root variable for an agent, so the text would stay literal.
 const TEXT_VARIABLE = /\$\{[^}\s]*\}/gu;
 // The frontmatter block of a markdown file, and the keys of its top-level lines.
@@ -340,9 +343,9 @@ if (authorChecks.has('idempotency')) {
     : fail('skill-maintainer idempotency failed (run: bun tests/idempotency.mjs)');
 }
 
-// shell lint — shellScripts(p) collects each selected plugin's hooks/*.sh, its
-// bundled skill scripts (skills/**/scripts/*.sh), and a rust capability's sh
-// launcher, so every shipped shell script of a target is linted.
+// shell lint — shellScripts(p) collects each selected plugin's bundled skill
+// scripts (skills/**/scripts/*.sh) and a rust capability's sh launcher, so every
+// shipped shell script of a target is linted.
 if (targets.length > 0) {
   section('shell lint');
   const shellFiles = targets.flatMap(shellScripts);
@@ -391,7 +394,7 @@ if (planAuthorChecks) {
     : fail('plan CLI contract failed (run: node scripts/tests/plan-cli.mjs)');
 }
 
-for (const plugin of targets) gatePlugin(plugin);
+for (const plugin of targets) await gatePlugin(plugin);
 if (javascriptQualityTasks.length > 0) {
   section('javascript quality');
   const javascriptQualityPassed = (await Promise.all(javascriptQualityTasks)).every(Boolean);
@@ -402,9 +405,10 @@ if (javascriptQualityTasks.length > 0) {
   }
 }
 
-function gatePlugin(p) {
+async function gatePlugin(p) {
   section(`plugin: ${p.name}`);
   gatePackage(p);
+  await gateExtensions(p);
   for (const leftover of LEFTOVER_PLUGIN_PATHS.map((name) => `${p.root}/${name}`)) {
     if (fs.existsSync(leftover)) fail(`${p.name}: ${leftover} is a leftover of another plugin format; remove it`);
   }
@@ -606,6 +610,56 @@ function gatePackage(p) {
   else if (source !== p.root) fail(`${p.name} catalog source ${entry.source} is not ./${p.root}`);
   else if (!fs.existsSync(source)) fail(`${p.name} catalog source ${entry.source} does not exist`);
   else ok(`${p.name} catalog source ${entry.source} exists`);
+}
+
+// Each `omp.extensions` entry of the plugin package.json is a module with a default function export, the factory
+// that omp calls. omp skips a missing entry without a message, and install checks no entry, so the gate checks them.
+// The gate imports the module itself and nothing from omp: an extension declares its own types and imports no omp
+// package.
+async function gateExtensions(p) {
+  // An absent property means no extensions. A property that is present, also with the value null, must be a list.
+  const omp = Object(readJSON(pluginPackageJson(p))?.omp);
+  const extensions = Object.hasOwn(omp, 'extensions') ? omp.extensions : [];
+  if (!Array.isArray(extensions) || extensions.some((entry) => typeof entry !== 'string')) {
+    fail(`${p.name} omp.extensions must be an array of strings`);
+    return;
+  }
+  let extensionsOk = true;
+  for (const entry of extensions) {
+    const problem = await extensionProblem(p.root, entry);
+    if (problem !== null) {
+      fail(`${p.name} omp.extensions entry ${entry} ${problem}`);
+      extensionsOk = false;
+    }
+  }
+  if (extensionsOk && extensions.length > 0)
+    ok(`${p.name} omp.extensions entries have a default function export (${extensions.length})`);
+}
+
+// The problem of one `omp.extensions` entry, or null when omp can load it. The install copies only the plugin
+// folder, so an entry outside it is missing after install: the entry path, the real path of the entry, and the real
+// path of the file that omp loads, with each symbolic link resolved, must be inside the real plugin folder. A folder
+// entry loads its first `index.*` file, as omp does. A module that throws at import gives a problem, so the gate goes
+// on to its summary.
+async function extensionProblem(pluginRoot, entry) {
+  const outside = (root, file) => path.relative(root, file).split(path.sep)[0] === '..';
+  const target = path.resolve(pluginRoot, entry);
+  if (outside(path.resolve(pluginRoot), target)) return 'is outside the plugin folder';
+  const isFile = (file) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
+  const modulePath = fs.statSync(target, { throwIfNoEntry: false })?.isDirectory()
+    ? (EXTENSION_INDEX_FILES.map((name) => path.join(target, name)).find(isFile) ?? target)
+    : target;
+  if (!isFile(modulePath)) return `is not a file (a folder entry needs one of ${EXTENSION_INDEX_FILES.join(', ')})`;
+  const realRoot = fs.realpathSync(pluginRoot);
+  if (outside(realRoot, fs.realpathSync(target)) || outside(realRoot, fs.realpathSync(modulePath)))
+    return 'is outside the plugin folder after symbolic links resolve';
+  let module;
+  try {
+    module = await import(pathToFileURL(modulePath).href);
+  } catch (error) {
+    return `throws at import: ${String(error?.message ?? error).replace(/\s+/gu, ' ')}`;
+  }
+  return typeof module.default === 'function' ? null : 'has no default function export';
 }
 
 // Each agent file loads as an omp task agent: it has a name and a description, no `model` key (a Claude Code alias
