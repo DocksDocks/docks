@@ -1,11 +1,11 @@
 # Phase 4b — Pattern Extractor
 
-> Cross-tool. Produces the agent system-prompt content that feeds BOTH the Claude `.md` body and the Codex `.toml` `developer_instructions`; runs on every runtime.
+> Produces the agent system-prompt content that feeds the body of each omp agent file (`.omp/agents/<name>.md`).
 
 Extract concrete patterns, workflows, and constraints for each proposed agent role's system prompt — referencing skills rather than inlining their content.
 
 <constraint>
-Reference, do not duplicate. Instead of inlining 150 lines of route patterns, write "Read `.claude/skills/api-context/references/routes.md` for the full pattern." The system prompt is a workflow guide, not a knowledge dump. Inlined skill content rots the moment the skill changes.
+Reference, do not duplicate. Instead of inlining 150 lines of route patterns, write "Read `skill://api-context/references/routes.md` for the full pattern", or list the skill in `autoload-skills`. The system prompt is a workflow guide, not a knowledge dump. Inlined skill content rots the moment the skill changes. A subagent gets no `AGENTS.md`, so every rule the agent needs comes from a named skill or file.
 </constraint>
 
 ## Per agent role candidate — extract 7 dimensions
@@ -19,7 +19,7 @@ Derive role candidates independently from the Phase 3 Skills Plan (don't wait fo
 | Key file paths | files the agent reads/writes (concrete, from Phase 2b) |
 | Patterns with code | short excerpts with `file:line` refs |
 | Gotchas | concrete failure scenarios — what breaks, how, why silently |
-| Skill references | which SKILL.md + references/ to read (Phase 3 paths; explicit Read instruction) |
+| Skill references | which SKILL.md + references/ to read (Phase 3 paths as `skill://<name>/…`; explicit read instruction or `autoload-skills`) |
 | Integration points | when to hand off, to which agent |
 
 ## Sizing

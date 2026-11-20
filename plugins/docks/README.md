@@ -46,7 +46,7 @@ Each runs as one sequential pass in a single context. Approval gates through Git
 | Skill | Pipeline |
 |---------|----------|
 | `security` | Discovery → Vulnerability Scan → Logic Analysis → Adversarial Hunt → Synthesizer (challenges every finding). Read-only; pipe findings to `fix-workflow`. |
-| `skill-agent-pipeline` | Detection → Exploration → \[Categorizer \| Content-Accuracy Audit \| Pattern Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder (`.md` + `.toml`) → Verifier |
+| `skill-agent-pipeline` | Detection → Exploration → \[Categorizer \| Content-Accuracy Audit \| Pattern Scanner\] → Skills Builder → \[Role Mapper \| Pattern Extractor\] → Agents Builder (`.omp/agents/*.md`) → Verifier |
 | `refactor` | Exploration → \[Dead Code \| Duplication\] → SOLID Analyzer → Planner → Pre-Verifier → approve → implementation → Post-Verifier (catches NEW SOLID violations introduced while fixing old ones) |
 
 The bracketed phases are independent lenses — a runtime with parallel workers MAY run them concurrently, but the portable default is sequential.

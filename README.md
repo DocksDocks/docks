@@ -48,7 +48,7 @@ Each runs as one sequential pass in a single context and gates approval through 
 |---|---|
 | `security` | discovery → vulnerability scan → logic analysis → adversarial hunt → synthesis that challenges every finding. Read-only; pipe findings to `fix-workflow`. |
 | `refactor` | exploration → dead-code + duplication scans → SOLID analysis (evidenced smells only) → tiered plan → pre-verify → approve → test-guarded one-change-at-a-time implementation → post-verify SOLID delta. |
-| `skill-agent-pipeline` | state detection → explore → categorize skills → content-accuracy audit → pattern-scan → build SKILL.md + references/ → map agent roles → extract agent patterns → build agents (`.claude/agents/*.md` + `.codex/agents/*.toml`) → verify → report, or implement through `plan-manager`. |
+| `skill-agent-pipeline` | state detection → explore → categorize skills → content-accuracy audit → pattern-scan → build SKILL.md + references/ → map agent roles → extract agent patterns → build agents (`.omp/agents/*.md`) → verify → report, or implement through `plan-manager`. |
 
 ### Convention skills
 
