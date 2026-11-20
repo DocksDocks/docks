@@ -14,8 +14,11 @@
 //            write one log line for that command with allowed_after_denials, and start the
 //            count again. A denial count older than seven days expires, so the cycle starts
 //            again at the first denial.
-//   A command whose commits all carry the trailer writes nothing. An unknown value works as
-//   observe.
+//   A command whose commits all carry the trailer writes nothing. A `git commit --dry-run`
+//   counts as no commit, also when the first commit without the trailer is chosen. An unknown
+//   value works as observe.
+//   A check that throws or passes its deadline allows the command; it can then write no log line
+//   and count no denial, so a missing log line does not prove a trailer.
 //
 // The core finds each commit in the command itself, so the adapter gives it every bash
 // command. Each git call and each file operation is asynchronous, so a check does not hold
