@@ -313,9 +313,11 @@ Its shape guard checks only what a static check can prove. Each condition
 must start with the forward key prefix, and this rejects the leading
 lookbehind that froze omp. No `|` can stand outside every group, because the
 alternative after it needs no key prefix. The shape guard cannot prove
-linear time. The backstop proves it by measurement: the test runs
-`cli/test/lib/ompTriggerBackstop.ts` under Bun, because the unit tests run on
-V8, which does not show the JavaScriptCore cost. The backstop has these
+linear time. The backstop tests the measured input families for linear
+time: the test runs `cli/test/lib/ompTriggerBackstop.ts` under Bun, because
+the unit tests run on V8, which does not show the JavaScriptCore cost. A
+condition can still backtrack on a run that no generator holds, so a new
+condition needs a new family when its shape is new. The backstop has these
 checks:
 
 - Time budget, with the regex JIT on: one pass of all conditions over a

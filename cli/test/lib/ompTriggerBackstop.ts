@@ -61,6 +61,9 @@
  * Usage: `bun cli/test/lib/ompTriggerBackstop.ts [--rules-dir=<dir>]`. The
  * default rules folder is `SoT/.omp/plugin/rules`. The script prints one line
  * that starts with `FAIL` per failed check and exits 1 when any check fails.
+ * Run it without `BUN_JSC_useRegExpJIT`: the budget and fire checks run in
+ * this process with the regex JIT on, because omp pays that cost with the
+ * JIT on, so the script fails at once when that option is 0.
  * It runs the scaling checks in child processes, at most one per core at a
  * time: `--scaling=<shapes>` with `BUN_JSC_useRegExpJIT=0`, and
  * `--dense=<share>/<shares>` without that option. JavaScriptCore reads the
@@ -1434,12 +1437,12 @@ function confirmChild(
   return lines;
 }
 
-/** The line that fails a child in the wrong regex JIT mode, or undefined. */
-function jitModeFault(regexJitOff: boolean): string | undefined {
+/** The line that fails a run of `check` in the wrong regex JIT mode, or undefined. */
+function jitModeFault(regexJitOff: boolean, check = "scaling"): string | undefined {
   if ((process.env[REGEX_JIT_ENV] === "0") === regexJitOff) return undefined;
   return regexJitOff
-    ? `${FAIL} scaling: ${REGEX_JIT_ENV} is not 0, so the regex JIT is on`
-    : `${FAIL} scaling: ${REGEX_JIT_ENV} is 0, so the regex JIT is off`;
+    ? `${FAIL} ${check}: ${REGEX_JIT_ENV} is not 0, so the regex JIT is on`
+    : `${FAIL} ${check}: ${REGEX_JIT_ENV} is 0, so the regex JIT is off`;
 }
 
 interface ChildJob {
@@ -1545,6 +1548,9 @@ const scalingShare = optionValue("scaling");
 const denseShare = optionValue("dense");
 const confirmMode = optionValue("confirm");
 
+/** The parent runs the budget and fire checks, which omp pays with the regex JIT on. */
+const parentFault = jitModeFault(false, "budget and fire");
+
 let lines: Array<string>;
 if (scalingShare !== undefined) {
   const shapeNames = new Set(scalingShare.split(","));
@@ -1573,6 +1579,10 @@ if (scalingShare !== undefined) {
     fault !== undefined
       ? [fault]
       : confirmChild(probes, pending, `confirm with the regex JIT ${confirmMode}`);
+} else if (parentFault !== undefined) {
+  lines = [
+    `${parentFault}. Run this script without ${REGEX_JIT_ENV}: each scaling child sets its own regex JIT mode.`,
+  ];
 } else {
   for (const { regex } of conditions) regex.test(WARM_UP_TEXT);
   const started = performance.now();
