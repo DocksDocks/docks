@@ -818,6 +818,43 @@ function testSkillGuardValidateRules() {
       const wantCapLine = over ? `FAIL: description exceeds 1024 chars (${length})` : undefined;
       if (capLine !== wantCapLine) problems.push(`${name}: cap line ${capLine}, want ${wantCapLine}`);
     }
+
+    const nodeCases = [
+      ['alias', [`summary: &text "${text(1100)}"`, 'description: *text'], true],
+      ['alias-next-line', [`summary: &text "${text(1100)}"`, 'description:', '  *text'], true],
+      ['anchor', [`description: &a ${text(100)}`], true],
+      ['tag', [`description: !!str ${text(100)}`], true],
+      ['tag-next-line', ['description:', `  !!str ${text(100)}`], true],
+      ['plain', [`description: ${text(100)}`], false],
+      ['quoted', [`description: "${text(100)} & more"`], false],
+      ['block', ['description: >-', `  ${text(100)}`, '  *not an alias'], false],
+    ];
+    const nodeMessage =
+      'FAIL: description must be a plain, quoted, or block scalar string (no YAML alias, anchor, or tag)';
+    for (const [name, descriptionLines, bad] of nodeCases) {
+      const skillDir = path.join(fixtureRoot, 'nodes', name);
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(skillDir, 'SKILL.md'),
+        [
+          '---',
+          `name: ${name}`,
+          ...descriptionLines,
+          'user-invocable: false',
+          'metadata:',
+          '  updated: "2026-07-20"',
+          '---',
+          `# ${name}`,
+          '',
+        ].join('\n'),
+      );
+      const checked = runNode(SKILL_GUARD, ['validate', skillDir]);
+      assertStarted(checked);
+      if (checked.status !== (bad ? 1 : 0)) problems.push(`${name}: exit ${checked.status}, want ${bad ? 1 : 0}`);
+      const fails = checked.stdout.split('\n').filter((l) => l.includes('FAIL:'));
+      const wantFails = bad ? [`  ${nodeMessage}`] : [];
+      if (fails.join('\n') !== wantFails.join('\n')) problems.push(`${name}: fails ${JSON.stringify(fails)}`);
+    }
     assert.deepEqual(problems, []);
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });

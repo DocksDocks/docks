@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: reviewer
   updated: "2026-11-20"
-  content_hash: "ea9b7a14342a6104e2308e6fc8e8b74d0df9d04a73650bd767a193605918c26c"
+  content_hash: "9b78ca84e5340601f0a5017139b72897473350f9d584606bb487015e2095b303"
 ---
 
 # Skill Maintenance
@@ -207,7 +207,7 @@ Use the narrowest available command:
 
 # if the docks plugin is installed, write-skill bundles a portable validator —
 # frontmatter guard (fences, name, 1024-char cap on the parsed description
-# value, block scalars too, unquoted '#')
+# value, block scalars too, unquoted '#', no YAML alias/anchor/tag)
 # + 16-pt score, no kit tooling needed (--strict for kit conventions):
 node skill://write-skill/scripts/skill-guard.mjs validate .agents/skills
 

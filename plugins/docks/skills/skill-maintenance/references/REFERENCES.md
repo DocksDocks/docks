@@ -119,8 +119,9 @@ find .agents/skills .claude/skills -name SKILL.md -maxdepth 3 -print 2>/dev/null
 # omp loader check: read the "warnings" array; a missing skill is not in "skills".
 # It does not check YAML validity or the 1024 cap of a project skill; only the
 # agent-plugins loader validates name and description. skill-guard.mjs validate
-# checks the cap on the parsed description value (block scalars too); check
-# YAML syntax with the parser command below.
+# checks the cap on the parsed description value (block scalars too) and rejects
+# a YAML alias, anchor, or tag there; check YAML syntax with the parser command
+# below.
 omp skill list --json
 ```
 

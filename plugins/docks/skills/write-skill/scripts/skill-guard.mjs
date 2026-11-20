@@ -130,18 +130,20 @@ function plainScalar(head, rest) {
   }
   return { value, comment };
 }
-// The top-level description value of the frontmatter: { value, comment }; comment is true when a
-// plain value holds a ` #` comment.
+// The top-level description value of the frontmatter: { value, comment, node }; comment is true
+// when a plain value holds a ` #` comment; node is true when the value starts with a YAML alias
+// (`*`), anchor (`&`), or tag (`!`), which this reader does not resolve.
 function readDescription(lines) {
   const fm = frontmatter(lines);
   const at = fm.findIndex((l) => /^description:/.test(l));
-  if (at === -1) return { value: '', comment: false };
+  if (at === -1) return { value: '', comment: false, node: false };
   const head = fm[at].slice('description:'.length).trim();
   const rest = fm.slice(at + 1);
   const block = /^([|>])(?:([1-9])([+-])?|([+-])([1-9])?)?(?:[ \t]+#.*)?$/.exec(head);
-  if (block) return { value: blockScalar(block[1] === '>', block[2] || block[5], block[3] || block[4], rest), comment: false };
-  if (head.startsWith('"') || head.startsWith("'")) return { value: quotedScalar(head, rest), comment: false };
-  return plainScalar(head, rest);
+  if (block) return { value: blockScalar(block[1] === '>', block[2] || block[5], block[3] || block[4], rest), comment: false, node: false };
+  if (head.startsWith('"') || head.startsWith("'")) return { value: quotedScalar(head, rest), comment: false, node: false };
+  const plain = plainScalar(head, rest);
+  return { ...plain, node: /^[*&!]/.test(plain.value) };
 }
 
 // ---- the 16-pt scorer (single source of the docks rubric) ----
@@ -221,7 +223,8 @@ function validate(dirs, strict) {
     const description = readDescription(lines);
     const desc = description.value;
     const hasUpstream = countLines(lines, /^upstream:/);
-    if (!desc) fail('description must be non-empty');
+    if (description.node) fail('description must be a plain, quoted, or block scalar string (no YAML alias, anchor, or tag)');
+    else if (!desc) fail('description must be non-empty');
     else {
       if ([...desc].length > 1024) fail(`description exceeds 1024 chars (${[...desc].length})`);
       if (description.comment) fail("unquoted description contains '#' — quote it (YAML reads ' #' as the start of a comment)");
