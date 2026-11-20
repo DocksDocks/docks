@@ -8,8 +8,10 @@ labels, timestamps, and completion state.
 Do not track plan bodies as repository files.
 
 Read `skill://plan-manager/references/plan-contract.md` for the plan contract
-and helper commands. This path resolves to the installed `plan-lifecycle`
-plugin. Do not read the contract from a marketplace checkout.
+and helper commands. In a normal session, this path resolves to the installed
+`plan-lifecycle` plugin. In a session that loads this checkout with
+`--plugin-dir` (the README "Develop locally" section), it resolves to the
+checkout copy under change. Read the contract by this path, not by a file path.
 
 Use `plan-workspace` to maintain workspace routing, main-context `plan-manager`
 to run the lifecycle, and internal `plan-reviewer` for plan review.

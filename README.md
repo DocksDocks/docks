@@ -2,7 +2,7 @@
 
 Native omp plugin marketplace that publishes two plugins:
 
-- **docks** - an engineering skill kit for omp. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially; a library of convention skills covers test-first, coverage, fix, review, design tokens, SOLID, type-safety, and React patterns; two omp extensions check commits and context-tree nodes.
+- **docks** - an engineering skill kit for omp. Pipeline skills (security audit, refactor, skill-agent-pipeline) run sequentially; a library of convention skills covers test-first, coverage, fix, review, design tokens, SOLID, type-safety, and React patterns. The plugin also ships two omp extensions: one checks commits for a `Verified:` trailer, and the other asks the agent to refresh a context-tree node after an edit inside it.
 - **plan-lifecycle** - a GitHub-issue plan lifecycle that tracks multi-commit work, with read-only plan and code reviewers.
 
 ## Install
@@ -112,31 +112,40 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 
 ## Repository layout
 
+The tree shows the main folders and files. `git ls-files` lists all tracked files.
+
 ```
 .
+├── AGENTS.md                          ← root context-tree node: repository rules for agents
+├── package.json + bun.lock            ← author tooling dependencies and the Bun version pin
+├── biome.json + bunfig.toml           ← Biome format and lint rules, and Bun install rules
 ├── .omp-plugin/marketplace.json       ← marketplace catalog (this file is what omp plugin marketplace add reads)
 ├── plugins/
 │   ├── docks/                         ← the engineering kit plugin (only plugin dirs get cached on user install)
 │   │   ├── package.json               ← native omp package manifest (name, version, `omp` object with the extensions)
-│   │   ├── skills/                    ← omp skills
+│   │   ├── skills/                    ← omp skills, with the AGENTS.md node for skill authoring
 │   │   ├── extensions/                ← omp extensions: verify-gate and context-tree-nudge
 │   │   └── README.md                  ← plugin-facing docs
 │   └── plan-lifecycle/                ← GitHub-issue plan lifecycle plugin
 │       ├── package.json               ← native omp package manifest
-│       ├── skills/                    ← lifecycle skills, internal reviewer skills, explicit-only yolo skill, plan.mjs, plan contract
+│       ├── skills/                    ← lifecycle skills, internal reviewer skills, explicit-only yolo skill, plan.mjs, plan contract, AGENTS.md node
 │       ├── agents/                    ← two read-only reviewer wrappers (omp task agents)
 │       └── test/ + compatibility.json ← self-test and the minimum docks major version
 ├── scripts/                           ← plugin-author tooling (NOT shipped to users)
+│   ├── AGENTS.md                      ← context-tree node: validator table, release flow
 │   ├── ci.mjs / release.mjs           ← orchestrators (the gate ci.yml runs)
 │   ├── skills/ + agents/ + tree/      ← validators and scorers
 │   └── config/ + lib/ + tests/
 ├── tests/                             ← repo-wide checks (idempotency, skill trigger collisions)
 ├── .agents/skills/                    ← project skills for this repository: verify (end-to-end omp check), review-benchmark
-├── docs/                              ← plan routing (PLAN.md)
+├── docs/                              ← plan routing (PLAN.md) and its AGENTS.md node
 ├── REVIEW.md                          ← review rules for pull requests
-└── .github/workflows/
-    ├── ci.yml                         ← validator CI on PR, release tag, and manual dispatch
-    └── dependency-integrity.yml       ← weekly npm audit signatures
+└── .github/
+    ├── AGENTS.md                      ← context-tree node: workflows and pull request template
+    ├── pull_request_template.md
+    └── workflows/
+        ├── ci.yml                     ← validator CI on PR, release tag, and manual dispatch
+        └── dependency-integrity.yml   ← weekly npm audit signatures
 ```
 
 **What ships to users**: only the `plugins/<name>/` directory of each installed plugin. Files at the repo root (`scripts/`, `.github/`, this `README.md`, `LICENSE`) stay in the marketplace repo for development + CI but are NOT copied to the omp plugin cache on install. This is enforced by the marketplace `source` boundary, not by an ignore-file mechanism - the plugin cache copies only the directory pointed at by `source`.
@@ -145,7 +154,7 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 
 Test changes without pushing to GitHub. Run the commands from the checkout root. They need `omp`, `node`, `bun`, and `docks-kit`.
 
-The end-to-end check is the `verify` project skill (`.agents/skills/verify/SKILL.md`):
+The end-to-end check is the `verify` project skill (`.agents/skills/verify/SKILL.md`), with the flows V1 to V6. V1 and V3 are the two smoke commands below; the skill lists the other flows:
 
 ```bash
 bun .agents/skills/verify/scripts/omp-smoke.mjs         # install both plugins from this checkout; list versions, skills, task agents, warnings
@@ -154,15 +163,32 @@ bun .agents/skills/verify/scripts/omp-smoke.mjs hooks   # drive the verify-gate 
 
 The smoke installs this checkout into isolated omp state in a docks-kit scratch folder, so it does not change your omp install.
 
-To use the changed plugins in one interactive session, disable the installed `docks@docks` first and enable it again after the session:
+To use the changed plugins in one interactive session, first disable each enabled install of `docks@docks`. If an install stays enabled, omp loads the docks extensions two times. Run these steps from the checkout root:
 
-```bash
-omp plugin disable docks@docks
-omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle -e ./plugins/docks
-omp plugin enable docks@docks
-```
+1. Run `omp plugin list --json`. Note each entry of `docks@docks`: its `scope` (`user` or `project`) and its `enabled` value. `"enabled": false` shows a disabled install. An entry with `"enabled": true` or with no `enabled` field is enabled.
+2. Disable each enabled scope. Give `--scope`: when `docks@docks` is installed at both scopes, `omp plugin disable docks@docks` without `--scope` fails.
 
-`--plugin-dir` loads the skills and task agents of a plugin directory, but not its extensions; `-e ./plugins/docks` loads the extensions that the `omp` object of `plugins/docks/package.json` names. If `docks@docks` stays enabled, omp loads the docks extensions two times, and the gate writes two log lines for each commit. `omp plugin list --json` shows `"enabled": false` for a disabled plugin. After edits, start a new session with the same flags.
+   ```bash
+   omp plugin disable --scope user docks@docks
+   omp plugin disable --scope project docks@docks   # only for an enabled project install
+   ```
+
+3. Start the session:
+
+   ```bash
+   omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle -e ./plugins/docks
+   ```
+
+4. After the session, enable again only the scopes that were enabled before:
+
+   ```bash
+   omp plugin enable --scope user docks@docks
+   omp plugin enable --scope project docks@docks    # only if the project install was enabled before
+   ```
+
+`--plugin-dir` loads the skills and task agents of a plugin directory, but not its extensions; `-e ./plugins/docks` loads the extensions that the `omp` object of `plugins/docks/package.json` names. After edits, start a new session with the same flags.
+
+If an install of `docks@docks` stays enabled, each loaded copy of `verify-gate` checks each `bash` call that holds a commit. In `observe` mode, a call with an unverified commit writes one log line for each copy. In `enforce` mode, each copy adds a denial, so the two-denial rule does not work as the `commit-discipline` skill describes.
 
 ## Validate before pushing
 
@@ -172,7 +198,7 @@ bun scripts/ci.mjs --plugin <name>   # a change in one plugin
 bun scripts/ci.mjs                   # a repo-wide change: both plugins and the repo-wide checks
 ```
 
-`bun scripts/ci.mjs` is the full local gate: the skill and agent guards, the scorers, the native package checks, and the idempotency check. `ci.yml` runs the same file on CI. `scripts/AGENTS.md` lists each validator with its command and what it checks; each scorer's rubric is in its script. `node plugins/docks/skills/write-skill/scripts/skill-guard.mjs score --per-file` prints one `<name> <score>` line for each docks skill, to find drift after an edit.
+`bun scripts/ci.mjs` is the full local gate. Among its checks are the skill and agent guards, the scorers, the native package checks, and the idempotency check. `ci.yml` runs the same file on CI. The validator table in `scripts/AGENTS.md` lists each validator with its command and what it checks; each scorer's rubric is in its script. `node plugins/docks/skills/write-skill/scripts/skill-guard.mjs score --per-file` prints one `<name> <score>` line for each docks skill, to find drift after an edit.
 
 Bun runs this repository's own tooling: `scripts/`, `tests/`, and the plan-lifecycle selftest. Bun is also the package manager. Its version is the `packageManager` pin in `package.json`.
 

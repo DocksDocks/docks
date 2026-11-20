@@ -144,7 +144,7 @@ For example, an 8 GB, 6-core swapless host with tmpfs `/tmp` prints
 
 1. Edit files inside the target plugin (`plugins/<name>/{skills,agents,…}/`).
 2. Run focused checks while iterating. Once the relevant implementation tree is final, run the smallest authoritative gate the root `AGENTS.md` (Gate and workspace rules) names.
-3. Local omp test (no push): from the checkout root, run the `verify` project skill smoke (`bun .agents/skills/verify/scripts/omp-smoke.mjs`, then `bun .agents/skills/verify/scripts/omp-smoke.mjs hooks`); it installs both plugins from this checkout into isolated omp state and drives the docks extensions. For one interactive session with the changed plugins, use the commands of the `README.md` "Develop locally" section.
+3. Local omp test (no push): from the checkout root, run the `verify` project skill, the end-to-end check with the flows V1 to V6. V1 and V3 are its smoke commands (`bun .agents/skills/verify/scripts/omp-smoke.mjs`, then `bun .agents/skills/verify/scripts/omp-smoke.mjs hooks`): they install both plugins from this checkout into isolated omp state and drive the docks extensions. The skill lists the other flows. For one interactive session with the changed plugins, use the commands of the `README.md` "Develop locally" section.
 4. PR to main → PR-CI gates the merge.
 5. After merge, release **one plugin** with the generic positional command: `bun scripts/release.mjs [--plugin <name>] patch|minor|major|<X.Y.Z>` (`--dry-run` previews).
 

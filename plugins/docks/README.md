@@ -22,7 +22,7 @@ Restart omp after an update. `/reload-plugins` refreshes the skills in an open s
 
 The plugin ships two omp extensions:
 
-- `verify-gate` checks each `git commit` that runs through the bash tool for a `Verified:` trailer. A commit that another tool makes does not pass through the gate. The `DOCKS_VERIFY_GATE` environment variable of omp selects the mode: `observe` (default), `enforce`, or `off`. In `observe` mode, the gate writes one line for each commit without the trailer to `${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl`. The `commit-discipline` skill describes the trailer and the modes.
+- `verify-gate` checks each `git commit` that runs through the bash tool for a `Verified:` trailer. A commit that another tool makes does not pass through the gate. The `DOCKS_VERIFY_GATE` environment variable of omp selects the mode: `observe` (default), `enforce`, or `off`. In `observe` mode, the gate writes one metadata line to `${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl` for each `bash` call that holds a commit without the trailer. The `commit-discipline` skill describes the trailer and the modes.
 - `context-tree-nudge` adds a message after a file edit inside a context-tree node (a folder below the repository root with its own `AGENTS.md`). The message asks the agent to refresh that node.
 
 ## Platform support
@@ -31,15 +31,23 @@ The `docks` plugin supports Linux and macOS only.
 
 ## Develop locally
 
-The [Develop locally](https://github.com/DocksDocks/docks#develop-locally) section of the marketplace repository README has the full steps and the end-to-end check. For one interactive session from the checkout root, disable the installed `docks@docks` first and enable it again after the session:
+The [Develop locally](https://github.com/DocksDocks/docks#develop-locally) section of the marketplace repository README has the full steps and the end-to-end check. For one interactive session from the checkout root, first disable each enabled install of `docks@docks`:
 
-```bash
-omp plugin disable docks@docks
-omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle -e ./plugins/docks
-omp plugin enable docks@docks
-```
+1. Run `omp plugin list --json`. Note the `scope` (`user` or `project`) of each `docks@docks` entry and its `enabled` value. `"enabled": false` shows a disabled install; `"enabled": true` or no `enabled` field shows an enabled install.
+2. Disable each enabled scope with `--scope <scope>`, then start the session:
 
-If `docks@docks` stays enabled, omp loads the docks extensions two times.
+   ```bash
+   omp plugin disable --scope user docks@docks      # also --scope project for an enabled project install
+   omp --plugin-dir ./plugins/docks --plugin-dir ./plugins/plan-lifecycle -e ./plugins/docks
+   ```
+
+3. After the session, enable again only the scopes that were enabled before:
+
+   ```bash
+   omp plugin enable --scope user docks@docks       # also --scope project if the project install was enabled
+   ```
+
+If an install of `docks@docks` stays enabled, omp loads the docks extensions two times. Each loaded copy of `verify-gate` checks each `bash` call that holds a commit. In `observe` mode, a call with an unverified commit writes one log line for each copy. In `enforce` mode, each copy adds a denial, so the two-denial rule does not work as the `commit-discipline` skill describes.
 
 ## What's inside
 
@@ -89,7 +97,7 @@ explicit-only `yolo` skill that runs the whole lifecycle and asks only before
 merge, the shipped `plan.mjs`, a marker-based plan contract, and the read-only
 `plan-reviewer` and `code-reviewer` wrappers. Plan repairs are re-reviewed from fresh exports, and
 code fixes are re-reviewed from fresh diffs. The ceiling of each review phase
-is 10 rounds, plus 10 for each extension. Each reviewer returns one markdown block that the manager stores
+is 10 rounds, plus 10 rounds each time the user extends it. Each reviewer returns one markdown block that the manager stores
 as one issue comment. When implementation starts, the manager reuses or creates
 the GitHub-linked plan branch. After code review passes, it commits and pushes
 any remaining reviewed bytes, opens the closing pull request, waits for

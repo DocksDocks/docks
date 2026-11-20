@@ -5,8 +5,8 @@ Read `docs/PLAN.md` before filing or updating a plan issue.
 ## Plan records
 
 The canonical plan record is a GitHub issue, not a tracked markdown file.
-Read `skill://plan-manager/references/plan-contract.md` (the installed
-`plan-lifecycle` plugin) for the record and lifecycle contract.
+Read `skill://plan-manager/references/plan-contract.md` for the record and
+lifecycle contract; `docs/PLAN.md` says which copy that path resolves to.
 `docs/PLAN.md` provides local routing. Do not duplicate the contract here.
 
 ## Records

@@ -80,7 +80,7 @@ If the plugin is missing, report it. Do not invent a substitute workflow.
 
 The repo's own `.agents/skills/` hosts skills useful only when working ON this plugin repo - they don't ship to consumers. Each skill's `description` states when to use it (verify: `ls .agents/skills`).
 
-omp reads them directly at `.agents/skills/`. The `verify` skill (`.agents/skills/verify/SKILL.md`) is the end-to-end check of a change: it installs both plugins from this checkout into isolated omp state and drives the docks extensions (`bun .agents/skills/verify/scripts/omp-smoke.mjs` and `bun .agents/skills/verify/scripts/omp-smoke.mjs hooks`).
+omp reads them directly at `.agents/skills/`. The `verify` skill (`.agents/skills/verify/SKILL.md`) is the end-to-end check of a change, with the flows V1 to V6. V1 and V3 are the smoke commands: `bun .agents/skills/verify/scripts/omp-smoke.mjs` installs both plugins from this checkout into isolated omp state, and `bun .agents/skills/verify/scripts/omp-smoke.mjs hooks` drives the docks extensions. The skill lists the other flows.
 
 ## CI targeting
 
