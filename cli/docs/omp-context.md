@@ -1,7 +1,9 @@
 # omp context and compaction
 
 This topic records why `SoT/.omp/config.yml` ships no compaction threshold,
-and what omp's reserve-based default computes on each model lane.
+and what omp's reserve-based default computes on each model lane. It also
+records the omp 19.0.0 tools that the kit turns on and the kit overrides that
+0.24.0 returned to the omp defaults.
 
 ## How omp resolves the trigger
 
@@ -100,13 +102,12 @@ No current role model has a window below 272,000, so the hazard was latent
 rather than live. Not pinning removes it entirely, including for any future
 model with a smaller window.
 
-## Idle compaction is a kit-set value
+## Idle compaction is off
 
-`SoT/.omp/config.yml` sets `compaction.idleEnabled: true`. The omp default is
-`false` in omp 18.4.4 through 18.10.4. Idle compaction fires below the
-reserve-based trigger on both lanes. A compaction whose reason is `idle`
-skips the progress guard. Keep the key. The merge is additive, so a dropped
-key turns idle compaction off on fresh installs.
+Up to 0.23.0, `SoT/.omp/config.yml` set `compaction.idleEnabled: true`. In
+0.24.0 the owner returned the key to the omp default `false` (omp 18.4.4
+through 19.0.0). Sync prunes a deployed `true` that the kit shipped, so idle
+compaction is off. Only the reserve-based trigger starts a compaction.
 
 ## Related settings left at their omp defaults
 
@@ -119,3 +120,73 @@ key turns idle compaction off on fresh installs.
 
 Every row records a decision to leave the omp default in place. None of these
 keys carries a kit value that differs from the default omp already applies.
+
+## omp 19.0.0 tools and returned overrides
+
+The owner made these decisions on 2026-11-19 (#184). They apply from 0.24.0.
+
+### Tools that the kit turns on
+
+- `astGrep.enabled: true` gives the `ast_grep` tool. It searches code by its
+  syntax tree (AST), on the local disk only.
+- `checkpoint.enabled: true` gives the `checkpoint` and `rewind` tools.
+  `checkpoint` marks the start of an investigation. `rewind` replaces the
+  transcript after that mark with a short report. It restores no file, git
+  state, artifact, or process, and a rule line in `SoT/.omp/AGENTS.md` says
+  so. A subagent gets the two tools only when its tool list asks for one of
+  them.
+
+The memory backend (`memory.backend: off`), `autolearn.enabled`, and
+`prewalk.enabled` stay off. All three are off by default, so the SoT has no
+key for them. Every other omp 19.0.0 feature keeps its omp default, for
+example context notes, `security_scan`, `task.crossInstance`,
+`mcp.evalNamespaces`, and cache warming. The advisor stays removed (0.22.22).
+
+### Overrides returned to the omp defaults
+
+The SoT no longer ships these 18 keys. `ompRemovals.ts OMP_RETIRED_VALUES`
+records each key with its old kit value. Sync prunes a deployed key only
+while it holds that value, so a value that you changed stays.
+
+| Key | Old kit value | omp 19.0.0 default |
+|---|---|---|
+| `task.maxConcurrency` | `16` | `32` |
+| `task.maxEffort` | `xhigh` | `max` |
+| `task.maxRuntimeMs` | `3600000` | `0` |
+| `task.agentIdleTtlMs` | `120000` | `420000` |
+| `task.enableLsp` | `true` | `false` |
+| `task.eager` | `always` | `default` |
+| `task.showResolvedModelBadge` | `true` | `false` |
+| `find.enabled` | `true` | `auto` |
+| `providers.webSearchTimeoutSeconds` | `30` | `60` |
+| `browser.idleCloseSec` | `600` | `1800` |
+| `steeringMode` | `all` | `one-at-a-time` |
+| `doubleEscapeAction` | `tree` | `rewind` |
+| `features.unexpectedStopDetection` | `smart` | `mechanical` |
+| `compaction.idleEnabled` | `true` | `false` |
+| `compaction.handoffSaveToDisk` | `true` | `false` |
+| `commands.enableOpencodeProject` | `false` | `true` |
+| `statusLine.compactThinkingLevel` | `false` | `true` |
+| `github.enabled` | `true` | `false` |
+
+Sync cannot tell the old kit value from the same value that you set again.
+It prunes both on every sync. To keep an old kit value, set it in a project
+configuration or in a `PI_CONFIG_FILES` file, which sync does not write.
+
+The `github` tool is off by default. Its `pr_push` operation runs git
+directly, so the `bash.patterns` guards do not see it. The `issue://` and
+`pr://` read schemes do not need the tool. omp reads them through its GitHub
+cache and `gh` (`omp://tools/read.md`, `omp://tools/github.md`), so they still
+work with `github.enabled: false`. The plan-lifecycle work reads issues with
+`gh` in bash, so the change does not affect it.
+
+### Overrides that stay
+
+- `branchSummary.enabled: true`.
+- `dev.autoqa: false` with `dev.autoqaConsent: denied`.
+- `codexResets.autoRedeem5h: "no"` and `codexResets.autoRedeemWeekly: "no"`.
+- `startup.quiet: true`.
+- `display.showTokenUsage: true`.
+- The model roles, `cycleOrder`, `retry.fallbackChains`, `modelTags`, the
+  reviewer overrides in `task.agentModelOverrides` and
+  `task.agentServiceTierOverrides`, and the `bash.patterns` guards.

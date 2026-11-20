@@ -2,9 +2,14 @@
 
 ## Unreleased - docks-kit 0.24.0: omp-only sync
 
-docks-kit now manages omp only. `docks-kit sync` syncs omp, and it does not
-read or write `~/.agents` or `~/.claude`. This version completes the sync part
-of plan #179 (#183). A later version changes the omp settings (#184).
+docks-kit now manages omp only. `docks-kit sync` syncs omp. Sync writes no
+`.agents` or `.claude` folder of its own; omp's folders follow
+`PI_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, and `XDG_DATA_HOME`, so an override
+that points into one of those folders makes omp's files go there. Sync also
+writes the kit plugin to `~/.docks-kit/omp-plugin`. This version completes
+the sync part of plan #179 (#183). It also changes the omp settings (#184):
+it turns on two omp 19.0.0 tools and returns 18 kit overrides to the omp
+defaults.
 
 ### Removed
 
@@ -52,12 +57,41 @@ of plan #179 (#183). A later version changes the omp settings (#184).
 - Sync no longer repairs or removes the `~/.claude/skills/<name>` links. The
   0.23.0 entry named these links as the one exception in its list of files
   that stay on your machine. That exception ends with this version.
+- `SoT/.omp/config.yml` turns on two omp 19.0.0 tools (#184): `ast_grep`
+  (`astGrep.enabled: true`), and `checkpoint` with `rewind`
+  (`checkpoint.enabled: true`). `rewind` restores the conversation only. It
+  does not restore files, git state, artifacts, or processes, and a new rule
+  line in `SoT/.omp/AGENTS.md` says so.
+- 18 kit overrides return to the omp 19.0.0 defaults (#184):
+  `task.maxConcurrency`, `task.maxEffort`, `task.maxRuntimeMs`,
+  `task.agentIdleTtlMs`, `task.enableLsp`, `task.eager`,
+  `task.showResolvedModelBadge`, `find.enabled`,
+  `providers.webSearchTimeoutSeconds`, `browser.idleCloseSec`,
+  `steeringMode`, `doubleEscapeAction`, `features.unexpectedStopDetection`,
+  `compaction.idleEnabled`, `compaction.handoffSaveToDisk`,
+  `commands.enableOpencodeProject`, `statusLine.compactThinkingLevel`, and
+  `github.enabled`. Sync prunes each key from `~/.omp/agent/config.yml` only
+  while it still holds the value that the kit shipped, so a value that you
+  changed stays. Sync cannot tell the shipped value from the same value that
+  you set again, so it prunes that value too. The omp defaults then apply,
+  for example `task.maxEffort` `max` instead of `xhigh`, and idle compaction
+  is off. With `github.enabled` at `false`, omp has no `github` tool, and the
+  `issue://` and `pr://` read schemes still work. `docks-kit docs omp-context`
+  lists each old kit value and its omp default.
 
 ### Files that stay on your machine
 
 Sync no longer reads, writes, or removes these files. Before you delete
-them, read the kit records: `~/.agents/.kit-owned-skills` names each skill
-that the kit installed. Check each folder before you delete it, because
+them, read the kit records. Each line of `~/.agents/.kit-owned-skills` holds
+a skill name and the device and inode pair (`<dev>:<ino>`) of the folder
+that the kit install created. That record can be stale, because you or
+another tool can have replaced the folder since the install. A folder counts
+as kit-installed only when its device and inode still match the recorded
+pair. On Linux, `stat -c '%d:%i' <folder>` prints the pair. On macOS, use
+`stat -f '%d:%i' <folder>`. When a line has no pair, or when you cannot read
+the pair of the folder, treat the folder as uncertain. Each entry in
+`~/.agents/.kit-pending-skills` is uncertain too: the kit started that
+install but did not record the result, so check that folder yourself.
 `~/.agents/skills/` and `~/.claude/skills/` can hold your own skills, which
 you or another tool installed. Delete only the skills that you do not use.
 

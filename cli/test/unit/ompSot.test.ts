@@ -164,6 +164,13 @@ describe("SoT omp tree", () => {
     expect(shipped).toEqual([]);
   });
 
+  // The owner turned on these two omp 19.0.0 tools. omp ships both off.
+  it("turns on the ast_grep tool and the checkpoint and rewind tools", () => {
+    const config = ompConfig();
+    expect(config["astGrep"]).toEqual({ enabled: true });
+    expect(config["checkpoint"]).toEqual({ enabled: true });
+  });
+
   // omp retired `providers.webSearchOrder`. It expands the key in memory into
   // `modelRoles.web` plus `retry.fallbackChains.web` and then drops it, and it
   // never writes that expansion back. The kit declares both keys instead. An
@@ -172,7 +179,7 @@ describe("SoT omp tree", () => {
   // providers rather than reordering them.
   it("declares a complete web search chain without the retired webSearchOrder key", () => {
     const config = ompConfig();
-    expect(config["providers"]).not.toHaveProperty("webSearchOrder");
+    expect(hasPath(config, ["providers", "webSearchOrder"])).toBe(false);
     expect(config["modelRoles"]).toHaveProperty("web", "web/firecrawl");
     const chains = (config["retry"] as Record<string, unknown>)["fallbackChains"];
     const web = (chains as Record<string, unknown>)["web"] as ReadonlyArray<string>;

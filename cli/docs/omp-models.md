@@ -656,13 +656,15 @@ keeps a block that the user edited.
   not onto level names: `lo` selects the lowest level, `med` the lower middle,
   and `hi` the highest (`resolveTaskEffortLevel` in omp's
   `packages/tui/src/thinking.ts`, omp 18.8.5). Then omp caps the result at
-  `task.maxEffort`. On the `low, medium, high, xhigh, max` ladder, `hi` gave
-  `xhigh` under the `xhigh` cap, so many `task` spawns ran Opus 5.5 xhigh
-  despite the `:high` role suffix. On 2026-11-05, a fresh `omp -p` run on omp
-  18.16.0 with the field off had no `effort` field, and its `task` child
-  recorded `resolvedModel: anthropic/claude-opus-5-5:high`.
-- `task.maxEffort` is `xhigh`. With `task.enableEffort` off, the cap applies
-  only to a per-call `model` with a `:level` suffix.
+  `task.maxEffort`. Up to 0.23.0 the kit set that cap to `xhigh`. On the
+  `low, medium, high, xhigh, max` ladder, `hi` then gave `xhigh`, so many
+  `task` spawns ran Opus 5.5 xhigh despite the `:high` role suffix. On
+  2026-11-05, a fresh `omp -p` run on omp 18.16.0 with the field off had no
+  `effort` field, and its `task` child recorded
+  `resolvedModel: anthropic/claude-opus-5-5:high`.
+- Since 0.24.0 the kit sets no `task.maxEffort`, so the cap is omp's default
+  `max`. With `task.enableEffort` off, the cap applies only to a per-call
+  `model` with a `:level` suffix.
 - In the deployed config, `scout` and `sonic` run GPT-6 Luna `medium`. The
   four reviewer agents resolve `@reviewer` and run GPT-6.1 Terra `high` on the
   live tier of the main session. A `docks-kit omp` free session replaces
@@ -702,9 +704,10 @@ web-search provider order therefore applies, and that order includes the paid
 deployed retry chain, such as a `plan`, `slow`, or `designer` chain, therefore
 stays in the merged config. A retry of the free model does not reach such a
 chain, because omp uses the empty chain keyed by the free model first.
-The overlay also sets `defaultThinkingLevel` and `task.maxEffort`, except for
-a model that publishes no thinking ladder, where both keys are omitted and the
-deployed or omp default values apply.
+The overlay also sets `defaultThinkingLevel` and `task.maxEffort` to the
+session level. For a model that publishes no thinking ladder, the overlay
+omits both keys. A value in the deployed config then applies, or else the omp
+default, which is `max` for `task.maxEffort`.
 
 The launcher renders a run overlay to
 `~/.cache/docks-kit/omp-free-<model>-<digest>.yml` at mode 0600 and passes it
@@ -915,4 +918,7 @@ on normal processing, use `docks-kit omp --fast` and a new session, not
 - Update the capture date in the same commit as any number.
 - Verify Astra ladder changes in `SoT/.omp/models.yml` through the model
   switcher and in-session thinking control.
-- Verify `task.maxEffort` changes with a fresh `omp -p` spawn per bundled agent.
+- The kit leaves `task.maxEffort` and `task.enableEffort` at omp's defaults,
+  `max` and `false`. After an omp update, check both in
+  `omp config list --json`. Verify a kit change to either key with a fresh
+  `omp -p` spawn per bundled agent.

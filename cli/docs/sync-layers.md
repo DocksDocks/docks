@@ -1,7 +1,12 @@
 # Sync layers
 
-`docks-kit sync` deploys the omp SoT. It takes no positional target and writes
-nothing under `~/.agents` or `~/.claude`.
+`docks-kit sync` deploys the omp SoT. It takes no positional target. Sync
+writes no `.agents` or `.claude` folder of its own; omp's folders follow
+`PI_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, and `XDG_DATA_HOME`, so an override
+that points into one of those folders makes omp's files go there. omp uses
+`XDG_DATA_HOME` only on Linux and macOS, only while `PI_CODING_AGENT_DIR`
+does not move the agent folder, and only after the omp folder under it
+exists. Sync also writes the kit plugin to `~/.docks-kit/omp-plugin`.
 
 ## omp (→ resolved agent dir, intercom root)
 

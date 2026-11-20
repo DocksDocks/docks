@@ -1,6 +1,3 @@
-statusLine:
-  compactThinkingLevel: false
-
 cycleOrder:
   - smol
   - default
@@ -8,23 +5,13 @@ cycleOrder:
   - fable
   - astra
 
-github:
+astGrep:
   enabled: true
 
-find:
+checkpoint:
   enabled: true
-
-browser:
-  idleCloseSec: 600
 
 task:
-  eager: always
-  showResolvedModelBadge: true
-  enableLsp: true
-  maxEffort: xhigh
-  maxConcurrency: 16
-  maxRuntimeMs: 3600000
-  agentIdleTtlMs: 120000
   agentModelOverrides:
     reviewer: "@reviewer"
     security-reviewer: "@reviewer"
@@ -66,9 +53,6 @@ modelTags:
 
 display:
   showTokenUsage: true
-
-providers:
-  webSearchTimeoutSeconds: 30
 
 retry:
   fallbackChains:
@@ -116,23 +100,9 @@ retry:
 branchSummary:
   enabled: true
 
-commands:
-  enableOpencodeProject: false
-
-steeringMode: all
-
 dev:
   autoqa: false
   autoqaConsent: denied
-
-compaction:
-  idleEnabled: true
-  handoffSaveToDisk: true
-
-doubleEscapeAction: tree
-
-features:
-  unexpectedStopDetection: smart
 
 codexResets:
   autoRedeem5h: "no"

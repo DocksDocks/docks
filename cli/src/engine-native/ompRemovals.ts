@@ -40,6 +40,9 @@ type RetiredValue = string | number | boolean | ReadonlyArray<string>;
  *   same value.
  * - `compaction.thresholdTokens: 231200`: an old fixed compaction trigger.
  *   Pruning it restores omp's reserve-based default `-1`.
+ * - The 18 entries from `task.maxConcurrency` to `github.enabled`: overrides
+ *   that the owner returned to the omp 19.0.0 defaults. Pruning one restores
+ *   the omp default, for example `task.maxEffort` `max` instead of `xhigh`.
  */
 export const OMP_RETIRED_VALUES: ReadonlyArray<readonly [string, RetiredValue]> = [
   ["symbolPreset", "unicode"],
@@ -85,6 +88,24 @@ export const OMP_RETIRED_VALUES: ReadonlyArray<readonly [string, RetiredValue]> 
   ["textVerbosity", "low"],
   ["codexResets.autoRedeem", "no"],
   ["tools.approvalMode", "yolo"],
+  ["task.maxConcurrency", 16],
+  ["task.maxEffort", "xhigh"],
+  ["task.maxRuntimeMs", 3600000],
+  ["task.agentIdleTtlMs", 120000],
+  ["task.enableLsp", true],
+  ["task.eager", "always"],
+  ["task.showResolvedModelBadge", true],
+  ["find.enabled", true],
+  ["providers.webSearchTimeoutSeconds", 30],
+  ["browser.idleCloseSec", 600],
+  ["steeringMode", "all"],
+  ["doubleEscapeAction", "tree"],
+  ["features.unexpectedStopDetection", "smart"],
+  ["compaction.idleEnabled", true],
+  ["compaction.handoffSaveToDisk", true],
+  ["commands.enableOpencodeProject", false],
+  ["statusLine.compactThinkingLevel", false],
+  ["github.enabled", true],
 ];
 
 /**
@@ -260,8 +281,8 @@ function indexOfKey(mapping: YAMLMap, key: string): number {
 /**
  * Deletes `segments` when `matches` accepts the leaf value, then removes every
  * ancestor mapping the deletion left empty. An ancestor holding another key
- * survives, so `statusLine` keeps `compactThinkingLevel` while `tui` disappears
- * once both of its keys are gone.
+ * survives, so `task` keeps its reviewer overrides while `tui` disappears once
+ * both of its keys are gone.
  */
 function deletePath(
   root: YAMLMap,

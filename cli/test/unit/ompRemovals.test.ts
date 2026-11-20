@@ -107,7 +107,7 @@ async function runOmpSync(root: string): Promise<void> {
     delete process.env[key];
   }
   mocks.payloadText.mockImplementation((path) => {
-    if (path === "SoT/.omp/config.yml") return "steeringMode: all\n";
+    if (path === "SoT/.omp/config.yml") return "startup:\n  quiet: true\n";
     if (path === "SoT/.omp/models.yml") return "providers: {}\n";
     if (path === "SoT/.omp/AGENTS.md") return "# omp\n";
     return "{}\n";
@@ -136,10 +136,10 @@ afterEach(() => {
 
 describe("retired omp config keys", () => {
   it("prunes a key whose deployed value still matches the value the kit shipped", () => {
-    const { file, root } = deployConfig("symbolPreset: unicode\nsteeringMode: all\n");
+    const { file, root } = deployConfig("symbolPreset: unicode\nuserOnly: 1\n");
 
     expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
-    expect(parse(readFileSync(file, "utf8"))).toEqual({ steeringMode: "all" });
+    expect(parse(readFileSync(file, "utf8"))).toEqual({ userOnly: 1 });
   });
 
   it("keeps a retired key the user changed away from the shipped value", () => {
@@ -151,24 +151,78 @@ describe("retired omp config keys", () => {
 
   it("prunes an outright-retired key at a value the kit never shipped", () => {
     const { file, root } = deployConfig(
-      "providers:\n  webSearchOrder:\n    - brave\n  webSearchTimeoutSeconds: 30\n",
+      "providers:\n  webSearchOrder:\n    - brave\n  webSearchTimeoutSeconds: 45\n",
     );
 
     expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
     expect(parse(readFileSync(file, "utf8"))).toEqual({
-      providers: { webSearchTimeoutSeconds: 30 },
+      providers: { webSearchTimeoutSeconds: 45 },
     });
   });
 
   it("removes a mapping emptied by pruning and keeps one that still holds a key", () => {
     const { file, root } = deployConfig(
-      "tui:\n  textSizing: false\n  tight: false\nstatusLine:\n  transparent: false\n  compactThinkingLevel: false\n",
+      "tui:\n  textSizing: false\n  tight: false\nstatusLine:\n  transparent: false\n  compactThinkingLevel: true\n",
     );
 
     expect(syncOmpRemovals(testCtx(root), file, false)).toBe(3);
     expect(parse(readFileSync(file, "utf8"))).toEqual({
-      statusLine: { compactThinkingLevel: false },
+      statusLine: { compactThinkingLevel: true },
     });
+  });
+
+  // The owner returned these 18 overrides to the omp 19.0.0 defaults. The user
+  // changed `browser.idleCloseSec` from the shipped 600, so sync keeps it; the
+  // next case prunes it at 600. `task` keeps the reviewer override that the kit
+  // still ships.
+  it("prunes the returned overrides at their shipped values and keeps an edited one", () => {
+    const { file, root } = deployConfig(
+      [
+        "statusLine:",
+        "  compactThinkingLevel: false",
+        "github:",
+        "  enabled: true",
+        "find:",
+        "  enabled: true",
+        "browser:",
+        "  idleCloseSec: 900",
+        "task:",
+        "  eager: always",
+        "  showResolvedModelBadge: true",
+        "  enableLsp: true",
+        "  maxEffort: xhigh",
+        "  maxConcurrency: 16",
+        "  maxRuntimeMs: 3600000",
+        "  agentIdleTtlMs: 120000",
+        "  agentModelOverrides:",
+        '    reviewer: "@reviewer"',
+        "providers:",
+        "  webSearchTimeoutSeconds: 30",
+        "commands:",
+        "  enableOpencodeProject: false",
+        "steeringMode: all",
+        "compaction:",
+        "  idleEnabled: true",
+        "  handoffSaveToDisk: true",
+        "doubleEscapeAction: tree",
+        "features:",
+        "  unexpectedStopDetection: smart",
+        "",
+      ].join("\n"),
+    );
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(17);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({
+      browser: { idleCloseSec: 900 },
+      task: { agentModelOverrides: { reviewer: "@reviewer" } },
+    });
+  });
+
+  it("prunes the shipped browser idle timeout", () => {
+    const { file, root } = deployConfig("browser:\n  idleCloseSec: 600\n");
+
+    expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
+    expect(parse(readFileSync(file, "utf8"))).toEqual({});
   });
 
   it("prunes the shipped advisor block, role, and empty retry chain", () => {
@@ -252,13 +306,13 @@ describe("retired omp config keys", () => {
   // one position where the carry-over has nowhere obvious to go.
   it("keeps a carried header when the pruned key was last in its mapping", () => {
     const { file, root } = deployConfig(
-      "steeringMode: all\n\n# kit-owned omp configuration\n\n# about autoResume\nautoResume: false\n",
+      "userOnly: 1\n\n# kit-owned omp configuration\n\n# about autoResume\nautoResume: false\n",
     );
 
     expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
     const after = readFileSync(file, "utf8");
     expect(after).toContain("# kit-owned omp configuration");
-    expect(after).toContain("steeringMode: all");
+    expect(after).toContain("userOnly: 1");
     expect(after).not.toContain("autoResume");
     expect(after).not.toContain("# about autoResume");
   });
@@ -268,14 +322,14 @@ describe("retired omp config keys", () => {
   // header to the top of the file.
   it("keeps a carried header inside the mapping it came from", () => {
     const { file, root } = deployConfig(
-      "tui:\n  keepMe: 1\n\n  # tui section header\n\n  # about tight\n  tight: false\nsteeringMode: all\n",
+      "tui:\n  keepMe: 1\n\n  # tui section header\n\n  # about tight\n  tight: false\nuserOnly: 1\n",
     );
 
     expect(syncOmpRemovals(testCtx(root), file, false)).toBe(1);
     const after = readFileSync(file, "utf8");
     const header = after.indexOf("# tui section header");
     expect(header).toBeGreaterThan(after.indexOf("keepMe: 1"));
-    expect(header).toBeLessThan(after.indexOf("steeringMode: all"));
+    expect(header).toBeLessThan(after.indexOf("userOnly: 1"));
     expect(after).not.toContain("tight: false");
   });
 
@@ -291,7 +345,7 @@ describe("retired omp config keys", () => {
 
     await runOmpSync(root);
 
-    expect(parse(readFileSync(file, "utf8"))).toEqual({ steeringMode: "all" });
+    expect(parse(readFileSync(file, "utf8"))).toEqual({ startup: { quiet: true } });
   });
 
   it("merges a symlinked config.yml into the link target and keeps the link", async () => {
@@ -311,12 +365,12 @@ describe("retired omp config keys", () => {
     expect(lstatSync(file).isSymbolicLink()).toBe(true);
     expect(parse(readFileSync(linkTarget, "utf8"))).toEqual({
       userOnly: 1,
-      steeringMode: "all",
+      startup: { quiet: true },
     });
   });
 
   it("backs up a pruned config.yml and keeps mode 0600", () => {
-    const source = "symbolPreset: unicode\nsteeringMode: all\n";
+    const source = "symbolPreset: unicode\nuserOnly: 1\n";
     const { file, root } = deployConfig(source);
     chmodSync(file, 0o644);
     // The logger writes `change` lines to stderr.
@@ -349,7 +403,7 @@ describe("retired omp config keys", () => {
 
     await runOmpSync(root);
 
-    expect(parse(readFileSync(file, "utf8"))).toEqual({ userOnly: 1, steeringMode: "all" });
+    expect(parse(readFileSync(file, "utf8"))).toEqual({ userOnly: 1, startup: { quiet: true } });
     expect(readFileSync(`${file}.bak`, "utf8")).toBe(source);
   });
 });
@@ -479,7 +533,7 @@ describe("retired omp bash.patterns rules", () => {
 
     expect(parse(readFileSync(file, "utf8"))).toEqual({
       bash: { patterns: KEPT_RULES },
-      steeringMode: "all",
+      startup: { quiet: true },
     });
   });
 });
