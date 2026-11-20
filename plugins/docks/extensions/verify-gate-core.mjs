@@ -3,15 +3,19 @@
 // commit was verified. Format: `Verified: <command>[; <command>]` or `Verified: none - <reason>`.
 //
 // Mode comes from DOCKS_VERIFY_GATE:
-//   off      allow every commit and write nothing.
-//   observe  (default) allow every commit; append one JSON line for each commit
-//            without the trailer to ${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl.
-//            The line holds metadata only: time, session_id, cwd, mode, and the kinds
-//            of message source. It never holds the raw command or any message text,
-//            because a command or a message can hold a secret.
-//   enforce  deny a commit without the trailer. After two denials in one session,
-//            allow the next commit, log it, and start the count again.
-//   An unknown value works as observe.
+//   off      allow every command and write nothing.
+//   observe  (default) allow every command. A bash command that holds a commit without the
+//            trailer writes one log line for that command to
+//            ${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl, with the message sources
+//            of its first commit without the trailer. The line holds metadata only: time,
+//            session_id, cwd, mode, and the kinds of message source. It never holds the raw
+//            command or any message text, because a command or a message can hold a secret.
+//   enforce  deny such a command the first two times in a session. The third time, allow it,
+//            write one log line for that command with allowed_after_denials, and start the
+//            count again. A denial count older than seven days expires, so the cycle starts
+//            again at the first denial.
+//   A command whose commits all carry the trailer writes nothing. An unknown value works as
+//   observe.
 //
 // The core finds each commit in the command itself, so the adapter gives it every bash
 // command. Each git call and each file operation is asynchronous, so a check does not hold

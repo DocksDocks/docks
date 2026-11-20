@@ -151,11 +151,15 @@ Verified: bun test src/session; bun run lint
 The docks plugin ships the `verify-gate` omp extension. It checks each `git commit` that runs through the bash tool, before
 the command runs. A commit that another tool makes does not pass through the gate. After an upgrade of docks, restart omp:
 omp loads extensions only when a session starts.
-The `DOCKS_VERIFY_GATE` environment variable of omp selects its mode. `observe` is the default: the gate allows the commit and
-appends one JSON line for each commit without the trailer to `${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl`.
-The line holds metadata only: `time`, `session_id`, `cwd`, `mode`, and `message_sources` (for example `-m`, `-F`,
-`--amend`, or `none`). An `enforce` line also holds `allowed_after_denials`. No line holds the command or the message text.
-`enforce` blocks a commit without the trailer. After two blocks in one session, it allows the next commit and logs it.
+The `DOCKS_VERIFY_GATE` environment variable of omp selects its mode. The gate checks each `bash` command that holds a
+`git commit`. A command whose commits all carry the trailer writes nothing.
+`observe` is the default: the gate allows the command, and a command with a commit without the trailer writes one log line
+for that command to `${XDG_STATE_HOME:-~/.local/state}/docks/verify-gate.jsonl`.
+The line holds metadata only: `time`, `session_id`, `cwd`, `mode`, and `message_sources`, the message sources of its first
+commit without the trailer (for example `-m`, `-F`, `--amend`, or `none`). No line holds the command or the message text.
+`enforce` denies such a command the first two times in a session. The third time, it allows the command, writes one log
+line for that command with `allowed_after_denials`, and starts the count again. A denial count older than seven days
+expires, so the cycle starts again at the first denial.
 `off` turns the gate off.
 
 ## Fixup / autosquash — clean up before review, not after
