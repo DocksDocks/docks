@@ -8,12 +8,12 @@ metadata:
   content_hash: "f3efe4f4712da4969e15f0e8f90421b01c1cfb58fb39e7c3be1c527d98841f62"
 ---
 
-# Security Audit (cross-tool pipeline)
+# Security Audit (sequential pipeline)
 
-A full OWASP-aware security audit run as one sequential pass: discovery, three analysis lenses, and a synthesis that challenges every finding before it reaches the report. Single-agent and cross-tool — no slash command, no subagent dispatch, no Plan Mode. The expertise for each phase lives in `references/<phase>.md`; this body is the orchestration.
+A full OWASP-aware security audit run as one sequential pass: discovery, three analysis lenses, and a synthesis that challenges every finding before it reaches the report. Single-agent by default — no slash command, no Plan Mode, and no subagent dispatch unless the user asks for the optional fan-out in Pipeline. The expertise for each phase lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
-Single-agent sequential. Execute the five phases IN ORDER, in THIS context. There is no parallel fan-out or subagent dispatch — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply that checklist. Hand each phase's output to `plan-manager` as you finish it so the audit issue remains resumable after compaction.
+Single-agent sequential by default. Execute the five phases IN ORDER, in THIS context. The only exception is the optional omp fan-out of Phases 2a–2c in Pipeline; use it only when the user asks for it. Before running each phase, read its `references/<phase>.md` and apply that checklist. Hand each phase's output to `plan-manager` as you finish it so the audit issue remains resumable after compaction.
 </constraint>
 
 <constraint>
@@ -21,7 +21,7 @@ Read-only. This pipeline never modifies source. Its only deliverable is the audi
 </constraint>
 
 <constraint>
-Intent controls the handoff, not Plan Mode. Hand the full report to `plan-manager`, which owns the GitHub plan issue through the six manager lifecycle phases — decide, draft, research, plan review, implement, and code review; these are separate from the audit's five internal analysis phases below. Do NOT call `ExitPlanMode` (Claude-only). `plan-workspace` owns label and workspace setup. An audit-only request ends after the report. If the current request explicitly includes remediation, keep this pipeline read-only, then hand confirmed findings to `fix-workflow` and continue through `plan-manager` without requiring another user-issued lifecycle command. If no GitHub-backed plan lifecycle is available, STOP and report that prerequisite; never write a tracked or untracked plan file.
+Intent controls the handoff, not Plan Mode. Hand the full report to `plan-manager`, which owns the GitHub plan issue through the six manager lifecycle phases — decide, draft, research, plan review, implement, and code review; these are separate from the audit's five internal analysis phases below. `plan-workspace` owns label and workspace setup. An audit-only request ends after the report. If the current request explicitly includes remediation, keep this pipeline read-only, then hand confirmed findings to `fix-workflow` and continue through `plan-manager` without requiring another user-issued lifecycle command. If no GitHub-backed plan lifecycle is available, STOP and report that prerequisite; never write a tracked or untracked plan file.
 </constraint>
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
@@ -58,6 +58,8 @@ Run these in order. Each phase reads its reference, then hands its output to `pl
 | 3 | Synthesis (challenge, dedupe, prioritize) | `references/synthesizer.md` | `## Research` → `### Phase 3: Security Audit Report` |
 
 Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequentially in this context (constraint 1) — their independence just means a finding in one never gates another.
+
+Optional omp fan-out: the user may ask you to run Phases 2a–2c as three read-only `scout` items in one `task` call, one item for each lens. Give each item the scope, the Phase 1 map, and its reference as `skill://security/references/<phase>.md`, because a subagent gets no conversation history and no `AGENTS.md`. Hand each returned result to `plan-manager` under its subheading yourself, then run Phase 3 in this context. The sequential path stays the reference.
 
 ## How to run each phase
 

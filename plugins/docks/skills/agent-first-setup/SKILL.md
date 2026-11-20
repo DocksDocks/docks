@@ -42,7 +42,7 @@ Ask every question with the omp `ask` tool. This includes approval gates, owner 
 ## When to Use
 
 - A new or inherited repository must work for omp agents, and the user wants it done in one pass.
-- The user says "make this repo agent-first", "set up this repo for agents", or `/docks:agent-first-setup`.
+- The user says "make this repo agent-first", "set up this repo for agents", or `/skill:agent-first-setup`.
 - A repository still has a Claude Code `.claude/` folder with skills, agents, or settings.
 - A health check after a large restructure: run `audit` for a pass/fail table with the owning skill for each fix.
 

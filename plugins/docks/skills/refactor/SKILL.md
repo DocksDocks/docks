@@ -8,16 +8,16 @@ metadata:
   content_hash: "9da6de46c0dbf1598b9083b263e2d995ded6a714261fb929f8c4be0438057539"
 ---
 
-# Refactor (cross-tool pipeline)
+# Refactor (sequential pipeline)
 
-Detect and fix structural issues — dead code, duplication, evidenced SOLID violations, modernization — as one sequential pass with a tiered plan, an intent-aware review handoff, and test-guarded implementation. Single-agent and cross-tool by default — no slash command, no Plan Mode; the only subagent dispatch is the optional Claude-only executor mode (see constraint 1). Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
+Detect and fix structural issues — dead code, duplication, evidenced SOLID violations, modernization — as one sequential pass with a tiered plan, an intent-aware review handoff, and test-guarded implementation. Single-agent by default — no slash command, no Plan Mode; the only subagent dispatches are optional: the omp fan-out of Phases 2a–2b and the omp isolated-executor mode (see constraint 1). Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
-Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS context; the analysis phases (1–5) never fan out or dispatch subagents — those are runtime-specific and not portable. Before running each phase, read its `references/<phase>.md` and apply it. Hand each phase's output to `plan-manager` as you finish it so the plan issue remains resumable after compaction. Implementation has ONE optional, explicitly Claude-only exception — the dispatched-executor mode in `references/executor-dispatch.md`; it is opt-in, never the default, and off-Claude you always fall back to the in-context path (Phases 7–8).
+Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS context. The only analysis exception is the optional omp fan-out of Phases 2a–2b in Pipeline; use it only when the user asks for it. Before running each phase, read its `references/<phase>.md` and apply it. Hand each phase's output to `plan-manager` as you finish it so the plan issue remains resumable after compaction. Implementation has ONE optional exception — the omp isolated-executor mode in `references/executor-dispatch.md`; it is opt-in, never the default, and when it is not available you always fall back to the in-context path (Phases 7–8).
 </constraint>
 
 <constraint>
-Phases 1–5 are READ-ONLY analysis. If the user asked only for an assessment or plan, the reviewed plan is the deliverable and the run stops after reporting it. If the user asked to refactor or implement, hand the plan to `plan-manager` for the six manager lifecycle phases — decide, draft, research, plan review, implement, and code review — which are separate from this skill's internal phases. The manager owns the canonical GitHub issue, lifecycle transitions, delegation, verification, and archive; continue into Phases 7–8 without requiring another user-issued lifecycle command. Do not call `ExitPlanMode` (Claude-only). Stop only for a real unresolved user decision or persisted blocker.
+Phases 1–5 are READ-ONLY analysis. If the user asked only for an assessment or plan, the reviewed plan is the deliverable and the run stops after reporting it. If the user asked to refactor or implement, hand the plan to `plan-manager` for the six manager lifecycle phases — decide, draft, research, plan review, implement, and code review — which are separate from this skill's internal phases. The manager owns the canonical GitHub issue, lifecycle transitions, delegation, verification, and archive; continue into Phases 7–8 without requiring another user-issued lifecycle command. Stop only for a real unresolved user decision or persisted blocker.
 </constraint>
 
 Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-manager` is unavailable, STOP, name the missing `plan-lifecycle` plugin, and do not create or mutate a plan.
@@ -64,6 +64,8 @@ Run in order. Each phase reads its reference, then hands its output to `plan-man
 
 Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 merges 2a + 2b + 3.
 
+Optional omp fan-out: the user may ask you to run Phases 2a and 2b as two read-only `scout` items in one `task` call, one item for each scan. Give each item the scope, the Phase 1 results, and its reference as `skill://refactor/references/<phase>.md`, because a subagent gets no conversation history and no `AGENTS.md`. Hand each returned result to `plan-manager` under its subheading yourself, then run Phase 3 in this context. The sequential path stays the reference.
+
 ## How to run each phase
 
 1. Anchor the date once (`date "+%Y-%m-%d"`), record scope (a path, or the whole project).
@@ -91,7 +93,7 @@ After Phase 5, write `### Phase 6: Plan Presentation` under `## Research` in the
 
 For an assessment-only or plan-only request, report the reviewed plan issue and summary, then stop. For an implementation request, hand the complete report to the unified `plan-manager`; it files the report in the plan issue, performs the single pre-implementation plan review, and sets the plan `ongoing`, then this orchestration continues directly into Phases 7–8 without a manual lifecycle prompt. Ask only when the manager identifies a genuine unresolved decision.
 
-After the plan reaches `status: ongoing`, implement via **Phases 7–8 in-context (the default)** — or, on Claude only, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): a cheaper executor runs the plan in an isolated worktree and you review its diff like a tech lead. Same plan, same issue verdict; just who does the edits.
+After the plan reaches `status: ongoing`, implement via **Phases 7–8 in-context (the default)** — or, on omp with `task.isolation.enabled` true and plan mode off, opt into the **dispatched-executor mode** (`references/executor-dispatch.md`): one isolated `task` subagent, with its model from `task.agentModelOverrides.task`, runs the plan in its own checkout, and you review its patch like a tech lead. Same plan, same issue verdict; just who does the edits.
 
 ## Implementation (Phases 7–8, while the plan is ongoing)
 
@@ -125,7 +127,7 @@ After the plan reaches `status: ongoing`, implement via **Phases 7–8 in-contex
 | Phase 4 — tiered plan, 9 fields, over-engineering guard | `references/planner.md` |
 | Phase 5 — pre-impl checks + reproduction | `references/pre-verifier.md` |
 | Phase 8 — post-impl verify + SOLID delta | `references/post-verifier.md` |
-| Optional (Claude-only) — dispatched cheaper-executor + tech-lead review | `references/executor-dispatch.md` |
+| Optional (omp isolated `task` item) — dispatched executor + tech-lead review | `references/executor-dispatch.md` |
 
 ## Verification (Phase 8 — scope + no unplanned loss)
 

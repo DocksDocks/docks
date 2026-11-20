@@ -51,7 +51,7 @@ Everything this skill writes into `AGENTS.md` is durable: every session reads it
 ## When to Use
 
 - A project has a `CLAUDE.md` or `.claude/CLAUDE.md`, at the root or nested, and the user wants omp to load its content
-- The user says "migrate CLAUDE.md to AGENTS.md", "remove CLAUDE.md", or `/docks:claude-md-migration`
+- The user says "migrate CLAUDE.md to AGENTS.md", "remove CLAUDE.md", or `/skill:claude-md-migration`
 - agent-first-setup or context-tree found a legacy file and sent the user here
 
 ## Workflow
