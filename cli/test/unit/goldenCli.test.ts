@@ -22,8 +22,8 @@ describe("golden CLI options", () => {
   it("selects matching labels and rejects non-matching labels from GOLDEN_FILTER", () => {
     process.env["GOLDEN_FILTER"] = "^fixture=home-fresh ";
     const options = parseArgs(["bun", "golden-suite.ts"]);
-    expect(labelSelected("fixture=home-fresh cmd=sync agents", options.filter)).toBe(true);
-    expect(labelSelected("fixture=home-existing cmd=sync agents", options.filter)).toBe(false);
+    expect(labelSelected("fixture=home-fresh cmd=sync", options.filter)).toBe(true);
+    expect(labelSelected("fixture=home-existing cmd=sync", options.filter)).toBe(false);
   });
 
   it("rejects unknown options", () => {

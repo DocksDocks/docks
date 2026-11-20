@@ -104,8 +104,8 @@ describe("EngineNative Effect seam", () => {
   it("runs the public engine with env globals disabled", async () => {
     mocks.runEngineNative.mockResolvedValue(0);
 
-    await runEngine(["sync", "omp"]);
-    expect(mocks.runEngineNative).toHaveBeenCalledWith(["sync", "omp"], expect.anything(), {
+    await runEngine(["sync", "--dry-run"]);
+    expect(mocks.runEngineNative).toHaveBeenCalledWith(["sync", "--dry-run"], expect.anything(), {
       envGlobals: false,
     });
   });

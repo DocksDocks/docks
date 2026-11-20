@@ -1167,7 +1167,7 @@ describe("subprocesses", () => {
 
     expect(resolveDocksKit({ PATH: `relative:${bin}` }, "linux")).toBe(launcher);
     expect(() => resolveDocksKit({ PATH: "relative" }, "linux")).toThrow(
-      "docks-kit is not on PATH; install docks-kit and run docks-kit sync omp",
+      "docks-kit is not on PATH; install docks-kit and run docks-kit sync",
     );
   });
 });

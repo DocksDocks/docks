@@ -1,11 +1,10 @@
 /**
- * EngineNative pipeline dispatch: select the requested harness pipelines,
- * run them under the concurrency cap, then print the summary and advice.
- * Split from index.ts; the `sync`/`toolchain` entry routing still lives
- * there.
+ * EngineNative sync dispatch: take the sync and folder locks, run the omp
+ * pipeline, then print the summary and advice. Split from index.ts; the
+ * `sync`/`toolchain` entry routing still lives there.
  */
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import type { Ctx } from "./index";
 import { compareCodepoints } from "./jq";
@@ -18,10 +17,8 @@ import {
   type OmpState,
   type OmpWriteFolders,
 } from "./ompSync";
-import { skillsNextSteps, skillsSummary, skillsSync, type SkillsState } from "./skillsSync";
 import { ExitError, parseArgs } from "./parseArgs";
 import { folderSyncLockPath, syncLockPath } from "./scratch";
-import { runBounded, type SyncConcurrency, type SyncTask } from "./syncConcurrency";
 
 /** The default time that a sync waits for another sync to release the sync lock. */
 export const SYNC_LOCK_WAIT_MS = 120_000;
@@ -48,9 +45,8 @@ function syncLockWaitMs(err: ErrorSink): number {
 
 /**
  * The tokens that skip the sync lock. `-h` and `--help` make `parseArgs`
- * print the usage or an error and exit before it reads `kit.db`. A
- * `--dry-run` sync writes no kit file except a `kit.db` migration, which
- * `kitDb.ts` makes safe for parallel runs.
+ * print the usage or an error and exit before the sync writes a file. A
+ * `--dry-run` sync writes no kit file.
  */
 const UNLOCKED_TOKENS: Record<string, true> = { "--dry-run": true, "-h": true, "--help": true };
 
@@ -133,8 +129,8 @@ export function folderLockPaths(folders: ReadonlyArray<string>): Array<string> {
 
 /**
  * Run `body` under the folder lock of each folder in `folders`. Take it after
- * the sync lock. Syncs of different homes can share an agents or omp
- * folder, and their home locks differ. A missing folder is created under the
+ * the sync lock. Syncs of different homes can share an omp folder, and
+ * their home locks differ. A missing folder is created under the
  * locks of its ancestors in the set. A dry run takes no folder lock and
  * creates nothing.
  */
@@ -164,113 +160,51 @@ export async function withHomeAndFolderLocks(
 }
 
 /**
- * Run a sync. The sync lock comes first: `parseArgs` reads the harness
- * selection from `kit.db`, and that read can migrate `kit.db` and rename a
- * legacy `state.json`. The folder locks come after `parseArgs` selects the
- * targets.
+ * Run a sync. The sync lock comes first, then the folder locks of the omp
+ * folders, which `runSync` resolves after `parseArgs` reads the flags.
  */
 export async function engineSync(ctx: Ctx, args: ReadonlyArray<string>): Promise<number> {
   return await withSyncLock(ctx, args, () => runSync(ctx, args));
 }
 
 async function runSync(ctx: Ctx, args: ReadonlyArray<string>): Promise<number> {
-  const { err } = ctx.services.logger;
   parseArgs(ctx, args);
-  const configuredConcurrency = process.env["DOCKS_KIT_SYNC_CONCURRENCY"];
-  if (configuredConcurrency === undefined || configuredConcurrency === "") {
-    ctx.syncConcurrency = 3;
-  } else if (
-    configuredConcurrency === "1" ||
-    configuredConcurrency === "2" ||
-    configuredConcurrency === "3"
-  ) {
-    ctx.syncConcurrency = Number(configuredConcurrency) as SyncConcurrency;
-  } else {
-    err("DOCKS_KIT_SYNC_CONCURRENCY must be 1, 2, or 3");
-    throw new ExitError(2);
-  }
-
-  // The folders that hold ownership records or omp files. A writing pipeline
-  // creates its folders anyway, so `withFolderLocks` creates each missing one
-  // under the locks of its ancestors in the set. The omp folders are resolved
-  // once, here: the omp pipeline and its omp children use these paths, so a
-  // data root that appears after the locks cannot move them.
-  const omp = ctx.syncOmp ? ompWriteFolders(ctx) : undefined;
-  const folders = [
-    ...(ctx.syncAgents ? [resolve(ctx.agentsDir)] : []),
-    ...(omp === undefined ? [] : [omp.paths.agentDir, omp.intercomDir, omp.paths.dataRoot]),
-  ];
-  return await withFolderLocks(ctx, folders, () => runPipelines(ctx, omp));
+  // The folders that hold omp files. A writing sync creates its folders
+  // anyway, so `withFolderLocks` creates each missing one under the locks of
+  // its ancestors in the set. The omp folders are resolved once, here: the
+  // omp pipeline and its omp children use these paths, so a data root that
+  // appears after the locks cannot move them.
+  const omp = ompWriteFolders(ctx);
+  const folders = [omp.paths.agentDir, omp.intercomDir, omp.paths.dataRoot];
+  return await withFolderLocks(ctx, folders, () => runPipeline(ctx, omp));
 }
 
-/** Run the selected pipelines. `omp` holds the omp folders when omp is selected. */
-async function runPipelines(ctx: Ctx, omp: OmpWriteFolders | undefined): Promise<number> {
+/** Run the omp pipeline in the omp folders `omp`, then print the summary and advice. */
+async function runPipeline(ctx: Ctx, omp: OmpWriteFolders): Promise<number> {
   const { acquireTerminal, echo } = ctx.services.logger;
 
-  type PipelineResult =
-    | { readonly kind: "skills"; readonly state: SkillsState }
-    | { readonly kind: "omp"; readonly state: OmpState };
-  interface SelectedPipeline {
-    readonly name: string;
-    readonly run: SyncTask<PipelineResult>;
-  }
-
-  const selected: Array<SelectedPipeline> = [];
-  if (ctx.syncAgents) {
-    selected.push({
-      name: "skills",
-      run: async () => ({ kind: "skills", state: await skillsSync(ctx) }),
-    });
-  }
-  if (omp !== undefined) {
-    selected.push({
-      name: "omp",
-      run: async () => ({ kind: "omp", state: await ompSync(ctx, omp) }),
-    });
-  }
-
-  const remaining = new Set(selected.map(({ name }) => name));
-  const lease = acquireTerminal(`Syncing ${[...remaining].join(", ")}...`);
+  const lease = acquireTerminal("Syncing omp...");
   ctx.terminalLease = lease;
-  const tasks = selected.map(({ name, run }): SyncTask<PipelineResult> => async () => {
-    try {
-      return await run();
-    } finally {
-      remaining.delete(name);
-      if (remaining.size > 0) lease.update(`Syncing ${[...remaining].join(", ")}...`);
-    }
-  });
-  let results: Array<PipelineResult>;
+  let ompState: OmpState;
   try {
     try {
-      results = await runBounded(tasks, ctx.syncConcurrency);
+      ompState = await ompSync(ctx, omp);
     } finally {
       lease.release();
       ctx.terminalLease = undefined;
     }
   } catch (error) {
-    // A rejected pipeline skips the summary. Print the failures that the other pipelines recorded.
+    // A rejected pipeline skips the summary. Print the failures that it recorded before it stopped.
     printFailures(ctx);
     throw error;
-  }
-
-  let skillsState: SkillsState | undefined;
-  let ompState: OmpState | undefined;
-  for (const result of results) {
-    if (result.kind === "skills") skillsState = result.state;
-    else ompState = result.state;
   }
 
   echo("");
   echo("--- Sync complete ---");
   echo(`Repo:     ${ctx.repoDir}`);
-  if (skillsState !== undefined) skillsSummary(ctx, skillsState);
-  if (ompState !== undefined) ompSummary(ctx, ompState);
+  ompSummary(ctx, ompState);
 
-  const advice = [
-    ...(skillsState !== undefined ? skillsNextSteps(ctx) : []),
-    ...(ompState !== undefined ? ompNextSteps(ctx) : []),
-  ];
+  const advice = ompNextSteps(ctx);
   if (advice.length > 0) {
     echo("");
     for (const line of advice) echo(line);

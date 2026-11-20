@@ -8,7 +8,7 @@ import {
   rejectedForwardedFlag,
   resolveFreeSelector,
 } from "../../src/commands/omp";
-import { readOmpSessionModel } from "../../src/engine-native/harnesses";
+import { readOmpSessionModel } from "../../src/engine-native/ompSession";
 import { kitDbFile } from "../../src/engine-native/kitDb";
 import { overlayFileName, type CatalogModel } from "../../src/engine-native/ompOverlay";
 import { runPublicCli } from "../lib/goldenExecution";

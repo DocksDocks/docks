@@ -1,7 +1,5 @@
 import { GlobalFlag } from "effect/cli";
 import { docsCommand } from "./commands/docs";
-import { harnessesCommand } from "./commands/harnesses";
-import { skillsCommand } from "./commands/skills";
 import { syncCommand } from "./commands/sync";
 import { toolchainCommand } from "./commands/toolchain";
 import { updateCommand } from "./commands/update";
@@ -28,10 +26,8 @@ export type ArgvOutcome =
  */
 export const COMMANDS = [
   syncCommand,
-  harnessesCommand,
   updateCommand,
   toolchainCommand,
-  skillsCommand,
   docsCommand,
   ompCommand,
   scratchCommand,

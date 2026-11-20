@@ -1,7 +1,7 @@
 /**
- * EngineNative sync scheduling: the bounded-concurrency runner. Split from
- * index.ts, which re-exports the public surface so existing import paths keep
- * working.
+ * EngineNative bounded-concurrency runner, which tidy and the tidy report use
+ * for their parallel probes. index.ts re-exports it so existing import paths
+ * keep working.
  */
 
 export type SyncConcurrency = 1 | 2 | 3;

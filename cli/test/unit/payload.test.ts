@@ -43,7 +43,7 @@ describe("generated SoT payload", () => {
   it("fails --check when an embedded SoT file changes", () => {
     const root = copyGeneratorRoot();
     try {
-      const path = join(root, "SoT", ".agents", "skills.txt");
+      const path = join(root, "SoT", ".omp", "AGENTS.md");
       writeFileSync(path, `${readFileSync(path, "utf8")}# changed\n`);
       const result = check(root);
       expect(result.status).toBe(1);

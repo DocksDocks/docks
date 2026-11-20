@@ -11,7 +11,6 @@ describe("Darwin host OS", () => {
 
     expect(host.id).toBe("darwin");
     expect(host.toolchainOs).toBe("darwin");
-    expect(host.directoryLinkKinds).toEqual(["symlink"]);
     expect(host.executableSuffixes).toEqual([""]);
     expect(host.invoke("/usr/local/bin/npm", ["-v"])).toEqual({
       command: "/usr/local/bin/npm",

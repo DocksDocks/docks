@@ -26,7 +26,6 @@ describe("Windows host OS", () => {
 
     expect(host.id).toBe("windows");
     expect(host.toolchainOs).toBe("windows");
-    expect(host.directoryLinkKinds).toEqual(["symlink", "junction"]);
     expect(host.executableSuffixes).toEqual([".exe", ".cmd", ".bat", ""]);
     expect(host.bunExecutableName).toBe("bun.exe");
     expect(host.bunInstaller("1.4.0", "C:/Temp/bun")).toEqual({

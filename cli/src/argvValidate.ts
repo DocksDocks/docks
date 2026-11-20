@@ -1,10 +1,9 @@
 /**
- * Per-command validation for the Effect CLI layer: legacy-flag hints,
- * unknown-command/flag detection, and boolean-value and duplicate rejection.
+ * Per-command validation for the Effect CLI layer: unknown-command/flag
+ * detection, and boolean-value and duplicate rejection.
  * Operates on scanned flags so the grammar machinery stays in argvSurface.ts.
  */
 
-import { isLegacyFlag, LEGACY_FLAG_HINTS } from "./engine-native/parseArgs";
 import type { ArgvSurfaces, FlagSurface, ScannedFlag } from "./argvSurface";
 
 /**
@@ -23,12 +22,6 @@ export const validateScannedArgv = (
     flags.some((flag) => flag.canonicalName === undefined);
   if (unknownCommandWouldMisdiagnoseFlag) {
     return `unknown command '${subcommand}'`;
-  }
-
-  if (subcommand === "sync") {
-    for (const flag of flags) {
-      if (isLegacyFlag(flag.name)) return LEGACY_FLAG_HINTS[flag.name];
-    }
   }
 
   // Effect 4 expands clustered shorts, but the kit declares no clusterable alias

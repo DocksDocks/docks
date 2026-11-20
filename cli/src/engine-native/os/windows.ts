@@ -92,7 +92,6 @@ function commandShimInvocation(executablePath: string, args: ReadonlyArray<strin
 export const windows: HostOs = {
   id: "windows",
   toolchainOs: "windows",
-  directoryLinkKinds: ["symlink", "junction"],
   executableSuffixes: [".exe", ".cmd", ".bat", ""],
   invoke: (executablePath, args) =>
     /\.(?:cmd|bat)$/i.test(executablePath)

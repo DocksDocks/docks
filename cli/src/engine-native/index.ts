@@ -5,8 +5,8 @@
  * channel, which bypasses effect/cli so tests see the internal argv
  * vocabulary directly.
  *
- * Split: run context lives in `engineCtx.ts`, scheduling in
- * `syncConcurrency.ts`, and pipeline dispatch in `syncDispatch.ts`. This
+ * Split: run context lives in `engineCtx.ts`, the bounded runner in
+ * `syncConcurrency.ts`, and sync dispatch in `syncDispatch.ts`. This
  * module keeps the entry routing and re-exports the public surface so
  * existing import paths keep working.
  */

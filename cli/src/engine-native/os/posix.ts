@@ -16,7 +16,6 @@ export function posixHost(inputs: PosixHostInputs): HostOs {
   return {
     id: inputs.id,
     toolchainOs: inputs.toolchainOs,
-    directoryLinkKinds: ["symlink"],
     executableSuffixes: [""],
     invoke: (executablePath, args) => ({ command: executablePath, args }),
     bunExecutableName: "bun",

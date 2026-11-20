@@ -11,7 +11,6 @@ describe("Linux host OS", () => {
 
     expect(host.id).toBe("linux");
     expect(host.toolchainOs).toBe("linux");
-    expect(host.directoryLinkKinds).toEqual(["symlink"]);
     expect(host.executableSuffixes).toEqual([""]);
     expect(host.invoke("/usr/bin/npm", ["-v"])).toEqual({
       command: "/usr/bin/npm",

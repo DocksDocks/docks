@@ -10,7 +10,7 @@ import {
   readOmpSessionModel,
   writeOmpSessionModel,
   type OmpSessionModel,
-} from "../engine-native/harnesses";
+} from "../engine-native/ompSession";
 import {
   buildOmpArgs,
   ladderCeiling,

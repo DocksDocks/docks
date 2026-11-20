@@ -5,8 +5,6 @@
  */
 
 export type PlatformName = "linux" | "darwin" | "windows" | "unknown";
-/** Directory-link mechanisms, tried in order before the copy fallback. */
-export type DirectoryLinkKind = "symlink" | "junction";
 /** Tools whose install command differs per host OS. */
 export type HintedTool = "git" | "jq" | "curl";
 
@@ -29,8 +27,6 @@ export interface HostOs {
   readonly id: PlatformName;
   /** `SoT/toolchain.json` `os` field this host matches; "" matches every row. */
   readonly toolchainOs: string;
-  /** Directory-link mechanisms tried in order before `skillsLinks.ts linkOrCopy` copies. */
-  readonly directoryLinkKinds: ReadonlyArray<DirectoryLinkKind>;
   /** One-line install command for a tool whose package differs per OS. */
   readonly installHint: (tool: HintedTool) => string;
   /** Filename suffixes tried in order when resolving a bare tool name on PATH. */

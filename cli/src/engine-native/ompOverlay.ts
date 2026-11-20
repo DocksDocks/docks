@@ -12,7 +12,7 @@
  */
 import { createHash } from "node:crypto";
 import { delimiter } from "node:path";
-import type { OmpSessionModel } from "./harnesses";
+import type { OmpSessionModel } from "./ompSession";
 
 export interface CatalogModel {
   readonly selector: string;

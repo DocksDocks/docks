@@ -35,7 +35,6 @@ const runCli = (
     env: childEnv({
       HOME: home,
       USERPROFILE: home,
-      AGENTS_DIR: p(home, ".agents"),
       DOCKS_KIT_ENGINE: "",
       DOCKS_KIT_HOME: REPO_DIR,
       PATH: `${toolStubs}${delimiter}${process.env["PATH"] ?? ""}`,
@@ -72,22 +71,19 @@ afterEach(() => {
 });
 
 describe("command reporting", () => {
-  // Engine-native goldens bypass the public parser. This checks that multiple
-  // positional targets reach the selected pipelines and invalid later targets fail.
+  // Engine-native goldens bypass the public parser. This checks that the
+  // flag-less public sync plans the omp pipeline and nothing under ~/.agents.
   it(
-    "carries every positional sync target through the public CLI parser",
+    "runs the omp pipeline for a flag-less sync through the public CLI parser",
     () => {
-      const home = temporaryDirectory("docks-sync-variadic-");
+      const home = temporaryDirectory("docks-sync-omp-only-");
 
-      const selected = runCli(["sync", "agents", "omp", "--dry-run"], home);
-      expect(selected.status).toBe(0);
-      expect(selected.stdout).toContain("Skills:");
-      expect(selected.stdout).toContain("omp:");
-
-      const invalid = runCli(["sync", "agents", "bogus", "--dry-run"], home);
-      expect(invalid.status).toBe(2);
-      expect(invalid.stderr).toContain("Unknown sync target(s): bogus");
-      expect(invalid.stdout).not.toContain("--- Sync complete ---");
+      const result = runCli(["sync", "--dry-run"], home);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("--- Sync complete ---");
+      expect(result.stdout).toContain("omp:");
+      expect(result.stdout).not.toContain("Skills:");
+      expect(`${result.stdout}${result.stderr}`).not.toMatch(/\.agents[\\/]|\.claude[\\/]/);
     },
     SPAWN_TIMEOUT_MS,
   );

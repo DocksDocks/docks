@@ -47,7 +47,7 @@ export function toggleOpenAiFast(configText: string): FastToggle {
 /** Throw the error of the toggle when the deployed config.yml is missing. */
 export function requireDeployedConfig(configPath: string): void {
   if (!existsSync(configPath)) {
-    throw new Error(`${configPath} does not exist; run 'docks-kit sync omp' first`);
+    throw new Error(`${configPath} does not exist; run 'docks-kit sync' first`);
   }
 }
 

@@ -134,17 +134,17 @@ describe("DependencyManager registry", () => {
     }
   });
 
-  it("directs users to Node.js when the skills bootstrap cannot find npx", () => {
+  it("directs users to Node.js when an npm-installed kit cannot find npm", () => {
     const warnings: Array<string> = [];
     const manager = makeDependencyManager(makePlatform("linux"));
     const logger = makeEngineServices({
       sinks: { stderr: (chunk) => void warnings.push(stripVTControlCharacters(chunk)) },
     }).logger;
 
-    manager.warnMissing("npx", logger, "skipping universal skills bootstrap");
+    manager.warnMissing("npm", logger, "skipping the npm-global update");
 
     expect(warnings).toEqual([
-      "[warn] npx not installed — ships with Node.js — install via https://nodejs.org (or your package manager) (skipping universal skills bootstrap)\n",
+      "[warn] npm not installed — ships with Node.js — install via https://nodejs.org (or your package manager) (skipping the npm-global update)\n",
     ]);
   });
 

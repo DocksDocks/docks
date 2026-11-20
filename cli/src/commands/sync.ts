@@ -1,8 +1,8 @@
-import { Argument, Command, Flag } from "effect/cli";
+import { Command, Flag } from "effect/cli";
 import { Effect } from "effect";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { bail, engine } from "../engine";
+import { engine } from "../engine";
 import { spawnHost } from "../engine-native/exec";
 import type { Logger } from "../engine-native/logger";
 import { kitHome } from "../kitHome";
@@ -35,19 +35,8 @@ export const updateNudge = (logger: Logger): void => {
   }
 };
 
-const VALID_TARGETS = ["agents", "omp"];
-
-const targets: Argument.Argument<ReadonlyArray<string>> = Argument.String("target").pipe(
-  Argument.withDescription("Sync targets: agents, omp (default: selected harnesses)"),
-  Argument.variadic(),
-);
-
 const dryRun = Flag.Boolean("dry-run").pipe(
   Flag.withDescription("Preview without applying"),
-  Flag.withDefault(false),
-);
-const prune = Flag.Boolean("prune").pipe(
-  Flag.withDescription("Remove kit-managed universal skills not in SoT/.agents/skills.txt"),
   Flag.withDefault(false),
 );
 const skipPluginRefresh = Flag.Boolean("skip-plugin-refresh").pipe(
@@ -65,24 +54,14 @@ const verbose = Flag.Boolean("verbose").pipe(
 export const syncCommand = Command.make(
   "sync",
   {
-    targets,
     dryRun,
-    prune,
     skipPluginRefresh,
     verbose,
   },
   (config) =>
     Effect.gen(function* () {
-      const bad = config.targets.filter((t) => !VALID_TARGETS.includes(t));
-      if (bad.length > 0) {
-        return yield* bail(
-          `Unknown sync target(s): ${bad.join(", ")} (valid: ${VALID_TARGETS.join(", ")})`,
-        );
-      }
-
-      const args: Array<string> = ["sync", ...config.targets];
+      const args: Array<string> = ["sync"];
       if (config.dryRun) args.push("--dry-run");
-      if (config.prune) args.push("--prune");
       if (config.skipPluginRefresh) args.push("--skip-plugin-refresh");
       if (config.verbose) args.push("--verbose");
 
