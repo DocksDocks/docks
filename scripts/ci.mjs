@@ -164,6 +164,8 @@ const floorOf = (kind) => {
 // plugin gate refuses the plugin-level folders under its root.
 const LEFTOVER_REPO_PATHS = ['.claude-plugin', '.agents/plugins', '.codex'];
 const LEFTOVER_PLUGIN_PATHS = ['.claude-plugin', '.codex-plugin'];
+// The Claude Code folder. omp does not load skills or agents from it, so the repository tracks no file in it.
+const CLAUDE_FOLDER = '.claude';
 // The string fields of each plugin package.json; it also declares `private: true`, `type: "module"`, and `omp`.
 const PACKAGE_FIELDS = ['name', 'version', 'description', 'license'];
 // The files that omp loads for an `omp.extensions` entry that names a folder, in its order.
@@ -543,7 +545,7 @@ async function gatePlugin(p) {
 }
 
 // The catalog: it parses and names the marketplace and its owner, it holds one entry per descriptor and no other
-// entry, and no folder of another plugin format is left in the repository.
+// entry, no folder of another plugin format is left in the repository, and git tracks no root `.claude` entry.
 function gateCatalog() {
   if (market === null) {
     fail(`${MARKETPLACE} is missing or is not valid JSON`);
@@ -570,6 +572,21 @@ function gateCatalog() {
   const leftovers = LEFTOVER_REPO_PATHS.filter((leftover) => fs.existsSync(leftover));
   for (const leftover of leftovers) fail(`${leftover} is a leftover of another plugin format; remove it`);
   if (leftovers.length === 0) ok(`no folder of another plugin format (${LEFTOVER_REPO_PATHS.join(', ')})`);
+  hasTrackedEntry(CLAUDE_FOLDER)
+    ? fail(`${CLAUDE_FOLDER} is tracked; omp does not read this Claude Code folder; remove it from git`)
+    : ok(`no tracked ${CLAUDE_FOLDER} entry`);
+}
+
+// True when git tracks a file at or under `relative`. Outside a git checkout of REPO (the gate tests run on a copy
+// of the working tree without `.git`), every file stands for a tracked one. An ignored file in a checkout does not
+// count: `.gitignore` ignores local `.claude/agents/review-bench-*` files.
+function hasTrackedEntry(relative) {
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  if (top.status === 0 && fs.realpathSync(top.stdout.trim()) === fs.realpathSync(REPO)) {
+    const listed = spawnSync('git', ['ls-files', '-z', '--', relative], { encoding: 'utf8' });
+    if (listed.status === 0) return listed.stdout !== '';
+  }
+  return fs.lstatSync(relative, { throwIfNoEntry: false }) !== undefined;
 }
 
 // The plugin package.json: it parses and has the native fields, and its name, version, and folder agree with its

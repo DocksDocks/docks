@@ -41,7 +41,7 @@ GOOD — The agent reads every line and the exit code. A `FAIL` line or a
 |---|---|---|
 | omp CLI | `omp --version` | A line that starts with `omp/` |
 | Node and Bun | `node --version && bun --version` | Two version lines |
-| docks-kit CLI (V1 and V3 scratch folders) | `docks-kit --version` | One version line |
+| docks-kit CLI (V1, V3, and V6 scratch folders) | `docks-kit --version` | One version line |
 | Dependencies | `bun install --frozen-lockfile` | Exit 0 |
 
 ## V1 — Install the plugins into an isolated omp state
@@ -131,34 +131,47 @@ Expected: `plan-lifecycle self-test PASSED: manifest/catalog agreement (<version
 
 ## V6 — Run the agent-first-setup and claude-md-migration check scripts
 
-The skills run these read-only scripts with `node`. The block runs them in this repository and in a new fixture repository that holds only a `CLAUDE.md`.
+The skills run these read-only scripts with `node`. The block runs them in this repository and in a new fixture repository in a docks-kit scratch folder. The fixture holds `AGENTS.md`, `CLAUDE.md`, and `.claude/CLAUDE.md` at the root, a `.claude/skills/x` folder, the Claude agent `.claude/agents/rev.md` with `tools: Read, Grep` and `model: sonnet`, the Claude agent `.claude/agents/locked.md` with `disallowedTools` and no `tools`, and `.claude/settings.json`.
 
 ```bash
 root=$PWD
 afs=$root/plugins/docks/skills/agent-first-setup/scripts/agent-first-check.mjs
-mtb=$root/plugins/docks/skills/claude-md-migration/scripts/bridge-check.mjs
+cmm=$root/plugins/docks/skills/claude-md-migration/scripts/bridge-check.mjs
 node "$afs" detect | grep -E '^(root AGENTS.md|pull-request template|verify)'; echo "exit=${PIPESTATUS[0]}"
 node "$afs" check | grep -E '^(FAIL|ERROR)'; echo "exit=${PIPESTATUS[0]}"
-node "$mtb" verify; echo "exit=$?"
-fixture=$(mktemp -d)
+node "$cmm" verify; echo "exit=$?"
+fixture=$(docks-kit scratch new verify-v6 | tail -n 1)
 git -C "$fixture" init -q
+mkdir -p "$fixture/.claude/skills/x" "$fixture/.claude/agents"
+printf '# Repo\n\nBuild with `make build`, test with `make test`, and lint with `make lint`.\n\nPointers here name concepts; check each one before you trust it.\n' > "$fixture/AGENTS.md"
 printf '# Rules\n' > "$fixture/CLAUDE.md"
-(cd "$fixture" && node "$afs" detect | tail -n +2; echo "exit=${PIPESTATUS[0]}")
+printf 'Use the review agent.\n' > "$fixture/.claude/CLAUDE.md"
+printf -- '---\nname: x\ndescription: Use when testing.\n---\n\n# x\n' > "$fixture/.claude/skills/x/SKILL.md"
+printf -- '---\nname: rev\ndescription: Reviews a diff for bugs.\ntools: Read, Grep\nmodel: sonnet\n---\n\nYou review diffs.\n' > "$fixture/.claude/agents/rev.md"
+printf -- '---\nname: locked\ndescription: Reviews a diff without edits.\ndisallowedTools: Write, Edit, Bash\n---\n\nYou review diffs.\n' > "$fixture/.claude/agents/locked.md"
+printf '{}\n' > "$fixture/.claude/settings.json"
+(cd "$fixture" && node "$afs" detect | grep -E '^(legacy|verify)'; echo "exit=${PIPESTATUS[0]}")
 (cd "$fixture" && node "$afs" check; echo "exit=$?")
-(cd "$fixture" && node "$mtb" verify; echo "exit=${PIPESTATUS[0]}")
-rm -r "$fixture"
+(cd "$fixture" && node "$afs" convert-agent .claude/agents/rev.md; echo "exit=$?")
+(cd "$fixture" && node "$afs" convert-agent .claude/agents/locked.md; echo "exit=$?")
+(cd "$fixture" && node "$cmm" audit; echo "exit=$?")
+(cd "$fixture" && find . -path ./.git -prune -o -type f -print | LC_ALL=C sort)
+docks-kit scratch remove "$fixture"
 ```
 
 Expected, in order:
 
 | Call | Expected result |
 |---|---|
-| `detect` here | `root AGENTS.md: present`, `pull-request template: .github/pull_request_template.md (file)`, `verify skill: present`, `verify link: present`, then `exit=0` |
+| `detect` here | `root AGENTS.md: present`, `pull-request template: .github/pull_request_template.md (file)`, `verify skill: present`, then `exit=0`. No `verify link:` line. |
 | `check` here | No `FAIL` or `ERROR` line, then `exit=0` |
 | `verify` here | No output, then `exit=0` |
-| `detect` in the fixture | `root AGENTS.md: missing`, `.agents/skills: missing`, `.claude/skills: missing`, `legacy: CLAUDE.md`, `pull-request template: none`, `verify skill: missing`, `verify link: missing`, then `exit=0` |
-| `check` in the fixture | `FAIL C1 root AGENTS.md missing`, `FAIL C3 CLAUDE.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md: CLAUDE.md`, `FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)`, `FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)`, then `exit=0` |
-| `verify` in the fixture | `BROKEN: AGENTS.md missing`, `BROKEN: legacy CLAUDE.md still present: CLAUDE.md`, then `exit=0` |
+| `detect` in the fixture | `legacy skills: .claude/skills`, `legacy agents: .claude/agents/locked.md`, `legacy agents: .claude/agents/rev.md`, `legacy settings: .claude/settings.json`, `legacy: .claude/CLAUDE.md`, `legacy: CLAUDE.md`, `verify skill: missing`, then `exit=0`. No `verify link:` line. |
+| `check` in the fixture | `FAIL C3 .claude/CLAUDE.md (omp loads it instead of the AGENTS.md of that folder when a session starts there; migrate it with claude-md-migration): .claude/CLAUDE.md`, `FAIL C3 CLAUDE.md next to an AGENTS.md (omp ignores it; migrate it with claude-md-migration): CLAUDE.md`, one `FINDING C4 legacy .claude entry (agent-first-setup cleans it up): <entry>` line for each of `.claude/skills/x`, `.claude/agents/locked.md`, `.claude/agents/rev.md`, and `.claude/settings.json` in this order, `FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)`, `FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)`, then `exit=0` |
+| `convert-agent` of `rev.md` | `---`, `name: rev`, `description: Reviews a diff for bugs.`, `tools: read, grep`, `---`, an empty line, `You review diffs.`, then `exit=0`. A stderr line names the dropped `model` field. |
+| `convert-agent` of `locked.md` | Only `ERROR convert-agent .claude/agents/locked.md: disallowedTools has no omp form; port it by hand`, then `exit=2`. No agent text. |
+| `audit` in the fixture | `EXISTS AGENTS.md`, `EXISTS CLAUDE.md (root)`, `EXISTS .claude/CLAUDE.md`, `MISSING CLAUDE.local.md`, `legacy skills: .claude/skills`, `legacy agents: .claude/agents/locked.md`, `legacy agents: .claude/agents/rev.md`, `legacy settings: .claude/settings.json`, `legacy: .claude/CLAUDE.md`, `legacy: CLAUDE.md`, then `exit=0` |
+| `find` in the fixture | `./.claude/CLAUDE.md`, `./.claude/agents/locked.md`, `./.claude/agents/rev.md`, `./.claude/settings.json`, `./.claude/skills/x/SKILL.md`, `./AGENTS.md`, `./CLAUDE.md`. No command wrote a file, and the settings file is still there. |
 
 ## Failure signs
 

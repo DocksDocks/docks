@@ -1,8 +1,8 @@
 // Shared parts of the agent-doc checks of agent-first-setup (agent-first-check.mjs) and
-// claude-md-migration (bridge-check.mjs): the repository root, the file listing, the routing
-// rows of the root AGENTS.md, the nested AGENTS.md nodes, and the durable-doc scan. The
-// canonical file is in agent-first-setup; claude-md-migration ships a byte-identical copy,
-// because a skill folder cannot import from another skill folder.
+// claude-md-migration (bridge-check.mjs): the repository root, the file listing, the legacy
+// `.claude/` entries, the routing rows of the root AGENTS.md, the nested AGENTS.md nodes, and
+// the durable-doc scan. The canonical file is in agent-first-setup; claude-md-migration ships
+// a byte-identical copy, because a skill folder cannot import from another skill folder.
 //
 // Each function ports one part of a shell block that the two skills ran before. A port keeps
 // the semantics of that block: git pathspecs, POSIX `[[:space:]]`, the leftmost-longest
@@ -108,6 +108,38 @@ export function readFolder(folder) {
 export function findEntries(folder) {
   if (isSymlink(folder)) return [];
   return readFolder(folder).sort((a, b) => byteOrder(a.name, b.name));
+}
+
+const CLAUDE_SKILLS = '.claude/skills';
+const CLAUDE_AGENTS = '.claude/agents';
+const CLAUDE_SETTINGS = ['.claude/settings.json', '.claude/settings.local.json'];
+
+// The legacy Claude Code entries of the `.claude/` folder in the current folder (the
+// repository root) that agent-first-setup cleans up: the skills folder, each agent file that
+// `.claude/agents/*.md` expands to (no dot names, in byte order), and each settings file.
+// Throws CheckError when `.claude/agents` is there but cannot be listed.
+export function legacyClaudeEntries() {
+  const agents = readFolder(CLAUDE_AGENTS)
+    .map((entry) => entry.name)
+    .filter((name) => !name.startsWith('.') && name.endsWith('.md'))
+    .sort(byteOrder)
+    .map((name) => `${CLAUDE_AGENTS}/${name}`)
+    .filter(isFile);
+  return {
+    skills: isFolder(CLAUDE_SKILLS) ? CLAUDE_SKILLS : null,
+    agents,
+    settings: CLAUDE_SETTINGS.filter(isFile),
+  };
+}
+
+// The `legacy skills:`, `legacy agents:`, and `legacy settings:` lines of legacyClaudeEntries.
+export function legacyClaudeLines() {
+  const { skills, agents, settings } = legacyClaudeEntries();
+  return [
+    ...(skills === null ? [] : [`legacy skills: ${skills}`]),
+    ...agents.map((agent) => `legacy agents: ${agent}`),
+    ...settings.map((file) => `legacy settings: ${file}`),
+  ];
 }
 
 // The text of a file, or null when no file is there; grep and awk then fail the same way. A

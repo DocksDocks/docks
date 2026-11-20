@@ -1,16 +1,21 @@
 #!/usr/bin/env node
-// Detect the agent-doc state of a repository (Step 0 of agent-first-setup) and run the
-// agent-first check C1 to C10 (Step 3). Both commands read only; they write no file. The
+// Detect the agent-doc state of a repository (Step 0 of agent-first-setup), run the
+// agent-first check C1 to C10 (Step 3), and convert one Claude Code agent file to the omp
+// form (the .claude cleanup of Step 2a). Each command reads only; none writes a file. The
 // meaning of each line and the reaction to it live in the SKILL.md of agent-first-setup.
 //
 // Usage (from any folder inside the repository, or from the folder to check outside git):
 //   node agent-first-check.mjs detect
 //   node agent-first-check.mjs check
+//   node agent-first-check.mjs convert-agent <path>
 //
 // Output lines:
 //   detect  the repository root (the current folder outside git); then
-//           `root AGENTS.md: present|missing`, `.agents/skills: present|missing`,
-//           `.claude/skills: present|missing`; one `legacy: <path>` line for each CLAUDE.md
+//           `root AGENTS.md: present|missing`, `.agents/skills: present|missing`;
+//           `legacy skills: .claude/skills` when that folder is there, one
+//           `legacy agents: <path>` line for each `.claude/agents/*.md` file, one
+//           `legacy settings: <path>` line for each `.claude/settings.json` and
+//           `.claude/settings.local.json`; one `legacy: <path>` line for each CLAUDE.md
 //           and .claude/CLAUDE.md, one `personal: <path>` line for each CLAUDE.local.md, one
 //           `node: <path>` line for each AGENTS.md below the root (none under node_modules),
 //           one `not-a-symlink: <path>` line for each `.claude/skills` entry that is no
@@ -22,11 +27,17 @@
 //           problem, in the order C1 to C10. A failed listing gives `ERROR C<n> file listing
 //           failed (see the message above)`, and a file that is there but cannot be read gives
 //           `ERROR C<n> cannot read <file>`. No output means every check passed.
+//   convert-agent
+//           the omp agent text of the Claude agent file at <path> (relative to the current
+//           folder): `name`, `description`, and `tools` with omp tool names, then the body.
+//           The dropped `model`, `color`, and `effort` fields are named on stderr. An agent
+//           that has no exact omp form gives one `ERROR convert-agent <path>: <reason>; port
+//           it by hand` line and no agent text.
 //   Paths are relative to the repository root, without a leading `./`. Outside git, the
 //   listings walk the folder and skip each .git, node_modules, and vendor folder.
 //
-// Exit status: 2 after an ERROR line (its cause is on stderr), 1 for a usage error,
-// otherwise 0.
+// Exit status: 2 after an ERROR line (its cause is on stderr, or in the line for a refused
+// agent), 1 for a usage error, otherwise 0.
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -42,7 +53,8 @@ import {
   guarded,
   isFile,
   isFolder,
-  isSymlink,
+  legacyClaudeEntries,
+  legacyClaudeLines,
   listFiles,
   nestedNodes,
   proseLines,
@@ -56,19 +68,14 @@ import {
 import { prTemplateLines } from './pr-template.mjs';
 import { verifySkillLines } from './verify-skill.mjs';
 
-const USAGE = 'usage: agent-first-check.mjs detect | check';
+const USAGE = 'usage: agent-first-check.mjs detect | check | convert-agent <path>';
 const ROOT_AGENTS = 'AGENTS.md';
 const CLAUDE_SKILLS = '.claude/skills';
 const VERIFY_SKILL = '.agents/skills/verify/SKILL.md';
 const PR_NONE_LINE = 'pull-request template: none';
 const PR_UNUSABLE_PREFIX = 'pull-request template: unusable ';
 const VERIFY_UNVERIFIED_PREFIX = 'verify unverified: ';
-// Any of these files at the root makes Claude read the CLAUDE.md files instead of AGENTS.md.
-const ROOT_CLAUDE_FILES = ['CLAUDE.md', '.claude/CLAUDE.md', 'CLAUDE.local.md'];
 const NODE_LINE_LIMIT = 500;
-const IMPORTS_AGENTS = '@AGENTS\\.md';
-const IMPORTS_PARENT_AGENTS = '@\\.\\./AGENTS\\.md';
-const NON_SPACE = new RegExp(`[^${SPACE}]`, 'u');
 const STALE_TOLERANCE = /pointers (here )?name concepts/u;
 const DESCRIPTION_BLOCK = new RegExp(`^description:[${SPACE}]*[>|][-+]?[${SPACE}]*$`, 'u');
 const DESCRIPTION_VALUE = new RegExp(`^description:[${SPACE}]*["']?`, 'u');
@@ -79,18 +86,6 @@ const EAGER_IMPORT = new RegExp(`(^|[${SPACE}(\\[])@[A-Za-z0-9._~/-]*[A-Za-z0-9_
 
 // `grep -E pattern file`: true when a line of `text` matches.
 const anyLine = (text, pattern) => textLines(text).some((line) => pattern.test(line));
-
-// `grep -qE '(^|[[:space:]])<import>([[:space:]]|$)'`; no file (null) has no import.
-function hasImport(text, importPattern) {
-  return text !== null && anyLine(text, new RegExp(`(^|[${SPACE}])${importPattern}([${SPACE}]|$)`, 'u'));
-}
-
-const fileImports = (file, importPattern) => hasImport(readText(file), importPattern);
-
-// A symlink whose target is named AGENTS.md delivers that file.
-function linksToAgents(file) {
-  return isSymlink(file) && path.basename(fs.readlinkSync(file)) === ROOT_AGENTS;
-}
 
 // `wc -l`: the number of newline bytes, or null when no file is there.
 function lineCount(file) {
@@ -124,7 +119,7 @@ function detectLines(repo) {
   return [
     presence('root AGENTS.md', isFile(ROOT_AGENTS)),
     presence('.agents/skills', isFolder('.agents/skills')),
-    presence('.claude/skills', isFolder(CLAUDE_SKILLS)),
+    ...guarded('legacy agents:', legacyClaudeLines),
     ...guarded('legacy:', () => list.tracked(':(glob)**/CLAUDE.md').map((file) => `legacy: ${file}`)),
     ...guarded('personal:', () => list.personal().map((file) => `personal: ${file}`)),
     ...guarded('node:', () => list.nodes().map((node) => `node: ${node}`)),
@@ -162,47 +157,29 @@ function routingLines(list) {
   ];
 }
 
-// The C3 line for one CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md. A file that imports
-// AGENTS.md still delivers it, so an import stub is a cleanup item, and a file without the
-// import makes Claude read it instead of AGENTS.md.
+const MIGRATE = 'migrate it with claude-md-migration';
+
+// The C3 line for one CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md, as omp loads it: a
+// .claude/CLAUDE.md wins over the AGENTS.md of the folder where a session starts, a CLAUDE.md
+// next to an AGENTS.md is ignored, a CLAUDE.md alone at its depth loads, and omp does not load
+// a CLAUDE.local.md.
 function claudeFileLine(file) {
-  const inClaudeFolder = file === '.claude/CLAUDE.md' || file.endsWith('/.claude/CLAUDE.md');
-  const importPattern = inClaudeFolder ? IMPORTS_PARENT_AGENTS : IMPORTS_AGENTS;
-  if (linksToAgents(file)) return `FINDING C3 redundant symlink to AGENTS.md (content still loads; cleanup): ${file}`;
-  const text = readText(file);
-  if (!hasImport(text, importPattern)) {
-    return file.endsWith('CLAUDE.local.md')
-      ? `FINDING C3 CLAUDE.local.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md (personal file; user decides): ${file}`
-      : `FAIL C3 CLAUDE.md without an @AGENTS.md import makes Claude read it instead of AGENTS.md: ${file}`;
+  const folder = path.posix.dirname(file);
+  if (path.posix.basename(file) === 'CLAUDE.local.md') {
+    return `FINDING C3 CLAUDE.local.md that omp does not load (personal file; the user decides: list it in contextFiles.extra, move it to ~/.omp/agent/AGENTS.md, or keep it): ${file}`;
   }
-  const importOnly = new RegExp(`^[${SPACE}]*${importPattern}[${SPACE}]*$`, 'u');
-  const otherLine = (line) => !importOnly.test(line) && NON_SPACE.test(line);
-  if (textLines(text).some(otherLine)) {
-    return `FINDING C3 CLAUDE.md imports AGENTS.md and holds other lines (move them, then delete the file): ${file}`;
+  if (path.posix.basename(folder) === '.claude') {
+    return `FAIL C3 .claude/CLAUDE.md (omp loads it instead of the AGENTS.md of that folder when a session starts there; ${MIGRATE}): ${file}`;
   }
-  return `FINDING C3 redundant import stub (AGENTS.md still loads; cleanup): ${file}`;
+  if (isFile(folder === '.' ? ROOT_AGENTS : `${folder}/${ROOT_AGENTS}`)) {
+    return `FAIL C3 CLAUDE.md next to an AGENTS.md (omp ignores it; ${MIGRATE}): ${file}`;
+  }
+  return `FINDING C3 CLAUDE.md without an AGENTS.md next to it (it loads, but AGENTS.md is the convention; ${MIGRATE}): ${file}`;
 }
 
 function claudeFileLines(list) {
   const files = new Set([...list.tracked(':(glob)**/CLAUDE.md'), ...list.personal()]);
   return eachGuarded('C3', [...files].sort(byteOrder), (file) => [claudeFileLine(file)]);
-}
-
-// While the root has a CLAUDE.md file, Claude does not load a nested AGENTS.md by itself;
-// only a sibling import stub or symlink delivers it.
-function hiddenNodeLines(list) {
-  if (!ROOT_CLAUDE_FILES.some((file) => fs.existsSync(file))) return [];
-  const delivered = (folder) =>
-    linksToAgents(`${folder}/CLAUDE.md`) ||
-    fileImports(`${folder}/CLAUDE.md`, IMPORTS_AGENTS) ||
-    fileImports(`${folder}/.claude/CLAUDE.md`, IMPORTS_PARENT_AGENTS);
-  return eachGuarded('C3', list.nodes(), (node) => {
-    const folder = node.slice(0, -`/${ROOT_AGENTS}`.length);
-    if (delivered(folder)) return [];
-    return [
-      `FAIL C3 node hidden from Claude (the root has a CLAUDE.md file and ${folder} has no import stub): ${node}`,
-    ];
-  });
 }
 
 // The names that `.claude/skills/*` expands to: no dot names, in byte order, through a
@@ -214,14 +191,14 @@ function skillGlobNames() {
     .sort(byteOrder);
 }
 
-function skillLinkLines(entry) {
-  if (!isSymlink(entry)) return [`FAIL C4 not a symlink: ${entry}`];
-  const lines = [];
-  if (!fs.readlinkSync(entry).startsWith('../../.agents/skills/')) {
-    lines.push(`FAIL C4 target outside .agents/skills: ${entry}`);
-  }
-  if (!isFile(`${entry}/SKILL.md`)) lines.push(`FAIL C4 broken symlink: ${entry}`);
-  return lines;
+// C4: each `.claude/skills` entry, each Claude agent file, and each Claude settings file is a
+// legacy entry that the cleanup of agent-first-setup handles.
+function legacyEntryLines() {
+  const { agents, settings } = legacyClaudeEntries();
+  const skills = skillGlobNames().map((name) => `${CLAUDE_SKILLS}/${name}`);
+  return [...skills, ...agents, ...settings].map(
+    (entry) => `FINDING C4 legacy .claude entry (agent-first-setup cleans it up): ${entry}`,
+  );
 }
 
 function durableDocLines(list) {
@@ -271,7 +248,7 @@ function eagerImports(line) {
   return imports;
 }
 
-// Where Claude looks for an import: absolute, from the home folder, or from the file's folder.
+// Where an import points: absolute, from the home folder, or from the file's folder.
 function importTarget(importPath, file) {
   if (importPath.startsWith('/')) return importPath;
   if (importPath.startsWith('~/')) return `${process.env.HOME ?? ''}/${importPath.slice(2)}`;
@@ -282,10 +259,10 @@ function eagerImportLine(file, number, importPath) {
   const target = importTarget(importPath, file);
   const at = `FINDING C7 eager import ${file}:${number}: @${importPath}`;
   if (!isFile(target)) return `${at} (no file at ${target})`;
-  return `${at} (${target}, ${lineCount(target) ?? ''} lines, loads with this file)`;
+  return `${at} (${target}, ${lineCount(target) ?? ''} lines, omp expands it when this file loads)`;
 }
 
-// Claude expands each bare `@path` in an AGENTS.md into context every time that file loads.
+// omp expands each bare `@path` in an AGENTS.md into context every time that file loads.
 function eagerImportLines(list) {
   return eachGuarded('C7', list.agentsDocs(), (file) =>
     proseLines(readText(file) ?? '').flatMap(([number, line]) =>
@@ -302,8 +279,8 @@ function nodeSizeLines(list) {
   });
 }
 
-// C9 from the verify Detect lines: the skill exists, `.claude/skills/verify` resolves to it,
-// and every command of it showed its expected result.
+// C9 from the verify Detect lines: the skill exists, and every command of it showed its
+// expected result.
 function verifySkillCheckLines() {
   const detect = verifySkillLines();
   if (detect.lines.includes('verify skill: missing')) {
@@ -312,9 +289,6 @@ function verifySkillCheckLines() {
     ];
   }
   const lines = [];
-  if (!detect.lines.includes('verify link: present')) {
-    lines.push('FAIL C9 .claude/skills/verify does not resolve to .agents/skills/verify');
-  }
   for (const line of detect.lines.filter((l) => l.startsWith(VERIFY_UNVERIFIED_PREFIX))) {
     const mark = line.slice(VERIFY_UNVERIFIED_PREFIX.length);
     lines.push(`FAIL C9 unverified command (rerun every command in Step 2b): ${VERIFY_SKILL}:${mark}`);
@@ -341,8 +315,8 @@ function checkLines(repo) {
   return [
     ...guarded('C1', rootCommandLines),
     ...guarded('C2', () => routingLines(list)),
-    ...guarded('C3', () => [...claudeFileLines(list), ...hiddenNodeLines(list)]),
-    ...guarded('C4', () => skillGlobNames().flatMap((name) => skillLinkLines(`${CLAUDE_SKILLS}/${name}`))),
+    ...guarded('C3', () => claudeFileLines(list)),
+    ...guarded('C4', legacyEntryLines),
     ...guarded('C5', () => durableDocLines(list)),
     ...guarded('C6', () => descriptionLines(list)),
     ...guarded('C7', () => eagerImportLines(list)),
@@ -352,8 +326,142 @@ function checkLines(repo) {
   ];
 }
 
+// --- convert-agent (the .claude cleanup of Step 2a) ---
+
+const FRONTMATTER_FENCE = '---';
+const AGENT_FIELD = /^([A-Za-z_][A-Za-z0-9_-]*):(.*)$/u;
+const CONTINUATION = /^([ \t]|-[ \t]|$)/u;
+const QUOTED_VALUE = /^(["'])(.*)\1$/u;
+// The Claude agent fields that convert: the first three stay, the others are dropped, because
+// omp would misread them (a Claude model alias fails in omp).
+const KEPT_AGENT_FIELDS = ['name', 'description', 'tools'];
+const DROPPED_AGENT_FIELDS = ['model', 'color', 'effort'];
+// Each Claude Code tool that has one omp tool for the same work.
+const OMP_TOOL_NAMES = new Map([
+  ['Read', 'read'],
+  ['Grep', 'grep'],
+  ['Glob', 'glob'],
+  ['Bash', 'bash'],
+  ['Edit', 'edit'],
+  ['Write', 'write'],
+  ['WebSearch', 'web_search'],
+]);
+
+// A Claude agent that has no exact omp form; the user ports it by hand.
+class Refusal extends Error {}
+
+// The frontmatter fields of an agent file, each as its field line and its continuation lines
+// (indented lines, list items, and blank lines), and the body after the closing fence.
+function agentParts(text) {
+  const lines = text.replace(/\r\n/gu, '\n').split('\n');
+  const close = lines.indexOf(FRONTMATTER_FENCE, 1);
+  if (lines[0] !== FRONTMATTER_FENCE || close === -1) throw new Refusal('no frontmatter');
+  const fields = new Map();
+  let current = null;
+  for (const line of lines.slice(1, close)) {
+    const field = AGENT_FIELD.exec(line);
+    if (field !== null) {
+      current = [line];
+      fields.set(field[1], current);
+    } else if (current !== null && CONTINUATION.test(line)) current.push(line);
+    else if (!line.startsWith('#')) throw new Refusal(`frontmatter line "${line}" is no field`);
+  }
+  // A blank line between two fields belongs to neither.
+  for (const fieldLines of fields.values()) while (fieldLines.at(-1)?.trim() === '') fieldLines.pop();
+  return { fields, body: lines.slice(close + 1).join('\n') };
+}
+
+// Split a tool list at each comma outside parentheses, so `Bash(a, b)` stays one tool.
+function splitTools(text) {
+  const tools = [''];
+  let depth = 0;
+  for (const char of text) {
+    if (char === '(') depth += 1;
+    else if (char === ')') depth = Math.max(0, depth - 1);
+    if (char === ',' && depth === 0) tools.push('');
+    else tools[tools.length - 1] += char;
+  }
+  return tools;
+}
+
+// The tool names of a `tools` field: a comma list, a flow list `[a, b]`, or a block list of
+// `- a` items.
+function toolNames(fieldLines) {
+  const value = fieldLines[0].replace(AGENT_FIELD, '$2').trim();
+  const rest = fieldLines.slice(1).map((line) => line.trim());
+  let tools;
+  if (value === '') tools = rest.map((line) => line.replace(/^-[ \t]*/u, ''));
+  else {
+    const list = [value, ...rest].join(' ');
+    tools = splitTools(list.startsWith('[') && list.endsWith(']') ? list.slice(1, -1) : list);
+  }
+  return tools.map((tool) => tool.trim().replace(QUOTED_VALUE, '$2')).filter((tool) => tool !== '');
+}
+
+// The omp tool name of one Claude tool, or a Refusal.
+function ompToolName(tool) {
+  if (tool.includes('(')) throw new Refusal(`tool ${tool} has a pattern`);
+  const name = OMP_TOOL_NAMES.get(tool);
+  if (name === undefined) throw new Refusal(`tool ${tool} has no omp name`);
+  return name;
+}
+
+// The omp agent text of one Claude agent, and the names of the dropped fields. Only the
+// simple case converts, because omp adds its MCP, extension, and custom tools to every
+// explicit tools list, and a Claude denial has no omp form.
+function ompAgent(text) {
+  const { fields, body } = agentParts(text);
+  if (fields.has('disallowedTools')) throw new Refusal('disallowedTools has no omp form');
+  for (const name of fields.keys()) {
+    if (!KEPT_AGENT_FIELDS.includes(name) && !DROPPED_AGENT_FIELDS.includes(name)) {
+      throw new Refusal(`field ${name} has no omp form`);
+    }
+  }
+  for (const name of ['name', 'description']) if (!fields.has(name)) throw new Refusal(`no ${name} field`);
+  const tools = fields.has('tools') ? toolNames(fields.get('tools')) : [];
+  if (tools.length === 0) throw new Refusal('no tools list');
+  const header = [
+    FRONTMATTER_FENCE,
+    ...fields.get('name'),
+    ...fields.get('description'),
+    `tools: ${tools.map(ompToolName).join(', ')}`,
+    FRONTMATTER_FENCE,
+  ];
+  return { agent: `${header.join('\n')}\n${body}`, dropped: DROPPED_AGENT_FIELDS.filter((name) => fields.has(name)) };
+}
+
+// Print the omp agent text of one Claude agent file on stdout; write no file.
+function convertAgent(file) {
+  const errorLine = (reason) => {
+    process.stdout.write(`ERROR convert-agent ${file}: ${reason}\n`);
+    return 2;
+  };
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    process.stderr.write(`agent-first-check: cannot read ${file} (${error.code ?? error.message})\n`);
+    return errorLine('cannot read the file');
+  }
+  let result;
+  try {
+    result = ompAgent(text);
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    return errorLine(`${error.message}; port it by hand`);
+  }
+  if (result.dropped.length > 0) {
+    process.stderr.write(
+      `convert-agent: dropped ${result.dropped.join(', ')} of ${file}; omp does not read these Claude values (a Claude model alias fails in omp)\n`,
+    );
+  }
+  process.stdout.write(result.agent);
+  return 0;
+}
+
 function main(args) {
   const [command, ...rest] = args;
+  if (command === 'convert-agent' && rest.length === 1) return convertAgent(rest[0]);
   if (!['detect', 'check'].includes(command) || rest.length > 0) {
     process.stderr.write(`${USAGE}\n`);
     return 1;

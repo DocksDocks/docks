@@ -2,7 +2,7 @@
 
 Verbatim scaffold to write at the project root when `AGENTS.md` does not exist. Fill in `<!-- TODO -->` markers from the user's project context. Keep sections the user has no concrete content for — they are cheap placeholders that prompt later authors.
 
-The format follows the [agents.md open standard](https://agents.md/): plain Markdown, any headings, the closest `AGENTS.md` to the edited file wins (so nested `AGENTS.md` files override the root for their folder).
+The format follows the [agents.md open standard](https://agents.md/): plain Markdown, any headings. omp loads one `AGENTS.md` for each folder from the session folder up to the root, so a nested `AGENTS.md` adds the rules of its folder.
 
 ## Fill rules (durable facts only)
 
@@ -18,9 +18,8 @@ The written file is read as current state in every session. Fill it so it stays 
 ````markdown
 # AGENTS.md
 
-Canonical instructions for coding agents working on this project. Codex,
-Claude Code (native AGENTS.md support, v2.1.277+), OpenCode, VS Code Copilot,
-and other [agents.md](https://agents.md/)-aware tools read this file.
+Canonical instructions for coding agents working on this project. omp and
+other [agents.md](https://agents.md/)-aware tools read this file.
 
 Pointers here name concepts, not coordinates — if a path or symbol moved,
 trust the stated purpose and re-locate it (grep the symbol) before acting.
@@ -50,10 +49,9 @@ defines these commands; change them there, not here.
 ## Context tree
 
 Each nested `AGENTS.md` holds the rules for editing files in its folder.
-Read it before you edit there. Claude Code loads a folder's AGENTS.md when
-it reads a file there. Codex loads AGENTS.md files only from the project root
-down to the working directory at session start, so it finds a deeper node
-through this table. `context-tree` adds a row when it adds a node.
+Read it before you edit there. omp loads AGENTS.md files only from the
+session folder up to the root when a session starts, so an agent finds a
+deeper node through this table. `context-tree` adds a row when it adds a node.
 
 | Node | Governs |
 |---|---|
@@ -74,13 +72,11 @@ done
 
 ## Canonical locations
 
-- Skills: `.agents/skills/<name>/SKILL.md`. Claude Code reads them through
-  symlinks at `.claude/skills/<name>`; keep the symlinks. List skills with
-  `ls .agents/skills/`. A new skill needs `name` and `description`
-  frontmatter per the [agentskills.io spec](https://agentskills.io/specification).
-- Claude Code-only rules: `.claude/rules/claude-code.md`. Never create a
-  `CLAUDE.md`: a CLAUDE.md without an `@AGENTS.md` import makes Claude read
-  it instead of this file.
+- Skills: `.agents/skills/<name>/SKILL.md`, where omp finds project skills.
+  List skills with `ls .agents/skills/`. A new skill needs `name` and
+  `description` frontmatter per the
+  [agentskills.io spec](https://agentskills.io/specification).
+- Project agents: `.omp/agents/<name>.md`.
 
 ## Engineering rules
 

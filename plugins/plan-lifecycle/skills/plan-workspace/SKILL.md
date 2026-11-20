@@ -4,8 +4,8 @@ description: "Use when bootstrapping, migrating, auditing, or explicitly refresh
 user-invocable: true
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-19"
-  content_hash: "94b666322f97a259b00f15181efc2536522b055d6398fb0d6c70d9656e89ef00"
+  updated: "2026-11-20"
+  content_hash: "65fa62f46684be68761c6d2b536f6a43de7e4b29f1789bf2c9edfe0d35398b4e"
 ---
 
 # Plans Workspace
@@ -49,9 +49,8 @@ A missing or unusable template is a report item, not drift: name each
 Detect the skill from the repository root with
 `node <skill-dir>/scripts/verify-skill.mjs detect`; its lines are described in
 [`references/verify-skill-template.md`](references/verify-skill-template.md).
-A missing skill, a `verify link:` line other than `present`, and a
-`verify unverified:` line are report items, not drift. Report an `ERROR` line
-as a failed check.
+A missing skill and a `verify unverified:` line are report items, not drift.
+Report an `ERROR` line as a failed check.
 Use generated scaffolding outside frozen history to recognize legacy workspaces.
 
 | Class | Evidence | Action |
@@ -111,9 +110,8 @@ For audit, that report is final.
    `plan-manager` runs the end-to-end Acceptance rows of a plan through its
    flows. Run its Create or re-verify section, which runs
    `node <skill-dir>/scripts/verify-skill.mjs detect` first. That section
-   changes nothing on a verified and linked skill, asks
-   before each write, and writes nothing when the repository has no runnable
-   surface.
+   changes nothing on a verified skill, asks before each write, and writes
+   nothing when the repository has no runnable surface.
 
 ## Migrate or refresh
 
@@ -176,16 +174,14 @@ user declined the offer or an unusable entry occupies the target. Report an
 
 Run `node <skill-dir>/scripts/verify-skill.mjs detect`
 ([`references/verify-skill-template.md`](references/verify-skill-template.md)).
-A complete run prints `verify skill: present`, `verify link: present`, and no
-`verify unverified:` or `ERROR` line. Report each other result with its cause:
+A complete run prints `verify skill: present` and no `verify unverified:` or
+`ERROR` line. Report each other result with its cause:
 
 - `verify skill: missing`: the user declined the offer, the repository has no
   runnable surface, a question stopped the run, or the operation was a
   migration or a refresh, which make no offer.
 - A `verify unverified:` line: the user declined to verify the skill again, or
   a command failed. Name the failed command and its output.
-- `verify link: occupied`: name the entry at `.claude/skills/verify`; the user
-  resolves it.
 - An `ERROR` line: a failed check.
 
 For migration, confirm each issue uses a user-restated title and goal, and

@@ -776,6 +776,17 @@ describe('agent-first-check.mjs convert-agent', () => {
   test('refuses an unknown field', () => {
     expectRefusal(['tools: Read', 'unknownField: yes'], 'field unknownField has no omp form');
   });
+
+  test('refuses an agent without name or without description', () => {
+    for (const [fields, reason] of [
+      [[AGENT_DESCRIPTION, 'tools: Read'], 'no name field'],
+      [[AGENT_NAME, 'tools: Read'], 'no description field'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(...fields)), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: ${reason}; port it by hand`,
+      ]);
+    }
+  });
 });
 
 // The Step 2 entries in block order; `audit(...present)` gives the four presence lines.
