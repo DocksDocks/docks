@@ -110,36 +110,118 @@ export function findEntries(folder) {
   return readFolder(folder).sort((a, b) => byteOrder(a.name, b.name));
 }
 
+const CLAUDE_FOLDER = '.claude';
 const CLAUDE_SKILLS = '.claude/skills';
 const CLAUDE_AGENTS = '.claude/agents';
 const CLAUDE_SETTINGS = ['.claude/settings.json', '.claude/settings.local.json'];
+// The `.claude/` entries that have their own line; each other entry is a `legacy other:` entry.
+const CLAUDE_OWN_LINES = new Set(['CLAUDE.md', 'skills', 'agents', 'settings.json', 'settings.local.json']);
+
+// True when the absolute path `inner` is `outer` or below it.
+function isWithin(outer, inner) {
+  const relative = path.relative(outer, inner);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+// The link target of `file` as read, when `file` is a symlink whose real path is outside the
+// current folder (the repository root); else null. A dangling link resolves its target from
+// the real folder of the link. A link that cannot be read throws CheckError.
+function externalTarget(file) {
+  if (!isSymlink(file)) return null;
+  try {
+    const target = fs.readlinkSync(file);
+    const real =
+      statOrNull(file) === null ? path.resolve(fs.realpathSync(path.dirname(file)), target) : fs.realpathSync(file);
+    return isWithin(fs.realpathSync('.'), real) ? null : target;
+  } catch (error) {
+    throw listingError(file, error);
+  }
+}
+
+// True when the `.claude/skills` folder of the root is no link to a place outside the
+// repository, and no `.claude` link above it is either. The checks then may list its entries.
+export function claudeSkillsInRepository() {
+  return externalTarget(CLAUDE_FOLDER) === null && externalTarget(CLAUDE_SKILLS) === null;
+}
 
 // The legacy Claude Code entries of the `.claude/` folder in the current folder (the
-// repository root) that agent-first-setup cleans up: the skills folder, each agent file that
-// `.claude/agents/*.md` expands to (no dot names, in byte order), and each settings file.
-// Throws CheckError when `.claude/agents` is there but cannot be listed.
+// repository root): `external`, each of `.claude`, `.claude/skills`, and `.claude/agents` that
+// is a symlink to a place outside the repository, as { path, target }, with no entry below it;
+// the skills folder; each agent file that `.claude/agents/*.md` expands to (no dot names, in
+// byte order); each settings file; and `others`, each other entry of `.claude/` (dot names
+// too, in byte order). Throws CheckError when `.claude` or `.claude/agents` is there but
+// cannot be listed.
 export function legacyClaudeEntries() {
-  const agents = readFolder(CLAUDE_AGENTS)
+  const external = [];
+  const outside = (folder) => {
+    const target = externalTarget(folder);
+    if (target !== null) external.push({ path: folder, target });
+    return target !== null;
+  };
+  if (outside(CLAUDE_FOLDER)) return { external, skills: null, agents: [], settings: [], others: [] };
+  const skillsOutside = outside(CLAUDE_SKILLS);
+  const agentsOutside = outside(CLAUDE_AGENTS);
+  const others = readFolder(CLAUDE_FOLDER)
     .map((entry) => entry.name)
-    .filter((name) => !name.startsWith('.') && name.endsWith('.md'))
+    .filter((name) => !CLAUDE_OWN_LINES.has(name))
     .sort(byteOrder)
-    .map((name) => `${CLAUDE_AGENTS}/${name}`)
-    .filter(isFile);
+    .map((name) => `${CLAUDE_FOLDER}/${name}`);
+  const agents = agentsOutside
+    ? []
+    : readFolder(CLAUDE_AGENTS)
+        .map((entry) => entry.name)
+        .filter((name) => !name.startsWith('.') && name.endsWith('.md'))
+        .sort(byteOrder)
+        .map((name) => `${CLAUDE_AGENTS}/${name}`)
+        .filter(isFile);
   return {
-    skills: isFolder(CLAUDE_SKILLS) ? CLAUDE_SKILLS : null,
+    external,
+    skills: !skillsOutside && isFolder(CLAUDE_SKILLS) ? CLAUDE_SKILLS : null,
     agents,
     settings: CLAUDE_SETTINGS.filter(isFile),
+    others,
   };
 }
 
-// The `legacy skills:`, `legacy agents:`, and `legacy settings:` lines of legacyClaudeEntries.
+// The `legacy external:`, `legacy skills:`, `legacy agents:`, `legacy settings:`, and
+// `legacy other:` lines of legacyClaudeEntries.
 export function legacyClaudeLines() {
-  const { skills, agents, settings } = legacyClaudeEntries();
+  const { external, skills, agents, settings, others } = legacyClaudeEntries();
   return [
+    ...external.map((link) => `legacy external: ${link.path} -> ${link.target}`),
     ...(skills === null ? [] : [`legacy skills: ${skills}`]),
     ...agents.map((agent) => `legacy agents: ${agent}`),
     ...settings.map((file) => `legacy settings: ${file}`),
+    ...others.map((entry) => `legacy other: ${entry}`),
   ];
+}
+
+// The root context files that omp can load, and the root personal file.
+export const ROOT_CONTEXT_FILES = ['CLAUDE.md', '.claude/CLAUDE.md'];
+export const ROOT_PERSONAL_FILES = ['CLAUDE.local.md'];
+
+// `files` and each of the root files `names` that is a file (a symlink to a file too), unique
+// and in byte order. A git listing skips an ignored file, but omp still loads an ignored
+// CLAUDE.md or .claude/CLAUDE.md. A `.claude` link to a place outside the repository adds no
+// file. A `.claude` link that cannot be read throws CheckError.
+export function withRootFiles(files, names) {
+  const claudeOutside = externalTarget(CLAUDE_FOLDER) !== null;
+  const found = names.filter((name) => isFile(name) && !(claudeOutside && name.startsWith(`${CLAUDE_FOLDER}/`)));
+  return [...new Set([...files, ...found])].sort(byteOrder);
+}
+
+// True when `file`, a CLAUDE.md or a .claude/CLAUDE.md, is a symlink whose target resolves to
+// the AGENTS.md of its folder (for a .claude/CLAUDE.md, of the folder above). Such a link
+// holds no text of its own, so there is nothing to migrate.
+export function isAgentsLink(file) {
+  if (!isSymlink(file)) return false;
+  let folder = path.posix.dirname(file);
+  if (path.posix.basename(folder) === CLAUDE_FOLDER) folder = path.posix.dirname(folder);
+  try {
+    return fs.realpathSync(file) === fs.realpathSync(`${folder}/${ROOT_AGENTS}`);
+  } catch {
+    return false;
+  }
 }
 
 // The text of a file, or null when no file is there; grep and awk then fail the same way. A
@@ -193,7 +275,9 @@ function gitFiles(root, pathspecs, excludeStandard) {
   args.push('--', ...pathspecs);
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: LISTING_BUFFER });
   if (result.error) {
-    process.stderr.write(`agent-docs: git ls-files failed (${result.error.message}); fix the cause and run the check again\n`);
+    process.stderr.write(
+      `agent-docs: git ls-files failed (${result.error.message}); fix the cause and run the check again\n`,
+    );
     throw new CheckError(LISTING_FAILED);
   }
   process.stderr.write(result.stderr);

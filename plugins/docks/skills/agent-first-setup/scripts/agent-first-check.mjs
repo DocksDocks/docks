@@ -12,16 +12,21 @@
 // Output lines:
 //   detect  the repository root (the current folder outside git); then
 //           `root AGENTS.md: present|missing`, `.agents/skills: present|missing`;
-//           `legacy skills: .claude/skills` when that folder is there, one
-//           `legacy agents: <path>` line for each `.claude/agents/*.md` file, one
-//           `legacy settings: <path>` line for each `.claude/settings.json` and
-//           `.claude/settings.local.json`; one `legacy: <path>` line for each CLAUDE.md
-//           and .claude/CLAUDE.md, one `personal: <path>` line for each CLAUDE.local.md, one
+//           `legacy external: <path> -> <link target>` for each of `.claude`,
+//           `.claude/skills`, and `.claude/agents` that is a symlink to a place outside the
+//           repository (no line for an entry below it), `legacy skills: .claude/skills` when
+//           that folder is there, one `legacy agents: <path>` line for each
+//           `.claude/agents/*.md` file, one `legacy settings: <path>` line for each
+//           `.claude/settings.json` and `.claude/settings.local.json`, one
+//           `legacy other: .claude/<name>` line for each other `.claude/` entry; one
+//           `legacy: <path>` line for each CLAUDE.md and .claude/CLAUDE.md (the root ones also
+//           when git ignores them), one `personal: <path>` line for each CLAUDE.local.md, one
 //           `node: <path>` line for each AGENTS.md below the root (none under node_modules),
 //           one `not-a-symlink: <path>` line for each `.claude/skills` entry that is no
 //           symlink; then the lines of `pr-template.mjs detect` and `verify-skill.mjs detect`.
 //           A listing that fails prints `ERROR <label>: file listing failed (see the message
-//           above)` in place of the lines of that label.
+//           above)` in place of the lines of that label; the label of the `.claude` entries
+//           is `legacy entries:`.
 //   check   one `FAIL C<n> ...` (a contract break), `FINDING C<n> ...` (a risk or cleanup
 //           item a human judges), or `ERROR C<n> ...` (a check that could not run) line per
 //           problem, in the order C1 to C10. A failed listing gives `ERROR C<n> file listing
@@ -32,7 +37,9 @@
 //           folder): `name`, `description`, and `tools` with omp tool names, then the body.
 //           The dropped `model`, `color`, and `effort` fields are named on stderr. An agent
 //           that has no exact omp form gives one `ERROR convert-agent <path>: <reason>; port
-//           it by hand` line and no agent text.
+//           it by hand` line and no agent text. A repeated field, an empty or null `name` or
+//           `description`, a reserved `name` (`main`, `sub`), and a `name` that is no safe file
+//           name (`^[a-z0-9]+(-[a-z0-9]+)*$`) have no exact omp form.
 //   Paths are relative to the repository root, without a leading `./`. Outside git, the
 //   listings walk the folder and skip each .git, node_modules, and vendor folder.
 //
@@ -48,9 +55,11 @@ import {
   asciiLower,
   byteOrder,
   CODE_SPAN,
+  claudeSkillsInRepository,
   durableDocScan,
   findEntries,
   guarded,
+  isAgentsLink,
   isFile,
   isFolder,
   legacyClaudeEntries,
@@ -58,12 +67,15 @@ import {
   listFiles,
   nestedNodes,
   proseLines,
+  ROOT_CONTEXT_FILES,
+  ROOT_PERSONAL_FILES,
   readFolder,
   readText,
   repositoryRoot,
   routingGaps,
   SPACE,
   textLines,
+  withRootFiles,
 } from './agent-docs.mjs';
 import { prTemplateLines } from './pr-template.mjs';
 import { verifySkillLines } from './verify-skill.mjs';
@@ -101,8 +113,15 @@ function repositoryListings(repo) {
   const listing = { root: repo.root, prune: AGENT_FIRST_PRUNE, inGit: repo.inGit };
   return {
     tracked: (...pathspecs) => listFiles({ ...listing, pathspecs, excludeStandard: true }),
+    // Each CLAUDE.md and .claude/CLAUDE.md; the root ones also when git ignores them, because omp loads them.
+    legacy: () =>
+      withRootFiles(
+        listFiles({ ...listing, pathspecs: [':(glob)**/CLAUDE.md'], excludeStandard: true }),
+        ROOT_CONTEXT_FILES,
+      ),
     // CLAUDE.local.md is usually gitignored, so this listing keeps ignored files.
-    personal: () => listFiles({ ...listing, pathspecs: [':(glob)**/CLAUDE.local.md'] }),
+    personal: () =>
+      withRootFiles(listFiles({ ...listing, pathspecs: [':(glob)**/CLAUDE.local.md'] }), ROOT_PERSONAL_FILES),
     agentsDocs: () => agentsDocs(listing),
     nodes: () => nestedNodes(listing),
     routingGaps: () => routingGaps(listing),
@@ -119,14 +138,16 @@ function detectLines(repo) {
   return [
     presence('root AGENTS.md', isFile(ROOT_AGENTS)),
     presence('.agents/skills', isFolder('.agents/skills')),
-    ...guarded('legacy agents:', legacyClaudeLines),
-    ...guarded('legacy:', () => list.tracked(':(glob)**/CLAUDE.md').map((file) => `legacy: ${file}`)),
+    ...guarded('legacy entries:', legacyClaudeLines),
+    ...guarded('legacy:', () => list.legacy().map((file) => `legacy: ${file}`)),
     ...guarded('personal:', () => list.personal().map((file) => `personal: ${file}`)),
     ...guarded('node:', () => list.nodes().map((node) => `node: ${node}`)),
     ...guarded('not-a-symlink:', () =>
-      findEntries(CLAUDE_SKILLS)
-        .filter((entry) => !entry.isSymbolicLink())
-        .map((entry) => `not-a-symlink: ${CLAUDE_SKILLS}/${entry.name}`),
+      claudeSkillsInRepository()
+        ? findEntries(CLAUDE_SKILLS)
+            .filter((entry) => !entry.isSymbolicLink())
+            .map((entry) => `not-a-symlink: ${CLAUDE_SKILLS}/${entry.name}`)
+        : [],
     ),
     // The shell wrapper dropped the lines found before a failure and printed only its ERROR line.
     ...(pr.ok ? pr.lines : ['ERROR pull-request template check failed (see the message above)']),
@@ -160,13 +181,16 @@ function routingLines(list) {
 const MIGRATE = 'migrate it with claude-md-migration';
 
 // The C3 line for one CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md, as omp loads it: a
-// .claude/CLAUDE.md wins over the AGENTS.md of the folder where a session starts, a CLAUDE.md
-// next to an AGENTS.md is ignored, a CLAUDE.md alone at its depth loads, and omp does not load
-// a CLAUDE.local.md.
+// link to the AGENTS.md of its folder holds no text to migrate, a .claude/CLAUDE.md wins over
+// the AGENTS.md of the folder where a session starts, a CLAUDE.md next to an AGENTS.md is
+// ignored, a CLAUDE.md alone at its depth loads, and omp does not load a CLAUDE.local.md.
 function claudeFileLine(file) {
   const folder = path.posix.dirname(file);
   if (path.posix.basename(file) === 'CLAUDE.local.md') {
     return `FINDING C3 CLAUDE.local.md that omp does not load (personal file; the user decides: list it in contextFiles.extra, move it to ~/.omp/agent/AGENTS.md, or keep it): ${file}`;
+  }
+  if (isAgentsLink(file)) {
+    return `FAIL C3 CLAUDE.md link to AGENTS.md (remove the link; there is nothing to migrate): ${file}`;
   }
   if (path.posix.basename(folder) === '.claude') {
     return `FAIL C3 .claude/CLAUDE.md (omp loads it instead of the AGENTS.md of that folder when a session starts there; ${MIGRATE}): ${file}`;
@@ -178,7 +202,7 @@ function claudeFileLine(file) {
 }
 
 function claudeFileLines(list) {
-  const files = new Set([...list.tracked(':(glob)**/CLAUDE.md'), ...list.personal()]);
+  const files = new Set([...list.legacy(), ...list.personal()]);
   return eachGuarded('C3', [...files].sort(byteOrder), (file) => [claudeFileLine(file)]);
 }
 
@@ -192,13 +216,21 @@ function skillGlobNames() {
 }
 
 // C4: each `.claude/skills` entry, each Claude agent file, and each Claude settings file is a
-// legacy entry that the cleanup of agent-first-setup handles.
+// legacy entry that the cleanup of agent-first-setup handles. A `.claude` link to a place
+// outside the repository and each other `.claude/` entry are only reported.
 function legacyEntryLines() {
-  const { agents, settings } = legacyClaudeEntries();
-  const skills = skillGlobNames().map((name) => `${CLAUDE_SKILLS}/${name}`);
-  return [...skills, ...agents, ...settings].map(
-    (entry) => `FINDING C4 legacy .claude entry (agent-first-setup cleans it up): ${entry}`,
-  );
+  const { external, skills, agents, settings, others } = legacyClaudeEntries();
+  const skillEntries = skills === null ? [] : skillGlobNames().map((name) => `${CLAUDE_SKILLS}/${name}`);
+  return [
+    ...external.map(
+      (link) =>
+        `FINDING C4 legacy .claude entry outside the repository (report it; never move or remove it): ${link.path}`,
+    ),
+    ...[...skillEntries, ...agents, ...settings].map(
+      (entry) => `FINDING C4 legacy .claude entry (agent-first-setup cleans it up): ${entry}`,
+    ),
+    ...others.map((entry) => `FINDING C4 legacy .claude entry (report only; the user decides): ${entry}`),
+  ];
 }
 
 function durableDocLines(list) {
@@ -331,7 +363,12 @@ function checkLines(repo) {
 const FRONTMATTER_FENCE = '---';
 const AGENT_FIELD = /^([A-Za-z_][A-Za-z0-9_-]*):(.*)$/u;
 const CONTINUATION = /^([ \t]|-[ \t]|$)/u;
-const QUOTED_VALUE = /^(["'])(.*)\1$/u;
+// The values that leave a `name` or a `description` empty: YAML null forms, compared in lower case.
+const EMPTY_VALUES = new Set(['', '~', 'null']);
+// omp reserves these agent names (omp://task-agent-discovery.md, agent definition shape).
+const RESERVED_AGENT_NAMES = new Set(['main', 'sub']);
+// The setup writes `.omp/agents/<name>.md`, so a name must be one safe file name.
+const SAFE_AGENT_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/u;
 // The Claude agent fields that convert: the first three stay, the others are dropped, because
 // omp would misread them (a Claude model alias fails in omp).
 const KEPT_AGENT_FIELDS = ['name', 'description', 'tools'];
@@ -361,6 +398,7 @@ function agentParts(text) {
   for (const line of lines.slice(1, close)) {
     const field = AGENT_FIELD.exec(line);
     if (field !== null) {
+      if (fields.has(field[1])) throw new Refusal(`field ${field[1]} appears twice`);
       current = [line];
       fields.set(field[1], current);
     } else if (current !== null && CONTINUATION.test(line)) current.push(line);
@@ -384,18 +422,70 @@ function splitTools(text) {
   return tools;
 }
 
+// The index of the quote that closes the quoted scalar that opens at `start`, or -1. In double
+// quotes a `\` escapes the next character; in single quotes `''` is one quote.
+function closingQuote(text, start) {
+  const quote = text[start];
+  for (let i = start + 1; i < text.length; i += 1) {
+    if (quote === '"' && text[i] === '\\') i += 1;
+    else if (text[i] === quote) {
+      if (quote === "'" && text[i + 1] === "'") i += 1;
+      else return i;
+    }
+  }
+  return -1;
+}
+
+// One YAML line without a trailing comment: a `#` at the start or after a space or a tab,
+// outside quotes. A quote opens a quoted scalar only where a value starts (at the start, or
+// after a space, a tab, `[`, or `,`), so the apostrophe in `don't` opens none.
+function withoutComment(line) {
+  for (let i = 0; i < line.length; i += 1) {
+    const valueStart = i === 0 || /[ \t[,]/u.test(line[i - 1]);
+    if (valueStart && (line[i] === '"' || line[i] === "'")) {
+      const end = closingQuote(line, i);
+      if (end === -1) break;
+      i = end;
+    } else if (line[i] === '#' && (i === 0 || line[i - 1] === ' ' || line[i - 1] === '\t')) {
+      return line.slice(0, i).trimEnd();
+    }
+  }
+  return line.trimEnd();
+}
+
+// `text` trimmed, without one pair of outer quotes when they enclose one quoted scalar, so
+// `"a", "b"` keeps its quotes.
+function unquoted(text) {
+  const trimmed = text.trim();
+  const opensQuote = trimmed.startsWith('"') || trimmed.startsWith("'");
+  return opensQuote && closingQuote(trimmed, 0) === trimmed.length - 1 ? trimmed.slice(1, -1) : trimmed;
+}
+
+// The value of a scalar field: the text after the field name and on its continuation lines,
+// without comments and without one pair of outer quotes.
+function fieldValue(fieldLines) {
+  const parts = [fieldLines[0].replace(AGENT_FIELD, '$2'), ...fieldLines.slice(1)]
+    .map((line) => withoutComment(line).trim())
+    .filter((part) => part !== '');
+  return unquoted(parts.join(' '));
+}
+
 // The tool names of a `tools` field: a comma list, a flow list `[a, b]`, or a block list of
-// `- a` items.
+// `- a` items. A trailing comment goes first, then one pair of outer quotes, of the value and
+// of each item.
 function toolNames(fieldLines) {
-  const value = fieldLines[0].replace(AGENT_FIELD, '$2').trim();
-  const rest = fieldLines.slice(1).map((line) => line.trim());
+  const value = withoutComment(fieldLines[0].replace(AGENT_FIELD, '$2')).trim();
+  const rest = fieldLines
+    .slice(1)
+    .map((line) => withoutComment(line).trim())
+    .filter((line) => line !== '');
   let tools;
   if (value === '') tools = rest.map((line) => line.replace(/^-[ \t]*/u, ''));
   else {
-    const list = [value, ...rest].join(' ');
+    const list = unquoted([value, ...rest].join(' '));
     tools = splitTools(list.startsWith('[') && list.endsWith(']') ? list.slice(1, -1) : list);
   }
-  return tools.map((tool) => tool.trim().replace(QUOTED_VALUE, '$2')).filter((tool) => tool !== '');
+  return tools.map(unquoted).filter((tool) => tool !== '');
 }
 
 // The omp tool name of one Claude tool, or a Refusal.
@@ -417,12 +507,19 @@ function ompAgent(text) {
       throw new Refusal(`field ${name} has no omp form`);
     }
   }
-  for (const name of ['name', 'description']) if (!fields.has(name)) throw new Refusal(`no ${name} field`);
+  for (const field of ['name', 'description']) {
+    if (!fields.has(field) || EMPTY_VALUES.has(asciiLower(fieldValue(fields.get(field))))) {
+      throw new Refusal(`no ${field} field`);
+    }
+  }
+  const name = fieldValue(fields.get('name'));
+  if (RESERVED_AGENT_NAMES.has(asciiLower(name))) throw new Refusal(`name ${name} is reserved in omp`);
+  if (!SAFE_AGENT_NAME.test(name)) throw new Refusal(`name ${name} is not a safe file name`);
   const tools = fields.has('tools') ? toolNames(fields.get('tools')) : [];
   if (tools.length === 0) throw new Refusal('no tools list');
   const header = [
     FRONTMATTER_FENCE,
-    ...fields.get('name'),
+    `name: ${name}`,
     ...fields.get('description'),
     `tools: ${tools.map(ompToolName).join(', ')}`,
     FRONTMATTER_FENCE,

@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-20"
-  content_hash: "2fd97007a6ffa31bb49a2a4229916325a953fbcf9c0192a6a6f6192c63a5d62d"
+  content_hash: "ecf0969762f3dc65969314bf75e854ec27a96868a4bf0dbb47d5bd10da3b5d15"
 ---
 
 # CLAUDE.md Migration
@@ -18,14 +18,14 @@ A legacy file is any `CLAUDE.md` or `.claude/CLAUDE.md` in the project: at the r
 - omp loads `.claude/CLAUDE.md` only from the folder where the session starts, and then it loads it in place of the `AGENTS.md` of that folder. In every other folder, omp does not load it.
 - omp expands `@file` imports in a loaded context file, up to five hops.
 
-So each legacy file either hides content or hides an `AGENTS.md`. This skill never creates a `CLAUDE.md`.
+So a `CLAUDE.md` next to an `AGENTS.md` hides its own content. A `.claude/CLAUDE.md` hides the `AGENTS.md` of its folder when a session starts there, and omp does not load its content in other sessions. A `CLAUDE.md` alone at its depth loads, but then the project keeps instructions under two file names. This skill never creates a `CLAUDE.md`.
 
 <constraint>
 All paths are RELATIVE to the project working directory at invoke time. Never write to absolute kit paths or to a different project. If `git rev-parse --show-toplevel` succeeds, use that folder as the project root; otherwise use the current working directory.
 </constraint>
 
 <constraint>
-Idempotency is the recovery mechanism. A run on a migrated project must be a complete no-op. Migrated means: the root `AGENTS.md` is present, and the Step 2 audit prints no `legacy: <path>` line. The root routing table belongs to `context-tree`: Step 6 reports gaps in it to `context-tree`. A routing gap is never a write action for this skill.
+Idempotency is the recovery mechanism. A run on a migrated project must be a complete no-op. Migrated means: the root `AGENTS.md` is present, and the Step 2 audit prints no `legacy: <path>` line and no `legacy link: <path>` line. The root routing table belongs to `context-tree`: Step 6 reports gaps in it to `context-tree`. A routing gap is never a write action for this skill.
 </constraint>
 
 <constraint>
@@ -37,7 +37,7 @@ No content loss. Move each approved section verbatim to its destination. Every s
 </constraint>
 
 <constraint>
-Scope: this skill writes only `AGENTS.md` files, and deletes only legacy `CLAUDE.md` and `.claude/CLAUDE.md` files. It writes no rules file, no file or link under `.claude/`, and no `CLAUDE.md`. It only reports the other `.claude/` entries (agent-first-setup cleans them up) and every `CLAUDE.local.md`.
+Scope: this skill writes only `AGENTS.md` files, and deletes only legacy `CLAUDE.md` and `.claude/CLAUDE.md` files. It writes no rules file, no file or link under `.claude/`, and no `CLAUDE.md`. It only reports the other `.claude/` entries (agent-first-setup cleans them up) and every `CLAUDE.local.md`. It never writes through a symlink or outside the project: the write gate of Step 5 checks each `AGENTS.md` path immediately before the write.
 </constraint>
 
 <constraint>
@@ -56,23 +56,18 @@ Everything this skill writes into `AGENTS.md` is durable: every session reads it
 
 ## Workflow
 
-### Step 1 — Resolve the project root and the layout
+### Step 1 — Resolve the project root
 
 ```bash
 git rev-parse --show-toplevel 2>/dev/null || pwd
 ```
 
-Run every later command from that root. Then find the layout:
+Run every later command from that root. The `plugin author:` line of the Step 2 audit gives the layout:
 
-```bash
-test -f .omp-plugin/marketplace.json && echo plugin-author
-test -f package.json && node -e 'const o = require("./package.json").omp; process.exit(o && typeof o === "object" && !Array.isArray(o) ? 0 : 1)' && echo plugin-author
-```
-
-| Layout | Detection | Effect |
+| Layout | Audit line | Effect |
 |---|---|---|
-| **plugin-author** | `.omp-plugin/marketplace.json` at the root, or a root `package.json` with an `omp` object | The plugin `skills/` folders are the plugin content. Do not move, link, or report them |
-| **project** | neither | none |
+| **plugin-author** | `plugin author: yes (<source>)`: the source is `.omp-plugin/marketplace.json` at the root, or a root `package.json` with an `omp` object | The plugin `skills/` folders are the plugin content. Do not move, link, or report them |
+| **project** | `plugin author: no` | none |
 
 The migration of legacy files runs in both layouts.
 
@@ -82,32 +77,35 @@ The migration of legacy files runs in both layouts.
 
 ```bash
 node <skill-dir>/scripts/bridge-check.mjs audit
-ls -A .claude 2>/dev/null
 ```
 
-The audit prints, in this order:
+The audit prints these lines:
 
 | Line | Meaning |
 |---|---|
-| `EXISTS <entry>` or `MISSING <entry>` | four lines: `AGENTS.md`, `CLAUDE.md (root)`, `.claude/CLAUDE.md`, `CLAUDE.local.md` |
+| `EXISTS <entry>` or `MISSING <entry>` | four lines, first: `AGENTS.md`, `CLAUDE.md (root)`, `.claude/CLAUDE.md`, `CLAUDE.local.md` |
+| `plugin author: yes (<source>)` or `plugin author: no` | the layout of Step 1 |
 | `legacy skills: .claude/skills` | a root `.claude/skills` folder. omp finds project skills in `.agents/skills/` |
 | `legacy agents: <path>` | a `.claude/agents/*.md` file. omp reads project agents only from `.omp/agents/` |
 | `legacy settings: <path>` | `.claude/settings.json` or `.claude/settings.local.json`. omp reads `.claude/settings.json` as a project settings source |
-| `legacy: <path>` | a `CLAUDE.md` or `.claude/CLAUDE.md`, root or nested. In git, the list holds tracked and untracked files and skips gitignored files and `node_modules` |
+| `legacy other: .claude/<name>` | another entry of the root `.claude/` folder, for example `.claude/commands` |
+| `legacy external: <path> -> <target>` | a `.claude`, `.claude/skills`, or `.claude/agents` symlink whose real path is outside the project. The audit lists nothing below it |
+| `legacy: <path>` | a `CLAUDE.md` or `.claude/CLAUDE.md`, root or nested. In git, the list holds tracked and untracked files and skips gitignored files and `node_modules`. The root `CLAUDE.md` and `.claude/CLAUDE.md` are in the list also when git ignores them, because omp can load them |
+| `legacy link: <path>` | a `CLAUDE.md` or `.claude/CLAUDE.md` that is a symlink to the `AGENTS.md` of its folder (for `.claude/CLAUDE.md`: the `AGENTS.md` of the parent folder of `.claude/`). It has no content to migrate |
 | `personal: <path>` | a `CLAUDE.local.md` at any depth. The walk also finds a gitignored file |
-| `ERROR <part>: ...` | a listing or a file that the audit cannot read. The cause is on stderr and the exit status is 2. Report it and stop |
+| `ERROR <part>: ...` | a listing or a file that the audit cannot read, for example `ERROR legacy entries: ...` for a `.claude` folder that it cannot read. The cause is on stderr and the exit status is 2. Report it and stop |
 
 Each listing outside git, and the `personal:` walk, skips each `.git`, `node_modules`, `vendor`, `dist`, `build`, `out`, `target`, and `.next` folder. Paths are relative to the project root.
 
-Only the `legacy:` lines are work for this skill. For each nested hit, record its folder `<dir>`: the folder that holds `CLAUDE.md`, or the parent of `.claude/` for `<dir>/.claude/CLAUDE.md`. Record also whether `<dir>/AGENTS.md` exists.
+The `legacy:` and `legacy link:` lines are the work of this skill. For each nested hit, record its folder `<dir>`: the folder that holds `CLAUDE.md`, or the parent of `.claude/` for `<dir>/.claude/CLAUDE.md`. Record also whether `<dir>/AGENTS.md` exists.
 
-The `legacy skills`, `legacy agents`, and `legacy settings` lines, and each other entry that `ls -A .claude` shows (except `CLAUDE.md`), are report items. Do not change them; agent-first-setup cleans up `.claude/` after its own approval gate.
+The `legacy skills`, `legacy agents`, `legacy settings`, `legacy other`, and `legacy external` lines are report items. Do not change them; agent-first-setup cleans up `.claude/` after its own approval gate, and it never changes a `legacy external` entry.
 
 Each `personal:` line is a personal file. omp does not load `CLAUDE.local.md`. Leave it untouched and report it in Step 7.
 
 ### Step 3 — Classify each legacy file
 
-1. `read` each legacy file. A file that holds only an `@AGENTS.md` or `@../AGENTS.md` line (plus blank lines) is a stub from an earlier workaround. It has no content: mark it `DELETE` (cleanup) and do not classify it.
+1. Mark each `legacy link:` path `DELETE` (link). Do not read or classify it: its target is the `AGENTS.md` that stays. Then `read` each `legacy:` file. A file that holds only an `@AGENTS.md` or `@../AGENTS.md` line (plus blank lines) is a stub from an earlier workaround. It has no content: mark it `DELETE` (cleanup) and do not classify it.
 2. If `CLAUDE.md` and `.claude/CLAUDE.md` both exist in one folder, classify the UNION of their sections, so that the destination gets no duplicate or contradicting rule. Classify files in different folders separately.
 3. Load `references/claude-md-classification.md` for the signs of Claude-specific content.
 4. Split each non-stub file into sections at the `^##` and `^###` headings. Drop a leading `@AGENTS.md` or `@../AGENTS.md` line; it has no destination. Give each section one class:
@@ -140,6 +138,7 @@ Each `personal:` line is a personal file. omp does not load `CLAUDE.local.md`. L
 | CLAUDE.md                                    | DELETE      | omp ignores it next to AGENTS.md       |
 | .claude/CLAUDE.md                            | DELETE      | omp loads it in place of AGENTS.md     |
 | web/CLAUDE.md                                | DELETE      | import stub (cleanup)                  |
+| docs/CLAUDE.md                               | DELETE      | link to docs/AGENTS.md (cleanup)       |
 | .claude/skills, .claude/agents/review.md     | REPORT ONLY | agent-first-setup cleans them up       |
 | CLAUDE.local.md                              | REPORT ONLY | personal; omp does not load it         |
 | root `## Context tree` row for api/AGENTS.md | HANDOFF     | `context-tree` adds the routing row    |
@@ -153,20 +152,30 @@ Each `personal:` line is a personal file. omp does not load `CLAUDE.local.md`. L
 
 Apply the approved rows in this order. Write every destination before you delete any legacy file.
 
-0. **Backup**: before the first write, copy each existing file that the approved table changes or deletes to a folder OUTSIDE the repository, with relative paths kept. Never use `git stash` as a backup: it reverts the working tree.
+0. **Backup**: before the first write, copy each existing file that the approved table changes or deletes to a folder OUTSIDE the repository, with relative paths kept. The loop stops at the first copy that fails, and `cmp` checks each copy. Never use `git stash` as a backup: it reverts the working tree.
    ```bash
    root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
    b="${XDG_STATE_HOME:-$HOME/.local/state}/claude-md-migration/$(basename "$root")-$(date -u +%Y%m%dT%H%M%SZ)"
+   failed=
    for p in <each path the table changes or deletes>; do
      test -e "$p" || continue
-     mkdir -p "$b/$(dirname "$p")" && cp -p "$p" "$b/$p"
+     { mkdir -p "$b/$(dirname "$p")" && cp -p "$p" "$b/$p" && cmp -s "$p" "$b/$p"; } || { failed=$p; break; }
    done
-   echo "backup: $b"
+   if test -n "$failed"; then echo "backup failed: $failed"; else echo "backup: $b"; fi
    ```
-   To restore, copy the files back from `$b`. The per-section check of Step 6 reads the legacy files from `$b`.
-1. **Root `AGENTS.md`**: if it exists, append the approved sections under a `## Migrated from CLAUDE.md` heading; never overwrite it. If it is missing, create it with the approved sections. If no legacy file gives it a section (only stubs), create it from `references/agents-md-template.md` and follow the fill rules of the template; leave the `## Context tree` rows to `context-tree`.
-2. **Nested `<dir>/AGENTS.md`**: create it with the approved sections of that folder, or append them under a `## Migrated from <dir>/CLAUDE.md` heading; never overwrite it. Do not add the root routing row; Step 7 hands it to `context-tree`.
-3. **Delete the legacy files**: last, only after steps 1 and 2 succeeded for every file. Delete each file that the table marks `DELETE`: `git rm <path>` in a git repository (for example `git rm CLAUDE.md .claude/CLAUDE.md api/CLAUDE.md`), `rm <path>` outside git. Report which one you used. Leave an empty `.claude/` folder in place; agent-first-setup removes it. Never touch a `CLAUDE.local.md`.
+   Continue only when the last line is `backup: <folder>`. On `backup failed: <path>`, report the line and the error above it, make no change to the project, and stop. To restore, copy the files back from `$b`. The per-section check of Step 6 reads the legacy files from `$b`.
+1. **Write gate**: immediately before each write of an `AGENTS.md` (a create or an append), run the gate from the project root with the path of that file:
+   ```bash
+   node <skill-dir>/scripts/verify-skill.mjs write-gate <dir>/AGENTS.md
+   ```
+   The gate prints a `target occupied: <path> ...` line for a symlink, a path with a `..` segment, and a path whose folder resolves outside the project. For each `target occupied:` line, write nothing more, delete no legacy file, report the line, and stop. Write only when the gate prints nothing and exits 0.
+2. **Root `AGENTS.md`**: if it exists, append the approved sections under a `## Migrated from CLAUDE.md` heading; never overwrite it. If it is missing, create it with the approved sections. If no legacy file gives it a section (only stubs and links), create it from `references/agents-md-template.md` and follow the fill rules of the template; leave the `## Context tree` rows to `context-tree`.
+3. **Nested `<dir>/AGENTS.md`**: create it with the approved sections of that folder, or append them under a `## Migrated from <dir>/CLAUDE.md` heading; never overwrite it. Do not add the root routing row; Step 7 hands it to `context-tree`.
+4. **Delete the legacy files**: last, only after steps 2 and 3 succeeded for every file. Delete each path that the table marks `DELETE`, one at a time. Use `git rm` only when git tracks the path, and a plain `rm` otherwise (an untracked or ignored file, or a project outside git). `rm` on a link removes the link only:
+   ```bash
+   if git ls-files --error-unmatch -- "$p" >/dev/null 2>&1; then git rm -q -- "$p"; else rm -- "$p"; fi
+   ```
+   Report the command that you used for each path. If a command fails, stop and report it; the backup holds the file. Leave an empty `.claude/` folder in place; agent-first-setup removes it. Never touch a `CLAUDE.local.md`.
 
 ### Step 6 — Verify
 
@@ -182,7 +191,7 @@ With no nested `AGENTS.md` written, run `verify` with no `--expect` pair. It onl
 | Line | Meaning |
 |---|---|
 | `BROKEN: AGENTS.md missing` | no root `AGENTS.md` |
-| `BROKEN: legacy CLAUDE.md still present: <path>` | a legacy file, root or nested (the same list as Step 2) |
+| `BROKEN: legacy CLAUDE.md still present: <path>` | a legacy file or link, root or nested (the `legacy:` and `legacy link:` paths of Step 2) |
 | `BROKEN: <path> missing` | an `--expect` path that is not a file |
 | `HANDOFF context-tree: unrouted node <path>`, `HANDOFF context-tree: dead route <path>` | a gap in the root routing, which `context-tree` owns. A row is a table line whose first cell is `<dir>/AGENTS.md` in backticks; a leading `@` inside the backticks is stripped |
 | `VOLATILE time-relative <file>:<line>`, `VOLATILE bare-count <file>:<line>`, `VOLATILE line-anchor <file>:<line> (<path> exists)` | a volatile value in an `AGENTS.md`. Moved text stays verbatim. Fenced blocks and URLs are skipped everywhere; code spans and quoted text are skipped for the time and count rules only |
@@ -197,7 +206,7 @@ Then do the per-section presence check: every `^#{1,3}` section of each non-stub
 1. The layout (plugin-author or project)
 2. The files created, appended, and deleted (full paths), and whether `git rm` or `rm` deleted them
 3. The split per legacy file: the sections moved to each `AGENTS.md`, the Claude-specific sections kept, the sections dropped, and the stubs deleted
-4. The `.claude/` entries left in place (`legacy skills`, `legacy agents`, `legacy settings`, and other entries): run agent-first-setup to clean them up
+4. The `.claude/` entries left in place (`legacy skills`, `legacy agents`, `legacy settings`, `legacy other`, and `legacy external` lines): run agent-first-setup to clean them up. A `legacy external` entry is outside the project: the user decides about it
 5. Each `CLAUDE.local.md`: a personal file that omp does not load, left untouched. For personal context in omp, the user can add the file name to the `contextFiles.extra` setting, or move the content to `~/.omp/agent/AGENTS.md`
 6. `VOLATILE` lines from Step 6 as follow-ups: replace each with the owning file or rule plus a `(verify: <command>)`
 7. `HANDOFF context-tree` lines and each nested `AGENTS.md` that this run created: run `context-tree` next to add the routing rows
@@ -215,10 +224,12 @@ Then do the per-section presence check: every `^#{1,3}` section of each non-stub
 | `git stash push -u` used as the backup | It reverts the working tree | Copy the files to the backup folder outside the repository (Step 5.0) |
 | Existing `AGENTS.md` overwritten | Project rules lost | Append under a `## Migrated from ...` heading |
 | Legacy file deleted before its content is written | Content lost if a later write fails | Write every `AGENTS.md` first; delete the legacy files last |
-| Only `./CLAUDE.md` checked | `.claude/CLAUDE.md` and nested files stay | Use the `legacy:` lines of the Step 2 audit |
+| Only `./CLAUDE.md` checked | `.claude/CLAUDE.md` and nested files stay | Use the `legacy:` and `legacy link:` lines of the Step 2 audit |
 | Nested `api/CLAUDE.md` content put in the root `AGENTS.md` | Folder rules load in every session | Move it to `api/AGENTS.md`, at the same depth |
 | Root routing row added by this skill | Two skills own the routing table | Report `HANDOFF context-tree` |
-| `git rm` used outside git | The command fails | Use `git rm` in a repository and `rm` outside it; report which |
+| `git rm` used for each legacy file in a git repository | It fails for an untracked or ignored file, after its content was appended | Use `git rm` only when `git ls-files --error-unmatch` finds the path, and `rm` otherwise; report which |
+| Backup loop that continues after a failed `cp` | The workflow then writes and deletes with no copy of the original | Stop at the first failed `mkdir`, `cp`, or `cmp`, before any project change (Step 5.0) |
+| `AGENTS.md` that is a symlink to a file outside the project | The append changes a file outside the project | Run the write gate before each write; stop on `target occupied:` |
 
 ## Anti-Hallucination Checks
 

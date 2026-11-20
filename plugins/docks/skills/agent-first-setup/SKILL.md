@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "9faf6f6ce40d953093379d50f2a95bbdfe70c7d1d3b9616f16505a005e2bce5b"
+  content_hash: "fd27e9149964bc099b3cd86b0d6dce798d1b5890bbac44fa8d09da35f5fe75c1"
 ---
 
 # Agent-First Setup
@@ -16,7 +16,7 @@ Make a repository easy for an omp agent to use, in one pass. An agent-first repo
 - **Fast to understand** — the root states build/test/lint commands and repo-wide rules only; folder rules live in the folder `AGENTS.md`; each fact has one home.
 - **Trustworthy** — docs hold durable facts only: no line anchors, no live counts or versions, no time-relative phrases; a volatile value carries the command that re-derives it.
 - **Verifiable** — the check in Step 3 is a command, not prose. A project `verify` skill names the commands that start, drive, inspect, and stop the real product.
-- **Free of legacy Claude Code files** — omp keeps one context file for each folder depth, and `AGENTS.md` comes first, so omp ignores a `CLAUDE.md` next to an `AGENTS.md`. A `.claude/CLAUDE.md` in the folder where a session starts replaces the `AGENTS.md` of that folder. omp finds project skills in `.agents/skills`, reads project agents only from `.omp/agents`, and reads `.claude/settings.json` as project settings (omp docs: `context-files.md`, `skills.md`, `task-agent-discovery.md`).
+- **Free of legacy Claude Code files** — omp keeps one context file for each folder depth, and `AGENTS.md` comes first, so omp ignores a `CLAUDE.md` next to an `AGENTS.md`. A `.claude/CLAUDE.md` in the folder where a session starts replaces the `AGENTS.md` of that folder. omp finds project skills in `.agents/skills`. It also reads `.claude/skills` as a Claude-compatible skill source with a higher priority, so a `.claude/skills/<name>` that differs from `.agents/skills/<name>` gets the bare skill name. omp reads project agents only from `.omp/agents` and does not read `.claude/agents`. It reads `.claude/settings.json` as project settings (omp docs: `context-files.md`, `skills.md`, `task-agent-discovery.md`).
 
 This skill is an orchestrator. `claude-md-migration` and `context-tree` do the work; this skill puts them in order, creates a missing root `AGENTS.md` in Step 1, cleans up the `.claude/` folder in Step 2a, adds the project `verify` skill in Step 2b, offers a pull-request template in Step 2c, and ends with the check.
 
@@ -74,16 +74,19 @@ The first line is the repository root (the current folder outside git). Run ever
 | `legacy skills: .claude/skills` | a legacy Claude Code skills folder; Step 2a cleans it up |
 | `legacy agents: <path>` | a Claude Code agent file `.claude/agents/<name>.md`; Step 2a converts or reports it |
 | `legacy settings: <path>` | `.claude/settings.json` or `.claude/settings.local.json`; Step 2a reports it |
+| `legacy other: .claude/<name>` | another entry of the root `.claude/` folder (not `CLAUDE.md`, `skills`, `agents`, or a settings file), for example `.claude/commands`; Step 2a reports it |
+| `legacy external: <path> -> <target>` | a `.claude`, `.claude/skills`, or `.claude/agents` symlink whose real path is outside the repository. The command lists nothing below it; Step 2a reports it and never moves or removes it |
 | `legacy: <path>` | a `CLAUDE.md` or a `.claude/CLAUDE.md`, at any depth; Step 1 migrates it |
 | `personal: <path>` | a `CLAUDE.local.md`, also a gitignored one, because that personal file is usually gitignored |
 | `node: <path>` | an `AGENTS.md` below the root; a file under `node_modules` is package content, not a node |
 | `not-a-symlink: <path>` | a `.claude/skills` entry that is a real folder or file; Step 2a moves it |
+| `ERROR legacy entries: ...` | the command cannot read the `.claude` folder or a folder in it |
 | `pull-request template:` | the detection of [references/pull-request-template.md](references/pull-request-template.md) |
 | `verify skill:`, `verify unverified:` | the Detect lines of [references/verify-skill-template.md](references/verify-skill-template.md) |
 
 Outside git, the command walks the folder itself and skips each `.git`, `node_modules`, and `vendor` folder. The `pull-request template:` lines tell a usable template from an unusable entry, such as a broken symlink or an empty template folder, and `pull-request template: none` means that no usable template exists. That detection needs git; outside git, it prints an `ERROR` line. Report that error. An error is not a missing template. The verify lines are a `verify skill:` line and one `verify unverified:` line for each result that no run has shown. The verify detection prints an `ERROR` line when it cannot read the skill; report that error. After an `ERROR` line, the command exits with status 2 and its cause is on stderr; read every line that it printed. Status 1 is a usage error; otherwise the status is 0.
 
-If Step 0 shows root `AGENTS.md` present, no `legacy:`, `legacy skills`, `legacy agents`, or `personal:` line, and at least one node or a small repo, go directly to Step 2b. A `legacy settings` line alone does not block this shortcut: Step 2a only reports it. Step 2b is a no-op when Step 0 shows `verify skill: present` and no `verify unverified:` or `ERROR` line. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
+If Step 0 shows root `AGENTS.md` present, no `legacy:` or `personal:` line, no line of a `.claude` entry (`legacy skills`, `legacy agents`, `legacy settings`, `legacy other`, `legacy external`, `not-a-symlink`), no `.claude` entry at the root (`test -e .claude || test -L .claude` fails), and at least one node or a small repo, go directly to Step 2b. When a `.claude` entry is at the root, also when it holds only settings files or is empty, run Step 2a: it reports the settings and other entries and removes empty folders. Step 2b is a no-op when Step 0 shows `verify skill: present` and no `verify unverified:` or `ERROR` line. Step 2c is a no-op when Step 0 printed a usable `pull-request template:` line and no `pull-request template: none` line. A pass in Step 3 means the repo is already agent-first.
 
 ### Step 1 — Root `AGENTS.md` and legacy `CLAUDE.md`
 
@@ -114,9 +117,9 @@ In `audit` mode, run `context-tree audit` only.
 
 ### Step 2a — Clean up the `.claude/` folder
 
-The `.claude/` folder at the root is the Claude Code configuration. omp does not read its skills or agents, and Step 1 already migrated `.claude/CLAUDE.md`. This skill owns this cleanup, behind its own approval gate. Step 2a is a no-op when no `.claude/` folder is at the root.
+The `.claude/` folder at the root is the Claude Code configuration. omp still reads `.claude/skills` as a Claude-compatible skill source with a priority above `.agents/skills`: a `.claude/skills/<name>` that differs from `.agents/skills/<name>` gets the bare name, and the `.agents/skills` skill gets a namespaced name. omp does not read `.claude/agents`. The target layout keeps skills only in `.agents/skills` and agents in `.omp/agents`. Step 1 already migrated `.claude/CLAUDE.md`. This skill owns this cleanup, behind its own approval gate. Step 2a is a no-op when no `.claude` entry is at the root.
 
-1. Run the Step 0 detection again, because Step 1 can change the folder, and list every entry with `ls -A .claude .claude/skills .claude/agents`.
+1. Run the Step 0 detection again, because Step 1 can change the folder. Its `legacy skills`, `legacy agents`, `legacy settings`, `legacy other`, `legacy external`, and `not-a-symlink` lines are the inventory. For the `.claude/skills` entries, also run `ls -A .claude/skills` when no `legacy external` line names `.claude` or `.claude/skills`. On an `ERROR legacy entries:` line, report it and make no change in this step.
 2. For each `legacy agents:` line, run the conversion. It only reads, prints the omp agent text on stdout, and writes no file:
 
    ```bash
@@ -124,25 +127,33 @@ The `.claude/` folder at the root is the Claude Code configuration. omp does not
    ```
 
 3. Build one proposal table, one row for each entry, with the action of the rules below. Print the table, each converted agent text, and each refused agent with its frontmatter and its `ERROR` line. Then ask for approval in one `ask` call. The user can approve, skip, or change each row; a skipped row stays in place.
-4. After approval, run the actions in this order: skills, agents, then the empty folder. A move uses `git mv` when git tracks the source (`git ls-files -- <path>` prints a path), and a plain `mv` when git does not track it or the repository is not a git repository. A removal uses `git rm` when git tracks the entry, and `rm` otherwise; `rm` on a symlink removes the link only. Report the command that you used for each entry.
+4. After approval, run the actions in this order: skills, agents, then the empty folder. Immediately before each skill move and each `.omp/agents` write, run the write gate with the destination path, and check that no entry is at that path:
+
+   ```bash
+   node <skill-dir>/scripts/verify-skill.mjs write-gate <destination>
+   test -e <destination> || test -L <destination>
+   ```
+
+   Move or write only when the gate prints nothing and exits 0, and the `test` command fails. For a `target occupied:` line or an existing entry, do not move or write that entry: report the line or the entry, and leave the source in place. Run the gate before you make a missing `.agents/skills` or `.omp/agents` folder. A move uses `git mv` when git tracks the source (`git ls-files -- <path>` prints a path), and a plain `mv` when git does not track it or the repository is not a git repository. A removal uses `git rm` when git tracks the entry, and `rm` otherwise; `rm` on a symlink removes the link only. Report the command that you used for each entry.
 5. Run the Step 0 detection again and report each `legacy` line that is still there.
 
 | Entry | Action |
 |---|---|
 | `.claude/skills` as a symlink to `.agents/skills`, or a `.claude/skills/<name>` symlink that resolves into `.agents/skills` | Remove the link. The skill stays in `.agents/skills`. |
-| `.claude/skills/<name>` as a real folder (`not-a-symlink:`) | Move it to `.agents/skills/<name>/` (make `.agents/skills` first when it is missing). When `.agents/skills/<name>` exists, do not move: show both and ask which one stays. |
+| `.claude/skills/<name>` as a real folder (`not-a-symlink:`) | Move it to `.agents/skills/<name>/` (make `.agents/skills` first when it is missing). When `.agents/skills/<name>` exists, do not move: show both and ask which one stays. Until then, omp gives the bare name `<name>` to the `.claude/skills` skill when the two differ, because the Claude source has the higher priority. |
 | `.claude/skills/<name>` as a broken symlink, or a link outside `.agents/skills` | Report it; the user removes or keeps it. |
-| `.claude/agents/<name>.md` that `convert-agent` converted | Show the omp text with this note: omp gives the agent the listed tools and also its MCP, extension, and custom tools. After approval, run the write gate of Step 2b with `.omp/agents/<name>.md`, and check that no entry is there. Write the printed text, unchanged, to `.omp/agents/<name>.md`, then remove the Claude file. When `.omp/agents/<name>.md` exists, never overwrite it: show both files and ask. The user can also drop the agent: then remove the Claude file and write nothing. |
+| `.claude/agents/<name>.md` that `convert-agent` converted | Show the omp text with this note: omp gives the agent the listed tools and also its MCP, extension, and custom tools. After approval, write the printed text, unchanged, to `.omp/agents/<name>.md` (step 4 gates the write), then remove the Claude file. When `.omp/agents/<name>.md` exists, never overwrite it: show both files and ask. The user can also drop the agent: then remove the Claude file and write nothing. |
 | `.claude/agents/<name>.md` that `convert-agent` refused | Report it with its frontmatter and the reason of the `ERROR` line, and leave it in place; the user ports it by hand, or drops it. |
 | `.claude/settings.json`, `.claude/settings.local.json` | Report each file with this warning: omp reads `.claude/settings.json` as a project settings source, so each key in it can be an active omp setting. Leave both in place; the user moves or removes them by hand. |
 | `.claude/CLAUDE.md` | Step 1 owns it. If it is still there, report it and send the user to `claude-md-migration`. |
-| Any other entry (for example `.claude/commands`, `.claude/hooks`) | Report it and leave it in place. |
-| `.claude/skills`, `.claude/agents`, or `.claude/` itself when it is empty after the actions | Remove the empty folder with `rmdir`. Never remove a folder that still holds an entry. |
+| `legacy other: .claude/<name>` (for example `.claude/commands`, `.claude/hooks`) | Report it and leave it in place; the user decides. |
+| `legacy external: <path> -> <target>` | Report it with its target. Never move, remove, or follow it, and never change an entry below it; the user decides. |
+| `.claude/skills`, `.claude/agents`, or `.claude/` itself when it is an empty folder after the actions | Remove the empty folder with `rmdir`. Never remove a folder that still holds an entry. |
 
-The conversion of `convert-agent`. omp reads an agent from `.omp/agents/<name>.md` and adds its MCP, extension, and custom tools to every explicit `tools` list, and a Claude denial has no omp form. So only a simple agent converts:
+The rules of `convert-agent` follow. omp reads an agent from `.omp/agents/<name>.md` and adds its MCP, extension, and custom tools to every explicit `tools` list, and a Claude denial has no omp form. So only a simple agent converts:
 
-- **Converted:** the frontmatter holds only `name`, `description`, `tools`, `model`, `color`, and `effort`; `tools` is an explicit list; each tool has an omp name: `Read` → `read`, `Grep` → `grep`, `Glob` → `glob`, `Bash` → `bash`, `Edit` → `edit`, `Write` → `write`, `WebSearch` → `web_search`. The output keeps `name`, `description`, the mapped `tools`, and the body. It drops `model`, `color`, and `effort`, and names them on stderr, because a Claude model alias fails in omp. The command exits 0.
-- **Refused:** no `tools` list, a `disallowedTools` field, a tool with no omp name, a tool with a pattern such as `Bash(git status)`, no `name` or `description`, or any other field (for example `permissionMode`, `hooks`, `mcpServers`, `skills`, `maxTurns`, or an unknown field). The command prints one `ERROR convert-agent <path>: <reason>; port it by hand` line and no agent text, and exits 2.
+- **Converted:** the frontmatter holds only `name`, `description`, `tools`, `model`, `color`, and `effort`; `tools` is an explicit list (a comma-separated value, with or without quotes, a `[...]` list, or `- <tool>` lines; a trailing `# <comment>` outside quotes is removed); each tool has an omp name: `Read` → `read`, `Grep` → `grep`, `Glob` → `glob`, `Bash` → `bash`, `Edit` → `edit`, `Write` → `write`, `WebSearch` → `web_search`. The output keeps `name`, `description`, the mapped `tools`, and the body. It drops `model`, `color`, and `effort`, and names them on stderr, because a Claude model alias fails in omp. The command exits 0.
+- **Refused:** no `tools` list, a `disallowedTools` field, a tool with no omp name, a tool with a pattern such as `Bash(git status)`, no `name` or `description` (also an empty, `""`, `''`, `~`, or `null` value), a field that appears twice, the name `main` or `sub` (omp reserves them), a name that is not a safe file name (only lower-case letters and digits, in groups joined by single hyphens), or any other field (for example `permissionMode`, `hooks`, `mcpServers`, `skills`, `maxTurns`, or an unknown field). The command prints one `ERROR convert-agent <path>: <reason>; port it by hand` line and no agent text, and exits 2.
 
 In `audit` mode, run steps 1 to 3 without the question, and record the table. Write nothing.
 
@@ -173,8 +184,8 @@ Every line it prints is `FAIL` (a contract break), `FINDING` (a risk or cleanup 
 |---|---|---|
 | C1 | The root `AGENTS.md` exists and names its build, test, and lint commands (a whole word, any letter case). | `FAIL` when the file is missing; one `FINDING` for each command word that it does not name (add it, or accept: the repo has none or one gate covers it) |
 | C2 | Every nested node is a row in a root table, and every row resolves. A row is a table line whose first cell is `<dir>/AGENTS.md` in backticks; a leading `@` inside the backticks is stripped. | `FAIL` for a node that no row routes, and for a dead route |
-| C3 | No legacy context file. omp ignores a `CLAUDE.md` next to an `AGENTS.md`; a `.claude/CLAUDE.md` replaces the `AGENTS.md` of the folder where a session starts; a `CLAUDE.md` alone at its depth loads; omp does not load a `CLAUDE.local.md`. | `FAIL` for a `CLAUDE.md` next to an `AGENTS.md` and for each `.claude/CLAUDE.md` (migrate it with `claude-md-migration`); `FINDING` for a `CLAUDE.md` with no `AGENTS.md` at its depth (it loads, but `AGENTS.md` is the convention), and for a `CLAUDE.local.md` (personal file; the user decides: `contextFiles.extra`, `~/.omp/agent/AGENTS.md`, or keep it) |
-| C4 | No legacy `.claude` entry: each `.claude/skills` entry (a link or a folder, broken or not; no dot names), each `.claude/agents/*.md` file, and each `.claude/settings.json` or `.claude/settings.local.json`. | One `FINDING` for each entry (Step 2a cleans it up; a settings file stays until the user moves it) |
+| C3 | No legacy context file. omp ignores a `CLAUDE.md` next to an `AGENTS.md`; a `.claude/CLAUDE.md` replaces the `AGENTS.md` of the folder where a session starts; a `CLAUDE.md` alone at its depth loads; omp does not load a `CLAUDE.local.md`. The root `CLAUDE.md`, `.claude/CLAUDE.md`, and `CLAUDE.local.md` count also when git ignores them. | `FAIL` for a `CLAUDE.md` next to an `AGENTS.md` and for each `.claude/CLAUDE.md` (migrate it with `claude-md-migration`); `FAIL C3 CLAUDE.md link to AGENTS.md` for a `CLAUDE.md` or `.claude/CLAUDE.md` that is a symlink to the `AGENTS.md` of its folder (remove the link; it has no content to migrate); `FINDING` for a `CLAUDE.md` with no `AGENTS.md` at its depth (it loads, but `AGENTS.md` is the convention), and for a `CLAUDE.local.md` (personal file; the user decides: `contextFiles.extra`, `~/.omp/agent/AGENTS.md`, or keep it) |
+| C4 | No legacy `.claude` entry: each `.claude/skills` entry (a link or a folder, broken or not; no dot names), each `.claude/agents/*.md` file, each `.claude/settings.json` or `.claude/settings.local.json`, each other entry of the root `.claude/` folder, and each `.claude`, `.claude/skills`, or `.claude/agents` symlink whose real path is outside the repository. | One `FINDING` for each entry (Step 2a cleans it up; a settings file stays until the user moves it). `FINDING C4 legacy .claude entry (report only; the user decides): .claude/<name>` for another entry, and `FINDING C4 legacy .claude entry outside the repository (report it; never move or remove it): <path>` for an outside symlink |
 | C5 | The durable-doc scan of each `AGENTS.md`, `SKILL.md`, and `skills/**/references/*.md`. Fenced blocks and URLs are skipped everywhere. Inline code spans and quoted text are skipped for the time and count rules only (a line anchor inside backticks still counts). A line anchor counts only when its path exists from the repo root or from the folder of the file (fictional example paths pass). The count rule skips a line that holds `verify:`; a phase, step, or tier number is not a count. | `FINDING C5 time-relative`, `bare-count`, and `line-anchor` with `<file>:<line>`, and `FINDING C5 no stale-tolerance line` for an `AGENTS.md` without the "Pointers here name concepts" line. Findings only; never auto-fix them |
 | C6 | Every skill description starts with "Use when". A block scalar (`>`, `\|`, `>-`, `\|-`) reads its first indented line. | `FAIL` |
 | C7 | No bare `@path` import in an `AGENTS.md`: omp expands it into context every time that file loads. Code spans and fenced blocks are not imports, so `` `@<dir>/AGENTS.md` `` in a routing row passes. A relative path resolves from the folder of the file; a `~/` path resolves from the home folder. | `FINDING` with the line count of the imported file, or with `no file at <path>` |
@@ -201,7 +212,7 @@ Print one table. `Result` is `pass`, `fail (<count>)`, `findings (<count>)`, or 
 | C9 project `verify` skill | | this skill, Step 2b |
 | C10 pull-request template | | this skill, Step 2c |
 
-Below the table, list: files written, moved, or removed by Step 1, Step 2, Step 2a, Step 2b, and Step 2c (from their reports, with the `git mv`, `mv`, `git rm`, or `rm` command of each), each `.claude` entry left in place with its reason (a refused agent, a settings file, a skipped row, another entry), the `verify` skill commands that failed or did not run in Step 2b, every open `FAIL` line, every `FINDING` with its accepted/defect decision, every `ERROR` line from Step 0 and Step 3 with the message above it, and blockers that stopped a step.
+Below the table, list: files written, moved, or removed by Step 1, Step 2, Step 2a, Step 2b, and Step 2c (from their reports, with the `git mv`, `mv`, `git rm`, or `rm` command of each), each `.claude` entry left in place with its reason (a refused agent, a settings file, a skipped row, a `target occupied:` line, another entry, an entry outside the repository), the `verify` skill commands that failed or did not run in Step 2b, every open `FAIL` line, every `FINDING` with its accepted/defect decision, every `ERROR` line from Step 0 and Step 3 with the message above it, and blockers that stopped a step.
 
 **Idempotency:** on a repository that is already agent-first, Step 1, Step 2, Step 2a, Step 2b, and Step 2c are no-ops by their own contracts, Step 3 prints no `FAIL` line, no `ERROR` line, and no unaccepted `FINDING`, and no file is written. Any write on such a repository is a defect: report it.
 

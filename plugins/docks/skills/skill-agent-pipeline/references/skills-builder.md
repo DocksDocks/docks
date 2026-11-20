@@ -77,7 +77,7 @@ Prefer the plugin-provided `docks:skill-maintenance`. Create a local `skill-main
 
 Write this subheading inside `## Research`. Use `####` or lower for every block inside it; never write a `##` heading (the plan helper rejects it).
 
-Per skill, a delimited block: `#### File: <skills-dir>/<name>/SKILL.md`, then each `#### File: .../references/<topic>.md`. Under each one, put the full content in a fenced block whose fence is longer than any fence inside the content (for example four backticks), so the plan helper ignores the file's own `##` headings. `<skills-dir>` is `.agents/skills` when that directory exists (a bridged project; `.claude/skills/<name>` stays a symlink to it), else `.claude/skills` — then recommend `claude-md-migration` in the report so Codex finds the skills too.
+Per skill, a delimited block: `#### File: <skills-dir>/<name>/SKILL.md`, then each `#### File: .../references/<topic>.md`. Under each one, put the full content in a fenced block whose fence is longer than any fence inside the content (for example four backticks), so the plan helper ignores the file's own `##` headings. `<skills-dir>` is `.agents/skills` when that directory exists, else `.claude/skills`. In the second case, recommend `agent-first-setup` in the report: it moves the `.claude/skills` folders to `.agents/skills`, where omp finds project skills.
 
 ## Gotcha
 
@@ -85,5 +85,5 @@ Per skill, a delimited block: `#### File: <skills-dir>/<name>/SKILL.md`, then ea
 |---|---|
 | Body restates what the model already knows ("TypeScript is typed…") | Cut — the body is for project-specific knowledge only |
 | `name:` ≠ directory name | Rename so they match (kebab-case) — guards fail otherwise |
-| Touching AGENTS.md / CLAUDE.md | Out of scope here — use the `claude-md-migration` skill |
+| Touching AGENTS.md / CLAUDE.md | Out of scope here — legacy `CLAUDE.md` content goes to `claude-md-migration`; the root `AGENTS.md` and the `.claude/` cleanup go to `agent-first-setup` |
 | Unquoted description with `: ` or `#` | Quote it before the plan reaches approval — Codex will skip the skill |

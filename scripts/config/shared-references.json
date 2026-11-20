@@ -13,7 +13,10 @@
   },
   {
     "canonical": "plugins/plan-lifecycle/skills/plan-workspace/scripts/verify-skill.mjs",
-    "copies": ["plugins/docks/skills/agent-first-setup/scripts/verify-skill.mjs"]
+    "copies": [
+      "plugins/docks/skills/agent-first-setup/scripts/verify-skill.mjs",
+      "plugins/docks/skills/claude-md-migration/scripts/verify-skill.mjs"
+    ]
   },
   {
     "canonical": "plugins/docks/skills/agent-first-setup/scripts/agent-docs.mjs",

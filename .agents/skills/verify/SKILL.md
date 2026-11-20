@@ -127,7 +127,7 @@ The gate runs before each call of the `bash` tool. It looks for a `Verified:` gi
 bun plugins/plan-lifecycle/test/selftest.mjs; echo "exit=$?"
 ```
 
-Expected: `plan-lifecycle self-test PASSED: manifest/catalog agreement (<version>), ...`, then `exit=0`.
+Expected: `plan-lifecycle self-test PASSED: package/catalog agreement (<version>), ...`, then `exit=0`.
 
 ## V6 — Run the agent-first-setup and claude-md-migration check scripts
 
@@ -170,7 +170,7 @@ Expected, in order:
 | `check` in the fixture | `FAIL C3 .claude/CLAUDE.md (omp loads it instead of the AGENTS.md of that folder when a session starts there; migrate it with claude-md-migration): .claude/CLAUDE.md`, `FAIL C3 CLAUDE.md next to an AGENTS.md (omp ignores it; migrate it with claude-md-migration): CLAUDE.md`, one `FINDING C4 legacy .claude entry (agent-first-setup cleans it up): <entry>` line for each of `.claude/skills/x`, `.claude/agents/locked.md`, `.claude/agents/rev.md`, and `.claude/settings.json` in this order, `FINDING C9 no .agents/skills/verify/SKILL.md (add it in Step 2b, or accept: the repo has no runnable surface)`, `FINDING C10 no usable pull-request template (add it in Step 2c, or accept: the repository wants none)`, then `exit=0` |
 | `convert-agent` of `rev.md` | `---`, `name: rev`, `description: Reviews a diff for bugs.`, `tools: read, grep`, `---`, an empty line, `You review diffs.`, then `exit=0`. A stderr line names the dropped `model` field. |
 | `convert-agent` of `locked.md` | Only `ERROR convert-agent .claude/agents/locked.md: disallowedTools has no omp form; port it by hand`, then `exit=2`. No agent text. |
-| `audit` in the fixture | `EXISTS AGENTS.md`, `EXISTS CLAUDE.md (root)`, `EXISTS .claude/CLAUDE.md`, `MISSING CLAUDE.local.md`, `legacy skills: .claude/skills`, `legacy agents: .claude/agents/locked.md`, `legacy agents: .claude/agents/rev.md`, `legacy settings: .claude/settings.json`, `legacy: .claude/CLAUDE.md`, `legacy: CLAUDE.md`, then `exit=0` |
+| `audit` in the fixture | `EXISTS AGENTS.md`, `EXISTS CLAUDE.md (root)`, `EXISTS .claude/CLAUDE.md`, `MISSING CLAUDE.local.md`, `legacy skills: .claude/skills`, `legacy agents: .claude/agents/locked.md`, `legacy agents: .claude/agents/rev.md`, `legacy settings: .claude/settings.json`, `legacy: .claude/CLAUDE.md`, `legacy: CLAUDE.md`, `plugin author: no`, then `exit=0` |
 | `find` in the fixture | `./.claude/CLAUDE.md`, `./.claude/agents/locked.md`, `./.claude/agents/rev.md`, `./.claude/settings.json`, `./.claude/skills/x/SKILL.md`, `./AGENTS.md`, `./CLAUDE.md`. No command wrote a file, and the settings file is still there. |
 
 ## Failure signs

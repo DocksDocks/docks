@@ -143,6 +143,10 @@ const C3_ALONE = (file) =>
 const C3_PERSONAL = (file) =>
   `FINDING C3 CLAUDE.local.md that omp does not load (personal file; the user decides: list it in contextFiles.extra, move it to ~/.omp/agent/AGENTS.md, or keep it): ${file}`;
 const C4 = (entry) => `FINDING C4 legacy .claude entry (agent-first-setup cleans it up): ${entry}`;
+const C4_EXTERNAL = (entry) =>
+  `FINDING C4 legacy .claude entry outside the repository (report it; never move or remove it): ${entry}`;
+const C4_OTHER = (entry) => `FINDING C4 legacy .claude entry (report only; the user decides): ${entry}`;
+const C3_LINK = (file) => `FAIL C3 CLAUDE.md link to AGENTS.md (remove the link; there is nothing to migrate): ${file}`;
 
 describe('pr-template.mjs detect', () => {
   test('names each usable and unusable entry, by folder and then by byte order of the name', () => {
@@ -503,7 +507,7 @@ describe('agent-first-check.mjs check', () => {
       C3_NEXT_TO('CLAUDE.md'),
       C3_CLAUDE_FOLDER('api/.claude/CLAUDE.md'),
       C3_NEXT_TO('docs/CLAUDE.md'),
-      C3_NEXT_TO('pkg/CLAUDE.md'),
+      C3_LINK('pkg/CLAUDE.md'),
       C3_ALONE('tools/CLAUDE.md'),
       C3_NEXT_TO('web/CLAUDE.md'),
     ]);
@@ -787,11 +791,104 @@ describe('agent-first-check.mjs convert-agent', () => {
       ]);
     }
   });
+
+  // Each value leaves the field empty after its comment and its outer quotes go.
+  test('refuses an empty or null name or description', () => {
+    for (const value of ['', ' ""', " ''", ' ~', ' null', ' NULL', ' # no value', ' "" # empty']) {
+      for (const [fields, reason] of [
+        [[`name:${value}`, AGENT_DESCRIPTION, 'tools: Read'], 'no name field'],
+        [[AGENT_NAME, `description:${value}`, 'tools: Read'], 'no description field'],
+      ]) {
+        expectRun(convertAgent(claudeAgent(...fields)), 2, [
+          `ERROR convert-agent ${AGENT_PATH}: ${reason}; port it by hand`,
+        ]);
+      }
+    }
+  });
+
+  test('refuses a field that appears twice', () => {
+    expectRefusal(['tools: Read', 'tools: Grep'], 'field tools appears twice');
+    expectRun(convertAgent(claudeAgent(AGENT_NAME, AGENT_NAME, AGENT_DESCRIPTION, 'tools: Read')), 2, [
+      `ERROR convert-agent ${AGENT_PATH}: field name appears twice; port it by hand`,
+    ]);
+  });
+
+  test('refuses a name that omp reserves, in any letter case and quoted', () => {
+    for (const [value, name] of [
+      ['main', 'main'],
+      ['sub', 'sub'],
+      ['Main', 'Main'],
+      ['"sub" # quoted', 'sub'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(`name: ${value}`, AGENT_DESCRIPTION, 'tools: Read')), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: name ${name} is reserved in omp; port it by hand`,
+      ]);
+    }
+  });
+
+  test('refuses a name that is no safe file name', () => {
+    for (const name of ['Rev', 'my agent', '../rev', 'team/rev', 'rev-', '-rev', 'rev--x', 'rev_x', 'rev.md']) {
+      expectRun(convertAgent(claudeAgent(`name: ${name}`, AGENT_DESCRIPTION, 'tools: Read')), 2, [
+        `ERROR convert-agent ${AGENT_PATH}: name ${name} is not a safe file name; port it by hand`,
+      ]);
+    }
+  });
+
+  test('writes the name without its quotes and comment', () => {
+    const result = convertAgent(claudeAgent('name: "code-review-2" # the reviewer', AGENT_DESCRIPTION, 'tools: Read'));
+    expectRun(result, 0, [
+      '---',
+      'name: code-review-2',
+      AGENT_DESCRIPTION,
+      'tools: read',
+      '---',
+      '',
+      'You review diffs.',
+    ]);
+  });
+
+  test('converts each tools form: comma list, quoted scalar, trailing comment, flow list, block list, with comments', () => {
+    const expected = ['---', AGENT_NAME, AGENT_DESCRIPTION, 'tools: read, grep', '---', '', 'You review diffs.'];
+    for (const tools of [
+      ['tools: Read, Grep'],
+      ['tools: "Read, Grep"'],
+      ["tools: 'Read, Grep'"],
+      ['tools: "Read", "Grep"'],
+      ['tools: Read, Grep # the reviewer reads only'],
+      ['tools: [Read, Grep]'],
+      ['tools: ["Read", \'Grep\']'],
+      ['tools: [Read, Grep] # the reviewer reads only'],
+      ['tools:', '  - Read', '  - Grep'],
+      ['tools:', '  - "Read" # reads files', '  - Grep # searches'],
+      ['tools: # the list', '  - Read', '  # a comment line', '  - Grep'],
+    ]) {
+      expectRun(convertAgent(claudeAgent(AGENT_NAME, AGENT_DESCRIPTION, ...tools)), 0, expected);
+    }
+  });
+
+  test('a # inside quotes is no comment', () => {
+    expectRefusal(['tools: "Read # not a comment"'], 'tool Read # not a comment has no omp name');
+  });
+
+  test('refuses a file without frontmatter and a frontmatter line that is no field', () => {
+    for (const text of ['You review diffs.\n', `---\n${AGENT_NAME}\n${AGENT_DESCRIPTION}\ntools: Read\n`]) {
+      expectRun(convertAgent(text), 2, [`ERROR convert-agent ${AGENT_PATH}: no frontmatter; port it by hand`]);
+    }
+    expectRefusal(['tools: Read', 'just text'], 'frontmatter line "just text" is no field');
+  });
+
+  test('a missing file prints the ERROR line and names the cause on stderr', () => {
+    const missing = '.claude/agents/missing.md';
+    const text = claudeAgent(AGENT_NAME, AGENT_DESCRIPTION, 'tools: Read');
+    expectError(convertAgent(text, [missing]), [`ERROR convert-agent ${missing}: cannot read the file`]);
+  });
 });
 
 // The Step 2 entries in block order; `audit(...present)` gives the four presence lines.
 const AUDIT_PATHS = ['AGENTS.md', 'CLAUDE.md (root)', '.claude/CLAUDE.md', 'CLAUDE.local.md'];
 const audit = (...present) => AUDIT_PATHS.map((p) => `${present.includes(p) ? 'EXISTS' : 'MISSING'} ${p}`);
+// The last audit line of a repository that is no omp plugin source.
+const NO_PLUGIN = 'plugin author: no';
 
 describe('bridge-check.mjs audit', () => {
   test('the four presence lines, then the legacy skills, legacy agents, and legacy settings lines of the root .claude folder, then legacy and personal paths, also when started in a subfolder', () => {
@@ -826,25 +923,65 @@ describe('bridge-check.mjs audit', () => {
       'legacy: dist/CLAUDE.md',
       'personal: CLAUDE.local.md',
       'personal: api/CLAUDE.local.md',
+      NO_PLUGIN,
     ];
     expectRun(run(BRIDGE, ['audit'], fx), 0, lines);
     expectRun(run(BRIDGE, ['audit'], fx, 'api'), 0, lines);
   });
 
   test('an empty repository', () => {
-    expectRun(run(BRIDGE, ['audit'], fixture()), 0, audit());
+    expectRun(run(BRIDGE, ['audit'], fixture()), 0, [...audit(), NO_PLUGIN]);
   });
 
   test('a dangling CLAUDE.local.md or CLAUDE.md symlink is no file', () => {
     const links = { 'CLAUDE.local.md': 'missing.md', 'api/CLAUDE.local.md': 'missing.md' };
-    expectRun(run(BRIDGE, ['audit'], fixture({ links })), 0, audit());
+    expectRun(run(BRIDGE, ['audit'], fixture({ links })), 0, [...audit(), NO_PLUGIN]);
     // Outside git, the Step 2 `find -type f` listed no symlink either.
     const outside = fixture({
       git: false,
       files: { 'api/CLAUDE.md': 'rules\n' },
       links: { ...links, 'CLAUDE.md': 'missing.md' },
     });
-    expectRun(run(BRIDGE, ['audit'], outside), 0, [...audit(), 'legacy: api/CLAUDE.md']);
+    expectRun(run(BRIDGE, ['audit'], outside), 0, [...audit(), 'legacy: api/CLAUDE.md', NO_PLUGIN]);
+  });
+
+  test('plugin author: yes for an omp plugin catalog or a package.json omp object, else no', () => {
+    const catalog = fixture({ files: { '.omp-plugin/marketplace.json': '{"name":"m"}\n' } });
+    expectRun(run(BRIDGE, ['audit'], catalog), 0, [...audit(), 'plugin author: yes (.omp-plugin/marketplace.json)']);
+    const manifest = fixture({ files: { 'package.json': '{"name":"p","omp":{"skills":["./skills"]}}\n' } });
+    expectRun(run(BRIDGE, ['audit'], manifest), 0, [...audit(), 'plugin author: yes (package.json omp object)']);
+    for (const text of [
+      '{"name":"p"}\n',
+      '{"name":"p","omp":["./skills"]}\n',
+      '{"name":"p","omp":null}\n',
+      '{ no json\n',
+    ]) {
+      expectRun(run(BRIDGE, ['audit'], fixture({ files: { 'package.json': text } })), 0, [...audit(), NO_PLUGIN]);
+    }
+  });
+
+  test('a CLAUDE.md or .claude/CLAUDE.md link to the AGENTS.md of its folder is a legacy link; verify still reports it', () => {
+    const fx = fixture({
+      files: { 'AGENTS.md': ROOT_AGENTS, 'docs/AGENTS.md': STALE, 'docs/other.md': 'other\n' },
+      links: {
+        'CLAUDE.md': 'AGENTS.md',
+        '.claude/CLAUDE.md': '../AGENTS.md',
+        'docs/CLAUDE.md': 'other.md',
+      },
+    });
+    expectRun(run(BRIDGE, ['audit'], fx), 0, [
+      ...audit('AGENTS.md', 'CLAUDE.md (root)', '.claude/CLAUDE.md'),
+      'legacy link: .claude/CLAUDE.md',
+      'legacy link: CLAUDE.md',
+      'legacy: docs/CLAUDE.md',
+      NO_PLUGIN,
+    ]);
+    expectRun(run(BRIDGE, ['verify'], fx), 0, [
+      'BROKEN: legacy CLAUDE.md still present: .claude/CLAUDE.md',
+      'BROKEN: legacy CLAUDE.md still present: CLAUDE.md',
+      'BROKEN: legacy CLAUDE.md still present: docs/CLAUDE.md',
+      'HANDOFF context-tree: unrouted node docs/AGENTS.md',
+    ]);
   });
 });
 
@@ -856,6 +993,7 @@ describe('non-git prune sets', () => {
       ...audit('AGENTS.md', 'CLAUDE.md (root)', 'CLAUDE.local.md'),
       'legacy: CLAUDE.md',
       'personal: CLAUDE.local.md',
+      NO_PLUGIN,
     ]);
     const agentFirst = run(AGENT_FIRST, ['detect'], fx).lines.filter((l) => l.startsWith('legacy: '));
     assert.deepEqual(agentFirst, ['legacy: CLAUDE.md', 'legacy: dist/CLAUDE.md']);
@@ -867,7 +1005,7 @@ describe('non-git prune sets', () => {
     // `a-b/` sorts before `a/`, because `-` is below `/`, although a walk enters `a` first. UTF-16 order would put
     // 😀 (a surrogate pair) before ｚ (U+FF5A); byte order puts it last.
     const sorted = ['B', '_', 'a-b', 'a', 'z', 'é', 'ｚ', '😀'];
-    expectRun(run(BRIDGE, ['audit'], fx), 0, [...audit(), ...sorted.map((n) => `legacy: ${n}/CLAUDE.md`)]);
+    expectRun(run(BRIDGE, ['audit'], fx), 0, [...audit(), ...sorted.map((n) => `legacy: ${n}/CLAUDE.md`), NO_PLUGIN]);
   });
 });
 
@@ -977,7 +1115,7 @@ describe('failed listings and unreadable files', () => {
       'pull-request template: .github/pull_request_template.md (file)',
       'verify skill: present',
     ]);
-    expectError(run(BRIDGE, ['audit'], fx), [...audit('AGENTS.md', 'CLAUDE.md (root)'), failed('legacy:')]);
+    expectError(run(BRIDGE, ['audit'], fx), [...audit('AGENTS.md', 'CLAUDE.md (root)'), failed('legacy:'), NO_PLUGIN]);
     expectError(run(BRIDGE, ['verify'], fx), [failed('legacy:'), failed('routing:'), failed('volatile:')]);
   });
 
@@ -988,7 +1126,7 @@ describe('failed listings and unreadable files', () => {
       dirs: ['locked'],
       modes: { locked: 0o000 },
     });
-    expectError(run(BRIDGE, ['audit'], fx), [...audit('AGENTS.md'), failed('legacy:'), failed('personal:')]);
+    expectError(run(BRIDGE, ['audit'], fx), [...audit('AGENTS.md'), failed('legacy:'), failed('personal:'), NO_PLUGIN]);
     expectError(run(AGENT_FIRST, ['check'], fx), [
       ...LISTING_CHECKS.map(failed),
       C9_NO_SKILL,
@@ -1022,5 +1160,143 @@ describe('failed listings and unreadable files', () => {
     // (f) git quoted the path, so the old block printed a false `FAIL C2` and `FINDING C5` line for it.
     expectRun(run(AGENT_FIRST, ['check'], fx), 0, []);
     expectRun(run(BRIDGE, ['verify'], fx), 0, []);
+  });
+});
+
+// The .claude entry, legacy, and C3 and C4 lines of the three listings for one fixture.
+function claudeLines(fx) {
+  const pick = (result, pattern) => ({ ...result, lines: result.lines.filter((line) => pattern.test(line)) });
+  return {
+    detect: pick(run(AGENT_FIRST, ['detect'], fx), /^(legacy|not-a-symlink|ERROR)/u),
+    check: pick(run(AGENT_FIRST, ['check'], fx), /^(FAIL|FINDING|ERROR) C[34] /u),
+    audit: pick(run(BRIDGE, ['audit'], fx), /^(legacy|ERROR)/u),
+  };
+}
+
+function expectClaudeLines(fx, status, { detect, check, audit: auditLines = detect }) {
+  const lines = claudeLines(fx);
+  expectRun(lines.detect, status, detect);
+  expectRun(lines.check, status, check);
+  expectRun(lines.audit, status, auditLines);
+}
+
+describe('.claude entries and root context files in detect, check, and audit', () => {
+  test('a .claude, .claude/skills, or .claude/agents link to a place outside the repository is reported with its target as read and nothing below it', () => {
+    const outside = fixture({
+      git: false,
+      files: {
+        'CLAUDE.md': 'rules\n',
+        'skills/x/SKILL.md': TEST_SKILL,
+        'agents/rev.md': '# Rev\n',
+        'settings.json': '{}\n',
+        'commands/deploy.md': '# Deploy\n',
+      },
+    });
+    const whole = fixture({ ...BASE, links: { '.claude': outside.dir } });
+    expectClaudeLines(whole, 0, {
+      detect: [`legacy external: .claude -> ${outside.dir}`],
+      check: [C4_EXTERNAL('.claude')],
+    });
+    const agentsTarget = `../../${path.basename(outside.dir)}/agents`;
+    const parts = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, '.claude/settings.json': '{}\n' },
+      links: { '.claude/skills': path.join(outside.dir, 'skills'), '.claude/agents': agentsTarget },
+    });
+    expectClaudeLines(parts, 0, {
+      detect: [
+        `legacy external: .claude/skills -> ${path.join(outside.dir, 'skills')}`,
+        `legacy external: .claude/agents -> ${agentsTarget}`,
+        'legacy settings: .claude/settings.json',
+      ],
+      check: [C4_EXTERNAL('.claude/skills'), C4_EXTERNAL('.claude/agents'), C4('.claude/settings.json')],
+    });
+    // A link that stays inside the repository is no external entry: its entries are listed.
+    const inside = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, 'claude-agents/rev.md': '# Rev\n' },
+      links: { '.claude': 'claude-config', 'claude-config/agents': '../claude-agents' },
+      dirs: ['claude-config/skills/local'],
+    });
+    expectClaudeLines(inside, 0, {
+      detect: [
+        'legacy skills: .claude/skills',
+        'legacy agents: .claude/agents/rev.md',
+        'not-a-symlink: .claude/skills/local',
+      ],
+      check: [C4('.claude/skills/local'), C4('.claude/agents/rev.md')],
+      audit: ['legacy skills: .claude/skills', 'legacy agents: .claude/agents/rev.md'],
+    });
+  });
+
+  test('each other .claude entry, dot names too, is a legacy other entry that is only reported', () => {
+    const fx = fixture({
+      ...BASE,
+      files: {
+        ...BASE_FILES,
+        '.claude/commands/deploy.md': '# Deploy\n',
+        '.claude/.mcp.json': '{}\n',
+        '.claude/settings.json': '{}\n',
+      },
+    });
+    expectClaudeLines(fx, 0, {
+      detect: [
+        'legacy settings: .claude/settings.json',
+        'legacy other: .claude/.mcp.json',
+        'legacy other: .claude/commands',
+      ],
+      check: [C4('.claude/settings.json'), C4_OTHER('.claude/.mcp.json'), C4_OTHER('.claude/commands')],
+    });
+  });
+
+  test('an unreadable .claude/agents prints the legacy entries ERROR line in detect and audit, and ERROR C4 in check', {
+    skip: IS_ROOT,
+  }, () => {
+    const fx = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, '.claude/settings.json': '{}\n' },
+      dirs: ['.claude/agents'],
+      modes: { '.claude/agents': 0o000 },
+    });
+    const entries = 'ERROR legacy entries: file listing failed (see the message above)';
+    const lines = claudeLines(fx);
+    expectError(lines.detect, [entries]);
+    expectError(lines.check, ['ERROR C4 file listing failed (see the message above)']);
+    // The CLAUDE.local.md walk of audit enters every folder, so it cannot finish either.
+    expectError(lines.audit, [entries, 'ERROR personal: file listing failed (see the message above)']);
+  });
+
+  test('a root CLAUDE.md and .claude/CLAUDE.md count also when git ignores them; a nested ignored one does not', () => {
+    const fx = fixture({
+      ...BASE,
+      files: {
+        ...BASE_FILES,
+        '.gitignore': 'CLAUDE.md\n.claude/\n',
+        'CLAUDE.md': 'rules\n',
+        '.claude/CLAUDE.md': 'rules\n',
+        'api/CLAUDE.md': 'rules\n',
+      },
+    });
+    expectClaudeLines(fx, 0, {
+      detect: ['legacy: .claude/CLAUDE.md', 'legacy: CLAUDE.md'],
+      check: [C3_CLAUDE_FOLDER('.claude/CLAUDE.md'), C3_NEXT_TO('CLAUDE.md')],
+    });
+    expectRun(run(BRIDGE, ['verify'], fx), 0, [
+      'BROKEN: legacy CLAUDE.md still present: .claude/CLAUDE.md',
+      'BROKEN: legacy CLAUDE.md still present: CLAUDE.md',
+    ]);
+  });
+
+  test('C3 a CLAUDE.md or .claude/CLAUDE.md link to the AGENTS.md of its folder; a link to another AGENTS.md is no such link', () => {
+    const fx = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, 'AGENTS.md': routed('docs/AGENTS.md'), 'docs/AGENTS.md': STALE },
+      links: { 'CLAUDE.md': 'AGENTS.md', '.claude/CLAUDE.md': '../AGENTS.md', 'docs/CLAUDE.md': '../AGENTS.md' },
+    });
+    expectClaudeLines(fx, 0, {
+      detect: ['legacy: .claude/CLAUDE.md', 'legacy: CLAUDE.md', 'legacy: docs/CLAUDE.md'],
+      check: [C3_LINK('.claude/CLAUDE.md'), C3_LINK('CLAUDE.md'), C3_NEXT_TO('docs/CLAUDE.md')],
+      audit: ['legacy link: .claude/CLAUDE.md', 'legacy link: CLAUDE.md', 'legacy: docs/CLAUDE.md'],
+    });
   });
 });

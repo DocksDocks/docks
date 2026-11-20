@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "e27b2d76bca06823b1a774ab31c626f143f78283a9f3bbeea93598511df7bc3b"
+  content_hash: "69c4c23f4c7538da7d47554cce09e5e56b88d8df112e4533e27eb129caf657f4"
 ---
 
 # Skills & Agents Pipeline (cross-tool)
@@ -37,9 +37,10 @@ Prerequisite: `plan-lifecycle` must be installed. If `plan-workspace` or `plan-m
 | Situation | Use instead |
 |---|---|
 | AGENTS.md context nodes | `context-tree` (README and other human prose are out of the kit's scope) |
-| One-shot full repo setup (bridge + context tree + agent-first check) | `agent-first-setup` |
+| One-shot full repo setup (root `AGENTS.md`, CLAUDE.md migration, `.claude/` cleanup, context tree, agent-first check) | `agent-first-setup` |
 | Writing one skill by hand | `write-skill` |
-| Legacy CLAUDE.md migration, root `AGENTS.md`, `.claude/skills` ↔ `.agents/skills` symlinks | `claude-md-migration` |
+| Legacy `CLAUDE.md` or `.claude/CLAUDE.md` content to move into `AGENTS.md` | `claude-md-migration` |
+| A missing root `AGENTS.md`, or `.claude/` skills, agents, and settings to clean up | `agent-first-setup` |
 | Security / refactor analysis | `security` / `refactor` |
 
 ## Pipeline
@@ -95,7 +96,7 @@ Phases 1–6 are read-only. After Phase 6:
 1. Hand the Skills delta + Agents delta + cross-layer summary + every file to create/modify/delete to `plan-manager` for the plan issue.
 2. For an audit-only or plan-only request, report the reviewed plan issue and counts, then stop. For a bootstrap, refresh, or implementation request, give the complete report to the unified `plan-manager`; after it files the report, completes its bounded review, and records the reviewed start checkpoint, continue immediately into Phase 7 without a manual lifecycle prompt.
 3. Run **Phase 7 — Implementation**: write the SKILL.md + `references/` files and the agent files in BOTH `.claude/agents/*.md` and `.codex/agents/*.toml` form; for regenerated agents AND any SKILL.md being split into `references/`, back up the original first (`<name>.md.bak`, plus each new `references/*.md` for a split) and copy relocated prose **verbatim** (reformat OK, reword NOT); apply any 1024-char description fixes flagged in Phase 2a; if a stale local `skill-maintenance` was flagged, remove it only after explicit user approval (the plugin `docks:skill-maintenance` already covers both Codex and Claude). Bump `metadata.updated` only on real content change. If the project documents a `metadata.content_hash` contract and the matching tool exists, sync it after all content changes, not before. Record the Phase 7 check commands and their results (for example the split check below) under `## Verification Results`.
-4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here. Nested `AGENTS.md` nodes and the root routing table belong to `context-tree`; legacy CLAUDE.md files, the root `AGENTS.md`, and the skill symlinks belong to `claude-md-migration`; a one-pass setup is `agent-first-setup`.
+4. Do NOT touch `AGENTS.md` / `CLAUDE.md` here. Nested `AGENTS.md` nodes and the root routing table belong to `context-tree`; the content of legacy `CLAUDE.md` files belongs to `claude-md-migration`; a missing root `AGENTS.md` and the `.claude/` cleanup belong to `agent-first-setup`, which is also the one-pass setup.
 
 ## References
 
@@ -142,7 +143,7 @@ Any `LOST SECTION` / `NET SHRINK` line ⇒ restore from `/tmp/skill.before`, loc
 | SKILL.md body crossing 310 lines | Claude Code re-attaches only the first ≈5,000 tokens (≈310 lines) of a skill after compaction; the verifier hard-fails 310–500 lines with no `references/` | Split detail into `references/<topic>.md` (30–150 lines) |
 | Unquoted `description:` contains `: ` or `#` | Codex skips the skill with invalid YAML or silently truncated description | Quote every generated description |
 | Agent skill-references pointing at pre-split paths | Agents land with broken references | Phase 4–5 must reference Phase 3's proposed paths, not old ones |
-| Editing AGENTS.md / CLAUDE.md from this pipeline | Scope bleed; clobbers cross-tool config | Nested nodes and the routing table → `context-tree`; legacy CLAUDE.md, root `AGENTS.md`, symlinks → `claude-md-migration` |
+| Editing AGENTS.md / CLAUDE.md from this pipeline | Scope bleed; clobbers project config | Nested nodes and the routing table → `context-tree`; legacy `CLAUDE.md` content → `claude-md-migration`; root `AGENTS.md` and `.claude/` cleanup → `agent-first-setup` |
 
 ## Report a problem with this skill
 

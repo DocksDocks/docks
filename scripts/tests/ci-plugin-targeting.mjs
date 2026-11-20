@@ -1111,12 +1111,48 @@ const NATIVE_GATE_CASES = [
     /\.codex\b/,
   ],
   [
-    // The copy holds the tracked files of the working tree, so a .claude entry in it stands for a tracked one.
-    'a tracked root .claude folder',
+    // The copy has no .git, so the gate takes each file in it as a tracked one: its fallback outside a checkout.
+    'a root .claude folder in a copy without git',
     (tree) => linkTreeFile(tree, '.claude/skills/zz-skill', '../../.agents/skills/verify'),
     /(^|[\s`'"])\.claude(?![-\w])/,
   ],
+  [
+    // A git checkout of the copy: the gate asks git, and git tracks the committed entry.
+    'a committed root .claude entry in a git checkout',
+    (tree) => {
+      linkTreeFile(tree, '.claude/skills/zz-skill', '../../.agents/skills/verify');
+      commitTree(tree);
+    },
+    /(^|[\s`'"])\.claude(?![-\w])/,
+  ],
 ];
+
+// Make the copy a git checkout with one commit of each file in it. The node_modules link is no part of the
+// checkout. The commit uses no global or system git config, so no hook or signing step of the user runs.
+function commitTree(tree) {
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete env[name];
+  const git = (...args) => {
+    const identity = ['-c', 'user.name=Gate Test', '-c', 'user.email=gate@example.invalid'];
+    const result = spawnSync('git', [...identity, '-c', 'commit.gpgsign=false', ...args], {
+      cwd: tree,
+      encoding: 'utf8',
+      env,
+    });
+    assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
+  };
+  git('init', '-q');
+  fs.appendFileSync(path.join(tree, '.git/info/exclude'), '/node_modules\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'gate fixture');
+}
+
+// A git checkout whose only .claude entry is a file that `.gitignore` ignores: git tracks no .claude entry, so the
+// gate must pass, although the entry is on disk.
+const addIgnoredClaudeFile = (tree) => {
+  commitTree(tree);
+  writeTreeFile(tree, '.claude/agents/review-bench-x.md', '# Review benchmark\n');
+};
 
 // The failure lines that the gate lists after its `check(s) failed` header.
 function gateFailures(stdout) {
@@ -1168,7 +1204,7 @@ async function testNativePackageGate() {
       return { result, calls, failures: gateFailures(result.stdout) };
     };
     // A few gates at a time: each gate starts many stubbed children.
-    const jobs = [null, addFolderExtension, ...NATIVE_GATE_CASES.map(([, mutate]) => mutate)];
+    const jobs = [null, addFolderExtension, addIgnoredClaudeFile, ...NATIVE_GATE_CASES.map(([, mutate]) => mutate)];
     const outcomes = new Array(jobs.length);
     let next = 0;
     await Promise.all(
@@ -1181,7 +1217,7 @@ async function testNativePackageGate() {
       }),
     );
 
-    const [clean, folderEntry, ...broken] = outcomes;
+    const [clean, folderEntry, ignoredClaude, ...broken] = outcomes;
     assert.equal(
       clean.result.status,
       0,
@@ -1194,6 +1230,12 @@ async function testNativePackageGate() {
       `a folder entry with an index.ts must pass the gate:\n${folderEntry.result.stdout}\n${folderEntry.result.stderr}`,
     );
     assert.match(folderEntry.result.stdout, /docks omp\.extensions entries have a default function export \(3\)/);
+    assert.equal(
+      ignoredClaude.result.status,
+      0,
+      `an ignored .claude file in a git checkout must pass the gate:\n${ignoredClaude.result.stdout}\n${ignoredClaude.result.stderr}`,
+    );
+    assert.match(ignoredClaude.result.stdout, /no tracked \.claude entry/);
     for (const [index, [label, , pattern, { exactlyOne = false } = {}]] of NATIVE_GATE_CASES.entries()) {
       const { result, calls, failures } = broken[index];
       assert.deepEqual(
