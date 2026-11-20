@@ -1591,6 +1591,21 @@ describe('.claude entries and root context files in detect, check, and audit', (
     });
   });
 
+  // `alias` is a symlink to nested/sub, so the kernel reads `alias/..` as nested: both links reach nested/AGENTS.md,
+  // not the root AGENTS.md that a lexical `..` gives.
+  test('C3 a CLAUDE.md or .claude/CLAUDE.md link through alias/.. that reaches another AGENTS.md is no link', () => {
+    const fx = fixture({
+      ...BASE,
+      files: { ...BASE_FILES, 'nested/AGENTS.md': STALE },
+      dirs: ['nested/sub'],
+      links: { alias: 'nested/sub', 'CLAUDE.md': 'alias/../AGENTS.md', '.claude/CLAUDE.md': '../alias/../AGENTS.md' },
+    });
+    expectClaudeLines(fx, 0, {
+      detect: ['legacy: .claude/CLAUDE.md', 'legacy: CLAUDE.md'],
+      check: [C3_CLAUDE_FOLDER('.claude/CLAUDE.md'), C3_NEXT_TO('CLAUDE.md')],
+    });
+  });
+
   test('C3 a chain of two links from a CLAUDE.md to the AGENTS.md of its folder is a link to it', () => {
     const fx = fixture({ ...BASE, links: { 'CLAUDE.md': 'x.md', 'x.md': 'AGENTS.md' } });
     expectClaudeLines(fx, 0, {

@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: reviewer
   updated: "2026-11-20"
-  content_hash: "e1f8ee4803d208db6a9b25ec109987508ddab62ef412b5e559642c54372aa0f8"
+  content_hash: "ea9b7a14342a6104e2308e6fc8e8b74d0df9d04a73650bd767a193605918c26c"
 ---
 
 # Skill Maintenance
@@ -206,7 +206,8 @@ Use the narrowest available command:
 # if the project ships a skill validator/loader-check, run it
 
 # if the docks plugin is installed, write-skill bundles a portable validator —
-# frontmatter guard (fences, name, 1024-char description cap, unquoted '#')
+# frontmatter guard (fences, name, 1024-char cap on the parsed description
+# value, block scalars too, unquoted '#')
 # + 16-pt score, no kit tooling needed (--strict for kit conventions):
 node skill://write-skill/scripts/skill-guard.mjs validate .agents/skills
 

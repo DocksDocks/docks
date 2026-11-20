@@ -22,7 +22,6 @@ Per-finding reproduction is mandatory. Before a drift finding lands, re-open the
 - [Agents (existing) — same loop, lighter](#agents-existing--same-loop-lighter)
 - [Prompt-style sub-check](#prompt-style-sub-check-every-existing-skill-and-agent-body)
 - [2a reconciliation (feedback to the delta)](#2a-reconciliation-feedback-to-the-delta)
-- [Optional omp fan-out](#optional-omp-fan-out-output-identical-non-normative)
 - [Output](#output-write-under--phase-2c-content-accuracy-audit)
 - [Gotcha](#gotcha)
 - [Sources](#sources)
@@ -60,6 +59,8 @@ Soft prose with no source anchor — heuristics, style advice ("prefer early ret
    - `CLEAN` — zero drift (broken + stale + fictional + drifted = 0).
    - `REWRITE` — **any** `fictional-api`, OR drift ≥ 30% of claims checked.
    - `REFRESH` — otherwise, ≥1 drift.
+
+Run this loop sequentially, in this context, one artifact at a time. This is the most expensive phase by design — that cost is the point; it is the only one that catches pre-baseline drift, so never substitute a sample to make it cheaper.
 
 ## Agents (existing) — same loop, lighter
 
@@ -101,10 +102,6 @@ Write "no prompt-style findings" when the table is empty. A clean result changes
 ## 2a reconciliation (feedback to the delta)
 
 After this phase, return to the `### Phase 2a` block and amend each non-`CLEAN` **skill** action inline: append `→ escalated by 2c: REFRESH|REWRITE (<top finding>)`. For a skill with prompt-style findings, append `→ style: <n> findings` so Phase 3 applies the proposed rewrites. Route non-`CLEAN` **agents** to the Phase 5 regenerate list. The gate then reads one reconciled delta, not two conflicting ones.
-
-## Optional omp fan-out (output-identical, non-normative)
-
-Optional omp fan-out: the user may ask you to run the per-artifact audit loop as read-only `scout` items in one `task` call, one item for each skill or agent. Before the fan-out, check that no project `.omp/agents/*.md` file and no user `~/.omp/agent/agents/*.md` file declares `name: scout` (normally a `scout.md`): omp uses the first agent it finds with a name, so such a file replaces the bundled read-only `scout`. If one exists, use the sequential path. Give each item the artifact path, the drift taxonomy, and this reference as `skill://skill-agent-pipeline/references/content-auditor.md`, because a subagent gets no conversation history and no `AGENTS.md`. Reproduce each returned drift finding yourself, then merge the results into the single `### Phase 2c` subheading; the output table must be identical to the sequential procedure. The sequential path stays the reference. This is the most expensive phase by design — that cost is the point; it is the only one that catches pre-baseline drift, so never substitute a sample to make it cheaper.
 
 ## Output (write under `### Phase 2c: Content-Accuracy Audit`)
 

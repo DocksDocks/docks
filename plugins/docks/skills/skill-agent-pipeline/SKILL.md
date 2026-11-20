@@ -5,7 +5,7 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "6f0701475f2d2df7501bbebcb3025a8dbc72f00a31ede90c0633ad4ec07ad389"
+  content_hash: "74757ec9025bb39eac5c2c9152246f8a5b4017702aeb6935abc73bc42a4241f7"
 ---
 
 # Skills & Agents Pipeline
@@ -13,7 +13,7 @@ metadata:
 Bootstrap and audit a project's skills (`.agents/skills/`) plus its omp task agents (`.omp/agents/*.md`) in one sequential pass: explore, propose the skill-set delta, extract codebase patterns, draft skills, verify, then either report or implement according to the current request. The pipeline needs no slash command, no subagent dispatch, and no Plan Mode. Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
-Single-agent sequential. Execute the phases IN ORDER, in THIS context. The sequential path is the reference; the one optional fan-out is the Phase 2c `scout` paragraph in `references/content-auditor.md`, and its output must match the sequential output. Before running each phase, read its `references/<phase>.md` and apply it. Hand each phase's output to `plan-manager` under the exact `### Phase` subheading shown as you finish it, so a mid-run compaction can resume from the issue body.
+Single-agent sequential. Execute the phases IN ORDER, in THIS context. Before running each phase, read its `references/<phase>.md` and apply it. Hand each phase's output to `plan-manager` under the exact `### Phase` subheading shown as you finish it, so a mid-run compaction can resume from the issue body.
 </constraint>
 
 <constraint>

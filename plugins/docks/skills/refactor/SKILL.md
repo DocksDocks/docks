@@ -5,15 +5,15 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "d2bfbf9a1690e63cdd6c130b9cd73c8425486d12839215a579e6ce9d8c13d241"
+  content_hash: "76f7fc4b6ba7c8f530cade7b8e9ac793c7997f40a1a60b2aadfe40b0ac8b3f7f"
 ---
 
 # Refactor (sequential pipeline)
 
-Detect and fix structural issues — dead code, duplication, evidenced SOLID violations, modernization — as one sequential pass with a tiered plan, an intent-aware review handoff, and test-guarded implementation. Single-agent by default — no slash command, no Plan Mode; the only subagent dispatches are optional: the omp fan-out of Phases 2a–2b and the omp isolated-executor mode (see constraint 1). Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
+Detect and fix structural issues — dead code, duplication, evidenced SOLID violations, modernization — as one sequential pass with a tiered plan, an intent-aware review handoff, and test-guarded implementation. Single-agent by default — no slash command, no Plan Mode; the only subagent dispatch is the optional omp isolated-executor mode (see constraint 1). Each phase's expertise lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
-Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS context. The only analysis exception is the optional omp fan-out of Phases 2a–2b in Pipeline; use it only when the user asks for it. Before running each phase, read its `references/<phase>.md` and apply it. Hand each phase's output to `plan-manager` as you finish it so the plan issue remains resumable after compaction. Implementation has ONE optional exception — the omp isolated-executor mode in `references/executor-dispatch.md`; it is opt-in, never the default, and when it is not available you always fall back to the in-context path (Phases 7–8).
+Single-agent sequential **by default**. Execute the phases IN ORDER, in THIS context; the analysis phases (1–5) never dispatch subagents. Before running each phase, read its `references/<phase>.md` and apply it. Hand each phase's output to `plan-manager` as you finish it so the plan issue remains resumable after compaction. Implementation has ONE optional exception — the omp isolated-executor mode in `references/executor-dispatch.md`; it is opt-in, never the default, and when it is not available you always fall back to the in-context path (Phases 7–8).
 </constraint>
 
 <constraint>
@@ -63,8 +63,6 @@ Run in order. Each phase reads its reference, then hands its output to `plan-man
 | 8 | Post-implementation verification | `references/post-verifier.md` | `## Verification Results` → `### Phase 8: Post-Verifier Results` |
 
 Phase 3 uses Phase 2a's SAFE tier to skip files about to be deleted. Phase 4 merges 2a + 2b + 3.
-
-Optional omp fan-out: the user may ask you to run Phases 2a and 2b as two read-only `scout` items in one `task` call, one item for each scan. Before the fan-out, check that no project `.omp/agents/*.md` file and no user `~/.omp/agent/agents/*.md` file declares `name: scout` (normally a `scout.md`): omp uses the first agent it finds with a name, so such a file replaces the bundled read-only `scout`. If one exists, use the sequential path. Give each item the scope, the Phase 1 results, and its reference as `skill://refactor/references/<phase>.md`, because a subagent gets no conversation history and no `AGENTS.md`. Hand each returned result to `plan-manager` under its subheading yourself, then run Phase 3 in this context. The sequential path stays the reference.
 
 ## How to run each phase
 

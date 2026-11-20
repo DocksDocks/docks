@@ -5,7 +5,7 @@ user-invocable: false
 metadata:
   pattern: tool-wrapper
   updated: "2026-11-20"
-  content_hash: "477ea0063da38ee1b8d91bb594d9490ac7af7a011e5afa415e665262477158bb"
+  content_hash: "eba6cec63e3ea3d4d3fa9cad5857084c8c3ae4fa65885eefc2c98264ad1ea4bc"
 ---
 
 # Code Review
@@ -171,7 +171,7 @@ each citing the spec line + the diff line>
 - Worst issue per axis: Standards <one line>; Spec <one line> (do not pick one winner across axes — that is the reranking the constraint forbids)
 ```
 
-Run the two passes sequentially within one turn — the discipline that matters is keeping the reports separate, not how they're scheduled. Sequential is the default. In omp you MAY run the axes as two read-only `scout` items in one `task` call, one item per axis, so one axis does not bleed into the other's context. Before the fan-out, check that no project `.omp/agents/*.md` file and no user `~/.omp/agent/agents/*.md` file declares `name: scout` (normally a `scout.md`): omp uses the first agent it finds with a name, so such a file replaces the bundled read-only `scout`. If one exists, run sequentially. A `scout` has no `bash` and no conversation history, so save the diff to a `local://` file first and give each item that path, the spec, and its axis rules.
+Run the two passes sequentially within one turn, in this context — the discipline that matters is keeping the reports separate, not how they're scheduled.
 
 Pattern adapted from Matt Pocock's `code-review` skill (formerly `review`; MIT): <https://github.com/mattpocock/skills/blob/main/skills/engineering/code-review/SKILL.md>.
 

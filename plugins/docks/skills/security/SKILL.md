@@ -5,15 +5,15 @@ user-invocable: true
 metadata:
   pattern: pipeline
   updated: "2026-11-20"
-  content_hash: "081b489b64c208827e1d96ae1124f5fcc7eff6ac38a5c750717703ca00026142"
+  content_hash: "c8b3c961c9ddaf3f62b08411f4619398f342043535b294b155f6b02b34253e4d"
 ---
 
 # Security Audit (sequential pipeline)
 
-A full OWASP-aware security audit run as one sequential pass: discovery, three analysis lenses, and a synthesis that challenges every finding before it reaches the report. Single-agent by default — no slash command, no Plan Mode, and no subagent dispatch unless the user asks for the optional fan-out in Pipeline. The expertise for each phase lives in `references/<phase>.md`; this body is the orchestration.
+A full OWASP-aware security audit run as one sequential pass: discovery, three analysis lenses, and a synthesis that challenges every finding before it reaches the report. Single-agent — no slash command, no Plan Mode, and no subagent dispatch. The expertise for each phase lives in `references/<phase>.md`; this body is the orchestration.
 
 <constraint>
-Single-agent sequential by default. Execute the five phases IN ORDER, in THIS context. The only exception is the optional omp fan-out of Phases 2a–2c in Pipeline; use it only when the user asks for it. Before running each phase, read its `references/<phase>.md` and apply that checklist. Hand each phase's output to `plan-manager` as you finish it so the audit issue remains resumable after compaction.
+Single-agent sequential. Execute the five phases IN ORDER, in THIS context, with no subagent dispatch. Before running each phase, read its `references/<phase>.md` and apply that checklist. Hand each phase's output to `plan-manager` as you finish it so the audit issue remains resumable after compaction.
 </constraint>
 
 <constraint>
@@ -58,8 +58,6 @@ Run these in order. Each phase reads its reference, then hands its output to `pl
 | 3 | Synthesis (challenge, dedupe, prioritize) | `references/synthesizer.md` | `## Research` → `### Phase 3: Security Audit Report` |
 
 Phases 2a–2c are independent lenses over the same Phase 1 map; run them sequentially in this context (constraint 1) — their independence just means a finding in one never gates another.
-
-Optional omp fan-out: the user may ask you to run Phases 2a–2c as three read-only `scout` items in one `task` call, one item for each lens. Before the fan-out, check that no project `.omp/agents/*.md` file and no user `~/.omp/agent/agents/*.md` file declares `name: scout` (normally a `scout.md`): omp uses the first agent it finds with a name, so such a file replaces the bundled read-only `scout`. If one exists, use the sequential path. Give each item the scope, the Phase 1 map, and its reference as `skill://security/references/<phase>.md`, because a subagent gets no conversation history and no `AGENTS.md`. Hand each returned result to `plan-manager` under its subheading yourself, then run Phase 3 in this context. The sequential path stays the reference.
 
 ## How to run each phase
 

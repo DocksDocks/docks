@@ -225,19 +225,31 @@ function canonical(file) {
   }
 }
 
-// The canonical paths that the symlink chain of `file` reaches, hop by hop: each link target
-// resolves against the real folder of its link, as the kernel resolves it. The chain stops at
-// an entry that is no symlink or cannot be read, or after MAX_LINK_HOPS.
+// The canonical path that the symlink `link`, itself a canonical path, points to. The kernel
+// walks the target part by part, so a `..` after a folder symlink leaves the target of that
+// symlink: `alias/..` with `alias -> nested/sub` is nested. Thus the target joins the folder of
+// the link as a string, and only its real parent folder gets the base name; path.resolve would
+// drop `alias/..` before any symlink is read. Throws when a part cannot be resolved.
+function linkTarget(link) {
+  const target = fs.readlinkSync(link);
+  const joined = path.isAbsolute(target) ? target : `${path.dirname(link)}/${target}`;
+  const cut = joined.lastIndexOf('/');
+  return path.join(fs.realpathSync.native(joined.slice(0, cut) || '/'), joined.slice(cut + 1));
+}
+
+// The canonical paths that the symlink chain of `file` reaches, hop by hop, as the kernel
+// resolves them. The chain stops at an entry that is no symlink or cannot be read, or after
+// MAX_LINK_HOPS.
 function linkChain(file) {
   const chain = [];
   let current = canonical(file);
   while (current !== null && chain.length < MAX_LINK_HOPS && isSymlink(current)) {
     try {
-      current = canonical(path.resolve(path.dirname(current), fs.readlinkSync(current)));
+      current = linkTarget(current);
     } catch {
       break;
     }
-    if (current !== null) chain.push(current);
+    chain.push(current);
   }
   return chain;
 }

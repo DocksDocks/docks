@@ -725,7 +725,8 @@ function testAgentsGuardNames() {
 }
 
 // The shipped write-skill validator has no `anthropic`/`claude` name rule and no angle-bracket description rule, and
-// it gives the agentskills.io reason for the body line target.
+// it gives the agentskills.io reason for the body line target. It measures the description as YAML reads it: block
+// scalars (literal, folded, indentation indicator, chomping), quoted values with escapes, and plain multi-line values.
 function testSkillGuardValidateRules() {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docks-author-tooling-skill-guard-validate-'));
   try {
@@ -754,6 +755,70 @@ function testSkillGuardValidateRules() {
     assert.match(result.stdout, /^skill-guard PASSED: 2 skill\(s\), /m);
     assert.match(result.stdout, /WARN: body is \d+ lines, outside the 80-310 target \(agentskills\.io: keep the body/);
     assert.doesNotMatch(result.stdout, /re-attachment|angle bracket|reserved word/i);
+
+    const text = (n) => `Use when ${'x'.repeat(n - 9)}`;
+    const word = (n) => 'y'.repeat(n);
+    const indent = (lines) => lines.map((l) => (l === '' ? '' : `  ${l}`));
+    const lengthCases = [
+      ['literal-clip', ['description: |', ...indent([text(100), ...Array(10).fill(word(100))])], 1111],
+      ['literal-strip', ['description: |-', ...indent([text(100), ...Array(9).fill(word(100)), word(14)])], 1024],
+      ['literal-indicator', ['description: |2-', `    ${text(100)}`, ...Array(4).fill(`    ${word(100)}`)], 514],
+      [
+        'literal-keep',
+        ['description: |+', ...indent([text(101), ...Array(9).fill(word(101))]), '', '', '', '', ''],
+        1025,
+      ],
+      [
+        'folded-blank',
+        [
+          'description: >',
+          ...indent([
+            text(101),
+            ...Array(9)
+              .fill(['', word(101)])
+              .flat(),
+          ]),
+        ],
+        1020,
+      ],
+      ['folded-strip', ['description: >-', ...indent([text(101), ...Array(8).fill(word(101)), word(107)])], 1025],
+      ['folded-more-indented', ['description: >', ...indent([text(500), `  ${word(20)}`, word(500)])], 1025],
+      ['double-quoted', [`description: "${text(500)}`, ...indent([word(500), `say \\"hi\\" ${word(30)}"`])], 1041],
+      ['double-escaped-break', [`description: "${text(500)}\\`, ...indent([`${word(524)}"`])], 1024],
+      ['double-one-line', [`description: "${text(1000)} \\"${word(20)}\\""`], 1023],
+      ['single-quoted', [`description: '${text(500)} it''s`, '', ...indent([`${word(520)}'`])], 1026],
+      ['plain-multi-line', [`description: ${text(600)}`, ...indent([word(500)])], 1101],
+      ['plain-next-line', ['description:', ...indent([text(600), word(500)])], 1101],
+    ];
+    const problems = [];
+    for (const [name, descriptionLines, length] of lengthCases) {
+      const skillDir = path.join(fixtureRoot, 'lengths', name);
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(skillDir, 'SKILL.md'),
+        [
+          '---',
+          `name: ${name}`,
+          ...descriptionLines,
+          'user-invocable: false',
+          'metadata:',
+          '  updated: "2026-07-20"',
+          '---',
+          `# ${name}`,
+          '',
+        ].join('\n'),
+      );
+      const measured = runNode(SKILL_GUARD, ['validate', skillDir]);
+      assertStarted(measured);
+      const over = length > 1024;
+      if (measured.status !== (over ? 1 : 0)) problems.push(`${name}: exit ${measured.status}, want ${over ? 1 : 0}`);
+      if (!measured.stdout.includes(`WARN: description is ${length} chars`))
+        problems.push(`${name}: not measured as ${length} chars`);
+      const capLine = /FAIL: description exceeds 1024 chars \(\d+\)/.exec(measured.stdout)?.[0];
+      const wantCapLine = over ? `FAIL: description exceeds 1024 chars (${length})` : undefined;
+      if (capLine !== wantCapLine) problems.push(`${name}: cap line ${capLine}, want ${wantCapLine}`);
+    }
+    assert.deepEqual(problems, []);
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }

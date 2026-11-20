@@ -34,6 +34,116 @@ function metaUpdated(lines) {
   return '';
 }
 
+// ---- the description value as a YAML parser reads it (Node core only) ----
+const indentOf = (l) => /^ */.exec(l)[0].length;
+const DQ_ESCAPES = { 0: '\0', a: '\x07', b: '\b', t: '\t', '\t': '\t', n: '\n', v: '\v', f: '\f', r: '\r', e: '\x1b', ' ': ' ', '"': '"', '/': '/', '\\': '\\', N: '\x85', _: '\xa0', L: '\u2028', P: '\u2029' };
+const endsEscaped = (s) => /(^|[^\\])(\\\\)*\\$/.test(s);
+function unescapeDouble(s) {
+  return s.replace(/\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)/g, (m, e) => {
+    if (e.length === 1) return DQ_ESCAPES[e] ?? m;
+    const cp = Number.parseInt(e.slice(1), 16);
+    return cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+  });
+}
+// The lines between the frontmatter fences (to the end when the closing fence is missing).
+function frontmatter(lines) {
+  const start = lines[0] === '---' ? 1 : 0;
+  const end = lines.indexOf('---', start);
+  return lines.slice(start, end === -1 ? undefined : end);
+}
+// `|` keeps line breaks, `>` folds them to spaces except around empty and more-indented lines;
+// the content indentation (indicator or first text line) is stripped; chomping `-` drops the
+// final line break, clip keeps one, `+` keeps it and the trailing empty lines.
+function blockScalar(folded, indicator, chomp, rest) {
+  const first = rest.find((l) => l.trim() !== '');
+  const n = indicator ? Number(indicator) : first === undefined ? 0 : indentOf(first);
+  const body = [];
+  for (const l of rest) {
+    if (l.trim() === '') body.push('');
+    else if (n > 0 && indentOf(l) >= n) body.push(l.slice(n));
+    else break;
+  }
+  let end = body.length;
+  while (end > 0 && body[end - 1] === '') end -= 1;
+  const trailing = body.length - end;
+  let text = ''; let prev = null; let empties = 0;
+  for (const line of body.slice(0, end)) {
+    if (line === '') { empties += 1; continue; }
+    if (prev === null) text = '\n'.repeat(empties) + line;
+    else if (!folded || /^[ \t]/.test(prev) || /^[ \t]/.test(line)) text += '\n'.repeat(empties + 1) + line;
+    else text += (empties === 0 ? ' ' : '\n'.repeat(empties)) + line;
+    prev = line; empties = 0;
+  }
+  if (prev === null) return chomp === '+' ? '\n'.repeat(trailing) : '';
+  if (chomp === '-') return text;
+  return chomp === '+' ? `${text}\n${'\n'.repeat(trailing)}` : `${text}\n`;
+}
+// A quoted value up to its closing quote: a line break folds to a space, empty lines become line
+// breaks, and the space around a break is dropped; `"` reads escapes (`\` at the end of a line
+// joins the next line), `'` reads `''` as one quote.
+function quotedScalar(head, rest) {
+  const q = head[0];
+  const raw = [];
+  for (const [i, line] of [head.slice(1), ...rest].entries()) {
+    if (i > 0 && line.trim() !== '' && indentOf(line) === 0) break;
+    let close = -1;
+    for (let c = 0; c < line.length && close === -1; c += 1) {
+      if (q === '"' && line[c] === '\\') c += 1;
+      else if (line[c] === q && q === "'" && line[c + 1] === "'") c += 1;
+      else if (line[c] === q) close = c;
+    }
+    raw.push(close === -1 ? line : line.slice(0, close));
+    if (close !== -1) break;
+  }
+  const decode = q === '"' ? unescapeDouble : (s) => s.replaceAll("''", "'");
+  const parts = raw.map((line, i) => {
+    let text = i === 0 ? line : line.replace(/^[ \t]+/, '');
+    if (i === raw.length - 1) return { text, joined: false };
+    if (q === '"' && endsEscaped(text)) return { text: text.slice(0, -1), joined: true };
+    const trimmed = text.replace(/[ \t]+$/, '');
+    text = q === '"' && endsEscaped(trimmed) ? text.slice(0, trimmed.length + 1) : trimmed;
+    return { text, joined: false };
+  });
+  let value = decode(parts[0].text); let prev = parts[0]; let empties = 0;
+  for (const [i, part] of parts.entries()) {
+    if (i === 0) continue;
+    if (part.text === '' && i < parts.length - 1) { empties += 1; continue; }
+    value += (prev.joined || empties > 0 ? '' : ' ') + '\n'.repeat(empties) + decode(part.text);
+    prev = part; empties = 0;
+  }
+  return value;
+}
+// A plain value: it ends at a ` #` comment or a less-indented line; lines fold as in quotes.
+function plainScalar(head, rest) {
+  const texts = []; let comment = false;
+  for (const [i, line] of [head, ...rest].entries()) {
+    if (i > 0 && line.trim() !== '' && indentOf(line) === 0) break;
+    const hash = /(^|[ \t])#/.exec(line);
+    texts.push((hash ? line.slice(0, hash.index) : line).trim());
+    if (hash) { comment = true; break; }
+  }
+  let value = ''; let empties = 0;
+  for (const t of texts) {
+    if (t === '') { empties += 1; continue; }
+    value += value === '' ? t : (empties === 0 ? ' ' : '\n'.repeat(empties)) + t;
+    empties = 0;
+  }
+  return { value, comment };
+}
+// The top-level description value of the frontmatter: { value, comment }; comment is true when a
+// plain value holds a ` #` comment.
+function readDescription(lines) {
+  const fm = frontmatter(lines);
+  const at = fm.findIndex((l) => /^description:/.test(l));
+  if (at === -1) return { value: '', comment: false };
+  const head = fm[at].slice('description:'.length).trim();
+  const rest = fm.slice(at + 1);
+  const block = /^([|>])(?:([1-9])([+-])?|([+-])([1-9])?)?(?:[ \t]+#.*)?$/.exec(head);
+  if (block) return { value: blockScalar(block[1] === '>', block[2] || block[5], block[3] || block[4], rest), comment: false };
+  if (head.startsWith('"') || head.startsWith("'")) return { value: quotedScalar(head, rest), comment: false };
+  return plainScalar(head, rest);
+}
+
 // ---- the 16-pt scorer (single source of the docks rubric) ----
 function scoreSkill(file) {
   const lines = splitLines(fs.readFileSync(file, 'utf8'));
@@ -108,13 +218,13 @@ function validate(dirs, strict) {
     if ([...name].length > 64) fail(`name exceeds 64 chars (${[...name].length})`);
     if (name !== dirname) fail(`name '${name}' must match directory '${dirname}'`);
 
-    const descRaw = (lines.find((l) => /^description:/.test(l)) || '').replace(/^description:\s*/, '');
-    const desc = descRaw.replace(/^"/, '').replace(/"$/, '').replace(/^'/, '').replace(/'$/, '');
+    const description = readDescription(lines);
+    const desc = description.value;
     const hasUpstream = countLines(lines, /^upstream:/);
-    if (!desc) fail('description must be a non-empty single line');
+    if (!desc) fail('description must be non-empty');
     else {
       if ([...desc].length > 1024) fail(`description exceeds 1024 chars (${[...desc].length})`);
-      if (!/^["'|>]/.test(descRaw) && /(^|[ \t])#/.test(descRaw)) fail("unquoted description contains '#' — quote it (YAML reads ' #' as the start of a comment)");
+      if (description.comment) fail("unquoted description contains '#' — quote it (YAML reads ' #' as the start of a comment)");
       if ([...desc].length > 500) warn(`description is ${[...desc].length} chars (>500 crowds the aggregate listing budget)`);
       if (hasUpstream > 0) { if (!/use when/i.test(desc)) warn("description should contain 'Use when'"); }
       else if (!/^use when/i.test(desc)) warn("description should start with 'Use when'");
