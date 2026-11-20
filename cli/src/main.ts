@@ -26,6 +26,9 @@ const root = Command.make("docks-kit", {}, () =>
     yield* Console.log(
       "  docks-kit tidy [--apply] [--repo <path>] [--report] remove safe agent leftovers",
     );
+    yield* Console.log(
+      "  docks-kit plan <command> [...]            GitHub-issue plan records (plan-manager helper)",
+    );
     yield* Console.log("");
     yield* Console.log(
       "Run 'docks-kit --help' for full option listings (also: --wizard, --completions).",
@@ -40,11 +43,11 @@ const root = Command.make("docks-kit", {}, () =>
 );
 
 // v4's default formatter renders `name vversion`, but the `docks-kit` launcher
-// compares `--version` against the bare `package.json` version. The trailing
-// newline reproduces the characterized byte-for-byte output of the v3 CLI.
+// compares `--version` against the bare `package.json` version. The CLI output
+// presenter prints the result with `Console.log`, which adds the one newline.
 const bareVersionFormatter: CliOutput.Formatter = {
   ...CliOutput.defaultFormatter(),
-  formatVersion: (_name, version) => `${version}\n`,
+  formatVersion: (_name, version) => version,
 };
 
 // Harness-private raw channel:
