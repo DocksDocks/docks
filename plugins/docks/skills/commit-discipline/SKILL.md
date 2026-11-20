@@ -4,8 +4,8 @@ description: "Use when splitting work into small reviewable/atomic commits, deci
 user-invocable: false
 metadata:
   pattern: tool-wrapper
-  updated: "2026-11-19"
-  content_hash: "f4387e615286caf51e4e4992e3fa73a756e723365f5abe8d9f7a95e48d473f8f"
+  updated: "2026-11-20"
+  content_hash: "174cd8a5826bee11236e0e6d03a3385c0f00e9470f67a62b8e62e305d2a8769a"
 ---
 
 # Commit & PR Discipline
