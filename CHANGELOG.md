@@ -42,6 +42,14 @@ gate scores the skills in the same process. These changes come from plan #198.
   script with a Node stack trace prints the one line
   `docks-kit skill: <message>` and exits 1.
 
+### Changed
+
+- The cores of the kit plugin's verify-gate and context-tree extensions are
+  TypeScript: `verify-gate-core.ts` and `context-tree-core.ts` replace the
+  `.mjs` files (#206). They behave the same, except that the verify-gate reads
+  a hand-edited denial count that is not a number as a number, and as 0 when
+  that is no finite number, so the denial file always holds a number.
+
 ### Removed
 
 - `plan-manager/scripts/plan.mjs`, `plan-manager/scripts/base-blob.sh`,
@@ -62,6 +70,11 @@ gate scores the skills in the same process. These changes come from plan #198.
 
 - `docks-kit --version` prints the version and one newline. Before, it printed
   an empty second line.
+- The context-tree nudge names nodes on Windows (#206). git prints the
+  repository root with `/` separators there, so the nudge compared it with no
+  native folder path and named no node. The nudge now writes each node name
+  with `/` separators on every platform, and on Windows a name that starts with
+  a drive prefix such as `C:/` stays a plain name.
 
 ## 2026-11-20 - docks-kit 0.25.0: docks skills in the kit plugin, marketplace retirement
 
