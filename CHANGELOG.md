@@ -103,9 +103,11 @@ do not use.
   older kit also wrote your own skill folders into `.kit-managed-skills`, so
   do not use that file alone to find the kit skills.
 - The sync lock `~/.agents/.docks-kit-sync-lock.db`. Keep the lock file
-  while an omp folder that sync writes is `~/.agents`. This is the case when
-  `PI_CODING_AGENT_DIR` points to `~/.agents`, and it can be the case when
-  `PI_CONFIG_DIR` is `.agents`. Sync then holds that file as its folder lock.
+  while an omp folder that sync writes is `~/.agents` or resolves to it
+  through a symlink. `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, and
+  `XDG_DATA_HOME` can each move an omp folder there, and a named omp profile
+  (`OMP_PROFILE` or `PI_PROFILE`) changes which of them apply. Sync then holds
+  that file as its folder lock. Never delete it while a `docks-kit sync` runs.
 - The `~/.agents/skills/` folder, which each writing `agents` sync created.
   Delete the folder only when it is empty.
 - The `~/.claude/skills/<name>` entries of the kit skills. Each entry is a
