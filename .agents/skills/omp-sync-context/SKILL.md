@@ -148,8 +148,15 @@ Start each condition, after an optional inline flag group, with the forward
 key prefix that `cli/docs/command-guards.md` shows:
 `"(?:command|code)"\s*:\s*"[^"\\]*?` and an escape loop that takes up to 8
 escape pairs per step.
-So the match starts at the `command` or `code` key and stays inside that
-string, and omp's `Matched:` excerpt starts at that key.
+So the key prefix starts at the `command` or `code` key and stays inside that
+string.
+Only the prefix gives this guarantee: the rest of a condition can cross the
+closing quote, as the `Bun.file` condition of `file-removal.md` does on
+`{"code":"Bun.file(","i":").delete("}`.
+omp's `Matched:` excerpt is a bounded window around the match start: up to
+60 characters before it, and a long match is cut at 180 characters from its
+start.
+So in a long call the trigger can be outside the excerpt.
 Make each scan read an escape pair (`\"`, `\\`) as one unit and stop at an
 unescaped `"` and at a newline (`\n`).
 Never start a condition with an unbounded lookbehind.
@@ -157,8 +164,19 @@ omp tests each condition on its main thread.
 A leading lookbehind walks back over the whole buffer from each position, so
 a 20 KB call froze the session for seconds, and past the JavaScriptCore match
 limit the rule did not fire.
-Use a lookbehind with `*`, `+`, or `{n,}` only as the last element, right
-after a `(?=...)` trigger lookahead.
+Make each scan after a command start one lazy walk that stops at its first
+event: `(?=(?<w>[\s\S]*?)(?=EVENT)BOUNDARY)\k<w>`.
+The events are the flag of the condition, a terminator, the end of the run,
+and the next command start.
+An event counts only when no odd run of backslashes comes before it.
+The lookahead does not backtrack after it matches, so the walk stays frozen.
+The stop at the next command start keeps a line that repeats a command
+start linear, because the scan of that later start reads the rest.
+Never put a group loop inside a lookaround over text of unbounded length.
+JavaScriptCore then keeps each loop step until the match attempt ends, and
+the regex drops out of the JIT.
+Do not rely on the closing quote to stop a scan.
+omp tests each streamed delta, so the buffer often stops before that quote.
 Write shell white space as `(?:\s|\\t)`, because a tab is `\t` in the buffer.
 Make each scan that looks for an option stop at a ` -- ` word.
 Add a wrong row for each new condition or branch, and a correct row for each
@@ -168,9 +186,16 @@ rule has another repeat mode.
 The `bash.patterns` denies in `config.yml` still enforce.
 
 Verify the conditions: `bunx vitest run cli/test/unit/ompTriggerRules.test.ts`.
-It runs the shape guard and the Bun backstop
-(`cli/test/lib/ompTriggerBackstop.ts`), which times each condition in
-JavaScriptCore.
+Its shape guard checks only the key prefix and that no `|` stands outside
+every group.
+Its Bun backstop (`cli/test/lib/ompTriggerBackstop.ts`) proves linear time by
+measurement in JavaScriptCore: a time budget, a fire check, scaling with the
+JIT off, and dense and head-and-run lines with the JIT on, in bash, open
+bash, and Python.
+The 64 KB time must stay at most 8 times the 16 KB time plus 15 ms, and at
+most 100 ms.
+When you rewrite a condition, run the old and the new condition on each
+buffer of the test table, and make sure that both give the same result.
 
 Under a named profile (`OMP_PROFILE` or `PI_PROFILE`), use the profile `agentDir` from `ompPaths`.
 omp exports `PI_CODING_AGENT_DIR` as that profile `agentDir`, and `pi-intercom` reads that variable.
