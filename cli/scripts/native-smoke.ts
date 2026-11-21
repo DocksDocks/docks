@@ -13,6 +13,17 @@ const BYTECODE_LOG_ENV = "BUN_JSC_verboseDiskCache";
 /** The line that the binary prints when it runs its embedded bytecode. */
 const BYTECODE_HIT = "[Disk Cache] Cache hit for sourceCode";
 
+/**
+ * Why a `--version` run with `BUN_JSC_verboseDiskCache=1` shows that the
+ * binary did not run its embedded bytecode, or undefined when it did. A Bun
+ * that rejects the bytecode parses the source again without an error, so only
+ * this log line shows it.
+ */
+export function bytecodeProblem(output: string): string | undefined {
+  if (output.includes(BYTECODE_HIT)) return undefined;
+  return `native binary ran without its embedded bytecode: no "${BYTECODE_HIT}" line with ${BYTECODE_LOG_ENV}=1; check that COMPILE_FLAGS in cli/src/engine-native/os/targets.ts holds --bytecode and that the Bun that compiled the binary also runs it`;
+}
+
 function fail(message: string): never {
   throw new Error(message);
 }
@@ -68,19 +79,14 @@ function main(): void {
   }
   console.log(`[native-smoke] version: ${reportedVersion}`);
 
-  // A Bun that rejects the embedded bytecode parses the source again without
-  // an error, and the binary only loses its faster start, so check the hit.
   const bytecodeRun = spawnSync(artifactPath, ["--version"], {
     cwd: REPO_DIR,
     encoding: "utf8",
     env: { ...process.env, [BYTECODE_LOG_ENV]: "1" },
   });
   requireSuccess(`native --version with ${BYTECODE_LOG_ENV}=1`, bytecodeRun);
-  if (!`${bytecodeRun.stdout}\n${bytecodeRun.stderr}`.includes(BYTECODE_HIT)) {
-    fail(
-      `native binary ran without its embedded bytecode: no "${BYTECODE_HIT}" line with ${BYTECODE_LOG_ENV}=1; check that COMPILE_FLAGS in cli/src/engine-native/os/targets.ts holds --bytecode and that the Bun that compiled the binary also runs it`,
-    );
-  }
+  const problem = bytecodeProblem(`${bytecodeRun.stdout}\n${bytecodeRun.stderr}`);
+  if (problem !== undefined) fail(problem);
   console.log(`[native-smoke] bytecode: ${BYTECODE_HIT}`);
 
   const temporaryHome = mkdtempSync(join(tmpdir(), "docks-kit-native-smoke-"));
@@ -110,9 +116,11 @@ function main(): void {
   }
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(`[native-smoke] ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
+if (import.meta.main) {
+  try {
+    main();
+  } catch (error) {
+    console.error(`[native-smoke] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
 }
