@@ -18,22 +18,27 @@ function fail(message: string): never {
 }
 
 /**
- * Runs `<artifact> --version` with `BUN_JSC_verboseDiskCache=1` and throws
- * unless the run used the embedded bytecode. A Bun that rejects the bytecode
- * parses the source again without an error, so only this log line shows it.
+ * Runs `<artifact> --version` with `BUN_JSC_verboseDiskCache=1`, and gives the
+ * cache-hit line that shows the run used the embedded bytecode. Throws without
+ * that line: a Bun that rejects the bytecode parses the source again without
+ * an error, so only this log line shows it.
  */
-export function requireBytecode(artifactPath: string): void {
+function requireBytecode(artifactPath: string): string {
   const run = spawnSync(artifactPath, ["--version"], {
     cwd: REPO_DIR,
     encoding: "utf8",
     env: { ...process.env, [BYTECODE_LOG_ENV]: "1" },
   });
   requireSuccess(`native --version with ${BYTECODE_LOG_ENV}=1`, run);
-  if (!`${run.stdout}\n${run.stderr}`.includes(BYTECODE_HIT)) {
+  const hit = `${run.stdout}\n${run.stderr}`
+    .split(/\r?\n/)
+    .find((line) => line.includes(BYTECODE_HIT));
+  if (hit === undefined) {
     fail(
       `native binary ran without its embedded bytecode: no "${BYTECODE_HIT}" line with ${BYTECODE_LOG_ENV}=1; check that COMPILE_FLAGS in cli/src/engine-native/os/targets.ts holds --bytecode and that the Bun that compiled the binary also runs it`,
     );
   }
+  return hit.trim();
 }
 
 function requireSuccess(label: string, result: SpawnSyncReturns<string>): void {
@@ -70,6 +75,16 @@ function main(): void {
   );
   requireSuccess("native compile", build);
   console.log(`[native-smoke] compile: ${target.artifact}`);
+  checkBinary(artifactPath);
+}
+
+/**
+ * The checks of `smoke:native` on a compiled binary, in order: it ran its
+ * embedded bytecode, its `--version` equals `package.json`, and `sync
+ * --dry-run` exits 0 on this host. Each failed check throws its diagnostic.
+ */
+export function checkBinary(artifactPath: string): void {
+  console.log(`[native-smoke] bytecode: ${requireBytecode(artifactPath)}`);
 
   const packageJson = JSON.parse(readFileSync(join(REPO_DIR, "package.json"), "utf8")) as {
     version: string;
@@ -86,9 +101,6 @@ function main(): void {
     );
   }
   console.log(`[native-smoke] version: ${reportedVersion}`);
-
-  requireBytecode(artifactPath);
-  console.log(`[native-smoke] bytecode: ${BYTECODE_HIT}`);
 
   const temporaryHome = mkdtempSync(join(tmpdir(), "docks-kit-native-smoke-"));
   try {
