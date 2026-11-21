@@ -1,8 +1,8 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // outcomes.mjs lists the post-merge outcome of each closed plan issue of a repository: its landing pull request, the
 // reverts of that pull request, and the follow-up defects that cite the pull request or the plan.
 //
-//   node outcomes.mjs --repo <owner/repo> [--json]
+//   bun outcomes.mjs --repo <owner/repo> [--json]
 //
 // The counts are a heuristic over titles, bodies, labels, and commit messages, so read the listed items before you
 // use a count. ../SKILL.md (Outcomes) describes the rules. The script needs the GitHub CLI `gh` with read access.

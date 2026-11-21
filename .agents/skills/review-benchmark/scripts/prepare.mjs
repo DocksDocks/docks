@@ -1,29 +1,31 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // prepare.mjs builds review benchmark workspaces, the reviewer, self-review, fixer, and manager agent files of the
 // configurations, the rounds of review loops, and the manager prompts of review rounds.
 //
-//   node prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
-//                           [--variants <name>=<git-ref>[,...] [--full-only <name,...>]
-//                            [--contract-overlay <name,...>]] [--candidate-contract-overlay]
-//                           [--self-review-roots <name>=<git-ref>|<name>=worktree[,...]]
-//                           [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
-//                           [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
-//                           [--project <dir>] (--out <ws> | --baseline-dir <dir>)
-//   node prepare.mjs sequential-plan --cases <case.json,...> --reference <arm>@<config>
-//                         --candidates <arm>@<config>[,...] --looks <1,...,k> --out <ws> [--project <dir>]
-//   node prepare.mjs case --case <case.json> --arms <B0,C3,...> (--runs <k> | --sequential) --out <ws>
-//                         [--configs <list>] [--keys <dir>] [--loop] [--extend] [--project <dir>]
-//   node prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>]
-//                         [--fixer-patch <file>]
-//   node prepare.mjs pin --case <case.json>
-//   node prepare.mjs manager --ws <ws>
-//   node prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
-//   node prepare.mjs clean [--project <dir>]
+//   bun prepare.mjs agents --baseline-ref <git-ref> --model <m>[,<m>...] --efforts <list> [--tiers <list>]
+//                          [--variants <name>=<git-ref>[,...] [--full-only <name,...>]
+//                           [--contract-overlay <name,...>]] [--candidate-contract-overlay]
+//                          [--self-review-roots <name>=<git-ref>|<name>=worktree[,...]]
+//                          [--fixer-model <m>] [--fixer-effort <e>] [--fixer-tier <t>]
+//                          [--manager-model <m>] [--manager-effort <e>] [--manager-tier <t>]
+//                          [--project <dir>] (--out <ws> | --baseline-dir <dir>)
+//   bun prepare.mjs sequential-plan --cases <case.json,...> --reference <arm>@<config>
+//                        --candidates <arm>@<config>[,...] --looks <1,...,k> --out <ws> [--project <dir>]
+//   bun prepare.mjs case --case <case.json> --arms <B0,C3,...> (--runs <k> | --sequential) --out <ws>
+//                        [--configs <list>] [--keys <dir>] [--loop] [--extend] [--project <dir>]
+//   bun prepare.mjs loop --run <ws>/<case>/<arm>-<config>/run-<k> --cases <dir> [--keys <dir>]
+//                        [--fixer-patch <file>]
+//   bun prepare.mjs pin --case <case.json>
+//   bun prepare.mjs manager --ws <ws>
+//   bun prepare.mjs probe --out <ws> [--configs <list>] [--project <dir>]
+//   bun prepare.mjs clean [--project <dir>]
 //
 // ../SKILL.md describes the case schema, the configurations, the arms, the workspace layout, the review loop, and the
-// manager stage. The script uses Node built-ins, git, and score.mjs only, so it runs on Node and on Bun. Only `case`
-// and `pin` fetch: the head of the pull request of a case (`pull`), when a case commit is missing (see caseCommits),
-// or on request (see preparePin).
+// manager stage. The script runs on Bun: it uses the Bun YAML parser for the omp project config, and score.mjs imports
+// the plan parser of the docks-kit CLI source. It also runs git, the `omp` command on PATH (only `agents` and `probe`,
+// for the preflight, see ompVersionCheck), and the docks-kit CLI source of this checkout (`plan base-blob`). Only
+// `case` and `pin` fetch: the head of the pull request of a case (`pull`), when a case commit is missing (see
+// caseCommits), or on request (see preparePin).
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -49,39 +51,69 @@ import {
   RUN_PLAN,
   readKnown,
   readRunPlan,
+  PLUGIN_LAYOUTS,
   reviewerPluginRoots,
   runLabel,
   SELF_REVIEW_AGENT_PREFIX,
   unwrapBlock,
 } from './score.mjs';
+import {
+  AGENT_DIR,
+  AUTOLOAD_KEY,
+  DISPATCH_CAP,
+  EFFORT_KEY,
+  EFFORT_LEVELS,
+  EFFORT_SUFFIX,
+  HELPER_TOOLS,
+  LEGACY_PROJECT_SETTINGS,
+  MODEL_KEYS,
+  OMP_COMMAND,
+  OMP_VERSION_OUTPUT,
+  PROJECT_CONFIG,
+  SELF_REVIEW_TOOLS,
+  SERVICE_TIERS,
+  SETTINGS,
+  TIER_FAMILIES,
+  TIER_OVERRIDES_PATH,
+  tierFamily,
+} from './omp.mjs';
+import { belowFloor, isNewer } from '../../../../cli/src/engine-native/toolchain.ts';
 
 const SCRIPT_PATH = fs.realpathSync(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.dirname(path.dirname(SCRIPT_PATH));
-const PLUGIN_PATH = 'plugins/plan-lifecycle';
-// The plugin of the code-review and code-clarity skills that the self-review agent loads.
-const SKILLS_PLUGIN_PATH = 'plugins/docks';
+// The checkout that holds this script. `case` runs its docks-kit CLI source, and the omp preflight reads its toolchain
+// pins.
+const CHECKOUT = path.resolve(SKILL_DIR, '../../..');
 // The skills of the self-review agent. A self-review root (`agents --self-review-roots`) holds both.
 const SELF_REVIEW_SKILLS = ['code-review', 'code-clarity'];
 // The value of `--self-review-roots` that takes the skills of the working tree instead of a git ref.
 const WORKTREE_ROOT = 'worktree';
+// The working tree has the kit layout (see score.mjs PLUGIN_LAYOUTS and layoutAt).
+const WORKTREE_LAYOUT = PLUGIN_LAYOUTS.kit;
 // The instruction files of the merge base that a code reviewer reads (plan-contract.md, Code-review rounds), in the
 // order of the MANIFEST lines of the base-instructions folder.
 const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'REVIEW.md'];
-// The plan contract of plan-lifecycle. A variant of `agents --contract-overlay` changes it (see writeContractCopy). A
-// tree at a ref before the native omp packages holds it in a category folder (`skills/productivity/`), and the current
-// tree holds it directly under `skills/`. So the overlay finds the contract in each tree with CONTRACT_FILE, and the
-// messages name both forms with CONTRACT_PATH_FORM.
-const CONTRACT_FILE = /^plugins\/plan-lifecycle\/skills\/(?:[^/]+\/)?plan-manager\/references\/plan-contract\.md$/;
-const CONTRACT_PATH_FORM = `${PLUGIN_PATH}/skills/[<folder>/]plan-manager/references/plan-contract.md`;
-// The reader of merge-base instruction files that plan-manager phase 6 and docks code-review run. `case` runs the file
-// of the checkout that holds this script, not of the case repository, so a case reads each file with the production
-// code.
-const BASE_BLOB_SCRIPT = path.join(
-  SKILL_DIR,
-  '../../..',
-  PLUGIN_PATH,
-  'skills/plan-manager/scripts/base-blob.sh',
+// The plan contract of plan-manager. A variant of `agents --contract-overlay` changes it (see writeContractCopy). It is
+// under the reviewer root of the layout of a tree (see score.mjs PLUGIN_LAYOUTS). A legacy tree at a ref before the
+// native omp packages holds it in a category folder (`skills/productivity/`), and a later tree holds it directly under
+// `skills/`. So the overlay finds the contract in each tree with CONTRACT_FILE, and the messages name every form with
+// CONTRACT_PATH_FORM.
+const CONTRACT_ROOTS = [...new Set(Object.values(PLUGIN_LAYOUTS).map((layout) => layout.reviewerRoot))];
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const CONTRACT_FILE = new RegExp(
+  `^(?:${CONTRACT_ROOTS.map(escapeRegExp).join('|')})/skills/(?:[^/]+/)?plan-manager/references/plan-contract\\.md$`,
 );
+const CONTRACT_PATH_FORM = CONTRACT_ROOTS.map(
+  (root) => `${root}/skills/[<folder>/]plan-manager/references/plan-contract.md`,
+).join(' or ');
+// The docks-kit CLI source of the checkout that holds this script. Its `plan base-blob <commit> <path>` is the reader
+// of merge-base instruction files that plan-manager phase 6 and code-review run. `case` runs the source of this
+// checkout, not the installed docks-kit, whose version can differ, and not the file of the case repository, so a case
+// reads each file with the production code.
+const CLI_MAIN = path.join(CHECKOUT, 'cli', 'src', 'main.ts');
+// The exit statuses of `docks-kit plan base-blob`: the file exists, or it is absent. Any other status is a failure.
+const BLOB_FOUND = 0;
+const BLOB_ABSENT = 1;
 // The plugin root variable of Claude Code. A plugin agent at a ref before the native omp packages names the files of
 // its skill with it, for example `${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/SKILL.md`.
 const LEGACY_PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
@@ -89,26 +121,17 @@ const LEGACY_PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
 const SKILL_URI = /skill:\/\/([a-z0-9][a-z0-9-]*)(\/[^\s\x60'")]*)?/g;
 // The marker file of a plugin copy (the baseline or a variant) records the commit of the copy.
 const PLUGIN_COPY_MARKER = '.review-bench-ref';
-// omp loads the project agents from this folder.
-const AGENT_DIR = '.omp/agents';
 // Every file and setting that `agents` writes starts with this prefix, so `clean` finds them without a record.
 const GENERATED_PREFIX = 'review-bench-';
-// The list of configurations and the fixer and manager settings that `agents` wrote, `{ configs, fixer, manager }`, in
-// AGENT_DIR. `case` and `probe` read it; `case --loop` records the fixer setting in each round-1 meta.json, and `case`
-// records the manager setting in the meta.json of each run (round 1 of a loop).
+// The list of configurations, the fixer and manager settings, and the omp version that `agents` wrote,
+// `{ configs, fixer, manager, ompVersion }`, in AGENT_DIR. `case` and `probe` read it; `case --loop` records the fixer
+// setting in each round-1 meta.json, and `case` records the manager setting in the meta.json of each run (round 1 of a
+// loop).
 const CONFIGS_FILE = `${GENERATED_PREFIX}configs.json`;
-// omp reads this JSON file and merges `.omp/config.yml` over it, so the script edits its own entries without a
-// YAML parser and leaves the user's config files unchanged.
-const OMP_SETTINGS = '.omp/settings.json';
-// The frontmatter key and the levels of omp that pin the effort of an agent.
-const EFFORT_KEY = 'thinking-level';
-const EFFORT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-// The OpenAI service tiers of omp (`tier.openai`), which omp sets per agent.
-const OMP_TIERS = ['none', 'auto', 'default', 'flex', 'scale', 'priority', 'ultrafast'];
 // The part of a configuration name that a tier adds. Every other tier adds `-<tier>`.
 const TIER_NAMES = { default: '', priority: '-fast' };
-// An omp model selector can carry an effort suffix. The grid takes the effort from --efforts only.
-const EFFORT_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max|auto|inherit)$/;
+// `case` and `probe` print the dispatch rule of omp.mjs DISPATCH_CAP.
+const DISPATCH_NOTE = `dispatch at most ${DISPATCH_CAP} agents at a time, so that every arm runs the same way`;
 // The probe is a case folder that score.mjs reads like a case: one run per configuration with one short prompt.
 const PROBE_CASE = { id: 'probe', kind: 'code' };
 const PROBE_ARM = 'C1';
@@ -124,7 +147,7 @@ const FIXER_DEFAULTS = { model: 'openai-codex/gpt-6.1-sol', effort: 'high', tier
 const FIXER_SOURCE = `---
 name: ${FIXER_AGENT}
 description: Writes the repair of the confirmed review findings of one round in a repository snapshot as one unified diff file. Only for the review loop replays that prepare.mjs sets up.
-tools: Read, Glob, Grep, Write, Bash
+tools: ${HELPER_TOOLS.join(', ')}
 ---
 
 # Review fixer
@@ -140,7 +163,7 @@ const MANAGER_AGENT = `${GENERATED_PREFIX}manager`;
 const MANAGER_SOURCE = `---
 name: ${MANAGER_AGENT}
 description: Reproduces or rejects each finding of one review round in a repository snapshot and writes one verdict line per finding. Only for the review replays that prepare.mjs sets up.
-tools: Read, Glob, Grep, Write, Bash
+tools: ${HELPER_TOOLS.join(', ')}
 ---
 
 # Review manager
@@ -363,16 +386,27 @@ export function modelSlug(model) {
     .replace(/^-+|-+$/g, '');
 }
 
-// omp sets a service tier only for OpenAI models: a model whose provider part, the text of the selector before the
-// first `/`, starts with `openai`. The configurations and the fixer use this one test.
-function takesServiceTier(model) {
-  return model.split('/')[0].startsWith('openai');
+// The tiers that omp takes for a model (see omp.mjs TIER_FAMILIES): the tiers of the tier family of its provider, the
+// text of the selector before the first `/`, or null for a provider in no family. The configurations, the fixer, and
+// the manager use this one test.
+function familyTiers(model) {
+  const family = tierFamily(model);
+  return family === null ? null : TIER_FAMILIES[family].tiers;
+}
+
+// Stops when the tier family of `model` does not take `tier`; `option` names the option of the tier in the message.
+function requireFamilyTier(option, model, tier) {
+  const tiers = familyTiers(model);
+  if (tiers !== null && !tiers.includes(tier)) {
+    fail(`${option} ${tier} does not apply to ${model}: omp tier.${tierFamily(model)} takes ${tiers.join(', ')}`);
+  }
 }
 
 // Every model at every effort with every tier. A name is the effort plus the part of the tier (`TIER_NAMES`; the tier
 // null adds nothing). With more than one model, the model slug comes first. The report uses the names as column
-// names, so the same lists always give the same names. A model that takes no service tier (see takesServiceTier)
-// gets the single tier null: no name part, no tier override, and no served-tier check.
+// names, so the same lists always give the same names. Each tier must be a tier of the tier family of each model with
+// a family (see familyTiers). A model in no tier family gets the single tier null: no name part, no tier override,
+// and no served-tier check.
 export function buildConfigs({ models, efforts, tiers }) {
   const configs = [];
   for (const model of models) {
@@ -382,7 +416,8 @@ export function buildConfigs({ models, efforts, tiers }) {
       if (!slug) fail(`model ${model} gives no name for its configurations`);
       prefix = `${slug}-`;
     }
-    const modelTiers = takesServiceTier(model) ? tiers : [null];
+    for (const tier of tiers) requireFamilyTier('--tiers', model, tier);
+    const modelTiers = familyTiers(model) === null ? [null] : tiers;
     for (const effort of efforts) {
       for (const tier of modelTiers) {
         const suffix = tier === null ? '' : (TIER_NAMES[tier] ?? `-${tier}`);
@@ -626,16 +661,18 @@ export function pluginRootText(text, pluginRoot) {
 }
 
 // Copies a plugin agent under `name` and pins its model and effort (EFFORT_KEY). It removes every model and effort key
-// of the source, also the `effort` key that an agent at an old ref can have. With `pluginRoot`, the copy reads its
-// skill from that plugin copy: it loses `autoload-skills`, which would load the installed skill, and each skill path
-// names the plugin copy (pluginRootText).
+// of the source (omp.mjs MODEL_KEYS), also the `effort` key that an agent at an old ref can have. With `pluginRoot`,
+// the copy reads its skill from that plugin copy: it loses AUTOLOAD_KEY, which would load the installed skill, and
+// each skill path names the plugin copy (pluginRootText).
 export function renderAgent(source, { name, model, effort, pluginRoot }) {
   const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(source);
   if (!frontmatter) throw new Error('the agent file has no frontmatter');
-  const pinned = /^(model|thinking-level|thinking|effort):/;
+  const keyOf = (line) => /^([\w-]+):/.exec(line)?.[1];
   const lines = frontmatter[1]
     .split('\n')
-    .filter((line) => !pinned.test(line) && (pluginRoot === undefined || !line.startsWith('autoload-skills:')));
+    .filter(
+      (line) => !MODEL_KEYS.includes(keyOf(line)) && (pluginRoot === undefined || keyOf(line) !== AUTOLOAD_KEY),
+    );
   const nameAt = lines.findIndex((line) => line.startsWith('name:'));
   if (nameAt < 0) throw new Error('the agent frontmatter has no name');
   const modelValue = /^[A-Za-z0-9][\w./+-]*$/.test(model) ? model : JSON.stringify(model);
@@ -657,7 +694,7 @@ function selfReviewSource(name, file, skillFiles) {
   return `---
 name: ${name}
 description: Reviews a candidate diff with the docks code-review and code-clarity skills, as the plan manager does before code-review round 1, and returns one code-review block. Only for the review replays that prepare.mjs sets up.
-tools: Read, Glob, Grep
+tools: ${SELF_REVIEW_TOOLS.join(', ')}
 ---
 
 # Self-review
@@ -788,16 +825,29 @@ function writeFocusDiffs(repo, hidden, base, tree, paths, full) {
   }
 }
 
-// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. BASE_BLOB_SCRIPT
-// resolves each symbolic link on the path, also a folder link; its status 1 means absent. Any other status stops
-// `case` with the error of the script, so a git failure is never an absent file.
+// The Bun binary that runs the docks-kit CLI source: the binary of this process under Bun, else the first `bun` on
+// PATH, for a caller that imports this module under another runtime, such as a test runner under Node.
+function bunRuntime() {
+  if (process.versions.bun !== undefined) return process.execPath;
+  const names = process.platform === 'win32' ? ['bun.exe', 'bun'] : ['bun'];
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
+    const found = names.map((name) => path.join(dir, name)).find((candidate) => fs.existsSync(candidate));
+    if (found) return found;
+  }
+  fail('the docks-kit CLI source of this checkout runs on Bun, and no bun is on PATH');
+}
+
+// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. `docks-kit plan
+// base-blob` (CLI_MAIN) resolves each symbolic link on the path, also a folder link; its status BLOB_ABSENT means
+// absent. Any other status stops `case` with the error of the command, so a git failure is never an absent file.
 function baseInstructionText(repo, commit, file) {
-  const result = spawnSync('sh', [BASE_BLOB_SCRIPT, commit, file], { cwd: repo, maxBuffer: MAX_OUTPUT });
-  if (result.error) fail(`sh ${BASE_BLOB_SCRIPT} did not run: ${result.error.message}`);
-  if (result.status === 1) return null;
-  if (result.status !== 0) {
+  const args = [CLI_MAIN, 'plan', 'base-blob', commit, file];
+  const result = spawnSync(bunRuntime(), args, { cwd: repo, maxBuffer: MAX_OUTPUT });
+  if (result.error) fail(`bun ${args.join(' ')} did not run: ${result.error.message}`);
+  if (result.status === BLOB_ABSENT) return null;
+  if (result.status !== BLOB_FOUND) {
     const status = result.status ?? result.signal;
-    fail(`base-blob.sh ${commit} ${file} failed with status ${status}: ${result.stderr.toString().trim()}`);
+    fail(`docks-kit plan base-blob ${commit} ${file} failed with status ${status}: ${result.stderr.toString().trim()}`);
   }
   return git(repo, ['cat-file', 'blob', result.stdout.toString().trim()]);
 }
@@ -979,7 +1029,7 @@ function shellQuote(text) {
 // The command that fetches the head of the pull request of a case and pins the case commits (see preparePin). Both
 // paths are quoted, so the command runs as printed.
 function pinCommand(casePath) {
-  return `node ${shellQuote(SCRIPT_PATH)} pin --case ${shellQuote(casePath)}`;
+  return `bun ${shellQuote(SCRIPT_PATH)} pin --case ${shellQuote(casePath)}`;
 }
 
 // The commits of the case fields that name one. When a commit of a case with `pull` is missing, the head of that pull
@@ -1180,15 +1230,21 @@ function contractPathIn(files, where) {
   return found[0] ?? null;
 }
 
-// The repository path of the plan contract at the commit `commit` (see contractPathIn).
+// The repository path of the plan contract at the commit `commit` (see contractPathIn), under the reviewer root of
+// either layout.
 function contractPathAtCommit(repo, commit, where) {
-  const listed = git(repo, ['ls-tree', '-r', '-z', '--name-only', commit, '--', `${PLUGIN_PATH}/skills`]);
+  const pathspecs = CONTRACT_ROOTS.map((root) => `${root}/skills`);
+  const listed = git(repo, ['ls-tree', '-r', '-z', '--name-only', commit, '--', ...pathspecs]);
   return contractPathIn(listed.toString().split('\0').filter(Boolean), where);
 }
 
-// The repository path of the plan contract in the folder `dir`, a snapshot or a working tree (see contractPathIn).
+// The repository path of the plan contract in the folder `dir`, a snapshot or a working tree (see contractPathIn),
+// under the reviewer root of either layout.
 function contractPathInDir(dir) {
-  return contractPathIn(filesBelow(path.join(dir, PLUGIN_PATH, 'skills'), `${PLUGIN_PATH}/skills/`), dir);
+  const files = CONTRACT_ROOTS.flatMap((root) =>
+    filesBelow(path.join(dir, ...root.split('/'), 'skills'), `${root}/skills/`),
+  );
+  return contractPathIn(files, dir);
 }
 
 // Writes `copy`, the plan contract of the snapshot with the contract change `diff` of a variant of `agents
@@ -1309,8 +1365,8 @@ export function sequentialPlan(options, repo) {
   const configNames = [...new Set(entries.map((entry) => entry.config))];
   const lists = selectConfigs({ ...options, configs: configNames.join(',') }, repo);
   const runs = parseLooks(options.looks);
-  const cases = parseList(options.cases, '--cases').map((file) => {
-    const casePath = path.resolve(file);
+  const cases = parseList(options.cases, '--cases').map((caseFile) => {
+    const casePath = path.resolve(caseFile);
     const caseData = validateCase(readJson(casePath));
     if (path.basename(casePath) !== `${caseData.id}.json`) {
       fail(`case file ${casePath} must be named ${caseData.id}.json`);
@@ -1532,11 +1588,12 @@ export function prepareCase(options, repo) {
   const counts = declared
     ? `${armDirs.map((dir) => path.basename(dir)).join(', ')} x ${runsNote}`
     : `${arms.join(', ')} x ${configs.length} configurations x ${runsNote}`;
-  const notes = (label, entries) =>
-    entries.size ? `; ${label}: ${[...entries].map(([arm, value]) => `${arm} ${value}`).join(', ')}` : '';
+  const notes = (label, armValues) =>
+    armValues.size ? `; ${label}: ${[...armValues].map(([arm, value]) => `${arm} ${value}`).join(', ')}` : '';
   const verb = extending ? 'extended' : 'prepared';
   const summary = `${counts}${notes('round 1 modes', loopModes)}${notes('contract overlay', overlays)}`;
   console.log(`${verb} ${caseDir}: ${prompts} prompts for ${summary}`);
+  console.log(DISPATCH_NOTE);
 }
 
 // score.mjs throws plain errors. The commands of this script report them as usage errors, without a stack trace.
@@ -2052,10 +2109,18 @@ export function prepareManager(options) {
   return counts;
 }
 
-// Extracts the plugin folder `pluginPath` (default plugins/plan-lifecycle) at `sha` into `dir`: the baseline copy,
-// the copy of a variant, or the plugins/docks copy of a self-review root. A marker file records the commit, so a later
-// call reuses the copy or replaces a copy of another commit.
-function extractPlugin(repo, sha, dir, pluginPath = PLUGIN_PATH) {
+// The plugin layout of the tree of the commit `sha` (see score.mjs PLUGIN_LAYOUTS): `kit` when the tree holds the
+// code-reviewer agent under the kit reviewer root, else `legacy`. The working tree has the kit layout
+// (WORKTREE_LAYOUT).
+export function layoutAt(repo, sha) {
+  const agent = `${PLUGIN_LAYOUTS.kit.reviewerRoot}/agents/code-reviewer.md`;
+  return runGit(repo, ['cat-file', '-e', `${sha}:${agent}`]).status === 0 ? PLUGIN_LAYOUTS.kit : PLUGIN_LAYOUTS.legacy;
+}
+
+// Extracts the plugin folder `pluginPath` at `sha` into `dir`: the reviewer root of the layout of the commit for the
+// baseline copy or the copy of a variant, or its self-review root for the copy of a self-review root (see layoutAt).
+// A marker file records the commit, so a later call reuses the copy or replaces a copy of another commit.
+function extractPlugin(repo, sha, dir, pluginPath) {
   const marker = path.join(dir, PLUGIN_COPY_MARKER);
   if (fs.existsSync(marker)) {
     if (fs.readFileSync(marker, 'utf8').trim() === sha) return;
@@ -2084,9 +2149,8 @@ function projectDir(options, repo) {
   return dir;
 }
 
-// An omp model selector names its provider before the first `/`, and takesServiceTier tests that part. A selector
-// without it would get the tier null also for an OpenAI model, so its agents would run at the global tier of the
-// session.
+// An omp model selector names its provider before the first `/`, and tierFamily tests that part. A selector without it
+// would get the tier null also for a model of a tier family, so its agents would run at the global tier of the session.
 function requireProvider(option, model) {
   if (model.indexOf('/') < 1) {
     fail(`${option} ${model} has no provider part; give <provider>/<model>, for example ${FIXER_DEFAULTS.model}`);
@@ -2104,14 +2168,14 @@ function parseModels(value) {
 
 function parseTiers(value) {
   if (!value) fail('agents needs --tiers <list>, for example --tiers priority,default');
-  return parseList(value, '--tiers', OMP_TIERS);
+  return parseList(value, '--tiers', SERVICE_TIERS);
 }
 
 // The model, effort, and tier of the helper agent of `role`, `fixer` or `manager`, from the options
 // `--<role>-model`, `--<role>-effort`, and `--<role>-tier` and the setting `defaults` ({ model, effort, tier }). The
-// manager defaults are the fixer setting. A model that takes no service tier (see takesServiceTier) gets the tier
-// null and takes no `--<role>-tier`; another model without a tier option takes the default tier, else the tier of
-// FIXER_DEFAULTS.
+// manager defaults are the fixer setting. A model in no tier family (see familyTiers) gets the tier null and takes no
+// `--<role>-tier`; another model without a tier option takes the default tier, else the tier of FIXER_DEFAULTS. The
+// tier must be a tier of the tier family of the model.
 function parseHelper(options, role, defaults) {
   const model = options[`${role}-model`] ?? defaults.model;
   if (EFFORT_SUFFIX.test(model)) {
@@ -2122,64 +2186,106 @@ function parseHelper(options, role, defaults) {
     fail(`--${role}-effort does not take ${effort}; use ${EFFORT_LEVELS.join(', ')}`);
   }
   requireProvider(`--${role}-model`, model);
-  if (!takesServiceTier(model)) {
+  if (familyTiers(model) === null) {
     if (options[`${role}-tier`]) {
+      const families = Object.keys(TIER_FAMILIES).join(', ');
       fail(
-        `--${role}-tier: omp sets no service tier for ${model}, whose provider does not start with openai; omit --${role}-tier`,
+        `--${role}-tier: omp sets no service tier for ${model}, whose provider is in no tier family (${families}); omit --${role}-tier`,
       );
     }
     return { model, effort, tier: null };
   }
   const tier = options[`${role}-tier`] ?? defaults.tier ?? FIXER_DEFAULTS.tier;
-  if (!OMP_TIERS.includes(tier)) fail(`--${role}-tier does not take ${tier}; use ${OMP_TIERS.join(', ')}`);
+  requireFamilyTier(`--${role}-tier`, model, tier);
   return { model, effort, tier };
 }
 
-function readSettings(file) {
-  const settings = fs.existsSync(file) ? readJson(file) : {};
-  const valid =
-    isObject(settings) && isObject(settings.task ?? {}) && isObject(settings.task?.agentServiceTierOverrides ?? {});
-  if (!valid) fail(`${file} must hold an object, with objects at task and task.agentServiceTierOverrides`);
+// The omp project files that can hold tier overrides (omp.mjs SETTINGS.tierOverrides at TIER_OVERRIDES_PATH): the
+// canonical PROJECT_CONFIG, which `agents` writes with the Bun YAML parser, and LEGACY_PROJECT_SETTINGS, from which
+// `clean` only removes the entries of an older run of this script. Each keeps every other key, but a rewritten
+// config.yml loses its comments.
+const PROJECT_CONFIG_FILE = {
+  file: PROJECT_CONFIG,
+  parse: (text) => Bun.YAML.parse(text) ?? {},
+  format: (data) => `${Bun.YAML.stringify(data, null, 2).replace(/\n*$/, '')}\n`,
+};
+const LEGACY_SETTINGS_FILE = {
+  file: LEGACY_PROJECT_SETTINGS,
+  parse: (text) => JSON.parse(text),
+  format: (data) => `${JSON.stringify(data, null, 2)}\n`,
+};
+const [SETTINGS_SECTION, OVERRIDES_KEY] = TIER_OVERRIDES_PATH;
+
+// The settings object of the omp project file `store` in `project`, or an empty object without the file.
+function readSettings(project, store) {
+  const file = path.join(project, store.file);
+  if (!fs.existsSync(file)) return {};
+  let settings;
+  try {
+    settings = store.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    fail(`${file} does not parse: ${error.message}`);
+  }
+  const section = settings?.[SETTINGS_SECTION];
+  const valid = isObject(settings) && isObject(section ?? {}) && isObject(section?.[OVERRIDES_KEY] ?? {});
+  if (!valid) fail(`${file} must hold a mapping, with mappings at ${SETTINGS_SECTION} and ${SETTINGS.tierOverrides}`);
   return settings;
 }
 
-// Adds one service-tier override per agent to the omp project settings and keeps every other setting.
-function writeTierOverrides(project, overrides) {
-  const file = path.join(project, OMP_SETTINGS);
-  const settings = readSettings(file);
-  settings.task = {
-    ...settings.task,
-    agentServiceTierOverrides: { ...settings.task?.agentServiceTierOverrides, ...overrides },
-  };
-  writeJson(file, settings);
-  console.log(`wrote ${Object.keys(overrides).length} tier overrides to ${file}`);
+function writeSettings(project, store, settings) {
+  const file = path.join(project, store.file);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, store.format(settings));
 }
 
-// Removes the tier overrides of the generated agents and tells whether it removed any. A settings file that holds no
-// other setting goes too.
+// Adds one service-tier override per agent to the omp project config (PROJECT_CONFIG) and keeps every other setting.
+// Without overrides, the file stays as it is.
+export function writeTierOverrides(project, overrides) {
+  const count = Object.keys(overrides).length;
+  const file = path.join(project, PROJECT_CONFIG);
+  if (count === 0) {
+    console.log(`no tier overrides, so ${file} stays as it is`);
+    return;
+  }
+  const settings = readSettings(project, PROJECT_CONFIG_FILE);
+  settings[SETTINGS_SECTION] = {
+    ...settings[SETTINGS_SECTION],
+    [OVERRIDES_KEY]: { ...settings[SETTINGS_SECTION]?.[OVERRIDES_KEY], ...overrides },
+  };
+  writeSettings(project, PROJECT_CONFIG_FILE, settings);
+  console.log(`wrote ${count} tier overrides to ${file}`);
+}
+
+// Removes the tier overrides of the generated agents from each omp project file that holds settings and tells
+// whether it removed any. A file that then holds no other setting goes too.
 function removeTierOverrides(project) {
-  const file = path.join(project, OMP_SETTINGS);
-  if (!fs.existsSync(file)) return false;
-  const settings = readSettings(file);
-  const overrides = settings.task?.agentServiceTierOverrides ?? {};
-  const generated = Object.keys(overrides).filter((name) => name.startsWith(GENERATED_PREFIX));
-  if (generated.length === 0) return false;
-  for (const name of generated) delete overrides[name];
-  if (Object.keys(overrides).length === 0) delete settings.task.agentServiceTierOverrides;
-  if (Object.keys(settings.task).length === 0) delete settings.task;
-  if (Object.keys(settings).length === 0) fs.rmSync(file);
-  else writeJson(file, settings);
-  console.log(`removed ${generated.length} tier overrides from ${file}`);
-  return true;
+  let removed = false;
+  for (const store of [PROJECT_CONFIG_FILE, LEGACY_SETTINGS_FILE]) {
+    const file = path.join(project, store.file);
+    if (!fs.existsSync(file)) continue;
+    const settings = readSettings(project, store);
+    const overrides = settings[SETTINGS_SECTION]?.[OVERRIDES_KEY] ?? {};
+    const generated = Object.keys(overrides).filter((name) => name.startsWith(GENERATED_PREFIX));
+    if (generated.length === 0) continue;
+    for (const name of generated) delete overrides[name];
+    if (Object.keys(overrides).length === 0) delete settings[SETTINGS_SECTION][OVERRIDES_KEY];
+    if (Object.keys(settings[SETTINGS_SECTION]).length === 0) delete settings[SETTINGS_SECTION];
+    if (Object.keys(settings).length === 0) fs.rmSync(file);
+    else writeSettings(project, store, settings);
+    console.log(`removed ${generated.length} tier overrides from ${file}`);
+    removed = true;
+  }
+  return removed;
 }
 
 function removeIfEmpty(dir) {
   if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
 }
 
-// Removes every file and setting that `agents` writes. A folder that this call empties goes too.
-function removeGenerated(project) {
-  if (removeTierOverrides(project)) removeIfEmpty(path.dirname(path.join(project, OMP_SETTINGS)));
+// Removes every file and setting that `agents` writes: the `review-bench-*` files of AGENT_DIR and the `review-bench-*`
+// tier overrides of the omp project files (see removeTierOverrides). A folder that this call empties goes too.
+export function removeGenerated(project) {
+  if (removeTierOverrides(project)) removeIfEmpty(path.dirname(path.join(project, PROJECT_CONFIG)));
   const agentDir = path.join(project, AGENT_DIR);
   if (!fs.existsSync(agentDir)) return;
   const generated = fs
@@ -2208,10 +2314,10 @@ function selectConfigs(options, repo) {
 }
 
 // The diff of the plan contract from the baseline commit `sha` (at the ref `ref`) to the working tree: the contract
-// change of the candidate code reviewer for `agents --candidate-contract-overlay`. A ref before the native omp packages
-// holds the contract at another path (see CONTRACT_FILE). Then git compares the text of the two files, so the diff
-// holds only the change of the text, not the move.
-function candidateContractDiff(repo, sha, ref) {
+// change of the candidate code reviewer for `agents --candidate-contract-overlay`. A ref of another layout, or a ref
+// before the native omp packages, holds the contract at another path (see CONTRACT_FILE). Then git compares the text
+// of the two files, so the diff holds only the change of the text, not the move.
+function candidateContractOverlay(repo, sha, ref) {
   const label = 'agents --candidate-contract-overlay';
   const before = contractPathAtCommit(repo, sha, ref);
   const after = contractPathInDir(repo);
@@ -2236,7 +2342,7 @@ function candidateContractDiff(repo, sha, ref) {
 // contract change of a variant of --contract-overlay. When the commit moves the contract (see CONTRACT_FILE), git
 // compares the text of the two files, so the diff holds only the change of the text. `label` starts the message when
 // a tree has no contract or the commit does not change the contract text.
-function contractDiff(repo, sha, ref, label) {
+function variantContractOverlay(repo, sha, ref, label) {
   const parent = `the first parent of ${ref}`;
   const before = contractPathAtCommit(repo, `${sha}^1`, parent);
   const after = contractPathAtCommit(repo, sha, ref);
@@ -2296,9 +2402,9 @@ function parseVariants(options, repo, baselineDir) {
     const earlier = copies.slice(0, index).find((other) => other.dir === copy.dir);
     if (earlier) fail(`${earlier.label} and ${copy.label} both go to ${copy.dir}; give another --baseline-dir`);
   }
-  const source = `${PLUGIN_PATH}/agents/plan-reviewer.md`;
   return variants.map(({ name, ref, dir }) => {
     const sha = resolveCommit(repo, ref, `variant ${name}: ref`);
+    const source = `${layoutAt(repo, sha).reviewerRoot}/agents/plan-reviewer.md`;
     const blob = runGit(repo, ['cat-file', 'blob', `${sha}:${source}`]);
     if (blob.status !== 0) fail(`${source} does not exist at ${ref} (variant ${name})`);
     const text = blob.stdout.toString();
@@ -2311,20 +2417,21 @@ function parseVariants(options, repo, baselineDir) {
       );
     }
     const variant = { name, ref, sha, delta: !fullOnly.includes(name), dir, text };
-    if (overlay.includes(name)) variant.contractDiff = contractDiff(repo, sha, ref, `variant ${name}`);
+    if (overlay.includes(name)) variant.contractDiff = variantContractOverlay(repo, sha, ref, `variant ${name}`);
     return variant;
   });
 }
 
 // The SKILL.md file of each self-review skill under the plugin folder `files` lists (paths relative to the plugin
 // folder), as `{ <skill>: <path relative to the plugin folder> }`. A skill sits in `skills/<skill>/` or in a category
-// folder `skills/<folder>/<skill>/`. `label` starts the message when a skill is missing.
-function selfReviewSkillFiles(files, label) {
+// folder `skills/<folder>/<skill>/`. `label` starts the message when a skill is missing, and `root` names the plugin
+// folder in it.
+function selfReviewSkillFiles(files, label, root) {
   const found = {};
   for (const skill of SELF_REVIEW_SKILLS) {
     const pattern = new RegExp(`^skills/(?:[^/]+/)?${skill}/SKILL\\.md$`);
     const file = files.find((name) => pattern.test(name));
-    if (!file) fail(`${label} has no ${SKILLS_PLUGIN_PATH}/skills/[<folder>/]${skill}/SKILL.md`);
+    if (!file) fail(`${label} has no ${root}/skills/[<folder>/]${skill}/SKILL.md`);
     found[skill] = file;
   }
   return found;
@@ -2340,11 +2447,12 @@ function filesBelow(dir, prefix = '') {
 }
 
 // The self-review roots of --self-review-roots, in its order: one { name, source, sha, dir, skills } per entry
-// `<name>=<git ref>` or `<name>=worktree`. A ref root is the copy of plugins/docks at the ref in the folder
-// `selfreview-<name>-plugin/` next to the baseline copy (`sha` is its commit); the worktree root is plugins/docks of
-// the working tree (`sha` is null). `skills` maps each self-review skill to its SKILL.md file under `dir`. A root gives
-// the arms S1<name> and S3<name> one self-review agent per configuration, whose name must differ from the name of
-// each default self-review agent of `configNames`. Every check runs here, before `agents` changes a file.
+// `<name>=<git ref>` or `<name>=worktree`. A ref root is the copy of the self-review root of the layout of the ref (see
+// layoutAt) in the folder `selfreview-<name>-plugin/` next to the baseline copy (`sha` is its commit); the worktree
+// root is the self-review root of the working tree (`sha` is null). `skills` maps each self-review skill to its
+// SKILL.md file under `dir`. A root gives the arms S1<name> and S3<name> one self-review agent per configuration,
+// whose name must differ from the name of each default self-review agent of `configNames`. Every check runs here,
+// before `agents` changes a file.
 function parseSelfReviewRoots(options, repo, { baselineDir, variants, configNames }) {
   const value = options['self-review-roots'];
   if (value === undefined) return [];
@@ -2362,7 +2470,7 @@ function parseSelfReviewRoots(options, repo, { baselineDir, variants, configName
     const source = entry.slice(at + 1);
     const dir =
       source === WORKTREE_ROOT
-        ? path.join(repo, SKILLS_PLUGIN_PATH)
+        ? path.join(repo, ...WORKTREE_LAYOUT.selfReviewRoot.split('/'))
         : path.join(path.dirname(baselineDir), `selfreview-${name}-plugin`);
     return { name, source, dir };
   });
@@ -2391,18 +2499,20 @@ function parseSelfReviewRoots(options, repo, { baselineDir, variants, configName
     const label = `self-review root ${root.name} (${root.source})`;
     let sha = null;
     let files;
+    let pluginPath = WORKTREE_LAYOUT.selfReviewRoot;
     if (root.source === WORKTREE_ROOT) {
       files = filesBelow(path.join(root.dir, 'skills'), 'skills/');
     } else {
       sha = resolveCommit(repo, root.source, `self-review root ${root.name}: ref`);
-      const prefix = `${SKILLS_PLUGIN_PATH}/`;
+      pluginPath = layoutAt(repo, sha).selfReviewRoot;
+      const prefix = `${pluginPath}/`;
       files = git(repo, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', sha, '--', `${prefix}skills`])
         .toString()
         .split('\0')
         .filter((file) => file.startsWith(prefix))
         .map((file) => file.slice(prefix.length));
     }
-    const relative = selfReviewSkillFiles(files, label);
+    const relative = selfReviewSkillFiles(files, label, pluginPath);
     const skills = Object.fromEntries(
       Object.entries(relative).map(([skill, file]) => [skill, path.join(root.dir, ...file.split('/'))]),
     );
@@ -2410,7 +2520,122 @@ function parseSelfReviewRoots(options, repo, { baselineDir, variants, configName
   });
 }
 
-export function prepareAgents(options, repo) {
+// The omp preflight of `agents` and `probe` checks, without a model call, that the installed omp is one that the
+// benchmark can measure with: its version against the omp pins of SoT/toolchain.json, the efforts of each model, and
+// the merged settings of the project after `agents` wrote them.
+
+// Runs the omp command on PATH (omp.mjs OMP_COMMAND) with `args` in the folder `cwd`, and gives its exit status and
+// output. A test can give the preflight another runner, or put a fake `omp` first on PATH.
+export function runOmp(args, { cwd } = {}) {
+  const result = spawnSync(OMP_COMMAND, args, { cwd, encoding: 'utf8', maxBuffer: MAX_OUTPUT });
+  if (result.error) fail(`${OMP_COMMAND} ${args.join(' ')} did not run: ${result.error.message}; put omp on PATH`);
+  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+}
+
+// The stdout of `omp <args>`, or a stop when omp exits with an error.
+function ompOutput(run, args, cwd) {
+  const result = run(args, { cwd });
+  if (result.status !== 0) {
+    const where = cwd ? ` in ${cwd}` : '';
+    fail(`${OMP_COMMAND} ${args.join(' ')}${where} failed with status ${result.status}: ${result.stderr.trim()}`);
+  }
+  return result.stdout;
+}
+
+// The JSON value of the stdout of `omp <args>`.
+function ompJson(run, args, cwd) {
+  const output = ompOutput(run, args, cwd);
+  try {
+    return JSON.parse(output);
+  } catch {
+    fail(`${OMP_COMMAND} ${args.join(' ')} printed no JSON: ${output.trim().slice(0, 200)}`);
+  }
+}
+
+// The omp floor and the `verified` omp release of SoT/toolchain.json in the checkout `checkout`.
+export function ompPins(checkout = CHECKOUT) {
+  const file = path.join(checkout, 'SoT', 'toolchain.json');
+  const omp = readJson(file)?.tools?.omp;
+  if (typeof omp?.floor !== 'string' || typeof omp?.verified !== 'string') {
+    fail(`${file} has no omp floor and verified release`);
+  }
+  return { floor: omp.floor, verified: omp.verified };
+}
+
+// The version of the installed omp (`omp --version`). It stops below the omp floor of SoT/toolchain.json
+// (toolchain.ts belowFloor), and warns above the `verified` release (isNewer): the transcript shape check of
+// `score.mjs transcripts` and the probe then show whether the newer release still gives the facts that the benchmark
+// reads.
+export function ompVersionCheck({ run = runOmp, pins = ompPins() } = {}) {
+  const output = ompOutput(run, ['--version']).trim();
+  const version = OMP_VERSION_OUTPUT.exec(output)?.[1];
+  if (!version) fail(`${OMP_COMMAND} --version printed ${JSON.stringify(output)}, not omp/<version>`);
+  if (belowFloor(version, pins.floor)) {
+    fail(`omp ${version} is below the omp floor ${pins.floor} of SoT/toolchain.json; update omp`);
+  }
+  if (isNewer(version, pins.verified)) {
+    console.warn(
+      `warning: omp ${version} is newer than omp ${pins.verified}, the release that SoT/toolchain.json verified; run the probe before a benchmark run`,
+    );
+  }
+  return version;
+}
+
+// Stops when omp does not list a model of `settings` (each `{ model, effort }`), or does not list the effort of a
+// setting for its model (`omp models find <model> --json`, `models[].thinking`).
+export function checkModelEfforts(settings, { run = runOmp } = {}) {
+  const efforts = new Map();
+  for (const { model, effort } of settings) efforts.set(model, new Set([...(efforts.get(model) ?? []), effort]));
+  for (const [model, wanted] of efforts) {
+    const listed = ompJson(run, ['models', 'find', model, '--json'])?.models;
+    const entry = (Array.isArray(listed) ? listed : []).find(
+      (item) => item?.selector === model || `${item?.provider}/${item?.id}` === model,
+    );
+    if (!entry) fail(`omp models find ${model} lists no model ${model}; give a model selector that omp lists`);
+    const levels = Array.isArray(entry.thinking) ? entry.thinking : [];
+    const refused = [...wanted].filter((effort) => !levels.includes(effort));
+    if (refused.length) {
+      fail(
+        `${model} does not take the effort ${refused.join(', ')}: omp lists ${levels.length ? levels.join(', ') : 'no effort'} for it`,
+      );
+    }
+  }
+}
+
+// Checks the settings that omp merges for a session in `project` after `agents` wrote them (`omp config get <key>
+// --json`): every tier override of `overrides` must show with its tier, and SETTINGS.enableEffort must not be true,
+// because the effort of a task would then replace the pinned effort of an agent. It prints SETTINGS.structured, which
+// decides the reply rule (see score.mjs fixerReplies).
+export function checkProjectSettings(project, overrides, { run = runOmp } = {}) {
+  const value = (key) => {
+    const data = ompJson(run, ['config', 'get', key, '--json'], project);
+    if (!isObject(data) || !Object.hasOwn(data, 'value')) fail(`omp config get ${key} --json printed no value`);
+    return data.value;
+  };
+  const merged = value(SETTINGS.tierOverrides);
+  const lost = Object.keys(overrides).filter((name) => !isObject(merged) || merged[name] !== overrides[name]);
+  const cleanHint = `the agent files stay; run prepare.mjs clean --project ${project} to remove them`;
+  if (lost.length) {
+    fail(
+      `omp config get ${SETTINGS.tierOverrides} in ${project} does not show the tier of ${lost.length} written agents, for example ${lost[0]}: omp did not load ${PROJECT_CONFIG}; ${cleanHint}`,
+    );
+  }
+  if (value(SETTINGS.enableEffort) === true) {
+    fail(
+      `${SETTINGS.enableEffort} is true in ${project}, so the effort of a task would replace the ${EFFORT_KEY} of an agent; set it to false, then run agents again (${cleanHint})`,
+    );
+  }
+  const structured = value(SETTINGS.structured);
+  console.log(
+    `omp settings in ${project}: ${Object.keys(overrides).length} tier overrides loaded, ${SETTINGS.enableEffort} false, ${SETTINGS.structured} ${structured}`,
+  );
+}
+
+// Writes the agent files of the configurations, the fixer, and the manager, the list of configurations, and the tier
+// overrides (see writeTierOverrides), after the omp preflight: the omp version (see ompVersionCheck) and the efforts of
+// each model (see checkModelEfforts) before the first file changes, and the merged omp settings of the project (see
+// checkProjectSettings) after the write. `run` runs omp (see runOmp).
+export function prepareAgents(options, repo, { run = runOmp } = {}) {
   if (!options['baseline-ref']) fail('agents needs --baseline-ref <git ref of the last release>');
   if (!options.efforts) fail('agents needs --efforts <list>, for example --efforts low,medium,high,xhigh');
   const models = parseModels(options.model);
@@ -2420,6 +2645,8 @@ export function prepareAgents(options, repo) {
   const fixer = parseHelper(options, 'fixer', FIXER_DEFAULTS);
   const manager = parseHelper(options, 'manager', fixer);
   const project = projectDir(options, repo);
+  const ompVersion = ompVersionCheck({ run });
+  checkModelEfforts([...configs, fixer, manager], { run });
   let baselineDir;
   if (options['baseline-dir']) baselineDir = path.resolve(options['baseline-dir']);
   else if (options.out) baselineDir = path.resolve(options.out, '..', 'baseline-plugin');
@@ -2431,36 +2658,39 @@ export function prepareAgents(options, repo) {
   const roots = parseSelfReviewRoots(options, repo, { baselineDir, variants, configNames });
   const sha = resolveCommit(repo, options['baseline-ref'], '--baseline-ref');
   const candidateDiff = options['candidate-contract-overlay']
-    ? candidateContractDiff(repo, sha, options['baseline-ref'])
+    ? candidateContractOverlay(repo, sha, options['baseline-ref'])
     : undefined;
-  extractPlugin(repo, sha, baselineDir);
+  const baselineLayout = layoutAt(repo, sha);
+  extractPlugin(repo, sha, baselineDir, baselineLayout.reviewerRoot);
   for (const variant of variants) {
-    extractPlugin(repo, variant.sha, variant.dir);
+    extractPlugin(repo, variant.sha, variant.dir, layoutAt(repo, variant.sha).reviewerRoot);
     const modes = variant.delta ? 'full and delta mode' : 'full mode only';
     const overlay = variant.contractDiff ? ', contract overlay' : '';
     const commit = variant.sha.slice(0, 12);
     console.log(`variant ${variant.name}: ${variant.ref} at ${commit}, ${modes}${overlay}, in ${variant.dir}`);
   }
   for (const root of roots) {
-    if (root.sha) extractPlugin(repo, root.sha, root.dir, SKILLS_PLUGIN_PATH);
+    if (root.sha) extractPlugin(repo, root.sha, root.dir, layoutAt(repo, root.sha).selfReviewRoot);
     const origin = root.sha ? `${root.source} at ${root.sha.slice(0, 12)}` : 'the working tree';
     console.log(`self-review root ${root.name}: ${origin}, in ${root.dir}`);
   }
   const sources = [];
   for (const role of ['code', 'plan']) {
-    const source = `${PLUGIN_PATH}/agents/${role}-reviewer.md`;
+    const source = `${baselineLayout.reviewerRoot}/agents/${role}-reviewer.md`;
     const blob = runGit(repo, ['cat-file', 'blob', `${sha}:${source}`]);
     if (blob.status !== 0) fail(`${source} does not exist at ${options['baseline-ref']}`);
+    const candidateRoot = path.join(repo, ...WORKTREE_LAYOUT.reviewerRoot.split('/'));
     sources.push(
       { side: 'baseline', role, text: blob.stdout.toString(), pluginRoot: baselineDir },
       {
         side: 'candidate',
         role,
-        text: fs.readFileSync(path.join(repo, source), 'utf8'),
-        pluginRoot: path.join(repo, PLUGIN_PATH),
+        text: fs.readFileSync(path.join(candidateRoot, 'agents', `${role}-reviewer.md`), 'utf8'),
+        pluginRoot: candidateRoot,
       },
     );
   }
+  console.log(`baseline ${options['baseline-ref']} at ${sha.slice(0, 12)}: ${baselineLayout.name} layout, in ${baselineDir}`);
   for (const { name, text, dir } of variants) {
     sources.push({ side: variantSide(name), role: 'plan', text, pluginRoot: dir });
   }
@@ -2512,15 +2742,17 @@ export function prepareAgents(options, repo) {
     variants: variantList,
     selfReviewRoots: roots,
     ...(candidateDiff && { candidateContractDiff: candidateDiff }),
+    ompVersion,
   });
   const names = configs.map((config) => config.name).join(', ');
   const perConfig = sources.length + 1 + roots.length;
   console.log(`wrote ${configs.length * perConfig} agent files to ${agentDir} for ${names}`);
-  // A model that takes no service tier drops the --tiers list. The line makes that visible.
-  for (const model of models.filter((item) => !takesServiceTier(item))) {
+  // A model in no tier family drops the --tiers list. The line makes that visible.
+  for (const model of models.filter((item) => familyTiers(item) === null)) {
     const dropped = `--tiers ${tiers.join(',')} does not apply to it`;
+    const families = Object.keys(TIER_FAMILIES).join(', ');
     console.log(
-      `${model} gets the tier null: omp sets a service tier only for a model whose provider starts with openai, so ${dropped}`,
+      `${model} gets the tier null: omp sets a service tier only for a model of a tier family (${families}), so ${dropped}`,
     );
   }
   for (const [label, agentFile, setting] of [
@@ -2531,6 +2763,7 @@ export function prepareAgents(options, repo) {
     console.log(`wrote the ${label} agent ${agentFile}: ${setting.model}, effort ${setting.effort}${tier}`);
   }
   writeTierOverrides(project, overrides);
+  checkProjectSettings(project, overrides, { run });
 }
 
 // One run per configuration: the candidate code agent of the configuration gets a short task, so its transcript
@@ -2538,9 +2771,11 @@ export function prepareAgents(options, repo) {
 // `score.mjs transcripts` takes only a transcript whose task names a path in the case folder. The probe changes no
 // file, so its full.diff is empty: `transcripts` reads full.diff for the read scope of a code run. The manager has one
 // setting for every configuration, so the run of the first configuration also gets one manager prompt with the same
-// task, and its meta.json records the manager setting as `managerConfig`.
-function prepareProbe(options, repo) {
+// task, and its meta.json records the manager setting as `managerConfig`. The omp version check (see ompVersionCheck)
+// runs first; `run` runs omp (see runOmp).
+export function prepareProbe(options, repo, { run = runOmp } = {}) {
   if (!options.out) fail('probe needs --out <workspace dir>');
+  ompVersionCheck({ run });
   const { configs, manager } = selectConfigs(options, repo);
   const caseDir = path.join(path.resolve(options.out), PROBE_CASE.id);
   if (fs.existsSync(caseDir)) fail(`${caseDir} exists; remove it or choose another --out`);
@@ -2564,6 +2799,7 @@ function prepareProbe(options, repo) {
   console.log(
     `prepared ${caseDir}: one prompt for each of ${configs.map((config) => config.name).join(', ')}${managerNote}`,
   );
+  console.log(DISPATCH_NOTE);
 }
 
 const PROJECT_OPTION = { project: { type: 'string' } };

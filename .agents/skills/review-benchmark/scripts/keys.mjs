@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Encrypted off-machine copies of the held-out keys folder (see Cases, Key backup). A backup needs only the public key;
 // a restore needs an export of the secret key. No plaintext ever goes into the vault checkout.
 import { spawn, spawnSync } from 'node:child_process';

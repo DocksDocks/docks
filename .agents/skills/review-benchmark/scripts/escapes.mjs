@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Freeze source data once; draw only from that snapshot. Restricted files never belong in a checkout.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';

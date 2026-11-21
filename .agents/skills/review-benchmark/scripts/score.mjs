@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Scores review benchmark runs. `findings` parses the returned review blocks and removes the judge answers of each
 // finding whose text changed or that is gone, `pairs` builds the judge input, `report` turns the judgments, the run
 // metadata, and the manager verdicts into recall, cost, configuration or arm tables, the exact tests of the wrong and
@@ -15,7 +15,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parsePlan, parseReviewComment } from '../../../../plugins/plan-lifecycle/skills/plan-manager/scripts/plan.mjs';
+import { parsePlan } from '../../../../cli/src/plan/records.ts';
+import { parseReviewComment } from '../../../../cli/src/plan/reviews.ts';
+import {
+  INSTALLED_SKILL_ROOTS,
+  PATH_LIST_TOOLS,
+  READ_TOOL,
+  REPLY_TOOL,
+  RUNTIME_VERSION_PATH,
+  SEARCH_TOOLS,
+  SKILL_SCHEME,
+  SPILL_SCHEMES,
+  TOKEN_FIELDS,
+  TRANSCRIPT_RECORDS,
+  WEB_SEARCH_TOOL,
+  tierFamily,
+} from './omp.mjs';
 
 const USAGE =
   'usage: score.mjs findings <ws> | pairs <ws> --cases <cases-dir> [--keys <keys-dir>] | report <ws> [--keys <keys-dir>] [--configs <name,...> | --arms <folder,...>] [--reference <column>] [--margin <per 50 known>] [--sequential] [--lead <folder,...> --lead-ref <folder>] | power <ws> [--keys <keys-dir>] [--arms <folder>,<folder>] [--margins <per 50 known,...>] [--cases <cases-dir>] [--reviewer <code-reviewer|plan-reviewer>] [--split <dev|heldout>] | corpus --cases <cases-dir> [--keys <keys-dir>] | sample <ws> [--seed <n>] | transcripts <ws> --omp-sessions <dir> | names <ws>';
@@ -36,7 +51,6 @@ const VERDICT_RANK = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
 // The verdicts of a block that holds a review. A block without one of them (`missing`, `unreadable`, or `blocked`)
 // holds no review, so its run is invalid (see invalidReasons).
 const REVIEW_VERDICTS = new Set(['pass', 'repair', 'fixes-required']);
-const TOKEN_FIELDS = ['input', 'cacheRead', 'cacheWrite', 'output'];
 // The base-instructions folder of a code review (`prepare.mjs` writeBaseInstructions): the instruction files of the
 // merge base and their MANIFEST, in the case folder and in each later round folder of a loop.
 export const BASE_INSTRUCTIONS = 'base-instructions';
@@ -49,28 +63,46 @@ const INPUT_FILES = new Set(['plan.md', 'previous-review.md', 'rejection.md']);
 export const CONTRACT_COPY = 'plan-contract.md';
 // The own skill folder of a reviewer of a plugin root has one of these names.
 const REVIEWER_SKILLS = new Set(['code-reviewer', 'plan-reviewer']);
-// A reviewer may read these skills through a `skill://` URI or in an installed plugin cache copy. Both resolve to the
-// installed version of the skill. For a reviewer skill, that version can be another version than the one of the arm,
-// so the reviewer skills are not in the list. The self-review agent loads these skills as its own instructions.
+// A reviewer may read these skills through a `skill://` URI or in an installed plugin copy as optional instructions.
+// Both resolve to the installed version of the skill. For a reviewer skill, that version can be another version than
+// the one of the arm, so the reviewer skills are not in the list. The self-review agent loads these skills as its own
+// instructions.
 const ALLOWED_SKILLS = new Set(['code-review', 'code-clarity']);
 // The plan contract of a plugin root, as a path relative to its `skills/` folder, with its path from the skill folder
 // name on. The plan-reviewer checklist tells the reviewer to read this contract in its own plugin.
 const PLAN_CONTRACT = /^(?:[^/]+\/)?(plan-manager\/references\/plan-contract\.md)$/;
-// The folder of an allowed skill, or a path below it, in an installed plugin cache copy, with its path from the skill
-// folder name on. A `skill://` URI of an allowed skill can resolve to this copy.
-const CACHE_SKILL = new RegExp(
-  `/plugins/cache/plugins/[^/]+/skills/(?:[^/]+/)??((?:${[...ALLOWED_SKILLS].join('|')})(?:/.*)?)$`,
+// A path under the folder of a skill in an installed plugin copy (see omp.mjs INSTALLED_SKILL_ROOTS), with its path
+// from the skill folder name on. An allowed skill can sit in a category folder of an old plugin cache copy. A
+// `skill://` URI can resolve to this copy.
+const INSTALLED_ROOT = `(?:${INSTALLED_SKILL_ROOTS.join('|')})`;
+const INSTALLED_ALLOWED_SKILL = new RegExp(
+  `${INSTALLED_ROOT}(?:[^/]+/)??((?:${[...ALLOWED_SKILLS].join('|')})(?:/.*)?)$`,
 );
+const INSTALLED_SKILL = new RegExp(`${INSTALLED_ROOT}([^/]+(?:/.*)?)$`);
+// The plugin layouts of the reviewer agents, the self-review skills, and the plan contract in a tree of this
+// repository. `kit` is the layout of docks-kit, with one plugin root for all of them; `legacy` is the layout of the old
+// docks tree, whose refs (`plan-lifecycle--v*`, `docks--v*`) hold the variant patches and the recorded baselines. The
+// working tree has the `kit` layout, and prepare.mjs layoutAt picks the layout of a commit. `changedRoot` gives the
+// segments of a plugin root in a changed path for the case-change rule (see changedPathKeys); `*` stands for any one
+// segment.
+export const PLUGIN_LAYOUTS = {
+  kit: {
+    name: 'kit',
+    reviewerRoot: 'SoT/.omp/plugin',
+    selfReviewRoot: 'SoT/.omp/plugin',
+    changedRoot: ['SoT', '.omp', 'plugin'],
+  },
+  legacy: {
+    name: 'legacy',
+    reviewerRoot: 'plugins/plan-lifecycle',
+    selfReviewRoot: 'plugins/docks',
+    changedRoot: ['plugins', '*'],
+  },
+};
 // The lines of a diff header that name a changed path: `diff --git a/<path> b/<path>` and `+++ b/<path>`.
 const DIFF_GIT = 'diff --git ';
 const DIFF_NEW = '+++ b/';
 const CHANGED_FILES_HINT = '; the read scope compares the reads of the reviewer with the files that the case changes';
-// These tools search the working directory when a call names no path (see the omp tool docs `omp://tools/<tool>.md`).
-const SEARCH_TOOLS = new Set(['grep', 'glob', 'find', 'ast_grep']);
-// The `path` of these tools takes a `;`-separated list of paths, so each part is a target of its own, and a relative
-// part resolves against the working directory. The path of every other tool, for example `read` and `find`, is one
-// target, which can hold a `;`.
-const PATH_LIST_TOOLS = new Set(['grep', 'glob', 'ast_grep']);
 // When no file or folder has a path, omp can read the path as a list of paths (omp://tools/read.md, Flow step 7; the
 // recovery of a delimited path list in packages/coding-agent/src/tools/path-utils.ts of omp 18.12). It splits the path
 // between delimiters outside `{}` and not after a backslash, and takes the first of these splits that it can: on `;`;
@@ -91,8 +123,9 @@ const UNREAD_NOTE = 'Could not read ';
 // its `-site:` tokens (exclusions), a query targets it when it names the repository, or when it names the owner
 // without a repository and no exclusion removes the repository or its owner: the owner alone or the owner and the
 // word `docks` can find its pages. The URLs that the result of a search cites show the pages that the reviewer saw
-// (see webPageAllowed).
-const WEB_SEARCH_TOOL = 'web_search';
+// (see webPageAllowed). The search tool, the tools that search the working directory without a path, and the tools
+// whose path is a `;`-separated list of targets come from omp.mjs. The path of every other tool, for example `read`
+// and `find`, is one target, which can hold a `;`.
 const SITE_EXCLUSION = /(?:^|\s)-site:(\S+)/gi;
 const OWNER_MENTION = /docksdocks(?:\/([\w.-]+))?/gi;
 const RESULT_URL = /https?:\/\/[^\s<>()[\]{}"'`]+/g;
@@ -120,8 +153,12 @@ const GLOB_CHARACTER = /[*?[{]/;
 // Hosts whose paths start with the owner and the name of a repository.
 const GITHUB_WEB_HOSTS = new Set(['github.com', 'www.github.com']);
 const REPOSITORY_HOSTS = new Set([...GITHUB_WEB_HOSTS, 'raw.githubusercontent.com']);
-// The owner and the names of the benchmark repository, in lower case.
-const BENCHMARK_REPOSITORY = { owner: 'docksdocks', names: new Set(['docks', 'docks.git']) };
+// The owner and the names of the benchmark repository, in lower case: docks-kit, and docks, its name before the
+// rename, which GitHub redirects to docks-kit.
+const BENCHMARK_REPOSITORY = {
+  owner: 'docksdocks',
+  names: new Set(['docks-kit', 'docks-kit.git', 'docks', 'docks.git']),
+};
 // An invalid-run reason names this many outside targets, then the count of the others.
 const LISTED_READS = 3;
 // The instruction paths of an agent text are absolute paths. A path in backticks or quotes ends at the closing quote
@@ -894,23 +931,29 @@ function configReasons(setting, label, entry) {
   return reasons;
 }
 
+// The reason of an agent whose transcript holds more than one task (see transcriptFacts `revived`).
+const REVIVED_AGENT = 'revived agent';
+
 // A run proves its configuration with the transcript facts of each reviewer, and a loop proves its fixer setting
 // (`fixerConfig`, from `prepare.mjs agents`) with the transcript facts of the fixer of each round that ran one or that
 // gave findings to the fixer; a run without a configuration has no configuration to prove. A loop with a
 // configuration and a fixer entry but without a fixer setting cannot prove its fixer. Every run must show, by the
 // `readScope` of each reviewer entry, that the reviewer read only the inputs of the run, and must hold a review in the
 // block of each reviewer of each round: a block that is missing, unreadable, or `blocked` holds no review. The
-// production loop does not post such a round, so the run does not show the review of its arm. Each reviewer is
-// `{ label, verdict, entry }` and each fixer is `{ label, entry }`, where verdict is the verdict of the block and entry
-// is the meta.json entry (undefined for a fixer without an entry).
+// production loop does not post such a round, so the run does not show the review of its arm. A reviewer or fixer
+// whose transcript shows a revived agent (`revived`, see transcriptFacts) makes the run invalid with the reason
+// REVIVED_AGENT. Each reviewer is `{ label, verdict, entry }` and each fixer is `{ label, entry }`, where verdict is the
+// verdict of the block and entry is the meta.json entry (undefined for a fixer without an entry).
 function invalidReasons(config, reviewers, { fixerConfig = null, fixers = [] } = {}) {
   const reasons = [];
   for (const { label, verdict, entry } of reviewers) {
     if (!REVIEW_VERDICTS.has(verdict)) reasons.push(`${label}: no review (${verdict})`);
+    if (entry?.revived) reasons.push(`${label}: ${REVIVED_AGENT}`);
     if (config) reasons.push(...configReasons(config, label, entry));
     const outside = entry?.readScope?.outside ?? [];
     if (outside.length) reasons.push(`${label}: read outside its inputs: ${listSome(outside, LISTED_READS)}`);
   }
+  for (const { label, entry } of fixers) if (entry?.revived) reasons.push(`${label}: ${REVIVED_AGENT}`);
   if (!config) return reasons;
   for (const { label, entry } of fixers) {
     reasons.push(...(fixerConfig ? configReasons(fixerConfig, label, entry) : [`${label}: no fixer setting`]));
@@ -945,11 +988,11 @@ function managerStage({ findings, metaOf, judged, knownIds, config, managerConfi
   const verdictOf = (finding) => metaOf(finding.round ?? 1)?.managerVerdicts?.[finding.id];
   const open = findings.filter((finding) => verdictOf(finding) === undefined).map((finding) => finding.id);
   const reasons = open.length ? [`no manager verdict for ${listSome(open, LISTED_READS)}`] : [];
-  if (config && open.length === 0) {
-    for (const round of distinct(findings.map((finding) => finding.round ?? 1))) {
-      const label = hasRounds ? `round-${round}/${MANAGER_NAME}` : MANAGER_NAME;
-      reasons.push(...configReasons(managerConfig, label, metaOf(round)?.manager?.agents?.[MANAGER_NAME]));
-    }
+  for (const round of distinct(findings.map((finding) => finding.round ?? 1))) {
+    const label = hasRounds ? `round-${round}/${MANAGER_NAME}` : MANAGER_NAME;
+    const entry = metaOf(round)?.manager?.agents?.[MANAGER_NAME];
+    if (entry?.revived) reasons.push(`${label}: ${REVIVED_AGENT}`);
+    if (config && open.length === 0) reasons.push(...configReasons(managerConfig, label, entry));
   }
   if (reasons.length) return { status: 'incomplete', reasons, kept: null, rejectedTrue: null };
   const kept = judgeFindings(
@@ -1061,6 +1104,17 @@ function scoreRun(run, caseEntry, judged, metas) {
     seeded: caseEntry.seeded ?? null,
     manager,
     finalFound: run.hasRounds ? knownIds.filter((id) => repaired.has(id)) : null,
+    // The omp versions that the transcripts of the reviewers, fixers, and managers of the run name (see
+    // transcriptFacts `ompVersion`); `report` compares only runs of one omp version.
+    ompVersions: distinct(
+      [
+        ...reviewers.map((reviewer) => reviewer.entry),
+        ...fixers.map((fixer) => fixer.entry),
+        ...rounds.map((round) => metaOf(round.round)?.manager?.agents?.[MANAGER_NAME]),
+      ]
+        .map((entry) => entry?.ompVersion)
+        .filter((version) => typeof version === 'string'),
+    ),
   };
 }
 
@@ -1262,7 +1316,7 @@ function bettingCapital(xs, m, direction, odds) {
   const cap = BET_CAP / (direction > 0 ? m : 1 - m);
   const capitals = [];
   let capital = 1;
-  let total = 0;
+  let sumOfValues = 0;
   let squares = 0;
   for (let t = 1; t <= xs.length; t += 1) {
     const variance = (0.25 + squares) / t;
@@ -1270,8 +1324,8 @@ function bettingCapital(xs, m, direction, odds) {
     const x = xs[t - 1];
     capital *= 1 + direction * bet * (x - m);
     capitals.push(capital);
-    total += x;
-    squares += (x - (0.5 + total) / (t + 1)) ** 2;
+    sumOfValues += x;
+    squares += (x - (0.5 + sumOfValues) / (t + 1)) ** 2;
   }
   return capitals;
 }
@@ -2718,24 +2772,41 @@ function resultUrls(message) {
   return [...new Set((text.match(RESULT_URL) ?? []).map((url) => url.replace(/[.,;:!?]+$/, '')))];
 }
 
-// The configuration that a transcript shows: the last requested OpenAI tier, one entry per assistant message, and the
-// `model_usage` side calls of helper models. A message entry gives the model, the effort that was active at the
-// message (the `thinkingLevel` of the last `thinking_level_change` before it, else null), and the served tier; a
-// failed request (see failedRequest) also gets `failed: true`. An effort change before the first assistant message is
-// setup, so it shows only through the messages after it. When the assistant messages call tools, `toolCalls` lists
-// the calls in order; a transcript without a tool call gives no `toolCalls`. A web search call whose tool result is in
-// the transcript also gets `resultUrls`: the URLs that the result cites (see resultUrls). A call whose tool result is
-// an error result (`isError: true`) gets `error: true`: the tool showed no file for it.
+// The omp version that wrote a transcript record (see omp.mjs RUNTIME_VERSION_PATH), or null for a record without one.
+function runtimeVersion(entry) {
+  const version = valueAt(entry, RUNTIME_VERSION_PATH);
+  return typeof version === 'string' && version !== '' ? version : null;
+}
+
+// The configuration that a transcript shows: the last requested tier of the tier family of the model (see omp.mjs
+// TIER_FAMILIES; the model of the last `model_change`, else of the first assistant message), one entry per assistant
+// message, and the `model_usage` side calls of helper models. A message entry gives the model, the effort that was
+// active at the message (the `thinkingLevel` of the last `thinking_level_change` before it, else null), and the served
+// tier; a failed request (see failedRequest) also gets `failed: true`. An effort change before the first assistant
+// message is setup, so it shows only through the messages after it. When the assistant messages call tools,
+// `toolCalls` lists the calls in order; a transcript without a tool call gives no `toolCalls`. A web search call whose
+// tool result is in the transcript also gets `resultUrls`: the URLs that the result cites (see resultUrls). A call
+// whose tool result is an error result (`isError: true`) gets `error: true`: the tool showed no file for it.
+// `ompVersion` is the omp version of the last record that names one (no field without such a record). A transcript
+// with more than one user message gets `revived: true`: a revived agent appends its next task to the transcript of
+// the first one, so its time and tokens do not show one review (see invalidReasons).
 export function transcriptFacts(text, source = 'transcript') {
   const facts = { requestedTier: null, messages: [], sideCalls: [] };
   const toolCalls = [];
   const callsById = new Map();
   let effort = null;
+  let model = null;
+  let requested = null;
+  let userMessages = 0;
+  let ompVersion = null;
   for (const entry of transcriptEntries(text, source)) {
+    ompVersion = runtimeVersion(entry) ?? ompVersion;
     if (entry.type === 'thinking_level_change') effort = entry.thinkingLevel ?? null;
-    else if (entry.type === 'service_tier_change') facts.requestedTier = entry.serviceTier?.openai ?? null;
+    else if (entry.type === 'model_change' && typeof entry.model === 'string') model = entry.model;
+    else if (entry.type === 'service_tier_change') requested = entry.serviceTier ?? null;
     else if (entry.type === 'model_usage')
       facts.sideCalls.push({ model: modelId(entry), purpose: entry.purpose ?? null, tokens: usageTokens(entry.usage) });
+    else if (entry.type === 'message' && entry.message?.role === 'user') userMessages += 1;
     else if (entry.type === 'message' && entry.message?.role === 'assistant') {
       const { message } = entry;
       const fact = { model: modelId(message), effort, servedTier: message.serviceTier ?? null };
@@ -2750,7 +2821,60 @@ export function transcriptFacts(text, source = 'transcript') {
       if (call && entry.message.isError === true) call.error = true;
     }
   }
+  const family = tierFamily(model ?? facts.messages.find((message) => message.model)?.model ?? '');
+  facts.requestedTier = family === null ? null : (requested?.[family] ?? null);
+  if (ompVersion !== null) facts.ompVersion = ompVersion;
+  if (userMessages > 1) facts.revived = true;
   return toolCalls.length ? { ...facts, toolCalls } : facts;
+}
+
+// The JSON type of a value: 'null', 'array', or its `typeof`.
+const jsonType = (value) => {
+  if (value === null) return 'null';
+  return Array.isArray(value) ? 'array' : typeof value;
+};
+
+// The value at the key path `keys` below `value`, or undefined when a key on the path is missing.
+function valueAt(value, keys) {
+  return keys.reduce((item, key) => (item !== null && typeof item === 'object' ? item[key] : undefined), value);
+}
+
+// The values of a transcript entry that a record of omp.mjs TRANSCRIPT_RECORDS selects: the entry, or the content
+// parts of the record's `part` type of its message.
+function recordValues(entry, { type, role, part }) {
+  if (entry?.type !== type || (role !== undefined && entry.message?.role !== role)) return [];
+  if (part === undefined) return [entry];
+  const content = entry.message?.content;
+  return (Array.isArray(content) ? content : []).filter((item) => item?.type === part);
+}
+
+// Checks that a transcript has the shape that omp.mjs TRANSCRIPT_RECORDS lists, and stops with each difference: a
+// required record that the transcript does not have, a field `<record>.<field>` that a selected value does not have or
+// has with another type, and records of more than one omp version. score.mjs reads these records and fields, so a
+// transcript of an omp release that changed them would give wrong numbers without notice.
+export function checkTranscriptShape(text, source = 'transcript') {
+  const entries = transcriptEntries(text, source);
+  const problems = [];
+  for (const spec of TRANSCRIPT_RECORDS) {
+    const values = entries.flatMap((entry) => recordValues(entry, spec));
+    if (spec.required && values.length === 0) problems.push(`it has no ${spec.record} record`);
+    for (const [field, type] of Object.entries(spec.fields)) {
+      const found = distinct(values.map((value) => jsonType(valueAt(value, field.split('.'))))).filter(
+        (other) => other !== type,
+      );
+      const name = `${spec.record}.${field}`;
+      if (found.includes('undefined')) problems.push(`${name} is missing`);
+      const retyped = found.filter((other) => other !== 'undefined');
+      if (retyped.length) problems.push(`${name} is of type ${retyped.join(' or ')}, not ${type}`);
+    }
+  }
+  const versions = distinct(entries.map(runtimeVersion).filter((version) => version !== null));
+  if (versions.length > 1) problems.push(`its records name more than one omp version: ${versions.join(', ')}`);
+  if (problems.length) {
+    fail(
+      `${source} does not have the transcript shape of scripts/omp.mjs: ${problems.join('; ')}. Check the omp version (omp --version) against the omp pins of SoT/toolchain.json, and update omp.mjs and the parser for a changed omp format`,
+    );
+  }
 }
 
 // A web search query targets the benchmark repository when, outside its `-site:` exclusions, it names the repository,
@@ -2763,8 +2887,8 @@ function targetsBenchmark(query) {
   const mentions = (text) => [...text.matchAll(OWNER_MENTION)].map(([, name]) => repositoryName(name));
   const benchmark = (name) => BENCHMARK_REPOSITORY.names.has(name);
   const coversRepository = (site) => {
-    const [host, ...path] = site.replace(/^https?:\/\//i, '').split('/');
-    const parts = path.filter((part) => part !== '' && part !== '*').map((part) => part.toLowerCase());
+    const [host, ...segments] = site.replace(/^https?:\/\//i, '').split('/');
+    const parts = segments.filter((part) => part !== '' && part !== '*').map((part) => part.toLowerCase());
     if (!GITHUB_WEB_HOSTS.has(host.toLowerCase()) || parts[0] !== BENCHMARK_REPOSITORY.owner) return false;
     return parts.length === 1 || (parts.length === 2 && benchmark(parts[1]));
   };
@@ -2776,8 +2900,6 @@ function targetsBenchmark(query) {
 // A line of the fixer reply: `<finding id>: repaired` or `<finding id>: not present` (see prepare.mjs fixerPrompt),
 // maybe after a list marker and with the id in backticks.
 const FIXER_REPLY = /^\s*(?:[-*+]\s+)?`?([^\s`:]+#\d+)`?\s*:\s*(repaired|not present)\b/i;
-// An omp subagent gives its reply as the arguments of a call of this tool, under keys that the agent picks.
-const REPLY_TOOL = 'yield';
 // Each string in a JSON value, in order.
 function stringsOf(value) {
   if (typeof value === 'string') return [value];
@@ -2785,8 +2907,8 @@ function stringsOf(value) {
 }
 
 // The fixer reply of a transcript: each finding id that the reply names, with `repaired` or `not present`; a later
-// line of an id wins. The reply is each string in the arguments of the last `yield` call, or without such a call,
-// the text of the last assistant message with text.
+// line of an id wins. By the reply rule of omp.mjs (REPLY_TOOL), the reply is each string in the arguments of the last
+// call of the reply tool when the transcript has one, else the text of the last assistant message with text.
 function fixerReplies(text, source) {
   let yielded;
   let said = [];
@@ -2838,11 +2960,11 @@ function isUnder(folder, target) {
 }
 
 // The input folders of a run, the folders that a reviewer may read with every path below them, the copy of the plan
-// contract of the run, the plugin roots, the agent files of the reviewer, the self-review roots of the reviewer, and
-// the keys of the files that the case changes (see changedPathKeys). An input folder is the case folder, and the run
-// folder or each round folder up to `round`. The tree copies are those of the rounds up to `round`. A reviewer with an
-// agent file of its own is the self-review agent.
-function scopeRules(runDir, round, { pluginRoots, agentFiles, skillRoots, changedFiles }) {
+// contract of the run, the plugin roots, the agent files of the reviewer, the self-review roots of the reviewer, the
+// skills that the measured plugin copies hold, and the keys of the files that the case changes (see changedPathKeys).
+// An input folder is the case folder, and the run folder or each round folder up to `round`. The tree copies are those
+// of the rounds up to `round`. A reviewer with an agent file of its own is the self-review agent.
+function scopeRules(runDir, round, { pluginRoots, agentFiles, skillRoots, heldSkills, changedFiles }) {
   const armDir = path.dirname(runDir);
   const caseDir = path.dirname(armDir);
   const [caseId, arm, run] = [caseDir, armDir, runDir].map((dir) => path.basename(dir));
@@ -2860,8 +2982,27 @@ function scopeRules(runDir, round, { pluginRoots, agentFiles, skillRoots, change
     agentFiles: agentFiles.map((file) => path.resolve(file)),
     selfReview: agentFiles.length > 0,
     skillRoots: agentFiles.length > 0 ? skillRoots : [],
+    measuredSkills: new Set([...REVIEWER_SKILLS, ...heldSkills]),
     changed: distinct(changedFiles.flatMap(changedPathKeys)),
   };
+}
+
+// The names of the skill folders under `<root>/skills/` of each root of `roots`: each folder directly in `skills/`,
+// and each folder in a category folder (a folder without SKILL.md). These are the skills that a measured plugin copy
+// holds, so a read of their installed copy is outside the read scope (see readScope).
+export function pluginSkills(roots) {
+  const held = new Set();
+  for (const root of roots) {
+    const skills = path.join(root, 'skills');
+    if (!fs.existsSync(skills)) continue;
+    for (const entry of fs.readdirSync(skills, { withFileTypes: true }).filter((item) => item.isDirectory())) {
+      held.add(entry.name);
+      const folder = path.join(skills, entry.name);
+      if (fs.existsSync(path.join(folder, 'SKILL.md'))) continue;
+      for (const inner of fs.readdirSync(folder, { withFileTypes: true })) if (inner.isDirectory()) held.add(inner.name);
+    }
+  }
+  return [...held].sort();
 }
 
 // A path under the folder of one of the skills `names` in `<root>/skills/`, directly or in a category folder.
@@ -2893,13 +3034,16 @@ function fileAllowed(target, { inputDirs, contractCopy, pluginRoots, agentFiles 
 // The case-change rule of readScope compares an optional instruction read with the files that the case changes. It
 // compares keys: paths from the skill folder name on, `<skill>/<rest>`. The key '' stands for every path.
 
-// The keys of a repository path that the case changes. After `plugins/<plugin>/skills/`, the path `<a>/<b>/…` can be
+// The keys of a repository path that the case changes. After the `skills/` folder of a plugin root of a layout (see
+// PLUGIN_LAYOUTS `changedRoot`: `SoT/.omp/plugin/skills/` or `plugins/<plugin>/skills/`), the path `<a>/<b>/…` can be
 // the skill `<a>`, or the skill `<b>` in the category folder `<a>`, so it gives both `<a>/<b>/…` and `<b>/…`. A key
 // that does not start with the name of an instruction skill matches no read. The decision is lexical and
 // conservative: a path with a glob counts as the folder before its first glob segment, and a path that ends with `/`
 // or whose last segment has no `.` can be a folder. A folder that can hold skill folders gives '': `<a>` directly in
-// `skills/` (it can be a category folder), `plugins/<plugin>/skills/`, and each folder above it. Other paths give no
+// `skills/` (it can be a category folder), the `skills/` folder, and each folder above it: a folder of a plugin root
+// path, also one with a `.` in its name such as `SoT/.omp`, and a folder in place of `<plugin>`. Other paths give no
 // key.
+const SKILL_PATH_ROOTS = Object.values(PLUGIN_LAYOUTS).map((layout) => [...layout.changedRoot, 'skills']);
 function changedPathKeys(file) {
   const segments = path.posix
     .normalize(file)
@@ -2907,12 +3051,20 @@ function changedPathKeys(file) {
     .filter((segment) => segment && segment !== '.');
   const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
   if (globAt !== -1) segments.length = globAt;
+  if (segments.length === 0) return [''];
   const folder = globAt !== -1 || file.endsWith('/') || !segments.at(-1)?.includes('.');
-  const [top, , skills, ...rest] = segments;
-  if (segments.length === 0 || (top === 'plugins' && segments.length < 3 && folder)) return [''];
-  if (top !== 'plugins' || skills !== 'skills') return [];
-  if (rest.length === 0 || (rest.length === 1 && folder)) return [''];
-  return rest.length === 1 ? rest : [rest.join('/'), rest.slice(1).join('/')];
+  const matches = (root, count) => root.slice(0, count).every((part, index) => part === '*' || part === segments[index]);
+  for (const root of SKILL_PATH_ROOTS) {
+    if (segments.length < root.length) {
+      if (matches(root, segments.length) && (folder || root[segments.length - 1] !== '*')) return [''];
+      continue;
+    }
+    if (!matches(root, root.length)) continue;
+    const rest = segments.slice(root.length);
+    if (rest.length === 0 || (rest.length === 1 && folder)) return [''];
+    return rest.length === 1 ? rest : [rest.join('/'), rest.slice(1).join('/')];
+  }
+  return [];
 }
 
 // Two keys overlap when they are equal or one is a folder above the other. So a read of a folder (for example a grep,
@@ -2930,25 +3082,26 @@ function contractKey(target, pluginRoots) {
   return undefined;
 }
 
-// The key of a path under the folder of an allowed skill in an installed plugin cache copy, or undefined for another
-// path. The path as the reviewer wrote it, after normalizeLocal, must have no `..` segment: only a relative path can
-// keep one, and its folder depends on the working directory.
-function cacheKey(written, resolved) {
-  return written.split('/').includes('..') ? undefined : CACHE_SKILL.exec(resolved)?.[1];
+// The key of a path under the folder of a skill in an installed plugin copy (see INSTALLED_ALLOWED_SKILL and
+// INSTALLED_SKILL), or undefined for another path. The path as the reviewer wrote it, after normalizeLocal, must have
+// no `..` segment: only a relative path can keep one, and its folder depends on the working directory.
+function installedKey(written, resolved) {
+  if (written.split('/').includes('..')) return undefined;
+  return INSTALLED_ALLOWED_SKILL.exec(resolved)?.[1] ?? INSTALLED_SKILL.exec(resolved)?.[1];
 }
 
-// The key of a `skill://` URI of an allowed skill, or undefined for another URI: `skill://<skill>` reads
+// The key of a `skill://` URI, or undefined for a URI that leaves the skills: `skill://<skill>` reads
 // `<skill>/SKILL.md`, and `skill://<skill>/<rest>` reads `<skill>/<rest>`. A glob counts as the folder before its
 // first glob segment. The skill name of the key comes after the `..` segments resolve, so a URI that leaves the
-// folder of an allowed skill for another skill gives no key.
+// folder of one skill for another skill gives the key of the other skill.
 function skillUriKey(target) {
   const rest = target.slice(target.indexOf('://') + 3);
   const segments = rest.split('/').filter(Boolean);
-  if (segments.length === 1) return ALLOWED_SKILLS.has(segments[0]) ? `${segments[0]}/SKILL.md` : undefined;
+  if (segments.length === 1) return segments[0].startsWith('.') ? undefined : `${segments[0]}/SKILL.md`;
   const globAt = segments.findIndex((segment) => GLOB_CHARACTER.test(segment));
   if (globAt !== -1) segments.length = globAt;
   const key = path.posix.normalize(segments.join('/'));
-  return ALLOWED_SKILLS.has(key.split('/')[0]) ? key : undefined;
+  return key === '' || key.startsWith('.') ? undefined : key;
 }
 
 // An optional instruction read with the key `key` is allowed when the case changes no file at that key. An undefined
@@ -2957,13 +3110,25 @@ function instructionAllowed(key, { changed }) {
   return key !== undefined && !changed.some((other) => keysOverlap(key, other));
 }
 
-// A read of an allowed skill through a `skill://` URI or an installed plugin cache copy, with the key `key` (undefined
-// for another read). The self-review agent loads these skills as its own instructions, so its reads of them stay
-// allowed also when the case changes them. For another reviewer, they are optional instruction reads. A self-review
-// agent of a self-review root reads its skills under that root only: the installed copy can be another version.
+// A read of the installed copy of a skill through a `skill://` URI or an installed plugin copy, with the key `key`
+// (undefined for another read).
+// - An allowed skill (code-review, code-clarity): the self-review agent loads these skills as its own instructions, so
+//   its reads of them stay allowed also when the case changes them. For another reviewer, they are optional
+//   instruction reads. A self-review agent of a self-review root reads them under that root only: the installed copy
+//   can be another version.
+// - Another skill is an optional instruction read when the measured plugin copies do not hold it (see pluginSkills), for
+//   example an always-apply skill such as `unslop`. The installed copy of a measured skill, and of a reviewer skill,
+//   can be another version than the copy of the arm, so its read is outside. Each of the first two segments of the key
+//   counts as the skill name, because the skill can sit in a category folder.
 function skillReadAllowed(key, rules) {
-  if (rules.skillRoots.length) return false;
-  return (rules.selfReview && key !== undefined) || instructionAllowed(key, rules);
+  if (key === undefined) return false;
+  const [first, second] = key.split('/');
+  if (ALLOWED_SKILLS.has(first)) {
+    if (rules.skillRoots.length) return false;
+    return rules.selfReview || instructionAllowed(key, rules);
+  }
+  if (rules.measuredSkills.has(first) || rules.measuredSkills.has(second)) return false;
+  return instructionAllowed(key, rules);
 }
 
 // The folder of a path before its first glob segment (`base`), and the segments from that segment on (`rest`). A path
@@ -2997,11 +3162,11 @@ function localPathAllowed(written, cwd, rules) {
     const resolved = path.resolve(cwd ?? path.sep, target);
     if (folderAllowed(resolved, rules) || fileAllowed(resolved, rules)) return true;
     if (instructionAllowed(contractKey(resolved, rules.pluginRoots), rules)) return true;
-    return skillReadAllowed(cacheKey(target, resolved), rules);
+    return skillReadAllowed(installedKey(target, resolved), rules);
   }
   if (rest.some((segment) => segment.includes('..'))) return false;
   const resolvedBase = path.resolve(cwd ?? path.sep, base);
-  return folderAllowed(resolvedBase, rules) || skillReadAllowed(cacheKey(base, resolvedBase), rules);
+  return folderAllowed(resolvedBase, rules) || skillReadAllowed(installedKey(base, resolvedBase), rules);
 }
 
 // A web page outside the benchmark repository. The pages of the repository can show the fixes of the corpus defects.
@@ -3030,7 +3195,7 @@ function webPageAllowed(target) {
   } catch {
     // Keep the encoded text: a bad escape cannot hide the plain owner and repository names.
   }
-  return !/docksdocks\/docks(?:\.git)?(?![\w.-])/i.test(text);
+  return !/docksdocks\/docks(?:-kit)?(?:\.git)?(?![\w.-])/i.test(text);
 }
 
 const uriScheme = (target) => URI_SCHEME.exec(target)?.[1].toLowerCase();
@@ -3038,8 +3203,8 @@ const uriScheme = (target) => URI_SCHEME.exec(target)?.[1].toLowerCase();
 function targetAllowed(target, cwd, rules) {
   const scheme = uriScheme(target);
   if (scheme === undefined) return localPathAllowed(target, cwd, rules);
-  if (scheme === 'artifact') return true;
-  if (scheme === 'skill') return skillReadAllowed(skillUriKey(target), rules);
+  if (SPILL_SCHEMES.has(scheme)) return true;
+  if (scheme === SKILL_SCHEME) return skillReadAllowed(skillUriKey(target), rules);
   return WEB_SCHEMES.has(scheme) && webPageAllowed(target);
 }
 
@@ -3179,7 +3344,7 @@ function readLists({ calls, results }, cwd) {
   for (const call of calls) {
     const value = call.arguments?.path;
     if (typeof value !== 'string') continue;
-    const recorded = call.name === 'read' ? recordedParts(results.get(call.id)?.details) : null;
+    const recorded = call.name === READ_TOOL ? recordedParts(results.get(call.id)?.details) : null;
     for (const target of pathTargets(call.name, value)) {
       const parts = recorded ?? delimitedParts(target, cwd);
       if (parts !== null) lists.set(target, distinct([...(lists.get(target) ?? []), ...parts.map(withoutSelector)]));
@@ -3242,30 +3407,36 @@ function selectorRanges(selector, last) {
 }
 
 // The lines of a file with the lines `lines` (see textLines) that the details `details` of the tool result of a read
-// call with the selector `selector` give as shown whole, as line numbers. The line numbers of the rows that omp showed
-// decide when the result has them (`displayContent.lineNumbers`, without the rows that show no line, such as an
-// elision row): they hold the context lines that omp adds around a range, also outside the shown range of a cut
-// output. Else the shown range decides when omp cut the output, else the selector decides (see selectorRanges), up to
-// the `totalLines` of the result, or up to the last line of the file when the result has no totalLines (omp gives
-// neither for a raw comma list). omp cuts a line of a read that is not raw after `maxColumn` characters (JavaScript
-// string length) and then records `meta.limits.columnTruncated`; a line longer than that limit shows cut, so it is
-// not shown whole.
+// call with the selector `selector` give as shown whole, as line numbers. A structural summary of the file
+// (`details.summary`) shows no line whole. A middle cut of the output (`meta.truncation` with `headRange` and
+// `tailRange`) shows the lines of these ranges: its `displayContent.lineNumbers` cover the whole file, also the lines
+// that omp left out. Else the line numbers of the rows that omp showed decide when the result has them
+// (`displayContent.lineNumbers`, without the rows that show no line, such as an elision row): they hold the context
+// lines that omp adds around a range, also outside the shown range of a cut output. Else the shown range decides when
+// omp cut the output at its end, else the selector decides (see selectorRanges), up to the `totalLines` of the
+// result, or up to the last line of the file when the result has no totalLines (omp gives neither for a raw comma
+// list). omp cuts a line of a read that is not raw after `maxColumn` characters (JavaScript string length) and then
+// records `meta.limits.columnTruncated`; a line longer than that limit shows cut, so it is not shown whole.
 function resultLines(details, selector, lines) {
+  if (details?.summary !== undefined && details.summary !== null) return [];
+  const isRange = (range) => Number.isInteger(range?.start) && Number.isInteger(range?.end);
+  const truncation = details?.meta?.truncation;
+  const cut = [truncation?.headRange, truncation?.tailRange].filter(isRange);
   const rows = details?.displayContent?.lineNumbers;
-  const shown = details?.meta?.truncation?.shownRange;
-  const total = details?.totalLines;
+  const shown = truncation?.shownRange;
+  const resultTotal = details?.totalLines;
   let numbers;
-  if (Array.isArray(rows)) numbers = rows.filter(Number.isInteger);
+  if (cut.length) numbers = cut.flatMap(({ start, end }) => lineSpan(start, end));
+  else if (Array.isArray(rows)) numbers = rows.filter(Number.isInteger);
   else {
-    const ranges =
-      Number.isInteger(shown?.start) && Number.isInteger(shown?.end)
-        ? [[shown.start, shown.end]]
-        : selectorRanges(selector, Number.isInteger(total) ? total : lines.length);
+    const ranges = isRange(shown)
+      ? [[shown.start, shown.end]]
+      : selectorRanges(selector, Number.isInteger(resultTotal) ? resultTotal : lines.length);
     numbers = ranges.flatMap(([start, end]) => lineSpan(start, end));
   }
   const maxColumn = details?.meta?.limits?.columnTruncated?.maxColumn;
-  const whole = (line) => !Number.isInteger(maxColumn) || lines[line - 1].length <= maxColumn;
-  return numbers.filter((line) => line >= 1 && line <= lines.length && whole(line));
+  const shownWhole = (line) => !Number.isInteger(maxColumn) || lines[line - 1].length <= maxColumn;
+  return distinct(numbers).filter((line) => line >= 1 && line <= lines.length && shownWhole(line));
 }
 
 // The lines of the file `file` (an absolute path; `lines` are its lines, see textLines) that the tool results of the
@@ -3282,7 +3453,7 @@ function shownLines({ calls, results }, file, lines, cwd) {
   const shown = new Set();
   for (const call of calls) {
     const value = call.arguments?.path;
-    if (call.name !== 'read' || typeof value !== 'string') continue;
+    if (call.name !== READ_TOOL || typeof value !== 'string') continue;
     const result = results.get(call.id);
     if (result === undefined || result.isError === true) continue;
     const target = value.trim();
@@ -3354,7 +3525,8 @@ function diffCoverage(tools, file, cwd) {
 // as the reviewer wrote it. `runDir` is `<ws>/<case>/<arm folder>/run-<k>`; `round` is the number of a round folder,
 // or undefined for a run without round folders; `cwd` is the working directory of the session (null when unknown);
 // `pluginRoots` are the plugin roots that the agent text names; `agentFiles` are the agent files that the agent text
-// names as its own (the self-review agent has no plugin root). The function reads no file. A target is allowed when it
+// names as its own (the self-review agent has no plugin root); `heldSkills` are the skills that the measured plugin
+// copies hold (transcriptsCommand gives them, see pluginSkills). The function reads no file. A target is allowed when it
 // is:
 // - under an input of the run: `snapshot/`, `prompts/`, a `*.diff` file, `plan.md`, `previous-review.md`, or
 //   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
@@ -3370,16 +3542,19 @@ function diffCoverage(tools, file, cwd) {
 // - an optional instruction read, when the case changes no file at its key (see below): the plan contract
 //   `<root>/skills/[<folder>/]plan-manager/references/plan-contract.md` of a plugin root (the plan-reviewer checklist
 //   tells the reviewer to read it in its own plugin); a path under the folder of the code-review or code-clarity skill
-//   in an installed plugin cache copy, `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/`, without
-//   a `..` segment (a `skill://` URI of these skills can resolve to this copy); or a `skill://` URI of one of these two
-//   skills;
-// - an `artifact://` URI (the spilled output of the reviewer);
+//   in an installed plugin copy, `<any>/plugins/cache/plugins/<plugin dir>/skills/[<folder>/]<skill>/` or
+//   `<any>/plugins/node_modules/<package>/skills/<skill>/` (see omp.mjs INSTALLED_SKILL_ROOTS), without a `..`
+//   segment (a `skill://` URI of these skills can resolve to this copy); a `skill://` URI of one of these two skills;
+//   or a `skill://` URI or an installed plugin copy path of another skill that no measured plugin copy holds and that
+//   is no reviewer skill, for example an always-apply skill such as `unslop` (see skillReadAllowed);
+// - an `artifact://` or `local://` URI (the spilled output of the reviewer, see omp.mjs SPILL_SCHEMES);
 // - an http or https URL that cannot show the benchmark repository (see webPageAllowed).
 // Every other target is outside, also the other skills of the repository that holds a plugin root: the reviewed
-// repository has its own copy of them under `snapshot/`. A `skill://` URI or a plugin cache copy of the code-reviewer
-// or plan-reviewer skill is outside for every reviewer: it resolves to the installed version of the skill, which can be
-// another version than the reviewer skill of the arm. A grep, glob, find, or ast_grep call without a path searches the
-// working directory, so it gives the outside target `<name> without a path`; other calls without a path read no file.
+// repository has its own copy of them under `snapshot/`. A `skill://` URI or an installed plugin copy of the
+// code-reviewer or plan-reviewer skill, or of another skill that a measured plugin copy holds, is outside for every
+// reviewer: it resolves to the installed version of the skill, which can be another version than the skill of the
+// arm. A grep, glob, find, or ast_grep call without a path searches the working directory, so it gives the outside
+// target `<name> without a path`; other calls without a path read no file.
 // The path of a grep, glob, or ast_grep call is a `;`-separated list of targets; the path of every other tool is one
 // target, also when it holds a `;`. When no file or folder has the path of a target, omp can read it as a list of
 // paths. `lists` maps each target that omp read as a list to these paths, each without its read selector
@@ -3392,7 +3567,7 @@ function diffCoverage(tools, file, cwd) {
 // The reviewer setup is newer than the cases. When a case changes the file of an optional instruction read, that read
 // shows a later version of a file under review, which can show the fix. `changedFiles` are the repository paths that
 // the case changes (transcriptsCommand reads them). The rule compares keys, the paths from the skill folder name on:
-// the plan contract gives `plan-manager/references/plan-contract.md`, a cache path gives `<skill>/<rest>`,
+// the plan contract gives `plan-manager/references/plan-contract.md`, an installed copy path gives `<skill>/<rest>`,
 // `skill://<skill>` gives `<skill>/SKILL.md`, `skill://<skill>/<rest>` gives `<skill>/<rest>`, and changedPathKeys
 // gives the keys of a changed path. A read is outside when its key overlaps the key of a changed path (see
 // keysOverlap). A glob gives the key of the folder before its first glob segment, so a glob that could match a changed
@@ -3409,11 +3584,18 @@ export function readScope(
     pluginRoots = [],
     agentFiles = [],
     skillRoots = [],
+    heldSkills = [],
     changedFiles = [],
     lists = new Map(),
   },
 ) {
-  const rules = scopeRules(path.resolve(runDir), round, { pluginRoots, agentFiles, skillRoots, changedFiles });
+  const rules = scopeRules(path.resolve(runDir), round, {
+    pluginRoots,
+    agentFiles,
+    skillRoots,
+    heldSkills,
+    changedFiles,
+  });
   const outside = new Set();
   const missing = new Set();
   const queries = new Set();
@@ -3720,9 +3902,11 @@ function workspaceScores(ws, keys) {
 }
 
 // Writes report.md from the scores of the workspace (see workspaceScores), and stops before it writes on a bad
-// option. `configs` or `arms` sets the columns of the comparison tables, `reference` names the column that the
-// intervals and tests compare with, `margin` adds the margin checks, `sequential` the sequential looks, and `lead`
-// with `leadRef` the self-review lead (see renderReport).
+// option, or when the transcripts of the runs name more than one omp version (see scoreRun `ompVersions`): another omp
+// release can dispatch, read, or count in another way, so such runs do not compare. `configs` or `arms` sets the
+// columns of the comparison tables, `reference` names the column that the intervals and tests compare with, `margin`
+// adds the margin checks, `sequential` the sequential looks, and `lead` with `leadRef` the self-review lead (see
+// renderReport).
 export function reportCommand(ws, { keys, configs, arms, reference, margin, sequential, lead, leadRef } = {}) {
   if (margin !== undefined && !(margin < 50)) fail(`report --margin needs a margin below 50, not ${margin}`);
   if (reference !== undefined) {
@@ -3732,6 +3916,13 @@ export function reportCommand(ws, { keys, configs, arms, reference, margin, sequ
       fail(`report --reference names ${reference}, which is not in --configs`);
   }
   const scores = workspaceScores(ws, keys);
+  const versions = distinct(scores.runs.flatMap((run) => run.ompVersions)).sort();
+  if (versions.length > 1) {
+    const runsOf = (version) =>
+      scores.runs.filter((run) => run.ompVersions.includes(version)).map((run) => `${run.case}/${run.arm}/${run.run}`);
+    const listed = versions.map((version) => `omp ${version} (${listSome(runsOf(version), LISTED_READS)})`);
+    fail(`report: the runs of ${ws} used more than one omp version: ${listed.join('; ')}; run all of them with one omp`);
+  }
   const text = renderReport(scores, { configs, arms, reference, margin, sequential, lead, leadRef });
   fs.writeFileSync(path.join(ws, 'report.md'), text);
   return scores;
@@ -3770,15 +3961,15 @@ const SPLITS = ['dev', 'heldout'];
 // with known defects, and `plans[family][split]` lists the distinct plan issues of these cases. The result holds counts
 // and plan numbers only, so a held-out reader learns no case content.
 export function corpusCounts(casesDir, { keys } = {}) {
-  const bySplit = (make) =>
+  const perFamilySplit = (make) =>
     Object.fromEntries(
       Object.keys(FAMILY_REVIEWERS).map((family) => [
         family,
         Object.fromEntries(SPLITS.map((split) => [split, make()])),
       ]),
     );
-  const knownCounts = bySplit(() => []);
-  const plans = bySplit(() => new Set());
+  const knownCounts = perFamilySplit(() => []);
+  const plans = perFamilySplit(() => new Set());
   let missingKeys = 0;
   for (const split of SPLITS) {
     const dir = path.join(casesDir, split);
@@ -3950,6 +4141,9 @@ export function namesCommand(ws) {
     .map(({ prompt, name }) => ({ prompt: path.relative(ws, prompt), name }));
 }
 
+// The fields of a reviewer entry that only the current transcript of the reviewer gives.
+const TRANSCRIPT_ONLY_FIELDS = ['readScope', 'diffCoverage', 'ompVersion', 'revived'];
+
 // Fills the meta.json of each run or round folder from the transcripts of its dispatches and keeps every other field.
 // The transcript of a dispatch is the latest repeat of its name (see pickTranscript) among the transcripts whose task
 // names a path under the case folder of the dispatch in `ws`. Each prompt of prepare.mjs names such a path, and two
@@ -3968,8 +4162,10 @@ export function namesCommand(ws) {
 // `fixer.replies` maps each finding id that the fixer reply names to `repaired` or `not present` (see fixerReplies; no
 // field when the reply names no finding). The manager entry of a round, under `manager.agents`, gets the same facts,
 // and `manager.seconds` and `manager.tokens` are its time and tokens; `report` checks them against the manager setting
-// of the run (see managerStage). meta.json keeps no tool calls. The command checks every dispatch name before it
-// writes, writes what it finds, then fails with the names of the dispatches that have no transcript.
+// of the run (see managerStage). Each entry also gets `ompVersion` and, for a transcript with more than one task,
+// `revived` (see transcriptFacts). meta.json keeps no tool calls. The command checks every dispatch name and the
+// shape of every transcript that it picks (see checkTranscriptShape) before it writes, writes what it finds, then
+// fails with the names of the dispatches that have no transcript.
 export function transcriptsCommand(ws, sessionsDir) {
   const files = transcriptFiles(sessionsDir);
   const wsDir = path.resolve(ws);
@@ -3977,6 +4173,17 @@ export function transcriptsCommand(ws, sessionsDir) {
   for (const dispatch of promptedDispatches(ws)) {
     if (!byDir.has(dispatch.dir)) byDir.set(dispatch.dir, []);
     byDir.get(dispatch.dir).push(dispatch);
+  }
+  // The transcript of each dispatch that has one. Every transcript passes the shape check before a meta.json changes.
+  const picked = new Map();
+  for (const dispatch of [...byDir.values()].flat()) {
+    const caseFolder = path.join(wsDir, dispatch.caseId);
+    const file = pickTranscript(files, dispatch.name, (candidate) =>
+      namesPathUnder(transcriptTask(candidate), caseFolder),
+    );
+    if (!file) continue;
+    checkTranscriptShape(fs.readFileSync(file, 'utf8'), file);
+    picked.set(dispatch, file);
   }
   const updated = [];
   const missing = [];
@@ -3986,9 +4193,10 @@ export function transcriptsCommand(ws, sessionsDir) {
     let changed = false;
     // The case changes the same files for each reviewer of the folder, so the command reads them once, when needed.
     let changedFiles;
-    for (const { caseId, family, arm, run, round, reviewer, name, fixer, manager } of dispatches) {
+    for (const dispatch of dispatches) {
+      const { caseId, family, arm, run, round, reviewer, name, fixer, manager } = dispatch;
       const caseFolder = path.join(wsDir, caseId);
-      const file = pickTranscript(files, name, (candidate) => namesPathUnder(transcriptTask(candidate), caseFolder));
+      const file = picked.get(dispatch);
       if (!file) {
         missing.push(name);
         continue;
@@ -4011,11 +4219,11 @@ export function transcriptsCommand(ws, sessionsDir) {
         meta.manager = { ...meta.manager, seconds: agent.seconds, tokens: agent.tokens, agents: { [reviewer]: agent } };
       } else {
         meta.reviewers ??= {};
-        const entry = { ...meta.reviewers[reviewer], ...parseTranscript(text, file, meta.config?.model), ...facts };
-        // The read scope and the read coverage come from this transcript only: a transcript without tool calls read no
-        // file.
-        delete entry.readScope;
-        delete entry.diffCoverage;
+        const entry = { ...meta.reviewers[reviewer], ...parseTranscript(text, file, meta.config?.model) };
+        // The read scope, the read coverage, the omp version, and the revived mark come from this transcript only: a
+        // transcript without tool calls read no file.
+        for (const field of TRANSCRIPT_ONLY_FIELDS) delete entry[field];
+        Object.assign(entry, facts);
         const session = transcriptSession(text, file);
         const tools = toolCallResults(text, file);
         if (toolCalls) {
@@ -4023,7 +4231,8 @@ export function transcriptsCommand(ws, sessionsDir) {
           changedFiles ??= caseChangedFiles(caseDir, family, round, dir);
           const runDir = path.join(caseDir, arm, run);
           const lists = readLists(tools, session.cwd);
-          entry.readScope = readScope(toolCalls, { runDir, round, changedFiles, ...session, lists });
+          const heldSkills = pluginSkills([...session.pluginRoots, ...session.skillRoots]);
+          entry.readScope = readScope(toolCalls, { runDir, round, changedFiles, ...session, heldSkills, lists });
         }
         const ownDiff = ownDiffFile(reviewer, round === undefined || round === 1 ? caseFolder : path.resolve(dir));
         const coverage = ownDiff === null ? null : diffCoverage(tools, ownDiff, session.cwd);
