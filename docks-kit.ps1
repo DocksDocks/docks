@@ -1,7 +1,5 @@
-# docks-kit.ps1 - Windows launcher. Resolution order:
-#   1. version-matching compiled binary in cli/dist/ (bun build --compile output)
-#   2. Bun from source (auto-installs Bun + node_modules when missing)
-# No-Bun recovery path: download a release binary for your platform.
+# docks-kit.ps1 - Windows checkout launcher. It runs cli\src\main.ts with Bun
+# and installs Bun and node_modules when they are missing.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -15,6 +13,8 @@ $BunPin = "1.4.4"
 $BunFloor = "1.4.4"
 # END GENERATED BUN FLOOR
 
+# Reject an unsupported host before the Bun install, so that the user gets
+# one clear message instead of a failed download or a failed source run.
 $ProcessorArchitecture = if (-not [string]::IsNullOrWhiteSpace($env:PROCESSOR_ARCHITEW6432)) {
   $env:PROCESSOR_ARCHITEW6432
 } else {
@@ -23,63 +23,12 @@ $ProcessorArchitecture = if (-not [string]::IsNullOrWhiteSpace($env:PROCESSOR_AR
 if ([string]::IsNullOrWhiteSpace($ProcessorArchitecture)) {
   $ProcessorArchitecture = '<unknown>'
 }
-$KitBin = switch ($ProcessorArchitecture) {
-  'AMD64' { 'docks-kit-windows-x64.exe' }
+switch ($ProcessorArchitecture) {
+  'AMD64' { }
   default {
     $HostName = "Windows-$ProcessorArchitecture"
     [Console]::Error.WriteLine("[docks-kit] unsupported host $HostName; docks-kit supports Linux on x64 and arm64, macOS on arm64, and Windows on x64.")
     exit 1
-  }
-}
-
-$KitPath = Join-Path (Join-Path $RepoDir 'cli\dist') $KitBin
-if (Test-Path -LiteralPath $KitPath -PathType Leaf) {
-  $CheckoutVersion = ''
-  try {
-    $Manifest = Get-Content -LiteralPath (Join-Path $RepoDir 'package.json') -Raw | ConvertFrom-Json
-    if ($Manifest.version -is [string]) {
-      $CheckoutVersion = $Manifest.version
-    }
-  } catch {
-    $CheckoutVersion = ''
-  }
-
-  $BinVersion = ''
-  try {
-    $BinOutput = & $KitPath --version 2>$null
-    if ($LASTEXITCODE -eq 0) {
-      $BinVersion = ([string]($BinOutput -join "`n")).TrimEnd("`r")
-    }
-  } catch {
-    $BinVersion = ''
-  }
-
-  if (-not [string]::IsNullOrEmpty($CheckoutVersion) -and $BinVersion -eq $CheckoutVersion) {
-    # A matching version does not prove matching content. Unreleased work does
-    # not move package.json, so a binary compiled before it still reports the
-    # checkout version and would silently shadow the source it predates.
-    # The binary also embeds the cli/docs topics, so scan both trees.
-    $NewerSource = $null
-    $ScanDirs = @(
-      @((Join-Path $RepoDir 'cli\src'), (Join-Path $RepoDir 'cli\docs')) |
-        Where-Object { Test-Path -LiteralPath $_ -PathType Container }
-    )
-    if ($ScanDirs.Count -gt 0) {
-      $BinWritten = (Get-Item -LiteralPath $KitPath).LastWriteTimeUtc
-      $NewerSource = Get-ChildItem -LiteralPath $ScanDirs -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.LastWriteTimeUtc -gt $BinWritten } |
-        Select-Object -First 1
-    }
-    if ($null -eq $NewerSource) {
-      & $KitPath @args
-      exit $LASTEXITCODE
-    }
-    $NewerRelative = $NewerSource.FullName.Substring($RepoDir.Length).TrimStart('\', '/')
-    [Console]::Error.WriteLine("[docks-kit] ignoring cli/dist/$KitBin; $NewerRelative is newer than the binary - running from source; run 'bun run build:binaries' to refresh it or delete it")
-  } else {
-    $DisplayedBinVersion = if ([string]::IsNullOrEmpty($BinVersion)) { '<unknown>' } else { $BinVersion }
-    $DisplayedCheckoutVersion = if ([string]::IsNullOrEmpty($CheckoutVersion)) { '<unknown>' } else { $CheckoutVersion }
-    [Console]::Error.WriteLine("[docks-kit] ignoring stale cli/dist/$KitBin $DisplayedBinVersion; checkout is $DisplayedCheckoutVersion - running from source; run 'bun run build:binaries' to refresh it or delete it")
   }
 }
 
@@ -115,13 +64,13 @@ if ($null -eq $Bun) {
     # upstream documents, matching os/windows.ts bunInstaller.
     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $TempInstaller -Version $BunPin *> $null
   } catch {
-    # The recovery guidance below is shared by download and installer failures.
+    # The install guidance below is shared by download and installer failures.
   } finally {
     Remove-Item -LiteralPath $TempInstaller -Force -ErrorAction SilentlyContinue
   }
   $Bun = Find-Bun
   if ($null -eq $Bun) {
-    [Console]::Error.WriteLine('[docks-kit] Bun install failed. Download a docks-kit release binary for a no-Bun recovery path.')
+    [Console]::Error.WriteLine('[docks-kit] Bun install failed. Install Bun manually from https://bun.sh, then run docks-kit again.')
     exit 1
   }
 }

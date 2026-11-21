@@ -5,7 +5,6 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,8 +23,8 @@ const roots: Array<string> = [];
 const currentHost = hostOs().id;
 const POSIX_LAUNCHER_APPLIES = currentHost === "linux" || currentHost === "darwin";
 const launcherSuiteLabel = POSIX_LAUNCHER_APPLIES
-  ? "checkout launcher binary selection"
-  : "checkout launcher binary selection (skipped: docks-kit is a POSIX artifact and does not apply to this host)";
+  ? "checkout launcher source launch"
+  : "checkout launcher source launch (skipped: docks-kit is a POSIX artifact and does not apply to this host)";
 
 function launcherFixture(
   binaryName: string,
@@ -112,38 +111,6 @@ afterEach(() => {
 });
 
 describe.skipIf(!POSIX_LAUNCHER_APPLIES)(launcherSuiteLabel, () => {
-  it("falls through to the current checkout source when dist is stale", () => {
-    const fixture = launcherFixture("docks-kit-linux-x64", "0.4.0");
-    const platform = { system: "Linux", machine: "x86_64" };
-
-    const version = runLauncher(fixture, platform, ["--version"]);
-    const routed = runLauncher(fixture, platform, ["toolchain", "check", "--verbose"]);
-
-    expect(version.status).toBe(0);
-    expect(version.stdout.trim()).toBe(CURRENT_VERSION);
-    expect(routed.status).toBe(0);
-    expect(routed.stdout.trim()).toBe("source:toolchain check --verbose");
-    expect(routed.stderr).toContain(
-      "ignoring stale cli/dist/docks-kit-linux-x64 0.4.0; checkout is",
-    );
-    expect(routed.stderr).toContain("run 'bun run build:binaries' to refresh it or delete it");
-    expect(
-      readFileSync(join(fixture.root, "cli", "dist", "docks-kit-linux-x64"), "utf8"),
-    ).toContain("compiled:");
-  });
-
-  it("falls through to source when the compiled binary prints no version", () => {
-    const fixture = launcherFixture("docks-kit-linux-x64", null);
-    const result = runLauncher(fixture, { system: "Linux", machine: "x86_64" }, ["probe"]);
-
-    expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("source:probe");
-    expect(
-      readFileSync(join(fixture.root, "cli", "dist", "docks-kit-linux-x64"), "utf8"),
-    ).toContain("compiled:");
-    expect(result.stderr).toContain("ignoring stale cli/dist/docks-kit-linux-x64 <unknown>");
-  });
-
   it.each([BUN_FLOOR, "1.10.0", "2.0.0", `${BUN_FLOOR}-canary.1+build`, "unparseable"])(
     "accepts Bun %s before installing checkout dependencies",
     (bunVersion) => {
@@ -182,64 +149,19 @@ describe.skipIf(!POSIX_LAUNCHER_APPLIES)(launcherSuiteLabel, () => {
     expect(result.stdout.trim()).toBe("source:probe");
   });
 
-  it("fails closed when the checkout version cannot be parsed", () => {
+  // docks-kit runs through Bun only, so a binary that an older checkout built
+  // in cli/dist stays on disk and never runs (plan #195).
+  it("runs the checkout source even when a version-matching binary in cli/dist is newer than every source file", () => {
     const fixture = launcherFixture("docks-kit-linux-x64", CURRENT_VERSION);
-    const packagePath = join(fixture.root, "package.json");
-    const manifest = JSON.parse(readFileSync(packagePath, "utf8")) as Record<string, unknown>;
-    manifest["version"] = 7;
-    writeFileSync(packagePath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const binary = join(fixture.root, "cli", "dist", "docks-kit-linux-x64");
+    const planted = readFileSync(binary, "utf8");
 
     const result = runLauncher(fixture, { system: "Linux", machine: "x86_64" }, ["probe"]);
 
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe("source:probe");
-    expect(result.stderr).toContain("checkout is <unknown>");
-  });
-
-  it.each([
-    ["Linux", "x86_64", "docks-kit-linux-x64"],
-    ["Linux", "aarch64", "docks-kit-linux-arm64"],
-    ["Darwin", "arm64", "docks-kit-darwin-arm64"],
-  ])("keeps a matching %s-%s release binary on the fast path", (system, machine, binaryName) => {
-    const fixture = launcherFixture(binaryName, CURRENT_VERSION);
-    const result = runLauncher(fixture, { system, machine }, ["probe"]);
-
-    expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("compiled:probe");
     expect(result.stderr).toBe("");
-  });
-
-  // An unreleased change does not move package.json, so a binary compiled
-  // before it still reports the checkout version. Without a content check the
-  // launcher runs code that predates the source and reports a false result.
-  it("ignores a version-matching binary that predates a source file", () => {
-    const fixture = launcherFixture("docks-kit-linux-x64", CURRENT_VERSION);
-    const source = join(fixture.root, "cli", "src", "main.ts");
-    const future = new Date(Date.now() + 60_000);
-    utimesSync(source, future, future);
-
-    const result = runLauncher(fixture, { system: "Linux", machine: "x86_64" }, ["probe"]);
-
-    expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("source:probe");
-    expect(result.stderr).toContain("cli/src/main.ts is newer than the binary");
-  });
-
-  // The compiled binary embeds the cli/docs topics through text imports, so a
-  // docs-only change also makes a version-matching binary stale.
-  it("ignores a version-matching binary that predates a docs topic", () => {
-    const fixture = launcherFixture("docks-kit-linux-x64", CURRENT_VERSION);
-    const topic = join(fixture.root, "cli", "docs", "overview.md");
-    mkdirSync(join(fixture.root, "cli", "docs"), { recursive: true });
-    writeFileSync(topic, "# overview\n");
-    const future = new Date(Date.now() + 60_000);
-    utimesSync(topic, future, future);
-
-    const result = runLauncher(fixture, { system: "Linux", machine: "x86_64" }, ["probe"]);
-
-    expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("source:probe");
-    expect(result.stderr).toContain("cli/docs/overview.md is newer than the binary");
+    expect(readFileSync(binary, "utf8")).toBe(planted);
   });
 
   it.each([

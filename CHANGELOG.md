@@ -1,31 +1,27 @@
 # Changelog
 
-## Unreleased - docks-kit 0.26.1: faster start of the compiled binaries
+## Unreleased - docks-kit 0.27.0: Bun-only; no compiled binaries
 
-The four release binaries embed their compiled bytecode, so a launch no
-longer parses the 2.7 MB program (DocksDocks/docks-kit#188, plan #191).
-These changes come from plan DocksDocks/docks-kit#189.
+docks-kit now runs only through Bun: the npm package runs the Bun bundle
+`cli/dist/docks-kit.js`, and a checkout runs its source through the launchers.
+The kit no longer builds, tests, or releases compiled binaries
+(DocksDocks/docks-kit#195). These changes come from plan
+DocksDocks/docks-kit#189 and plan #195.
 
-### Changed
+### Removed
 
-- `cli/build-binaries.sh` and `smoke:native` compile with
-  `--compile --minify --bytecode --format=esm`, the `COMPILE_FLAGS` of
-  `cli/src/engine-native/os/targets.ts`. Measured with Bun 1.4.4 on Linux
-  x64, median of 25 runs:
-
-  | Binary | Size before, bytes | Size after, bytes | `--version` before | `--version` after |
-  |---|---|---|---|---|
-  | `docks-kit-linux-x64` | 111,581,360 | 118,765,744 | 58.5 ms | 25.5 ms |
-  | `docks-kit-linux-arm64` | 111,660,024 | 118,868,984 | - | - |
-  | `docks-kit-darwin-arm64` | 91,636,706 | 98,868,962 | - | - |
-  | `docks-kit-windows-x64.exe` | 117,728,768 | 124,905,472 | - | - |
-
-  The Bun runtime is about 109 MB of each binary. Bun's `--trim` option,
-  which removes unused runtime parts, is in no stable Bun release yet.
-- `smoke:native` fails when the binary runs without its embedded bytecode.
-  It checks for the `[Disk Cache] Cache hit for sourceCode` line that
-  `BUN_JSC_verboseDiskCache=1` prints, so a Bun update that silently
-  ignores the bytecode fails CI.
+- The four compiled release binaries and their `SHA256SUMS`. A GitHub release
+  now attaches only the bundle source map `docks-kit.js.map`; npm still
+  publishes the package with provenance. Earlier releases keep their assets.
+- `cli/build-binaries.sh`, `bun run build:binaries`, and `bun run smoke:native`,
+  with their CI steps and tests. The bytecode build of plan #191, which never
+  shipped in a release, goes with them.
+- The binary selection of the checkout launchers `docks-kit` and
+  `docks-kit.ps1`. They reject an unsupported host, then run the source with
+  Bun. A binary that an older checkout built in `cli/dist/` stays on disk and
+  never runs.
+- The compiled-binary branch of `docks-kit update`, and the kit-home lookup in
+  the folder of the executable, which only a compiled binary used.
 
 ### Fixed
 

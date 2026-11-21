@@ -3,9 +3,8 @@ import { Console, Effect } from "effect";
 import type { SpawnSyncOptions, SpawnSyncReturns } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { bail, compiled } from "../engine";
+import { bail } from "../engine";
 import { kitHome } from "../kitHome";
-import { DEPENDENCIES, defaultProbeExecutor, resolvePath } from "../engine-native/deps";
 import { p, spawnHost } from "../engine-native/exec";
 import { hostOs, type HostOs } from "../engine-native/os";
 
@@ -204,32 +203,6 @@ export const packageUpdateResult = (
   return { alreadyCurrent: false, message: `Updated ${before} -> ${after}.` };
 };
 
-export type UpdateBunCommand =
-  | { readonly ok: true; readonly command: string }
-  | { readonly ok: false; readonly diagnostic: string };
-
-/**
- * The Bun that reinstalls checkout dependencies. The source path always runs
- * under Bun, and the launcher may have picked a Bun that is not on PATH, so it
- * reuses `execPath`. A compiled binary resolves Bun like the dependency probe:
- * PATH, then $BUN_INSTALL/bin, then ~/.bun/bin.
- */
-export const updateBunCommand = async (
-  isCompiled: boolean,
-  execPath: string,
-  home: string,
-  resolveBun: () => Promise<string> = () => resolvePath(DEPENDENCIES.bun, defaultProbeExecutor),
-): Promise<UpdateBunCommand> => {
-  if (!isCompiled) return { ok: true, command: execPath };
-  const resolved = await resolveBun();
-  return resolved === ""
-    ? {
-        ok: false,
-        diagnostic: `dependencies changed but Bun was not found - run 'bun install --frozen-lockfile' in ${home}, then docks-kit sync`,
-      }
-    : { ok: true, command: resolved };
-};
-
 export const updateCheckout = (home: string, skipSync: boolean, spawn: UpdateSpawn = spawnHost) =>
   Effect.gen(function* () {
     if (spawn("git", ["--version"], { stdio: "ignore" }).status !== 0) {
@@ -269,9 +242,8 @@ export const updateCheckout = (home: string, skipSync: boolean, spawn: UpdateSpa
 
       const touched = git(spawn, home, ["diff", "--name-only", before, after]).out.split("\n");
       if (touched.includes("bun.lock") || touched.includes("package.json")) {
-        const bun = yield* Effect.promise(() => updateBunCommand(compiled, process.execPath, home));
-        if (!bun.ok) return yield* bail(bun.diagnostic, 1);
-        const res = spawn(bun.command, ["install", "--frozen-lockfile"], {
+        // The launcher may run a Bun that is not on PATH, so reuse the running one.
+        const res = spawn(process.execPath, ["install", "--frozen-lockfile"], {
           cwd: home,
           stdio: "inherit",
         });
@@ -288,13 +260,6 @@ export const updateCheckout = (home: string, skipSync: boolean, spawn: UpdateSpa
       );
     }
 
-    if (compiled) {
-      return yield* Console.log(
-        changed
-          ? "This compiled binary still runs the previous version - the checkout launcher will use updated source next time. Run: ./docks-kit sync (rebuild with bash cli/build-binaries.sh to restore the binary fast path)."
-          : "This compiled binary cannot chain the sync. Run: ./docks-kit sync",
-      );
-    }
     if (skipSync)
       return yield* Console.log(
         changed ? "Kit updated. Run: docks-kit sync" : "Run: docks-kit sync",
@@ -366,7 +331,7 @@ export const updateCommand = Command.make("update", { noSync }, (config) =>
       return yield* updatePackage(home, config.noSync);
     }
     return yield* bail(
-      `kit home ${home} is neither a git checkout nor a global package install - update it the way it was installed (e.g. download the latest release binary)`,
+      `kit home ${home} is neither a git checkout nor a global package install - reinstall the kit as a git checkout or with 'bun add -g docks-kit'`,
     );
   }),
 ).pipe(

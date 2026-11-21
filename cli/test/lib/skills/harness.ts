@@ -41,8 +41,7 @@ export function runtimeStderr(fx: Fixture, sub = ""): string {
 /**
  * A run whose runtime writes its own stderr (decision 1a (2)): status and stdout exactly; stderr holds `runtime`
  * exactly once, and without it equals `stderr` exactly. Bun writes its text when its event loop reaches it, before or
- * after the command's own writes, so the check pins no order. With no runtime text (a compiled binary), stderr equals
- * `stderr`.
+ * after the command's own writes, so the check pins no order. With no runtime text, stderr equals `stderr`.
  */
 export function expectRuntimeRun(
   result: SkillResult,

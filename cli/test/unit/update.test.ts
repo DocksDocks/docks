@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
-import type { SpawnSyncReturns } from "node:child_process";
+import type { SpawnSyncOptions, SpawnSyncReturns } from "node:child_process";
 import {
   packageManagerForHome,
   packageUpdateResult,
   resolveGlobalPackageHome,
   samePackageHome,
-  updateBunCommand,
   updateCheckout,
   updatePackage,
 } from "../../src/commands/update";
@@ -399,6 +398,120 @@ describe("chained sync entry", () => {
   });
 });
 
+interface RecordedCwdSpawn extends RecordedSpawn {
+  readonly cwd: string | undefined;
+}
+
+/** A spawn that records each call with its cwd and answers with the scripted stdout and status. */
+const cwdRecordingSpawn =
+  (
+    calls: Array<RecordedCwdSpawn>,
+    stdoutFor: (command: string, args: ReadonlyArray<string>) => string,
+    statusFor: (command: string, args: ReadonlyArray<string>) => number = () => 0,
+  ) =>
+  (
+    command: string,
+    args: ReadonlyArray<string>,
+    options?: SpawnSyncOptions,
+  ): SpawnSyncReturns<string> => {
+    calls.push({ command, args: [...args], cwd: options?.cwd?.toString() });
+    return {
+      pid: 1,
+      output: [],
+      stdout: stdoutFor(command, args),
+      stderr: "",
+      status: statusFor(command, args),
+      signal: null,
+    };
+  };
+
+const BEFORE_HEAD = "0123456789abcdef0123456789abcdef01234567";
+const AFTER_HEAD = "89abcdef0123456789abcdef0123456789abcdef";
+
+/** A clean checkout whose pull moves HEAD and whose diff lists the named files. */
+const movedCheckoutStdout = (touched: ReadonlyArray<string>) => {
+  let headQueries = 0;
+  return (_command: string, args: ReadonlyArray<string>): string => {
+    if (args.includes("@{u}")) return "origin/main";
+    if (args.at(-1) === "HEAD") return headQueries++ === 0 ? BEFORE_HEAD : AFTER_HEAD;
+    if (args.includes("--count")) return "1";
+    if (args.includes("--name-only")) return [...touched, "README.md"].join("\n");
+    return "";
+  };
+};
+
+const isInstall = (call: RecordedSpawn): boolean =>
+  call.command === process.execPath && call.args.join(" ") === "install --frozen-lockfile";
+
+describe("checkout dependency reinstall", () => {
+  it.each(["package.json", "bun.lock"])(
+    "reinstalls in the checkout before the chained sync when the pull changes %s",
+    async (file) => {
+      const home = scratchRoot("deps");
+      vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const calls: Array<RecordedCwdSpawn> = [];
+      await Effect.runPromise(
+        updateCheckout(home, false, cwdRecordingSpawn(calls, movedCheckoutStdout([file]))),
+      );
+      expect(calls.filter((call) => call.command === process.execPath)).toEqual([
+        { command: process.execPath, args: ["install", "--frozen-lockfile"], cwd: home },
+        {
+          command: process.execPath,
+          args: [join(home, "cli", "src", "main.ts"), "sync"],
+          cwd: undefined,
+        },
+      ]);
+    },
+  );
+
+  it("chains the sync without a reinstall when the pull changes no dependency file", async () => {
+    const home = scratchRoot("nodeps");
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const calls: Array<RecordedCwdSpawn> = [];
+    await Effect.runPromise(
+      updateCheckout(home, false, cwdRecordingSpawn(calls, movedCheckoutStdout(["cli/src/a.ts"]))),
+    );
+    expect(calls.some((call) => call.args.includes("--name-only"))).toBe(true);
+    expect(calls.some(isInstall)).toBe(false);
+    expect(calls.at(-1)).toEqual({
+      command: process.execPath,
+      args: [join(home, "cli", "src", "main.ts"), "sync"],
+      cwd: undefined,
+    });
+  });
+
+  it("fails without a chained sync when the reinstall fails", async () => {
+    const home = scratchRoot("depsfail");
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const errors: Array<string> = [];
+    vi.spyOn(console, "error").mockImplementation((...args: Array<unknown>) => {
+      errors.push(args.map(String).join(" "));
+    });
+    vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`process.exit(${String(code)})`);
+    });
+    const calls: Array<RecordedCwdSpawn> = [];
+    await expect(
+      Effect.runPromise(
+        updateCheckout(
+          home,
+          false,
+          cwdRecordingSpawn(calls, movedCheckoutStdout(["bun.lock"]), (command, args) =>
+            isInstall({ command, args }) ? 1 : 0,
+          ),
+        ),
+      ),
+    ).rejects.toThrow("process.exit(1)");
+    expect(errors).toEqual([
+      `dependencies changed but 'bun install --frozen-lockfile' failed - fix the error, then run 'bun install --frozen-lockfile' in ${home} and docks-kit sync`,
+    ]);
+    expect(calls.filter(isInstall)).toEqual([
+      { command: process.execPath, args: ["install", "--frozen-lockfile"], cwd: home },
+    ]);
+    expect(calls.some((call) => call.args.at(-1) === "sync")).toBe(false);
+  });
+});
+
 describe("package update result", () => {
   it.each([
     [
@@ -455,31 +568,6 @@ describe("package home comparison", () => {
 
   it("keeps a POSIX backslash as a filename character", () => {
     expect(samePackageHome("/a\\b", "/a/b", hostOs("linux"))).toBe(false);
-  });
-});
-
-describe("checkout dependency reinstall Bun", () => {
-  it("uses the running Bun for the source path without consulting PATH", async () => {
-    const resolveBun = vi.fn(async () => "/usr/bin/bun");
-    expect(await updateBunCommand(false, "/x/.bun/bin/bun", "/kit", resolveBun)).toEqual({
-      ok: true,
-      command: "/x/.bun/bin/bun",
-    });
-    expect(resolveBun).not.toHaveBeenCalled();
-  });
-
-  it("uses the resolved Bun for a compiled binary", async () => {
-    expect(
-      await updateBunCommand(true, "/opt/docks-kit", "/kit", async () => "/x/.bun/bin/bun"),
-    ).toEqual({ ok: true, command: "/x/.bun/bin/bun" });
-  });
-
-  it("names the manual reinstall when a compiled binary finds no Bun", async () => {
-    expect(await updateBunCommand(true, "/opt/docks-kit", "/kit", async () => "")).toEqual({
-      ok: false,
-      diagnostic:
-        "dependencies changed but Bun was not found - run 'bun install --frozen-lockfile' in /kit, then docks-kit sync",
-    });
   });
 });
 

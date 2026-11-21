@@ -103,29 +103,6 @@ describe("resolveKitHome", () => {
     }
   });
 
-  it("prefers the exec path over cwd when the module path is virtual or absent", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "docks-kit-resolve-")));
-    try {
-      const root = join(dir, "checkout");
-      const cwdRoot = join(dir, "outside");
-      createKitRoot(root, "cli/dist");
-      createKitRoot(cwdRoot, "work/tree");
-
-      for (const moduleDir of ["/$bunfs/root", undefined]) {
-        expect(
-          resolveKitHome({
-            env: undefined,
-            moduleDir,
-            execPath: join(root, "cli", "dist", "docks-kit-linux-x64"),
-            cwd: join(cwdRoot, "work", "tree"),
-          }),
-        ).toBe(root);
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
   it("ignores a non-kit module package and finds the working directory kit root", () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "docks-kit-resolve-")));
     try {

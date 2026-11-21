@@ -21,12 +21,6 @@ const requireSupportedHost = () => {
       );
 };
 
-// In a compiled executable process.execPath IS the CLI, so a re-spawn must
-// not pass main.ts. Guarded because the unit suite imports this module under
-// Node, where the `Bun` global is absent; only a Bun-hosted standalone
-// executable can be compiled, so absence means false.
-export const compiled: boolean = typeof Bun !== "undefined" && Bun.isStandaloneExecutable === true;
-
 const failureMessage = (error: unknown): string => {
   if (error instanceof Error && error.message !== "") return error.message;
   return typeof error === "string" && error !== "" ? error : "unknown error";

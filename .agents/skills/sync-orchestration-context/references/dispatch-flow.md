@@ -20,9 +20,8 @@
 
 ```text
 ./docks-kit
-|-- cli/dist/docks-kit-<os>-<arch>  preferred only when binary version matches package.json
-|                                   and no file under cli/src or cli/docs is newer than it
-`-- Bun from source
+|-- reject a host outside the support matrix
+`-- Bun from source                  never a file in cli/dist/
     |-- find_bun and bootstrap Bun when needed
     |-- bun install --frozen-lockfile when node_modules/effect is absent
     `-- bun cli/src/main.ts "$@"
@@ -37,9 +36,9 @@
 
 `kitHome()` (`kitHome.ts resolveKitHome`) identifies a kit root by a
 `package.json` whose `name` is `docks-kit`. It checks `DOCKS_KIT_HOME` first.
-Next, it takes the nearest such ancestor of the module directory, the
-executable directory, or the cwd, in that order. Last, it falls back to the
-executable directory. `ctx.repoDir` holds the result for display only.
+Next, it takes the nearest such ancestor of the module directory or the cwd,
+in that order. Last, it falls back to the executable directory.
+`ctx.repoDir` holds the result for display only.
 `kitHome()` also selects the update target (`commands/update.ts`) and the
 checkout that `commands/sync.ts updateNudge` checks. `updateNudge` starts
 `git` through `exec.ts spawnHost`, so a Windows host never runs a `git.exe`

@@ -74,8 +74,8 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color
 
-  # Portable lane proves the typed CLI and the native host artifact on Linux
-  # and macOS. The Windows jobs below run the same lane.
+  # Portable lane proves the typed CLI and the npm package on Linux and macOS.
+  # The Windows jobs below run the same lane.
   portable:
     permissions:
       contents: read
@@ -123,11 +123,6 @@ jobs:
           BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
         run: bun run smoke:package
 
-      - name: Compile and execute the native host artifact
-        env:
-          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
-        run: bun run smoke:native
-
   # Windows unit tests in two Vitest shards. One Windows job ran every step
   # in series and was the longest leg (`pull_request` median 111 s, p90
   # 118 s over 27 warm runs); its unit-test step alone took a median of 68 s
@@ -160,9 +155,9 @@ jobs:
           BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
         run: bun run test:unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
-  # Every Windows step except the unit tests. The checks and the native smoke
-  # do not read the unit-test bundle, so they run on their own runner in
-  # parallel with the shards.
+  # Every Windows step except the unit tests. The checks do not read the
+  # unit-test bundle, so they run on their own runner in parallel with the
+  # shards.
   portable-windows-checks:
     name: portable (windows-2025) checks
     permissions:
@@ -191,11 +186,6 @@ jobs:
         env:
           BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
         run: bun run typecheck
-
-      - name: Compile and execute the native host artifact
-        env:
-          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
-        run: bun run smoke:native
 
       # install.ps1 installs the CLI with `bun add -g` and runs the Bun shim
       # $BUN_INSTALL\bin\docks-kit.exe, which runs the bundle that bin names.

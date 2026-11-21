@@ -204,15 +204,16 @@ active logger binding.
   output, and the channel and migration invariants to
   `cli/test/goldens/mutation.json`.
 - `.github/workflows/parity.yml` runs its portable lane on `ubuntu-24.04` and
-  `macos-26`: generated-payload check, typecheck, unit tests, a clean-room
-  package install smoke, and compilation and execution of the native host
-  artifact. On `windows-2025`, two unit-test shards and the
-  `portable-windows-checks` job (generated-payload check, typecheck, native
-  artifact) run in parallel. The check `portable (windows-2025)` passes only
-  when all three pass. The Linux-canonical snapshot lane stays on Ubuntu and
-  runs both golden suites plus their prove-red checks.
-- `.github/workflows/release-cli.yml` publishes four binaries (Linux x64 and
-  arm64, macOS arm64, Windows x64), plus `SHA256SUMS` and the npm package.
+  `macos-26`: generated-payload check, typecheck, unit tests, and a clean-room
+  package install smoke. On `windows-2025`, two unit-test shards and the
+  `portable-windows-checks` job (generated-payload check, typecheck, and a
+  global install that runs the bundle) run in parallel. The check
+  `portable (windows-2025)` passes only when all three pass. The
+  Linux-canonical snapshot lane stays on Ubuntu and runs both golden suites
+  plus their prove-red checks.
+- `.github/workflows/release-cli.yml` attaches the bundle's source map
+  `docks-kit.js.map` to the GitHub release and publishes the npm package with
+  provenance.
 
 ## Non-Goals
 

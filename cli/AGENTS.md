@@ -11,7 +11,6 @@ suites in `cli/test/`. It also holds the SoT notes. Read this file before you ed
 
 | Path | Purpose |
 |------|---------|
-| `cli/build-binaries.sh` | Compiles the four release binaries (`docks-kit-linux-x64`, `docks-kit-linux-arm64`, `docks-kit-darwin-arm64`, `docks-kit-windows-x64.exe`) with `COMPILE_FLAGS` of `cli/src/engine-native/os/targets.ts`, which embed the bytecode (`--bytecode --format=esm`), so a launch skips the source parse; `smoke:native` compiles with the same flags and fails when the binary runs without that bytecode. It checksums the four known artifact names rather than globbing `docks-kit-*`, so a packed `docks-kit-<version>.tgz` is never attested as a release binary. It stamps `cli/dist/VERSION` only when the directory holds one version, and on the next build discards every artifact that stamp attributes to a different version, because a launcher refuses to run one and keeping it makes `SHA256SUMS` span two versions. An artifact with no stamp has unknown provenance and may be a hand-built or downloaded recovery binary, so the script keeps it and warns; `--prune` discards those too. Nothing here removes an artifact the stamp vouches for. |
 | `cli/src/engine-native/` | EngineNative implementation for `sync` and `toolchain`; idempotent |
 | `cli/src/engine-native/ompSync.ts` | omp sync orchestration and summary |
 | `cli/src/commands/omp.ts` | `docks-kit omp` session launcher: rejects model-selecting forwarded flags, checks the free catalog of each candidate profile, renders the free-model run overlay, and starts `omp launch` |
@@ -91,7 +90,7 @@ The spawning suites launch a prebuilt bundle of `cli/src/main.ts`. The build run
 
 ## Gotchas
 
-- The launchers skip a `cli/dist/` binary when any file under `cli/src/` or `cli/docs/` is newer than the binary, a Markdown file included. Keep instruction files out of those two trees (verify: `grep -n 'scan_dir' docks-kit`; probe: `cli/test/unit/launcher.test.ts` plants a newer `cli/docs/overview.md` and asserts the warning).
+- The checkout launchers run `cli/src/main.ts` with Bun and never run a file in `cli/dist/`, so a binary that an older checkout built stays on disk and never shadows the source (verify: `grep -n 'main.ts' docks-kit docks-kit.ps1`; probe: `cli/test/unit/launcher.test.ts` plants a version-matching binary in `cli/dist/` that is newer than every source file and asserts that the source runs).
 - `package.json` `files` publishes `cli/src` and `cli/docs`, so a file there ships in the npm package (verify: `jq .files package.json`).
 - `format:check` runs `bun fmt` on `cli/src`, `cli/test`, and `cli/scripts`, and `bun fmt` also checks Markdown (probe: `bun fmt --no-script --check AGENTS.md` reports the root file).
 
@@ -100,4 +99,4 @@ trust the stated purpose and re-locate it (grep the symbol) before acting.
 
 <!-- machine-readable drift aid — `audit` reads `sources:` to scope its content check -->
 ## tree (metadata)
-- sources: `cli/build-binaries.sh`, `cli/src/engine-native/` (ompSync, ompOverlay, scratch, tidy, tidyReport, ompKitPlugin, ompPlugins, ompFileDeploy, ompYaml, ompRemovals, sharedTypes.d, kitDb, kitLock, processes, failures, syncDispatch, ompSession), `cli/src/commands/omp.ts`, `cli/src/commands/scratch.ts`, `cli/src/commands/tidy.ts`, `cli/src/engine.ts`, `cli/test/fixtures/`, `cli/test/lib/cliEntry.ts`, `cli/test/unit/launcher.test.ts`, `cli/src/commands/docs.ts`, `cli/src/engine-native/DESIGN.md`, `package.json`, `docks-kit`, `SoT/.omp/`, `SoT/toolchain.json`, `cli/docs/`
+- sources: `cli/src/engine-native/` (ompSync, ompOverlay, scratch, tidy, tidyReport, ompKitPlugin, ompPlugins, ompFileDeploy, ompYaml, ompRemovals, sharedTypes.d, kitDb, kitLock, processes, failures, syncDispatch, ompSession), `cli/src/commands/omp.ts`, `cli/src/commands/scratch.ts`, `cli/src/commands/tidy.ts`, `cli/src/engine.ts`, `cli/test/fixtures/`, `cli/test/lib/cliEntry.ts`, `cli/test/unit/launcher.test.ts`, `cli/src/commands/docs.ts`, `cli/src/engine-native/DESIGN.md`, `package.json`, `docks-kit`, `SoT/.omp/`, `SoT/toolchain.json`, `cli/docs/`
