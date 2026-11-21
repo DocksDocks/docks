@@ -39,8 +39,10 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04 # pinned label, never *-latest
-    # 3 x (p90 57 s + 9 s cold setup) = 198 s, rounded up.
-    timeout-minutes: 4
+    # 3 x (gate 215 s + 9 s cold setup) = 672 s, rounded up. The gate time is
+    # the first run with the review-benchmark suite (PR #197); before it, the
+    # p90 was 57 s.
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         # The review-benchmark suite checks which case commits origin/main

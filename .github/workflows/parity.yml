@@ -89,10 +89,6 @@ jobs:
     timeout-minutes: ${{ matrix.os == 'macos-26' && 6 || 3 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        # The review-benchmark suite checks which case commits origin/main
-        # reaches, so it needs full history and origin/main.
-        with:
-          fetch-depth: 0
 
       - uses: ./.github/actions/setup-bun-cache
 
@@ -120,7 +116,9 @@ jobs:
       - name: Unit tests (vitest)
         env:
           BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
-        run: bun run test:unit
+        # The check job already runs the Linux-only review-benchmark project
+        # on the same Ubuntu image, so this job runs the portable projects.
+        run: bun run test:unit --project unit --project backstop
 
       - name: Clean-room package install smoke
         env:
