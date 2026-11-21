@@ -36,11 +36,14 @@ binary does not chain the sync. A global npm install needs nothing.
 ## 2. Global via Bun
 
 ```
-bun add -g docks-kit@latest
+bun add -g --no-cache docks-kit@latest
 docks-kit sync
 # or one-shot, no install:
 bunx docks-kit toolchain check
 ```
+
+`--no-cache` makes Bun fetch the package data again. Without it, a Bun cache
+from before a release can resolve `docks-kit@latest` to the older release.
 
 The npm package runs one minified JavaScript bundle of the CLI and its generated
 in-memory payload (`cli/dist/docks-kit.js`) — releases are versioned config
@@ -74,7 +77,7 @@ tmp="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/DocksDocks/docks
 
 Download-then-run, never `curl | bash` — stream truncation has bitten this
 kit before. The installer bootstraps Bun when absent, runs
-`bun add -g docks-kit@latest`, and links the CLI and Bun into `~/.local/bin`.
+`bun add -g --no-cache docks-kit@latest`, and links the CLI and Bun into `~/.local/bin`.
 This installer serves the two POSIX platforms. Windows uses the PowerShell
 installer below.
 
@@ -88,7 +91,7 @@ Remove-Item "$env:TEMP\docks-kit-install.ps1"
 
 Download the script before execution. Never stream it into PowerShell. The
 installer bootstraps Bun when absent. It then runs
-`bun add -g docks-kit@latest` and runs `docks-kit --version` from Bun's global
+`bun add -g --no-cache docks-kit@latest` and runs `docks-kit --version` from Bun's global
 bin directory (`%USERPROFILE%\.bun\bin` by default). The CLI stays in that
 directory, because Bun's `docks-kit.exe` shim cannot run without the
 `docks-kit.bunx` file next to it. When the directory is not on `PATH`, the
@@ -124,7 +127,8 @@ Autodetection: a kit home with `.git` is a checkout (requires a clean
 worktree and an upstream; `git pull --ff-only`, then re-runs
 `bun install --frozen-lockfile` when the pull changed `bun.lock` or
 `package.json`); a kit home under `node_modules` is a global package
-(`bun add -g` / `npm install -g docks-kit@latest`). The chained sync is a
+(`bun add -g --no-cache docks-kit@latest` / `npm install -g --prefer-online docks-kit@latest`,
+so a package cache from before a release cannot keep the old version). The chained sync is a
 plain flag-less `docks-kit sync`. It also refreshes plugins, even when the kit
 is already current: it moves `pi-intercom` to its pinned version. Pass
 `--no-sync`, then run `docks-kit sync --skip-plugin-refresh` to keep a present
@@ -139,7 +143,7 @@ startup with `Cannot find module 'effect/ByteSize'` or another missing
 `effect/...` module. Repair it with a remove followed by a fresh add:
 
 ```
-bun rm -g docks-kit && bun add -g docks-kit@latest
+bun rm -g docks-kit && bun add -g --no-cache docks-kit@latest
 ```
 
 A plain reinstall over the broken tree is not enough. Bun keeps the previously
@@ -151,7 +155,7 @@ If a plain reinstall was already attempted, the remove-then-add above no longer
 clears that nested copy either. Force a full re-resolve of the global tree:
 
 ```
-bun rm -g docks-kit && bun add -g docks-kit@latest --force
+bun rm -g docks-kit && bun add -g --no-cache docks-kit@latest --force
 ```
 
 `--force` without the remove does not repair it. Other global packages survive
@@ -161,10 +165,12 @@ An npm global install repairs itself with a plain upgrade, because npm rebuilds
 the tree it owns:
 
 ```
-npm install -g docks-kit@latest
+npm install -g --prefer-online docks-kit@latest
 ```
 
-Verified on Bun 1.4.2 and npm 11, each in a clean HOME.
+The sequences were verified on Bun 1.4.2 and npm 11, each in a clean HOME,
+before the cache flags were added. The flags only make Bun and npm fetch fresh
+package data.
 
 ## Prerequisites
 

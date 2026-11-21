@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased - docks-kit 0.27.1: Bun detection fixes
+## Unreleased - docks-kit 0.27.1: Bun detection and update fixes
 
 ### Fixed
 
@@ -10,6 +10,13 @@
   could show `missing` while the launcher ran that Bun. One list per host now
   names the Bun search folders, and a test holds the launchers and installers
   to it (DocksDocks/docks-kit#199).
+- `docks-kit update` installs the newest release on a Bun or npm global
+  install even when the package cache holds package data from before that
+  release. Right after the 0.27.0 publish, it printed `Already at the latest
+  version (0.26.0).`, because Bun resolved `docks-kit@latest` from its cache.
+  The update now passes `--no-cache` to Bun and `--prefer-online` to npm, and
+  `install.sh` and `install.ps1` pass `--no-cache` to Bun
+  (DocksDocks/docks-kit#202).
 
 ## 2026-11-21 - docks-kit 0.27.0: Bun-only; no compiled binaries
 

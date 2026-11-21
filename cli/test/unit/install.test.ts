@@ -39,6 +39,7 @@ const powershellExecutionSuiteLabel = !INSTALL_PS1_APPLIES
     : "install.ps1 execution";
 const MATRIX_SENTENCE =
   "docks-kit supports Linux on x64 and arm64, macOS on arm64, and Windows on x64.";
+const powershellLiteral = (value: string): string => `'${value.replaceAll("'", "''")}'`;
 
 /**
  * Resolve a coreutil to its real path. macOS ships `mktemp` in /usr/bin, not
@@ -256,7 +257,7 @@ describe("global installer completion", () => {
 
       expect(result.status, result.stderr).toBe(0);
       expect(readFileSync(recordedArgument, "utf8").trim()).toBe(`bun-v${VERIFIED_BUN}`);
-      expect(readFileSync(bunLog, "utf8")).toContain("add -g docks-kit@latest");
+      expect(readFileSync(bunLog, "utf8")).toContain("add -g --no-cache docks-kit@latest");
     });
 
     it("rejects Darwin-x86_64 before it downloads Bun or runs bun add", () => {
@@ -311,13 +312,12 @@ describe("global installer completion", () => {
       const installer = join(root, "install.ps1");
       copyFileSync(join(REPO_DIR, "install.ps1"), installer);
 
-      const literal = (value: string): string => `'${value.replaceAll("'", "''")}'`;
       // Assign the two architecture variables inside the session, as the
       // PowerShell launcher suite does, so the case under test owns them.
       const command = [
         "$env:PROCESSOR_ARCHITECTURE='ARM64'",
         "$env:PROCESSOR_ARCHITEW6432=''",
-        `& ${literal(installer)}`,
+        `& ${powershellLiteral(installer)}`,
         "exit $LASTEXITCODE",
       ].join("; ");
       const result = spawnSync(
@@ -339,6 +339,54 @@ describe("global installer completion", () => {
       expect(result.stderr).not.toContain("Bun not found");
       expect(result.stderr).not.toContain("Installing docks-kit via bun");
       expect(existsSync(bunLog), "bun ran").toBe(false);
+    });
+
+    it("installs the package past a stale Bun cache on a supported x64 host", () => {
+      if (pwshExecutable === null)
+        throw new Error("install.ps1 requires a resolvable pwsh interpreter");
+      const root = mkdtempSync(join(tmpdir(), "docks-install-windows-"));
+      roots.push(root);
+      const fakeBin = join(root, "test-bin");
+      const globalBin = join(root, "global-bin");
+      const bunLog = join(root, "bun-argv.log");
+      mkdirSync(fakeBin, { recursive: true });
+      mkdirSync(globalBin, { recursive: true });
+      writeFileSync(
+        join(fakeBin, "bun.cmd"),
+        `@echo off\r\necho %*>>"${bunLog}"\r\nif "%~1"=="pm" echo ${globalBin}\r\nexit /b 0\r\n`,
+      );
+      writeFileSync(
+        join(globalBin, "docks-kit.cmd"),
+        `@echo off\r\nif "%~1"=="--version" exit /b 0\r\nexit /b 1\r\n`,
+      );
+      const installer = join(root, "install.ps1");
+      copyFileSync(join(REPO_DIR, "install.ps1"), installer);
+
+      const command = [
+        "$env:PROCESSOR_ARCHITECTURE='AMD64'",
+        "$env:PROCESSOR_ARCHITEW6432=''",
+        `& ${powershellLiteral(installer)}`,
+        "exit $LASTEXITCODE",
+      ].join("; ");
+      const result = spawnSync(
+        pwshExecutable,
+        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command],
+        {
+          encoding: "utf8",
+          env: childEnv({
+            HOME: root,
+            USERPROFILE: root,
+            BUN_INSTALL: join(root, ".bun"),
+            // The global bin comes before any docks-kit of the host, so the
+            // shadow check resolves the fixture command.
+            PATH: [fakeBin, globalBin, process.env.PATH ?? ""].join(delimiter),
+          }),
+        },
+      );
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toContain(`docks-kit installed in '${globalBin}'`);
+      expect(readFileSync(bunLog, "utf8")).toContain("add -g --no-cache docks-kit@latest");
     });
   });
 });

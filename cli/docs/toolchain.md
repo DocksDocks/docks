@@ -41,8 +41,9 @@ repository, and sync tries to retire the user-scope installs of the former `dock
 included, needs a manifest pin first.
 
 The kit's own package is the single exemption from the `@latest` ban. `install.sh` and `install.ps1`
-end with `bun add -g docks-kit@latest` because a global installer that pinned
-itself would install a fixed old kit forever. The exemption covers `docks-kit`
+end with `bun add -g --no-cache docks-kit@latest` because a global installer that pinned
+itself would install a fixed old kit forever; `--no-cache` keeps a Bun cache from before a
+release from resolving `@latest` to the older release. The exemption covers `docks-kit`
 alone; both installers still pin the Bun installer they download to the
 manifest's `verified` version.
 

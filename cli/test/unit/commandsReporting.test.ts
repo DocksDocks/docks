@@ -161,10 +161,54 @@ process.exit(9);
         DOCKS_KIT_HOME: installed,
       });
       expect(packageUpdate.status).toBe(1);
-      expect(packageUpdate.stdout).toContain("npm stub: install -g docks-kit@latest");
-      expect(packageUpdate.stderr).toContain(
-        "global package update failed (npm install -g docks-kit@latest)",
+      expect(packageUpdate.stdout).toContain(
+        "npm stub: install -g --prefer-online docks-kit@latest",
       );
+      expect(packageUpdate.stderr).toContain(
+        "global package update failed (npm install -g --prefer-online docks-kit@latest)",
+      );
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  it(
+    "installs the new release on a Bun global install whose package cache is stale",
+    () => {
+      const home = temporaryDirectory("docks-update-stale-cache-");
+      const bin = temporaryDirectory("docks-update-bin-");
+      const globalRoot = join(home, ".bun", "install", "global");
+      const installed = join(globalRoot, "node_modules", "docks-kit");
+      mkdirSync(installed, { recursive: true });
+      writeFileSync(p(installed, "package.json"), '{"name":"docks-kit","version":"0.1.0"}\n');
+      // A stale cache resolves @latest to the installed release, so only an
+      // install that bypasses the cache gets the new one.
+      fakeCommand(
+        bin,
+        "bun",
+        `import { writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (args[0] === "add") {
+  if (args.includes("--no-cache")) {
+    writeFileSync(${JSON.stringify(p(installed, "package.json"))}, '{"name":"docks-kit","version":"0.2.0"}\\n');
+  }
+  process.exit(0);
+}
+if (args.join(" ") === "pm -g ls") {
+  process.stdout.write(${JSON.stringify(`${globalRoot} node_modules (1)\n└── docks-kit@0.1.0\n`)});
+  process.exit(0);
+}
+process.exit(9);
+`,
+      );
+
+      const result = runCli(["update", "--no-sync"], home, {
+        PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`,
+        BUN_INSTALL: "",
+        BUN_INSTALL_GLOBAL_DIR: "",
+        DOCKS_KIT_HOME: installed,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("Updated 0.1.0 -> 0.2.0.");
     },
     SPAWN_TIMEOUT_MS,
   );

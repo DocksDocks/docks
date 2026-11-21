@@ -277,14 +277,15 @@ export const updatePackage = (home: string, skipSync: boolean, spawn: UpdateSpaw
   Effect.gen(function* () {
     const manager = packageManagerForHome(home);
     const beforeVersion = readPackageVersion(home);
+    // A package cache written before a release resolves @latest to the older
+    // version, so both managers fetch the registry metadata again.
     const updateArgs =
-      manager === "bun" ? ["add", "-g", "docks-kit@latest"] : ["install", "-g", "docks-kit@latest"];
+      manager === "bun"
+        ? ["add", "-g", "--no-cache", "docks-kit@latest"]
+        : ["install", "-g", "--prefer-online", "docks-kit@latest"];
     const res = spawn(manager, updateArgs, { stdio: "inherit" });
     if (res.error !== undefined || res.status !== 0) {
-      return yield* bail(
-        `global package update failed (${manager === "bun" ? "bun add -g" : "npm install -g"} docks-kit@latest)`,
-        1,
-      );
+      return yield* bail(`global package update failed (${manager} ${updateArgs.join(" ")})`, 1);
     }
 
     const updated = resolveGlobalPackageHome(manager, capturePackageRoot(spawn));
