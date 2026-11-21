@@ -12,9 +12,11 @@ DocksDocks/docks-kit#189, plan #195, and plan #198.
 
 - The Bun floor and pin move to 1.4.5, a security release that updates lsquic,
   c-ares, SQLite, llhttp, and BoringSSL and fixes TLS, DNS, and HTTP issues
-  in `fetch` and `node:https`. The installers install Bun 1.4.5, CI runs it,
-  and a checkout launcher refuses Bun 1.4.4 and older; run `bun upgrade`
-  (DocksDocks/docks-kit#198).
+  in `fetch` and `node:https` (DocksDocks/docks-kit#198). CI runs Bun 1.4.5.
+  The installers install Bun 1.4.5 only when no Bun is present, and a checkout
+  launcher checks the floor only when it installs the checkout dependencies.
+  So an existing Bun stays at its version: run `bun upgrade`, and
+  `docks-kit toolchain check` then shows Bun 1.4.5.
 
 ### Removed
 
