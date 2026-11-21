@@ -73,6 +73,8 @@ Use direct acceptance and focused regressions while iterating, then run the full
 
 Spawning-suite bundle and `DOCKS_KIT_TEST_CLI_ENTRY`: `cli/AGENTS.md`.
 
+`test:unit` also runs the vitest project `review-benchmark` on Linux and macOS. It needs `git`, `gpg`, and full history with `origin/main`; run `git fetch --unshallow` in a shallow clone. Its fixtures are real omp transcripts: after a raise of the omp `verified` pin in `SoT/toolchain.json`, capture new fixtures as `.agents/skills/review-benchmark/SKILL.md` says.
+
 ## Landing changes
 
 Open a pull request when the change can alter what CI proves: `cli/`, `SoT/`, `.github/`, the launchers, the installers, `package.json`, `bun.lock`. Wait for every reported check to finish, then ask before merge. A failed or cancelled check blocks the merge. Push direct to `main` only for prose: root Markdown and code comments.
