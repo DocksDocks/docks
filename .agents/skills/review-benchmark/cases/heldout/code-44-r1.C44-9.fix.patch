@@ -1,0 +1,56 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 11f5f28f..4fd42e94 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -413,7 +413,7 @@ export function normalizePlan(text) {
+       .split('\n')
+       .map((line, index) => (/^ {0,3}Mode:/i.test(line) ? index : -1))
+       .filter((index) => index >= 0);
+-  const mode = modeLines.length ? /^ {0,3}Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines[0]]) : undefined,
++  const mode = modeLines.length ? /^ {0,3}Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines.at(-1)]) : undefined,
+     value = mode?.[1].toLowerCase();
+   const valid = ['plan-only', 'plan-and-implement'].includes(value);
+   if (!valid) advice.push('Mode defaulted to plan-only; implementation needs an explicit mode.');
+@@ -546,7 +546,8 @@ function createPlan(args) {
+   for (const label of extras) if (/^plan(?::|$)/i.test(label)) fail(`reserved label namespace: ${label}`);
+   resolveActingLogin();
+   for (const label of PLAN_LABELS) runGh(['label', 'create', label, '--force', '--repo', repository.nameWithOwner]);
+-  const source = `## Goal\n${options['--goal']}\nMode: ${options['--mode'] ?? ''}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
++  const explicitMode = options['--mode'] ? `\nMode: ${options['--mode']}` : '';
++  const source = `## Goal\n${options['--goal']}${explicitMode}\n## Research\n_Not researched yet._\n## Steps\n${STEPS_HEADER}\n${STEPS_SEPARATOR}\n## Acceptance\n${ACCEPTANCE_HEADER}\n${ACCEPTANCE_SEPARATOR}`;
+   const { body } = normalizePlan(source);
+   const url = withBodyFile(body, (file) =>
+     runGh([
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 301da61a..199c53cf 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -414,6 +414,28 @@ try {
+   refuse(run('archive', String(unapproved.number)), 'archive requires Code-review: pass');
+   assert.ok(issue(unapproved.number).labels.includes('plan:ongoing'));
+ 
++  // An explicit --mode outranks a Mode line embedded in --goal; a later live Mode line wins.
++  const explicit = run(
++    'new',
++    '--title',
++    'explicit mode',
++    '--goal',
++    'Ship it.\nMode: plan-and-implement',
++    '--mode',
++    'plan-only',
++  );
++  expectSuccess(explicit, 'new with explicit mode');
++  const explicitNumber = Number(/^plan created: #(\d+)/m.exec(explicit.stdout)[1]);
++  assert.match(issue(explicitNumber).body, /\nMode: plan-only\n/, 'explicit --mode is the live mode');
++  assert.equal(issue(explicitNumber).body.match(/^Mode:/gm).length, 1, 'the embedded Mode line is removed');
++  const embedded = run('new', '--title', 'embedded mode', '--goal', 'Ship it.\nMode: plan-and-implement');
++  expectSuccess(embedded, 'new with embedded mode only');
++  assert.match(
++    issue(Number(/^plan created: #(\d+)/m.exec(embedded.stdout)[1])).body,
++    /\nMode: plan-and-implement\n/,
++    'goal-authored Mode is kept without --mode',
++  );
++
+   // A terminal row cannot be reopened by the step command.
+   const terminal = createPlan('terminal step', body('done'));
+   expectSuccess(run('status', String(terminal), 'ongoing'), 'start terminal plan');

@@ -1,0 +1,28 @@
+{
+  "id": "plan-83-r1",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 83,
+  "round": 1,
+  "repo_ref": "40143916778914145fb456034a7d216c1f3815f3",
+  "plan": "plan-83-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABY7Wzz88AAAABDund7Q",
+  "known": [
+    {
+      "id": "P83-1",
+      "section": "Steps, row 3 yolo_teardown (line 91)",
+      "category": "goal_fit",
+      "source": "round",
+      "summary": "step 3 changes cleanup but leaves yolo Landing step 8's hardcoded merge-only question, which does not disclose the branch deletion, so its answer cannot be the confirmation that the Goal and AGENTS.md Security require",
+      "comment": 6325838309
+    },
+    {
+      "id": "P83-2",
+      "section": "Research, Compose facts (line 65); Steps, row 1 contract_teardown (line 89)",
+      "category": "research_gap",
+      "source": "round",
+      "summary": "the compose project-label volume query misses anonymous volumes, which lack that label and survive `docker compose down`, so kept volumes go unreported; teardown must record the volume names from the containers' mounts before removing the containers",
+      "comment": 6325838309
+    }
+  ]
+}

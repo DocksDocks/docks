@@ -1,0 +1,86 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index c1702ca2..417c3818 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -341,9 +341,9 @@ function parseJson(output, command) {
+ }
+ 
+ function repositoryCoordinates() {
+-  const [owner, name, ...extra] = repository.nameWithOwner.split('/');
+-  if (!owner || !name || extra.length > 0) fail(`invalid repository name: ${repository.nameWithOwner}`);
+-  return { owner, name };
++  const [owner, repo, ...extra] = repository.nameWithOwner.split('/');
++  if (!owner || !repo || extra.length > 0) fail(`invalid repository name: ${repository.nameWithOwner}`);
++  return { owner, repo };
+ }
+ 
+ function archivePullRequestReferences(issueNumber) {
+@@ -393,7 +393,7 @@ function archivePullRequestReferences(issueNumber) {
+ }
+ 
+ function associatedPullRequests(commitOid) {
+-  const { owner, name } = repositoryCoordinates();
++  const { owner, repo: name } = repositoryCoordinates();
+   const pullRequests = [];
+   let defaultBranch;
+   let after;
+@@ -437,9 +437,9 @@ function issueView(number, fields = ISSUE_FIELDS, repo = repository.nameWithOwne
+ }
+ 
+ function issueComments(number) {
+-  const { owner, name } = repositoryCoordinates();
++  const { owner, repo } = repositoryCoordinates();
+   const pages = parseJson(
+-    runGh(['api', `repos/${owner}/${name}/issues/${number}/comments`, '--paginate', '--slurp']),
++    runGh(['api', `repos/${owner}/${repo}/issues/${number}/comments`, '--paginate', '--slurp']),
+     'gh api issue comments',
+   );
+   if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+@@ -454,11 +454,16 @@ function planWorkStarted(issue, recordStatus) {
+   // facts no later transition or body write can erase; the query runs only when the current label alone
+   // does not already prove the plan started.
+   if (recordStatus !== 'drafting' && recordStatus !== 'planned') return true;
+-  const { owner, name } = repositoryCoordinates();
+-  const pages = parseJson(
+-    runGh(['api', `repos/${owner}/${name}/issues/${issue.number}/events`, '--paginate', '--slurp']),
+-    'gh api issue events',
+-  );
++  const { owner, repo } = repositoryCoordinates();
++  let pages;
++  try {
++    pages = parseJson(
++      runGh(['api', `repos/${owner}/${repo}/issues/${issue.number}/events`, '--paginate', '--slurp']),
++      'gh api issue events',
++    );
++  } catch {
++    return false;
++  }
+   if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+     fail('gh api issue events returned malformed events');
+   }
+@@ -894,10 +899,7 @@ function editPlan(args) {
+     // belongs to a follow-up plan - an appended planned row plus finished-plan `step ... done` would
+     // smuggle unreviewed work into a merged record. Open started plans append planned-born rows only.
+     const closed = String(issue.state).toUpperCase() === 'CLOSED';
+-    const lastRemotePosition = incomingRows.reduce(
+-      (last, row, index) => (remoteIds.has(row.id) ? index : last),
+-      -1,
+-    );
++    const lastRemotePosition = remoteRows.length - 1;
+     incomingRows.forEach((row, index) => {
+       if (remoteIds.has(row.id)) return;
+       if (closed) violations.push(`step ${row.id} added to a closed plan (new work takes a follow-up plan)`);
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 86370dd7..7c1e709e 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -1172,7 +1172,8 @@ try {
+ 
+   const insertedRowNumber = createPlan('inserted-row-edit-freeze');
+   const secondDisplayStepRow = plannedStepRow.replace('| 1 |', '| 2 |');
+-  makeValid(insertedRowNumber, { steps: [secondDisplayStepRow] });
++  const thirdDisplayStepRow = appendedPlannedStepRow.replace('| 2 |', '| 3 |');
++  makeValid(insertedRowNumber, { steps: [secondDisplayStepRow, thirdDisplayStepRow] });
+   setIssueStatus(insertedRowNumber, 'ongoing');
+   const insertedPlannedStepRow =
+     '| 1 | prepare_contract | Prepare the contract | src/prepare.mjs | - | `local` | `planned` | command exits 0 |';

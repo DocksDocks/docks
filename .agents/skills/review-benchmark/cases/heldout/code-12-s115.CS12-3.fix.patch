@@ -1,0 +1,14 @@
+diff --git a/bunfig.toml b/bunfig.toml
+index c7e48df2..5556b087 100644
+--- a/bunfig.toml
++++ b/bunfig.toml
+@@ -7,4 +7,7 @@ minimumReleaseAge = 259200
+ 
+-# pnpm's store layout was the isolated kind, and Bun 1.4 installs with the isolated
+-# linker by default. That linker otherwise creates node_modules/.bun/node_modules, which sits on
++# pnpm's store layout was the isolated kind. Bun defaults an existing project to
++# "hoisted", so the strategy has to be stated to keep it.
++linker = "isolated"
++
++# The isolated linker otherwise creates node_modules/.bun/node_modules, which sits on
+ # the upward resolution path of every package in the store, so a package can resolve a

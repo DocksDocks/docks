@@ -1,0 +1,38 @@
+{
+  "id": "code-109-r1-e146",
+  "kind": "code",
+  "split": "dev",
+  "issue": 109,
+  "round": 1,
+  "cycle": 1,
+  "base": "6545f804fa9b29b586906b9542337fed1471f031",
+  "head": "fbc3ed8500898c4b068b3abfef95c5d3f1393a85",
+  "plan": "code-109-r1-e146-plan.md",
+  "show_benchmark": true,
+  "body_revision": "UCE_lAHODGt7ls8AAAABZtPfys8AAAABEp1WOg",
+  "review_comment": 6394577699,
+  "known": [
+    {
+      "id": "F109-1",
+      "title": "The instruction path patterns end a path at the first space, so `agents --variants` refuses a variant whose plugin copy is under a folder with a space",
+      "locator": ".agents/skills/review-benchmark/scripts/score.mjs:105-122; .agents/skills/review-benchmark/scripts/score.mjs:1707-1708; .agents/skills/review-benchmark/scripts/prepare.mjs:1420-1428; .agents/skills/review-benchmark/scripts/prepare.mjs:1447-1448",
+      "severity": "MEDIUM",
+      "category": "code",
+      "source": "missed-by-round",
+      "comment": 6395512006,
+      "summary": "REVIEWER_SKILL (score.mjs:106) and SELF_REVIEW_AGENT_FILE (score.mjs:111-115) take an absolute path only up to the first space, also when the agent text puts it in backticks, as the plugin agent does. parseVariants (prepare.mjs:1420-1428) puts the variant plugin copy next to the baseline copy, which defaults to `<parent of --out>/baseline-plugin` (prepare.mjs:1447-1448), substitutes that folder into the agent text, and refuses the variant when reviewerPluginRoots does not return exactly that folder. So `agents --variants a=<ref> --out \"/work/review runs/heldout\"` stops with `must name its reviewer skill as ... and name no other plugin root` for a correct variant agent, only because the parent of --out has a space. transcriptSession (score.mjs:1707-1708) uses the same patterns, so a self-review agent under a project folder with a space loses its own agent file from the read scope. The fix reads a path in backticks or quotes up to the closing quote and keeps the bare-path rule and the same-root check.",
+      "fix": "code-109-r1-e146.F109-1.fix.patch"
+    },
+    {
+      "id": "F109-2",
+      "title": "No test follows a `show_benchmark` code case through a review loop, so the hidden-path filter of the fixer snapshot, the later rounds, and the judge trees is untested",
+      "locator": ".agents/skills/review-benchmark/scripts/prepare.mjs:950-957; .agents/skills/review-benchmark/scripts/prepare.mjs:1047; .agents/skills/review-benchmark/scripts/prepare.mjs:1148; .agents/skills/review-benchmark/scripts/prepare.mjs:1197-1207; scripts/tests/unit/review-benchmark.test.mjs:5179-5181; scripts/tests/unit/review-benchmark.test.mjs:5566-5622",
+      "severity": "MEDIUM",
+      "category": "test",
+      "source": "missed-by-round",
+      "comment": 6395512006,
+      "summary": "The loop command takes the hidden pathspec of the case (prepare.mjs:1047), which keeps the benchmark skill folder without its `cases/` folder for a `show_benchmark` case, and passes it to the fixer snapshot (writeFixerInputs, prepare.mjs:950-957, called at 1148), to the snapshot and the full, focus, and delta diffs of the next round, and to the judge tree (prepare.mjs:1197-1207). The only `show_benchmark` test (review-benchmark.test.mjs:5566-5622) builds plan cases with `case` and never runs a loop; the loop tests use repositories without the benchmark skill folder, where the pathspec hides nothing. So a change that drops the pathspec from any loop caller, which would put the answer keys under `cases/` into a fixer or judge tree, or hide the benchmark changes from round 2, passes every test. The fix adds a test that runs a `show_benchmark` code case through `case --loop`, one fixer repair, and round 2, and checks each of these trees and diffs.",
+      "fix": "code-109-r1-e146.F109-2.fix.patch"
+    }
+  ]
+}

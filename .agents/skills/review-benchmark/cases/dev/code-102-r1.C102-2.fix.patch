@@ -1,0 +1,288 @@
+diff --git a/scripts/tests/author-tooling.mjs b/scripts/tests/author-tooling.mjs
+index 7d084e3c..22ea6816 100755
+--- a/scripts/tests/author-tooling.mjs
++++ b/scripts/tests/author-tooling.mjs
+@@ -5,6 +5,7 @@ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'node:path';
+ import { fileURLToPath } from 'node:url';
++import { shebangInterpreter } from './test-contracts.mjs';
+ 
+ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+ const BIOME = path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'biome.cmd' : 'biome');
+@@ -250,9 +251,34 @@ function testSkillsGuardSpawnFailure() {
+   );
+ }
+ 
++// A fixture program runs with the interpreter of its #! line, and that interpreter decides which toolchain a suite
++// needs. `env` reads its options, their operands, and NAME=VALUE words before the interpreter, so none of them is it.
++function testShebangInterpreter() {
++  const cases = [
++    ['#!/usr/bin/env bun\n', 'bun'],
++    ['#!/usr/local/bin/bun\n', 'bun'],
++    ['#!/usr/bin/env -S -u NODE_OPTIONS bun\n', 'bun'],
++    ['#!/usr/bin/env -S -uNODE_OPTIONS bun --smol\n', 'bun'],
++    ['#!/usr/bin/env --split-string=-u NODE_OPTIONS bun\n', 'bun'],
++    ['#!/usr/bin/env --unset=NODE_OPTIONS node\n', 'node'],
++    ['#!/usr/bin/env --unset NODE_OPTIONS node\n', 'node'],
++    ['#!/usr/bin/env -i FORCE_COLOR=0 node\n', 'node'],
++    ['#!/usr/bin/env - --ignore-environment node\n', 'node'],
++    ['#!/usr/bin/env -iu NODE_OPTIONS /opt/bun/bin/bun\n', 'bun'],
++    ['#!/usr/bin/env -- bun\n', 'bun'],
++    ['#!/usr/bin/env -S -u NODE_OPTIONS\n', ''],
++    ['#!\n', ''],
++    ['console.log(1);\n', null],
++  ];
++  for (const [source, interpreter] of cases) {
++    assert.equal(shebangInterpreter(source), interpreter, `interpreter of ${JSON.stringify(source)}`);
++  }
++}
++
+ testBiomeRejectsSyntaxDefect();
+ testCombinedSkillValidation();
+ testTreeGuardOperationalFailures();
+ testSkillsGuardSpawnFailure();
++testShebangInterpreter();
+ testValidatorTable();
+ console.log('author tooling contracts passed');
+diff --git a/scripts/tests/test-contracts.mjs b/scripts/tests/test-contracts.mjs
+index aa786535..09c301df 100755
+--- a/scripts/tests/test-contracts.mjs
++++ b/scripts/tests/test-contracts.mjs
+@@ -446,16 +446,51 @@ function filesUnder(relativeDirectory) {
+   return files.sort();
+ }
+ 
+-function shebangInterpreter(source) {
++// The `env` options that take an operand, as GNU and BSD `env` read them: -u NAME unsets, -C DIR changes folder,
++// -P PATH sets the search path. -S STRING is also an operand, but its words are more `env` arguments.
++const ENV_OPERAND_FLAGS = new Set(['u', 'C', 'P']);
++const ENV_OPERAND_LONG = new Set(['--unset', '--chdir']);
++
++// The interpreter of a #! line: null if the source has no #! line, and '' if the line names no interpreter.
++// `#!/usr/bin/env [options] [NAME=VALUE...] <name>` finds <name> on PATH, so the options, their operands, and the
++// assignments come before the interpreter and are not it.
++export function shebangInterpreter(source) {
+   const line = /^#!(?<line>[^\n]*)/u.exec(source)?.groups.line;
+   if (line === undefined) return null;
+-  const [program, ...words] = line.trim().split(/\s+/u);
+-  // `env` finds the interpreter on PATH, and its options and NAME=value words come before the interpreter.
+-  const interpreter =
+-    path.posix.basename(program) === 'env'
+-      ? words.find((word) => !word.startsWith('-') && !word.includes('='))
+-      : program;
+-  return path.posix.basename(interpreter ?? '');
++  const [program = '', ...words] = line.trim().split(/\s+/u).filter(Boolean);
++  if (path.posix.basename(program) !== 'env') return path.posix.basename(program);
++  const pending = [...words];
++  while (pending.length > 0) {
++    const word = pending.shift();
++    if (word === '--') return path.posix.basename(pending[0] ?? '');
++    if (word === '-' || word === '--ignore-environment') continue;
++    if (word.startsWith('--')) {
++      const [name, value] = word.split(/=(.*)/su);
++      // The kernel gives `env` the rest of the #! line as one word, and -S splits it; this split already did that.
++      if (name === '--split-string') pending.unshift(...(value ?? '').split(/\s+/u).filter(Boolean));
++      else if (ENV_OPERAND_LONG.has(name) && value === undefined) pending.shift();
++      continue;
++    }
++    if (word.startsWith('-')) {
++      // A cluster such as -iu NAME: the first flag that takes an operand takes the rest of the word or the next word.
++      for (let index = 1; index < word.length; index += 1) {
++        const flag = word[index];
++        const rest = word.slice(index + 1);
++        if (flag === 'S') {
++          if (rest.length > 0) pending.unshift(rest);
++          break;
++        }
++        if (ENV_OPERAND_FLAGS.has(flag)) {
++          if (rest.length === 0) pending.shift();
++          break;
++        }
++      }
++      continue;
++    }
++    if (/^[^=]+=/u.test(word)) continue;
++    return path.posix.basename(word);
++  }
++  return '';
+ }
+ 
+ // A suite can run a fixture program, as the plan CLI cases run the fake gh from PATH. The suite then needs the
+@@ -505,88 +540,99 @@ function fixtureRunners(suite, programs) {
+   return runners;
+ }
+ 
+-const registry = readJson('scripts/config/test-contracts.json');
+-const packageJson = readJson('package.json');
+-const ciSource = fs.readFileSync(path.join(REPO, 'scripts/ci.mjs'), 'utf8');
+-validateRegistry(registry);
++function main() {
++  const registry = readJson('scripts/config/test-contracts.json');
++  const packageJson = readJson('package.json');
++  const ciSource = fs.readFileSync(path.join(REPO, 'scripts/ci.mjs'), 'utf8');
++  validateRegistry(registry);
++
++  const gateInvocations = gateInvocationArguments(ciSource);
++  const discoveredDescriptors = [
++    ...unitDescriptors(packageJson),
++    ...repoSuiteDescriptors(gateInvocations),
++    ...pluginDescriptors(gateInvocations),
++  ];
++  const descriptorById = new Map();
++  for (const discovered of discoveredDescriptors) {
++    assert.equal(descriptorById.has(discovered.id), false, `duplicate discovered contract id: ${discovered.id}`);
++    descriptorById.set(discovered.id, discovered);
++  }
+ 
+-const gateInvocations = gateInvocationArguments(ciSource);
+-const discoveredDescriptors = [
+-  ...unitDescriptors(packageJson),
+-  ...repoSuiteDescriptors(gateInvocations),
+-  ...pluginDescriptors(gateInvocations),
+-];
+-const descriptorById = new Map();
+-for (const discovered of discoveredDescriptors) {
+-  assert.equal(descriptorById.has(discovered.id), false, `duplicate discovered contract id: ${discovered.id}`);
+-  descriptorById.set(discovered.id, discovered);
+-}
++  const discovered = new Set(descriptorById.keys());
++  const registered = new Set(registry.contracts.map(({ id }) => id));
++  assertSetEqual(registered, discovered, 'discovered and registered sets differ');
+ 
+-const discovered = new Set(descriptorById.keys());
+-const registered = new Set(registry.contracts.map(({ id }) => id));
+-assertSetEqual(registered, discovered, 'discovered and registered sets differ');
+-
+-const selected = new Set();
+-const executed = new Set();
+-const toolchainByRunner = new Map([
+-  ['node', nodeToolchain()],
+-  ['bun', bunToolchain(packageJson)],
+-]);
+-const programs = fixturePrograms();
+-const toolchainDifferences = [];
+-for (const contract of registry.contracts) {
+-  const evidence = descriptorById.get(contract.id);
+-  assert.ok(evidence, `${contract.id} has no discovered selection evidence`);
+-  assert.equal(contract.owner.suite, evidence.suite, `${contract.id} owner suite differs from discovery`);
+-  assert.equal(contract.selection.kind, evidence.kind, `${contract.id} selection kind differs from discovery`);
+-  assert.equal(contract.selection.selector, evidence.selector, `${contract.id} selector differs from gate descriptor`);
+-  assert.ok(evidence.selectedCount > 0, `${contract.id} selected no tests`);
+-  assert.ok(
+-    evidence.selectedCount >= contract.selection.expected_min,
+-    `${contract.id} selected ${evidence.selectedCount}, below expected minimum ${contract.selection.expected_min}`,
+-  );
+-  assert.ok(fs.existsSync(path.join(REPO, contract.owner.suite)), `${contract.id} owner suite does not exist`);
+-  assert.ok(evidence.runners.length > 0, `${contract.id} has no discovered runner`);
+-  const runners = [
+-    ...evidence.runners.map((runner) => ({
+-      runner,
+-      source: `${evidence.runnerSource} runs ${evidence.suite} with ${runner}`,
+-    })),
+-    ...fixtureRunners(evidence.suite, programs),
+-  ];
+-  const sourcesByToolchain = new Map();
+-  for (const { runner, source } of runners) {
+-    const toolchain = toolchainByRunner.get(runner);
++  const selected = new Set();
++  const executed = new Set();
++  const toolchainByRunner = new Map([
++    ['node', nodeToolchain()],
++    ['bun', bunToolchain(packageJson)],
++  ]);
++  const programs = fixturePrograms();
++  const toolchainDifferences = [];
++  for (const contract of registry.contracts) {
++    const evidence = descriptorById.get(contract.id);
++    assert.ok(evidence, `${contract.id} has no discovered selection evidence`);
++    assert.equal(contract.owner.suite, evidence.suite, `${contract.id} owner suite differs from discovery`);
++    assert.equal(contract.selection.kind, evidence.kind, `${contract.id} selection kind differs from discovery`);
++    assert.equal(
++      contract.selection.selector,
++      evidence.selector,
++      `${contract.id} selector differs from gate descriptor`,
++    );
++    assert.ok(evidence.selectedCount > 0, `${contract.id} selected no tests`);
+     assert.ok(
+-      toolchain,
+-      `${contract.id} runs with ${runner}, which has no known toolchain token (${source}); map ${runner} to its pinned toolchain in toolchainByRunner`,
++      evidence.selectedCount >= contract.selection.expected_min,
++      `${contract.id} selected ${evidence.selectedCount}, below expected minimum ${contract.selection.expected_min}`,
+     );
+-    const sources = sourcesByToolchain.get(toolchain) ?? new Set();
+-    sources.add(source);
+-    sourcesByToolchain.set(toolchain, sources);
+-  }
+-  // An exact list, so that a toolchain which a runner needs cannot go missing, and one which nothing needs cannot stay.
+-  for (const [toolchain, sources] of [...sourcesByToolchain].sort(([left], [right]) => left.localeCompare(right))) {
+-    if (!contract.toolchains.includes(toolchain)) {
+-      toolchainDifferences.push(`${contract.id}.toolchains must list ${toolchain}: ${[...sources].join('; ')}`);
++    assert.ok(fs.existsSync(path.join(REPO, contract.owner.suite)), `${contract.id} owner suite does not exist`);
++    assert.ok(evidence.runners.length > 0, `${contract.id} has no discovered runner`);
++    const runners = [
++      ...evidence.runners.map((runner) => ({
++        runner,
++        source: `${evidence.runnerSource} runs ${evidence.suite} with ${runner}`,
++      })),
++      ...fixtureRunners(evidence.suite, programs),
++    ];
++    const sourcesByToolchain = new Map();
++    for (const { runner, source } of runners) {
++      const toolchain = toolchainByRunner.get(runner);
++      assert.ok(
++        toolchain,
++        `${contract.id} runs with ${runner}, which has no known toolchain token (${source}); map ${runner} to its pinned toolchain in toolchainByRunner`,
++      );
++      const sources = sourcesByToolchain.get(toolchain) ?? new Set();
++      sources.add(source);
++      sourcesByToolchain.set(toolchain, sources);
+     }
+-  }
+-  for (const toolchain of contract.toolchains) {
+-    if (!sourcesByToolchain.has(toolchain)) {
+-      toolchainDifferences.push(`${contract.id}.toolchains lists ${toolchain}, which no discovered runner needs`);
++    // An exact list, so that a toolchain which a runner needs cannot go missing, and one which nothing needs cannot
++    // stay.
++    for (const [toolchain, sources] of [...sourcesByToolchain].sort(([left], [right]) => left.localeCompare(right))) {
++      if (!contract.toolchains.includes(toolchain)) {
++        toolchainDifferences.push(`${contract.id}.toolchains must list ${toolchain}: ${[...sources].join('; ')}`);
++      }
+     }
++    for (const toolchain of contract.toolchains) {
++      if (!sourcesByToolchain.has(toolchain)) {
++        toolchainDifferences.push(`${contract.id}.toolchains lists ${toolchain}, which no discovered runner needs`);
++      }
++    }
++    selected.add(contract.id);
++    if (evidence.executed) executed.add(contract.id);
+   }
+-  selected.add(contract.id);
+-  if (evidence.executed) executed.add(contract.id);
++  assert.ok(selected.size > 0, 'selected set must not be empty');
++  for (const id of selected) assert.ok(registered.has(id), `selected contract is not registered: ${id}`);
++  assertSetEqual(executed, selected, 'executed and selected sets differ');
++  // Collected rather than asserted per row so one run names every stale contract.
++  assert.deepEqual(
++    toolchainDifferences,
++    [],
++    `contract toolchains differ from the discovered runners; make each row of scripts/config/test-contracts.json list exactly the toolchains that its runners need:\n${toolchainDifferences.join('\n')}`,
++  );
++
++  const counts = `contracts=${registered.size} discovered=${discovered.size} selected=${selected.size}`;
++  console.log(`PASS test_contracts ${counts}`);
+ }
+-assert.ok(selected.size > 0, 'selected set must not be empty');
+-for (const id of selected) assert.ok(registered.has(id), `selected contract is not registered: ${id}`);
+-assertSetEqual(executed, selected, 'executed and selected sets differ');
+-// Collected rather than asserted per row so one run names every stale contract.
+-assert.deepEqual(
+-  toolchainDifferences,
+-  [],
+-  `contract toolchains differ from the discovered runners; make each row of scripts/config/test-contracts.json list exactly the toolchains that its runners need:\n${toolchainDifferences.join('\n')}`,
+-);
+-
+-console.log(`PASS test_contracts contracts=${registered.size} discovered=${discovered.size} selected=${selected.size}`);
++
++// author-tooling.mjs imports shebangInterpreter to test it, and the import must not run the registry check.
++if (import.meta.main) main();

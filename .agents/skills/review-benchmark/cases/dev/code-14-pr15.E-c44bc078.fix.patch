@@ -1,0 +1,53 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index acb942e6..9c8abcf9 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -716,10 +716,9 @@ function editPlan(args) {
+   const failures = checkPlan(after, issue);
+   if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
+   const changes = changedLines(issue.body, after);
+-  // Stage provenance before the remote write. A failed sidecar write then costs one re-export; the reverse
+-  // order would leave a local digest naming a body GitHub already replaced, which reads as a valid export.
+-  fs.writeFileSync(originFile(file), `${bodyDigest(after)}\n`, { encoding: 'utf8', mode: 0o600 });
+   editIssueBodyIfUnchanged(issue, after);
++  // Refresh provenance only after the remote write, so a failed write can be retried with the same file.
++  fs.writeFileSync(originFile(file), `${bodyDigest(after)}\n`, { encoding: 'utf8', mode: 0o600 });
+   console.log(headerStrip(issue, record.status));
+   console.log(`changed: ${changes.length} line(s)`);
+   for (const line of changes) console.log(line);
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 43a51bc3..d3b6891d 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -735,8 +735,8 @@ try {
+   assert.equal(failedRemoteEdit.stderr.trim(), 'gh issue edit failed: stubbed issue edit failure');
+   assert.equal(
+     fs.readFileSync(`${failedRemoteExportPath}.origin`, 'utf8'),
+-    `${bodyDigest(failedRemoteBody)}\n`,
+-    'the refreshed digest must be durable before the remote mutation starts',
++    `${bodyDigest(beforeFailedRemoteEdit)}\n`,
++    'a failed remote edit must keep the provenance of the body GitHub still holds',
+   );
+   assert.equal(
+     issue(failedRemoteNumber).body,
+@@ -747,15 +747,12 @@ try {
+     delete state.issueEditError;
+   });
+   const failedRemoteRetry = run('edit', String(failedRemoteNumber), '--file', failedRemoteExportPath);
+-  assert.equal(failedRemoteRetry.status, 1, 'retrying the failed remote edit without re-exporting must fail closed');
+-  assert.equal(
+-    failedRemoteRetry.stderr.trim(),
+-    `stale export: ${failedRemoteExportPath} was exported from body ${bodyDigest(failedRemoteBody).slice(0, 12)}, but #${failedRemoteNumber} now holds ${bodyDigest(beforeFailedRemoteEdit).slice(0, 12)}; re-export and re-apply the edit`,
+-  );
++  expectSuccess(failedRemoteRetry, 'retry with the same export after a failed remote edit');
++  assert.equal(issue(failedRemoteNumber).body, failedRemoteBody, 'the retry writes the edited body');
+   assert.equal(
+-    issue(failedRemoteNumber).body,
+-    beforeFailedRemoteEdit,
+-    'the stale retry after a remote failure must not silently apply',
++    fs.readFileSync(`${failedRemoteExportPath}.origin`, 'utf8'),
++    `${bodyDigest(failedRemoteBody)}\n`,
++    'a successful retry must refresh the export provenance',
+   );
+ 
+   const freshExportNumber = createPlan('fresh-export-edit');

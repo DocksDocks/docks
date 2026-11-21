@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index fc0073b0..a12acd7b 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -794,7 +794,7 @@ function readPlanIssue(value, forWrite = false, connections = {}) {
+     // The write claims an unassigned plan for the acting viewer.
+     if (!owners.length) issue.claimantId = viewerId;
+   }
+-  return { issue, parsed: parsePlan(issue.body), status: statusFromIssue(issue), labelIds, login, viewer: viewerId };
++  return { issue, parsed: parsePlan(issue.body), status: statusFromIssue(issue), labelIds, login, viewerId };
+ }
+ function createPlan(args) {
+   const options = parseOptions(args, new Set(['--title', '--goal', '--mode', '--label']), new Set(['--label']));

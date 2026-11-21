@@ -1,0 +1,19 @@
+diff --git a/plugins/docks/skills/engineering/code-guardrails/SKILL.md b/plugins/docks/skills/engineering/code-guardrails/SKILL.md
+index d6266f00..93fbc9d7 100644
+--- a/plugins/docks/skills/engineering/code-guardrails/SKILL.md
++++ b/plugins/docks/skills/engineering/code-guardrails/SKILL.md
+@@ -154,11 +154,12 @@ or more places, with the count first. Change the `--include` globs to match the
+ project languages, and add `--exclude-dir` for vendored or generated folders.
+ 
+ ```bash
+-# Numbers with 2 or more characters that appear 2 or more times.
++# Numbers that appear 2 or more times: hexadecimal, binary, and octal literals
++# as whole values, and decimal numbers with 2 or more characters.
+ # Single digits are left out because they are mostly counters and indexes.
+ grep -rhowE --include='*.ts' --include='*.rs' --include='*.swift' --include='*.py' --include='*.sh' \
+   --exclude-dir=node_modules --exclude-dir=target --exclude-dir=.git \
+-  '[0-9][0-9_.]+' . | sort | uniq -c | sort -rn | awk '$1 > 1'
++  '0[xXbBoO][0-9a-fA-F_]+|[0-9][0-9_.]+' . | sort | uniq -c | sort -rn | awk '$1 > 1'
+ 
+ # Quoted strings of 4 or more characters that appear 2 or more times.
+ grep -rhoE --include='*.ts' --include='*.rs' --include='*.swift' --include='*.py' --include='*.sh' \

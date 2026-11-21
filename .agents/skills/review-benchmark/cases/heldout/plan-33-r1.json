@@ -1,0 +1,10 @@
+{
+  "id": "plan-33-r1",
+  "kind": "plan",
+  "split": "heldout",
+  "issue": 33,
+  "round": 1,
+  "repo_ref": "c99f137e5e1cc749524a9a1d224060dda14c008a",
+  "plan": "plan-33-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABOF4ZX87hjMtt"
+}

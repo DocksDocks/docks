@@ -1,0 +1,69 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 8522c856..0a0c6979 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -5,7 +5,7 @@ user-invocable: true
+ metadata:
+   pattern: tool-wrapper
+   updated: "2026-10-23"
+-  content_hash: "058b936f0f12abf14c8e1718997170c992c98570214e0e66871e76cc4ece6a97"
++  content_hash: "8ac749195d1260cea0e5a148db16a5a28577f9333860f0a58495b2b13ffc7300"
+ ---
+ 
+ # Plan Manager
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 02d86577..f84d4e1e 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -194,7 +194,7 @@ agents define the exact block they return, and that block follows these rules.
+ - A verdict line holds `plan-review:` or `code-review:`, then a verdict word.
+   A space can replace the hyphen.
+ - On each line, the helper ignores Markdown emphasis (`*`, `_`), code marks,
+-  blockquote markers, and list markers when it reads a kind or a verdict.
++  blockquote markers, and list markers.
+ 
+ | Verdict input | Plan result | Code result |
+ |---|---|---|
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 9394e962..dcae83e4 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -751,7 +751,7 @@ const severeFinding = (text) =>
+ // A heading line has `#` after at most three spaces, so a `*` list marker is not emphasis here; only the title after
+ // the `#` markers is read through emphasis and code marks.
+ function blockHeadingKind(rawLine) {
+-  const heading = /^ {0,3}#+(.*)$/.exec(rawLine);
++  const heading = /^\s*#+(.*)$/.exec(rawLine);
+   return heading && /^\s*(plan|code) review/i.exec(heading[1].replace(/[*_`]/g, ''))?.[1].toLowerCase();
+ }
+ const VERDICT_SEVERITY = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
+diff --git a/scripts/tests/plan-cli/reviews.test.mjs b/scripts/tests/plan-cli/reviews.test.mjs
+index aa7ce65c..eb0c5e19 100644
+--- a/scripts/tests/plan-cli/reviews.test.mjs
++++ b/scripts/tests/plan-cli/reviews.test.mjs
+@@ -1,4 +1,5 @@
+ import assert from 'node:assert/strict';
++import fs from 'node:fs';
+ import test from 'node:test';
+ import { parseReviewComment } from '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+ import { body, expectSuccess, planCliContext, refuse } from './harness.mjs';
+@@ -117,6 +118,19 @@ test('only the first verdict line of each review block counts, so prose cannot h
+   for (const [text, expected] of cases) assert.deepEqual(parseReviewComment(text), expected, text);
+ });
+ 
++test('the plan contract states the review heading rule that the parser applies (#98)', () => {
++  // Reviewers learn from the contract which lines start a block, so the contract and the parser must agree.
++  const contract = fs.readFileSync(
++    new URL(
++      '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md',
++      import.meta.url,
++    ),
++    'utf8',
++  );
++  assert.match(contract, /indented by at most\s+three spaces\) that names the comment's kind\./);
++  assert.match(contract, /A quoted or list-item heading\s+is prose and starts no block\./);
++});
++
+ test('show reads the most severe verdict of a lens comment (#98)', (t) => {
+   const { run, addIssueComment, createPlan } = planCliContext(t);
+   const plan = createPlan('lens comment');

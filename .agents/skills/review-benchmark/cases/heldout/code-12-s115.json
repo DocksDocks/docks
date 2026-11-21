@@ -1,0 +1,11 @@
+{
+  "id": "code-12-s115",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 12,
+  "round": 1,
+  "base": "ed0b254fb30685152ed77a7f4d29bedf1dbeeaca",
+  "head": "adbb40a910cdb75617c2b7a041f2ae66aacf9b25",
+  "plan": "code-12-s115-plan.md",
+  "patch": "code-12-s115.patch"
+}

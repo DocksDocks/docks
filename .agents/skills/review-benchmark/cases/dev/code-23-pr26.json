@@ -1,0 +1,20 @@
+{
+  "id": "code-23-pr26",
+  "kind": "code",
+  "split": "dev",
+  "issue": 23,
+  "round": 1,
+  "base": "145ed6c485710a19683d9b0819977d202e7620cc",
+  "head": "cca62ff8b633a0010d9363675bdeac2d87501f88",
+  "plan": "code-23-pr26-plan.md",
+  "known": [
+    {
+      "id": "E-6a5559d9",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:159-172; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:265",
+      "category": "code",
+      "source": "escaped",
+      "summary": "The machine-path detector treats every token that starts with `/` after a space or punctuation mark as an absolute machine path, so URL routes, a slash between two code spans, regex or awk text, and quoted relative paths fail check 10 and block plan writes; the failure also does not name the matched text, so the author cannot find the false match.",
+      "fix": "code-23-pr26.E-6a5559d9.fix.patch"
+    }
+  ]
+}

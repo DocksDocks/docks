@@ -1,0 +1,13 @@
+{
+  "id": "code-96-delta-real",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 96,
+  "round": 2,
+  "base": "e49e144d074ab14fd1c404a250d61ea05cdbb99a",
+  "delta_base": "6a3ef0e8627f9732d6f7a13dc4e4b5f5f33c2381",
+  "head": "b7fc4fefd29febf2c3b3c467be8faa5efd949a39",
+  "plan": "plan96-code-r1-body.md",
+  "previous_review": "code-96-round-1-review.md",
+  "known": []
+}

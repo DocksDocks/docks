@@ -1,0 +1,49 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 8a7237bc..d48307a2 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -262,14 +262,14 @@ reserved label namespace: <label>
+ 
+ ### Linked branch
+ 
+-Set up the linked branch after the plan is ongoing and before any code change:
++Set up the linked branch after the plan is ongoing and before any code change.
++A yolo run uses the timing and worktree rules in Yolo runs instead.
+ 
+ 1. Run `git status --porcelain`. Continue only when it prints nothing. Never
+    stash, move, or commit ambient work to make it clean.
+ 2. If the checkout is dirty, use a separate clean worktree only when the user
+    approves it in this session through `ask`. Otherwise block the plan and
+-   report the dirty paths. A yolo run uses the worktree rule in Yolo runs
+-   instead.
++   report the dirty paths.
+ 3. Run `gh issue develop <n> --list --repo <owner/repo>`. Reuse a listed branch.
+ 4. If no branch is listed, run
+    `gh issue develop <n> --repo <owner/repo> --base <default> --checkout`.
+@@ -338,6 +338,7 @@ question. All other contract rules stay in force.
+ |---|---|
+ | Path and Mode | Plan with `Mode: plan-and-implement` |
+ | Non-local Effect step before the landing merge | The effect table below |
++| Linked-branch timing | Right after `new`, while the plan is drafting |
+ | Dirty checkout at linked-branch setup | A separate clean worktree, without a question |
+ | Review-loop continuation | The round ceiling below |
+ | Plan-review `blocked` verdict | The manager decides with evidence |
+diff --git a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+index 8d5cc1b3..8382c97e 100644
+--- a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+@@ -218,10 +218,10 @@ Open findings: <MEDIUM or LOW findings left at the ceiling, or none>.
+ 
+ The issue is the run record. Run `show <n>` for the status and verdicts. Run
+ `gh issue develop <n> --list --repo <owner/repo>` for the branch. After the pull
+-request exists, GitHub lists no branch there. Then run
+-`gh issue view <n> --repo <owner/repo> --json closedByPullRequestsReferences`
+-and read the pull request head. Run `git worktree list` for a worktree. Count
+-review rounds from issue comments.
++request exists, GitHub lists no branch there. Then read the pull request number
++from `gh issue view <n> --repo <owner/repo> --json closedByPullRequestsReferences`,
++and read the branch from `gh pr view <pr> --repo <owner/repo> --json headRefName`.
++Run `git worktree list` for a worktree. Count review rounds from issue comments.
+ 
+ ## BAD / GOOD
+ 

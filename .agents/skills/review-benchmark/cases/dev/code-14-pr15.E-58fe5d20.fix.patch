@@ -1,0 +1,227 @@
+diff --git a/docs/PLAN.md b/docs/PLAN.md
+index f63771cb..00b378c0 100644
+--- a/docs/PLAN.md
++++ b/docs/PLAN.md
+@@ -119,8 +119,8 @@ The Steps table uses this exact header:
+ 
+ Every Steps row must be terminal before the closing pull request merges. Once
+ that merge closes the issue as completed, the derived state is `finished` and
+-step mutation is no longer legal. Post-merge work belongs to a named follow-up
+-plan.
++step mutation is limited to terminal repair of a closed-but-unarchived record.
++Post-merge work belongs to a named follow-up plan.
+ 
+ No Steps `Files` cell names the plan's own issue reference. Writing lifecycle
+ state into the record is the CLI's job, not an implementation step.
+@@ -192,7 +192,7 @@ resolves the target repository from that checkout's GitHub remote.
+ | `plan.mjs edit <issue> --file <path>` | Validate the file as the plan record, refuse on any failed check, replace the issue body, and print the header strip and the changed lines. |
+ | `plan.mjs check <issue \| --file <path>>` | Validate a v3 record and print the pass result. |
+ | `plan.mjs status <issue> <status> [--reason <text>]` | Validate and apply one open-status transition, then replace all phase labels with the target phase label. Refuse closed issues. |
+-| `plan.mjs step <issue> <step-id> <status>` | Rewrite one Steps `Status` cell after checking the plan state and dependencies. |
++| `plan.mjs step <issue> <step-id> <status>` | Rewrite one Steps `Status` cell after checking dependencies; require an open `ongoing` plan, or a `finished` plan when the target status is terminal (`done` or `skipped`) for repair. |
+ | `plan.mjs list [--status <s>]` | Print `<status>\t#<issue>\t<title>` for every issue labelled `plan`, deriving `unlabelled`, `finished`, `retired`, and `duplicate` rather than reading them from the body. |
+ | `plan.mjs next` | Print startable open plans, using the queue when it is present and valid. |
+ | `plan.mjs archive <issue>` | Verify terminal steps, passed code review, completed closure, and an eligible merged closing pull request; strip stale phase labels and write no status. |
+@@ -237,6 +237,12 @@ remaining window but does not close it, because the read and the edit are
+ separate API calls. A conflict is not an error to retry blindly: re-read the
+ record, re-apply the intent, and run `plan.mjs check <issue>` before continuing.
+ 
++`step` requires an open `ongoing` plan, except that a `finished` plan accepts a
++step mutation when the target status is terminal (`done` or `skipped`). This
++repairs a closed-but-unarchived record without creating a new closure event.
++Never reopen the issue for this repair: `archive` trusts only the latest
++closure, so reopening would discard the eligible closure proof.
++
+ An export copy is a snapshot of one body revision, not a live view. The `step`
+ and `edit` commands rewrite body bytes. A status change also rewrites body bytes
+ when it adds or clears the blocked reason. These body writes supersede every
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index f54e104b..5d508e04 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -197,7 +197,7 @@ and is refused.
+ | `edit <issue> --file <path>` | `edit` runs 13 checks. It requires provenance for the current body. It refreshes the digest before the remote body write. It then replaces the body. | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
+ | `check <issue \| --file <path>>` | 13 checks | `plan check passed: #<n>` or `plan check passed: <path>` |
+ | `status <issue> <status> [--reason <text>]` | `status` requires an open issue. It validates and updates its phase label. It keeps a leading `Blocked:` line only for blocked status. | `plan #<n> status: <old> -> <new>` |
+-| `step <issue> <step-id> <status>` | rewrite one Steps `Status` cell | `plan #<n> step <id>: <old> -> <new>` |
++| `step <issue> <step-id> <status>` | rewrite one Steps `Status` cell; requires an open `ongoing` plan, or a `finished` plan when the target status is terminal (`done` or `skipped`) for repair | `plan #<n> step <id>: <old> -> <new>` |
+ | `list [--status <s>]` | list plan issues and derive status from phase label for open work or from `state` + `stateReason` when closed; open issues first, then closed; each group sorted by ascending number | `<status>\t#<n>\t<title>` per line |
+ | `next` | queue-aware startable plans from `docs/PLAN-QUEUE.md` (`Plan` cell holds the issue number); falls back to every `planned` plan on a missing or malformed queue, warning on stderr | `#<n>` per line |
+ | `archive <issue>` | require completed closure, terminal steps, an exact `Code-review: pass` line, and a merged closing pull request into the target repository's default branch; remove any stale phase label without writing status | `plan #<n> finished (closed by <pr-url>)` |
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 33fe15bc..b87096ab 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -134,8 +134,9 @@ template placeholder `_Not researched yet._`.
+   to a declared id. A bare `step 3` is invalid.
+ 
+ Every Steps row must be terminal before the pull request carrying
+-`Closes #<issue>` merges. Once that merge closes the issue, step mutation is no
+-longer available. Post-merge work belongs to a named follow-up plan.
++`Closes #<issue>` merges. After that merge closes the issue, step mutation is
++limited to terminal repair of a closed-but-unarchived record. Post-merge work
++belongs to a named follow-up plan.
+ 
+ ## Acceptance table — exact header
+ 
+@@ -223,6 +224,12 @@ after the edit to confirm the pushed bytes.
+ A conflict is not permission to retry blindly. Re-read the issue, re-apply the
+ intended change, and run `plan.mjs check <issue>` before continuing.
+ 
++`step` requires an open `ongoing` plan, except that a `finished` plan accepts a
++step mutation when the target status is terminal (`done` or `skipped`). This
++repairs a closed-but-unarchived record without creating a new closure event.
++Never reopen the issue for this repair: `archive` trusts only the latest
++closure, so reopening would discard the eligible closure proof.
++
+ `export` writes the body to `<git-dir>/docks-review/plan-<n>.md`. It writes the
+ body digest to `plan-<n>.md.origin` as one lowercase SHA-256 line. The sidecar
+ uses mode `0600`.
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index acb942e6..80300033 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -770,7 +770,12 @@ function setStepStatus(args) {
+   if (!value || !stepId || !target || args.length !== 3) fail('step requires an issue, step id, and status');
+   if (!STEP_STATUSES.has(target)) fail(`unknown step status: ${target}`);
+   const { issue, parsed, record } = readPlanIssue(value, true);
+-  if (record.status !== 'ongoing') fail(`plan status is ${record.status}; expected ongoing`);
++  // A plan whose issue closed with a step still non-terminal deadlocks: `step` wanted `ongoing` while
++  // `archive` wants every step terminal. Reopening to repair destroys the closure proof (only the latest
++  // closure event counts), so a `finished` plan accepts exactly the terminal repairs archive needs - a body
++  // edit on the closed issue, which creates no closure event and never touches GitHub state.
++  const terminalRepair = record.status === 'finished' && new Set(['done', 'skipped']).has(target);
++  if (record.status !== 'ongoing' && !terminalRepair) fail(`plan status is ${record.status}; expected ongoing`);
+   const { sections } = sectionMap(parsed.body);
+   const table = parseRows(sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
+   const row = table.rows.find(({ cells }) => cells[1] === stepId);
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
+index 4b6d81a1..b075b5b9 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
+@@ -123,8 +123,8 @@ The Steps table uses this exact header:
+ 
+ Every Steps row must be terminal before the closing pull request merges. Once
+ that merge closes the issue as completed, the derived state is `finished` and
+-step mutation is no longer legal. Post-merge work belongs to a named follow-up
+-plan.
++step mutation is limited to terminal repair of a closed-but-unarchived record.
++Post-merge work belongs to a named follow-up plan.
+ 
+ No Steps `Files` cell names the plan's own issue reference. Writing lifecycle
+ state into the record is the CLI's job, not an implementation step.
+@@ -196,7 +196,7 @@ resolves the target repository from that checkout's GitHub remote.
+ | `plan.mjs edit <issue> --file <path>` | Validate the file as the plan record, refuse on any failed check, replace the issue body, and print the header strip and the changed lines. |
+ | `plan.mjs check <issue \| --file <path>>` | Validate a v3 record and print the pass result. |
+ | `plan.mjs status <issue> <status> [--reason <text>]` | Validate and apply one open-status transition, then replace all phase labels with the target phase label. Refuse closed issues. |
+-| `plan.mjs step <issue> <step-id> <status>` | Rewrite one Steps `Status` cell after checking the plan state and dependencies. |
++| `plan.mjs step <issue> <step-id> <status>` | Rewrite one Steps `Status` cell after checking dependencies; require an open `ongoing` plan, or a `finished` plan when the target status is terminal (`done` or `skipped`) for repair. |
+ | `plan.mjs list [--status <s>]` | Print `<status>\t#<issue>\t<title>` for every issue labelled `plan`, deriving `unlabelled`, `finished`, `retired`, and `duplicate` rather than reading them from the body. |
+ | `plan.mjs next` | Print startable open plans, using the queue when it is present and valid. |
+ | `plan.mjs archive <issue>` | Verify terminal steps, passed code review, completed closure, and an eligible merged closing pull request; strip stale phase labels and write no status. |
+@@ -241,6 +241,12 @@ remaining window but does not close it, because the read and the edit are
+ separate API calls. A conflict is not an error to retry blindly: re-read the
+ record, re-apply the intent, and run `plan.mjs check <issue>` before continuing.
+ 
++`step` requires an open `ongoing` plan, except that a `finished` plan accepts a
++step mutation when the target status is terminal (`done` or `skipped`). This
++repairs a closed-but-unarchived record without creating a new closure event.
++Never reopen the issue for this repair: `archive` trusts only the latest
++closure, so reopening would discard the eligible closure proof.
++
+ An export copy is a snapshot of one body revision, not a live view. The `step`
+ and `edit` commands rewrite body bytes. A status change also rewrites body bytes
+ when it adds or clears the blocked reason. These body writes supersede every
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 43a51bc3..e5ceb024 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -1171,6 +1171,88 @@ try {
+     }
+   }
+ 
++  const finishedStepNumber = createPlan('finished-step-repair');
++  makeValid(finishedStepNumber);
++  setIssueStatus(finishedStepNumber, 'ongoing');
++  updateIssue(finishedStepNumber, (entry) => {
++    entry.body = replaceStepStatus(entry.body, 'in-flight');
++    entry.state = 'CLOSED';
++    entry.stateReason = 'COMPLETED';
++  });
++  const finishedStepBefore = issue(finishedStepNumber);
++  const finishedStepCallsBefore = loadState().calls.length;
++  const finishedStepRepair = run('step', String(finishedStepNumber), 'implement_contract', 'done');
++  expectSuccess(finishedStepRepair, 'finished plan terminal step repair');
++  assert.equal(
++    finishedStepRepair.stdout.trim(),
++    `plan #${finishedStepNumber} step implement_contract: in-flight -> done`,
++  );
++  const finishedStepAfter = issue(finishedStepNumber);
++  assert.match(finishedStepAfter.body, /\| `done` \| command exits 0 \|/);
++  assert.equal(finishedStepAfter.state, finishedStepBefore.state, 'terminal repair must not reopen the issue');
++  assert.equal(
++    finishedStepAfter.stateReason,
++    finishedStepBefore.stateReason,
++    'terminal repair must preserve the completed state reason',
++  );
++  assert.deepEqual(
++    finishedStepAfter.labels,
++    finishedStepBefore.labels,
++    'terminal repair must not mutate the plan labels',
++  );
++  const finishedStepCalls = loadState().calls.slice(finishedStepCallsBefore);
++  assert.equal(
++    finishedStepCalls.filter(
++      (call) =>
++        call[0] === 'issue' &&
++        call[1] === 'edit' &&
++        call[2] === String(finishedStepNumber) &&
++        call.includes('--body-file'),
++    ).length,
++    1,
++    'terminal repair must record exactly one body edit',
++  );
++  assert.equal(
++    finishedStepCalls.some(
++      (call) => call[0] === 'issue' && new Set(['close', 'reopen']).has(call[1]),
++    ),
++    false,
++    'terminal repair must not create another issue state transition',
++  );
++
++  const finishedStepBodyBeforeRefusal = finishedStepAfter.body;
++  const finishedStepBodyWritesBeforeRefusal = loadState().calls.filter(
++    (call) =>
++      call[0] === 'issue' &&
++      call[1] === 'edit' &&
++      call[2] === String(finishedStepNumber) &&
++      call.includes('--body-file'),
++  ).length;
++  const finishedNonterminalStep = run(
++    'step',
++    String(finishedStepNumber),
++    'implement_contract',
++    'in-flight',
++  );
++  assert.equal(finishedNonterminalStep.status, 1, 'a finished plan must reject a non-terminal step target');
++  assert.equal(finishedNonterminalStep.stderr.trim(), 'plan status is finished; expected ongoing');
++  assert.equal(
++    issue(finishedStepNumber).body,
++    finishedStepBodyBeforeRefusal,
++    'refusing a non-terminal repair must leave the closed issue body unchanged',
++  );
++  assert.equal(
++    loadState().calls.filter(
++      (call) =>
++        call[0] === 'issue' &&
++        call[1] === 'edit' &&
++        call[2] === String(finishedStepNumber) &&
++        call.includes('--body-file'),
++    ).length,
++    finishedStepBodyWritesBeforeRefusal,
++    'a non-terminal target on a finished plan must fail before the body write',
++  );
++
+   const dependencyNumber = createPlan('dependency');
+   makeValid(dependencyNumber, {
+     steps: [

@@ -1,0 +1,12 @@
+{
+  "id": "code-123-control",
+  "kind": "code",
+  "split": "dev",
+  "issue": 123,
+  "round": 1,
+  "base": "d4dc5d501bede196c57ef1d29ad9aac60b03645f",
+  "head": "ce2613c42b5662819676f100811a9f34c04e6bce",
+  "plan": "code-123-control-plan.md",
+  "control": true,
+  "known": []
+}

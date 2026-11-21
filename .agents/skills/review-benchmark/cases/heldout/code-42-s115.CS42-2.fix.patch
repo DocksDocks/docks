@@ -1,0 +1,24 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 417c3818..c144e82f 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -455,15 +455,10 @@ function planWorkStarted(issue, recordStatus) {
+   // does not already prove the plan started.
+   if (recordStatus !== 'drafting' && recordStatus !== 'planned') return true;
+   const { owner, repo } = repositoryCoordinates();
+-  let pages;
+-  try {
+-    pages = parseJson(
+-      runGh(['api', `repos/${owner}/${repo}/issues/${issue.number}/events`, '--paginate', '--slurp']),
+-      'gh api issue events',
+-    );
+-  } catch {
+-    return false;
+-  }
++  const pages = parseJson(
++    runGh(['api', `repos/${owner}/${repo}/issues/${issue.number}/events`, '--paginate', '--slurp']),
++    'gh api issue events',
++  );
+   if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+     fail('gh api issue events returned malformed events');
+   }

@@ -1,0 +1,111 @@
+diff --git a/plugins/docks/skills/AGENTS.md b/plugins/docks/skills/AGENTS.md
+index ef5ae1d8..d38d43d7 100644
+--- a/plugins/docks/skills/AGENTS.md
++++ b/plugins/docks/skills/AGENTS.md
+@@ -104,7 +104,7 @@ rule and the command that finds every copy.
+ 
+ ## Report section (every shipped skill)
+ 
+-Every shipped skill of the docks and plan-lifecycle plugins ends with one byte-identical `## Report a problem with this skill` section, so an agent that uses a skill sees where and how to report a problem with it. The section points to the docks `report-skill-issue` skill. For a runtime without docks, it allows only a draft for the user, because the publication safeguards live in that skill. A new skill copies the section unchanged; a change to the section changes every copy in the same commit. Verify: `for f in plugins/docks/skills/*/*/SKILL.md plugins/plan-lifecycle/skills/*/*/SKILL.md; do sed -n '/^## Report a problem with this skill$/,$p' "$f" | sha256sum; done | sort | uniq -c` must print one line whose count equals the number of shipped skills.
++Every shipped skill of the docks and plan-lifecycle plugins ends with one byte-identical `## Report a problem with this skill` section, so an agent that uses a skill sees where and how to report a problem with it. The section points to the docks `report-skill-issue` skill. For a runtime without docks, it allows only a draft for the user, because the publication safeguards live in that skill. A new skill copies the section unchanged. The skills guard checks every copy against `scripts/config/report-section.md` (verify: `bun scripts/skills/guard.mjs plugins/docks/skills` and `bun scripts/skills/guard.mjs plugins/plan-lifecycle/skills`); a change to the section changes that file and every copy in the same commit.
+ 
+ ## Cross-tool wording (Claude Code + Codex)
+ 
+diff --git a/scripts/AGENTS.md b/scripts/AGENTS.md
+index 0375883a..65522a29 100644
+--- a/scripts/AGENTS.md
++++ b/scripts/AGENTS.md
+@@ -48,7 +48,7 @@ Plugin behavior stays registry-driven: extend descriptor capabilities rather tha
+ | Script | Purpose | Floor |
+ |---|---|---|
+ | `ci.mjs` | the authoritative gate entry point — without `--plugin`, runs repo-wide checks once and gates every registry entry; `--plugin <name>` skips repo-wide sections and runs only that plugin's owned author checks, shell-hook lint, and `gatePlugin` validation (manifest/version coherence, `claude plugin validate`, Codex parity, and the checks below) | — |
+-| `skills/guard.mjs` | runs the skill frontmatter validators (codex + claude via `lib/validate-skills.mjs`) + `codex-facts.mjs` + `refs-guard.mjs` | pass/fail |
++| `skills/guard.mjs` | runs the skill frontmatter validators (codex + claude via `lib/validate-skills.mjs`) + `codex-facts.mjs` + `refs-guard.mjs`, then checks that every `SKILL.md` ends with the Report section of `config/report-section.md`, byte for byte | pass/fail |
+ | `lib/validate-skills.mjs` | skill frontmatter per runtime — name/description, 1024-char cap, no `#` truncation, CSO `Use when` prefix, `user-invocable`, `metadata.updated`, `references/` one level deep | pass/fail |
+ | `skills/codex-facts.mjs` | pins canonical Codex model ids / `sandbox_mode` / `model_reasoning_effort` + the `agents.max_depth` fact in the skill-agent-pipeline refs (self-skips when absent) | pass/fail |
+ | `skills/refs-guard.mjs` | reference hygiene: broken local `references/`/`assets/` links, orphan reference files, missing `## Contents` TOC on `references/*.md` > 100 lines with ≥3 doc-level headings | pass/fail |
+diff --git a/scripts/config/report-section.md b/scripts/config/report-section.md
+new file mode 100644
+index 00000000..20ff13b0
+--- /dev/null
++++ b/scripts/config/report-section.md
+@@ -0,0 +1,3 @@
++## Report a problem with this skill
++
++When this skill gives a wrong, outdated, or unsafe instruction, or a script that it ships fails, report the problem in the public DocksDocks/docks repository. Use the docks `report-skill-issue` skill for the report. If that skill is not installed, do not file anything: give the user a draft instead. The draft names this skill and its plugin version, quotes the instruction, and states what happened and what you expected. Leave out secrets and private names.
+diff --git a/scripts/skills/guard.mjs b/scripts/skills/guard.mjs
+index 9366e7cb..6ecb9e4f 100644
+--- a/scripts/skills/guard.mjs
++++ b/scripts/skills/guard.mjs
+@@ -1,12 +1,17 @@
+ #!/usr/bin/env bun
+ // guard.mjs — run the combined skill frontmatter validator, the Codex-fact
+-// drift guard, and the reference-hygiene guard. Usage: guard.mjs [skills-dir]
++// drift guard, and the reference-hygiene guard, then check that every skill
++// ends with the canonical Report section. Usage: guard.mjs [skills-dir]
+ import { spawnSync } from 'node:child_process';
++import fs from 'node:fs';
+ import path from 'node:path';
++import { findSkillFiles } from '../lib/skills-walk.mjs';
+ 
+ const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
+ const REPO_DIR = path.resolve(SCRIPT_DIR, '../..');
+ const DIR = process.argv[2] || '';
++// One canonical copy, so that the copies in all plugins cannot drift apart unseen.
++const REPORT_SECTION = 'scripts/config/report-section.md';
+ 
+ function run(args) {
+   const result = spawnSync('bun', args, { stdio: 'inherit' });
+@@ -26,10 +31,51 @@ function run(args) {
+   if (result.status !== 0) process.exit(result.status);
+ }
+ 
++// Every shipped skill ends with the same Report section, so that an agent that uses any skill
++// can find how to report a problem with it. Read the files as latin1 (one character per byte),
++// so that the comparison is byte for byte, also for line endings and trailing newlines.
++function reportSectionFailures(skillsRoot) {
++  const canonicalFile = path.join(REPO_DIR, REPORT_SECTION);
++  let canonical;
++  try {
++    canonical = fs.readFileSync(canonicalFile, 'latin1');
++  } catch (error) {
++    console.error(`FAIL: cannot read the canonical Report section ${canonicalFile}: ${error.message}`);
++    process.exit(2);
++  }
++  const heading = canonical.split('\n', 1)[0];
++  if (!heading.startsWith('## ')) {
++    console.error(`FAIL: ${REPORT_SECTION}: the first line must be the \`## \` heading of the Report section`);
++    process.exit(2);
++  }
++  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
++  const headingLine = new RegExp(`^${escapedHeading}$`, 'gm');
++  const failures = [];
++  for (const file of findSkillFiles(skillsRoot)) {
++    const content = fs.readFileSync(file, 'latin1');
++    // The last heading starts the section: a skill can quote the heading in its body.
++    const start = [...content.matchAll(headingLine)].at(-1)?.index;
++    const shown = path.relative(process.cwd(), file) || file;
++    if (start === undefined) {
++      failures.push(`${shown}: missing the Report section; end the file with the text of ${REPORT_SECTION}`);
++    } else if (content.slice(start) !== canonical) {
++      failures.push(`${shown}: the Report section differs from ${REPORT_SECTION}; copy that file's text over it`);
++    }
++  }
++  return failures;
++}
++
+ const lib = path.join(REPO_DIR, 'scripts/lib/validate-skills.mjs');
+ const target = DIR || path.join(REPO_DIR, 'plugins/docks/skills');
+ run([lib, '--runtime', 'all', target]);
+ run([path.join(REPO_DIR, 'scripts/skills/codex-facts.mjs')]);
+ run([path.join(REPO_DIR, 'scripts/skills/refs-guard.mjs'), ...(DIR ? [DIR] : [])]);
+ 
+-console.log('Guard PASSED: skills match Codex and Claude conventions');
++const reportFailures = reportSectionFailures(target);
++if (reportFailures.length > 0) {
++  for (const failure of reportFailures) console.error(`FAIL: ${failure}`);
++  console.error(`Guard FAILED: ${reportFailures.length} skill file(s) do not end with the canonical Report section`);
++  process.exit(1);
++}
++
++console.log('Guard PASSED: skills match Codex and Claude conventions and end with the canonical Report section');

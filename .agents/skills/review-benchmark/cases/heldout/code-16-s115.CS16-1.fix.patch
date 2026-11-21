@@ -1,0 +1,19 @@
+diff --git a/scripts/lib/plugin-release.mjs b/scripts/lib/plugin-release.mjs
+index 8774526a..1efe5372 100644
+--- a/scripts/lib/plugin-release.mjs
++++ b/scripts/lib/plugin-release.mjs
+@@ -490,12 +490,11 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
+       // costs nothing.
+       const remote = spawnSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], {
+         cwd: repo,
+-        stdio: 'ignore',
++        encoding: 'utf8',
+       });
+-      if (remote.status === 2) return false;
+       if ((remote.status ?? 1) !== 0)
+         throw new Error(`cannot reach origin to check whether ${tag} is already released — refusing to guess`);
+-      return true;
++      return (remote.stdout ?? '').trim() !== '';
+     },
+     // `headBranch` carries the pushed ref's short name, so for a tag push it is the tag
+     // itself (verified against `gh run list --json headBranch` on this repository: every

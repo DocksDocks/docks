@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 2f023cc4..df62a3e6 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -26,7 +26,7 @@ const PLAN_LIST_LIMIT = 500;
+ // a Windows drive, or a network share. URL routes, slash prose, and portable system paths such as
+ // /usr/bin/env or a bare /tmp do not match (#71). The match runs to the next space or delimiter.
+ const MACHINE_PATH =
+-  /(?<=^|[\s("'`[{=:;,>]|file:\/\/)(?:\/(?:home|Users|root|mnt|media|Volumes|run\/(?:user|media))\/[^\s/]|\/(?:private\/)?(?:tmp|var\/tmp)\/[^\s/]|\/(?:private\/)?var\/folders\/|[A-Za-z]:[\\/]|\\\\[\w.$-]+\\[\w.$-])[^\s`'"()[\]{}|,;]*/gm;
++  /(?<=^|[\s("'`[{=:;,>]|file:\/\/)(?:\/(?:home|Users|root|mnt|media|Volumes|run\/(?:user|media))\/[^\s/`'")]|\/(?:private\/)?(?:tmp|var\/tmp)\/[^\s/`'")]|\/(?:private\/)?var\/folders\/|[A-Za-z]:[\\/]|\\\\[\w.$-]+\\[\w.$-])[^\s`'"()[\]{}|,;]*/gm;
+ function fail(message) {
+   throw new Error(message);
+ }

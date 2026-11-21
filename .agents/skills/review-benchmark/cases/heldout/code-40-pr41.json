@@ -1,0 +1,10 @@
+{
+  "id": "code-40-pr41",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 40,
+  "round": 1,
+  "base": "bd18de5a5717c7e96fca59171f767cab362e82ef",
+  "head": "aa62e70cb7e56cc9a747b15b238af45f68f99c3f",
+  "plan": "code-40-pr41-plan.md"
+}

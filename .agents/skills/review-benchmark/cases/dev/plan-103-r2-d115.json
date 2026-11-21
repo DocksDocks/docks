@@ -1,0 +1,21 @@
+{
+  "id": "plan-103-r2-d115",
+  "kind": "plan-delta",
+  "split": "dev",
+  "issue": 103,
+  "round": 2,
+  "repo_ref": "163acb53e4ce6c01ea7595a62971a494a81b81b7",
+  "previous_body": "plan-103-r2-d115-previous-body.md",
+  "plan": "plan-103-r2-d115-plan.md",
+  "previous_review": "plan-103-r2-d115-previous-review.md",
+  "known": [
+    {
+      "id": "PD103-1",
+      "kind": "security_risk",
+      "title": "The repaired visibility lookup gives gh a bare owner/name, so GH_HOST can send the lookup to another host",
+      "locator": "Research, Decisions 2 (line 27); Research, Facts (line 19); Steps, row 2 visibility_check (line 42)",
+      "source": "review-round",
+      "summary": "Decision 2 (line 27) takes the owner and name from each github.com remote. Then it runs `gh repo view <owner>/<repo> --json visibility` without a host. gh gives a bare owner/name its default host, and `GH_HOST` sets that host (gh environment manual); the Facts (line 19) test only `GH_REPO`. When `GH_HOST` names another host that has a public repository with the same owner/name, the lookup prints PUBLIC for a private project. The draft then keeps the private branch names and issue titles that the Goal keeps out, and the lookup for other named repositories has the same gap."
+    }
+  ]
+}

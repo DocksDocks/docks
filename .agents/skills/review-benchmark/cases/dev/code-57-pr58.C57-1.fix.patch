@@ -1,0 +1,168 @@
+diff --git a/plugins/docks/skills/engineering/code-guardrails/SKILL.md b/plugins/docks/skills/engineering/code-guardrails/SKILL.md
+index d6266f00..7da4ad17 100644
+--- a/plugins/docks/skills/engineering/code-guardrails/SKILL.md
++++ b/plugins/docks/skills/engineering/code-guardrails/SKILL.md
+@@ -37,10 +37,12 @@ A silent dependency or tool change is a change the user did not approve.
+ </constraint>
+ 
+ <constraint>
+-In tests, import production constants for inputs and configuration. When a test
+-checks a constant or a value computed from constants, write the expected result
+-as a literal. An assertion such as `expect(MIB).toBe(1024 * KIB)` repeats the
+-code under test, so it passes even when the definition is wrong.
++Keep the raw-number lint rule on in test files. In tests, import production
++constants for inputs and configuration. When a test checks a constant or a value
++computed from constants, put the expected result in a named literal constant.
++An assertion such as `expect(MIB).toBe(1024 * KIB)` repeats the code under test,
++so it passes even when the definition is wrong. A test-file exemption lets a copied
++limit such as `fileOfSize(10485761)` pass lint and drift from production.
+ </constraint>
+ 
+ ## When to use
+@@ -166,9 +168,11 @@ grep -rhoE --include='*.ts' --include='*.rs' --include='*.swift' --include='*.py
+   "[\"'][^\"'\$]{4,}[\"']" . | sort | uniq -c | sort -rn | awk '$1 > 1'
+ ```
+ 
+-The output is a list of candidates, not a list of defects. Short values such as
+-`10`, `30`, or `60` produce many candidates; check each one that could be a limit,
+-timeout, or size. Find its locations with `grep -rnw '<value>' .` and decide:
++The output is a list of candidates, not a list of defects. The checks include test
++files, so they also find a production value copied into a test constant. Short
++values such as `10`, `30`, or `60` produce many candidates; check each one that
++could be a limit, timeout, or size. Find its locations with `grep -rnw '<value>' .`
++and decide:
+ 
+ | Finding | Action |
+ |---|---|
+@@ -181,8 +185,12 @@ timeout, or size. Find its locations with `grep -rnw '<value>' .` and decide:
+ 
+ - Import production constants for inputs, limits, and configuration. If the limit
+   changes, the test follows it.
+-- Write expected results as literals when the test checks a constant or a
+-  calculation. This is the only place a raw value is the correct choice.
++- Put each expected result in a named constant when the test checks a constant or
++  a calculation, such as `EXPECTED_MAX_UPLOAD_BYTES = 10_485_760`. This is the only
++  place a copied raw value is the correct choice, and the name says why it is there.
++- Keep the raw-number rule on in test files. Linters skip a literal that initializes
++  a named constant, so the rule still rejects inline values such as `10485761`.
++  SwiftLint always skips test code; for Swift tests, rely on the scan above.
+ - Put shared fixtures and builders in one test-support module. Do not copy the same
+   sample object into every test file.
+ - Name a test value by its role: `validEmail`, `expiredToken`, not `data1`.
+@@ -193,8 +201,9 @@ expect(MAX_UPLOAD_BYTES).toBe(10 * MIB);
+ // BAD — a copy of the production limit that drifts when the limit changes
+ expect(() => upload(fileOfSize(10485761))).toThrow();
+ 
+-// GOOD — literal for the definition check, import for the behavior check
+-expect(MAX_UPLOAD_BYTES).toBe(10_485_760);
++// GOOD — named literal for the definition check, import for the behavior check
++const EXPECTED_MAX_UPLOAD_BYTES = 10_485_760;
++expect(MAX_UPLOAD_BYTES).toBe(EXPECTED_MAX_UPLOAD_BYTES);
+ expect(() => upload(fileOfSize(MAX_UPLOAD_BYTES + 1))).toThrow(UploadTooLargeError);
+ ```
+ 
+@@ -207,6 +216,7 @@ expect(() => upload(fileOfSize(MAX_UPLOAD_BYTES + 1))).toThrow(UploadTooLargeErr
+ | Replace ESLint or Prettier with oxlint or oxfmt without a request | Add the rule to the tool the project uses; ask before a migration |
+ | Name every literal, including `0` and `1` in loops | Name values that carry a meaning only |
+ | Assume Rust and Bash linters catch raw values | They have no such rule; run "Find scattered values" |
++| Turn off the raw-number rule for test files | Keep it on; name expected literals as constants |
+ 
+ ## Report
+ 
+diff --git a/plugins/docks/skills/engineering/code-guardrails/references/python.md b/plugins/docks/skills/engineering/code-guardrails/references/python.md
+index 47d83bae..e51acf65 100644
+--- a/plugins/docks/skills/engineering/code-guardrails/references/python.md
++++ b/plugins/docks/skills/engineering/code-guardrails/references/python.md
+@@ -10,7 +10,7 @@
+ 
+ ## Recommended config
+ 
+-Merge these entries into the existing `pyproject.toml`; do not replace its settings. Keep existing rule selections and add missing prefixes to `extend-select`. If `extend-select` exists, append missing prefixes to its list. Keep any stricter settings. Preserve other entries in `per-file-ignores`; add only the test patterns that match the project. The mypy section applies only when the project uses mypy.
++Merge these entries into the existing `pyproject.toml`; do not replace its settings. Keep existing rule selections and add missing prefixes to `extend-select`. If `extend-select` exists, append missing prefixes to its list. Keep any stricter settings. Do not add `PLR2004` to `per-file-ignores` for test files. Ask the user before you remove an existing test exception for it. The mypy section applies only when the project uses mypy.
+ 
+ ```toml
+ [tool.ruff.lint]
+@@ -19,10 +19,6 @@ extend-select = ["E", "F", "B", "UP", "SIM", "PL", "RUF", "ERA", "T20", "ANN"]
+ [tool.ruff.lint.pylint]
+ allow-magic-value-types = []
+ 
+-[tool.ruff.lint.per-file-ignores]
+-"**/tests/**/*.py" = ["PLR2004"]
+-"**/test_*.py" = ["PLR2004"]
+-
+ [tool.mypy]
+ strict = true
+ ```
+@@ -35,7 +31,7 @@ strict = true
+ | --- | --- | --- |
+ | `PLR2004` | Unnamed numerical constants in comparisons. | Comparisons only; it does not find repeated values in assignments, calls, paths, keys, or units. |
+ 
+-Ruff exempts common comparison values such as `0`, `1`, and `""`. The `allow-magic-value-types = []` setting removes type-based exemptions, including the default string and bytes exemptions; it does not remove the rule's common-value exemptions. Use `SKILL.md` § **Find scattered values** for values beyond comparison checks. The test-file exception permits literal expected values when a test checks a constant itself; use production constants for test inputs. Do not disable other rules in test files.
++Ruff exempts common comparison values such as `0`, `1`, and `""`. The `allow-magic-value-types = []` setting removes type-based exemptions, including the default string and bytes exemptions; it does not remove the rule's common-value exemptions. Use `SKILL.md` § **Find scattered values** for values beyond comparison checks. Keep `PLR2004` on in tests: a test compares with a named `Final` expected value, not an inline number.
+ 
+ ## Constant map
+ 
+@@ -68,7 +64,7 @@ def accept_upload(payload_bytes: int, state: UploadState) -> bool:
+     return payload_bytes <= MAX_PAYLOAD_BYTES and state is UploadState.READY
+ ```
+ 
+-For tests, pass `MAX_PAYLOAD_BYTES` as an input. When the test checks the constant's value, compare it with the literal expected value.
++For tests, pass `MAX_PAYLOAD_BYTES` as an input. When the test checks the constant's value, compare it with a named expected value, such as `EXPECTED_MAX_PAYLOAD_BYTES: Final = 8_388_608`.
+ 
+ ## Verify
+ 
+diff --git a/plugins/docks/skills/engineering/code-guardrails/references/swift.md b/plugins/docks/skills/engineering/code-guardrails/references/swift.md
+index 32a9d0c7..08b13421 100644
+--- a/plugins/docks/skills/engineering/code-guardrails/references/swift.md
++++ b/plugins/docks/skills/engineering/code-guardrails/references/swift.md
+@@ -55,14 +55,16 @@ force_try:
+ `force_cast` and `force_try` are default rules with error severity.
+ Keep them enabled at error severity; report any existing override that weakens or disables them.
+ `no_magic_numbers` permits `0.0`, `1.0`, and `100.0` by default; the example removes `100.0` from that allowance.
+-It skips `XCTestCase` and `QuickSpec` classes and Swift Testing `@Test` functions by default.
+-Review any test coverage gap manually. Use production constants for test inputs and literal expected values when checking a constant itself.
++SwiftLint always skips test code for this rule: `XCTestCase` and `QuickSpec` subclasses, `@Test` functions, and `@Suite` types.
++No setting turns the rule on there, because the rule adds these classes to `test_parent_classes` itself.
++For Swift tests, run [Find scattered values](../SKILL.md#find-scattered-values); it includes test files.
++In tests, use production constants for inputs and a named `let` for each expected literal.
+ 
+ ## Rules that catch raw values
+ 
+ | Rule | Catches | Limits |
+ |---|---|---|
+-| [`no_magic_numbers`](https://realm.github.io/SwiftLint/no_magic_numbers.html) | Raw numeric expressions, such as an array index or limit. | It excludes declarations, default allowed values, and common test contexts. It does not check repeated strings. |
++| [`no_magic_numbers`](https://realm.github.io/SwiftLint/no_magic_numbers.html) | Raw numeric expressions, such as an array index or limit. | It excludes declarations, default allowed values, and all test code. It does not check repeated strings. |
+ | [`force_unwrapping`](https://realm.github.io/SwiftLint/force_unwrapping.html) | Forced optional unwraps. | The example removes its default literal-initializer exceptions. It does not find raw values. |
+ | [`implicitly_unwrapped_optional`](https://realm.github.io/SwiftLint/implicitly_unwrapped_optional.html) | Implicitly unwrapped optional types. | Its default mode excludes outlets; it does not find raw values. |
+ | [`fatal_error_message`](https://realm.github.io/SwiftLint/fatal_error_message.html) | Missing or empty failure messages. | It does not judge message content or find raw values. |
+diff --git a/plugins/docks/skills/engineering/code-guardrails/references/typescript.md b/plugins/docks/skills/engineering/code-guardrails/references/typescript.md
+index a00a7a11..4c8cb40d 100644
+--- a/plugins/docks/skills/engineering/code-guardrails/references/typescript.md
++++ b/plugins/docks/skills/engineering/code-guardrails/references/typescript.md
+@@ -23,8 +23,9 @@ Keep unrelated rules, plugins, ignores, and overrides.
+ Add missing rules and never loosen a stricter setting.
+ Use these keys inside `defineConfig({ ... })` for an existing `oxlint.config.ts`.
+ Do not keep both config formats in one directory.
+-The test override changes only `eslint/no-magic-numbers`.
+-Adapt its globs to the project's test layout.
++Keep `eslint/no-magic-numbers` on in test files. Do not add an override that turns it off there.
++A test holds an expected literal in a named `const`; the rule does not report a `const` initializer.
++Remove an existing test-file override for this rule only after you ask the user.
+ 
+ ```json
+ {
+@@ -50,13 +51,7 @@ Adapt its globs to the project's test layout.
+     "typescript/no-explicit-any": "error",
+     "typescript/no-unsafe-function-type": "error",
+     "typescript/no-non-null-assertion": "error"
+-  },
+-  "overrides": [
+-    {
+-      "files": ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}", "**/__tests__/**/*.{ts,tsx}"],
+-      "rules": { "eslint/no-magic-numbers": "off" }
+-    }
+-  ]
++  }
+ }
+ ```
+ 

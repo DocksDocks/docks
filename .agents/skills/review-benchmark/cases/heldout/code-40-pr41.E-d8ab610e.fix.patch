@@ -1,0 +1,564 @@
+diff --git a/docs/PLAN.md b/docs/PLAN.md
+index 19bf5c0f..457240f5 100644
+--- a/docs/PLAN.md
++++ b/docs/PLAN.md
+@@ -196,7 +196,7 @@ resolves the target repository from that checkout's GitHub remote.
+ | `plan.mjs claim <issue>` | Take single-writer ownership of an existing plan: assign the acting login, stay idempotent when it already owns the plan, and refuse when another login does. |
+ | `plan.mjs show <issue> [--body]` | Print the header strip, then `reviews: plan=<pass\|repair\|blocked\|none> code=<pass\|fixes-required\|blocked\|none>`. With `--body`, print only the body to stdout and send both metadata lines to stderr, header first. |
+ | `plan.mjs export <issue>` | Write the issue body verbatim to `plan-<issue>.md` inside the scratch directory `git rev-parse --git-path docks-review` resolves, creating it mode 0700 when missing, and print the absolute path. |
+-| `plan.mjs edit <issue> --file <path>` | Validate the file as the plan record, refuse on any failed check or any regression of a matching terminal step to a different non-terminal status, instruct re-export, replace the issue body, and print the header strip and the changed lines. |
++| `plan.mjs edit <issue> --file <path>` | Validate the file as the plan record and enforce the irreversible execution-state freeze: existing step state is immutable after work starts, and new rows are append-only `planned` work on open plans. Refuse on any failed check, instruct re-export, replace the issue body, and print the header strip and changed lines. |
+ | `plan.mjs check <issue \| --file <path>>` | Validate a v3 record and print the pass result. |
+ | `plan.mjs status <issue> <status> [--reason <text>]` | Validate and apply one open-status transition, then replace all phase labels with the target phase label. Refuse closed issues. |
+ | `plan.mjs step <issue> <step-id> <status>` | Rewrite one Steps `Status` cell after checking dependencies; require an open `ongoing` plan, or a `finished` plan when the target status is terminal (`done` or `skipped`) for repair. |
+@@ -271,9 +271,15 @@ re-export. The `claim`, `archive`, and `retire` commands do not rewrite body
+ bytes. A successful phase-only status change writes labels only and leaves the
+ body and digest valid. The guard compares body bytes, not the issue timestamp.
+ 
+-`edit` also refuses an incoming body that moves any matching step id from a
+-terminal remote status (`done` or `skipped`) to a different non-terminal
+-status. Re-export the current body and re-apply the intended edit.
++Once work starts (irreversibly: when the current phase is neither `drafting` nor
++`planned`, or label events show that `plan:ongoing` was ever applied), `edit`
++preserves every existing Steps row's Status, Effect, Depends, display number,
++and presence byte-for-byte; new rows must be appended after every existing row,
++must start `planned`, and are refused on closed plans; after that boundary, only
++`plan.mjs step` writes step state.
++Before this boundary, a `drafting` or `planned` plan with no historical
++`plan:ongoing` event may edit Steps freely. On a closed plan, post-merge step
++mutation remains limited to terminal repair; new work requires a follow-up plan.
+ 
+ Re-export immediately before every body edit. Edit the export. Run
+ `plan.mjs check <issue>`. Delete the export and its `.origin` sidecar. Never
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 5a7ea372..3660a28b 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -225,7 +225,7 @@ Archive proof rules live in the contract reference.
+ | `claim <issue>` | resolve the acting login, `gh issue edit <n> --add-assignee @me` when unassigned; idempotent for the owner, refuses a foreign owner without writing | `plan #<n> claimed: <login>` |
+ | `show <issue> [--body]` | header strip, then per-kind verdicts from latest trusted comments with legacy fallback only when none exists; `--body` puts the record alone on stdout and both metadata lines on stderr | header strip, then `reviews: plan=<pass\|repair\|blocked\|none> code=<pass\|fixes-required\|blocked\|none>` |
+ | `export <issue>` | `export` writes the body to the worktree-aware `docks-review` directory. It writes its SHA-256 digest to `<file>.origin` with mode `0600`. | the absolute export path |
+-| `edit <issue> --file <path>` | `edit` runs 13 checks. It requires provenance for the current body and refuses a file that moves any matching step id from a terminal remote status (`done` or `skipped`) to a different non-terminal status; re-export and re-apply the edit. It refreshes the digest before the remote body write, then replaces the body. | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
++| `edit <issue> --file <path>` | Once work starts (irreversibly: when the current phase is neither `drafting` nor `planned`, or label events show that `plan:ongoing` was ever applied), `edit` preserves every existing Steps row's Status, Effect, Depends, display number, and presence byte-for-byte; new rows must be appended after every existing row, must start `planned`, and are refused on closed plans; after that boundary, only `plan.mjs step` writes step state. It requires provenance for the current body, refreshes the digest before the remote body write, then replaces the body. | header strip, then `changed: <k> line(s)` and the changed lines as `-old` / `+new` |
+ | `check <issue \| --file <path>>` | 13 checks | `plan check passed: #<n>` or `plan check passed: <path>` |
+ | `status <issue> <status> [--reason <text>]` | `status` requires an open issue. It validates and updates its phase label. It keeps a leading `Blocked:` line only for blocked status. | `plan #<n> status: <old> -> <new>` |
+ | `step <issue> <step-id> <status>` | rewrite one Steps `Status` cell; requires an open `ongoing` plan, or a `finished` plan when the target status is terminal (`done` or `skipped`) for repair | `plan #<n> step <id>: <old> -> <new>` |
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 91a2d673..2e64515f 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -287,9 +287,15 @@ sidecar, an unreadable digest, or a digest from a superseded body revision.
+ After validation, `edit` refreshes the digest before the remote body write.
+ A local sidecar failure fails closed and requires one re-export.
+ A phase-only status change leaves the body and sidecar valid.
+-`edit` also refuses an incoming body that moves any matching step id from a
+-terminal remote status (`done` or `skipped`) to a different non-terminal
+-status. Re-export the current body and re-apply the intended edit.
++Once work starts (irreversibly: when the current phase is neither `drafting` nor
++`planned`, or label events show that `plan:ongoing` was ever applied), `edit`
++preserves every existing Steps row's Status, Effect, Depends, display number,
++and presence byte-for-byte; new rows must be appended after every existing row,
++must start `planned`, and are refused on closed plans; after that boundary, only
++`plan.mjs step` writes step state.
++Before this boundary, a `drafting` or `planned` plan with no historical
++`plan:ongoing` event may edit Steps freely. On a closed plan, post-merge step
++mutation remains limited to terminal repair; new work requires a follow-up plan.
+ 
+ For every body edit, export the record. Edit the export. Run
+ `plan.mjs check <issue>`. Delete the export and its `.origin` sidecar.
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 76db6760..c1702ca2 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -448,6 +448,23 @@ function issueComments(number) {
+   return pages.flat();
+ }
+ 
++function planWorkStarted(issue, recordStatus) {
++  // "Started" must be irreversible: `blocked -> planned` and `blocked -> drafting` are legal transitions,
++  // so a started plan can legally return to an editable label. Label events are GitHub-owned timeline
++  // facts no later transition or body write can erase; the query runs only when the current label alone
++  // does not already prove the plan started.
++  if (recordStatus !== 'drafting' && recordStatus !== 'planned') return true;
++  const { owner, name } = repositoryCoordinates();
++  const pages = parseJson(
++    runGh(['api', `repos/${owner}/${name}/issues/${issue.number}/events`, '--paginate', '--slurp']),
++    'gh api issue events',
++  );
++  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
++    fail('gh api issue events returned malformed events');
++  }
++  return pages.flat().some((event) => event?.event === 'labeled' && event?.label?.name === 'plan:ongoing');
++}
++
+ function parseReviewComment(body) {
+   if (typeof body !== 'string') return undefined;
+   if (body.includes('\u2014')) return undefined;
+@@ -842,23 +859,56 @@ function editPlan(args) {
+   }
+   const failures = checkPlan(after, issue);
+   if (failures.length > 0) fail(failures.map((message) => `${file}: ${message}`).join('\n'));
+-  // The provenance digest proves the remote body is the one exported from, not that the FILE reflects it:
+-  // an intervening export refreshes the sidecar, so a stale draft can pass the digest check and silently
+-  // revert step statuses the CLI advanced in between. A terminal cell never legally regresses
+-  // (STEP_TRANSITIONS closes `done` and `skipped`), so refuse any matching step id moving away from one.
+-  const stepStatuses = (text) => {
+-    const table = parseRows(sectionMap(text).sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
+-    return new Map(table.rows.map(({ cells }) => [cells[1], unquoteCode(cells[6])]));
+-  };
+-  const remoteSteps = stepStatuses(parsed.body);
+-  const regressed = [...stepStatuses(after)]
+-    .filter(([id, status]) => {
+-      const remote = remoteSteps.get(id);
+-      return new Set(['done', 'skipped']).has(remote) && status !== remote && !new Set(['done', 'skipped']).has(status);
+-    })
+-    .map(([id, status]) => `${id} (${remoteSteps.get(id)} -> ${status})`);
+-  if (regressed.length > 0) {
+-    fail(`status regression: step ${regressed.join(', ')} is terminal on #${issue.number} but the file reverts it; re-export and re-apply the edit`);
++  // Once work starts, `plan.mjs step` is the only writer of step state. A body edit could otherwise
++  // bypass STEP_TRANSITIONS (`planned -> done`), fake completion by removing a non-terminal row (archive
++  // requires every step terminal), reorder execution by rewriting Depends or display numbers, or suppress
++  // the pre-run `ask` by downgrading a non-local Effect. Task, Files, and Done-when stay editable as prose.
++  if (planWorkStarted(issue, record.status)) {
++    const stepRows = (text) => {
++      const table = parseRows(sectionMap(text).sections.get('Steps') ?? '', STEPS_HEADER, STEPS_SEPARATOR, 8);
++      return table.rows.map(({ cells }) => ({
++        display: cells[0],
++        id: cells[1],
++        depends: cells[4],
++        effect: cells[5],
++        status: unquoteCode(cells[6]),
++      }));
++    };
++    const remoteRows = stepRows(parsed.body);
++    const incomingRows = stepRows(after);
++    const incomingById = new Map(incomingRows.map((row) => [row.id, row]));
++    const remoteIds = new Set(remoteRows.map((row) => row.id));
++    const violations = [];
++    for (const row of remoteRows) {
++      const next = incomingById.get(row.id);
++      if (!next) {
++        violations.push(`step ${row.id} removed (retire it with \`step ${issue.number} ${row.id} skipped\`)`);
++        continue;
++      }
++      if (next.status !== row.status) violations.push(`step ${row.id} Status ${row.status} -> ${next.status}`);
++      if (next.effect !== row.effect) violations.push(`step ${row.id} Effect ${row.effect} -> ${next.effect}`);
++      if (next.depends !== row.depends) violations.push(`step ${row.id} Depends ${row.depends} -> ${next.depends}`);
++      if (next.display !== row.display) violations.push(`step ${row.id} display ${row.display} -> ${next.display}`);
++    }
++    // A closed record accepts no new rows: post-merge mutation is terminal repair only, and new work
++    // belongs to a follow-up plan - an appended planned row plus finished-plan `step ... done` would
++    // smuggle unreviewed work into a merged record. Open started plans append planned-born rows only.
++    const closed = String(issue.state).toUpperCase() === 'CLOSED';
++    const lastRemotePosition = incomingRows.reduce(
++      (last, row, index) => (remoteIds.has(row.id) ? index : last),
++      -1,
++    );
++    incomingRows.forEach((row, index) => {
++      if (remoteIds.has(row.id)) return;
++      if (closed) violations.push(`step ${row.id} added to a closed plan (new work takes a follow-up plan)`);
++      else if (row.status !== 'planned') violations.push(`new step ${row.id} born ${row.status}; new rows start planned`);
++      else if (index < lastRemotePosition) violations.push(`new step ${row.id} inserted between existing rows; new rows append at the end`);
++    });
++    if (violations.length > 0) {
++      fail(
++        `step state is frozen once work starts: ${violations.join('; ')}. Use \`plan.mjs step\` for status changes, then re-export and re-apply the edit`,
++      );
++    }
+   }
+   const changes = changedLines(issue.body, after);
+   // Stage provenance before the remote write. A failed sidecar write then costs one re-export; the reverse
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
+index b8bb9420..38e5b0bd 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
+@@ -200,7 +200,7 @@ resolves the target repository from that checkout's GitHub remote.
+ | `plan.mjs claim <issue>` | Take single-writer ownership of an existing plan: assign the acting login, stay idempotent when it already owns the plan, and refuse when another login does. |
+ | `plan.mjs show <issue> [--body]` | Print the header strip, then `reviews: plan=<pass\|repair\|blocked\|none> code=<pass\|fixes-required\|blocked\|none>`. With `--body`, print only the body to stdout and send both metadata lines to stderr, header first. |
+ | `plan.mjs export <issue>` | Write the issue body verbatim to `plan-<issue>.md` inside the scratch directory `git rev-parse --git-path docks-review` resolves, creating it mode 0700 when missing, and print the absolute path. |
+-| `plan.mjs edit <issue> --file <path>` | Validate the file as the plan record, refuse on any failed check or any regression of a matching terminal step to a different non-terminal status, instruct re-export, replace the issue body, and print the header strip and the changed lines. |
++| `plan.mjs edit <issue> --file <path>` | Validate the file as the plan record and enforce the irreversible execution-state freeze: existing step state is immutable after work starts, and new rows are append-only `planned` work on open plans. Refuse on any failed check, instruct re-export, replace the issue body, and print the header strip and changed lines. |
+ | `plan.mjs check <issue \| --file <path>>` | Validate a v3 record and print the pass result. |
+ | `plan.mjs status <issue> <status> [--reason <text>]` | Validate and apply one open-status transition, then replace all phase labels with the target phase label. Refuse closed issues. |
+ | `plan.mjs step <issue> <step-id> <status>` | Rewrite one Steps `Status` cell after checking dependencies; require an open `ongoing` plan, or a `finished` plan when the target status is terminal (`done` or `skipped`) for repair. |
+@@ -275,9 +275,15 @@ re-export. The `claim`, `archive`, and `retire` commands do not rewrite body
+ bytes. A successful phase-only status change writes labels only and leaves the
+ body and digest valid. The guard compares body bytes, not the issue timestamp.
+ 
+-`edit` also refuses an incoming body that moves any matching step id from a
+-terminal remote status (`done` or `skipped`) to a different non-terminal
+-status. Re-export the current body and re-apply the intended edit.
++Once work starts (irreversibly: when the current phase is neither `drafting` nor
++`planned`, or label events show that `plan:ongoing` was ever applied), `edit`
++preserves every existing Steps row's Status, Effect, Depends, display number,
++and presence byte-for-byte; new rows must be appended after every existing row,
++must start `planned`, and are refused on closed plans; after that boundary, only
++`plan.mjs step` writes step state.
++Before this boundary, a `drafting` or `planned` plan with no historical
++`plan:ongoing` event may edit Steps freely. On a closed plan, post-merge step
++mutation remains limited to terminal repair; new work requires a follow-up plan.
+ 
+ Re-export immediately before every body edit. Edit the export. Run
+ `plan.mjs check <issue>`. Delete the export and its `.origin` sidecar. Never
+diff --git a/scripts/tests/fixtures/gh-stub/gh b/scripts/tests/fixtures/gh-stub/gh
+index be72b439..365a36ce 100755
+--- a/scripts/tests/fixtures/gh-stub/gh
++++ b/scripts/tests/fixtures/gh-stub/gh
+@@ -185,6 +185,21 @@ if (group === 'api' && commentsEndpoint) {
+   process.exit(0);
+ }
+ 
++const eventsEndpoint = /^repos\/([^/]+)\/([^/]+)\/issues\/([1-9]\d*)\/events$/.exec(`${command ?? ''}`);
++if (group === 'api' && eventsEndpoint) {
++  if (!args.includes('--paginate') || !args.includes('--slurp')) die('issue events api requires --paginate and --slurp');
++  const repo = `${eventsEndpoint[1]}/${eventsEndpoint[2]}`;
++  if (repo !== state.repo.nameWithOwner) die(`repository not found: ${repo}`);
++  const issue = issueByNumber(Number(eventsEndpoint[3]));
++  const events = issue.events ?? [];
++  const pages = [];
++  for (let index = 0; index < events.length; index += 100) pages.push(events.slice(index, index + 100));
++  if (pages.length === 0) pages.push([]);
++  console.log(JSON.stringify(pages));
++  save();
++  process.exit(0);
++}
++
+ if (group === 'api' && command === 'graphql') {
+   const query = formFields('-f').query;
+   if (!query) die('graphql requires -f query=<query>');
+@@ -366,6 +381,7 @@ if (group === 'issue' && command === 'create') {
+     updatedAt: now,
+     comments: [],
+     closedByPullRequestsReferences: [],
++    events: [],
+   };
+   state.issues.push(issue);
+   console.log(issue.url);
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index cf079485..86370dd7 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -212,6 +212,38 @@ function replaceStepStatus(body, status) {
+   );
+ }
+ 
++function bodyEditCallCount(number) {
++  return loadState().calls.filter(
++    (call) => call[0] === 'issue' && call[1] === 'edit' && call[2] === String(number) && call.includes('--body-file'),
++  ).length;
++}
++
++function assertFrozenEditRefused(number, mutateBody, messagePatterns, label) {
++  const beforeBody = issue(number).body;
++  const exported = run('export', String(number));
++  expectSuccess(exported, `${label} export`);
++  const exportPath = exported.stdout.trim();
++  const originBefore = fs.readFileSync(`${exportPath}.origin`, 'utf8');
++  const incomingBody = mutateBody(fs.readFileSync(exportPath, 'utf8'));
++  assert.notEqual(incomingBody, beforeBody, `${label} fixture must change the exported body`);
++  fs.writeFileSync(exportPath, incomingBody);
++  const bodyWritesBefore = bodyEditCallCount(number);
++
++  const refused = run('edit', String(number), '--file', exportPath);
++  assert.equal(refused.status, 1, `${label} must be refused`);
++  assert.match(refused.stderr.trim(), /^step state is frozen once work starts:/, `${label} must report the freeze`);
++  for (const pattern of messagePatterns) {
++    assert.match(refused.stderr, pattern, `${label} must identify the violation`);
++  }
++  assert.equal(issue(number).body, beforeBody, `${label} must leave the remote body unchanged`);
++  assert.equal(bodyEditCallCount(number), bodyWritesBefore, `${label} must fail before the body write`);
++  assert.equal(
++    fs.readFileSync(`${exportPath}.origin`, 'utf8'),
++    originBefore,
++    `${label} must fail before refreshing export provenance`,
++  );
++}
++
+ try {
+   const labelsBeforeReservedFailure = loadState().labels;
+   const reservedExtra = run('labels', '--extra', 'plan:foo');
+@@ -1026,72 +1058,207 @@ try {
+     'a second consecutive edit of the same exported file must update the issue',
+   );
+ 
+-  const terminalRegressionNumber = createPlan('terminal-step-regression-edit');
+-  makeValid(terminalRegressionNumber);
+-  updateIssue(terminalRegressionNumber, (entry) => {
+-    entry.body = replaceStepStatus(entry.body, 'done');
+-  });
+-  const beforeTerminalRegressionEdit = issue(terminalRegressionNumber).body;
+-  const terminalRegressionExport = run('export', String(terminalRegressionNumber));
+-  expectSuccess(terminalRegressionExport, 'terminal step regression edit export');
+-  const terminalRegressionExportPath = terminalRegressionExport.stdout.trim();
+-  fs.writeFileSync(
+-    terminalRegressionExportPath,
+-    replaceStepStatus(fs.readFileSync(terminalRegressionExportPath, 'utf8'), 'planned'),
+-  );
+-  const terminalRegressionBodyWritesBefore = loadState().calls.filter(
+-    (call) =>
+-      call[0] === 'issue' &&
+-      call[1] === 'edit' &&
+-      call[2] === String(terminalRegressionNumber) &&
+-      call.includes('--body-file'),
+-  ).length;
+-  const terminalRegressionEdit = run('edit', String(terminalRegressionNumber), '--file', terminalRegressionExportPath);
+-  assert.equal(terminalRegressionEdit.status, 1, 'a file must not regress a terminal remote step');
+-  assert.equal(
+-    terminalRegressionEdit.stderr.trim(),
+-    `status regression: step implement_contract (done -> planned) is terminal on #${terminalRegressionNumber} but the file reverts it; re-export and re-apply the edit`,
++  const plannedStepRow =
++    '| 1 | implement_contract | Implement the contract | src/example.mjs | - | `local` | `planned` | command exits 0 |';
++  const appendedPlannedStepRow =
++    '| 2 | extend_contract | Extend the contract | src/extra.mjs | - | `local` | `planned` | command exits 0 |';
++
++  const plannedToDoneNumber = createPlan('planned-to-done-edit-freeze');
++  makeValid(plannedToDoneNumber);
++  setIssueStatus(plannedToDoneNumber, 'ongoing');
++  assertFrozenEditRefused(
++    plannedToDoneNumber,
++    (body) => replaceStepStatus(body, 'done'),
++    [/step implement_contract Status planned -> done/],
++    'planned to done body edit',
+   );
+-  assert.equal(
+-    issue(terminalRegressionNumber).body,
+-    beforeTerminalRegressionEdit,
+-    'a terminal step regression must leave the remote body unchanged',
++
++  const inFlightToPlannedNumber = createPlan('in-flight-to-planned-edit-freeze');
++  makeValid(inFlightToPlannedNumber);
++  updateIssue(inFlightToPlannedNumber, (entry) => {
++    entry.body = replaceStepStatus(entry.body, 'in-flight');
++  });
++  setIssueStatus(inFlightToPlannedNumber, 'ongoing');
++  assertFrozenEditRefused(
++    inFlightToPlannedNumber,
++    (body) => replaceStepStatus(body, 'planned'),
++    [/step implement_contract Status in-flight -> planned/],
++    'in-flight to planned body edit',
++  );
++
++  const rowRemovalNumber = createPlan('row-removal-edit-freeze');
++  const removableStepRow =
++    '| 2 | remove_contract | Remove the contract | src/remove.mjs | 1 | `local` | `planned` | command exits 0 |';
++  makeValid(rowRemovalNumber, { steps: [plannedStepRow, removableStepRow] });
++  setIssueStatus(rowRemovalNumber, 'ongoing');
++  assertFrozenEditRefused(
++    rowRemovalNumber,
++    (body) => body.replace(`\n${removableStepRow}`, ''),
++    [/step remove_contract removed/, /retire it with `step \d+ remove_contract skipped`/],
++    'row removal body edit',
++  );
++
++  const dependsRewriteNumber = createPlan('depends-rewrite-edit-freeze');
++  const dependentStepRow =
++    '| 2 | follow_contract | Follow the contract | src/follow.mjs | 1 | `local` | `planned` | command exits 0 |';
++  makeValid(dependsRewriteNumber, { steps: [plannedStepRow, dependentStepRow] });
++  setIssueStatus(dependsRewriteNumber, 'ongoing');
++  assertFrozenEditRefused(
++    dependsRewriteNumber,
++    (body) => body.replace(dependentStepRow, dependentStepRow.replace('| 1 | `local` |', '| - | `local` |')),
++    [/step follow_contract Depends 1 -> -/],
++    'Depends body edit',
++  );
++
++  const effectDowngradeNumber = createPlan('effect-downgrade-edit-freeze');
++  const pushStepRow =
++    '| 1 | implement_contract | Implement the contract | src/example.mjs | - | `push` | `planned` | command exits 0 |';
++  makeValid(effectDowngradeNumber, { steps: [pushStepRow] });
++  setIssueStatus(effectDowngradeNumber, 'ongoing');
++  assertFrozenEditRefused(
++    effectDowngradeNumber,
++    (body) => body.replace('| `push` | `planned` |', '| `local` | `planned` |'),
++    [/step implement_contract Effect `push` -> `local`/],
++    'Effect downgrade body edit',
++  );
++
++  const historicalOngoingNumber = createPlan('historical-ongoing-edit-freeze');
++  makeValid(historicalOngoingNumber);
++  setIssueStatus(historicalOngoingNumber, 'planned');
++  updateIssue(historicalOngoingNumber, (entry) => {
++    entry.events = [{ event: 'labeled', label: { name: 'plan:ongoing' } }];
++  });
++  assertFrozenEditRefused(
++    historicalOngoingNumber,
++    (body) => replaceStepStatus(body, 'done'),
++    [/step implement_contract Status planned -> done/],
++    'historically ongoing body edit',
+   );
+-  assert.equal(
+-    loadState().calls.filter(
++  assert.ok(
++    loadState().calls.some(
+       (call) =>
+-        call[0] === 'issue' &&
+-        call[1] === 'edit' &&
+-        call[2] === String(terminalRegressionNumber) &&
+-        call.includes('--body-file'),
+-    ).length,
+-    terminalRegressionBodyWritesBefore,
+-    'a terminal step regression must fail before the body write',
++        call[0] === 'api' &&
++        call[1] === `repos/DocksDocks/fixture/issues/${historicalOngoingNumber}/events` &&
++        call.includes('--paginate') &&
++        call.includes('--slurp'),
++    ),
++    'a currently planned edit must consult issue label history',
+   );
+ 
+-  const terminalStepRow =
+-    '| 1 | implement_contract | Implement the contract | src/example.mjs | - | `local` | `done` | command exits 0 |';
+-  const addedStepRow =
+-    '| 2 | extend_contract | Extend the contract | src/extra.mjs | - | `local` | `planned` | command exits 0 |';
+-  const terminalPreservingBody = beforeTerminalRegressionEdit.replace(
+-    terminalStepRow,
+-    `${terminalStepRow}\n${addedStepRow}`,
+-  );
+-  assert.notEqual(
+-    terminalPreservingBody,
+-    beforeTerminalRegressionEdit,
+-    'the non-regressing edit fixture must add a step row',
+-  );
+-  fs.writeFileSync(terminalRegressionExportPath, terminalPreservingBody);
+-  const terminalPreservingEdit = run('edit', String(terminalRegressionNumber), '--file', terminalRegressionExportPath);
+-  expectSuccess(terminalPreservingEdit, 'terminal-preserving row addition edit');
+-  assert.equal(
+-    issue(terminalRegressionNumber).body,
+-    terminalPreservingBody,
+-    'adding a row while preserving terminal cells must update the remote body',
+-  );
+-  assert.match(issue(terminalRegressionNumber).body, /\| `done` \| command exits 0 \|/);
+-  assert.match(issue(terminalRegressionNumber).body, /\| 2 \| extend_contract .+ \| `planned` \| command exits 0 \|/);
++  const closedRowAdditionNumber = createPlan('closed-row-addition-edit-freeze');
++  makeValid(closedRowAdditionNumber);
++  setIssueStatus(closedRowAdditionNumber, 'ongoing');
++  updateIssue(closedRowAdditionNumber, (entry) => {
++    entry.state = 'CLOSED';
++    entry.stateReason = 'COMPLETED';
++  });
++  assertFrozenEditRefused(
++    closedRowAdditionNumber,
++    (body) => body.replace(plannedStepRow, `${plannedStepRow}\n${appendedPlannedStepRow}`),
++    [/step extend_contract added to a closed plan/, /new work takes a follow-up plan/],
++    'closed plan row addition',
++  );
++
++  const nonPlannedAdditionNumber = createPlan('non-planned-row-addition-edit-freeze');
++  makeValid(nonPlannedAdditionNumber);
++  setIssueStatus(nonPlannedAdditionNumber, 'ongoing');
++  const appendedDoneStepRow = appendedPlannedStepRow.replace('`planned`', '`done`');
++  assertFrozenEditRefused(
++    nonPlannedAdditionNumber,
++    (body) => body.replace(plannedStepRow, `${plannedStepRow}\n${appendedDoneStepRow}`),
++    [/new step extend_contract born done; new rows start planned/],
++    'non-planned row addition',
++  );
++
++  const insertedRowNumber = createPlan('inserted-row-edit-freeze');
++  const secondDisplayStepRow = plannedStepRow.replace('| 1 |', '| 2 |');
++  makeValid(insertedRowNumber, { steps: [secondDisplayStepRow] });
++  setIssueStatus(insertedRowNumber, 'ongoing');
++  const insertedPlannedStepRow =
++    '| 1 | prepare_contract | Prepare the contract | src/prepare.mjs | - | `local` | `planned` | command exits 0 |';
++  assertFrozenEditRefused(
++    insertedRowNumber,
++    (body) => body.replace(secondDisplayStepRow, `${insertedPlannedStepRow}\n${secondDisplayStepRow}`),
++    [/new step prepare_contract inserted between existing rows; new rows append at the end/],
++    'inserted row body edit',
++  );
++
++  const appendedRowNumber = createPlan('appended-row-edit');
++  makeValid(appendedRowNumber);
++  setIssueStatus(appendedRowNumber, 'ongoing');
++  const appendedRowExport = run('export', String(appendedRowNumber));
++  expectSuccess(appendedRowExport, 'appended planned row export');
++  const appendedRowExportPath = appendedRowExport.stdout.trim();
++  const appendedRowBody = fs
++    .readFileSync(appendedRowExportPath, 'utf8')
++    .replace(plannedStepRow, `${plannedStepRow}\n${appendedPlannedStepRow}`);
++  fs.writeFileSync(appendedRowExportPath, appendedRowBody);
++  const appendedRowBodyWritesBefore = bodyEditCallCount(appendedRowNumber);
++  const appendedRowEdit = run('edit', String(appendedRowNumber), '--file', appendedRowExportPath);
++  expectSuccess(appendedRowEdit, 'appended planned row edit');
++  assert.equal(issue(appendedRowNumber).body, appendedRowBody, 'an appended planned row must update the ongoing plan');
++  assert.equal(bodyEditCallCount(appendedRowNumber), appendedRowBodyWritesBefore + 1);
++
++  for (const neverStartedStatus of ['drafting', 'planned']) {
++    const redraftNumber = createPlan(`${neverStartedStatus}-steps-redraft`);
++    makeValid(redraftNumber);
++    if (neverStartedStatus === 'planned') {
++      setIssueStatus(redraftNumber, 'planned');
++    } else {
++      updateIssue(redraftNumber, (entry) => {
++        entry.events = [{ event: 'labeled', label: { name: 'plan:blocked' } }];
++      });
++    }
++    assert.equal(
++      issue(redraftNumber).events.some((event) => event.event === 'labeled' && event.label?.name === 'plan:ongoing'),
++      false,
++      'pre-start fixtures must have no ongoing label event',
++    );
++    const redraftExport = run('export', String(redraftNumber));
++    expectSuccess(redraftExport, `${neverStartedStatus} redraft export`);
++    const redraftExportPath = redraftExport.stdout.trim();
++    const redraftedStepRow =
++      '| 2 | implement_contract | Redraft the contract | src/redrafted.mjs | - | `push` | `done` | command exits 0 |';
++    const redraftedBody = fs.readFileSync(redraftExportPath, 'utf8').replace(plannedStepRow, redraftedStepRow);
++    fs.writeFileSync(redraftExportPath, redraftedBody);
++    const redraftBodyWritesBefore = bodyEditCallCount(redraftNumber);
++    const redraftEdit = run('edit', String(redraftNumber), '--file', redraftExportPath);
++    expectSuccess(redraftEdit, `${neverStartedStatus} steps redraft`);
++    assert.equal(issue(redraftNumber).body, redraftedBody, `${neverStartedStatus} steps must remain freely editable`);
++    assert.equal(bodyEditCallCount(redraftNumber), redraftBodyWritesBefore + 1);
++    assert.ok(
++      loadState().calls.some(
++        (call) =>
++          call[0] === 'api' &&
++          call[1] === `repos/DocksDocks/fixture/issues/${redraftNumber}/events` &&
++          call.includes('--paginate') &&
++          call.includes('--slurp'),
++      ),
++      `${neverStartedStatus} edits must receive a non-starting issue-events fixture`,
++    );
++  }
++
++  const proseEditNumber = createPlan('ongoing-prose-edit');
++  makeValid(proseEditNumber);
++  setIssueStatus(proseEditNumber, 'ongoing');
++  const proseExport = run('export', String(proseEditNumber));
++  expectSuccess(proseExport, 'ongoing prose edit export');
++  const proseExportPath = proseExport.stdout.trim();
++  const proseBody = fs
++    .readFileSync(proseExportPath, 'utf8')
++    .replace('Implement the contract', 'Implement the reviewed contract')
++    .replace('_Not implemented yet._', '`node --version` exited 0.');
++  fs.writeFileSync(proseExportPath, proseBody);
++  const proseBodyWritesBefore = bodyEditCallCount(proseEditNumber);
++  const proseEdit = run('edit', String(proseEditNumber), '--file', proseExportPath);
++  expectSuccess(proseEdit, 'ongoing status-preserving prose edit');
++  assert.equal(
++    issue(proseEditNumber).body,
++    proseBody,
++    'ongoing Task and Verification Results prose must remain editable',
++  );
++  assert.equal(bodyEditCallCount(proseEditNumber), proseBodyWritesBefore + 1);
++  assert.match(issue(proseEditNumber).body, /\| `planned` \| command exits 0 \|/);
+ 
+   const staleExportNumber = createPlan('stale-export-edit');
+   makeValid(staleExportNumber);
+diff --git a/scripts/tests/plan-skill-phases.mjs b/scripts/tests/plan-skill-phases.mjs
+index 11a0913b..765390e1 100755
+--- a/scripts/tests/plan-skill-phases.mjs
++++ b/scripts/tests/plan-skill-phases.mjs
+@@ -301,6 +301,11 @@ const V3_PINNED_CLAUSES = [
+     text: 'A plan-issue write is a read-modify-write, and the GitHub API offers no precondition for it. Every mutating command re-reads the issue body immediately before the edit, refuses when it differs from the body it read, and re-reads after the edit to confirm the pushed bytes.',
+     files: [PLAN_CONTRACT, PLAN_MD, WORKSPACE_TEMPLATE],
+   },
++  {
++    name: 'execution-state-freeze',
++    text: "Once work starts (irreversibly: when the current phase is neither `drafting` nor `planned`, or label events show that `plan:ongoing` was ever applied), `edit` preserves every existing Steps row's Status, Effect, Depends, display number, and presence byte-for-byte; new rows must be appended after every existing row, must start `planned`, and are refused on closed plans; after that boundary, only `plan.mjs step` writes step state.",
++    files: [PLAN_CONTRACT, MANAGER_SKILL, PLAN_MD, WORKSPACE_TEMPLATE],
++  },
+   {
+     name: 'frozen-history-boundary',
+     text: 'No lifecycle command or workspace migration operation opens, inventories, parses, classifies, lists, or migrates it.',

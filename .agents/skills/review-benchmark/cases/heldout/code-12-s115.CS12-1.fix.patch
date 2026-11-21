@@ -1,0 +1,22 @@
+diff --git a/.github/AGENTS.md b/.github/AGENTS.md
+index 9cd1a63a..3fc490b5 100644
+--- a/.github/AGENTS.md
++++ b/.github/AGENTS.md
+@@ -107,3 +107,3 @@ Mitigations against npm and GitHub Actions supply-chain attacks. Each is load-be
+ - **Dependency caches use official `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0`**, with the Bun key bound to `bun.lock` and `package.json`. Bun itself comes from `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0`, which reads the `packageManager` pin and caches only the executable.
+-- **`claude-code` is pinned rather than installed globally**: it is an exact-version devDependency in `package.json` and hash-locked in `bun.lock`, including its eight platform-binary optional dependencies. `bunfig.toml` sets `minimumReleaseAge = 4320` to quarantine fresh publishes for three days; bump the dependency only to a version older than that quarantine.
++- **`claude-code` is pinned rather than installed globally**: it is an exact-version devDependency in `package.json` and hash-locked in `bun.lock`, including its eight platform-binary optional dependencies. `bunfig.toml` sets `minimumReleaseAge = 259200` seconds to quarantine fresh publishes; bump the dependency only to a version older than that quarantine.
+ - **Lifecycle scripts are denied by default.** Bun runs the lifecycle scripts of a dependency only when `package.json` lists it in `trustedDependencies`, so the field is left out and no dependency script runs.
+diff --git a/bunfig.toml b/bunfig.toml
+index 8c7aa313..8d2b7501 100644
+--- a/bunfig.toml
++++ b/bunfig.toml
+@@ -3,5 +3,5 @@
+ 
+-# Quarantine freshly-published versions for three days, as pnpm-workspace.yaml did
+-# with the same value.
+-minimumReleaseAge = 4320
++# Quarantine freshly-published versions. pnpm stated 4320 minutes; Bun states seconds.
++# Both are three days.
++minimumReleaseAge = 259200
+ 

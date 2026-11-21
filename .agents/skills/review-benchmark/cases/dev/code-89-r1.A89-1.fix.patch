@@ -1,0 +1,29 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 905e28ff..caff4675 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -597,13 +597,7 @@ function replaceTable(sections, name, header, separator, rows) {
+ // Steps that edit the same path need a Depends order, or parallel work collides (#78).
+ function sharedFilesAdvice(rows) {
+   const paths = rows.map(
+-    (row) =>
+-      new Set(
+-        row[3]
+-          .split(',')
+-          .map((part) => unquoteCode(part.trim()))
+-          .filter((part) => part && part !== '-'),
+-      ),
++    (row) => new Set(row[3].split(',').map((part) => unquoteCode(part.trim())).filter((part) => part && part !== '-')),
+   );
+   const dependencies = new Map(
+     rows.map((row) => [row[0], row[4] === '-' ? [] : row[4].split(',').map((part) => part.trim())]),
+@@ -708,8 +702,7 @@ function researchFilled(plan) {
+ }
+ function printAdvice(text, status, extra = [], options = {}) {
+   const result = normalizePlan(text, options);
+-  if (status !== 'drafting' && !researchFilled(parsePlan(text)))
+-    result.advice.push('Research is not filled after drafting.');
++  if (status !== 'drafting' && !researchFilled(parsePlan(text))) result.advice.push('Research is not filled after drafting.');
+   for (const message of [...result.advice, ...extra]) console.log(`advice: ${message}`);
+ }
+ // A plan-review pass covers the body that the reviewer read (#78).

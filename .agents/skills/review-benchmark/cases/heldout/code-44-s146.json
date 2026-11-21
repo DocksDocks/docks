@@ -1,0 +1,16 @@
+{
+  "id": "code-44-s146",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 44,
+  "pull": 45,
+  "round": 1,
+  "base": "996db4197b56680d628b889bd636ce2817a796b5",
+  "head": "cb17ac60e3641cb49a3f5d848da41526bd80a037",
+  "plan": "code-44-s146-plan.md",
+  "patch": "code-44-s146.patch",
+  "external": [
+    "plan",
+    "patch"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "code-65-s146",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 65,
+  "round": 1,
+  "base": "4d78c456c10ba635200abaf55d86117769cf8fe8",
+  "head": "17f1af972de42e71511c6a52a34d385ee4f4faee",
+  "plan": "code-65-s146-plan.md",
+  "patch": "code-65-s146.patch",
+  "external": [
+    "plan",
+    "patch"
+  ]
+}

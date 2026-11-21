@@ -1,0 +1,20 @@
+{
+  "id": "plan-102-r1",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 102,
+  "round": 1,
+  "repo_ref": "163acb53e4ce6c01ea7595a62971a494a81b81b7",
+  "plan": "plan-102-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZeEeFc8AAAABEXdnxg",
+  "known": [
+    {
+      "id": "P102-1",
+      "section": "Research, Decisions, decision 3 (line 27); Steps, row 3 settle_refusal_tests (line 47); Acceptance, a5 (line 59)",
+      "category": "research_gap",
+      "source": "round",
+      "summary": "a status-label change cannot trigger the settle-wait refusal without changing plan.mjs, which Do not touch forbids: statusFromIssue derives a closed issue's status from stateReason and ignores labels, so reopenPlan still sees finished and the same close and reopens, while the test expects exit 1 and no write",
+      "comment": 6373220078
+    }
+  ]
+}

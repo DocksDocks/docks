@@ -1,0 +1,70 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index f2a1842b..e683d9cf 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -287,6 +287,7 @@ reserved label namespace: <label>
+ pull request #<pr> is not merged
+ GitHub has not closed plan #<n> for pull request #<pr> yet; run reopen again once it has
+ plan #<n> was closed by <closer> after pull request #<pr> merged; reopen it by hand only if that close was a mistake
++plan #<n> was closed by <closer> before pull request #<pr> merged; reopen it by hand only if that close was a mistake
+ plan #<n> changed during the settle wait; run reopen again
+ GitHub left plan #<n> closed with reason REOPENED and refuses every state change; ask GitHub Support to repair it
+ plan issue state differs after reopen
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 483ca88f..d48b6c24 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -1186,10 +1186,17 @@ function reopenPlan(args) {
+   const isClosed = ({ issue }) => String(issue.state).toUpperCase() === 'CLOSED';
+   let observed = read();
+   for (let reads = 1; !closedByPullRequest(observed.issue, pullRequest); reads += 1) {
+-    if (reads === REOPEN_READS)
++    if (reads === REOPEN_READS) {
++      // GitHub cannot close a closed issue, so a plan that still reads closed by an earlier close never gets the
++      // close from this merge; telling the caller to run reopen again would loop forever.
++      if (isClosed(observed))
++        fail(
++          `plan #${number} was closed by ${describeCloser(observed.issue.closer)} before pull request #${pullRequest.number} merged; reopen it by hand only if that close was a mistake`,
++        );
+       fail(
+         `GitHub has not closed plan #${number} for pull request #${pullRequest.number} yet; run reopen again once it has`,
+       );
++    }
+     sleep(REOPEN_PAUSES_MS[Math.min(reads, REOPEN_PAUSES_MS.length) - 1]);
+     observed = read();
+   }
+diff --git a/scripts/tests/plan-cli/reopen.test.mjs b/scripts/tests/plan-cli/reopen.test.mjs
+index 44cb1d50..e4c1ae6e 100644
+--- a/scripts/tests/plan-cli/reopen.test.mjs
++++ b/scripts/tests/plan-cli/reopen.test.mjs
+@@ -257,6 +257,30 @@ test('reopen refuses after 34 reads when GitHub never closes the plan for the me
+   assert.deepEqual(context.writes(), []);
+ });
+ 
++test('reopen refuses after 34 reads when another closer closed the plan before the pull request merged', (t) => {
++  const context = planCliContext(t);
++  const plan = context.partialMerge('closed before the merge');
++  const earlier = {
++    __typename: 'PullRequest',
++    number: plan.pr - 1,
++    url: `https://github.com/DocksDocks/fixture/pull/${plan.pr - 1}`,
++    state: 'MERGED',
++    mergedAt: '2026-08-20T22:00:00Z',
++    baseRefName: 'main',
++    repository: { nameWithOwner: 'DocksDocks/fixture' },
++  };
++  // GitHub cannot close a closed issue, so this merge adds no close, and "run reopen again" would loop forever.
++  context.schedule(plan.number, { afterReads: 0, ...closedBy(earlier, '2026-08-20T22:00:02Z') });
++  refuse(
++    reopen(context, plan),
++    `plan #${plan.number} was closed by ${earlier.url} before pull request #${plan.pr} merged; reopen it by hand only if that close was a mistake`,
++  );
++  assert.equal(context.issue(plan.number).graphqlReads, 34);
++  assert.deepEqual(context.waits(), [250, 500, 1000, ...Array(30).fill(2000)]);
++  assert.deepEqual(stored(context, plan.number), { ...ONGOING, state: 'CLOSED', stateReason: 'COMPLETED' });
++  assert.deepEqual(context.writes(), []);
++});
++
+ test('reopen refuses a plan that another login claims during the settle wait', (t) => {
+   const context = planCliContext(t);
+   const plan = context.partialMerge('claimed during the settle wait');

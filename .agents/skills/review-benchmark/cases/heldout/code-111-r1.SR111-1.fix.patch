@@ -1,0 +1,63 @@
+diff --git a/.agents/skills/review-benchmark/SKILL.md b/.agents/skills/review-benchmark/SKILL.md
+index 8f7a2e7..75a9914 100644
+--- a/.agents/skills/review-benchmark/SKILL.md
++++ b/.agents/skills/review-benchmark/SKILL.md
+@@ -173,3 +173,3 @@ The reviewers run in the working folder of the dispatching session, the live che
+ - an `artifact://` URI (the spilled output of the reviewer)
+-- a web URL that is not a page of the benchmark repository: `github.com/DocksDocks/docks`, `raw.githubusercontent.com/DocksDocks/docks`, and `api.github.com/repos/DocksDocks/docks` are outside
++- a web URL that is not a page of the benchmark repository: `github.com/DocksDocks/docks`, `raw.githubusercontent.com/DocksDocks/docks`, and `api.github.com/repos/DocksDocks/docks` are outside. A URL that a search result cut with `…` is outside when its text names the owner `DocksDocks`
+ 
+diff --git a/.agents/skills/review-benchmark/scripts/score.mjs b/.agents/skills/review-benchmark/scripts/score.mjs
+index e1eb52a..0bee25f 100755
+--- a/.agents/skills/review-benchmark/scripts/score.mjs
++++ b/.agents/skills/review-benchmark/scripts/score.mjs
+@@ -1911,12 +1911,15 @@ function localPathAllowed(target, cwd, rules) {
+ }
+ 
+ // A web page outside the benchmark repository. The pages of the repository can show the fixes of the corpus defects.
++// A URL that a search result cut with `…`, or that cannot be parsed, is allowed unless its text names the owner,
++// because its cut part can hold the repository name.
+ function webPageAllowed(target) {
++  if (target.includes('…')) return !/docksdocks/i.test(target);
+   let url;
+   try {
+     url = new URL(target);
+   } catch {
+-    return false;
++    return !/docksdocks/i.test(target);
+   }
+   const parts = url.pathname
+     .split('/')
+diff --git a/scripts/tests/unit/review-benchmark.test.mjs b/scripts/tests/unit/review-benchmark.test.mjs
+index 8f543ce..58aae77 100644
+--- a/scripts/tests/unit/review-benchmark.test.mjs
++++ b/scripts/tests/unit/review-benchmark.test.mjs
+@@ -2754,7 +2754,8 @@ test('loop aggregation keeps fixer time apart and treats a repeat of a fixed def
+ //   - an `artifact://` URI.
+ //   - an http or https URL that is not a page of the benchmark repository. The pages of the repository are the paths
+ //     `/DocksDocks/docks` and below on github.com, www.github.com, and raw.githubusercontent.com, and
+-//     `/repos/DocksDocks/docks` and below on api.github.com. The owner and the repository name match in any case.
++//     `/repos/DocksDocks/docks` and below on api.github.com. A URL with `…` (cut by a search result) is not such a
++//     page only when it does not name `DocksDocks`. The owner and the repository name match in any case.
+ //   A path with a glob character (`*`, `?`, `[`, `{`) is allowed only when the segments before its first glob
+ //   segment give a folder that a rule above allows, and no later segment holds `..`.
+ //   Every other target is outside: every other local path, a relative path when cwd is null, and every other URI
+@@ -5117,6 +5118,18 @@ test('a web search whose result cites a page of the benchmark repository is outs
+   });
+ });
+ 
++test('a truncated result URL is outside only when its text names the owner of the benchmark repository', () => {
++  // omp cuts long result text with `…`, also inside a host name, so such a URL cannot be parsed, and its cut part
++  // can hold the repository name.
++  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
++  const search = (resultUrls) => ({ name: 'web_search', path: null, query: 'lock release', resultUrls });
++  const truncated = 'https://github.com/DocksDocks/do…';
++  assert.deepEqual(score.readScope([search(['https://news.ycombinator.c…', truncated])], scope), {
++    outside: [`web_search result: ${truncated}`],
++    queries: ['lock release'],
++  });
++});
++
+ test('readScope reads a local file with a JSON query selector as the file before the selector', () => {
+   const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+   const calls = reads(

@@ -1,0 +1,39 @@
+{
+  "id": "ud-111-r7",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 111,
+  "round": 7,
+  "repo_ref": "06c56b8fa51b591b9a184f6ad148f0d2c800a407",
+  "plan": "ud-111-r7-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZxqaE88AAAABEwyzgg",
+  "show_benchmark": true,
+  "known": [],
+  "protected": [
+    {
+      "id": "UD111-1",
+      "section": "Research, Decisions, decision 8 (line 69); Steps, row 10 keys_and_fast (line 98)",
+      "summary": "User: the user turned fast mode off for these tests, so the benchmark runs use the `default` tier; after the last benchmark run, fast mode goes back on."
+    },
+    {
+      "id": "UD111-2",
+      "section": "Research, Request corrections (line 74); Decisions, decision 7 (line 68)",
+      "summary": "Request correction: the user asked to give the reviewers tools. The plan reviewer gets web search (omp's `web_search` beside `WebSearch` and `WebFetch`) and no command tool; raw Bash and a plugin MCP tool that runs `--version` are rejected, because no runtime limits Bash to read-only commands for a plugin agent."
+    },
+    {
+      "id": "UD111-3",
+      "section": "Research, Request corrections (line 76)",
+      "summary": "Request correction: the user asked to reduce the rounds. The plan changes the review rules that the round count shows as drivers and measures the prompt changes, but it does not measure the manager rules with the benchmark, because the benchmark replays reviewers, not managers."
+    },
+    {
+      "id": "UD111-4",
+      "section": "Research, Decisions, decision 6, LOW rule (line 64); Verification Results, step loop_sim (line 134)",
+      "summary": "Yolo decision: the code reviewer rates a fault that no current caller, fixture, or documented input reaches as LOW. From code-review round 3, a pass whose open findings are only such LOW findings lands, and the findings go to the run summary and to one follow-up issue. This deliberately changes the rule to repair every finding, and the rule ships only when the loop simulation shows that no known defect escapes."
+    },
+    {
+      "id": "UD111-5",
+      "section": "Research, Decisions, decision 9 (line 70); Evidence: effort per dispatch (line 45)",
+      "summary": "User: after the held-out results, the user chose a hybrid effort. A full plan-review round runs at the configured effort, and a plan delta round runs one level lower where the runtime has a per-dispatch effort; code-review rounds keep the configured effort. The user accepted the evidence of one plan-delta case, although Ac-high failed the bounds of decision 3."
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+diff --git a/scripts/tests/plan-cli/reviews.test.mjs b/scripts/tests/plan-cli/reviews.test.mjs
+index eb0c5e19..aa7ce65c 100644
+--- a/scripts/tests/plan-cli/reviews.test.mjs
++++ b/scripts/tests/plan-cli/reviews.test.mjs
+@@ -1,5 +1,4 @@
+ import assert from 'node:assert/strict';
+-import fs from 'node:fs';
+ import test from 'node:test';
+ import { parseReviewComment } from '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs';
+ import { body, expectSuccess, planCliContext, refuse } from './harness.mjs';
+@@ -118,19 +117,6 @@ test('only the first verdict line of each review block counts, so prose cannot h
+   for (const [text, expected] of cases) assert.deepEqual(parseReviewComment(text), expected, text);
+ });
+ 
+-test('the plan contract states the review heading rule that the parser applies (#98)', () => {
+-  // Reviewers learn from the contract which lines start a block, so the contract and the parser must agree.
+-  const contract = fs.readFileSync(
+-    new URL(
+-      '../../../plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md',
+-      import.meta.url,
+-    ),
+-    'utf8',
+-  );
+-  assert.match(contract, /indented by at most\s+three spaces\) that names the comment's kind\./);
+-  assert.match(contract, /A quoted or list-item heading\s+is prose and starts no block\./);
+-});
+-
+ test('show reads the most severe verdict of a lens comment (#98)', (t) => {
+   const { run, addIssueComment, createPlan } = planCliContext(t);
+   const plan = createPlan('lens comment');

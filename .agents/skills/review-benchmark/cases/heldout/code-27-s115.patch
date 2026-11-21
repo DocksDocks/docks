@@ -1,0 +1,45 @@
+diff --git a/docs/PLAN-QUEUE.md b/docs/PLAN-QUEUE.md
+index 2a382825..9bf32cae 100644
+--- a/docs/PLAN-QUEUE.md
++++ b/docs/PLAN-QUEUE.md
+@@ -6,6 +6,7 @@ This file records selection order only. It grants no review, lifecycle, mutation
+ or external-effect authority. Canonical plan records, current user intent, and
+ observed acceptance remain authoritative.
+ The `Plan` cell now holds a plan issue number; any existing non-numeric cell names a frozen pre-GitHub record.
++An empty `Depends on` cell is `-`; `parseQueue` reads it as no dependency (plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:973).
+ 
+ | Stage | Plan | Depends on | Why |
+ |---:|---|---|---|
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 4eccccf2..4bf39ec5 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -263,7 +263,6 @@ export function checkPlan(planText, planRef) {
+     if (!command || !expected) failures.push(`check 9: acceptance ${id || '(empty)'} has an empty required cell`);
+   }
+   if (machinePathCitations(planText).length > 0) failures.push('check 10: body contains an absolute machine path');
+-  if (planText.includes('\u2014')) failures.push('check 10: body contains an em dash');
+   const researchIsPlaceholder = (sections.get('Research') ?? '').includes('_Not researched yet._');
+   if (researchIsPlaceholder && status !== undefined && status !== 'drafting') {
+     failures.push('check 11: Research must be filled once the plan leaves drafting');
+@@ -276,6 +275,7 @@ export function checkPlan(planText, planRef) {
+   }
+   const modes = [...(sections.get('Goal') ?? '').matchAll(/^Mode: (plan-and-implement|plan-only)$/gm)];
+   if (modes.length !== 1) failures.push('check 13: Goal must contain exactly one valid Mode line');
++  if (blankFencedRegions(planText).includes('\u2014')) failures.push('check 14: body contains an em dash');
+   return failures;
+ }
+ 
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 9d109e03..ee30c528 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -565,7 +565,7 @@ try {
+       (entry) => {
+         entry.body = entry.body.replace('_Not researched yet._', `_Not researched yet._ ${FORBIDDEN_DASH}`);
+       },
+-      /check 10: body contains an em dash/,
++      /check 14: body contains an em dash/,
+     ],
+     [
+       'self-reference introduced',

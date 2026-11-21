@@ -1,0 +1,28 @@
+{
+  "id": "code-22-pr24",
+  "kind": "code",
+  "split": "dev",
+  "issue": 22,
+  "round": 1,
+  "base": "de2367eeff6346bab73a98f2044e0897b399f9ae",
+  "head": "3d371562359fe06ae69aeae3f364dbb52b6185d1",
+  "plan": "code-22-pr24-plan.md",
+  "known": [
+    {
+      "id": "E-47d6d751",
+      "locator": "docs/PLAN.md:363; plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md:367",
+      "category": "shipped-skill-text",
+      "source": "escaped",
+      "summary": "The phase 6 code-review item tells the manager to commit and push 'before any terminal review block', which also reads as committing before a posted passing review record and contradicts the rule that reviewed bytes are committed only after the pass; the sentence should name the technical-block and terminal-repair-failure stops, and no test pins it.",
+      "fix": "code-22-pr24.E-47d6d751.fix.patch"
+    },
+    {
+      "id": "E-d80da4bf",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md:360-362; plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md:285-287; docs/PLAN.md:437-440; plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md:441-444",
+      "category": "shipped-skill-text",
+      "source": "escaped",
+      "summary": "Every plan pull request now comes from the issue's linked branch, yet the landing rules still say a partial pull request carries plain `Refs #<issue>` so the issue stays open; GitHub links any pull request from a linked branch to the issue and closes it on merge, so the plan becomes finished at its first partial merge and later step and status commands refuse, with no instruction to warn before the merge or reopen the issue after it.",
+      "fix": "code-22-pr24.E-d80da4bf.fix.patch"
+    }
+  ]
+}

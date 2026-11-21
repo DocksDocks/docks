@@ -1,0 +1,41 @@
+diff --git a/plugins/plan-lifecycle/agents/code-reviewer.md b/plugins/plan-lifecycle/agents/code-reviewer.md
+index 8b967b5c..701ee370 100644
+--- a/plugins/plan-lifecycle/agents/code-reviewer.md
++++ b/plugins/plan-lifecycle/agents/code-reviewer.md
+@@ -110,7 +110,9 @@ Report a Spec finding when the change uses a temporary workaround instead of the
+     - `fixes-required`: At least one `CRITICAL` or `HIGH` finding stands.
+     - `blocked`: Required review input is missing, unreadable, or
+       contradictory, so no safe verdict can be reached. Name that input in one
+-      line below the verdict line.
++      line below the verdict line. A hunk of the mode's diff that you did not
++      read is a missing input: return `blocked`, and name the paths of the
++      unread hunks in that line. Never return `pass` on a partial read.
+ 12. Return one markdown block; the manager posts it unchanged in the round's
+     issue comment.
+ 
+diff --git a/plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md b/plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md
+index 282927bd..98b96220 100644
+--- a/plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md
+@@ -4,8 +4,8 @@ description: "Use when plan-manager dispatches a read-only code-review round for
+ user-invocable: false
+ metadata:
+   pattern: tool-wrapper
+-  updated: "2026-10-25"
+-  content_hash: "9a5cff961832e8fffdea52e7ef1912cfcf530b5849d795fe84ec13f1b3107699"
++  updated: "2026-10-26"
++  content_hash: "f62ba1e506b336fc93eca42e39acbd27c0675742c5d47311f8e0a06633df0045"
+ ---
+ 
+ # Code Reviewer
+@@ -118,6 +118,10 @@ reach is uncertain, rate by the scenario and say what is uncertain.
+ - `blocked`: a required input is missing, unreadable, or contradictory, so no
+   safe verdict is possible. Name that input in one line below the verdict line.
+ 
++A hunk of the mode's diff that you did not read is a missing input, not a
++clean hunk. Return `blocked`, and name the paths of the unread hunks in the
++line below the verdict line. Never return `pass` on a partial read of the diff.
++
+ ## Output contract
+ 
+ Return exactly one Markdown block with no surrounding commentary. The manager

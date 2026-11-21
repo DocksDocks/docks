@@ -1,0 +1,98 @@
+diff --git a/.agents/skills/review-benchmark/SKILL.md b/.agents/skills/review-benchmark/SKILL.md
+index bcfdb6fa..4a90cef3 100644
+--- a/.agents/skills/review-benchmark/SKILL.md
++++ b/.agents/skills/review-benchmark/SKILL.md
+@@ -145,7 +145,7 @@ A path can be in more than one class. When no changed path is in a lens's scope,
+ 
+ ## Read scope
+ 
+-The reviewers run in the working folder of the dispatching session, the live checkout, which holds the fixes of the corpus defects. A reviewer that reads a file outside the inputs of its run can see a fix, so its recall does not count. Each prompt tells the reviewer to give every Read, Grep, and Glob call an absolute path under the snapshot root or a file that the prompt names. The prompt also tells the reviewer that its own instruction files are its agent file and the files of its own skill folder, and that it reads every other file, also the plan contract and other skills, under the snapshot root. It tells the reviewer not to read `skill://code-reviewer` and `skill://plan-reviewer`, because these URIs resolve to another version of the reviewer instructions. `score.mjs transcripts` reads the tool calls of each reviewer transcript and writes the targets outside the inputs to `readScope.outside` of the reviewer entry, each target once, in call order. The `path` argument of a `grep`, `glob`, or `ast_grep` call can hold several targets separated by `;`, as the omp tool docs (`omp://tools/<tool>.md`) tell. The `path` of every other call, for example of a `read` or a `find`, is one target, also when it holds a `;`. When no file or folder has the path of a target, omp can read the target as a list of the paths between `;`, `,`, or white space outside `{}` (`omp://tools/read.md`, Flow step 7), and it resolves a relative path of the list against its working folder. For a `read` call whose tool result records the paths of such a list (`displayReadTargets` in the details of the result), these paths decide, and a path that omp could not read (a `Could not read <path>` note) counts for nothing. For every other target, `transcripts` checks the files as omp does: omp takes the first split that it can: on `;`; on `,` when some part exists; on white space, or on all three delimiters, when each part exists. Without a record, `transcripts` cannot see which paths omp could not read, so each path of the split counts. A URI target is a list only on `;`, and only when each part is a URI. A list target is allowed only when each of its paths is allowed, and `readScope.outside` gets the whole target as the reviewer wrote it. Every other target loses its read selector (for example `:1-260`). A relative path resolves against the `cwd` of the `session` entry of the transcript. A `web_search` call has a `query` and no path: `transcripts` writes each query once, in call order, to `readScope.queries`. A target is allowed when it is:
++The reviewers run in the working folder of the dispatching session, the live checkout, which holds the fixes of the corpus defects. A reviewer that reads a file outside the inputs of its run can see a fix, so its recall does not count. Each prompt tells the reviewer to give every Read, Grep, and Glob call an absolute path under the snapshot root or a file that the prompt names. The prompt also tells the reviewer that its own instruction files are its agent file and the files of its own skill folder, and that it reads every other file, also the plan contract and other skills, under the snapshot root. It tells the reviewer not to read `skill://code-reviewer` and `skill://plan-reviewer`, because these URIs resolve to another version of the reviewer instructions. `score.mjs transcripts` reads the tool calls of each reviewer transcript and writes the targets outside the inputs to `readScope.outside` of the reviewer entry, each target once, in call order. The `path` argument of a `grep`, `glob`, or `ast_grep` call can hold several targets separated by `;`, as the omp tool docs (`omp://tools/<tool>.md`) tell. The `path` of every other call, for example of a `read` or a `find`, is one target, also when it holds a `;`. When no file or folder has the path of a target, omp can read the target as a list of the paths between `;`, `,`, or white space outside `{}` (`omp://tools/read.md`, Flow step 7), and it resolves a relative path of the list against its working folder. For a `read` call whose tool result records the paths of such a list (`displayReadTargets` in the details of the result), these paths decide, and a path that omp could not read (a `Could not read <path>` note) counts for nothing. For every other target, `transcripts` checks the files as omp does: a target whose whole path exists, with or without its read selector, is one target, for example a snapshot file whose name holds a space or a `;`, or a target in a workspace folder whose name holds a space. Else omp takes the first split that it can: on `;`; on `,` when some part exists; on white space, or on all three delimiters, when each part exists. Without a record, `transcripts` cannot see which paths omp could not read, so each path of the split counts. A URI target is a list only on `;`, and only when each part is a URI. A list target is allowed only when each of its paths is allowed, and `readScope.outside` gets the whole target as the reviewer wrote it. Every other target loses its read selector (for example `:1-260`). A relative path resolves against the `cwd` of the `session` entry of the transcript. A `web_search` call has a `query` and no path: `transcripts` writes each query once, in call order, to `readScope.queries`. A target is allowed when it is:
+ 
+ - under an input of the run: `snapshot/`, `prompts/`, the `*.diff` files, `plan.md`, `previous-review.md`, and `rejection.md` of the case folder, and of the run folder or of each `round-<j>` folder up to the round of the reviewer
+ - under `<ws>/trees/<run label>/` of a round of the run up to the round of the reviewer
+diff --git a/.agents/skills/review-benchmark/scripts/score.mjs b/.agents/skills/review-benchmark/scripts/score.mjs
+index 22cca141..4c270ee3 100755
+--- a/.agents/skills/review-benchmark/scripts/score.mjs
++++ b/.agents/skills/review-benchmark/scripts/score.mjs
+@@ -1922,13 +1922,15 @@ function ompPathExists(target, cwd) {
+ 
+ // The paths that omp reads for the target `target` of a tool call (trimmed, with its read selectors) when it reads
+ // the target as a list of paths (see LIST_SPLITS), each with its read selector, or null when omp reads the target as
+-// one path.
++// one path. A target whose whole path exists, as written or without its read selector, is one path, also when it
++// holds a delimiter: for example a file whose name holds a space or a `;`, or a workspace folder with a space.
+ function delimitedParts(target, cwd) {
+   if (splitPathList(target, ANY_DELIMITER) === null) return null;
+   if (uriScheme(target) !== undefined) {
+     const parts = splitPathList(target, URI_DELIMITER);
+     return parts !== null && parts.length > 1 && parts.every((part) => uriScheme(part) !== undefined) ? parts : null;
+   }
++  if (ompPathExists(target, cwd) || ompPathExists(target.replace(OMP_SELECTOR, ''), cwd)) return null;
+   const exists = (part) => {
+     const scheme = uriScheme(part);
+     if (scheme !== undefined) return !WEB_SCHEMES.has(scheme);
+diff --git a/scripts/tests/unit/review-benchmark.test.mjs b/scripts/tests/unit/review-benchmark.test.mjs
+index b4156e04..b69bfdb7 100644
+--- a/scripts/tests/unit/review-benchmark.test.mjs
++++ b/scripts/tests/unit/review-benchmark.test.mjs
+@@ -4809,7 +4809,8 @@ test('readScope splits the path of grep, glob, and ast_grep on `;` and keeps the
+   });
+ });
+ 
+-// Plan #100, code review round 3: omp resolves a relative path of a list of paths against its working directory.
++// Plan #100, code review round 3: omp reads a path as a list only when no file or folder has the whole path, and it
++// resolves a relative path of the list against its working directory.
+ //
+ // Changed exports:
+ // - readScope takes the option `lists`: a Map from a target (the trimmed path of a call, or a `;`-part of the path of
+@@ -4820,10 +4821,11 @@ test('readScope splits the path of grep, glob, and ast_grep on `;` and keeps the
+ //   - for a read call whose tool result has `details.displayReadTargets`, the paths of that list, except each path
+ //     that a note `Could not read <path>: <reason>` in `details.notes` names (omp could not read it);
+ //   - for every other target with `;`, `,`, or white space outside `{}` and not after a backslash, the split that omp
+-//     takes, checked on the files, with a relative path against the `cwd` of the session. The list is the first of these
+-//     splits: on `;`; on `,` when some part exists; on white space when each part exists; on all three when each part
+-//     exists. A part exists when the folder before its first glob segment exists. A URI is a list only on `;`, and only
+-//     when each part is a URI.
++//     takes, checked on the files, with a relative path against the `cwd` of the session. A target whose whole path
++//     exists, as written or without its read selector, gets no list. Else the list is the first of these splits: on
++//     `;`; on `,` when some part exists; on white space when each part exists; on all three when each part exists. A
++//     part exists when the folder before its first glob segment exists. A URI is a list only on `;`, and only when
++//     each part is a URI.
+ 
+ test('readScope allows a list target only when each path that omp read for it is allowed', () => {
+   const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN] };
+@@ -4857,7 +4859,7 @@ test('readScope allows a list target only when each path that omp read for it is
+   assert.deepEqual(score.readScope(reads(`${a};${LIVE}/src/b.mjs`, `${a}:1-20, src/b.mjs`), scope), { outside: [] });
+ });
+ 
+-test('transcripts reads a target as a list as omp splits it, and prefers the list of omp', (t) => {
++test('transcripts reads a target as a list only when no file has its whole path, and prefers the list of omp', (t) => {
+   const root = scratch(t);
+   // A workspace folder whose name holds a space, as `bench=…/bench-gpt 7` gives it, so each snapshot path holds one.
+   const ws = path.join(root, 'bench-gpt 7');
+@@ -4873,12 +4875,13 @@ test('transcripts reads a target as a list as omp splits it, and prefers the lis
+   put(round1, 'prompts/full.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
+   put(round1, 'meta.json', { config: CONFIGS.low, mode: 'full' });
+   const skill = 'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md';
+-  for (const file of ['src/a.mjs', 'docs/release notes.md', skill]) put(snapshot, file, 'text\n');
++  for (const file of ['src/a.mjs', 'src/a;b.mjs', 'docs/release notes.md', skill]) put(snapshot, file, 'text\n');
+   put(live, skill, 'text\n');
+   const a = path.join(snapshot, 'src', 'a.mjs');
+   const calls = [
+-    // No split of these targets has only paths that exist, so each target is one path.
++    // Each whole path exists, as written or without its read selector, so each target is one path.
+     ['read', { path: `${a}:1-20` }],
++    ['read', { path: path.join(snapshot, 'src', 'a;b.mjs') }],
+     ['read', { path: `${path.join(snapshot, 'docs', 'release notes.md')}:1-20` }],
+     ['grep', { pattern: 'lock', path: path.join(snapshot, 'src') }],
+     // No folder has the part before the space, so omp does not split the glob on white space.
+@@ -4896,7 +4899,7 @@ test('transcripts reads a target as a list as omp splits it, and prefers the lis
+     ['read', { path: `${a}:70:raw,140:raw` }],
+   ];
+   const results = {
+-    'call-8': {
++    'call-9': {
+       notes: [`Note: interpreted as 2 paths: ${a}:65:raw, 133:raw`, "Could not read 133:raw: Path '133' not found"],
+       displayReadTargets: [`${a}:65:raw`, '133:raw'],
+     },

@@ -1,0 +1,36 @@
+{
+  "id": "plan-89-r1",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 89,
+  "round": 1,
+  "repo_ref": "37852a890e9ce328a20522e69933afe6c222b5ae",
+  "plan": "plan89-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZQ13eM8AAAABEIshzg",
+  "known": [
+    {
+      "id": "P89-1",
+      "section": "Research, Decisions, decision 7(a) (line 31); Steps, row 3 plan_helper_round_trips (line 54)",
+      "category": "goal_fit",
+      "source": "round",
+      "summary": "separate body, label, and claim mutations break the contract's same-write claim: GraphQL runs them serially with partial success, so the body can change while the later claim fails and leaves a modified, unassigned plan (the body and the claim belong in one updateIssue mutation; replacing labels through labelIds was rejected)",
+      "comment": 6355756812
+    },
+    {
+      "id": "P89-2",
+      "section": "Steps, row 3 plan_helper_round_trips, Files (line 54)",
+      "category": "goal_fit",
+      "source": "round",
+      "summary": "step 3 changes the shipped plan.mjs, which requires bumping metadata.updated in plan-manager/SKILL.md, but that file is in no step's Files",
+      "comment": 6355756812
+    },
+    {
+      "id": "P89-3",
+      "section": "Research, Decisions, decision 7(a) (line 31); Steps, row 3 plan_helper_round_trips (line 54)",
+      "category": "research_gap",
+      "source": "missed-by-round",
+      "summary": "the plan moves the body from gh issue edit --body-file into a gh api graphql variable without saying how; the helper's graphql() passes values with -F, which fills {owner}/{repo}/{branch} placeholders and converts types, so a body that quotes such a token is stored rewritten",
+      "comment": 6355906380
+    }
+  ]
+}

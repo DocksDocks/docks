@@ -1,0 +1,101 @@
+diff --git a/docs/PLAN.md b/docs/PLAN.md
+index 066a5c5d..b56384e6 100644
+--- a/docs/PLAN.md
++++ b/docs/PLAN.md
+@@ -435,9 +435,17 @@ or diff changed, block merge. Invoke `gh pr merge` with
+ strategy only after the fresh `Merge now` answer.
+ 
+ Only the pull request that lands the completed work carries `Closes #<issue>`.
+-A partial pull request carries plain `Refs #<issue>`. `archive` verifies the
+-merged result rather than causing it. A plan that never lands is retired, not
+-archived.
++A partial pull request carries plain `Refs #<issue>`, but GitHub still links it
++to the issue through the linked branch, so its merge into the default branch
++closes the issue. Before the merge question for a partial pull request, run
++`gh pr view <pr> --repo <nameWithOwner> --json closingIssuesReferences`. When
++it lists the plan issue, say in the merge question that the merge closes the
++issue and that the issue will be reopened. After that merge, run
++`plan.mjs show <issue>`. If the status is `finished`, run
++`gh issue reopen <issue> --repo <nameWithOwner> --comment "Reopened: partial pull request #<pr> closed this plan through its linked branch. Work continues."`,
++then run `plan.mjs show <issue>` again and continue only when the status is
++`ongoing`. `archive` verifies the merged result rather than causing it. A plan
++that never lands is retired, not archived.
+ 
+ ## Portability
+ 
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 3ff8a190..198f83dc 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -283,8 +283,12 @@ or diff changed, block merge. Invoke `gh pr merge` with
+ strategy only after the fresh `Merge now` answer.
+ 
+ Only the pull request that lands the completed work carries `Closes #<issue>`;
+-a partial one carries plain `Refs #<issue>`. A plan that never lands is
+-retired, not archived.
++a partial one carries plain `Refs #<issue>`. GitHub still links a partial pull
++request to the issue through the linked branch, so its merge closes the issue.
++Say so in its merge question when `gh pr view <pr> --repo <nameWithOwner> --json
++closingIssuesReferences` lists the plan issue. After the merge, reopen the issue
++as the contract reference states and continue only when `plan.mjs show <issue>`
++reports `ongoing`. A plan that never lands is retired, not archived.
+ 
+ ## Frozen history
+ 
+@@ -312,4 +316,8 @@ GOOD: Post the reviewer's one markdown block unchanged as one issue comment.
+ BAD: Wait until a passed review to create the implementation branch.
+ GOOD: Verify and check out the linked plan branch when phase 5 starts; after a
+       pass, create or update the closing pull request and wait for the merge ask.
++
++BAD: Merge a partial pull request and trust `Refs #<issue>` to keep the issue open.
++GOOD: Say that the merge closes the issue, merge on `Merge now`, reopen the issue,
++      and continue only when `plan.mjs show <issue>` reports `ongoing`.
+ ```
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 99741a93..ab46cd2c 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -358,8 +358,16 @@ or diff changed, block merge. Invoke `gh pr merge` with
+ strategy only after the fresh `Merge now` answer.
+ 
+ Only the pull request that lands the completed work carries `Closes #<issue>`.
+-A partial pull request carries plain `Refs #<issue>`. `archive` verifies the
+-merged result rather than causing it.
++A partial pull request carries plain `Refs #<issue>`, but GitHub still links it
++to the issue through the linked branch, so its merge into the default branch
++closes the issue. Before the merge question for a partial pull request, run
++`gh pr view <pr> --repo <nameWithOwner> --json closingIssuesReferences`. When
++it lists the plan issue, say in the merge question that the merge closes the
++issue and that the issue will be reopened. After that merge, run
++`plan.mjs show <issue>`. If the status is `finished`, run
++`gh issue reopen <issue> --repo <nameWithOwner> --comment "Reopened: partial pull request #<pr> closed this plan through its linked branch. Work continues."`,
++then run `plan.mjs show <issue>` again and continue only when the status is
++`ongoing`. `archive` verifies the merged result rather than causing it.
+ 
+ ## Archive verification
+ 
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
+index 26c4d43c..e3b04fdf 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/plan-md-template.md
+@@ -439,9 +439,17 @@ or diff changed, block merge. Invoke `gh pr merge` with
+ strategy only after the fresh `Merge now` answer.
+ 
+ Only the pull request that lands the completed work carries `Closes #<issue>`.
+-A partial pull request carries plain `Refs #<issue>`. `archive` verifies the
+-merged result rather than causing it. A plan that never lands is retired, not
+-archived.
++A partial pull request carries plain `Refs #<issue>`, but GitHub still links it
++to the issue through the linked branch, so its merge into the default branch
++closes the issue. Before the merge question for a partial pull request, run
++`gh pr view <pr> --repo <nameWithOwner> --json closingIssuesReferences`. When
++it lists the plan issue, say in the merge question that the merge closes the
++issue and that the issue will be reopened. After that merge, run
++`plan.mjs show <issue>`. If the status is `finished`, run
++`gh issue reopen <issue> --repo <nameWithOwner> --comment "Reopened: partial pull request #<pr> closed this plan through its linked branch. Work continues."`,
++then run `plan.mjs show <issue>` again and continue only when the status is
++`ongoing`. `archive` verifies the merged result rather than causing it. A plan
++that never lands is retired, not archived.
+ 
+ ## Portability
+ 

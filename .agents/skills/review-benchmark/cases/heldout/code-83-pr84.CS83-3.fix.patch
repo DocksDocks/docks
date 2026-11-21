@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index db06197..8d05ab8 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -408,7 +408,7 @@ Run these steps in order after `archive <n>` succeeds:
+    Follow Production resources for every other remote resource.
+ 3. Run the next commands from the main worktree, not from the plan's worktree.
+    A removal from inside the worktree leaves the shell in a deleted directory.
+-4. If the plan made a worktree, run `git worktree remove -- <branch>`, then
++4. If the plan made a worktree, run `git worktree remove -- <worktree>`, then
+    `git worktree prune`. Never add `--force`. When git refuses because of
+    untracked or modified files or a lock, keep the worktree. List it with the
+    reason from git.

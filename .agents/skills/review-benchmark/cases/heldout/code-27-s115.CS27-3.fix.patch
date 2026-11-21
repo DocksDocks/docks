@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 8f358db1..4eccccf2 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -263,7 +263,7 @@ export function checkPlan(planText, planRef) {
+     if (!command || !expected) failures.push(`check 9: acceptance ${id || '(empty)'} has an empty required cell`);
+   }
+   if (machinePathCitations(planText).length > 0) failures.push('check 10: body contains an absolute machine path');
+-  if (blankFencedRegions(planText).includes('\u2014')) failures.push('check 10: body contains an em dash');
++  if (planText.includes('\u2014')) failures.push('check 10: body contains an em dash');
+   const researchIsPlaceholder = (sections.get('Research') ?? '').includes('_Not researched yet._');
+   if (researchIsPlaceholder && status !== undefined && status !== 'drafting') {
+     failures.push('check 11: Research must be filled once the plan leaves drafting');

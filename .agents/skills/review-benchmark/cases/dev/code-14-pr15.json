@@ -1,0 +1,44 @@
+{
+  "id": "code-14-pr15",
+  "kind": "code",
+  "split": "dev",
+  "issue": 14,
+  "round": 1,
+  "base": "adbb40a910cdb75617c2b7a041f2ae66aacf9b25",
+  "head": "2cbd9b12747e28f76b99dd8f820fdacc2878d82d",
+  "plan": "code-14-pr15-plan.md",
+  "known": [
+    {
+      "id": "E-22bd02ce",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:49; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:367-372; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:909-925",
+      "category": "code",
+      "source": "escaped",
+      "summary": "archive reads the latest ClosedEvent closer only as a Commit, so when GitHub drops a same-repository keyword closer from the excludeUserLinked connection and records the closer as the pull request itself, archive ignores that merged pull request and refuses a legitimately merged plan.",
+      "fix": "code-14-pr15.E-22bd02ce.fix.patch"
+    },
+    {
+      "id": "E-58fe5d20",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:773; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:890-897",
+      "category": "code",
+      "source": "escaped",
+      "summary": "step accepts only an ongoing plan, but once the merge closes the issue the plan derives as finished while archive still demands every step terminal, so a step left non-terminal at merge can never be repaired and the closed plan deadlocks (reopening would discard the closure proof archive needs).",
+      "fix": "code-14-pr15.E-58fe5d20.fix.patch"
+    },
+    {
+      "id": "E-cca62ff8",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:889; plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:929-943",
+      "category": "code",
+      "source": "escaped",
+      "summary": "retire closes the issue as not planned before it removes the phase labels, so a failed label cleanup strands a closed issue with a stale phase label, and the closed-issue guard then refuses every retire retry, leaving the cleanup unrecoverable through the CLI.",
+      "fix": "code-14-pr15.E-cca62ff8.fix.patch"
+    },
+    {
+      "id": "E-c44bc078",
+      "locator": "plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:719-722",
+      "category": "code",
+      "source": "escaped",
+      "summary": "edit rewrites the export's .origin digest before the remote body write, so when gh issue edit fails the sidecar names a body GitHub never received and a retry with the same file is refused as a stale export, forcing a re-export that overwrites the edited file.",
+      "fix": "code-14-pr15.E-c44bc078.fix.patch"
+    }
+  ]
+}

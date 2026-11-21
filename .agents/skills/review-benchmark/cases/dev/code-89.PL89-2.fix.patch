@@ -1,0 +1,13 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index f3d7e42d..98fd84b3 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -207,7 +207,7 @@ prefixed with `#`. The header strip is `#<n> · <status> · <title> · <url>`.
+ | `edit <n> --file <path>` | Header strip, `changed: <k> line(s)`, `-old` and `+new` lines, then advice |
+ | `status <n> <status> [--reason <text>]` | `plan #<n> status: <old> -> <new>` |
+ | `step <n> <id> <status>` | `plan #<n> step <id>: <old> -> <new>` |
+-| `list [--status <s>]` | `<status>\t#<n>\t<title>`; open first, then closed, each newest first; prints advice when it reaches 500 plans |
++| `list [--status <s>]` | `<status>\t#<n>\t<title>`; open first, then closed, each in ascending number order; prints advice when it reaches 500 plans |
+ | `archive <n>` | `plan #<n> finished (closed by <pr-url>)`; removes stale phase labels |
+ | `retire <n> --reason <t>` | `plan #<n> retired`; closes as not planned and removes phase labels |
+ 

@@ -1,0 +1,10 @@
+{
+  "id": "code-60-pr62",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 60,
+  "round": 1,
+  "base": "81fee5c0695848f51d8250fb8ec73839c147595a",
+  "head": "8ede612ed3d9901eaca4b2adb0b0cbc6d4a2c47a",
+  "plan": "code-60-pr62-plan.md"
+}

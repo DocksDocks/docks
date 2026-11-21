@@ -1,0 +1,88 @@
+<!-- plan-contract: v4 -->
+
+## Goal
+
+Raise the review quality of the plan-lifecycle reviewers with the strongest techniques from published review material of other vendors (Claude Code, OpenAI Codex, Cursor and Bugbot, CodeRabbit, and pstack by poteto in cursor/plugins), the follow-up that the user chose after #111. Go for the main gains: rank the techniques by the known defects that the current reviewers miss and by the review-safety gaps that they close, write the top ones in this repository's own words with cited sources (and the license notices that copied text needs), measure each prompt change with the review benchmark on new held-out cases under a decision rule fixed before the deciding runs, ship only what the benchmark shows helps, and record the rest. Fast mode stays off for the benchmark runs, as the user asked for testing, and goes back on after them. No release in this plan; the release follows the merge only with its own question.
+
+Yolo: the user delegated every decision except the merge to the agent.
+
+Mode: plan-and-implement
+
+## Research
+
+### Evidence: what the current reviewers miss
+
+- Plan reviewer (the shipped `Ac`, plan #111 runs): of 82 known defects on 31 plan cases, 35 were missed in at least one run and 25 in every run. The largest groups of always-missed defects: an Acceptance row that passes without the change (7 defects, for example a grep that already matches, an assertion that takes only the first match, a check that reads a fixed path instead of the changed copy); a producer that changes while a reader of the old form stays unchanged (8 defects, for example a scorer that reads keys from the old place, a parser that no longer accepts a stored sentinel); a second owner of the same rule (6); an instruction-file rule or gate that the Steps leave out (4); a choice left to the implementer that changes an observable result (4). Sources: the Runs tables of the plan #111 reports and the published keys (`cases/`).
+- Code reviewer (production panel `C3-xhigh-fast` and `B1-xhigh-fast`, plan #100 loops): 23 of 33 held-out code defects were missed in all 9 round-1 runs. The largest groups: parsers and guards that read a format differently than another tool does (code blocks, quote or list markers, case, repeated keys, line breaks, `--` and option values), and shipped text that disagrees with another file that restates the same rule (wrappers, references, the contract, helper messages). Of 389 round-1 finding lines, none cites a repository instruction rule that the change breaks; and the code-reviewer skill ranks recorded plan decisions above the instruction files, the order that #109 reversed for the plan reviewer.
+- Review safety: the code reviewer applies the instruction files of the candidate, so a diff that weakens `AGENTS.md`, the plan contract, or the reviewer's own files weakens its own review. Claude Code Review and Cursor Bugbot read their review rules from the base branch for this reason (https://code.claude.com/docs/en/code-review, https://cursor.com/docs/bugbot).
+
+### Evidence: published techniques
+
+Five research reports (kept outside the repository) cover Anthropic's Claude Code review material (the `code-review` and `security-review` plugins, Code Review docs; Apache-2.0 or MIT where open, else cite only), OpenAI Codex (`/review` rubric, Plan Mode, review guidelines; Apache-2.0 for repository files), Cursor (Bugbot docs, `cursor/plugins` review skills; MIT), CodeRabbit (`coderabbitai/skills`, docs; MIT for the repository), and poteto's pstack in `cursor/plugins` (MIT). The techniques that address the missed groups above:
+
+- Plan: an Acceptance row that can pass without the change (Claude Code `feature-dev` guidance, Codex test review rules, pstack verification ladder); trace each changed format, location, or rule to its readers (Claude Code, pstack, Codex changed-behavior pass).
+- Code: a search for every file that restates a changed rule, value, or format (CodeRabbit); an instruction-file compliance check that quotes the rule and is scoped by path (Claude Code, Codex, CodeRabbit, Cursor); instruction files read as of the base when the diff changes them (Claude Code Review, Bugbot); a per-form comparison for parsers and formats that another tool also reads, and compatibility surfaces such as flags, keys, labels, and record formats (Claude Code security review, Codex); a fail-open fallback that decides a gate is a Bug, not a capped maintainability item (Claude Code security review); a search for the guard before a finding is reported, as a precision safeguard (CodeRabbit, Cursor, Claude Code).
+
+### Evidence: harness and capacity
+
+- `prepare.mjs` compares the working-tree reviewer (candidate) with the reviewer at `--baseline-ref`. Its baseline panel and delta arms (`B1`, `B0`) add the old lens description to the prompt (`buildTail`), so `B1` against `C3` does not compare only the reviewer files of `main` and a candidate. Plan-reviewer variants run as `V<name>` arms from committed refs.
+- The held-out cases of #100, #109, and #111 are published and were read during this research, so they serve as dev cases. New held-out cases come from the review rounds of #111 (plan rounds 1 and 6; code rounds 1, 3, and 4 with the repair commits of PR #112) and from seeded defects that a builder agent writes without seeing the candidates.
+- Only two model families run here (`omp models`: `anthropic`, `openai-codex`), and the judge must come from another family than the reviewers, so a second reviewer family cannot be judged in the same run.
+- At the default tier, the service accepted about 4 to 8 parallel reviewers (`turn_rate_limit_exceeded` above), about 20 reviewer dispatches per hour in #111.
+
+### Decisions
+
+1. **Main gains only.** One plan-reviewer candidate and one code-reviewer candidate, each built from the techniques that address the largest missed groups, written in this repository's own words with the source URLs in the results log. No text is copied, so no license notice is needed.
+   - **P1 (plan reviewer):** a checklist item that each Acceptance row which checks a Goal outcome can fail: the reviewer reads the command and the files that it reads and predicts its result before the steps and on a partial change (a pattern that already matches or cannot match, a check that accepts any input, a fixed path, a first-match assertion, a test that does not assert the credited property), cites the snapshot line, and does not report a regression guard; a checklist item that traces each changed format, location, key, default, or rule to its readers (scripts, tests, stored records, restated rule text, tools that load it); the matching lines in the agent and the skill.
+   - **C1 (code reviewer):** the precedence of #109 (instruction files and the plan contract above recorded decisions; a decision settles the choice, not its facts or its effects); a repository-rules section (read the `AGENTS.md` and `CLAUDE.md` of the root and of each changed path's folders; quote the rule and cite `path:line`; when the diff changes an instruction file, the plan contract, or the reviewer's own files, apply the text before the change and review the new text as changed text); a restatement search for each changed rule, command, flag, label, default, or format; a per-form check for parsers and formats that another tool also reads, and compatibility surfaces; fail-open fallbacks that decide a check, a permission, a verdict, or a proof are a Bug or Security finding; and a search for the guard before a finding is reported.
+   - Rejected for this plan: a second model family (no judge family outside both), the external-behavior check (measured as D2 in #111: no pass, twice the time), a coverage verdict for unread hunks (changes the loop's verdicts with no corpus defect), web search for the code reviewer (slower; a lead), numeric confidence scores, finding caps, and majority votes (they conflict with the one-pass coverage rule).
+2. **Clean baseline arms.** The benchmark gets baseline arms that use the candidate's prompt shape: `B3` (panel) for `code` cases and `Bd` (delta) for `code-delta` cases, so `B3`/`Bd` against `C3`/`Cd` compares only the reviewer files at `--baseline-ref main` and in the candidate tree.
+3. **Cases.** New held-out cases decide: `plan-111-r1` (4 known defects), `plan-111-r6` (plan-delta, 1), `code-111-r1` (code), `code-111-r3-delta` (code-delta), and `code-111-r4` (code), plus seeded cases: 5 plan cases with 4 seeds each in the six kinds of #111, and 2 code cases with 4 seeds each (parser forms, restated rules, gates, error paths), written by a builder agent that does not see the candidates. Keys stay outside the repository until the decision.
+4. **Configuration.** `openai-codex/gpt-6.1-sol` at `xhigh`, `default` tier, with fast mode off during the runs, as the user asked for testing; the arms of each reviewer run mixed in one dispatch queue.
+5. **Decision rule, fixed before the held-out runs**, for each reviewer on its new held-out cases: the candidate replaces `main` only when its escaped known defects per 50 known are fewer than `main`'s, its escaped-difference 90% interval against `main` stays below 2 and its round-1 recall difference interval stays above -0.05, and its wrong findings per run and its unknown findings per run are each at most 0.10 more than `main`'s. A candidate that does not pass is recorded with its measured differences and does not ship.
+6. **Dev check.** Plan: `main` and P1 on 6 dev plan cases with always-missed defects, 2 runs. Code: `B3` and `C3` on 4 dev code cases, 1 run. Each candidate may be revised once from the dev check, without held-out data.
+
+### Request corrections
+
+Asked: "go for main gains". Did: test the two technique groups that address the largest missed defect groups, one candidate per reviewer, and record the other techniques as rejected or as leads. Reason: at about 20 reviewer dispatches per hour, each further candidate costs several hours, and the plan #111 result shows that wider prompt changes (D2) can miss the decision bounds.
+
+### Engineering standards
+
+- Step `harness_arms`: `tdd-workflow`, `code-clarity`, `commit-discipline`.
+- Step `fresh_cases`: `commit-discipline`.
+- Steps `candidates`, `ship`: `code-clarity` (instructions say what the reviewer does and why), `commit-discipline`; the content-hash backfill that `plugins/plan-lifecycle/skills/AGENTS.md` requires.
+- Code review round 1: one `code-review` self-review per lens, with `code-clarity`.
+
+## Steps
+
+| # | Id | Task | Files | Depends | Effect | Status | Done when |
+|---:|---|---|---|---|---|---|---|
+| 1 | harness_arms | Add the baseline arms `B3` and `Bd` of decision 2 | .agents/skills/review-benchmark/scripts/prepare.mjs, .agents/skills/review-benchmark/SKILL.md, scripts/tests/unit/review-benchmark.test.mjs, scripts/config/test-contracts.json | - | local | planned | a `B3` prompt and a `Bd` prompt have the same tail as the `C3` and `Cd` prompts of the same case; spec tests fail before and pass after the change |
+| 2 | fresh_cases | Build the new held-out cases of decision 3 with a builder agent that reports only counts, keys outside the repository | .agents/skills/review-benchmark/cases/heldout/ | - | local | planned | each case builds with `prepare.mjs case --keys`, and the builder's counts are in Verification Results |
+| 3 | candidates | Write P1 as a commit on a local ref from `main`, and C1 as a commit on another local ref from `main` | plugins/plan-lifecycle/agents/plan-reviewer.md, plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md, plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md, plugins/plan-lifecycle/agents/code-reviewer.md, plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md, plugins/plan-lifecycle/skills/productivity/code-reviewer/references/correctness.md, plugins/plan-lifecycle/skills/productivity/code-reviewer/references/text-and-safety.md | - | local | planned | both refs exist; each changes only its reviewer's files; `bun scripts/ci.mjs --plugin plan-lifecycle` exits 0 on each ref |
+| 4 | dev_runs | Run the dev check of decision 6 and revise each candidate at most once | .agents/skills/review-benchmark/results.md | 1, 3 | local | planned | the dev tables and the check of each change are in the results log |
+| 5 | heldout_runs | Run both reviewers' arms on the new held-out cases (3 runs), judge, run the second judge on 10%, and apply decision 5 | .agents/skills/review-benchmark/results.md | 2, 4 | local | planned | the results log holds both tables, the intervals against `main`, and the decisions |
+| 6 | ship | Apply each passing candidate's files to plan-lifecycle and refresh the content hashes; keep each candidate's diff in `variants/` | plugins/plan-lifecycle/agents/plan-reviewer.md, plugins/plan-lifecycle/skills/productivity/plan-reviewer/SKILL.md, plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md, plugins/plan-lifecycle/agents/code-reviewer.md, plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md, plugins/plan-lifecycle/skills/productivity/code-reviewer/references/correctness.md, plugins/plan-lifecycle/skills/productivity/code-reviewer/references/text-and-safety.md, .agents/skills/review-benchmark/variants/ | 5 | local | planned | the shipped files equal each passing candidate's ref; `bun scripts/ci.mjs --plugin plan-lifecycle` exits 0 |
+| 7 | keys_and_fast | After the held-out runs, publish the new keys in the repository, and turn fast mode back on with `docks-kit omp --fast` | .agents/skills/review-benchmark/cases/heldout/, .agents/skills/review-benchmark/SKILL.md | 5 | local | planned | the cases build without `--keys`, and `tier.openai` is `priority` in the deployed omp config |
+| 8 | release_plan_lifecycle | After the merge and only with its own question, release plan-lifecycle with the changes of #109, #111, and this plan | plugins/plan-lifecycle/.claude-plugin/plugin.json, plugins/plan-lifecycle/.codex-plugin/plugin.json, .claude-plugin/marketplace.json | 6 | release | planned | the release tag CI passes, or the step is skipped with the user's answer recorded |
+
+## Acceptance
+
+| ID | Command | Expected |
+|---|---|---|
+| a1 | `bun scripts/ci.mjs` | exits 0 |
+| a2 | `bun test ./scripts/tests/unit/review-benchmark.test.mjs` | passes |
+| a3 | `score.mjs report` on the dev and held-out workspaces | each invalid run named; every valid run shows model `openai-codex/gpt-6.1-sol`, effort `xhigh`, and served tier `default` |
+| a4 | `.agents/skills/review-benchmark/results.md` | the dev check, both held-out tables, the intervals against `main`, and the decisions |
+| a5 | `bun scripts/ci.mjs --plugin plan-lifecycle` | exits 0 |
+| a6 | `git diff <passing candidate ref> HEAD -- <its reviewer files>` | prints nothing, apart from the content-hash fields |
+
+## Do not touch
+
+- The review block headings, the verdict words, the lens names, and the plan helper's review parsing.
+- The plan-lifecycle contract and the plan-manager and yolo skills: this plan changes only the reviewers and the benchmark.
+- The earlier entries of `results.md` and their decision rules.
+
+## Open questions
+
+## Verification Results
