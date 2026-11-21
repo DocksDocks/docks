@@ -3,7 +3,7 @@
 #   Invoke-WebRequest https://raw.githubusercontent.com/DocksDocks/docks-kit/main/install.ps1 -OutFile "$env:TEMP\docks-kit-install.ps1"
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\docks-kit-install.ps1"
 #   Remove-Item "$env:TEMP\docks-kit-install.ps1"
-# Installs Bun when absent, then runs `bun add -g docks-kit@latest`. The CLI
+# Installs Bun when absent, then runs `bun add -g --no-cache docks-kit@latest`. The CLI
 # stays in Bun's global bin directory (%USERPROFILE%\.bun\bin by default).
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
