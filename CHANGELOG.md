@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased - docks-kit 0.26.1: faster start of the compiled binaries
+
+The four release binaries embed their compiled bytecode, so a launch no
+longer parses the 2.7 MB program (DocksDocks/docks-kit#188, plan #191).
+These changes come from plan DocksDocks/docks-kit#189.
+
+### Changed
+
+- `cli/build-binaries.sh` and `smoke:native` compile with
+  `--compile --minify --bytecode --format=esm`, the `COMPILE_FLAGS` of
+  `cli/src/engine-native/os/targets.ts`. Measured with Bun 1.4.4 on Linux
+  x64, median of 25 runs:
+
+  | Binary | Size before, bytes | Size after, bytes | `--version` before | `--version` after |
+  |---|---|---|---|---|
+  | `docks-kit-linux-x64` | 111,581,360 | 118,765,744 | 58.5 ms | 25.5 ms |
+  | `docks-kit-linux-arm64` | 111,660,024 | 118,868,984 | - | - |
+  | `docks-kit-darwin-arm64` | 91,636,706 | 98,868,962 | - | - |
+  | `docks-kit-windows-x64.exe` | 117,728,768 | 124,905,472 | - | - |
+
+  The Bun runtime is about 109 MB of each binary. Bun's `--trim` option,
+  which removes unused runtime parts, is in no stable Bun release yet.
+- `smoke:native` fails when the binary runs without its embedded bytecode.
+  It checks for the `[Disk Cache] Cache hit for sourceCode` line that
+  `BUN_JSC_verboseDiskCache=1` prints, so a Bun update that silently
+  ignores the bytecode fails CI.
+
+### Fixed
+
+- The omp trigger-rule backstop test runs in its own Vitest project after
+  every other unit file, so it no longer shares the cores with them and no
+  longer times out on a busy runner (DocksDocks/docks-kit#187, plan #190).
+
 ## 2026-11-20 - docks-kit 0.26.0: docks-kit plan, agent-docs, and skill commands, and the move to DocksDocks/docks-kit
 
 The plan helper of the `plan-manager` skill is now a docks-kit command,
