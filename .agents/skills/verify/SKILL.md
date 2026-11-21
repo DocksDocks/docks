@@ -15,7 +15,7 @@ Hosts: the commands below are POSIX shell for Linux and macOS. On Windows, run `
 
 | Need | Check command | Expected result |
 |---|---|---|
-| Bun at the CI pin | `bun --version` | `1.4.4` |
+| Bun at the CI pin | `bun --version` | `1.4.5` |
 | omp at the toolchain floor | `omp --version` | `omp/19.0.0` |
 | Dependencies installed | `test -d node_modules && echo present` (PowerShell: `if (Test-Path node_modules) { 'present' }`) | `present` |
 | docks-kit on PATH (V6 scratch folder) | `docks-kit --version` | One version line |

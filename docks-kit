@@ -6,11 +6,11 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # BEGIN GENERATED BUN PIN
-BUN_PIN="1.4.4"
+BUN_PIN="1.4.5"
 # END GENERATED BUN PIN
 
 # BEGIN GENERATED BUN FLOOR
-BUN_FLOOR="1.4.4"
+BUN_FLOOR="1.4.5"
 # END GENERATED BUN FLOOR
 
 # Reject an unsupported host before the Bun install, so that the user gets

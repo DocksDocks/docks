@@ -58,7 +58,7 @@
       "command": ["toolchain", "check"],
       "exitCode": 0,
       "fixture": "home-fresh",
-      "output": "TOOL                         KIND      INSTALLED      FLOOR     VERIFIED  STATUS\nbun                          managed   1.4.4          1.4.4     1.4.4     ok\ncurl                         check     ?              -         -         unknown\ngit                          check     2.43.0         -         -         ok\njq                           check     1.7.1          -         -         ok\nnpm                          check     ?              -         -         unknown\nomp                          check     19.0.0         19.0.0    19.0.0    ok\npi-intercom                  pin       (omp install)  -         0.14.0    pinned\n"
+      "output": "TOOL                         KIND      INSTALLED      FLOOR     VERIFIED  STATUS\nbun                          managed   1.4.5          1.4.5     1.4.5     ok\ncurl                         check     ?              -         -         unknown\ngit                          check     2.43.0         -         -         ok\njq                           check     1.7.1          -         -         ok\nnpm                          check     ?              -         -         unknown\nomp                          check     19.0.0         19.0.0    19.0.0    ok\npi-intercom                  pin       (omp install)  -         0.14.0    pinned\n"
     },
     "cli=public fixture=home-fresh cmd=update --help": {
       "command": ["update", "--help"],

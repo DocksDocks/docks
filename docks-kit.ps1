@@ -6,11 +6,11 @@ $ErrorActionPreference = 'Stop'
 $RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # BEGIN GENERATED BUN PIN
-$BunPin = "1.4.4"
+$BunPin = "1.4.5"
 # END GENERATED BUN PIN
 
 # BEGIN GENERATED BUN FLOOR
-$BunFloor = "1.4.4"
+$BunFloor = "1.4.5"
 # END GENERATED BUN FLOOR
 
 # Reject an unsupported host before the Bun install, so that the user gets
