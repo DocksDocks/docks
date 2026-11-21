@@ -15,10 +15,9 @@ DocksDocks/docks-kit#189, plan #195, and plan #198.
   in `fetch` and `node:https` (DocksDocks/docks-kit#198). CI runs Bun 1.4.5.
   The installers install Bun 1.4.5 only when no Bun is present, and a checkout
   launcher checks the floor only when it installs the checkout dependencies.
-  So an existing Bun stays at its version. Upgrade the Bun that docks-kit
-  runs, with `bun upgrade` through its full path when it is not on `PATH`, or
-  with the package manager that installed it. Then check that the bun row of
-  `docks-kit toolchain check` shows 1.4.5 or newer.
+  So an existing Bun stays at its version: upgrade it to 1.4.5 or newer, as
+  <https://bun.com/docs/installation#upgrading> says, and run `--version` with
+  that same Bun executable to confirm the version.
 
 ### Removed
 
