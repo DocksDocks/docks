@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -112,11 +120,14 @@ describe.skipIf(!WINDOWS_LAUNCHER_APPLIES || pwshExecutable === null)(launcherSu
       checkoutVersion: runtimeVersion,
       binary: "bun",
     });
+    const binary = join(fixture.root, "cli", "dist", "docks-kit-windows-x64.exe");
+    const planted = readFileSync(binary);
     const result = runLauncher(fixture, { native: "AMD64" }, ["probe"]);
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe("source:probe");
     expect(result.stderr).toBe("");
+    expect(readFileSync(binary).equals(planted)).toBe(true);
   });
 
   // A 32-bit shell on an x64 host reports x86 in PROCESSOR_ARCHITECTURE and the

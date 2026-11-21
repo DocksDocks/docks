@@ -153,12 +153,15 @@ describe.skipIf(!POSIX_LAUNCHER_APPLIES)(launcherSuiteLabel, () => {
   // in cli/dist stays on disk and never runs (plan #195).
   it("runs the checkout source even when a version-matching binary in cli/dist is newer than every source file", () => {
     const fixture = launcherFixture("docks-kit-linux-x64", CURRENT_VERSION);
+    const binary = join(fixture.root, "cli", "dist", "docks-kit-linux-x64");
+    const planted = readFileSync(binary, "utf8");
 
     const result = runLauncher(fixture, { system: "Linux", machine: "x86_64" }, ["probe"]);
 
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe("source:probe");
     expect(result.stderr).toBe("");
+    expect(readFileSync(binary, "utf8")).toBe(planted);
   });
 
   it.each([

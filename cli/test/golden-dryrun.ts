@@ -70,7 +70,7 @@ const options = parseArgs(process.argv);
 const hostExecutableSuffixes = hostOs().executableSuffixes;
 if (hostExecutableSuffixes.length !== 1 || !hostExecutableSuffixes.includes("")) {
   console.error(
-    "golden-dryrun: unsupported host: snapshots are Linux-canonical and run only in the Linux snapshot lane. On Windows, run `bun run typecheck`, `bun run test:unit`, and `bun run smoke:package` instead.",
+    "golden-dryrun: unsupported host: snapshots are Linux-canonical and run only in the Linux snapshot lane. On Windows, run `bun run typecheck` and `bun run test:unit` instead; the CI job `portable (windows-2025) checks` proves the global install of the bundle on Windows.",
   );
   process.exit(2);
 }
