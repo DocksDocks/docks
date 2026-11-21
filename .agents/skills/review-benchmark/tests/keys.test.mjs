@@ -827,3 +827,40 @@ test('keys check passes for a folder that matches escape-draw.md and names each 
       'the keys folder differs from escape-draw.md in: Source snapshot SHA-256, Restricted frozen record SHA-256',
   });
 });
+// A PATH whose first folder holds a fake `tar` that prints the version line of the BSD tar of macOS, and so has none of
+// the GNU tar options of backup and restore.
+function bsdTarEnv(root) {
+  const bin = path.join(root, 'bsd-bin');
+  put(bin, 'tar', '#!/bin/sh\necho "bsdtar 3.5.3 - libarchive 3.5.3 zlib/1.2.12 liblzma/5.0.5 bz2lib/1.0.8"\n');
+  fs.chmodSync(path.join(bin, 'tar'), 0o755);
+  return { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+}
+const BSD_TAR_REFUSAL =
+  'backup and restore need GNU tar, but the first line of tar --version is "bsdtar 3.5.3 - libarchive 3.5.3 zlib/1.2.12 liblzma/5.0.5 bz2lib/1.0.8"; put GNU tar first on PATH (on macOS: brew install gnu-tar, then put its gnubin folder first)';
+test('backup and restore refuse a tar that is not GNU tar before they read or write anything', async () => {
+  const root = scratch();
+  const keys = keysFixture(root);
+  const vault = path.join(root, 'vault');
+  assert.equal(spawnSync('git', ['init', '-q', vault]).status, 0);
+  put(vault, 'README.md', '# Held-out keys vault\n');
+  const env = bsdTarEnv(root);
+  assert.throws(() => keyBackup.backup({ keys, out: vault, env }), { message: BSD_TAR_REFUSAL });
+  assert.deepEqual(fs.readdirSync(vault).sort(), ['.git', 'README.md']);
+  const out = path.join(root, 'restored');
+  const archive = path.join(root, 'keys.tar.gpg');
+  await assert.rejects(keyBackup.restore({ archive, key: path.join(root, 'secret.asc'), out, env }), {
+    message: BSD_TAR_REFUSAL,
+  });
+  assert.equal(fs.existsSync(out), false);
+  const cli = spawnSync(BUN_RUNTIME, [path.join(SCRIPTS_DIR, 'keys.mjs'), 'backup', '--keys', keys, '--out', vault], {
+    env,
+    encoding: 'utf8',
+  });
+  assert.equal(cli.status, 1);
+  assert.equal(cli.stderr, `keys.mjs: ${BSD_TAR_REFUSAL}\n`);
+});
+test('the GNU tar check accepts the GNU tar on PATH', () => {
+  const version = spawnSync('tar', ['--version'], { encoding: 'utf8' });
+  assert.match(version.stdout.split('\n')[0], /GNU tar/, 'the key backup tests need GNU tar on PATH');
+  assert.doesNotThrow(() => keyBackup.requireGnuTar(process.env));
+});

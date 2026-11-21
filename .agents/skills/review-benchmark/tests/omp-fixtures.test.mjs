@@ -8,10 +8,14 @@
 //   a middle cut of a long read, omp 19.0.1;
 // - CodexEngineRemoval/CodexEngineRemoval.CodexTestsGrammar.jsonl: a nested dispatch with failed tool calls and
 //   `model_usage` side calls, omp 19.0.0;
+// - FailProbeFlex.jsonl: a frontmatter-pinned agent (`review-bench-failprobe`, model gpt-6.1-terra, effort low, tier
+//   override flex) whose requests failed (`stopReason: "error"`, no served tier): the codex API refused the tier, omp
+//   wrote a retry-fallback model_change to gpt-6.2-sol, and the request of that model failed too, omp 19.0.1;
 // - main-session.jsonl: the first 60 records of a main session with several user messages and `model_usage` side
 //   calls, omp 19.0.1.
-// No omp 19 transcript with a failed request (`stopReason: "error"`) was at hand, so the synthetic test 'a failed
-// request without a served tier stays out of the model and tier checks and keeps its time' covers that shape.
+// The synthetic test 'a failed request without a served tier stays out of the model and tier checks and keeps its
+// time' adds the cases that the failed-request fixture does not show: a served message next to a failed one, and a
+// message that stopped on an error with a served tier.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,11 +30,21 @@ import {
   fixerReplies,
   parseTranscript,
   pickTranscript,
+  scoreRuns,
   transcriptFacts,
   transcriptsCommand,
   transcriptSession,
 } from '../scripts/score.mjs';
-import { put, readJson, REPO_ROOT, scratch, VERIFIED_OMP } from './helpers.mjs';
+import {
+  CODE_KNOWN,
+  judgedArm,
+  put,
+  readJson,
+  REPO_ROOT,
+  scratch,
+  transcriptEntry,
+  VERIFIED_OMP,
+} from './helpers.mjs';
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'omp');
 // The fake home folder of scripts/redact.mjs, and the checkout and the plugin root of the captures under it.
@@ -75,10 +89,11 @@ const lastReply = (text) =>
     .filter((texts) => texts.length)
     .at(-1);
 
-test('the fixture folder holds the five redacted omp transcripts and no private path', () => {
+test('the fixture folder holds the six redacted omp transcripts and no private path', () => {
   assert.deepEqual(fixtureFiles(), [
     'CR195R2Delta.jsonl',
     'CodexEngineRemoval/CodexEngineRemoval.CodexTestsGrammar.jsonl',
+    'FailProbeFlex.jsonl',
     'ProbeC1LowR1Full.jsonl',
     'ProbeC1LowR1Manager1.jsonl',
     'main-session.jsonl',
@@ -131,6 +146,24 @@ test('the shape check names a renamed thinking level field and a retyped usage f
   assert.throws(() => checkTranscriptShape(mixed, 'mixed.jsonl'), /its records name more than one omp version/);
 });
 
+test('the shape check names a missing and a retyped runtime.version of the records that score.mjs reads', () => {
+  const text = fixtureText('ProbeC1LowR1Full.jsonl');
+  const rewrite = (change) =>
+    records(text)
+      .map((entry) => JSON.stringify(change(entry)))
+      .join('\n');
+  const withoutRuntime = rewrite(({ runtime: _runtime, ...entry }) => entry);
+  assert.throws(
+    () => checkTranscriptShape(withoutRuntime, 'unversioned.jsonl'),
+    /: model_change\.runtime\.version is missing; thinking_level_change\.runtime\.version is missing; assistant\.runtime\.version is missing; toolResult\.runtime\.version is missing\./,
+  );
+  const retyped = rewrite((entry) => (entry.runtime ? { ...entry, runtime: { version: 19 } } : entry));
+  assert.throws(
+    () => checkTranscriptShape(retyped, 'retyped.jsonl'),
+    /: model_change\.runtime\.version is of type number, not string; thinking_level_change\.runtime\.version is of type number, not string; assistant\.runtime\.version is of type number, not string; toolResult\.runtime\.version is of type number, not string\./,
+  );
+});
+
 test('the probe reviewer fixture gives the pinned model, effort, and tier, the tokens of omp, and the reply text', () => {
   const file = 'ProbeC1LowR1Full.jsonl';
   const text = fixtureText(file);
@@ -172,6 +205,40 @@ test('the probe manager fixture gives the manager setting and its reply text', (
   });
   assert.deepEqual(lastReply(text), ['ready']);
   assert.deepEqual(transcriptSession(text, file), { cwd: CHECKOUT, pluginRoots: [], agentFiles: [], skillRoots: [] });
+});
+
+test('the failed-request fixture keeps both failed requests out of the model and tier checks and shows the fallback', () => {
+  const file = 'FailProbeFlex.jsonl';
+  const text = fixtureText(file);
+  checkTranscriptShape(text, file);
+  // The codex API refused the tier flex of the agent. omp then wrote a retry-fallback model_change to another model,
+  // with its own thinking level, before the first request, and the request of each model stopped on the error with no
+  // served tier. The facts show the fallback in the model of the second message, and the requested tier of the family
+  // of the last model.
+  const config = { name: 'low-flex', model: TERRA, effort: 'low', tier: 'flex' };
+  const fallback = 'openai-codex/gpt-6.2-sol';
+  assert.deepEqual(transcriptFacts(text, file), {
+    requestedTier: 'flex',
+    messages: [
+      { model: TERRA, effort: 'high', servedTier: null, failed: true },
+      { model: fallback, effort: 'high', servedTier: null, failed: true },
+    ],
+    sideCalls: [],
+    ompVersion: '19.0.1',
+  });
+  const fallbackChange = records(text).filter((entry) => entry.type === 'model_change').at(-1);
+  assert.deepEqual([fallbackChange.model, fallbackChange.role], [fallback, 'fallback']);
+  // The time of the failed requests is real wall time, also of the fallback model; no message of the configured
+  // model has tokens.
+  assert.deepEqual(parseTranscript(text, file, TERRA), { seconds: 0.6, tokens: 0 });
+  // Neither failed request counts as a message of another model or of another served tier: the run is invalid only
+  // because no model served the reviewer.
+  const fixture = judgedArm(CODE_KNOWN.slice(0, 1), [[]], [transcriptEntry(text, TERRA)]);
+  for (const meta of Object.values(fixture.metas)) meta.config = config;
+  assert.deepEqual(
+    scoreRuns(fixture).runs.map((run) => run.invalid),
+    [['correctness: no served assistant message']],
+  );
 });
 
 test('the code-reviewer fixture records its reads, the column cut, and a middle cut with head and tail ranges', () => {

@@ -31,7 +31,9 @@ import {
   sessionRecord,
   scratch,
   SCRIPTS_DIR,
+  SKILL_DIR,
   toolTranscript,
+  VERIFIED_OMP,
 } from './helpers.mjs';
 
 // Plan #100: API note for the read-scope tests below. They read the new export through `score`.
@@ -128,6 +130,7 @@ test('transcript facts list the name and the path of each tool call of the assis
       { model: MODEL, effort: null, servedTier: 'default' },
     ],
     sideCalls: [],
+    ompVersion: VERIFIED_OMP,
     toolCalls: [
       { name: 'read', path: `${SCOPE_CASE}/plan.md:1-40` },
       { name: 'grep', path: null },
@@ -253,6 +256,31 @@ test('readScope lists each target outside the inputs of the run once, in call or
     outside: [relativeSkill],
   });
   assert.deepEqual(score.readScope(reads(ownSkill), { ...scope, pluginRoots: [] }), { outside: [ownSkill] });
+});
+test('readScope refuses every skill:// read of the benchmark skill and every read inside the live benchmark folder', () => {
+  const scope = { runDir: `${SCOPE_CASE}/C3-low/run-1`, cwd: LIVE, pluginRoots: [LIVE_PLUGIN], heldSkills: [] };
+  const installed = '/home/u/.omp/plugins/node_modules/docks-kit-omp/skills';
+  // The benchmark skill is no measured plugin skill, so only its own rule keeps a reviewer from its answer keys.
+  const benchmarkReads = reads(
+    'skill://review-benchmark/cases/heldout/x.key.json',
+    'skill://review-benchmark',
+    'skill://unslop/../review-benchmark/cases',
+    `${installed}/review-benchmark/cases/heldout/x.key.json`,
+  );
+  const kept = reads('skill://unslop', `${installed}/unslop/SKILL.md`);
+  assert.deepEqual(score.readScope([...benchmarkReads, ...kept], scope), {
+    outside: benchmarkReads.map((call) => call.path),
+  });
+  // A read inside the live benchmark folder is outside, also when the run itself sits there and the read names one of
+  // its inputs, and also as a relative path or a glob from the benchmark folder.
+  const runDir = `${SKILL_DIR}/ws/code-7/C3-low/run-1`;
+  const liveReads = [
+    ...reads(`${SKILL_DIR}/cases/heldout/x.key.json`, `${SKILL_DIR}/ws/code-7/snapshot/src/sync.mjs`, 'cases/heldout'),
+    { name: 'glob', path: `${SKILL_DIR}/ws/code-7/snapshot/**/*.mjs` },
+  ];
+  assert.deepEqual(score.readScope(liveReads, { ...scope, runDir, cwd: SKILL_DIR }), {
+    outside: liveReads.map((call) => call.path),
+  });
 });
 test('readScope of a loop round allows the tree copies of its run up to that round and nothing fixed after it', () => {
   const run = `${SCOPE_CASE}/B0-low/run-1`;

@@ -73,7 +73,7 @@ Use direct acceptance and focused regressions while iterating, then run the full
 
 Spawning-suite bundle and `DOCKS_KIT_TEST_CLI_ENTRY`: `cli/AGENTS.md`.
 
-`test:unit` also runs the vitest project `review-benchmark` on Linux and macOS. It needs `git`, `gpg`, and full history with `origin/main`; run `git fetch --unshallow` in a shallow clone. Its fixtures are real omp transcripts: after a raise of the omp `verified` pin in `SoT/toolchain.json`, capture new fixtures as `.agents/skills/review-benchmark/SKILL.md` says.
+`test:unit` also runs the vitest project `review-benchmark` on Linux only, because its `keys.mjs` needs GNU tar and one test needs the util-linux `script` command. It needs `git`, `gpg`, GNU tar, and full history with `origin/main`; run `git fetch --unshallow` in a shallow clone. Its fixtures are real omp transcripts: after a raise of the omp `verified` pin in `SoT/toolchain.json`, capture new fixtures as `.agents/skills/review-benchmark/SKILL.md` says.
 
 ## Landing changes
 

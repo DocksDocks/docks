@@ -27,7 +27,7 @@ When a kit-mechanic skill or its `references/` cites EngineNative internals, nam
 ## Owned elsewhere
 
 - The guard for `metadata.source_files[].lines`: `cli/test/unit/skillMetadata.test.ts` (probe: set one range end past the line count of its file; `bunx vitest run cli/test/unit/skillMetadata.test.ts` must fail and name it; revert).
-- The `review-benchmark` suite: the vitest project `review-benchmark` in `vitest.config.ts` (Linux and macOS), with tests in `.agents/skills/review-benchmark/tests/`.
+- The `review-benchmark` suite: the vitest project `review-benchmark` in `vitest.config.ts` (Linux only: `keys.mjs` needs GNU tar, and one test needs the util-linux `script`), with tests in `.agents/skills/review-benchmark/tests/`.
 - The `unslop` pin: `skills-lock.json`.
 - The EngineNative rules that the kit-mechanic skills document: `cli/AGENTS.md`.
 

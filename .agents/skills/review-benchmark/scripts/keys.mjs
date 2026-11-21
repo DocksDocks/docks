@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // Encrypted off-machine copies of the held-out keys folder (see Cases, Key backup). A backup needs only the public key;
-// a restore needs an export of the secret key. No plaintext ever goes into the vault checkout.
+// a restore needs an export of the secret key. No plaintext ever goes into the vault checkout. backup and restore need
+// GnuPG 2 and GNU tar (see requireGnuTar).
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -77,6 +78,24 @@ function run(command, args, { input, env = process.env, cwd } = {}) {
   if (result.status !== 0)
     fail(text ? `${command} failed: ${text}` : `${command} failed with exit code ${result.status}`);
   return result.stdout;
+}
+
+// The first line of `tar --version` of GNU tar holds this text. The other tar programs, for example the BSD tar of
+// macOS (`bsdtar 3.5.3 ...`), do not have the options that backup and restore use (REPRODUCIBLE_TAR, `--to-command`,
+// `--quoting-style`).
+const GNU_TAR = 'GNU tar';
+
+// Stops unless the `tar` on the PATH of `env` is GNU tar, before the command does work that needs tar.
+export function requireGnuTar(env = process.env) {
+  const result = spawnSync('tar', ['--version'], { env, encoding: 'utf8' });
+  if (result.error) fail(`tar did not run: ${result.error.message}; backup and restore need ${GNU_TAR} on PATH`);
+  const first = (result.stdout ?? '').split('\n')[0].trim();
+  if (result.status !== 0 || !first.includes(GNU_TAR)) {
+    const shown = first ? JSON.stringify(first) : `empty (exit status ${result.status})`;
+    fail(
+      `backup and restore need ${GNU_TAR}, but the first line of tar --version is ${shown}; put GNU tar first on PATH (on macOS: brew install gnu-tar, then put its gnubin folder first)`,
+    );
+  }
 }
 
 // Tells whether `child` is `parent` or a path below it.
@@ -268,6 +287,7 @@ function archiveName(now) {
 // test seam of `archiveBytes`.
 export function backup({ keys, out, recipient = BACKUP_KEY, env = process.env, now = new Date(), beforeTar }) {
   if (!keys || !out) fail('backup needs --keys <dir> --out <vault checkout>');
+  requireGnuTar(env);
   const keysDir = fs.realpathSync(keys);
   const vault = fs.realpathSync(out);
   if (!fs.statSync(keysDir).isDirectory()) fail(`${keys} is no folder`);
@@ -525,6 +545,7 @@ async function decryptWithKey(archive, keyBytes, env) {
 // regular file or a folder. A failure leaves no folder.
 export async function restore({ archive, key, out, env = process.env }) {
   if (!archive || !key || !out) fail('restore needs --archive <file> --key <secret-key export> --out <new dir>');
+  requireGnuTar(env);
   const target = path.resolve(out);
   if (fs.existsSync(target) || isSymlink(target)) fail(`${out} exists; restore needs a new folder`);
   let parent = path.dirname(target);

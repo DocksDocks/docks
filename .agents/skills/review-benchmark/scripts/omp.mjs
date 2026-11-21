@@ -95,15 +95,29 @@ export const DISPATCH_CAP = 8;
 
 // The token fields of the `usage` of an assistant message and of a `model_usage` side call.
 export const TOKEN_FIELDS = ['input', 'cacheRead', 'cacheWrite', 'output'];
+// Every record but the session header carries the omp version that wrote it at this path.
+export const RUNTIME_VERSION_PATH = ['runtime', 'version'];
+const RUNTIME_VERSION = RUNTIME_VERSION_PATH.join('.');
 // The records and fields that score.mjs reads, each with its JSON type ('string', 'number', 'boolean', 'object', or
 // 'array'). `record` names the record in a message, `type` (and `role` for a message, `part` for a content part of a
 // message) selects the values, and each key of `fields` is a path below the value. A `required` record must occur at
 // least once in a transcript. `score.mjs transcripts` refuses a transcript in which a field of a selected value is
-// missing or has another type, and names it as `<record>.<field>`.
+// missing or has another type, and names it as `<record>.<field>`. Each record that score.mjs reads, but the session
+// header, must name the omp version that wrote it (RUNTIME_VERSION_PATH): `report` compares only runs of one version.
 export const TRANSCRIPT_RECORDS = [
   { record: 'session', type: 'session', required: true, fields: { version: 'number' } },
-  { record: 'model_change', type: 'model_change', required: true, fields: { model: 'string' } },
-  { record: 'thinking_level_change', type: 'thinking_level_change', required: true, fields: { thinkingLevel: 'string' } },
+  {
+    record: 'model_change',
+    type: 'model_change',
+    required: true,
+    fields: { model: 'string', [RUNTIME_VERSION]: 'string' },
+  },
+  {
+    record: 'thinking_level_change',
+    type: 'thinking_level_change',
+    required: true,
+    fields: { thinkingLevel: 'string', [RUNTIME_VERSION]: 'string' },
+  },
   {
     record: 'assistant',
     type: 'message',
@@ -111,6 +125,7 @@ export const TRANSCRIPT_RECORDS = [
     required: true,
     fields: {
       timestamp: 'string',
+      [RUNTIME_VERSION]: 'string',
       'message.provider': 'string',
       'message.model': 'string',
       ...Object.fromEntries(TOKEN_FIELDS.map((field) => [`message.usage.${field}`, 'number'])),
@@ -129,8 +144,6 @@ export const TRANSCRIPT_RECORDS = [
     type: 'message',
     role: 'toolResult',
     required: false,
-    fields: { 'message.toolCallId': 'string', 'message.isError': 'boolean' },
+    fields: { 'message.toolCallId': 'string', 'message.isError': 'boolean', [RUNTIME_VERSION]: 'string' },
   },
 ];
-// Every record but the session header carries the omp version that wrote it at this path.
-export const RUNTIME_VERSION_PATH = ['runtime', 'version'];

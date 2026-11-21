@@ -379,16 +379,25 @@ export const CONFIGS = {
 export const FIXER_SETTING = { model: MODEL, effort: 'high', tier: 'priority' };
 // The manager setting that `prepare.mjs agents` writes by default: the fixer setting. `case` records it in each run.
 export const MANAGER_SETTING = FIXER_SETTING;
-// One reviewer entry of meta.json, as `score.mjs transcripts` writes it for a reviewer that used its configuration.
+// One reviewer entry of meta.json, as `score.mjs transcripts` writes it for a reviewer that used its configuration
+// with the verified omp release.
 export const provenCost = (config, seconds, tokens, facts = {}) => ({
   seconds,
   tokens,
   requestedTier: config.tier,
   messages: [{ model: config.model, effort: config.effort, servedTier: config.tier }],
   sideCalls: [],
+  ompVersion: VERIFIED_OMP,
   ...facts,
 });
-export const jsonl = (entries) => entries.map((entry) => JSON.stringify(entry)).join('\n');
+// The lines of a transcript as omp 19 writes them: each record but the session header names the omp version that
+// wrote it (`runtime.version`, here VERIFIED_OMP), unless the record names a runtime of its own.
+export const jsonl = (entries) =>
+  entries
+    .map((entry) =>
+      JSON.stringify(entry.type === 'session' || 'runtime' in entry ? entry : { ...entry, runtime: { version: VERIFIED_OMP } }),
+    )
+    .join('\n');
 export const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const isoAt = (second) => new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
 // The session header of an omp 19 transcript (session format version 3), with the fields of `fields`.

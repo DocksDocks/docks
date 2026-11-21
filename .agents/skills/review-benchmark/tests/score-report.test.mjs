@@ -54,6 +54,7 @@ import {
   tableAfter,
   taskMessage,
   toolTranscript,
+  VERIFIED_OMP,
   workspace,
 } from './helpers.mjs';
 
@@ -547,8 +548,14 @@ test('transcripts command fills meta files by dispatch name and keeps other fiel
     reviewers: { correctness: { seconds: 1, tokens: 1, model: 'm' } },
   });
   assert.throws(() => transcriptsCommand(ws, sessions), /no transcript .*Code7B0R1Full.*Plan3P0R1Plan/);
-  // These transcripts name no tier: the facts hold the tier null and one message of the model at the effort low.
-  const facts = { requestedTier: null, messages: [{ model: MODEL, effort: 'low', servedTier: null }], sideCalls: [] };
+  // These transcripts name no tier: the facts hold the tier null, one message of the model at the effort low, and the
+  // omp version of the records.
+  const facts = {
+    requestedTier: null,
+    messages: [{ model: MODEL, effort: 'low', servedTier: null }],
+    sideCalls: [],
+    ompVersion: VERIFIED_OMP,
+  };
   assert.deepEqual(readJson(path.join(ws, 'code-7/C3/run-1/meta.json')), {
     note: 'kept',
     reviewers: {
@@ -766,6 +773,7 @@ const FALLBACK_FACTS = {
     { model: 'anthropic/claude-opus-5-5', effort: 'xhigh', servedTier: null },
   ],
   sideCalls: [{ model: 'openai-codex/gpt-6-luna', purpose: 'title', tokens: 362 }],
+  ompVersion: VERIFIED_OMP,
 };
 const EXTRA_ROUND = `### Code review round 2
 
@@ -799,6 +807,7 @@ test('transcript facts give the model, effort, and served tier of each message a
     requestedTier: null,
     messages: [{ model: null, effort: null, servedTier: null }],
     sideCalls: [],
+    ompVersion: VERIFIED_OMP,
   });
 });
 test('transcripts command writes the facts and the time and tokens of the configured model', () => {
@@ -951,6 +960,39 @@ test('a run with round folders keeps scores and timing per round, and the report
   ]) {
     assert.ok(table.includes(row), `the configuration table lacks ${row}`);
   }
+});
+test('report refuses a configured run whose transcript facts name no omp version, and runs of two omp versions', () => {
+  const { ws, cases } = roundWorkspace([
+    { config: CONFIGS.low, run: 1, rounds: [[PASS_ROUND, 10, 100, 'full']] },
+    { config: CONFIGS.low, run: 2, rounds: [[PASS_ROUND, 20, 200, 'full']] },
+  ]);
+  findingsCommand(ws);
+  main(['pairs', ws, '--cases', cases]);
+  judgeAll(ws, () => 'no');
+  assert.equal(main(['report', ws]), 'report.md: 2 runs');
+  fs.rmSync(path.join(ws, 'report.md'));
+  const meta = path.join(ws, 'code-7/C1-low/run-2/round-1/meta.json');
+  const original = readJson(meta);
+  const withVersion = (version) => {
+    const { ompVersion: _ompVersion, ...facts } = original.reviewers.full;
+    const full = version ? { ...facts, ompVersion: version } : facts;
+    put(ws, path.relative(ws, meta), { ...original, reviewers: { full } });
+  };
+  withVersion(null);
+  assert.throws(
+    () => main(['report', ws]),
+    /^Error: report: the transcript facts of code-7\/C1-low\/run-2\/round-1\/full name no omp version; run score\.mjs transcripts again/,
+  );
+  // A release name that sorts after the verified one, so the message lists the verified release first.
+  const OTHER_OMP = `${VERIFIED_OMP}-next`;
+  withVersion(OTHER_OMP);
+  assert.throws(
+    () => main(['report', ws]),
+    new RegExp(
+      `report: the runs of .* used more than one omp version: omp ${escapeRegExp(VERIFIED_OMP)} \\(code-7/C1-low/run-1\\); omp ${escapeRegExp(OTHER_OMP)} \\(code-7/C1-low/run-2\\)`,
+    ),
+  );
+  assert.equal(fs.existsSync(path.join(ws, 'report.md')), false);
 });
 // Rows of the configuration tables. A column holds the valid runs of one configuration in one case group.
 // - Runs: the number of runs of the table.

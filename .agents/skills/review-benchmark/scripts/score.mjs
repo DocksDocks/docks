@@ -79,6 +79,12 @@ const INSTALLED_ALLOWED_SKILL = new RegExp(
   `${INSTALLED_ROOT}(?:[^/]+/)??((?:${[...ALLOWED_SKILLS].join('|')})(?:/.*)?)$`,
 );
 const INSTALLED_SKILL = new RegExp(`${INSTALLED_ROOT}([^/]+(?:/.*)?)$`);
+// The live folder of this benchmark skill, as this module finds it and after its symbolic links resolve, and its skill
+// name. It holds the answer keys of the cases (`cases/`), so the read scope refuses every read in it and every
+// `skill://` read of the skill (see localPathAllowed and skillReadAllowed).
+const BENCHMARK_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const BENCHMARK_DIRS = [...new Set([BENCHMARK_DIR, fs.realpathSync(BENCHMARK_DIR)])];
+const BENCHMARK_SKILL = path.basename(BENCHMARK_DIR);
 // The plugin layouts of the reviewer agents, the self-review skills, and the plan contract in a tree of this
 // repository. `kit` is the layout of docks-kit, with one plugin root for all of them; `legacy` is the layout of the old
 // docks tree, whose refs (`plan-lifecycle--v*`, `docks--v*`) hold the variant patches and the recorded baselines. The
@@ -1069,6 +1075,15 @@ function scoreRun(run, caseEntry, judged, metas) {
     (_, index) => index > 0 && roundScores[index - 1].extraRepair && !roundScores[index - 1].knownRepair,
   ).length;
   const last = roundScores.at(-1);
+  // Every agent of the run with its label: the reviewers, the fixers, and the manager of each round.
+  const runAgents = [
+    ...reviewers,
+    ...fixers,
+    ...rounds.map((round) => ({
+      label: run.hasRounds ? `round-${round.round}/${MANAGER_NAME}` : MANAGER_NAME,
+      entry: metaOf(round.round)?.manager?.agents?.[MANAGER_NAME],
+    })),
+  ];
   return {
     case: run.case,
     arm: run.arm,
@@ -1105,16 +1120,16 @@ function scoreRun(run, caseEntry, judged, metas) {
     manager,
     finalFound: run.hasRounds ? knownIds.filter((id) => repaired.has(id)) : null,
     // The omp versions that the transcripts of the reviewers, fixers, and managers of the run name (see
-    // transcriptFacts `ompVersion`); `report` compares only runs of one omp version.
+    // transcriptFacts `ompVersion`), and, for a run with a configuration, the agents whose transcript facts name no
+    // omp version; `report` compares only runs of one known omp version.
     ompVersions: distinct(
-      [
-        ...reviewers.map((reviewer) => reviewer.entry),
-        ...fixers.map((fixer) => fixer.entry),
-        ...rounds.map((round) => metaOf(round.round)?.manager?.agents?.[MANAGER_NAME]),
-      ]
-        .map((entry) => entry?.ompVersion)
-        .filter((version) => typeof version === 'string'),
+      runAgents.map(({ entry }) => entry?.ompVersion).filter((version) => typeof version === 'string'),
     ),
+    unversioned: config
+      ? runAgents
+          .filter(({ entry }) => Array.isArray(entry?.messages) && typeof entry.ompVersion !== 'string')
+          .map(({ label }) => label)
+      : [],
   };
 }
 
@@ -3112,6 +3127,7 @@ function instructionAllowed(key, { changed }) {
 
 // A read of the installed copy of a skill through a `skill://` URI or an installed plugin copy, with the key `key`
 // (undefined for another read).
+// - The benchmark skill itself (BENCHMARK_SKILL) is outside for every reviewer: it holds the answer keys of the cases.
 // - An allowed skill (code-review, code-clarity): the self-review agent loads these skills as its own instructions, so
 //   its reads of them stay allowed also when the case changes them. For another reviewer, they are optional
 //   instruction reads. A self-review agent of a self-review root reads them under that root only: the installed copy
@@ -3123,6 +3139,7 @@ function instructionAllowed(key, { changed }) {
 function skillReadAllowed(key, rules) {
   if (key === undefined) return false;
   const [first, second] = key.split('/');
+  if (first === BENCHMARK_SKILL || second === BENCHMARK_SKILL) return false;
   if (ALLOWED_SKILLS.has(first)) {
     if (rules.skillRoots.length) return false;
     return rules.selfReview || instructionAllowed(key, rules);
@@ -3151,13 +3168,16 @@ function normalizeLocal(target) {
   return [normalized.replace(/\/$/, ''), ...rest.filter((segment) => segment !== '' && segment !== '.')].join('/');
 }
 
-// A relative path resolves against the working directory, so without one it is outside. A glob is allowed when the
-// folder before its first glob segment is allowed and no later segment can leave that folder with `..`. The checks
-// read the path after normalizeLocal.
+// A relative path resolves against the working directory, so without one it is outside. A path inside the live
+// benchmark folder (BENCHMARK_DIRS), which holds the answer keys, is outside, whatever else allows it. A glob is
+// allowed when the folder before its first glob segment is allowed and no later segment can leave that folder with
+// `..`. The checks read the path after normalizeLocal.
 function localPathAllowed(written, cwd, rules) {
   if (!path.isAbsolute(written) && typeof cwd !== 'string') return false;
   const target = normalizeLocal(written);
   const { base, rest } = globParts(target);
+  const reached = path.resolve(cwd ?? path.sep, base);
+  if (BENCHMARK_DIRS.some((dir) => isUnder(dir, reached))) return false;
   if (rest.length === 0) {
     const resolved = path.resolve(cwd ?? path.sep, target);
     if (folderAllowed(resolved, rules) || fileAllowed(resolved, rules)) return true;
@@ -3549,6 +3569,8 @@ function diffCoverage(tools, file, cwd) {
 //   is no reviewer skill, for example an always-apply skill such as `unslop` (see skillReadAllowed);
 // - an `artifact://` or `local://` URI (the spilled output of the reviewer, see omp.mjs SPILL_SCHEMES);
 // - an http or https URL that cannot show the benchmark repository (see webPageAllowed).
+// Every target inside the live benchmark folder and every `skill://` URI of the benchmark skill itself is outside,
+// whatever rule above would allow it: the folder holds the answer keys (see BENCHMARK_DIRS and BENCHMARK_SKILL).
 // Every other target is outside, also the other skills of the repository that holds a plugin root: the reviewed
 // repository has its own copy of them under `snapshot/`. A `skill://` URI or an installed plugin copy of the
 // code-reviewer or plan-reviewer skill, or of another skill that a measured plugin copy holds, is outside for every
@@ -3916,6 +3938,14 @@ export function reportCommand(ws, { keys, configs, arms, reference, margin, sequ
       fail(`report --reference names ${reference}, which is not in --configs`);
   }
   const scores = workspaceScores(ws, keys);
+  const unversioned = scores.runs.flatMap((run) =>
+    run.unversioned.map((label) => `${run.case}/${run.arm}/${run.run}/${label}`),
+  );
+  if (unversioned.length) {
+    fail(
+      `report: the transcript facts of ${listSome(unversioned, LISTED_READS)} name no omp version; run score.mjs transcripts again with this score.mjs, which records the version of each transcript`,
+    );
+  }
   const versions = distinct(scores.runs.flatMap((run) => run.ompVersions)).sort();
   if (versions.length > 1) {
     const runsOf = (version) =>
@@ -4022,7 +4052,7 @@ export function corpusCommand(casesDir, { keys } = {}) {
 }
 
 // The corpus of this skill, which `power` counts when it gets no --cases.
-const SKILL_CASES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'cases');
+const SKILL_CASES = path.join(BENCHMARK_DIR, 'cases');
 const runsHeading = (perCase) => `Cases at ${perCase} run${perCase === 1 ? '' : 's'}`;
 const splitName = (split) => (split === 'heldout' ? 'held-out' : split);
 
