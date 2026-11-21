@@ -2909,7 +2909,7 @@ function stringsOf(value) {
 // The fixer reply of a transcript: each finding id that the reply names, with `repaired` or `not present`; a later
 // line of an id wins. By the reply rule of omp.mjs (REPLY_TOOL), the reply is each string in the arguments of the last
 // call of the reply tool when the transcript has one, else the text of the last assistant message with text.
-function fixerReplies(text, source) {
+export function fixerReplies(text, source) {
   let yielded;
   let said = [];
   for (const entry of transcriptEntries(text, source)) {
@@ -2933,7 +2933,7 @@ function fixerReplies(text, source) {
 // the self-review agent files that it names, and, for a self-review agent, the self-review roots that it names (see
 // selfReviewSkillRoots). omp records the agent text in the system prompt (a string or a list of strings) of the
 // `session_init` entry.
-function transcriptSession(text, source) {
+export function transcriptSession(text, source) {
   let cwd = null;
   const pluginRoots = new Set();
   const agentFiles = new Set();

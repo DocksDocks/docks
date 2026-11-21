@@ -1019,7 +1019,7 @@ const KEPT_REF = `${BENCH_REFS}kept/`;
 // the random suffix of a `pin` run, keep a parallel run from changing what this run saves.
 const INCOMING_REF = `${BENCH_REFS}incoming/`;
 const MAIN_REF = 'refs/remotes/origin/main';
-const FORK_NOTE = 'case and pin fetch from origin; when origin is a fork, set origin to the remote of DocksDocks/docks';
+const FORK_NOTE = 'case and pin fetch from origin; when origin is a fork, set origin to the remote of DocksDocks/docks-kit';
 
 // Quotes `text` for a POSIX shell: single quotes keep each character as it is, and `'\''` gives a single quote.
 function shellQuote(text) {
