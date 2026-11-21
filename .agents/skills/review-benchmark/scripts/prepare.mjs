@@ -21,9 +21,9 @@
 //   bun prepare.mjs clean [--project <dir>]
 //
 // ../SKILL.md describes the case schema, the configurations, the arms, the workspace layout, the review loop, and the
-// manager stage. The script runs on Bun: it uses the Bun YAML parser for the omp project config, and score.mjs imports
-// the plan parser of the docks-kit CLI source. It also runs git, the `omp` command on PATH (only `agents` and `probe`,
-// for the preflight, see ompVersionCheck), and the docks-kit CLI source of this checkout (`plan base-blob`). Only
+// manager stage. The script runs on Bun: it uses the Bun YAML parser for the omp project config. It and score.mjs
+// import the docks-kit CLI source of this checkout: the plan parser and the base-blob reader. It also runs git and the
+// `omp` command on PATH (only `agents` and `probe`, for the preflight, see ompVersionCheck). Only
 // `case` and `pin` fetch: the head of the pull request of a case (`pull`), when a case commit is missing (see
 // caseCommits), or on request (see preparePin).
 import { spawnSync } from 'node:child_process';
@@ -77,6 +77,7 @@ import {
   TIER_OVERRIDES_PATH,
   tierFamily,
 } from './omp.mjs';
+import { baseBlobSync } from '../../../../cli/src/plan/checkout.ts';
 import { belowFloor, isNewer } from '../../../../cli/src/engine-native/toolchain.ts';
 
 const SCRIPT_PATH = fs.realpathSync(fileURLToPath(import.meta.url));
@@ -106,14 +107,14 @@ const CONTRACT_FILE = new RegExp(
 const CONTRACT_PATH_FORM = CONTRACT_ROOTS.map(
   (root) => `${root}/skills/[<folder>/]plan-manager/references/plan-contract.md`,
 ).join(' or ');
-// The docks-kit CLI source of the checkout that holds this script. Its `plan base-blob <commit> <path>` is the reader
-// of merge-base instruction files that plan-manager phase 6 and code-review run. `case` runs the source of this
-// checkout, not the installed docks-kit, whose version can differ, and not the file of the case repository, so a case
-// reads each file with the production code.
-const CLI_MAIN = path.join(CHECKOUT, 'cli', 'src', 'main.ts');
-// The exit statuses of `docks-kit plan base-blob`: the file exists, or it is absent. Any other status is a failure.
-const BLOB_FOUND = 0;
+// The results of the base-blob reader of the docks-kit CLI source of this checkout (cli/src/plan/checkout.ts
+// baseBlobSync), the reader of merge-base instruction files that plan-manager phase 6 and code-review run through
+// `docks-kit plan base-blob`. `case` runs the source of this checkout, not the installed docks-kit, whose version can
+// differ, and not the file of the case repository, so a case reads each file with the production code. It runs in
+// this process, because a CLI process per file costs a Bun start each. The reader gives the blob id of a file, or one
+// of these exit codes of `base-blob`: absent, or a git failure.
 const BLOB_ABSENT = 1;
+const BLOB_FAILED = 2;
 // The plugin root variable of Claude Code. A plugin agent at a ref before the native omp packages names the files of
 // its skill with it, for example `${CLAUDE_PLUGIN_ROOT}/skills/productivity/plan-reviewer/SKILL.md`.
 const LEGACY_PLUGIN_ROOT_TOKEN = `\${CLAUDE_PLUGIN_ROOT}`;
@@ -825,31 +826,14 @@ function writeFocusDiffs(repo, hidden, base, tree, paths, full) {
   }
 }
 
-// The Bun binary that runs the docks-kit CLI source: the binary of this process under Bun, else the first `bun` on
-// PATH, for a caller that imports this module under another runtime, such as a test runner under Node.
-function bunRuntime() {
-  if (process.versions.bun !== undefined) return process.execPath;
-  const names = process.platform === 'win32' ? ['bun.exe', 'bun'] : ['bun'];
-  for (const dir of (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
-    const found = names.map((name) => path.join(dir, name)).find((candidate) => fs.existsSync(candidate));
-    if (found) return found;
-  }
-  fail('the docks-kit CLI source of this checkout runs on Bun, and no bun is on PATH');
-}
-
-// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. `docks-kit plan
-// base-blob` (CLI_MAIN) resolves each symbolic link on the path, also a folder link; its status BLOB_ABSENT means
-// absent. Any other status stops `case` with the error of the command, so a git failure is never an absent file.
+// The text of the file `file` in the commit `commit`, or null when the commit has no blob there. The base-blob reader
+// resolves each symbolic link on the path, also a folder link; BLOB_ABSENT means absent. A git failure stops `case`,
+// so it is never an absent file; git prints its cause on stderr.
 function baseInstructionText(repo, commit, file) {
-  const args = [CLI_MAIN, 'plan', 'base-blob', commit, file];
-  const result = spawnSync(bunRuntime(), args, { cwd: repo, maxBuffer: MAX_OUTPUT });
-  if (result.error) fail(`bun ${args.join(' ')} did not run: ${result.error.message}`);
-  if (result.status === BLOB_ABSENT) return null;
-  if (result.status !== BLOB_FOUND) {
-    const status = result.status ?? result.signal;
-    fail(`docks-kit plan base-blob ${commit} ${file} failed with status ${status}: ${result.stderr.toString().trim()}`);
-  }
-  return git(repo, ['cat-file', 'blob', result.stdout.toString().trim()]);
+  const blob = baseBlobSync(repo, commit, file);
+  if (blob === BLOB_ABSENT) return null;
+  if (blob === BLOB_FAILED) fail(`the base-blob reader failed on ${commit} ${file}; git printed the cause above`);
+  return git(repo, ['cat-file', 'blob', blob]);
 }
 
 // Writes the base-instructions folder of a review into `dir` (see the base-instructions contract in ../SKILL.md,

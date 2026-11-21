@@ -29,9 +29,9 @@ import {
 } from './helpers.mjs';
 
 // The links of the base commit of instructionRepo: each path, its target, and its MANIFEST line. The benchmark
-// builder runs `docks-kit plan base-blob` of the checkout, as plan-manager phase 6 and code-review do: a link resolves
-// from the folder of the link. The four numbered cases are edge cases of that reader (cli/src/plan/checkout.ts
-// baseBlob).
+// builder runs the walk of `docks-kit plan base-blob` of the checkout in its own process, as plan-manager phase 6 and
+// code-review run the command: a link resolves from the folder of the link. The four numbered cases are edge cases of
+// that reader (cli/src/plan/checkout.ts resolveBaseBlob).
 const BASE_LINKS = [
   ['CLAUDE.md', 'AGENTS.md', 'copied'],
   // Case 1: a root link out of the tree is absent, not a git failure.
@@ -181,7 +181,7 @@ test('case stops on a git failure in the base instructions and writes no absent 
   fs.rmSync(path.join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
   assert.throws(
     () => logged(() => prepare.prepareCase(options, repo)),
-    new RegExp(`docks-kit plan base-blob ${base} CLAUDE\\.md failed with status 2: .*${blob}`),
+    new RegExp(`the base-blob reader failed on ${base} CLAUDE\\.md; git printed the cause above`),
   );
   assert.equal(fs.existsSync(caseDir), false);
 });

@@ -8,7 +8,7 @@ import path from "node:path";
 
 import { Effect } from "effect";
 
-import { argumentBytes, utf8Text, workingFolderBytes } from "./bytes";
+import { argumentBytes, asBytes, utf8Text, workingFolderBytes } from "./bytes";
 import { PlanFiles, PlanProcess, type ProcessOptions, type ProcessResult } from "./services";
 import type { FileError, SpawnError } from "./types";
 
@@ -44,12 +44,13 @@ const runGit = Effect.fn("plan.runGit")(function* (
 /**
  * The tree-ish of the root of `<commit>` (a byte string), or undefined when git fails. A commit that is UTF-8 text
  * goes to git as the argument, as under the shell script. Other bytes cannot pass on a command line, so git reads
- * `<commit>^{tree}` from stdin and prints the tree id.
+ * `<commit>^{tree}` from stdin and prints the tree id. git runs in the folder `cwd`.
  */
-const rootTree = Effect.fn("plan.rootTree")(function* (commit: string) {
+const rootTree = Effect.fn("plan.rootTree")(function* (commit: string, cwd: string | undefined) {
   const text = utf8Text(commit);
   if (text !== undefined) return text;
   const resolved = yield* runGit(["cat-file", "--batch-check=%(objectname)"], {
+    cwd,
     input: Buffer.from(`${commit}^{tree}\n`, "latin1"),
   });
   if (!resolved.ok) return undefined;
@@ -71,10 +72,14 @@ interface TreeEntry {
 /**
  * The entry `name` of the tree `tree` (a commit names its root tree), undefined when the tree has no such entry, or
  * 2 when git fails. `ls-tree -z` prints each name unquoted, as its raw bytes, so the name compares byte for byte, and
- * no path passes to git.
+ * no path passes to git. git runs in the folder `cwd`.
  */
-const treeEntry = Effect.fn("plan.treeEntry")(function* (tree: string, name: string) {
-  const listed = yield* runGit(["ls-tree", "-z", "--full-tree", tree]);
+const treeEntry = Effect.fn("plan.treeEntry")(function* (
+  tree: string,
+  name: string,
+  cwd: string | undefined,
+) {
+  const listed = yield* runGit(["ls-tree", "-z", "--full-tree", tree], { cwd });
   if (!listed.ok) return 2 as const;
   // A record is `<mode> <type> <object id><tab><name>`.
   for (const record of listed.result.stdout.split("\0")) {
@@ -87,26 +92,22 @@ const treeEntry = Effect.fn("plan.treeEntry")(function* (tree: string, name: str
   return undefined;
 });
 
+/** The blob id that `base-blob` prints, or its exit code without output: 1 absent, 2 a git failure. */
+type BlobLookup = string | 1 | 2;
+
 /**
- * `base-blob <commit> <path>`: print the blob id of the file `<path>` in the tree of `<commit>`, as a checkout of
- * `<commit>` would open it, and return 0. The arguments are read as bytes. The walk reads one path part at a time and
- * looks it up in the listing of the tree that it has reached, by object id. A folder link and a file link resolve
- * from the folder that holds the link, and `..` goes to the parent of the real folder that the walk has reached.
- * Exit 1: absent (a missing path, a folder, a submodule, a file with more path parts after it, a link with an empty,
- * absolute, or outside target, or more than 40 links). Exit 2: a git failure, wrong arguments, or an argument whose
- * bytes cannot be recovered (a U+FFFD without /proc, see `bytes.ts`).
+ * The walk of `base-blob`: the blob id of the file `target` in the tree of `commit`, as a checkout of `commit` would
+ * open it. Both are byte strings. git runs in the folder `cwd`, or in the working folder when `cwd` is undefined. The
+ * walk reads one path part at a time and looks it up in the listing of the tree that it has reached, by object id. A
+ * folder link and a file link resolve from the folder that holds the link, and `..` goes to the parent of the real
+ * folder that the walk has reached. Absent (1): a missing path, a folder, a submodule, a file with more path parts
+ * after it, a link with an empty, absolute, or outside target, or more than 40 links. 2: a git failure.
  */
-export const baseBlob = Effect.fn("plan.baseBlob")(function* (args: ReadonlyArray<string>) {
-  if (args.length !== 2 || !args[0]) {
-    yield* printError(BASE_BLOB_USAGE);
-    return 2;
-  }
-  const bytes = yield* argumentBytes(args);
-  if (!bytes.ok) {
-    yield* printError(`base-blob: ${bytes.cause}`);
-    return 2;
-  }
-  const [commit = "", target = ""] = bytes.value;
+export const resolveBaseBlob = Effect.fn("plan.resolveBaseBlob")(function* (
+  commit: string,
+  target: string,
+  cwd?: string,
+) {
   // The root, resolved at the first lookup, then the object id of each folder that the walk has entered; `..` drops
   // the last one.
   let root: string | undefined;
@@ -130,9 +131,9 @@ export const baseBlob = Effect.fn("plan.baseBlob")(function* (args: ReadonlyArra
       trees.pop();
       continue;
     }
-    root ??= yield* rootTree(commit);
+    root ??= yield* rootTree(commit, cwd);
     if (root === undefined) return 2;
-    const entry = yield* treeEntry(trees.at(-1) ?? root, part);
+    const entry = yield* treeEntry(trees.at(-1) ?? root, part, cwd);
     if (entry === 2) return 2;
     if (entry === undefined) return 1;
     switch (entry.mode) {
@@ -142,7 +143,7 @@ export const baseBlob = Effect.fn("plan.baseBlob")(function* (args: ReadonlyArra
       case "120000": {
         links += 1;
         if (links > MAX_LINKS) return 1;
-        const blob = yield* runGit(["cat-file", "blob", entry.oid]);
+        const blob = yield* runGit(["cat-file", "blob", entry.oid], { cwd });
         if (!blob.ok) return 2;
         // The raw bytes of the target; its trailing newlines are part of its name.
         const linkTarget = blob.result.stdout;
@@ -153,16 +154,53 @@ export const baseBlob = Effect.fn("plan.baseBlob")(function* (args: ReadonlyArra
       case "100644":
       case "100755":
         if (rest) return 1;
-        yield* Effect.sync(() => {
-          process.stdout.write(`${entry.oid}\n`);
-        });
-        return 0;
+        return entry.oid;
       default:
         return 1;
     }
   }
   return 1;
 });
+
+/**
+ * `base-blob <commit> <path>`: print the blob id of the file `<path>` in the tree of `<commit>` (`resolveBaseBlob`) and
+ * return 0. The arguments are read as bytes. Exit 1: absent. Exit 2: a git failure, wrong arguments, or an argument
+ * whose bytes cannot be recovered (a U+FFFD without /proc, see `bytes.ts`).
+ */
+export const baseBlob = Effect.fn("plan.baseBlob")(function* (args: ReadonlyArray<string>) {
+  if (args.length !== 2 || !args[0]) {
+    yield* printError(BASE_BLOB_USAGE);
+    return 2;
+  }
+  const bytes = yield* argumentBytes(args);
+  if (!bytes.ok) {
+    yield* printError(`base-blob: ${bytes.cause}`);
+    return 2;
+  }
+  const [commit = "", target = ""] = bytes.value;
+  const blob: BlobLookup = yield* resolveBaseBlob(commit, target);
+  if (blob === 1 || blob === 2) return blob;
+  yield* Effect.sync(() => {
+    process.stdout.write(`${blob}\n`);
+  });
+  return 0;
+});
+
+/**
+ * `resolveBaseBlob` in this process, for a synchronous caller outside the CLI: the review-benchmark scripts read many
+ * instruction files, and one CLI process per file costs a Bun start each. `commit` and `target` are UTF-8 text; git
+ * runs in the repository folder `cwd` and prints its errors on stderr. A git that could not start is a failure (2), as
+ * under `docks-kit plan base-blob`.
+ */
+export const baseBlobSync = (cwd: string, commit: string, target: string): BlobLookup =>
+  Effect.runSync(
+    resolveBaseBlob(asBytes(commit), asBytes(target), cwd).pipe(
+      Effect.catchTag("SpawnError", (error) =>
+        printError(error.message).pipe(Effect.as(2 as const)),
+      ),
+      Effect.provide(PlanProcess.layer),
+    ),
+  );
 
 /** The sorted listing lines of a checkout, or the exit code of a failed listing. */
 type Listing = ReadonlyArray<string> | 1 | 2;
