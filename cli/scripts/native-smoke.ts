@@ -83,7 +83,7 @@ function main(): void {
  * embedded bytecode, its `--version` equals `package.json`, and `sync
  * --dry-run` exits 0 on this host. Each failed check throws its diagnostic.
  */
-export function checkBinary(artifactPath: string): void {
+function checkBinary(artifactPath: string): void {
   console.log(`[native-smoke] bytecode: ${requireBytecode(artifactPath)}`);
 
   const packageJson = JSON.parse(readFileSync(join(REPO_DIR, "package.json"), "utf8")) as {
@@ -129,11 +129,9 @@ export function checkBinary(artifactPath: string): void {
   }
 }
 
-if (import.meta.main) {
-  try {
-    main();
-  } catch (error) {
-    console.error(`[native-smoke] ${error instanceof Error ? error.message : String(error)}`);
-    process.exitCode = 1;
-  }
+try {
+  main();
+} catch (error) {
+  console.error(`[native-smoke] ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
 }
