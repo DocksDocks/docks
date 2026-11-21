@@ -33,6 +33,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
+  BENCHMARK_REPOSITORY_NAMES,
   BASE_INSTRUCTIONS,
   CONTRACT_COPY,
   CONTROL_PREFIX,
@@ -292,6 +293,9 @@ const LENS_SCOPE = {
 
 // Reviewer prompts must not tell the reviewer that it runs in a test.
 const FORBIDDEN_PROMPT_WORDS = /benchmark|judge|answer key/i;
+// The repository whose pages the reviewer and manager prompts forbid: its current name and its name before the rename,
+// from the one list of score.mjs, which the read scope also checks (see score.mjs webPageAllowed).
+const REPOSITORY_PAGES = `the ${BENCHMARK_REPOSITORY_NAMES.current} repository, formerly ${BENCHMARK_REPOSITORY_NAMES.former}`;
 
 const TEST_FOLDERS = new Set(['test', 'tests', 'spec', '__tests__', 'fixtures']);
 const PROSE_FILE = /\.(md|txt|rst)$/i;
@@ -558,7 +562,7 @@ export function buildOpening(caseData, paths, round = caseData.round) {
     ...(code ? [`Base instructions: ${paths.baseInstructions}`] : []),
     '',
     'Rules:',
-    '- The snapshot root holds the repository files for this review, without Git history. Take repository evidence only from files under the snapshot root and the files that this message names. You may read official documentation on the web, but no page of the DocksDocks/docks repository. You may also read your own agent instructions and the skill and reference files that those instructions tell you to load.',
+    `- The snapshot root holds the repository files for this review, without Git history. Take repository evidence only from files under the snapshot root and the files that this message names. You may read official documentation on the web, but no page of ${REPOSITORY_PAGES}. You may also read your own agent instructions and the skill and reference files that those instructions tell you to load.`,
     '- The working directory is not the snapshot, so give every Read, Grep, and Glob call an absolute path under the snapshot root or the absolute path of a file that this message names.',
     readRule,
     ...(code ? [baseRule] : []),
@@ -1978,7 +1982,7 @@ function managerPrompt({ round, inputs, findings, verdictFile }) {
     ...findings.map((finding) => `Finding ${finding.id}: ${findingLine(finding)}`),
     '',
     'Rules:',
-    '- The snapshot root holds the reviewed repository files, without Git history. Take evidence only from files under the snapshot root, the files that this message names, and official documentation on the web. Do not open any page of the DocksDocks/docks repository.',
+    `- The snapshot root holds the reviewed repository files, without Git history. Take evidence only from files under the snapshot root, the files that this message names, and official documentation on the web. Do not open any page of ${REPOSITORY_PAGES}.`,
     '- For each finding, try to reproduce the claim. Read the code or the plan at its locator and trace the claim. When a command shows the fault, run it in a scratch copy outside the snapshot root.',
     '- Give `reproduced` when the snapshot shows the defect. Give `rejected` when the claim is false in the snapshot, when the plan records the behavior as intended, or when the finding names no defect.',
     '- Give evidence for each verdict: a file and line, a plan section, a command and its output, or a documentation URL.',

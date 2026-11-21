@@ -159,11 +159,17 @@ const GLOB_CHARACTER = /[*?[{]/;
 // Hosts whose paths start with the owner and the name of a repository.
 const GITHUB_WEB_HOSTS = new Set(['github.com', 'www.github.com']);
 const REPOSITORY_HOSTS = new Set([...GITHUB_WEB_HOSTS, 'raw.githubusercontent.com']);
-// The owner and the names of the benchmark repository, in lower case: docks-kit, and docks, its name before the
-// rename, which GitHub redirects to docks-kit.
+// The benchmark repository, as GitHub names it: its current name, and its name before the rename, which GitHub
+// redirects to the current name. prepare.mjs names both in the reviewer and manager prompts.
+export const BENCHMARK_REPOSITORY_NAMES = { current: 'DocksDocks/docks-kit', former: 'DocksDocks/docks' };
+// The owner and the names of the benchmark repository, in lower case, each also with the `.git` suffix of a clone URL.
 const BENCHMARK_REPOSITORY = {
-  owner: 'docksdocks',
-  names: new Set(['docks-kit', 'docks-kit.git', 'docks', 'docks.git']),
+  owner: BENCHMARK_REPOSITORY_NAMES.current.split('/')[0].toLowerCase(),
+  names: new Set(
+    Object.values(BENCHMARK_REPOSITORY_NAMES)
+      .map((full) => full.split('/')[1].toLowerCase())
+      .flatMap((name) => [name, `${name}.git`]),
+  ),
 };
 // An invalid-run reason names this many outside targets, then the count of the others.
 const LISTED_READS = 3;
@@ -2999,9 +3005,11 @@ function scopeRules(runDir, round, { pluginRoots, agentFiles, skillRoots, heldSk
     skillRoots: agentFiles.length > 0 ? skillRoots : [],
     measuredSkills: new Set([...REVIEWER_SKILLS, ...heldSkills]),
     changed: distinct(changedFiles.flatMap(changedPathKeys)),
-    // The link walk of each searched folder in this call, and its entry budget (see searchReachesBenchmark).
+    // The link walk of each searched folder in this call, and its entry budget (see searchLeavesScope), and the allowed
+    // roots after the file system follows their links (see realRoots).
     linkWalks: new Map(),
     walkBudget: { left: MAX_WALK_ENTRIES },
+    realRoots: undefined,
   };
 }
 
@@ -3208,21 +3216,63 @@ function insideBenchmark(target) {
   return BENCHMARK_DIRS.some((dir) => isUnder(dir, linked));
 }
 
-// True when a search of the folder `root` can reach the live benchmark folder: the folder that `root` reaches (see
-// linkedPath) is inside the benchmark folder or holds it (an ancestor such as `.agents/skills`), or a symbolic link
-// at any depth under it reaches such a folder. A search follows the links of the tree that it walks, so the walk
-// follows each link to a folder too, and lists each real folder once (`rules.linkWalks`). Each listed entry takes one
-// unit of `rules.walkBudget`; a walk that uses up the budget counts as reaching the benchmark folder, so a search of
-// a large tree fails closed instead of stalling the report. localPathAllowed runs this check only for a search root
-// that the other rules allow.
+// The allowed roots of `rules` (the input folders, the allowed folders, the copy of the plan contract, the plugin
+// roots, the agent files, and the self-review roots) after the file system follows their symbolic links (see
+// linkedPath), once per readScope call. A root that is itself a link, such as a plugin root that a link names, so
+// stays allowed where the link leads.
+function realRoots(rules) {
+  rules.realRoots ??= {
+    inputDirs: rules.inputDirs.map((dir) => linkedPath(dir)),
+    folders: rules.folders.map((dir) => linkedPath(dir)),
+    contractCopy: linkedPath(rules.contractCopy),
+    pluginRoots: rules.pluginRoots.map((root) => linkedPath(path.resolve(root))),
+    agentFiles: rules.agentFiles.map((file) => linkedPath(file)),
+    skillRoots: rules.skillRoots.map((root) => linkedPath(path.resolve(root))),
+  };
+  return rules.realRoots;
+}
+
+// The folder that the `skills/` folder of an installed plugin copy reaches (see omp.mjs INSTALLED_SKILL_ROOTS and
+// linkedPath) when `target` is under such a folder, else null. omp can install the kit plugin as a link, for example
+// `plugins/node_modules/docks-kit-omp` to `~/.docks-kit/omp-plugin`, so the installed copy lands where the link leads.
+const INSTALLED_ROOT_PREFIX = new RegExp(INSTALLED_ROOT);
+function installedRealRoot(target) {
+  const match = INSTALLED_ROOT_PREFIX.exec(target);
+  return match ? linkedPath(target.slice(0, match.index + match[0].length - 1)) : null;
+}
+
+// True when `reached`, a path after the file system followed its links (see linkedPath), lands inside the allowed
+// inputs: under an allowed folder, the code-reviewer or plan-reviewer skill folder of a plugin root, or an allowed
+// skill folder of a self-review root; an input file, the copy of the plan contract, an agent file, or a reviewer agent
+// file; the plan contract of a plugin root; or a path under `installedRoot`, the reached `skills/` folder of the
+// installed plugin copy of the read (null for another read). The roots are real too (see realRoots).
+function landsInScope(reached, rules, installedRoot) {
+  const real = realRoots(rules);
+  if (folderAllowed(reached, real) || fileAllowed(reached, real)) return true;
+  if (contractKey(reached, real.pluginRoots) !== undefined) return true;
+  return installedRoot !== null && isUnder(installedRoot, reached);
+}
+
+// True when a search of the folder `root` can read outside the allowed inputs, so the search is outside the read
+// scope:
+// - the folder that `root` reaches (see linkedPath) is inside the live benchmark folder or holds it (an ancestor such
+//   as `.agents/skills`), or does not land inside the allowed inputs (see landsInScope);
+// - a symbolic link at any depth under it reaches the benchmark folder, an ancestor of it, or a path outside the
+//   allowed inputs.
+// A search follows the links of the tree that it walks, so the walk follows each link to a folder too, and lists each
+// real folder once (`rules.linkWalks`, per real folder and installed root). Each listed entry takes one unit of
+// `rules.walkBudget`; a walk that uses up the budget counts as a search outside the scope, so a search of a large tree
+// fails closed instead of stalling the report. localPathAllowed runs this check only for a search root that the other
+// rules allow. `installedRoot` is the reached `skills/` folder of an installed plugin copy (see installedRealRoot).
 const MAX_WALK_ENTRIES = 50_000;
 const holdsOrInBenchmark = (target) =>
   BENCHMARK_DIRS.some((dir) => isUnder(dir, target) || isUnder(target, dir));
-function searchReachesBenchmark(root, rules) {
+function searchLeavesScope(root, rules, installedRoot) {
+  const leaves = (reached) => holdsOrInBenchmark(reached) || !landsInScope(reached, rules, installedRoot);
   const walk = (dir) => {
-    if (holdsOrInBenchmark(dir)) return true;
-    if (rules.linkWalks.has(dir)) return rules.linkWalks.get(dir);
-    rules.linkWalks.set(dir, false);
+    const key = `${dir}\0${installedRoot ?? ''}`;
+    if (rules.linkWalks.has(key)) return rules.linkWalks.get(key);
+    rules.linkWalks.set(key, false);
     let entries = [];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true, recursive: false });
@@ -3236,7 +3286,7 @@ function searchReachesBenchmark(root, rules) {
       if (entry.isDirectory()) return walk(entryPath);
       if (!entry.isSymbolicLink()) return false;
       const linked = linkedPath(entryPath);
-      if (holdsOrInBenchmark(linked)) return true;
+      if (leaves(linked)) return true;
       let isFolder = false;
       try {
         isFolder = fs.statSync(linked).isDirectory();
@@ -3245,18 +3295,21 @@ function searchReachesBenchmark(root, rules) {
       }
       return isFolder && walk(linked);
     });
-    rules.linkWalks.set(dir, found);
+    rules.linkWalks.set(key, found);
     return found;
   };
-  return walk(linkedPath(root));
+  const reachedRoot = linkedPath(root);
+  return leaves(reachedRoot) || walk(reachedRoot);
 }
 
 // A relative path resolves against the working directory, so without one it is outside. A path inside the live
 // benchmark folder (see insideBenchmark), which holds the answer keys, is outside, whatever else allows it. A glob is
 // allowed when the folder before its first glob segment is allowed and no later segment can leave that folder with
-// `..`. An allowed glob, or an allowed folder of a search tool (`searches`, see omp.mjs SEARCH_TOOLS), is still
-// outside when the search can reach the benchmark folder (see searchReachesBenchmark). The checks read the path
-// after normalizeLocal.
+// `..`. The allow rules read the path as the reviewer wrote it (see rulesAllow), and the file system decides where the
+// read lands: a read that they allow is still outside when the path that its links reach does not land inside the
+// allowed inputs (see landsInScope), and an allowed glob, or an allowed folder of a search tool (`searches`, see
+// omp.mjs SEARCH_TOOLS), is outside when its search can read outside them (see searchLeavesScope). The checks read the
+// path after normalizeLocal.
 function localPathAllowed(written, cwd, rules, searches = false) {
   if (!path.isAbsolute(written) && typeof cwd !== 'string') return false;
   const target = normalizeLocal(written);
@@ -3264,10 +3317,13 @@ function localPathAllowed(written, cwd, rules, searches = false) {
   const searched = path.resolve(cwd ?? path.sep, base);
   if (insideBenchmark(searched)) return false;
   if (!rulesAllow(target, base, rest, searched, cwd, rules)) return false;
-  return !((rest.length > 0 || searches) && searchReachesBenchmark(searched, rules));
+  const installedRoot = installedRealRoot(searched);
+  if (rest.length > 0 || searches) return !searchLeavesScope(searched, rules, installedRoot);
+  return landsInScope(linkedPath(searched), rules, installedRoot);
 }
 
-// The allow rules of localPathAllowed for a path whose folder before the first glob segment is `searched`.
+// The allow rules of localPathAllowed for a path whose folder before the first glob segment is `searched`, on the path
+// as the reviewer wrote it.
 function rulesAllow(target, base, rest, searched, cwd, rules) {
   if (rest.length === 0) {
     const resolved = path.resolve(cwd ?? path.sep, target);
@@ -3660,10 +3716,13 @@ function diffCoverage(tools, file, cwd) {
 //   is no reviewer skill, for example an always-apply skill such as `unslop` (see skillReadAllowed);
 // - an `artifact://` or `local://` URI (the spilled output of the reviewer, see omp.mjs SPILL_SCHEMES);
 // - an http or https URL that cannot show the benchmark repository (see webPageAllowed).
-// Every target inside the live benchmark folder, also through a symbolic link (see insideBenchmark), every glob and
-// every folder of a search tool whose searched folder holds a symbolic link into that folder at any depth (see
-// linksIntoBenchmark), and every `skill://` URI of the benchmark skill itself is outside, whatever rule above would
-// allow it: the folder holds the answer keys (see BENCHMARK_DIRS and BENCHMARK_SKILL).
+// Every target inside the live benchmark folder, also through a symbolic link (see insideBenchmark), and every
+// `skill://` URI of the benchmark skill itself is outside, whatever rule above would allow it: the folder holds the
+// answer keys (see BENCHMARK_DIRS and BENCHMARK_SKILL). The rules above read the path as the reviewer wrote it; a
+// local target that they allow is still outside when the path that its symbolic links reach does not land inside the
+// allowed inputs (see landsInScope), and a glob, or a folder of a search tool, is outside when its walk meets a link
+// out of the allowed inputs, into the benchmark folder, or into a folder that holds it, or uses up its walk budget (see
+// searchLeavesScope).
 // Every other target is outside, also the other skills of the repository that holds a plugin root: the reviewed
 // repository has its own copy of them under `snapshot/`. A `skill://` URI or an installed plugin copy of the
 // code-reviewer or plan-reviewer skill, or of another skill that a measured plugin copy holds, is outside for every

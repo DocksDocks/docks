@@ -596,6 +596,12 @@ test('manager writes one manager prompt per round with findings, and names lists
   ]) {
     assert.ok(prompt.includes(line), `the manager prompt lacks ${line}`);
   }
+  // The manager prompt forbids the pages of the benchmark repository under its current name and its former name.
+  assert.ok(
+    prompt.some((line) =>
+      line.endsWith('Do not open any page of the DocksDocks/docks-kit repository, formerly DocksDocks/docks.'),
+    ),
+  );
   assert.deepEqual(logged(() => prepare.prepareManager({ ws })).result, { written: 0, unchanged: 1 });
   const managerName = dispatchName('code-7', 'C1-low', 'run-1', 'manager-1', 1);
   assert.ok(namesCommand(ws).some((entry) => entry.name === managerName));

@@ -166,6 +166,12 @@ test('case writes the base-instructions folder of a code case, and its prompt an
   assert.ok(
     prompt.some((line) => line.startsWith('- The base instructions folder holds') && line.includes('MANIFEST')),
   );
+  // The prompt forbids the pages of the benchmark repository under its current name and its former name.
+  assert.ok(
+    prompt.some((line) =>
+      line.includes('but no page of the DocksDocks/docks-kit repository, formerly DocksDocks/docks. You may also read'),
+    ),
+  );
   const scope = score.readScope(reads(path.join(folder, 'AGENTS.md'), path.join(folder, 'src')), { runDir });
   assert.deepEqual(scope, { outside: [] });
   // --extend writes the folder for a case folder of an earlier version, which has none.

@@ -377,30 +377,90 @@ function isUnderOrSame(folder, target) {
   const relative = path.relative(folder, target);
   return relative === '' || !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
 }
-test('readScope follows a link of a searched folder to a folder that holds another link into the benchmark folder', () => {
+test('readScope follows a link of a searched folder to an allowed folder that holds another link out of the inputs', () => {
   const root = scratch();
-  // Two hops: `snapshot/hop` links to a folder outside the workspace, whose link `k` leads to the held-out cases. The
-  // snapshot of code-8 links to a folder whose link `k` leads to a plain folder outside the benchmark folder.
+  // Two hops: `snapshot/hop` links to the base-instructions folder of the case, an allowed input, whose link `k` leads
+  // to `target`. Only a walk that follows the first link meets the second one.
   const hopSearches = (caseId, target) => {
     const { snapshot, scope } = snapshotScope(root, caseId);
-    const elsewhere = path.join(root, `elsewhere-${caseId}`);
-    fs.mkdirSync(elsewhere);
-    fs.symlinkSync(target, path.join(elsewhere, 'k'));
-    fs.symlinkSync(elsewhere, path.join(snapshot, 'hop'));
+    const instructions = path.join(root, 'ws', caseId, score.BASE_INSTRUCTIONS);
+    put(instructions, 'AGENTS.md', '# Rules\n');
+    fs.symlinkSync(target, path.join(instructions, 'k'));
+    fs.symlinkSync(instructions, path.join(snapshot, 'hop'));
     const searches = [
       { name: 'grep', path: snapshot },
       { name: 'glob', path: path.join(snapshot, '**', '*.md') },
     ];
-    return { searches, scope };
+    return { snapshot, searches, scope };
   };
-  const linked = hopSearches('code-7', path.join(SKILL_DIR, 'cases', 'heldout'));
-  assert.deepEqual(score.readScope(linked.searches, linked.scope), {
-    outside: linked.searches.map((call) => call.path),
-  });
-  const plainTarget = path.join(root, 'plain');
-  put(plainTarget, 'notes.md', 'notes\n');
-  const plain = hopSearches('code-8', plainTarget);
-  assert.deepEqual(score.readScope(plain.searches, plain.scope), { outside: [] });
+  const outsideOf = ({ searches, scope }) => score.readScope(searches, scope).outside;
+  const all = ({ searches }) => searches.map((call) => call.path);
+  // The second link leads to the held-out cases, or to a folder outside the inputs: the search can read it.
+  const heldout = hopSearches('code-7', path.join(SKILL_DIR, 'cases', 'heldout'));
+  assert.deepEqual(outsideOf(heldout), all(heldout));
+  const external = path.join(root, 'external');
+  put(external, 'notes.md', 'notes\n');
+  const leaving = hopSearches('code-8', external);
+  assert.deepEqual(outsideOf(leaving), all(leaving));
+  // The second link leads back into the snapshot: every file that the search can read is an input.
+  const inside = hopSearches('code-9', path.join(root, 'ws', 'code-9', 'snapshot', 'src'));
+  assert.deepEqual(outsideOf(inside), []);
+  // A first link straight to a folder outside the inputs makes the search outside without a second hop.
+  const { snapshot, scope } = snapshotScope(root, 'code-10');
+  fs.symlinkSync(external, path.join(snapshot, 'out'));
+  const searches = [
+    { name: 'grep', path: snapshot },
+    { name: 'glob', path: path.join(snapshot, '**', '*.md') },
+  ];
+  assert.deepEqual(score.readScope(searches, scope), { outside: searches.map((call) => call.path) });
+});
+test('readScope allows a direct read only where the file system lands inside the inputs of the run', () => {
+  const root = scratch();
+  const { snapshot, scope } = snapshotScope(root, 'code-7');
+  // A file of the live checkout outside the inputs, and links to it and to a file of the snapshot.
+  const live = path.join(root, 'live');
+  put(live, 'src/sync.mjs', 'export const lock = 2;\n');
+  fs.symlinkSync(path.join(live, 'src', 'sync.mjs'), path.join(snapshot, 'fixed.mjs'));
+  fs.symlinkSync(path.join(live, 'src'), path.join(snapshot, 'livesrc'));
+  fs.symlinkSync(path.join(snapshot, 'src', 'sync.mjs'), path.join(snapshot, 'alias.mjs'));
+  const outside = reads(
+    path.join(snapshot, 'fixed.mjs'),
+    'fixed.mjs',
+    path.join(snapshot, 'livesrc', 'sync.mjs'),
+    path.join(snapshot, 'livesrc', 'missing.mjs'),
+  );
+  const inside = reads(path.join(snapshot, 'alias.mjs'), 'alias.mjs', path.join(snapshot, 'src', 'sync.mjs'));
+  assert.deepEqual(score.readScope([...outside, ...inside], scope), { outside: outside.map((call) => call.path) });
+});
+test('readScope allows the reads under an allowed root that is itself a symbolic link', () => {
+  const root = scratch();
+  // The plugin root that the agent text names is a link, as `omp plugin link` makes one, and so is an installed copy
+  // of the kit plugin under `plugins/node_modules/<package>/`.
+  const plugin = path.join(root, 'omp-plugin');
+  put(plugin, 'skills/code-reviewer/SKILL.md', '# Code reviewer\n');
+  put(plugin, 'skills/code-review/SKILL.md', '# Code review\n');
+  put(plugin, 'agents/code-reviewer.md', '# Agent\n');
+  const linkedRoot = path.join(root, 'linked-plugin');
+  fs.symlinkSync(plugin, linkedRoot);
+  const modules = path.join(root, 'home', '.omp', 'plugins', 'node_modules');
+  fs.mkdirSync(modules, { recursive: true });
+  fs.symlinkSync(plugin, path.join(modules, 'docks-kit-omp'));
+  const { scope } = snapshotScope(root, 'code-7');
+  const calls = [
+    ...reads(
+      path.join(linkedRoot, 'skills', 'code-reviewer', 'SKILL.md'),
+      path.join(linkedRoot, 'agents', 'code-reviewer.md'),
+      path.join(modules, 'docks-kit-omp', 'skills', 'code-review', 'SKILL.md'),
+    ),
+    { name: 'glob', path: path.join(linkedRoot, 'skills', 'code-reviewer', '**', '*.md') },
+    { name: 'grep', path: path.join(modules, 'docks-kit-omp', 'skills', 'code-review') },
+  ];
+  assert.deepEqual(score.readScope(calls, { ...scope, pluginRoots: [linkedRoot] }), { outside: [] });
+  // A link in the installed copy that leaves it makes a search of the copy outside.
+  put(root, 'elsewhere/notes.md', 'notes\n');
+  fs.symlinkSync(path.join(root, 'elsewhere'), path.join(plugin, 'skills', 'code-review', 'out'));
+  const search = { name: 'grep', path: path.join(modules, 'docks-kit-omp', 'skills', 'code-review') };
+  assert.deepEqual(score.readScope([search], { ...scope, pluginRoots: [linkedRoot] }), { outside: [search.path] });
 });
 test('readScope refuses a search of / or of another folder outside the inputs by its allow rules, before it lists any folder', () => {
   const root = scratch();
