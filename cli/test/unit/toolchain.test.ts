@@ -1,4 +1,4 @@
-import { readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import type { Ctx } from "../../src/engine-native";
 import { modeToolchain } from "../../src/engine-native/modes";
 import { makeEngineServices } from "../../src/engine-native/services";
 import { report } from "../../src/engine-native/toolchain";
+import { BUN_RUNTIME } from "../lib/cliEntry";
 import { runPublicCli } from "../lib/goldenExecution";
 import { cleanupTemporaryDirs, makeStubDir, temporaryDir } from "../lib/goldenResources";
 import { SPAWN_TIMEOUT_MS } from "../lib/spawnTimeout";
@@ -34,6 +35,30 @@ describe("toolchain report", () => {
       } finally {
         rmSync(run.home, { recursive: true, force: true });
       }
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  // install.sh links the Bun that it used into <home>/.local/bin, and the POSIX launchers look
+  // there. With no Bun on PATH, the doctor must find that Bun too (DocksDocks/docks-kit#199).
+  it.skipIf(process.platform === "win32")(
+    "reports a Bun that only <home>/.local/bin holds as present",
+    () => {
+      const nativeHost = { nativeHost: true } as const;
+      const stubs = makeStubDir({ bun: null }, nativeHost);
+      const home = temporaryDir("toolchain-local-bun-");
+      mkdirSync(join(home, ".local", "bin"), { recursive: true });
+      symlinkSync(BUN_RUNTIME, join(home, ".local", "bin", "bun"));
+      const run = runPublicCli(["toolchain", "check"], "home-fresh", stubs, {
+        ...nativeHost,
+        reuseHome: home,
+        maskTools: ["bun"],
+      });
+
+      expect(run.exitCode).toBe(0);
+      const bun = run.stdout.split("\n").find((line) => line.startsWith("bun "));
+      expect(bun).toMatch(/^bun\s+managed\s+\d+\.\d+\.\d+\s/);
+      expect(bun).not.toContain("missing");
     },
     SPAWN_TIMEOUT_MS,
   );

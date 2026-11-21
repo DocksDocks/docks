@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased - docks-kit 0.27.1: Bun detection fixes
+
+### Fixed
+
+- `docks-kit toolchain check` and the Bun bootstrap now find a Bun that is
+  only in the `.local/bin` folder of the home folder, where `install.sh` links
+  the Bun that it used and where the POSIX launchers look. Before, the bun row
+  could show `missing` while the launcher ran that Bun. One list per host now
+  names the Bun search folders, and a test holds the launchers and installers
+  to it (DocksDocks/docks-kit#199).
+
 ## 2026-11-21 - docks-kit 0.27.0: Bun-only; no compiled binaries
 
 docks-kit now runs only through Bun: the npm package runs the Bun bundle

@@ -163,7 +163,7 @@ describe("DependencyManager registry", () => {
     const version = DEPENDENCIES.bun.version;
     if (version === undefined) throw new Error("Bun version probe is not registered");
 
-    await expect(version(exec)).resolves.toBe("");
+    await expect(version(exec, "linux")).resolves.toBe("");
     expect(captureFn).not.toHaveBeenCalled();
   });
 
@@ -190,6 +190,51 @@ describe("DependencyManager registry", () => {
       else process.env["HOME"] = previousHome;
       if (previousBunInstall === undefined) delete process.env["BUN_INSTALL"];
       else process.env["BUN_INSTALL"] = previousBunInstall;
+    }
+  });
+
+  it("finds a POSIX Bun that only the installer link in <home>/.local/bin holds", async () => {
+    // install.sh links the Bun it used into ~/.local/bin, and the launchers search there.
+    vi.stubEnv("HOME", "/fixture-home");
+    vi.stubEnv("USERPROFILE", "/fixture-home");
+    vi.stubEnv("BUN_INSTALL", "");
+    try {
+      const linked = "/fixture-home/.local/bin/bun";
+      const calls: Array<string> = [];
+      const manager = makeDependencyManager(makePlatform("linux"), {
+        commandExists: () => false,
+        capture: async (cmd) => {
+          calls.push(cmd);
+          return "1.4.5";
+        },
+        which: (name) => (name === linked ? name : ""),
+      });
+
+      expect(manager.probe("bun")).toEqual({ state: "present", path: linked });
+      await expect(manager.version("bun")).resolves.toBe("1.4.5");
+      expect(calls).toEqual([linked]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reads the Bun version from the search list of the manager's host, not the runner's", async () => {
+    // A Windows manager on a POSIX runner: only the Windows candidate, which ends in bun.exe, exists.
+    vi.stubEnv("HOME", "/fixture-home");
+    vi.stubEnv("USERPROFILE", "/fixture-home");
+    vi.stubEnv("BUN_INSTALL", "");
+    try {
+      const windowsBun = "/fixture-home/.bun/bin/bun.exe";
+      const manager = makeDependencyManager(makePlatform("win32"), {
+        commandExists: () => false,
+        capture: async (cmd) => (cmd === windowsBun ? "1.4.5" : ""),
+        which: (name) => (name === windowsBun ? name : ""),
+      });
+
+      expect(manager.probe("bun")).toEqual({ state: "present", path: windowsBun });
+      await expect(manager.version("bun")).resolves.toBe("1.4.5");
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 
