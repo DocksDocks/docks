@@ -65,8 +65,8 @@ export const makeDependencyManager = (
       return { ...s, installHint: (pf = platform.raw()) => s.installHint(pf) };
     },
     probe: (id) => resolveDependency(DEPENDENCIES[id], exec, platform.raw()),
-    version: (id) => resolveVersion(DEPENDENCIES[id], exec),
-    versionReading: (id) => resolveVersionReading(DEPENDENCIES[id], exec),
+    version: (id) => resolveVersion(DEPENDENCIES[id], exec, platform.raw()),
+    versionReading: (id) => resolveVersionReading(DEPENDENCIES[id], exec, platform.raw()),
     path: (id) => resolvePath(DEPENDENCIES[id], exec, platform.raw()),
     warnMissing: (id, logger, context) => {
       if (warned.has(id)) return;
