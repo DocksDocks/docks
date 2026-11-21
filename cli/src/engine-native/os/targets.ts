@@ -6,7 +6,8 @@
  * against this table:
  * - the artifact names and `uname` keys in the Bash launcher `docks-kit`;
  * - the artifact name and processor architecture in `docks-kit.ps1`;
- * - the default `TARGETS` list of `cli/build-binaries.sh`;
+ * - the default `TARGETS` list and the `bun build` flags (`COMPILE_FLAGS`) of
+ *   `cli/build-binaries.sh`;
  * - the four artifact names in each of the two lists of
  *   `.github/workflows/release-cli.yml`: the `with.path` list of the
  *   `actions/upload-artifact` step in job `build`, and the `for asset in`
@@ -21,6 +22,22 @@
  * platform/arch pairs this table names.
  */
 import { platformName, type PlatformName } from "./index";
+
+/**
+ * The `bun build` flags of each compiled binary, before `--target`. Both
+ * `cli/build-binaries.sh` and `cli/scripts/native-smoke.ts` compile with them.
+ * `--bytecode` embeds the compiled bytecode, so a launch skips the parse of
+ * the 2.7 MB program: `--version` took 25.5 ms instead of 58.5 ms on Linux
+ * x64, for 7.2 MB more per binary (plan DocksDocks/docks-kit#191). ESM
+ * bytecode needs `--compile`, and `--format=esm` keeps the module format
+ * that the build has without `--bytecode`, which defaults to CommonJS.
+ */
+export const COMPILE_FLAGS: ReadonlyArray<string> = [
+  "--compile",
+  "--minify",
+  "--bytecode",
+  "--format=esm",
+];
 
 export type TargetId = "linux-x64" | "linux-arm64" | "darwin-arm64" | "windows-x64";
 

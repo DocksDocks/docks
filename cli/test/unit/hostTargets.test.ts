@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { HOST_TARGETS } from "../../src/engine-native/os/targets";
+import { COMPILE_FLAGS, HOST_TARGETS } from "../../src/engine-native/os/targets";
 
 const REPO_DIR = resolve(import.meta.dirname, "..", "..", "..");
 const ARTIFACT_PATTERN = /\bdocks-kit-(?:linux|darwin|windows)-[a-z0-9-]+(?:\.exe)?\b/g;
@@ -31,6 +31,16 @@ function defaultBuildTargets(source: string): Array<string> {
   const assignment = source.match(/\|\|\s*TARGETS=\(([^)]*)\)/)?.[1];
   expect(assignment, "default TARGETS assignment").toBeDefined();
   return assignment?.trim().split(/\s+/) ?? [];
+}
+
+/** The flags of the `bun build` command in build-binaries.sh, up to its `--target`. */
+function buildCommandFlags(source: string): Array<string> {
+  const command = source.match(/^\s*bun build (.*)$/m)?.[1];
+  expect(command, "bun build command").toBeDefined();
+  const words = command?.trim().split(/\s+/) ?? [];
+  const target = words.findIndex((word) => word.includes("--target="));
+  expect(target, "--target word of the bun build command").toBeGreaterThan(0);
+  return words.slice(0, target);
 }
 
 /** The artifact names in each release list of release-cli.yml. */
@@ -103,6 +113,10 @@ describe("host target script contracts", () => {
     expect(defaultBuildTargets(repoFile("cli/build-binaries.sh"))).toEqual(
       HOST_TARGETS.map(({ id }) => id),
     );
+  });
+
+  it("compiles every release binary with COMPILE_FLAGS, the flags that smoke:native compiles with", () => {
+    expect(buildCommandFlags(repoFile("cli/build-binaries.sh"))).toEqual([...COMPILE_FLAGS]);
   });
 
   it("names every HOST_TARGETS artifact in release-cli.yml", () => {

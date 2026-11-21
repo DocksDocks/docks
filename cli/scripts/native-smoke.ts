@@ -4,13 +4,41 @@ import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { targetForHost } from "../src/engine-native/os/targets";
+import { COMPILE_FLAGS, targetForHost } from "../src/engine-native/os/targets";
 
 const REPO_DIR = resolve(import.meta.dirname, "..", "..");
 const DIST_DIR = join(REPO_DIR, "cli", "dist");
+/** JavaScriptCore logs each bytecode cache lookup when this variable is 1. */
+const BYTECODE_LOG_ENV = "BUN_JSC_verboseDiskCache";
+/** The line that the binary prints when it runs its embedded bytecode. */
+const BYTECODE_HIT = "[Disk Cache] Cache hit for sourceCode";
 
 function fail(message: string): never {
   throw new Error(message);
+}
+
+/**
+ * Runs `<artifact> --version` with `BUN_JSC_verboseDiskCache=1`, and gives the
+ * cache-hit line that shows the run used the embedded bytecode. Throws without
+ * that line: a Bun that rejects the bytecode parses the source again without
+ * an error, so only this log line shows it.
+ */
+function requireBytecode(artifactPath: string): string {
+  const run = spawnSync(artifactPath, ["--version"], {
+    cwd: REPO_DIR,
+    encoding: "utf8",
+    env: { ...process.env, [BYTECODE_LOG_ENV]: "1" },
+  });
+  requireSuccess(`native --version with ${BYTECODE_LOG_ENV}=1`, run);
+  const hit = `${run.stdout}\n${run.stderr}`
+    .split(/\r?\n/)
+    .find((line) => line.includes(BYTECODE_HIT));
+  if (hit === undefined) {
+    fail(
+      `native binary ran without its embedded bytecode: no "${BYTECODE_HIT}" line with ${BYTECODE_LOG_ENV}=1; check that COMPILE_FLAGS in cli/src/engine-native/os/targets.ts holds --bytecode and that the Bun that compiled the binary also runs it`,
+    );
+  }
+  return hit.trim();
 }
 
 function requireSuccess(label: string, result: SpawnSyncReturns<string>): void {
@@ -37,8 +65,7 @@ function main(): void {
     "bun",
     [
       "build",
-      "--compile",
-      "--minify",
+      ...COMPILE_FLAGS,
       `--target=${target.bunTarget}`,
       join(REPO_DIR, "cli", "src", "main.ts"),
       "--outfile",
@@ -48,6 +75,16 @@ function main(): void {
   );
   requireSuccess("native compile", build);
   console.log(`[native-smoke] compile: ${target.artifact}`);
+  checkBinary(artifactPath);
+}
+
+/**
+ * The checks of `smoke:native` on a compiled binary, in order: it ran its
+ * embedded bytecode, its `--version` equals `package.json`, and `sync
+ * --dry-run` exits 0 on this host. Each failed check throws its diagnostic.
+ */
+function checkBinary(artifactPath: string): void {
+  console.log(`[native-smoke] bytecode: ${requireBytecode(artifactPath)}`);
 
   const packageJson = JSON.parse(readFileSync(join(REPO_DIR, "package.json"), "utf8")) as {
     version: string;

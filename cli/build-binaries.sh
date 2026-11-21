@@ -92,7 +92,9 @@ for target in "${TARGETS[@]}"; do
   out="$STAGING/$name"
   ARTIFACTS+=("$name")
   echo "building $DIST/$name (bun-$target)..."
-  bun build --compile --minify "--target=bun-$target" \
+  # These flags equal COMPILE_FLAGS in cli/src/engine-native/os/targets.ts,
+  # which cli/test/unit/hostTargets.test.ts checks.
+  bun build --compile --minify --bytecode --format=esm "--target=bun-$target" \
     "$REPO_DIR/cli/src/main.ts" --outfile "$out"
 done
 
