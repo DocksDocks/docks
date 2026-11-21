@@ -1,7 +1,8 @@
 name: release-cli
 
-# Build and verify the docks-kit release payload, attach binaries to the tagged
-# GitHub release, then publish the exact package tarball through npm OIDC.
+# Build and verify the docks-kit release payload, attach the source map to the
+# tagged GitHub release, then publish the exact package tarball through npm
+# OIDC.
 #
 # The release identity is resolved exactly once, in `resolve`, and every later
 # job consumes that output. A tag push supplies it through `github.ref_name`; a
@@ -81,7 +82,7 @@ jobs:
 
       # A dispatch builds the release from the branch, so the lockfile, the
       # build and proof scripts, and the pinned Bun setup must match the tag
-      # before the job installs or compiles anything. A tag push checks out
+      # before the job installs or builds anything. A tag push checks out
       # the tag, so only the tree can drift there.
       - name: Prove the release build inputs are the tag's content
         env:
@@ -91,7 +92,6 @@ jobs:
           git fetch --no-tags --depth=1 origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
           build_inputs=(
             bun.lock
-            cli/build-binaries.sh
             cli/scripts/build-bundle.ts
             cli/scripts/release-build.sh
             cli/scripts/tarball-proof.sh
@@ -134,9 +134,9 @@ jobs:
           BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
         run: bun run test:ci
 
-      # Builds the bundle and its map, the four binaries with SHA256SUMS, and
-      # the tarball, then fails unless cli/dist holds exactly those files with
-      # one debug id across the map, the bundle, and the packed bundle.
+      # Builds the bundle, its map, and the tarball, then fails unless
+      # cli/dist holds exactly those files with one debug id across the map,
+      # the bundle, and the packed bundle.
       - name: Build, pack, and check the release files
         env:
           BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
@@ -171,11 +171,6 @@ jobs:
           # Without this the second attempt fails on the existing artifact.
           overwrite: true
           path: |
-            cli/dist/docks-kit-linux-x64
-            cli/dist/docks-kit-linux-arm64
-            cli/dist/docks-kit-darwin-arm64
-            cli/dist/docks-kit-windows-x64.exe
-            cli/dist/SHA256SUMS
             cli/dist/docks-kit.js.map
             cli/dist/docks-kit-${{ needs.resolve.outputs.release_version }}.tgz
 
@@ -228,7 +223,7 @@ jobs:
             echo "::error::could not list existing assets for $RELEASE_TAG"
             exit 1
           fi
-          for asset in docks-kit-linux-x64 docks-kit-linux-arm64 docks-kit-darwin-arm64 docks-kit-windows-x64.exe SHA256SUMS docks-kit.js.map; do
+          for asset in docks-kit.js.map; do
             if grep -Fxq "$asset" "$present"; then
               echo "asset already published, leaving untouched: $asset"
               continue

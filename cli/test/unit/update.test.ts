@@ -6,7 +6,6 @@ import {
   packageUpdateResult,
   resolveGlobalPackageHome,
   samePackageHome,
-  updateBunCommand,
   updateCheckout,
   updatePackage,
 } from "../../src/commands/update";
@@ -455,31 +454,6 @@ describe("package home comparison", () => {
 
   it("keeps a POSIX backslash as a filename character", () => {
     expect(samePackageHome("/a\\b", "/a/b", hostOs("linux"))).toBe(false);
-  });
-});
-
-describe("checkout dependency reinstall Bun", () => {
-  it("uses the running Bun for the source path without consulting PATH", async () => {
-    const resolveBun = vi.fn(async () => "/usr/bin/bun");
-    expect(await updateBunCommand(false, "/x/.bun/bin/bun", "/kit", resolveBun)).toEqual({
-      ok: true,
-      command: "/x/.bun/bin/bun",
-    });
-    expect(resolveBun).not.toHaveBeenCalled();
-  });
-
-  it("uses the resolved Bun for a compiled binary", async () => {
-    expect(
-      await updateBunCommand(true, "/opt/docks-kit", "/kit", async () => "/x/.bun/bin/bun"),
-    ).toEqual({ ok: true, command: "/x/.bun/bin/bun" });
-  });
-
-  it("names the manual reinstall when a compiled binary finds no Bun", async () => {
-    expect(await updateBunCommand(true, "/opt/docks-kit", "/kit", async () => "")).toEqual({
-      ok: false,
-      diagnostic:
-        "dependencies changed but Bun was not found - run 'bun install --frozen-lockfile' in /kit, then docks-kit sync",
-    });
   });
 });
 

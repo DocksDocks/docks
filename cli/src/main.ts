@@ -39,7 +39,6 @@ const root = Command.make("docks-kit", {}, () =>
     yield* Console.log(
       "Run 'docks-kit --help' for full option listings (also: --wizard, --completions).",
     );
-    yield* Console.log("No-Bun recovery path: use a platform release binary.");
   }),
 ).pipe(
   Command.withDescription(

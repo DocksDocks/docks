@@ -1,13 +1,5 @@
 import { spawnSync } from "node:child_process";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  utimesSync,
-  writeFileSync,
-} from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,10 +14,10 @@ const pwshProbe = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command"
 });
 const pwshExecutable = pwshProbe.status === 0 ? "pwsh" : null;
 const launcherSuiteLabel = !WINDOWS_LAUNCHER_APPLIES
-  ? "checkout PowerShell launcher binary selection (skipped: docks-kit.ps1 is a Windows artifact and does not apply to this host)"
+  ? "checkout PowerShell launcher source launch (skipped: docks-kit.ps1 is a Windows artifact and does not apply to this host)"
   : pwshExecutable === null
-    ? "checkout PowerShell launcher binary selection (skipped: docks-kit.ps1 requires a resolvable pwsh interpreter)"
-    : "checkout PowerShell launcher binary selection";
+    ? "checkout PowerShell launcher source launch (skipped: docks-kit.ps1 requires a resolvable pwsh interpreter)"
+    : "checkout PowerShell launcher source launch";
 
 interface LauncherFixture {
   readonly root: string;
@@ -35,7 +27,7 @@ interface LauncherFixture {
 function launcherFixture(options: {
   readonly binaryName: string;
   readonly checkoutVersion: string | number;
-  readonly binary: "bun" | "unparseable";
+  readonly binary: "bun";
 }): LauncherFixture {
   const root = mkdtempSync(join(tmpdir(), "docks-launcher-windows-"));
   roots.push(root);
@@ -60,19 +52,11 @@ function launcherFixture(options: {
   );
   copyFileSync(process.execPath, join(binDir, "bun.exe"));
 
+  // A leftover binary that an older checkout built in cli/dist: a copy of the
+  // test interpreter, stamped as just built, so it is newer than every fixture
+  // source and would win any freshness check.
   const binaryPath = join(distDir, options.binaryName);
-  if (options.binary === "bun") {
-    copyFileSync(process.execPath, binaryPath);
-  } else {
-    const whereExecutable = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "where.exe");
-    if (!existsSync(whereExecutable))
-      throw new Error(`required Windows executable not found: ${whereExecutable}`);
-    copyFileSync(whereExecutable, binaryPath);
-  }
-  // copyFileSync preserves the source timestamp on Windows, so a copied
-  // interpreter would look older than the fixture sources and trip the
-  // launcher's content-freshness check. A fixture binary stands for one that
-  // was just built.
+  copyFileSync(process.execPath, binaryPath);
   const built = new Date();
   utimesSync(binaryPath, built, built);
 
@@ -117,47 +101,9 @@ afterEach(() => {
 });
 
 describe.skipIf(!WINDOWS_LAUNCHER_APPLIES || pwshExecutable === null)(launcherSuiteLabel, () => {
-  it.each([
-    ["AMD64", "", "docks-kit-windows-x64.exe"],
-    ["x86", "AMD64", "docks-kit-windows-x64.exe"],
-  ])(
-    "keeps a version-matching %s/%s release binary on the fast path as %s",
-    (native, wow64, binaryName) => {
-      const runtimeVersion = spawnSync(process.execPath, ["--version"], {
-        encoding: "utf8",
-      }).stdout.trim();
-      const fixture = launcherFixture({
-        binaryName,
-        checkoutVersion: runtimeVersion,
-        binary: "bun",
-      });
-      const result = runLauncher(fixture, { native, wow64 }, ["--version"]);
-
-      expect(result.status, result.stderr).toBe(0);
-      expect(result.stdout.trim()).toBe(runtimeVersion);
-      expect(result.stdout).not.toContain("source:");
-      expect(result.stderr).toBe("");
-    },
-  );
-
-  it("falls through to Bun source on AMD64 when the compiled binary is stale", () => {
-    const fixture = launcherFixture({
-      binaryName: "docks-kit-windows-x64.exe",
-      checkoutVersion: "checkout-version",
-      binary: "bun",
-    });
-    const result = runLauncher(fixture, { native: "AMD64" }, ["probe"]);
-
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("source:probe");
-    expect(result.stderr).toContain("ignoring stale cli/dist/docks-kit-windows-x64.exe");
-    expect(result.stderr).toContain("run 'bun run build:binaries' to refresh it or delete it");
-    expect(existsSync(join(fixture.root, "cli", "dist", "docks-kit-windows-x64.exe"))).toBe(true);
-  });
-
-  // An unreleased change does not move package.json, so a binary compiled
-  // before it still reports the checkout version.
-  it("ignores a version-matching binary that predates a source file", () => {
+  // docks-kit runs through Bun only, so a binary that an older checkout built
+  // in cli/dist stays on disk and never runs (plan #195).
+  it("runs the checkout source on AMD64 even when a version-matching binary in cli/dist is newer than every source file", () => {
     const runtimeVersion = spawnSync(process.execPath, ["--version"], {
       encoding: "utf8",
     }).stdout.trim();
@@ -166,69 +112,26 @@ describe.skipIf(!WINDOWS_LAUNCHER_APPLIES || pwshExecutable === null)(launcherSu
       checkoutVersion: runtimeVersion,
       binary: "bun",
     });
-    const source = join(fixture.root, "cli", "src", "main.ts");
-    const future = new Date(Date.now() + 60_000);
-    utimesSync(source, future, future);
-
     const result = runLauncher(fixture, { native: "AMD64" }, ["probe"]);
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe("source:probe");
-    expect(result.stderr).toContain("is newer than the binary");
+    expect(result.stderr).toBe("");
   });
 
-  // The compiled binary embeds the cli/docs topics through text imports, so a
-  // docs-only change also makes a version-matching binary stale.
-  it("ignores a version-matching binary that predates a docs topic", () => {
-    const runtimeVersion = spawnSync(process.execPath, ["--version"], {
-      encoding: "utf8",
-    }).stdout.trim();
-    const fixture = launcherFixture({
-      binaryName: "docks-kit-windows-x64.exe",
-      checkoutVersion: runtimeVersion,
-      binary: "bun",
-    });
-    const topic = join(fixture.root, "cli", "docs", "overview.md");
-    mkdirSync(join(fixture.root, "cli", "docs"), { recursive: true });
-    writeFileSync(topic, "# overview\n");
-    const future = new Date(Date.now() + 60_000);
-    utimesSync(topic, future, future);
-
-    const result = runLauncher(fixture, { native: "AMD64" }, ["probe"]);
-
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("source:probe");
-    expect(result.stderr).toContain(
-      `${join("cli", "docs", "overview.md")} is newer than the binary`,
-    );
-  });
-
-  it("falls through to Bun source on AMD64 when the compiled binary version is unparseable", () => {
+  // A 32-bit shell on an x64 host reports x86 in PROCESSOR_ARCHITECTURE and the
+  // native AMD64 in PROCESSOR_ARCHITEW6432; the launcher must read the second.
+  it("accepts an x86 process on an AMD64 host (WOW64) and runs the checkout source", () => {
     const fixture = launcherFixture({
       binaryName: "docks-kit-windows-x64.exe",
       checkoutVersion: "checkout-version",
-      binary: "unparseable",
-    });
-    const result = runLauncher(fixture, { native: "AMD64" }, ["probe"]);
-
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("source:probe");
-    expect(result.stderr).toContain(
-      "docks-kit-windows-x64.exe <unknown>; checkout is checkout-version",
-    );
-  });
-
-  it("falls through to Bun source on AMD64 when the checkout version is unparseable", () => {
-    const fixture = launcherFixture({
-      binaryName: "docks-kit-windows-x64.exe",
-      checkoutVersion: 7,
       binary: "bun",
     });
-    const result = runLauncher(fixture, { native: "AMD64" }, ["probe"]);
+    const result = runLauncher(fixture, { native: "x86", wow64: "AMD64" }, ["probe"]);
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe("source:probe");
-    expect(result.stderr).toContain("checkout is <unknown>");
+    expect(result.stderr).toBe("");
   });
 
   it.each([

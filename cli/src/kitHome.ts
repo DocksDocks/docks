@@ -75,22 +75,19 @@ export interface KitHomeSources {
 }
 
 /**
- * Resolve DOCKS_KIT_HOME, then the nearest kit ancestor of the module,
- * executable, or working directory, then the executable directory. Running
- * installation sources take priority so an unrelated checkout cannot replace
- * the installation that is executing.
+ * Resolve DOCKS_KIT_HOME, then the nearest kit ancestor of the module, then
+ * the nearest kit ancestor of the working directory, then the executable
+ * directory. The module comes first so an unrelated checkout cannot replace
+ * the installation that is executing. The executable directory is the last
+ * resort: under Bun it holds no kit, so `update` stops with the error that the
+ * home is neither a git checkout nor a global package install.
  */
 export const resolveKitHome = (sources: KitHomeSources): string => {
   if (sources.env !== undefined && sources.env !== "") {
     return explicitKitHome(resolve(sources.env), sources.env);
   }
 
-  return (
-    findKitHome(sources.moduleDir) ??
-    findKitHome(dirname(sources.execPath)) ??
-    findKitHome(sources.cwd) ??
-    dirname(sources.execPath)
-  );
+  return findKitHome(sources.moduleDir) ?? findKitHome(sources.cwd) ?? dirname(sources.execPath);
 };
 
 export const kitHome = (): string =>
