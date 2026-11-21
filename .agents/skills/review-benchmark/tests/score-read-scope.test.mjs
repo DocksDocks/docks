@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { test } from 'vitest';
+import { onTestFinished, test, vi } from 'vitest';
 import { BUN_RUNTIME } from '../../../../cli/test/lib/cliEntry.ts';
 import * as score from '../scripts/score.mjs';
 import { dispatchName, namesCommand, renderReport, scoreRuns, transcriptsCommand } from '../scripts/score.mjs';
@@ -344,6 +344,99 @@ test('readScope refuses a glob or a search of a folder that holds a symbolic lin
   fs.mkdirSync(path.join(plain, 'deep'));
   fs.symlinkSync(path.join(plain, 'src'), path.join(plain, 'deep', 'k'));
   assert.deepEqual(score.readScope(searchesOf(plain), scopeOf('code-8')), { outside: [] });
+});
+// A snapshot folder of the case `caseId` in a scratch workspace, and the read scope of a run of that case whose
+// working folder is the snapshot.
+function snapshotScope(root, caseId) {
+  const snapshot = path.join(root, 'ws', caseId, 'snapshot');
+  put(snapshot, 'src/sync.mjs', 'export const lock = 1;\n');
+  const scope = { runDir: path.join(root, 'ws', caseId, 'C3-low', 'run-1'), cwd: snapshot, pluginRoots: [], heldSkills: [] };
+  return { snapshot, scope };
+}
+test('readScope refuses a search of a snapshot whose link reaches a folder that holds the benchmark folder', () => {
+  const root = scratch();
+  const { snapshot, scope } = snapshotScope(root, 'code-7');
+  // `.agents/skills` holds the benchmark folder, so a search through the link can reach its held-out cases.
+  const skills = path.dirname(SKILL_DIR);
+  fs.symlinkSync(skills, path.join(snapshot, 'sk'));
+  const searches = [
+    { name: 'grep', path: snapshot },
+    { name: 'glob', path: path.join(snapshot, '**', 'x.json') },
+  ];
+  const listed = vi.spyOn(fs, 'readdirSync');
+  onTestFinished(() => listed.mockRestore());
+  assert.deepEqual(score.readScope(searches, scope), { outside: searches.map((call) => call.path) });
+  // The folder that holds the benchmark folder counts at once: the walk does not list it to find the benchmark folder
+  // inside it.
+  const skillsReal = fs.realpathSync(skills);
+  assert.ok(listed.mock.calls.some(([dir]) => dir === fs.realpathSync(snapshot)));
+  assert.equal(listed.mock.calls.filter(([dir]) => isUnderOrSame(skillsReal, dir)).length, 0);
+});
+// The folder itself or a path below it.
+function isUnderOrSame(folder, target) {
+  const relative = path.relative(folder, target);
+  return relative === '' || !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
+}
+test('readScope follows a link of a searched folder to a folder that holds another link into the benchmark folder', () => {
+  const root = scratch();
+  // Two hops: `snapshot/hop` links to a folder outside the workspace, whose link `k` leads to the held-out cases. The
+  // snapshot of code-8 links to a folder whose link `k` leads to a plain folder outside the benchmark folder.
+  const hopSearches = (caseId, target) => {
+    const { snapshot, scope } = snapshotScope(root, caseId);
+    const elsewhere = path.join(root, `elsewhere-${caseId}`);
+    fs.mkdirSync(elsewhere);
+    fs.symlinkSync(target, path.join(elsewhere, 'k'));
+    fs.symlinkSync(elsewhere, path.join(snapshot, 'hop'));
+    const searches = [
+      { name: 'grep', path: snapshot },
+      { name: 'glob', path: path.join(snapshot, '**', '*.md') },
+    ];
+    return { searches, scope };
+  };
+  const linked = hopSearches('code-7', path.join(SKILL_DIR, 'cases', 'heldout'));
+  assert.deepEqual(score.readScope(linked.searches, linked.scope), {
+    outside: linked.searches.map((call) => call.path),
+  });
+  const plainTarget = path.join(root, 'plain');
+  put(plainTarget, 'notes.md', 'notes\n');
+  const plain = hopSearches('code-8', plainTarget);
+  assert.deepEqual(score.readScope(plain.searches, plain.scope), { outside: [] });
+});
+test('readScope refuses a search of / or of another folder outside the inputs by its allow rules, before it lists any folder', () => {
+  const root = scratch();
+  const { snapshot, scope } = snapshotScope(root, 'code-7');
+  // A folder outside the inputs of the run that does not hold the benchmark folder: only the order of the checks keeps
+  // the walk from listing it.
+  const elsewhere = path.join(root, 'elsewhere');
+  put(elsewhere, 'notes.md', 'notes\n');
+  const listed = vi.spyOn(fs, 'readdirSync');
+  onTestFinished(() => listed.mockRestore());
+  const searches = [
+    { name: 'grep', path: '/' },
+    { name: 'glob', path: '/**/*.key.json' },
+    { name: 'find', path: '/' },
+    { name: 'grep', path: elsewhere },
+    { name: 'glob', path: path.join(elsewhere, '**', '*.md') },
+  ];
+  assert.deepEqual(score.readScope(searches, scope), {
+    outside: ['/', '/**/*.key.json', elsewhere, path.join(elsewhere, '**', '*.md')],
+  });
+  assert.equal(listed.mock.calls.length, 0);
+  // The spy sees the walk of an allowed search root, so the count above shows that no walk ran.
+  assert.deepEqual(score.readScope([{ name: 'grep', path: snapshot }], scope), { outside: [] });
+  assert.ok(listed.mock.calls.some(([dir]) => dir === fs.realpathSync(snapshot)));
+});
+test('readScope refuses a search whose walk lists more entries than its walk budget', () => {
+  const root = scratch();
+  const { snapshot, scope } = snapshotScope(root, 'code-7');
+  // 50,001 empty files in one folder: more entries than the walk budget of one readScope call (score.mjs
+  // MAX_WALK_ENTRIES, 50,000), although no link is in the tree.
+  const many = path.join(snapshot, 'many');
+  fs.mkdirSync(many);
+  for (let index = 0; index < 50_001; index += 1) fs.closeSync(fs.openSync(path.join(many, `f${index}`), 'w'));
+  assert.deepEqual(score.readScope([{ name: 'grep', path: snapshot }], scope), { outside: [snapshot] });
+  // A search of a small folder of the same snapshot stays inside the budget and so inside the scope.
+  assert.deepEqual(score.readScope([{ name: 'grep', path: path.join(snapshot, 'src') }], scope), { outside: [] });
 });
 test('readScope of a loop round allows the tree copies of its run up to that round and nothing fixed after it', () => {
   const run = `${SCOPE_CASE}/B0-low/run-1`;

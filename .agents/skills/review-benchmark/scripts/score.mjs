@@ -2999,8 +2999,9 @@ function scopeRules(runDir, round, { pluginRoots, agentFiles, skillRoots, heldSk
     skillRoots: agentFiles.length > 0 ? skillRoots : [],
     measuredSkills: new Set([...REVIEWER_SKILLS, ...heldSkills]),
     changed: distinct(changedFiles.flatMap(changedPathKeys)),
-    // The link walk of each searched folder in this call (see linksIntoBenchmark).
+    // The link walk of each searched folder in this call, and its entry budget (see searchReachesBenchmark).
     linkWalks: new Map(),
+    walkBudget: { left: MAX_WALK_ENTRIES },
   };
 }
 
@@ -3207,42 +3208,67 @@ function insideBenchmark(target) {
   return BENCHMARK_DIRS.some((dir) => isUnder(dir, linked));
 }
 
-// True when a symbolic link at any depth under the folder `dir` resolves into the live benchmark folder (see
-// linkedPath and insideBenchmark). A glob and a search walk the folder that they search, and a walk can follow such a
-// link, so the read can reach the answer keys although its own path is outside the benchmark folder. The walk lists
-// each folder once with `withFileTypes`, so it does not follow a link into a folder: each link is one entry that it
-// resolves. `walks` caches the result of each folder for one readScope call. A folder that the walk cannot list, or a
-// path that is no folder, holds no link.
-function linksIntoBenchmark(dir, walks) {
-  if (walks.has(dir)) return walks.get(dir);
-  let entries = [];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true, recursive: false });
-  } catch {
-    // No folder, or a folder that the walk cannot list: no search reads under it.
-  }
-  walks.set(dir, false);
-  const found = entries.some((entry) => {
-    const entryPath = path.join(dir, entry.name);
-    if (entry.isSymbolicLink()) return insideBenchmark(entryPath);
-    return entry.isDirectory() && linksIntoBenchmark(entryPath, walks);
-  });
-  walks.set(dir, found);
-  return found;
+// True when a search of the folder `root` can reach the live benchmark folder: the folder that `root` reaches (see
+// linkedPath) is inside the benchmark folder or holds it (an ancestor such as `.agents/skills`), or a symbolic link
+// at any depth under it reaches such a folder. A search follows the links of the tree that it walks, so the walk
+// follows each link to a folder too, and lists each real folder once (`rules.linkWalks`). Each listed entry takes one
+// unit of `rules.walkBudget`; a walk that uses up the budget counts as reaching the benchmark folder, so a search of
+// a large tree fails closed instead of stalling the report. localPathAllowed runs this check only for a search root
+// that the other rules allow.
+const MAX_WALK_ENTRIES = 50_000;
+const holdsOrInBenchmark = (target) =>
+  BENCHMARK_DIRS.some((dir) => isUnder(dir, target) || isUnder(target, dir));
+function searchReachesBenchmark(root, rules) {
+  const walk = (dir) => {
+    if (holdsOrInBenchmark(dir)) return true;
+    if (rules.linkWalks.has(dir)) return rules.linkWalks.get(dir);
+    rules.linkWalks.set(dir, false);
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true, recursive: false });
+    } catch {
+      // No folder, or a folder that the walk cannot list: no search reads under it.
+    }
+    const found = entries.some((entry) => {
+      rules.walkBudget.left -= 1;
+      if (rules.walkBudget.left < 0) return true;
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) return walk(entryPath);
+      if (!entry.isSymbolicLink()) return false;
+      const linked = linkedPath(entryPath);
+      if (holdsOrInBenchmark(linked)) return true;
+      let isFolder = false;
+      try {
+        isFolder = fs.statSync(linked).isDirectory();
+      } catch {
+        // A dangling link reaches no folder.
+      }
+      return isFolder && walk(linked);
+    });
+    rules.linkWalks.set(dir, found);
+    return found;
+  };
+  return walk(linkedPath(root));
 }
 
 // A relative path resolves against the working directory, so without one it is outside. A path inside the live
-// benchmark folder (see insideBenchmark), which holds the answer keys, is outside, whatever else allows it, and so is a
-// glob, or the folder of a search tool (`searches`, see omp.mjs SEARCH_TOOLS), whose searched folder holds a symbolic
-// link into that folder (see linksIntoBenchmark). A glob is allowed when the folder before its first glob segment is
-// allowed and no later segment can leave that folder with `..`. The checks read the path after normalizeLocal.
+// benchmark folder (see insideBenchmark), which holds the answer keys, is outside, whatever else allows it. A glob is
+// allowed when the folder before its first glob segment is allowed and no later segment can leave that folder with
+// `..`. An allowed glob, or an allowed folder of a search tool (`searches`, see omp.mjs SEARCH_TOOLS), is still
+// outside when the search can reach the benchmark folder (see searchReachesBenchmark). The checks read the path
+// after normalizeLocal.
 function localPathAllowed(written, cwd, rules, searches = false) {
   if (!path.isAbsolute(written) && typeof cwd !== 'string') return false;
   const target = normalizeLocal(written);
   const { base, rest } = globParts(target);
   const searched = path.resolve(cwd ?? path.sep, base);
   if (insideBenchmark(searched)) return false;
-  if ((rest.length > 0 || searches) && linksIntoBenchmark(searched, rules.linkWalks)) return false;
+  if (!rulesAllow(target, base, rest, searched, cwd, rules)) return false;
+  return !((rest.length > 0 || searches) && searchReachesBenchmark(searched, rules));
+}
+
+// The allow rules of localPathAllowed for a path whose folder before the first glob segment is `searched`.
+function rulesAllow(target, base, rest, searched, cwd, rules) {
   if (rest.length === 0) {
     const resolved = path.resolve(cwd ?? path.sep, target);
     if (folderAllowed(resolved, rules) || fileAllowed(resolved, rules)) return true;
@@ -3250,8 +3276,7 @@ function localPathAllowed(written, cwd, rules, searches = false) {
     return skillReadAllowed(installedKey(target, resolved), rules);
   }
   if (rest.some((segment) => segment.includes('..'))) return false;
-  const resolvedBase = path.resolve(cwd ?? path.sep, base);
-  return folderAllowed(resolvedBase, rules) || skillReadAllowed(installedKey(base, resolvedBase), rules);
+  return folderAllowed(searched, rules) || skillReadAllowed(installedKey(base, searched), rules);
 }
 
 // A web page outside the benchmark repository. The pages of the repository can show the fixes of the corpus defects.
