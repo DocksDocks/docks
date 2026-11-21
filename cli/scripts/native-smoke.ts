@@ -4,10 +4,14 @@ import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { targetForHost } from "../src/engine-native/os/targets";
+import { COMPILE_FLAGS, targetForHost } from "../src/engine-native/os/targets";
 
 const REPO_DIR = resolve(import.meta.dirname, "..", "..");
 const DIST_DIR = join(REPO_DIR, "cli", "dist");
+/** JavaScriptCore logs each bytecode cache lookup when this variable is 1. */
+const BYTECODE_LOG_ENV = "BUN_JSC_verboseDiskCache";
+/** The line that the binary prints when it runs its embedded bytecode. */
+const BYTECODE_HIT = "[Disk Cache] Cache hit for sourceCode";
 
 function fail(message: string): never {
   throw new Error(message);
@@ -37,8 +41,7 @@ function main(): void {
     "bun",
     [
       "build",
-      "--compile",
-      "--minify",
+      ...COMPILE_FLAGS,
       `--target=${target.bunTarget}`,
       join(REPO_DIR, "cli", "src", "main.ts"),
       "--outfile",
@@ -64,6 +67,21 @@ function main(): void {
     );
   }
   console.log(`[native-smoke] version: ${reportedVersion}`);
+
+  // A Bun that rejects the embedded bytecode parses the source again without
+  // an error, and the binary only loses its faster start, so check the hit.
+  const bytecodeRun = spawnSync(artifactPath, ["--version"], {
+    cwd: REPO_DIR,
+    encoding: "utf8",
+    env: { ...process.env, [BYTECODE_LOG_ENV]: "1" },
+  });
+  requireSuccess(`native --version with ${BYTECODE_LOG_ENV}=1`, bytecodeRun);
+  if (!`${bytecodeRun.stdout}\n${bytecodeRun.stderr}`.includes(BYTECODE_HIT)) {
+    fail(
+      `native binary ran without its embedded bytecode: no "${BYTECODE_HIT}" line with ${BYTECODE_LOG_ENV}=1; check that COMPILE_FLAGS in cli/src/engine-native/os/targets.ts holds --bytecode and that the Bun that compiled the binary also runs it`,
+    );
+  }
+  console.log(`[native-smoke] bytecode: ${BYTECODE_HIT}`);
 
   const temporaryHome = mkdtempSync(join(tmpdir(), "docks-kit-native-smoke-"));
   try {
