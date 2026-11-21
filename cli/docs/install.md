@@ -50,7 +50,7 @@ release asset (`docks-kit.js.map`), matched by the bundle's `//# debugId=` line.
 Kit-home resolution remains available for checkout/package update behavior and
 display paths, but sync reads do not depend on it.
 
-### Bun 1.4.4 install output
+### Bun 1.4.5 install output
 
 A supported global install completes with no blocked postinstall. The graph
 holds nine packages, and no package in it has an install script. `bun pm -g

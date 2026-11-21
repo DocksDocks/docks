@@ -6,7 +6,15 @@ docks-kit now runs only through Bun: the npm package runs the Bun bundle
 `cli/dist/docks-kit.js`, and a checkout runs its source through the launchers.
 The kit no longer builds, tests, or releases compiled binaries
 (DocksDocks/docks-kit#195). These changes come from plan
-DocksDocks/docks-kit#189 and plan #195.
+DocksDocks/docks-kit#189, plan #195, and plan #198.
+
+### Changed
+
+- The Bun floor and pin move to 1.4.5, a security release that updates lsquic,
+  c-ares, SQLite, llhttp, and BoringSSL and fixes TLS, DNS, and HTTP issues
+  in `fetch` and `node:https`. The installers install Bun 1.4.5, CI runs it,
+  and a checkout launcher refuses Bun 1.4.4 and older; run `bun upgrade`
+  (DocksDocks/docks-kit#198).
 
 ### Removed
 
