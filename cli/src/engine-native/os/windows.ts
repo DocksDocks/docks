@@ -98,6 +98,10 @@ export const windows: HostOs = {
       ? commandShimInvocation(executablePath, args)
       : { command: executablePath, args },
   bunExecutableName: "bun.exe",
+  bunSearch: [
+    { base: "bunRoot", rest: ["bin", "bun.exe"] },
+    { base: "home", rest: [".bun", "bin", "bun.exe"] },
+  ],
   bunInstaller: (pin, directory) => {
     const scriptPath = p(directory, "install.ps1");
     return {
