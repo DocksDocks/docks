@@ -1,0 +1,16 @@
+{
+  "id": "code-133-r1-e146",
+  "kind": "code",
+  "split": "heldout",
+  "issue": 133,
+  "pull": 137,
+  "round": 1,
+  "cycle": 1,
+  "base": "d800d0c0e276ab6e54c73925a085fc6063313f4f",
+  "head": "6a1b77d5b03b2e75b8a87e1964fc26aa6fde8e96",
+  "plan": "code-133-r1-e146-plan.md",
+  "external": [
+    "plan"
+  ],
+  "show_benchmark": true
+}

@@ -1,0 +1,12 @@
+diff --git a/docs/PLAN-QUEUE.md b/docs/PLAN-QUEUE.md
+index 9bf32cae..2a382825 100644
+--- a/docs/PLAN-QUEUE.md
++++ b/docs/PLAN-QUEUE.md
+@@ -6,7 +6,6 @@ This file records selection order only. It grants no review, lifecycle, mutation
+ or external-effect authority. Canonical plan records, current user intent, and
+ observed acceptance remain authoritative.
+ The `Plan` cell now holds a plan issue number; any existing non-numeric cell names a frozen pre-GitHub record.
+-An empty `Depends on` cell is `-`; `parseQueue` reads it as no dependency (plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs:973).
+ 
+ | Stage | Plan | Depends on | Why |
+ |---:|---|---|---|

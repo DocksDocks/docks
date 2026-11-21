@@ -1,0 +1,13 @@
+diff --git a/scripts/tests/test-contracts.mjs b/scripts/tests/test-contracts.mjs
+index b2b8cf82..7723c2ac 100755
+--- a/scripts/tests/test-contracts.mjs
++++ b/scripts/tests/test-contracts.mjs
+@@ -464,7 +464,7 @@ export function shebangInterpreter(source) {
+   while (pending.length > 0) {
+     const word = pending.shift();
+     // `--` ends the options, but `env` still reads NAME=VALUE assignments after it.
+-    if (word === '--') return pending.find((rest) => !/^[^=]+=/u.test(rest)) ?? '';
++    if (word === '--') return path.posix.basename(pending.find((rest) => !/^[^=]+=/u.test(rest)) ?? '');
+     if (word === '-' || word === '--ignore-environment') continue;
+     if (word.startsWith('--')) {
+       const [name, value] = word.split(/=(.*)/su);

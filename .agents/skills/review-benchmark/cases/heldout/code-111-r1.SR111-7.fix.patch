@@ -1,0 +1,17 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 9d6663a..dab0176 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -671,8 +671,10 @@ reproduce the finding; when something does reach the fault, fix it and review
+ again. Do not change reviewed bytes for the unreached findings. Before you
+ write the run summary, list them in one follow-up issue that links the plan
+ issue (`gh issue create --repo <owner/repo>`), and list them under Open
+-findings in the run summary. On the recorded review loops of the plugin's
+-benchmark, this rule removed 3 of 73 rounds, and no known defect escaped.
++findings in the run summary. A replay on the plugin's benchmark that applied
++this rule to every LOW finding, not only to unreached ones, removed at most 3
++of 73 rounds in one arm and 0 to 2 rounds in the others, and no known defect
++escaped.
+ 
+ A phase stalls when round 10 ends without a pass, when the same finding returns
+ after two different repairs, or when dispatch fails twice without a relevant

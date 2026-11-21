@@ -1,0 +1,37 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index bcbc7a5f..81da0cbb 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -363,7 +363,7 @@ const token = (value) => unquoteCode(value.trim()).toLowerCase();
+ const stepId = (value) => token(value).replaceAll('-', '_');
+ const terminal = (status) => ['done', 'skipped'].includes(status);
+ function sectionMap(body) {
+-  const headings = [...blankFencedRegions(body).matchAll(/^\s*##[ \t]+([^\n]+)$/gm)];
++  const headings = [...blankFencedRegions(body).matchAll(/^ {0,3}##[ \t]+([^\n]+)$/gm)];
+   const sections = new Map();
+   headings.forEach((heading, index) => {
+     const name = SECTIONS.find((known) => known.toLowerCase() === heading[1].trim().toLowerCase()) ?? heading[1].trim();
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 649f3452..fab751e0 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -306,6 +306,19 @@ try {
+     `unreadable export provenance: ${unreadableFile}.origin`,
+   );
+ 
++  // A fenced block that ends a section survives normalization with either fence style.
++  for (const fence of ['```', '~~~']) {
++    const trailing = createPlan(`trailing fence ${fence}`);
++    const evidence = `${fence}text\nnode smoke.mjs | tail -1\n${fence}`;
++    expectSuccess(
++      edit(trailing, (text) =>
++        text.replace('The parser loses mixed-case records.\n', `The parser loses mixed-case records.\n\n${evidence}\n`),
++      ),
++      `edit with trailing ${fence} fence`,
++    );
++    assert.ok(issue(trailing).body.includes(evidence), `trailing ${fence} block is preserved`);
++  }
++
+   // The event history keeps step state frozen even if phase labels are reset.
+   const frozen = createPlan('frozen steps');
+   updateIssue(frozen, (entry) => {

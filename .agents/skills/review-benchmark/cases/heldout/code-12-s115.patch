@@ -1,0 +1,63 @@
+diff --git a/.github/AGENTS.md b/.github/AGENTS.md
+index 0103a1ca..9cd1a63a 100644
+--- a/.github/AGENTS.md
++++ b/.github/AGENTS.md
+@@ -105,8 +105,8 @@ Mitigations against npm and GitHub Actions supply-chain attacks. Each is load-be
+ - **Pin every `uses:` to a 40-char commit SHA**, never a tag, with the version as a trailing comment (`actions/checkout@<sha> # v6.0.2`). A `@vN` tag is a moving target an attacker can republish; the tag-push run executes with `GITHUB_TOKEN`. SHA bumps are MANUAL — no update automation is configured (verify: `ls .github/dependabot.yml renovate.json` → neither exists); update the SHA + version comment together when bumping an action.
+ - **`permissions: contents: read`** at workflow scope — least privilege for validators and artifact builders.
+ - **Dependency caches use official `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0`**, with the Bun key bound to `bun.lock` and `package.json`. Bun itself comes from `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0`, which reads the `packageManager` pin and caches only the executable.
+-- **`claude-code` is pinned rather than installed globally**: it is an exact-version devDependency in `package.json` and hash-locked in `bun.lock`, including its eight platform-binary optional dependencies. `bunfig.toml` sets `minimumReleaseAge = 259200` seconds to quarantine fresh publishes; bump the dependency only to a version older than that quarantine.
+-- **Lifecycle scripts are denied in `package.json` with `"trustedDependencies": []`.** The empty array is the only spelling that denies every lifecycle script. Omitting the field instead trusts Bun's built-in list, which includes `@anthropic-ai/claude-code`.
++- **`claude-code` is pinned rather than installed globally**: it is an exact-version devDependency in `package.json` and hash-locked in `bun.lock`, including its eight platform-binary optional dependencies. `bunfig.toml` sets `minimumReleaseAge = 4320` to quarantine fresh publishes for three days; bump the dependency only to a version older than that quarantine.
++- **Lifecycle scripts are denied by default.** Bun runs the lifecycle scripts of a dependency only when `package.json` lists it in `trustedDependencies`, so the field is left out and no dependency script runs.
+ - **The PR `core` lane and every non-PR `validate` execution** run `bun install --frozen-lockfile`, then `node node_modules/@anthropic-ai/claude-code/install.cjs` to materialize the approximately 230 MB CLI binary whose lifecycle script was denied, and put `node_modules/.bin` on PATH so `ci.mjs`'s `claude plugin validate` resolves. The PR `validate` job is only the authoritative lane-result join. Node 24 remains the validator runtime; Bun is the package manager and script runner.
+ - **`npm audit signatures`** remains the non-blocking signature check after every install because Bun has no signature-verification equivalent.
+ </constraint>
+diff --git a/bunfig.toml b/bunfig.toml
+index 5556b087..8c7aa313 100644
+--- a/bunfig.toml
++++ b/bunfig.toml
+@@ -1,22 +1,18 @@
+ # Supply-chain hardening, ported from pnpm-workspace.yaml (Supabase / pnpm Dec-2025 guidance).
+ [install]
+ 
+-# Quarantine freshly-published versions. pnpm stated 4320 minutes; Bun states seconds.
+-# Both are three days.
+-minimumReleaseAge = 259200
++# Quarantine freshly-published versions for three days, as pnpm-workspace.yaml did
++# with the same value.
++minimumReleaseAge = 4320
+ 
+-# pnpm's store layout was the isolated kind. Bun defaults an existing project to
+-# "hoisted", so the strategy has to be stated to keep it.
+-linker = "isolated"
+-
+-# The isolated linker otherwise creates node_modules/.bun/node_modules, which sits on
++# pnpm's store layout was the isolated kind, and Bun 1.4 installs with the isolated
++# linker by default. That linker otherwise creates node_modules/.bun/node_modules, which sits on
+ # the upward resolution path of every package in the store, so a package can resolve a
+ # dependency it never declared. false skips that directory and makes the import fail.
+ hoist = false
+ 
+-# Lifecycle scripts stay denied by default. `trustedDependencies: []` in package.json
+-# trusts nothing, replacing pnpm's `allowBuilds: {'@anthropic-ai/claude-code': false}`.
+-# An empty array is the only spelling that denies everything: omitting the field trusts
+-# every package on Bun's built-in list, which includes @anthropic-ai/claude-code.
+-# Its postinstall materializes a ~230MB CLI binary that only the plugin-validate CI job
++# Lifecycle scripts stay denied by default. Bun runs the lifecycle scripts of a dependency
++# only when package.json lists it in `trustedDependencies`, so leaving the field out keeps
++# pnpm's `allowBuilds: {'@anthropic-ai/claude-code': false}` behavior.
++# The claude-code postinstall materializes a ~230MB CLI binary that only the plugin-validate CI job
+ # needs, and that job runs `node install.cjs` itself.
+diff --git a/package.json b/package.json
+index 6655b1fe..9d3ea8a3 100644
+--- a/package.json
++++ b/package.json
+@@ -15,7 +15,6 @@
+     "test:contracts": "node scripts/tests/test-contracts.mjs",
+     "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs' --test-coverage-exclude='**/scripts/tests/**' --test-coverage-exclude='**/plugins/**/test/**' scripts/tests/plan-cli.mjs"
+   },
+-  "trustedDependencies": [],
+   "devDependencies": {
+     "@anthropic-ai/claude-code": "2.1.234",
+     "@biomejs/biome": "2.5.4",

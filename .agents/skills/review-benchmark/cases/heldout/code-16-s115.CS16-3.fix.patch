@@ -1,0 +1,14 @@
+diff --git a/scripts/tests/ci-plugin-targeting.mjs b/scripts/tests/ci-plugin-targeting.mjs
+index 73b1fee5..35e1955d 100755
+--- a/scripts/tests/ci-plugin-targeting.mjs
++++ b/scripts/tests/ci-plugin-targeting.mjs
+@@ -1001,7 +1001,8 @@ async function testGenericReleaseModuleContract(
+         plugins: PLUGINS,
+         io: publishedRecut.io,
+       }),
+-    `already released: ${recutPlugin.name} v${recutVersion}`,
++    new RegExp(`already released: ${recutPlugin.name} v${recutVersion}`),
++    'a published tag must refuse the re-cut instead of previewing it',
+   );
+   assert.equal(
+     publishedRecut.calls.some(({ tool }) => ['writeJson', 'commit', 'push', 'createTag'].includes(tool)),

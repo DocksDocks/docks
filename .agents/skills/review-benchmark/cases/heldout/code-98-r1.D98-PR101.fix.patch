@@ -1,0 +1,100 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index fe6df97b..ff4af4c0 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -188,12 +188,13 @@ agents define the exact block they return, and that block follows these rules.
+   any case, after optional `#` heading markers. Any suffix, such as `round 2`
+   or `round 2, lens correctness`, is allowed.
+ - A comment holds one or more review blocks. A block starts at the first line,
+-  or at a later Markdown heading line (one or more `#`) that names the
+-  comment's kind. A panel round comment holds one block per lens.
++  or at a later Markdown heading line (one or more `#`, indented by at most
++  three spaces) that names the comment's kind. A quoted or list-item heading
++  is prose and starts no block. A panel round comment holds one block per lens.
+ - A verdict line holds `plan-review:` or `code-review:`, then a verdict word.
+   A space can replace the hyphen.
+ - On each line, the helper ignores Markdown emphasis (`*`, `_`), code marks,
+-  blockquote markers, and list markers.
++  blockquote markers, and list markers when it reads a kind or a verdict.
+ 
+ | Verdict input | Plan result | Code result |
+ |---|---|---|
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 5876b77d..9394e962 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -744,10 +744,16 @@ const severeFinding = (text) =>
+   /^(?:critical|high)\s*:/i.test(text) ||
+   /^severity\s*:\s*(?:critical|high)\b/i.test(text);
+ // One comment can hold several blocks of the same kind, such as the lens blocks of one code-review round (#98).
+-// A block starts at the first line or at a later Markdown heading that names the comment's review kind. Its verdict
+-// is its first verdict line of that kind; later verdict-like lines are prose, such as a quoted verdict of an earlier
+-// round. The most severe block verdict wins, so no block can hide another's failure.
+-const REVIEW_BLOCK_HEADING = /^#+\s*(plan|code) review/i;
++// A block starts at the first line or at a later Markdown heading line that names the comment's review kind. A
++// quoted or list-item heading is prose, so a block that quotes an earlier round cannot open a block of its own. A
++// block's verdict is its first verdict line of that kind; later verdict-like lines are prose, such as a quoted
++// verdict of an earlier round. The most severe block verdict wins, so no block can hide another's failure.
++// A heading line has `#` after at most three spaces, so a `*` list marker is not emphasis here; only the title after
++// the `#` markers is read through emphasis and code marks.
++function blockHeadingKind(rawLine) {
++  const heading = /^ {0,3}#+(.*)$/.exec(rawLine);
++  return heading && /^\s*(plan|code) review/i.exec(heading[1].replace(/[*_`]/g, ''))?.[1].toLowerCase();
++}
+ const VERDICT_SEVERITY = { pass: 0, repair: 1, 'fixes-required': 1, blocked: 2 };
+ function verdictFor(kind, alias) {
+   if (['pass', 'ok', 'approved'].includes(alias)) return 'pass';
+@@ -756,13 +762,15 @@ function verdictFor(kind, alias) {
+ }
+ export function parseReviewComment(body) {
+   if (typeof body !== 'string') return undefined;
+-  const lines = body.trim().split(/\r?\n/).map(reviewText);
++  const rawLines = body.trim().split(/\r?\n/);
++  const lines = rawLines.map(reviewText);
+   const heading = REVIEW_HEADING.exec(lines[0]);
+   if (!heading) return undefined;
+   const kind = heading[1].toLowerCase();
+   const blocks = [[]];
+-  for (const line of lines.slice(1)) {
+-    if (REVIEW_BLOCK_HEADING.exec(line)?.[1].toLowerCase() === kind) blocks.push([]);
++  for (const [index, line] of lines.entries()) {
++    if (index === 0) continue;
++    if (blockHeadingKind(rawLines[index]) === kind) blocks.push([]);
+     else blocks.at(-1).push(line);
+   }
+   const firstVerdict = (block) =>
+diff --git a/scripts/tests/plan-cli/reviews.test.mjs b/scripts/tests/plan-cli/reviews.test.mjs
+index 116fbe61..aa7ce65c 100644
+--- a/scripts/tests/plan-cli/reviews.test.mjs
++++ b/scripts/tests/plan-cli/reviews.test.mjs
+@@ -89,6 +89,30 @@ test('only the first verdict line of each review block counts, so prose cannot h
+       '### Plan review round 3\n\nPlan-review: pass\n\n- plan review notes for the next round\n\nNone.',
+       { kind: 'plan', verdict: 'pass' },
+     ],
++    // A quoted heading of an earlier round is prose, so its quoted verdict cannot open a block that wins.
++    [
++      '### Code review round 2, delta\n\nCode-review: pass\n\n## Previous findings\n\n> ### Code review round 1\n> Code-review: fixes-required\n\n## Standards\n\nNone.',
++      { kind: 'code', verdict: 'pass' },
++    ],
++    // A list item that holds a heading is prose too, also with a `*` marker, which is not emphasis here.
++    [
++      '### Plan review round 3\n\nPlan-review: pass\n\nNone.\n\n- ### Plan review round 2\n- Plan-review: repair',
++      { kind: 'plan', verdict: 'pass' },
++    ],
++    [
++      '### Code review round 2, delta\n\nCode-review: pass\n\n## Previous findings\n\n* ### Code review round 1\n* Code-review: fixes-required',
++      { kind: 'code', verdict: 'pass' },
++    ],
++    // An emphasized heading title still starts a block.
++    [
++      '### Code review round 1, lens correctness\n\nCode-review: pass\n\n### **Code review round 1, lens text-and-safety**\n\nCode-review: blocked\nMissing input: the focus diff.',
++      { kind: 'code', verdict: 'blocked' },
++    ],
++    // A heading indented by up to three spaces is still a Markdown heading, so its block counts.
++    [
++      '### Code review round 1, lens correctness\n\nCode-review: pass\n\n   ### Code review round 1, lens spec-and-tests\n\nCode-review: fixes-required',
++      { kind: 'code', verdict: 'fixes-required' },
++    ],
+   ];
+   for (const [text, expected] of cases) assert.deepEqual(parseReviewComment(text), expected, text);
+ });

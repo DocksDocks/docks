@@ -1,0 +1,56 @@
+{
+  "id": "code-100-r3-d115",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 100,
+  "round": 3,
+  "base": "ecd1a12d826d6ef916fbc140312e0a1047d27f3a",
+  "delta_base": "a3e078827c14502a5382d3ac724dbdaf55b0e9eb",
+  "head": "ec46bab17f91343177bf633f8cd7b97d2f0f99bf",
+  "plan": "code-100-r3-d115-plan.md",
+  "previous_review": "code-100-r3-d115-previous-review.md",
+  "show_benchmark": true,
+  "known": [
+    {
+      "id": "D100R3-1",
+      "title": "A relative part of a list read resolves against the wrong folder, so a read of the live checkout stays allowed",
+      "locator": ".agents/skills/review-benchmark/scripts/score.mjs:1882-1899; .agents/skills/review-benchmark/scripts/score.mjs:1962-1963; .agents/skills/review-benchmark/SKILL.md:148",
+      "severity": "MEDIUM",
+      "category": "code",
+      "source": "review-round",
+      "summary": "listParts (score.mjs:1888-1899) joins a relative part after the first part to the folder of the first part. omp resolves that part against its working folder, which is the live checkout with the fixes. So for the read `<case>/snapshot/src/a.mjs, plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md`, omp reads the live file, but readScope (score.mjs:1962-1963) checks a path under the snapshot and keeps the run valid. The code comment (score.mjs:1882-1887) and the new Limit sentence (SKILL.md:148) record this gap instead of a repair. Plan decision 4 makes every read outside the inputs invalid and approves no such limit.",
+      "fix": "code-100-r3-d115.D100R3-1.fix.patch"
+    },
+    {
+      "id": "D100R3-2",
+      "title": "The decision table still calls the B0 against C1 row a comparison of the prompt version only",
+      "locator": ".agents/skills/review-benchmark/results.md:436",
+      "severity": "LOW",
+      "category": "text",
+      "source": "review-round",
+      "summary": "The decision-table row at results.md:436 has the label \"Prompt version only (B0 against C1)\". The delta changed the arm list (results.md:396) and the loop-table row (results.md:412): they now say that B0 and C1 differ in the prompt version and in the round policy. So the results log gives two different descriptions of the same comparison.",
+      "fix": "code-100-r3-d115.D100R3-2.fix.patch"
+    },
+    {
+      "id": "D100R3-3",
+      "title": "The loop counts a pulled-in fix patch as a repair, so a fix step that repaired nothing does not end the loop",
+      "locator": ".agents/skills/review-benchmark/scripts/prepare.mjs:1132-1139; .agents/skills/review-benchmark/scripts/prepare.mjs:1192-1195; .agents/skills/review-benchmark/scripts/score.mjs:710; scripts/tests/unit/review-benchmark.test.mjs:4502-4515",
+      "severity": "LOW",
+      "category": "code",
+      "source": "review-round",
+      "summary": "prepareLoop ends the loop only when the whole fix step leaves the round tree unchanged (prepare.mjs:1132-1139, 1192-1195). A pulled-in fix patch changes the tree, but it repairs no finding of the round. Example: the patch of D2 does not apply, so D2 goes to the fixer, and its fix_after pulls in D1. The fixer finds each finding `not present` and writes an empty patch, but the loop still builds a new round. scoreRound also counts that round as extra-only, because extraRepair (score.mjs:710) is true for each extra that goes to the fixer, and the test expects this wrong count for xhigh-fast (review-benchmark.test.mjs:4502-4515).",
+      "fix": "code-100-r3-d115.D100R3-3.fix.patch"
+    },
+    {
+      "id": "D100R3-4",
+      "title": "A path that exists but holds a space or a delimiter is split into parts, so valid reads count as outside",
+      "locator": ".agents/skills/review-benchmark/scripts/score.mjs:69; .agents/skills/review-benchmark/scripts/score.mjs:1888-1899; .agents/skills/review-benchmark/scripts/score.mjs:1962-1963",
+      "severity": "LOW",
+      "category": "code",
+      "source": "review-round",
+      "summary": "listParts (score.mjs:1888-1899) splits each local target on `;`, `,`, and white space (PATH_DELIMITER, score.mjs:69), and it does not check if the whole path exists. readScope (score.mjs:1962-1963) then needs each part to be allowed. omp reads the whole path when it exists. In a workspace folder whose name holds a space, for example `bench-<label>` (SKILL.md:295) with the label `gpt 7`, each snapshot read splits into parts outside the inputs. Then every run gets `read outside its inputs`, and the report has no valid run.",
+      "fix": "code-100-r3-d115.D100R3-4.fix.patch",
+      "fix_after": ["D100R3-1"]
+    }
+  ]
+}

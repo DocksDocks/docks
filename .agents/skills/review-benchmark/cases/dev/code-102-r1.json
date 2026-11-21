@@ -1,0 +1,75 @@
+{
+  "id": "code-102-r1",
+  "kind": "code",
+  "split": "dev",
+  "issue": 102,
+  "round": 1,
+  "base": "163acb53e4ce6c01ea7595a62971a494a81b81b7",
+  "head": "33c45f33727a8cc562a0ecfc2545aa6637898187",
+  "plan": "code-102-r1-plan.md",
+  "known": [
+    {
+      "id": "B102-1",
+      "locator": "scripts/tests/fixtures/gh-stub/gh:289-304",
+      "category": "test",
+      "source": "single-lens",
+      "summary": "No committed test calls the fake gh and checks that it returns only the selected pull request fields (for Repository.pullRequest, a closer, and the pull requests of a commit), so a change that brings back unselected fixture fields keeps the gate green.",
+      "fix": "code-102-r1.B102-1.fix.patch"
+    },
+    {
+      "id": "B102-2",
+      "locator": "scripts/tests/fixtures/gh-stub/gh:289-296",
+      "category": "test",
+      "source": "single-lens",
+      "summary": "The fake gh projects fields by searching the selection text for each fixture field name and ignores GraphQL aliases, so `{mergedAt: url}` returns the stored mergedAt plus an unrequested url instead of only `mergedAt` holding the URL, against the plan rule that a node holds only the fields its query selects.",
+      "fix": "code-102-r1.B102-2.fix.patch",
+      "fix_after": [
+        "B102-1"
+      ]
+    },
+    {
+      "id": "C102-1",
+      "locator": "scripts/tests/fixtures/gh-stub/gh:667; scripts/tests/fixtures/gh-stub/gh:289-302",
+      "category": "test",
+      "source": "missed-by-round",
+      "summary": "The fake gh gives a pull request's nested repository no `__typename` and does not apply inline fragments to it, so a query selecting `repository{__typename ... on Repository{nameWithOwner}}` gets an empty repository where GitHub returns both fields.",
+      "fix": "code-102-r1.C102-1.fix.patch",
+      "fix_after": [
+        "B102-1",
+        "B102-2"
+      ]
+    },
+    {
+      "id": "C102-2",
+      "locator": "scripts/tests/test-contracts.mjs:449-458",
+      "category": "test",
+      "source": "missed-by-round",
+      "summary": "The fixture shebang parser takes the first `env` word that is not an option or assignment as the interpreter, so `#!/usr/bin/env -S -u NODE_OPTIONS bun` yields `NODE_OPTIONS` and the registry check rejects a valid Bun toolchain declaration.",
+      "fix": "code-102-r1.C102-2.fix.patch"
+    },
+    {
+      "id": "C102-3",
+      "locator": "scripts/tests/fixtures/gh-stub/gh:677; scripts/tests/fixtures/gh-stub/gh:749-766",
+      "category": "test",
+      "source": "missed-by-round",
+      "summary": "The fake gh takes a node's selection from the first matching `closer{`, `nodes{`, or ClosedEvent fragment in the whole query, so two aliased CLOSED_EVENT connections both get the first connection's closer fields and `nodes{number} nodes{url}` loses the second selection, against the plan rule that a node holds only the fields its query level selects.",
+      "fix": "code-102-r1.C102-3.fix.patch",
+      "fix_after": [
+        "B102-1",
+        "B102-2",
+        "C102-1"
+      ]
+    },
+    {
+      "id": "C102-4",
+      "locator": "scripts/tests/test-contracts.mjs:576",
+      "category": "test",
+      "source": "missed-by-round",
+      "summary": "The diagnostic for an unnecessary toolchain names the contract id and the token but no evidence path of the discovered runners, although plan decision 1 requires each toolchain difference to carry the contract id, the toolchain, and the evidence path.",
+      "fix": "code-102-r1.C102-4.fix.patch",
+      "fix_after": [
+        "C102-2"
+      ]
+    }
+  ]
+}

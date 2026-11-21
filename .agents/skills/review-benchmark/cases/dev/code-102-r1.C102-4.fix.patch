@@ -1,0 +1,19 @@
+diff --git a/scripts/tests/test-contracts.mjs b/scripts/tests/test-contracts.mjs
+index 09c301df..0228b289 100755
+--- a/scripts/tests/test-contracts.mjs
++++ b/scripts/tests/test-contracts.mjs
+@@ -612,9 +612,13 @@ function main() {
+         toolchainDifferences.push(`${contract.id}.toolchains must list ${toolchain}: ${[...sources].join('; ')}`);
+       }
+     }
++    // The discovered runners are the evidence: they show which toolchains the row needs instead.
++    const discoveredRunners = [...new Set(runners.map(({ source }) => source))].join('; ');
+     for (const toolchain of contract.toolchains) {
+       if (!sourcesByToolchain.has(toolchain)) {
+-        toolchainDifferences.push(`${contract.id}.toolchains lists ${toolchain}, which no discovered runner needs`);
++        toolchainDifferences.push(
++          `${contract.id}.toolchains lists ${toolchain}, which no discovered runner needs (discovered: ${discoveredRunners})`,
++        );
+       }
+     }
+     selected.add(contract.id);

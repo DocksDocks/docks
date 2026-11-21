@@ -1,0 +1,24 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+index 8d5cc1b3..6d5f74e2 100644
+--- a/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/yolo/SKILL.md
+@@ -125,7 +125,7 @@ step, and run the `code-review` self-review before code review round 1.
+ | A linter or type-checker error | `lint-no-suppressions` |
+ | Lint rules or repeated literal values | `code-guardrails` |
+ | Dependency upgrades or advisories | `dep-vuln-workflow` |
+-| Commits and the pull request description | `commit-discipline` |
++| Commits | `commit-discipline` |
+ | React components | `react-component-patterns` |
+ | Colors, tokens, and themes | `design-tokenization` |
+ | Keyboard, focus, and ARIA | `accessibility` |
+@@ -190,7 +190,9 @@ same finding again, research it again and try a different approach.
+ 
+ ## Run summary
+ 
+-Keep the summary short. Use this shape:
++The run summary is the whole pull request description; do not add the
++`commit-discipline` description sections. Keep the summary short. Use this
++shape:
+ 
+ ```markdown
+ ## Yolo run: #<n> <title>

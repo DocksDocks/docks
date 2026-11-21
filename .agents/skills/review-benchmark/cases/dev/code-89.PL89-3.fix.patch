@@ -1,0 +1,25 @@
+diff --git a/scripts/tests/plan-cli/write-gates.test.mjs b/scripts/tests/plan-cli/write-gates.test.mjs
+index 0f98139d..0f62e0b6 100644
+--- a/scripts/tests/plan-cli/write-gates.test.mjs
++++ b/scripts/tests/plan-cli/write-gates.test.mjs
+@@ -21,6 +21,20 @@ test('a mutating command refuses a plan owned by another agent, also when the ow
+   assert.deepEqual(issue(pagedOwner).labels, ['plan', 'plan:drafting'], 'foreign owner on page two prevents writes');
+ });
+ 
++test('edit refuses a body that changed remotely after the provenance check passed', (t) => {
++  const { run, updateState, issue, createPlan, exported } = planCliContext(t);
++  // A second read catches a writer that races the edit after provenance passes.
++  const raced = createPlan('raced body');
++  const raceFile = exported(raced);
++  fs.writeFileSync(raceFile, issue(raced).body.replace('Fix parser', 'Repair parser'));
++  const remoteBody = issue(raced).body.replace('Fix parser', 'Remote task');
++  updateState((state) => {
++    state.remoteChange = { issue: raced, viewsBeforeChange: 1, body: remoteBody };
++  });
++  refuse(run('edit', String(raced), '--file', raceFile), 'plan issue changed remotely; re-read and retry');
++  assert.equal(issue(raced).body, remoteBody);
++});
++
+ test('partial or missing GraphQL data fails closed and writes nothing', (t) => {
+   const { run, updateState, issue, createPlan } = planCliContext(t);
+   // GraphQL may report HTTP-successful partial data; neither that nor missing data authorizes a write.

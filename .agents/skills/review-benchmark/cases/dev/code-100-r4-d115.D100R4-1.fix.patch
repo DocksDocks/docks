@@ -1,0 +1,112 @@
+diff --git a/scripts/config/test-contracts.json b/scripts/config/test-contracts.json
+index ef51aa64..7d6f455d 100644
+--- a/scripts/config/test-contracts.json
++++ b/scripts/config/test-contracts.json
+@@ -278,7 +278,7 @@
+       "selection": {
+         "kind": "node-test-file",
+         "selector": "scripts/tests/unit/review-benchmark.test.mjs",
+-        "expected_min": 90
++        "expected_min": 91
+       },
+       "platforms": ["linux", "macos"],
+       "toolchains": ["bun-1"],
+diff --git a/scripts/tests/unit/review-benchmark.test.mjs b/scripts/tests/unit/review-benchmark.test.mjs
+index 3954ee2c..d9fbb49e 100644
+--- a/scripts/tests/unit/review-benchmark.test.mjs
++++ b/scripts/tests/unit/review-benchmark.test.mjs
+@@ -4933,21 +4933,34 @@ test('readScope allows a list target only when each path that omp read for it is
+   assert.deepEqual(score.readScope(reads(`${a};${LIVE}/src/b.mjs`, `${a}:1-20, src/b.mjs`), scope), { outside: [] });
+ });
+ 
+-test('transcripts reads a target as a list only when no file has its whole path, and prefers the list of omp', (t) => {
+-  const root = scratch(t);
+-  // A workspace folder whose name holds a space, as `bench=…/bench-gpt 7` gives it, so each snapshot path holds one.
+-  const ws = path.join(root, 'bench-gpt 7');
+-  const sessions = path.join(root, 'sessions');
+-  // The live checkout, the working directory of the reviewer, has the layout of the snapshot. The agent text names
+-  // another plugin root, as for a baseline reviewer, so the skill file of the live checkout is outside.
+-  const live = path.join(root, 'live');
++// The case `code-7` of the workspace `<root>/<name>` for the transcripts tests of list targets: one full round of the
++// candidate at `low`, whose session runs in the live checkout `<root>/live`. The case changes no file.
++function listCase(root, name) {
++  const ws = path.join(root, name);
+   const caseDir = path.join(ws, 'code-7');
+-  const snapshot = path.join(caseDir, 'snapshot');
+   const round1 = path.join(caseDir, 'C1-low', 'run-1', 'round-1');
+   put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+   put(caseDir, 'full.diff', '');
+   put(round1, 'prompts/full.txt', 'agent: review-bench-candidate-code-low\n\nReview.\n');
+   put(round1, 'meta.json', { config: CONFIGS.low, mode: 'full' });
++  const live = path.join(root, 'live');
++  return { ws, sessions: path.join(root, 'sessions'), live, caseDir, snapshot: path.join(caseDir, 'snapshot'), round1 };
++}
++
++// The read scope that transcripts gives the reviewer of `listCase` for a session with the tool calls `calls` and the
++// tool results `results` (see toolTranscript).
++function listReadScope({ ws, sessions, live, caseDir, round1 }, calls, results = {}) {
++  put(sessions, 'Code7C1LowR1K1Full.jsonl', toolTranscript(caseDir, 30, calls, undefined, { cwd: live, results }));
++  assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7C1LowR1K1Full']);
++  return readJson(path.join(round1, 'meta.json')).reviewers.full.readScope;
++}
++
++test('transcripts reads a target as a list only when no file has its whole path, and prefers the list of omp', (t) => {
++  // A workspace folder whose name holds a space, as `bench=…/bench-gpt 7` gives it, so each snapshot path holds one.
++  const fixture = listCase(scratch(t), 'bench-gpt 7');
++  const { live, snapshot } = fixture;
++  // The live checkout, the working directory of the reviewer, has the layout of the snapshot. The agent text names
++  // another plugin root, as for a baseline reviewer, so the skill file of the live checkout is outside.
+   const skill = 'plugins/plan-lifecycle/skills/productivity/code-reviewer/SKILL.md';
+   for (const file of ['src/a.mjs', 'src/a;b.mjs', 'docs/release notes.md', skill]) put(snapshot, file, 'text\n');
+   put(live, skill, 'text\n');
+@@ -4978,11 +4991,45 @@ test('transcripts reads a target as a list only when no file has its whole path,
+       displayReadTargets: [`${a}:65:raw`, '133:raw'],
+     },
+   };
+-  put(sessions, 'Code7C1LowR1K1Full.jsonl', toolTranscript(caseDir, 30, calls, undefined, { cwd: live, results }));
+-  assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7C1LowR1K1Full']);
+-  assert.deepEqual(readJson(path.join(round1, 'meta.json')).reviewers.full.readScope, {
+-    outside: [`${a}, ${skill}`, `${a}:70:raw,140:raw`],
+-  });
++  assert.deepEqual(listReadScope(fixture, calls, results), { outside: [`${a}, ${skill}`, `${a}:70:raw,140:raw`] });
++});
++
++// Each call below has no tool result, so the files decide the split, as they decided for omp. Each target that is
++// outside is allowed as one path (the whole path is under the snapshot, or under the code-review skill), so only the
++// split makes it outside. omp://tools/find.md is silent on a delimited path, so the path of `find` follows score.mjs:
++// it is one target, not a `;` list of targets as for grep, and it splits as the path of `read` splits.
++test('transcripts splits a target on `;`, on white space, and on all three delimiters as omp does', (t) => {
++  // A workspace folder without a space: a white-space split of a snapshot path in `bench-gpt 7` breaks the folder name.
++  const fixture = listCase(scratch(t), 'bench');
++  const { live, snapshot } = fixture;
++  for (const file of ['src/a.mjs', 'src/b.mjs', 'src/a,b.mjs']) put(snapshot, file, 'text\n');
++  for (const file of ['src/b.mjs', 'src/c.mjs']) put(live, file, 'text\n');
++  const [a, b] = [path.join(snapshot, 'src', 'a.mjs'), path.join(snapshot, 'src', 'b.mjs')];
++  const [liveB, liveC] = [path.join(live, 'src', 'b.mjs'), path.join(live, 'src', 'c.mjs')];
++  const whiteSpace = `${a} ${liveB}`;
++  const semicolons = `${a};${liveB};missing.mjs`;
++  const skills = 'skill://code-review/SKILL.md;skill://code-reviewer';
++  // Each part between white space exists, but no part between `,` and not every part of the split on all three
++  // delimiters exists, so only the white-space split reads this target as two paths.
++  const commaName = `${path.join(snapshot, 'src', 'a,b.mjs')} ${liveC}`;
++  // No part between `,` exists, and the part `<b>,<live b>` between white space does not exist, so only the split on
++  // all three delimiters has parts that each exist.
++  const allThree = `${a} ${b},${liveB} ${liveC}`;
++  const calls = [
++    // Each part exists, so omp reads the paths between white space.
++    ['grep', { pattern: 'lock', path: whiteSpace }],
++    // `missing.mjs` resolves against the live checkout and does not exist, so the target is one path.
++    ['grep', { pattern: 'lock', path: `${a} missing.mjs` }],
++    // The split on `;` needs no part to exist.
++    ['find', { query: 'lock release', grep_keywords: [], path: semicolons }],
++    // Each part is a URI, so omp reads the URIs between `;`: the code-reviewer skill is outside, the code-clarity
++    // skill is allowed.
++    ['read', { path: skills }],
++    ['read', { path: 'skill://code-review/SKILL.md;skill://code-clarity' }],
++    ['grep', { pattern: 'lock', path: commaName }],
++    ['read', { path: allThree }],
++  ];
++  assert.deepEqual(listReadScope(fixture, calls), { outside: [whiteSpace, semicolons, skills, commaName, allThree] });
+ });
+ 
+ test('readScope records each web search query, and a query that names the repository owner is outside', () => {

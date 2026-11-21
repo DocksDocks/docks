@@ -1,0 +1,236 @@
+diff --git a/.agents/skills/review-benchmark/SKILL.md b/.agents/skills/review-benchmark/SKILL.md
+index 0155eb01..9cc9c02f 100644
+--- a/.agents/skills/review-benchmark/SKILL.md
++++ b/.agents/skills/review-benchmark/SKILL.md
+@@ -70,7 +70,7 @@ Give `--efforts` only the thinking levels that the model supports: `omp models f
+ `agents` applies each configuration through omp agent files, so each reviewer runs as a task subagent, as in production:
+ 
+ - `.omp/agents/review-bench-<side>-<role>-<config>.md`: one agent for each side (`baseline`, `candidate`), role (`code`, `plan`), and configuration. The frontmatter pins `model` and `thinking-level`.
+-- `.omp/agents/review-bench-variant-<name>-plan-<config>.md`: with `--variants`, one plan agent for each variant and configuration, with the model, effort, and tier of the configuration. Its text is `plugins/plan-lifecycle/agents/plan-reviewer.md` at the ref of the variant. `agents` extracts `plugins/plan-lifecycle` at that ref to the folder `variant-<name>-plugin/` next to the baseline copy, and the agent names that folder as its plugin root (see Read scope). `agents` refuses a variant whose agent does not name its skill as `${CLAUDE_PLUGIN_ROOT}/skills/<folder>/plan-reviewer/SKILL.md`, because the read scope finds the plugin root of a reviewer through that path.
++- `.omp/agents/review-bench-variant-<name>-plan-<config>.md`: with `--variants`, one plan agent for each variant and configuration, with the model, effort, and tier of the configuration. Its text is `plugins/plan-lifecycle/agents/plan-reviewer.md` at the ref of the variant. `agents` extracts `plugins/plan-lifecycle` at that ref to the folder `variant-<name>-plugin/` next to the baseline copy, and the agent names that folder as its plugin root (see Read scope). `agents` refuses a variant whose agent does not name its skill as `${CLAUDE_PLUGIN_ROOT}/skills/<folder>/plan-reviewer/SKILL.md`, because the read scope finds the plugin root of a reviewer through that path. Put that path in backticks or quotes, as the plugin agent does: then the path can hold spaces, so the plugin copies can be in a folder whose path has a space.
+ - `.omp/agents/review-bench-fixer.md`: the fixer agent of review loops (see Review loop). It repairs the valid extra findings of a round, with the same model, effort, and tier for every configuration, so that only the reviewer setup varies.
+ - `.omp/agents/review-bench-selfreview-<config>.md`: one self-review agent for each configuration, with the model, effort, and tier of the reviewer agents of that configuration. It is the self-review of the plan manager before code-review round 1 (#98). It loads `skill://code-review` and `skill://code-clarity`, applies both skills to the candidate diff, and returns one block in the code-review block format: the heading, `Code-review: pass` or `Code-review: fixes-required`, and `## Standards` and `## Spec` with finding lines `- [SEVERITY] Category - locator - text`. The agent has no plugin folder, so its text names the path of its own agent file (see Read scope). The arms `S1` and `S3` use it.
+ - `.omp/settings.json`: one entry `task.agentServiceTierOverrides.<agent>` for each agent and for the fixer agent, with the tier of its configuration or of the fixer. omp merges `.omp/config.yml` over this file. The script keeps every other setting in the file and does not change the user's global config.
+@@ -158,7 +158,7 @@ The reviewers run in the working folder of the dispatching session, the live che
+ 
+ - under an input of the run: `snapshot/`, `prompts/`, the `*.diff` files, `plan.md`, `previous-review.md`, and `rejection.md` of the case folder, and of the run folder or of each `round-<j>` folder up to the round of the reviewer
+ - under `<ws>/trees/<run label>/` of a round of the run up to the round of the reviewer
+-- an instruction file of the reviewer, which stays allowed also when the case changes it (see the limit below): `agents/<name>-reviewer.md`, or a file in the `code-reviewer` or `plan-reviewer` skill folder, of the plugin root that the agent text names (the candidate `plugins/plan-lifecycle/` of the live checkout, the baseline plugin folder, or the `variant-<name>-plugin/` folder of a variant). `transcripts` finds that root in the system prompt of the `session_init` entry of the transcript. The self-review agent has no plugin root, so its instruction files are its own agent file, `<dir>/.omp/agents/review-bench-selfreview-<config>.md` (or the same file in `.claude/agents/`), which its agent text names, and the two skills that it loads: a `skill://` URI of the `code-review` or `code-clarity` skill, and a file of these skills in an installed plugin cache copy (see below). For another reviewer, these skill reads are optional instruction reads
++- an instruction file of the reviewer, which stays allowed also when the case changes it (see the limit below): `agents/<name>-reviewer.md`, or a file in the `code-reviewer` or `plan-reviewer` skill folder, of the plugin root that the agent text names (the candidate `plugins/plan-lifecycle/` of the live checkout, the baseline plugin folder, or the `variant-<name>-plugin/` folder of a variant). `transcripts` finds that root in the system prompt of the `session_init` entry of the transcript. A path in backticks or quotes in the agent text can hold spaces; a bare path ends at the first space. The self-review agent has no plugin root, so its instruction files are its own agent file, `<dir>/.omp/agents/review-bench-selfreview-<config>.md` (or the same file in `.claude/agents/`), which its agent text names, and the two skills that it loads: a `skill://` URI of the `code-review` or `code-clarity` skill, and a file of these skills in an installed plugin cache copy (see below). For another reviewer, these skill reads are optional instruction reads
+ - an optional instruction read, when the case does not change its file (see the case-change rule below):
+   - the plan contract `skills/[<folder>/]plan-manager/references/plan-contract.md` of that plugin root (this exact file). The plan-reviewer checklist tells the reviewer to read this contract in its own plugin, so the contract is part of the instructions of the reviewer
+   - a `skill://` URI of the `code-review` or `code-clarity` skill
+diff --git a/.agents/skills/review-benchmark/scripts/score.mjs b/.agents/skills/review-benchmark/scripts/score.mjs
+index 3552c479..18a0a33f 100755
+--- a/.agents/skills/review-benchmark/scripts/score.mjs
++++ b/.agents/skills/review-benchmark/scripts/score.mjs
+@@ -102,23 +102,36 @@ const REPOSITORY_HOSTS = new Set(['github.com', 'www.github.com', 'raw.githubuse
+ const BENCHMARK_REPOSITORY = { owner: 'docksdocks', names: new Set(['docks', 'docks.git']) };
+ // An invalid-run reason names this many outside targets, then the count of the others.
+ const LISTED_READS = 3;
+-// An absolute path `<plugin root>/skills/[<folder>/]code-reviewer/SKILL.md` (or plan-reviewer) in an agent text.
+-const REVIEWER_SKILL = /(?<=^|[\s`'"(<])(\/[^\s`'"]*?)\/skills\/(?:[^\s`'"/]+\/)?(?:code|plan)-reviewer\/SKILL\.md/g;
++// The instruction paths of an agent text are absolute paths. A path in backticks or quotes ends at the closing quote
++// and can hold spaces, for example in a plugin root under a folder with a space. A bare path ends at the first space or
++// quote. In the two patterns below, group 2 holds the path in quotes and group 3 the bare path.
++//
++// The path `<plugin root>/skills/[<folder>/]code-reviewer/SKILL.md` (or plan-reviewer). The groups hold the plugin
++// root.
++const REVIEWER_SKILL_TAIL = String.raw`\/skills\/(?:[^\s\x60'"/]+\/)?(?:code|plan)-reviewer\/SKILL\.md`;
++const REVIEWER_SKILL = new RegExp(
++  String.raw`([\x60'"])(\/[^\x60'"\r\n]*?)${REVIEWER_SKILL_TAIL}\1|` +
++    String.raw`(?<=^|[\s\x60'"(<])(\/[^\s\x60'"]*?)${REVIEWER_SKILL_TAIL}`,
++  'g',
++);
+ // The name of the self-review agent of a configuration starts with this prefix (see prepare.mjs selfReviewAgent).
+ export const SELF_REVIEW_AGENT_PREFIX = 'review-bench-selfreview-';
+-// An absolute path `<project>/.omp/agents/<self-review agent>.md` (or `.claude/agents/`) in an agent text. The
+-// self-review agent has no plugin root, so its text names its own agent file.
++// The path `<project>/.omp/agents/<self-review agent>.md` (or `.claude/agents/`). The self-review agent has no plugin
++// root, so its text names its own agent file. The groups hold the full path.
++const SELF_REVIEW_AGENT_TAIL = String.raw`\/\.(?:omp|claude)\/agents\/${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md`;
+ const SELF_REVIEW_AGENT_FILE = new RegExp(
+-  String.raw`(?<=^|[\s\x60'"(<])/[^\s\x60'"]*/\.(?:omp|claude)/agents/` +
+-    String.raw`${SELF_REVIEW_AGENT_PREFIX}[^\s\x60'"/]+\.md(?=$|[\s\x60'")>])`,
++  String.raw`([\x60'"])(\/[^\x60'"\r\n]*${SELF_REVIEW_AGENT_TAIL})\1|` +
++    String.raw`(?<=^|[\s\x60'"(<])(\/[^\s\x60'"]*${SELF_REVIEW_AGENT_TAIL})(?=$|[\s\x60'")>])`,
+   'g',
+ );
++// The path of a match of one of the patterns above: in quotes, else bare.
++const instructionPath = (match) => match[2] ?? match[3];
+ 
+ // The plugin roots that an agent text names: the folder P of each absolute path `P/skills/[<folder>/]code-reviewer/
+ // SKILL.md` or `P/skills/[<folder>/]plan-reviewer/SKILL.md`, each once, in text order. readScope lets a reviewer read
+ // the instructions under these roots, and `prepare.mjs agents` refuses a variant agent that names another root.
+ export function reviewerPluginRoots(text) {
+-  return [...new Set(Array.from(text.matchAll(REVIEWER_SKILL), (match) => match[1]))];
++  return [...new Set(Array.from(text.matchAll(REVIEWER_SKILL), instructionPath))];
+ }
+ 
+ function fail(message) {
+@@ -1705,7 +1718,7 @@ function transcriptSession(text, source) {
+       .filter((part) => typeof part === 'string')
+       .join('\n');
+     for (const root of reviewerPluginRoots(prompt)) pluginRoots.add(root);
+-    for (const [file] of prompt.matchAll(SELF_REVIEW_AGENT_FILE)) agentFiles.add(file);
++    for (const match of prompt.matchAll(SELF_REVIEW_AGENT_FILE)) agentFiles.add(instructionPath(match));
+   }
+   return { cwd, pluginRoots: [...pluginRoots], agentFiles: [...agentFiles] };
+ }
+diff --git a/scripts/tests/unit/review-benchmark.test.mjs b/scripts/tests/unit/review-benchmark.test.mjs
+index 22d82d61..71526b1f 100644
+--- a/scripts/tests/unit/review-benchmark.test.mjs
++++ b/scripts/tests/unit/review-benchmark.test.mjs
+@@ -3814,12 +3814,13 @@ function frontmatter(file) {
+ }
+ 
+ // Runs `agents` for the efforts low and high and the tiers priority and default on a git repository whose head holds
+-// the reviewer agents that `agents` copies. It returns the project folder and its omp agent folder.
+-function selfReviewAgents(t) {
++// the reviewer agents that `agents` copies. The project folder is `projectFolder` in the scratch folder. It returns the
++// project folder and its omp agent folder.
++function selfReviewAgents(t, projectFolder = 'project') {
+   isolateGit(t);
+   const root = neutralScratch(t);
+   const repo = path.join(root, 'repo');
+-  const project = path.join(root, 'project');
++  const project = path.join(root, projectFolder);
+   fs.mkdirSync(repo);
+   fs.mkdirSync(project);
+   gitIn(repo, 'init', '-q', '-b', 'main');
+@@ -3958,45 +3959,48 @@ test('case --arms S1,S3 writes one self-review prompt on the full diff and one p
+   );
+ });
+ 
+-test('transcripts lets a self-review agent read its own agent file and no other agent file', (t) => {
+-  const { root, agentDir } = selfReviewAgents(t);
+-  const ws = path.join(root, 'ws');
+-  const sessions = path.join(root, 'sessions');
+-  const caseDir = path.join(ws, 'code-7');
+-  const run = path.join(caseDir, 'S1-low', 'run-1');
+-  put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
+-  put(caseDir, 'full.diff', '');
+-  put(run, 'prompts/self-review.txt', 'agent: review-bench-selfreview-low\n\nReview.\n');
+-  put(run, 'meta.json', { config: CONFIGS.low });
+-  const own = path.join(agentDir, 'review-bench-selfreview-low.md');
+-  const other = path.join(agentDir, 'review-bench-selfreview-high.md');
+-  const reviewer = path.join(agentDir, 'review-bench-candidate-code-low.md');
+-  const calls = [
+-    ['read', { path: own }],
+-    ['read', { path: `${own}:1-40` }],
+-    ['read', { path: 'skill://code-review' }],
+-    ['read', { path: 'skill://code-clarity/references/naming.md' }],
+-    ['read', { path: path.join(run, 'prompts', 'self-review.txt') }],
+-    ['read', { path: other }],
+-    ['read', { path: reviewer }],
+-  ];
+-  // The system prompt of the transcript holds the text of the self-review agent.
+-  const transcript = toolTranscript(caseDir, 30, calls, 'review-bench-selfreview-low')
+-    .split('\n')
+-    .map((line) => {
+-      const entry = JSON.parse(line);
+-      if (entry.type === 'session_init') entry.systemPrompt = ['You are a coding assistant.', readText(own)];
+-      return JSON.stringify(entry);
+-    })
+-    .join('\n');
+-  put(sessions, 'Code7S1LowR1SelfReview.jsonl', transcript);
+-  assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7S1LowR1SelfReview']);
+-  assert.deepEqual(readJson(path.join(run, 'meta.json')).reviewers['self-review'].readScope, {
+-    outside: [other, reviewer],
++// The agent text names the agent file in backticks, so the path of the project folder can have a space.
++for (const folder of ['project', 'review project']) {
++  test(`transcripts lets a self-review agent in "${folder}" read its own agent file and no other agent file`, (t) => {
++    const { root, agentDir } = selfReviewAgents(t, folder);
++    const ws = path.join(root, 'ws');
++    const sessions = path.join(root, 'sessions');
++    const caseDir = path.join(ws, 'code-7');
++    const run = path.join(caseDir, 'S1-low', 'run-1');
++    put(ws, 'code-7/case.json', { id: 'code-7', kind: 'code', split: 'dev' });
++    put(caseDir, 'full.diff', '');
++    put(run, 'prompts/self-review.txt', 'agent: review-bench-selfreview-low\n\nReview.\n');
++    put(run, 'meta.json', { config: CONFIGS.low });
++    const own = path.join(agentDir, 'review-bench-selfreview-low.md');
++    const other = path.join(agentDir, 'review-bench-selfreview-high.md');
++    const reviewer = path.join(agentDir, 'review-bench-candidate-code-low.md');
++    const calls = [
++      ['read', { path: own }],
++      ['read', { path: `${own}:1-40` }],
++      ['read', { path: 'skill://code-review' }],
++      ['read', { path: 'skill://code-clarity/references/naming.md' }],
++      ['read', { path: path.join(run, 'prompts', 'self-review.txt') }],
++      ['read', { path: other }],
++      ['read', { path: reviewer }],
++    ];
++    // The system prompt of the transcript holds the text of the self-review agent.
++    const transcript = toolTranscript(caseDir, 30, calls, 'review-bench-selfreview-low')
++      .split('\n')
++      .map((line) => {
++        const entry = JSON.parse(line);
++        if (entry.type === 'session_init') entry.systemPrompt = ['You are a coding assistant.', readText(own)];
++        return JSON.stringify(entry);
++      })
++      .join('\n');
++    put(sessions, 'Code7S1LowR1SelfReview.jsonl', transcript);
++    assert.deepEqual(transcriptsCommand(ws, sessions), ['Code7S1LowR1SelfReview']);
++    assert.deepEqual(readJson(path.join(run, 'meta.json')).reviewers['self-review'].readScope, {
++      outside: [other, reviewer],
++    });
++    // Without the agent file in the scope, the read of the own agent file is outside.
++    assert.deepEqual(score.readScope(reads(own), { runDir: run, cwd: LIVE }), { outside: [own] });
+   });
+-  // Without the agent file in the scope, the read of the own agent file is outside.
+-  assert.deepEqual(score.readScope(reads(own), { runDir: run, cwd: LIVE }), { outside: [own] });
+-});
++}
+ 
+ // Changed export:
+ // - readScope puts these reads outside for every reviewer: a `skill://code-reviewer` or `skill://plan-reviewer` URI,
+@@ -5185,6 +5189,9 @@ test('findings removes the judge answers of each finding whose text changed or t
+ //   <folder>.` instead of `The reference column has the fewest escaped defects per 50 known defects.`
+ // - transcripts and readScope keep their rules: the agent text of a variant names the skill of its own plugin root,
+ //   so its reviewer may read that root and no other variant root.
++// - reviewerPluginRoots, and the agent files that transcripts finds in a system prompt, take an instruction path in
++//   backticks or quotes up to the closing quote, so the path can hold spaces. A bare path ends at the first space. So
++//   `agents --variants` takes an --out folder whose parent has a space in its path.
+ 
+ const PREPARE_SCRIPT = path.join(import.meta.dirname, '../../../.agents/skills/review-benchmark/scripts/prepare.mjs');
+ // The delta reference of the plan-reviewer skill, relative to a plugin root.
+@@ -5363,6 +5370,38 @@ test('agents refuses bad or repeated variant names, refs without a plan reviewer
+   assert.equal(fs.existsSync(path.join(project, '.omp')), false);
+ });
+ 
++test('agents --variants takes an --out folder whose parent has a space and keeps the same-root check', (t) => {
++  const fixture = variantRepo(t);
++  const { root, repo, agentDir } = fixture;
++  const skill = 'skills/productivity/plan-reviewer/SKILL.md';
++  // Without --baseline-dir, the plugin copies go to the parent of --out, whose path has a space.
++  const parent = path.join(root, 'review runs');
++  const options = { ...variantOptions(fixture), 'baseline-dir': undefined, out: path.join(parent, 'heldout') };
++  prepare.prepareAgents(options, repo);
++  assert.ok(fs.existsSync(path.join(parent, 'baseline-plugin', skill)));
++  for (const name of Object.keys(VARIANT_REFS)) {
++    const pluginRoot = path.join(parent, `variant-${name}-plugin`);
++    assert.ok(fs.existsSync(path.join(pluginRoot, skill)));
++    for (const config of ['low', 'xhigh']) {
++      const text = readText(path.join(agentDir, `review-bench-variant-${name}-plan-${config}.md`));
++      assert.ok(text.includes(`\`${pluginRoot}/${skill}\``));
++      // The read scope takes the plugin root with its space from the path in backticks.
++      assert.deepEqual(score.reviewerPluginRoots(text), [pluginRoot]);
++    }
++  }
++  // A path in quotes can hold a space too. A bare path ends at the first space, so it names no root here.
++  const text = [`Load "/opt/q r/${skill}" and '/opt/s/${skill}',`, `then /opt/t/${skill}, not /opt/u v/${skill}.`];
++  assert.deepEqual(score.reviewerPluginRoots(text.join('\n')), ['/opt/q r', '/opt/s', '/opt/t']);
++  // An agent that also names the reviewer skill of another plugin root, whose path has a space, stays refused.
++  const agentFile = 'plugins/plan-lifecycle/agents/plan-reviewer.md';
++  put(repo, agentFile, `${variantAgentText('other')}Also load \`/opt/review x/${skill}\`.\n`);
++  gitIn(repo, 'add', '-A');
++  gitIn(repo, 'commit', '-q', '-m', 'other root');
++  gitIn(repo, 'tag', 'other-space');
++  const message = `variant a: ${agentFile} at other-space must name its reviewer skill as \${CLAUDE_PLUGIN_ROOT}/skills/<folder>/plan-reviewer/SKILL.md and name no other plugin root`;
++  assert.throws(() => prepare.prepareAgents({ ...options, variants: '16=v16,a=other-space' }, repo), { message });
++});
++
+ test('case builds variant arms in full mode, and in delta mode on plan-delta cases unless full only', (t) => {
+   const { root, repo, base, head } = loopRepo(t);
+   const ws = path.join(root, 'ws');

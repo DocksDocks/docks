@@ -1,0 +1,37 @@
+diff --git a/.agents/skills/review-benchmark/SKILL.md b/.agents/skills/review-benchmark/SKILL.md
+index 8f7a2e7..3dd1cb2 100644
+--- a/.agents/skills/review-benchmark/SKILL.md
++++ b/.agents/skills/review-benchmark/SKILL.md
+@@ -175,3 +175,3 @@ The reviewers run in the working folder of the dispatching session, the live che
+ 
+-Every other target is outside: `case.json` (it can hold the known defects of a dev case), `meta.json`, the blocks, the `fixer/` folders (their snapshot holds fixed code), a later round, another run, every other file of the live checkout or of the repository that holds a plugin root (other skills can hold fixed shipped text), every other path, and every other URI, for example `issue://` and `pr://`. For example, `plugins/docks/skills/engineering/code-review/` of the repository that holds a plugin root is outside: a skill that the plan names has its production copy, the copy of the reviewed repository, under `snapshot/`. A `grep`, `glob`, `find`, or `ast_grep` call without a path searches the working folder, so it is outside too. A glob is allowed only when the folder before its first glob segment is allowed and no later segment holds `..`. A web search whose query names the owner of the benchmark repository (`DocksDocks` anywhere in the query, in any case, for example `DocksDocks docks plan-lifecycle archive fix`) can find the pages of the repository, so it is outside, with the target `web_search: <query>`. A run with an outside target is invalid (see step 4 of the procedure).
++Every other target is outside: `case.json` (it can hold the known defects of a dev case), `meta.json`, the blocks, the `fixer/` folders (their snapshot holds fixed code), a later round, another run, every other file of the live checkout or of the repository that holds a plugin root (other skills can hold fixed shipped text), every other path, and every other URI, for example `issue://` and `pr://`. For example, `plugins/docks/skills/engineering/code-review/` of the repository that holds a plugin root is outside: a skill that the plan names has its production copy, the copy of the reviewed repository, under `snapshot/`. A `grep`, `glob`, `find`, or `ast_grep` call without a path searches the working folder, so it is outside too. A glob is allowed only when the folder before its first glob segment is allowed and no later segment holds `..`. A web search whose query targets the benchmark repository (see the query rule above; for example `DocksDocks docks plan-lifecycle archive fix`) can find its pages, so it is outside, with the target `web_search: <query>`. Each URL that the result of a search cites and that the web rule above puts outside gives the target `web_search result: <url>`. A run with an outside target is invalid (see step 4 of the procedure).
+ 
+diff --git a/.agents/skills/review-benchmark/scripts/score.mjs b/.agents/skills/review-benchmark/scripts/score.mjs
+index e1eb52a..58bbd6e 100755
+--- a/.agents/skills/review-benchmark/scripts/score.mjs
++++ b/.agents/skills/review-benchmark/scripts/score.mjs
+@@ -1667,7 +1667,8 @@ function resultUrls(message) {
+ // message (the `thinkingLevel` of the last `thinking_level_change` before it, else null), and the served tier; a
+ // failed request (see failedRequest) also gets `failed: true`. An effort change before the first assistant message is
+ // setup, so it shows only through the messages after it. When the assistant messages call tools, `toolCalls` lists
+-// the calls in order; a transcript without a tool call gives no `toolCalls`.
++// the calls in order; a transcript without a tool call gives no `toolCalls`. A web search call whose tool result is in
++// the transcript also gets `resultUrls`: the URLs that the result cites (see resultUrls).
+ export function transcriptFacts(text, source = 'transcript') {
+   const facts = { requestedTier: null, messages: [], sideCalls: [] };
+   const toolCalls = [];
+@@ -2097,9 +2098,10 @@ function readLists(text, source, cwd) {
+ // paths. `lists` maps each target that omp read as a list to these paths, each without its read selector
+ // (transcriptsCommand gives it, see readLists); a list target is allowed when each of these paths is allowed. Every
+ // other target is one path.
+-// A web search has no path: `queries` lists its queries, each once, in call order, and a query that names the owner of
+-// the benchmark repository (`DocksDocks`, in any case) gives the outside target `web_search: <query>`. A reviewer
+-// without a web search gets no `queries`.
++// A web search has no path: `queries` lists its queries, each once, in call order. A query that targets the benchmark
++// repository (see targetsBenchmark) gives the outside target `web_search: <query>`, and each cited URL of its result
++// that webPageAllowed refuses gives `web_search result: <url>`. A reviewer without a web search gets no `queries`.
++// A local path also loses its JSON query selector (`?q=`), because omp reads the file before it.
+ // The reviewer setup is newer than the cases. When a case changes the file of an optional instruction read, that read
+ // shows a later version of a file under review, which can show the fix. `changedFiles` are the repository paths that
+ // the case changes (transcriptsCommand reads them). The rule compares keys, the paths from the skill folder name on:

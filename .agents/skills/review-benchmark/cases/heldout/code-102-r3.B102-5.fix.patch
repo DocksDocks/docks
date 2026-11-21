@@ -1,0 +1,13 @@
+diff --git a/scripts/tests/plan-cli/gh-stub.test.mjs b/scripts/tests/plan-cli/gh-stub.test.mjs
+index 454e1968..e0d116fd 100644
+--- a/scripts/tests/plan-cli/gh-stub.test.mjs
++++ b/scripts/tests/plan-cli/gh-stub.test.mjs
+@@ -89,7 +89,7 @@ test('the fake gh returns only the selected fields of a closer for each aliased
+   const { number, closer } = context.closedPlan('aliased closers');
+   // Each connection selects other fields of the same close, and GitHub answers each with its own selection.
+   const closures = (fields) => `timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{... on ClosedEvent{${fields}}}}`;
+-  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){a:${closures('closer{... on PullRequest{number}}')} b:${closures('createdAt closer{... on PullRequest{url}}')}}}}`;
++  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){updatedAt a:${closures('closer{... on PullRequest{number}}')} b:${closures('createdAt closer{... on PullRequest{url}}')}}}}`;
+   const { issue } = responseData(graphql(context, query, { number })).repository;
+   assert.deepEqual(issue.a, { nodes: [{ closer: { number: closer.number } }] });
+   // The stored close has no time, so the fake gh stamps it with the issue's last update.

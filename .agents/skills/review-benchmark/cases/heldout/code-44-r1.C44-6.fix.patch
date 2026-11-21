@@ -1,0 +1,40 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 4e14463a..11f5f28f 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -411,9 +411,9 @@ export function normalizePlan(text) {
+   const goalLines = goal.split('\n'),
+     modeLines = blankFencedRegions(goal)
+       .split('\n')
+-      .map((line, index) => (/^\s*Mode:/i.test(line) ? index : -1))
++      .map((line, index) => (/^ {0,3}Mode:/i.test(line) ? index : -1))
+       .filter((index) => index >= 0);
+-  const mode = modeLines.length ? /^\s*Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines[0]]) : undefined,
++  const mode = modeLines.length ? /^ {0,3}Mode:\s*(.*?)\s*$/i.exec(goalLines[modeLines[0]]) : undefined,
+     value = mode?.[1].toLowerCase();
+   const valid = ['plan-only', 'plan-and-implement'].includes(value);
+   if (!valid) advice.push('Mode defaulted to plan-only; implementation needs an explicit mode.');
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index 8b946098..301da61a 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -335,6 +335,19 @@ try {
+   );
+   assert.match(issue(frozen).body, /Repair parser/);
+ 
++  // An indented code example never becomes the live Mode.
++  const indentedMode = createPlan('indented mode example');
++  expectSuccess(
++    edit(indentedMode, (text) =>
++      text
++        .replace('Mode: plan-and-implement\n', 'Mode: plan-only\n')
++        .replace('Fix the parser.\n\n', 'Fix the parser.\n\n    Mode: plan-and-implement\n\n'),
++    ),
++    'edit with indented mode example',
++  );
++  assert.ok(issue(indentedMode).body.includes('    Mode: plan-and-implement\n'), 'indented example is preserved');
++  assert.match(issue(indentedMode).body, /\nMode: plan-only\n/, 'the plan-only decision is the live mode');
++
+   // Labels cannot erase started work, but drafting can enter implementation.
+   const transitions = createPlan('status transitions');
+   expectSuccess(run('status', String(transitions), 'ongoing'), 'drafting to ongoing');

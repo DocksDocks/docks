@@ -1,0 +1,24 @@
+{
+  "id": "plan-98-r3-e146",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 98,
+  "round": 3,
+  "cycle": 1,
+  "repo_ref": "e09d273fa2d020352337e5d97d8d47edbb4b7c80",
+  "plan": "plan-98-r3-e146-body.md",
+  "seeded": false,
+  "body_revision": "UCE_lAHODGt7ls8AAAABZadH188AAAABET9IAQ",
+  "review_comment": 6369014899,
+  "known": [
+    {
+      "id": "F98-5",
+      "title": "Acceptance has no local Claude Code plugin-load check, which `scripts/AGENTS.md` requires for an edit of a plugin",
+      "locator": "Acceptance (body lines 94-104); Engineering standards, step 3 (body line 82); Steps row 3 code_review_rounds (body line 91); scripts/AGENTS.md:140-144",
+      "kind": "goal_fit",
+      "source": "missed-by-round",
+      "comment": 6369661855,
+      "summary": "Step 3 edits the plan-lifecycle plugin: the `code-reviewer` agent, the plan-manager and yolo skills, and the contract (body line 91). The Edit → release workflow of `scripts/AGENTS.md` (lines 140-144) names a local Claude Code test for such an edit, `claude --plugin-dir ./plugins/<name>` and then `/reload-plugins`. Acceptance (a1 to a7, body lines 94-104) has no row that loads the changed plugin, and Engineering standards for step 3 (body line 82) name no load check, so the plan can pass without showing that the changed agent and skills load. Acceptance must add the plugin-load check with its expected result."
+    }
+  ]
+}

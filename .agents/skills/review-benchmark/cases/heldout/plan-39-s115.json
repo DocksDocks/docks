@@ -1,0 +1,9 @@
+{
+  "id": "plan-39-s115",
+  "kind": "plan",
+  "split": "heldout",
+  "issue": 39,
+  "round": 1,
+  "repo_ref": "3413b5588e7b066c0e2b26755b665217fefd8b89",
+  "plan": "plan-39-s115-body.md"
+}

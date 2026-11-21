@@ -1,0 +1,43 @@
+diff --git a/scripts/tests/fixtures/gh-stub/gh b/scripts/tests/fixtures/gh-stub/gh
+index 1c7c2b2c..f608b159 100755
+--- a/scripts/tests/fixtures/gh-stub/gh
++++ b/scripts/tests/fixtures/gh-stub/gh
+@@ -708,7 +708,8 @@ if (group === 'api' && command === 'graphql') {
+       ? `${reference.repository.owner.login}/${reference.repository.name}`
+       : state.repo.nameWithOwner);
+   // A pull request node, for a closer, an associated pull request, or Repository.pullRequest, with only the fields
+-  // that `selection`, the selection set of the node, names, each under its response key.
++  // that `selection`, the selection set of the node, names, each under its response key. The nested repository has
++  // its type, so that `__typename` and `... on Repository{...}` read it as on GitHub.
+   const pullRequestNode = (reference, selection) => {
+     const repo = referenceRepo(reference);
+     const pullRequest = (state.prs ?? []).find(
+@@ -726,7 +727,7 @@ if (group === 'api' && command === 'graphql') {
+         merged: prState === 'MERGED',
+         mergedAt: pullRequest?.mergedAt ?? reference.mergedAt ?? null,
+         baseRefName: pullRequest?.baseRefName ?? reference.baseRefName ?? null,
+-        repository: { nameWithOwner: repo },
++        repository: { __typename: 'Repository', nameWithOwner: repo },
+       },
+       selection,
+     );
+diff --git a/scripts/tests/plan-cli/gh-stub.test.mjs b/scripts/tests/plan-cli/gh-stub.test.mjs
+index 5f243b69..dc51aec8 100644
+--- a/scripts/tests/plan-cli/gh-stub.test.mjs
++++ b/scripts/tests/plan-cli/gh-stub.test.mjs
+@@ -85,6 +85,15 @@ test('the fake gh returns only the selected fields of the pull requests associat
+   assert.deepEqual(data.repository.commit.associatedPullRequests.nodes, [{ number: PR }]);
+ });
+ 
++test('the fake gh gives the repository of a pull request its type', (t) => {
++  const context = planCliContext(t);
++  seedPullRequest(context);
++  const data = responseData(pullRequest(context, 'repository{__typename ... on Repository{nameWithOwner}}'));
++  assert.deepEqual(data.repository.pullRequest, {
++    repository: { __typename: 'Repository', nameWithOwner: 'DocksDocks/fixture' },
++  });
++});
++
+ test('the fake gh merges the repeated selections of an object field', (t) => {
+   const context = planCliContext(t);
+   seedPullRequest(context);

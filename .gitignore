@@ -11,3 +11,5 @@ cli/dist-test/
 cli/src/**/*.js
 cli/src/**/*.js.map
 .pi/
+# The omp project files of the review benchmark (`prepare.mjs agents`); the kit keeps its omp config in SoT/.omp.
+/.omp/

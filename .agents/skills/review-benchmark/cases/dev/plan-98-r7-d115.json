@@ -1,0 +1,22 @@
+{
+  "id": "plan-98-r7-d115",
+  "kind": "plan-delta",
+  "split": "dev",
+  "issue": 98,
+  "round": 7,
+  "repo_ref": "845872a1f6190e35077b35a4e91ce9101f7b3dc6",
+  "previous_body": "plan-98-r7-d115-previous-body.md",
+  "plan": "plan-98-r7-d115-plan.md",
+  "previous_review": "plan-98-r7-d115-previous-review.md",
+  "show_benchmark": true,
+  "known": [
+    {
+      "id": "S98R7-1",
+      "kind": "research_gap",
+      "title": "The repaired panel evidence gives C3 it2 a code-96 recall of 0.36, but the measured value is 0.21; 0.36 is the value of C3 it0",
+      "locator": "Research, Decisions 1, Evidence (line 72); Verification Results, Correction to the panel row (line 178); Verification Results, Benchmark table, code-96 row (line 157)",
+      "source": "seeded",
+      "summary": "Decision 1 and the panel correction now say that the panel with the new skill found 0.36 on code-96, against 0.14 for one reviewer. The table of the plan gives C3 it2 0.21 on code-96 (line 157), and the dev mean of 0.52 in the same correction is true only with 0.21. In .agents/skills/review-benchmark/results.md at repo_ref, 0.36 is the value of C3 it0 (line 67), and the appended correction says 0.21 (line 127). So the repair mixes two iterations, makes the panel gain on code-96 three times larger, and the plan and the results log disagree."
+    }
+  ]
+}

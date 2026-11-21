@@ -1,0 +1,54 @@
+diff --git a/scripts/tests/unit/review-benchmark.test.mjs b/scripts/tests/unit/review-benchmark.test.mjs
+index 85f0a299..5af127d6 100644
+--- a/scripts/tests/unit/review-benchmark.test.mjs
++++ b/scripts/tests/unit/review-benchmark.test.mjs
+@@ -4088,7 +4088,7 @@ test('the round policy limits the modes that the rules of plan-contract.md give'
+   assert.equal(prepare.roundMode({ policy: 'full', ...pulledIn }), 'full');
+ });
+ 
+-const POLICY_ARMS = { B0: 'full', B1: 'panel-delta', C1: 'full-delta', C3: 'panel-delta' };
++const POLICY_ARMS = { B0: 'full', B1: 'panel-delta', B3: 'panel-delta', C1: 'full-delta', C3: 'panel-delta' };
+ const POLICY_FIXER = { model: MODEL, effort: 'high', tier: 'priority' };
+ 
+ // The block of a round-1 reviewer of a policy loop: the full reviewer and the correctness lens find the known defect
+@@ -4163,8 +4163,26 @@ function policyLoops(t, count) {
+ 
+ // The round modes of each arm: round 1 from `case --loop`, round 2 from `loop` after the fix of D1 in one line.
+ for (const [count, modes] of [
+-  [49, { B0: ['full', 'full'], B1: ['full', 'delta'], C1: ['full', 'delta'], C3: ['full', 'delta'] }],
+-  [50, { B0: ['full', 'full'], B1: ['panel', 'delta'], C1: ['full', 'delta'], C3: ['panel', 'delta'] }],
++  [
++    49,
++    {
++      B0: ['full', 'full'],
++      B1: ['full', 'delta'],
++      B3: ['full', 'delta'],
++      C1: ['full', 'delta'],
++      C3: ['full', 'delta'],
++    },
++  ],
++  [
++    50,
++    {
++      B0: ['full', 'full'],
++      B1: ['panel', 'delta'],
++      B3: ['panel', 'delta'],
++      C1: ['full', 'delta'],
++      C3: ['panel', 'delta'],
++    },
++  ],
+ ]) {
+   test(`case --loop and loop give each arm the rounds of its policy on a diff of ${count} lines`, (t) => {
+     const { repo, ws, cases, caseData, caseDir, run } = policyLoops(t, count);
+@@ -4244,6 +4262,11 @@ for (const [count, modes] of [
+     // The B1 delta prompt is the C3 delta prompt with the files of its own round folder.
+     const [b1, c3] = ['B1', 'C3'].map((arm) => promptFileParts(promptFile(arm, 2, 'delta')).body);
+     assert.equal(b1.replaceAll(run('B1'), run('C3')), c3);
++    // B3 has the C3 prompt in every round, with the files of its own run folder (#113).
++    for (const [round, reviewer] of [...reviewersOf(modes.C3[0]).map((name) => [1, name]), [2, 'delta']]) {
++      const [b3, candidate] = ['B3', 'C3'].map((arm) => promptFileParts(promptFile(arm, round, reviewer)).body);
++      assert.equal(b3.replaceAll(run('B3'), run('C3')), candidate, `the B3 round ${round} ${reviewer} prompt`);
++    }
+   });
+ }
+ 

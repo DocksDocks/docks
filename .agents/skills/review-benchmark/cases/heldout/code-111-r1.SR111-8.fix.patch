@@ -1,0 +1,17 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+index 9e0affd..aa23ecc 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/SKILL.md
+@@ -145,9 +145,9 @@ run at the same time. In each dispatch message, name each changed path that is
+ outside the Steps Files cells. Post one comment per round, as the contract's
+ review loop says.
+ 
+-Fix each evidenced CRITICAL or HIGH defect before the next round. A pass can carry MEDIUM
+-and LOW findings. The posted comment is their record; do not change reviewed
+-bytes for them.
++Before the next round, fix or reject every finding of the round, as the
++contract's Repairs says. A pass can carry MEDIUM and LOW findings. The posted
++comment is their record; do not change reviewed bytes for them.
+ 
+ Make each repair complete, as the contract's Repairs says, before you commit
+ it. When a repair adds a branch, a list split, a parser rule, or a refusal, add

@@ -1,0 +1,22 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 905e28ff..129e8126 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -18,7 +18,7 @@ const ACTING_LOGIN_ERROR = 'cannot resolve the acting GitHub login (the GraphQL
+ const PAGE_INFO = 'pageInfo{hasNextPage endCursor}';
+ const PULL_REQUEST_FIELDS = 'number url state mergedAt baseRefName repository{nameWithOwner}';
+ const PULL_REQUEST_CONNECTION = `nodes{${PULL_REQUEST_FIELDS}} ${PAGE_INFO}`;
+-const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name id}`);
++const REPOSITORY_LABELS = PLAN_LABELS.map((name) => `${name.split(':').at(-1)}:label(name:"${name}"){name id}`).join(' ');
+ // The pre-write read returns the body to compare and the node ids that the write mutation needs.
+ const PRE_WRITE_FIELDS = 'id,body,updatedAt,labels,assignees';
+ // The last field of a write mutation returns the stored state that the post-write checks read.
+@@ -187,7 +187,7 @@ function readSnapshot(
+             ? `latestClosure:timelineItems(last:1,itemTypes:[CLOSED_EVENT]){nodes{${CLOSED_EVENT_FIELDS}}}`
+             : '',
+         ].join(' ');
+-  const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS.join(' ') : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
++  const query = `query($owner:String!,$name:String!${number === undefined ? '' : ',$number:Int!'}){${acting ? 'viewer{login id}' : ''} repository(owner:$owner,name:$name){nameWithOwner visibility ${archive ? 'defaultBranchRef{name}' : ''} ${labelLookup ? REPOSITORY_LABELS : ''} ${number === undefined ? '' : `issue(number:$number){${issueFields}}`}}}`;
+   const data = graphql(query, number === undefined ? {} : { number });
+   const repo = data.repository;
+   if (

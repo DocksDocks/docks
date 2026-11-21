@@ -1,0 +1,12 @@
+{
+  "id": "plan-96-delta",
+  "kind": "plan-delta",
+  "split": "dev",
+  "issue": 96,
+  "round": 2,
+  "repo_ref": "e49e144d074ab14fd1c404a250d61ea05cdbb99a",
+  "previous_body": "plan96-r1-body.md",
+  "plan": "plan96-r2-body.md",
+  "previous_review": "plan96-r1-review.md",
+  "known": []
+}

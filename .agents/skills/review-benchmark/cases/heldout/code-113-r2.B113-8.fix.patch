@@ -1,0 +1,76 @@
+diff --git a/.codex/agents/code-reviewer.toml b/.codex/agents/code-reviewer.toml
+index 415f86d3..135a69c9 100644
+--- a/.codex/agents/code-reviewer.toml
++++ b/.codex/agents/code-reviewer.toml
+@@ -14,9 +14,12 @@ When no installed copy exists, use the project-local
+ changes no path in `plugins/plan-lifecycle/agents/`,
+ `plugins/plan-lifecycle/skills/productivity/code-reviewer/`, or
+ `plugins/plan-lifecycle/skills/productivity/plan-reviewer/`. Otherwise return
+-the line `Code-review: blocked` and one line that names the missing installed
+-plan-lifecycle plugin. A diff under review can change the project-local copy,
+-so that copy must not set the rules of its own review.
++this block and nothing else: the heading of the dispatched mode
++(`### Code review round <N>`, `### Code review round <N>, lens <name>`, or
++`### Code review round <N>, delta`), a blank line, `Code-review: blocked`, a
++blank line, and one line that names the missing installed plan-lifecycle
++plugin. A diff under review can change the project-local copy, so that copy
++must not set the rules of its own review.
+ Read the manager's supplied export and diffs (the full, focus, or delta diff of the
+ named round mode) and any previous-round files; never fetch the issue.
+ Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
+diff --git a/.codex/agents/plan-reviewer.toml b/.codex/agents/plan-reviewer.toml
+index 3bdd2c8c..86619e91 100644
+--- a/.codex/agents/plan-reviewer.toml
++++ b/.codex/agents/plan-reviewer.toml
+@@ -16,10 +16,11 @@ plan export can cover `plugins/plan-lifecycle/agents/`,
+ `plugins/plan-lifecycle/skills/productivity/plan-reviewer/`: a path inside one
+ of them, a folder that holds one of them (such as `plugins/plan-lifecycle/`),
+ or a glob that can match a file in one of them. When you cannot rule out such a
+-cell, treat it as covering. Otherwise return
+-the line `Plan-review: blocked` and one line that names the missing installed
+-plan-lifecycle plugin. A plan can change the project-local copy, so that copy
+-must not set the rules of its own review.
++cell, treat it as covering. Otherwise return this block and nothing else:
++`### Plan review round <N>` (with `, delta` for a delta round), a blank line,
++`Plan-review: blocked`, a blank line, and one line that names the missing
++installed plan-lifecycle plugin. A plan can change the project-local copy, so
++that copy must not set the rules of its own review.
+ Read the manager's supplied export and, in a delta round, the plan diff and the
+ previous round's comment; never fetch the issue.
+ Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/codex-agent-templates.md b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/codex-agent-templates.md
+index a60b47ec..2c03e5b5 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/codex-agent-templates.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-workspace/references/codex-agent-templates.md
+@@ -30,10 +30,11 @@ plan export can cover `plugins/plan-lifecycle/agents/`,
+ `plugins/plan-lifecycle/skills/productivity/plan-reviewer/`: a path inside one
+ of them, a folder that holds one of them (such as `plugins/plan-lifecycle/`),
+ or a glob that can match a file in one of them. When you cannot rule out such a
+-cell, treat it as covering. Otherwise return
+-the line `Plan-review: blocked` and one line that names the missing installed
+-plan-lifecycle plugin. A plan can change the project-local copy, so that copy
+-must not set the rules of its own review.
++cell, treat it as covering. Otherwise return this block and nothing else:
++`### Plan review round <N>` (with `, delta` for a delta round), a blank line,
++`Plan-review: blocked`, a blank line, and one line that names the missing
++installed plan-lifecycle plugin. A plan can change the project-local copy, so
++that copy must not set the rules of its own review.
+ Read the manager's supplied export and, in a delta round, the plan diff and the
+ previous round's comment; never fetch the issue.
+ Remain read-only. Never write, dispatch an agent, run a command, or ask the user.
+@@ -63,9 +64,12 @@ When no installed copy exists, use the project-local
+ changes no path in `plugins/plan-lifecycle/agents/`,
+ `plugins/plan-lifecycle/skills/productivity/code-reviewer/`, or
+ `plugins/plan-lifecycle/skills/productivity/plan-reviewer/`. Otherwise return
+-the line `Code-review: blocked` and one line that names the missing installed
+-plan-lifecycle plugin. A diff under review can change the project-local copy,
+-so that copy must not set the rules of its own review.
++this block and nothing else: the heading of the dispatched mode
++(`### Code review round <N>`, `### Code review round <N>, lens <name>`, or
++`### Code review round <N>, delta`), a blank line, `Code-review: blocked`, a
++blank line, and one line that names the missing installed plan-lifecycle
++plugin. A diff under review can change the project-local copy, so that copy
++must not set the rules of its own review.
+ Read the manager's supplied export and diffs (the full, focus, or delta diff of the
+ named round mode) and any previous-round files; never fetch the issue.
+ Remain read-only. Never write, dispatch an agent, run a command, or ask the user.

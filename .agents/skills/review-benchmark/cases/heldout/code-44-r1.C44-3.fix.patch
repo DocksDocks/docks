@@ -1,0 +1,63 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+index 485ff5fc..e1f9dde7 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md
+@@ -182,6 +182,7 @@ Writes set the v4 marker, canonical heading and token case, lowercase ids with
+ hyphens changed to underscores, and trimmed trailing whitespace. U+2014 becomes
+ ` - ` with doubled spaces collapsed. Missing or unknown Mode becomes plan-only.
+ Unknown Effect and Status tokens remain in the record and produce advice.
++A duplicate section heading blocks `edit`.
+ 
+ Advice prints `advice: <text>` on stdout and exits 0. It covers absolute machine
+ paths, `_Not researched yet._` after drafting, defaulted Mode, unknown Effect or
+@@ -204,6 +205,7 @@ illegal step status transition: <from> -> <to>
+ plan status is <status>; expected ongoing
+ archive requires finished status, found <status>
+ archive refused: non-terminal step <id>
++duplicate section heading: <name>
+ archive requires Code-review: pass
+ archive requires a closing pull request merged into <nameWithOwner>:<branch>
+ retire requires a single-line --reason
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 88b801a2..bcbc7a5f 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -364,12 +364,13 @@ const stepId = (value) => token(value).replaceAll('-', '_');
+ const terminal = (status) => ['done', 'skipped'].includes(status);
+ function sectionMap(body) {
+   const headings = [...blankFencedRegions(body).matchAll(/^\s*##[ \t]+([^\n]+)$/gm)];
+-  return new Map(
+-    headings.map((heading, index) => [
+-      SECTIONS.find((name) => name.toLowerCase() === heading[1].trim().toLowerCase()) ?? heading[1].trim(),
+-      body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length).trim(),
+-    ]),
+-  );
++  const sections = new Map();
++  headings.forEach((heading, index) => {
++    const name = SECTIONS.find((known) => known.toLowerCase() === heading[1].trim().toLowerCase()) ?? heading[1].trim();
++    if (sections.has(name)) fail(`duplicate section heading: ${name}`);
++    sections.set(name, body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length).trim());
++  });
++  return sections;
+ }
+ function table(text, header) {
+   const lines = text.split('\n'),
+diff --git a/scripts/tests/plan-cli.mjs b/scripts/tests/plan-cli.mjs
+index f4be4fb2..649f3452 100755
+--- a/scripts/tests/plan-cli.mjs
++++ b/scripts/tests/plan-cli.mjs
+@@ -263,6 +263,14 @@ try {
+   refuse(run('status', String(foreign), 'ongoing'), `plan #${foreign} is owned by other-agent`);
+   assert.deepEqual(issue(foreign).labels, ['plan', 'plan:drafting']);
+ 
++  // A duplicate section heading blocks the write instead of dropping a section.
++  const doubled = createPlan('duplicate heading');
++  refuse(
++    edit(doubled, (text) => text.replace('## Acceptance', '## steps\n\nNothing.\n\n## Acceptance')),
++    'duplicate section heading: Steps',
++  );
++  assert.equal(issue(doubled).body, body(), 'a duplicate heading writes nothing');
++
+   // A second read catches a writer that races the edit after provenance passes.
+   const raced = createPlan('raced body');
+   const raceFile = exported(raced);

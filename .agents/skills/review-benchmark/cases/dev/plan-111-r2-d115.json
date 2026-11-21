@@ -1,0 +1,22 @@
+{
+  "id": "plan-111-r2-d115",
+  "kind": "plan-delta",
+  "split": "dev",
+  "issue": 111,
+  "round": 2,
+  "repo_ref": "6b864fb0057663991a3adb2be011890c91fa5c4f",
+  "previous_body": "plan-111-r2-d115-previous-body.md",
+  "plan": "plan-111-r2-d115-plan.md",
+  "previous_review": "plan-111-r2-d115-previous-review.md",
+  "show_benchmark": true,
+  "known": [
+    {
+      "id": "PD111R2-1",
+      "kind": "goal_fit",
+      "title": "The repair orders loop_sim after dev_runs only, so loop_sim and heldout_runs still write results.md with no Depends chain",
+      "locator": "Steps, row 8 loop_sim, Depends (line 81); Steps, row 6 heldout_runs, Files and Depends (line 79); Steps, row 5 dev_runs (line 78)",
+      "source": "seeded",
+      "summary": "Round-1 finding 4 asks for a Depends chain between loop_sim and both benchmark steps that write .agents/skills/review-benchmark/results.md. The repair makes loop_sim (line 81) depend only on step 5 dev_runs. Step 6 heldout_runs (line 79) also depends on step 5 and also lists results.md. So steps 6 and 8 share a Files path with no Depends chain and no owner of the shared edit. plugins/plan-lifecycle/skills/productivity/plan-manager/references/plan-contract.md (lines 73-74 at repo_ref) requires one of the two. A parallel run of the two steps can overwrite the held-out tables or the LOW-rule simulation in the results log."
+    }
+  ]
+}

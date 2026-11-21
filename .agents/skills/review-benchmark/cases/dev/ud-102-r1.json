@@ -1,0 +1,38 @@
+{
+  "id": "ud-102-r1",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 102,
+  "round": 1,
+  "repo_ref": "163acb53e4ce6c01ea7595a62971a494a81b81b7",
+  "plan": "ud-102-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABZeEeFc8AAAABEXdnxg",
+  "known": [
+    {
+      "id": "P102-1",
+      "kind": "research_gap",
+      "title": "A status-label change cannot trigger the settle-wait refusal without a change of plan.mjs, which Do not touch forbids",
+      "locator": "Research, Decisions, decision 3 (line 27); Steps, row 3 settle_refusal_tests (line 47); Acceptance, a5 (line 59)",
+      "source": "round",
+      "summary": "a status-label change cannot trigger the settle-wait refusal without changing plan.mjs, which Do not touch forbids: statusFromIssue derives a closed issue's status from stateReason and ignores labels, so reopenPlan still sees finished and the same close and reopens, while the test expects exit 1 and no write",
+      "comment": 6373220078
+    }
+  ],
+  "protected": [
+    {
+      "id": "UD102-1",
+      "section": "Research, Request corrections (line 33); Do not touch (line 66)",
+      "summary": "User: the user asked to fix D2 to D7 first in their own plan. This plan fixes D3 to D7, and D2 moves to the report-skill-issue plan that follows, by the user's answer to a publication question."
+    },
+    {
+      "id": "UD102-2",
+      "section": "Research, Decisions, decision 5 (line 29)",
+      "summary": "Yolo decision: the skills guard (`scripts/skills/guard.mjs`) checks that each `SKILL.md` ends with the canonical Report section of `scripts/config/report-section.md`, byte for byte. A corrected shell command is rejected, so the guard replaces the verify command that #96 chose."
+    },
+    {
+      "id": "UD102-3",
+      "section": "Research, Decisions, decision 1 (line 25)",
+      "summary": "Yolo decision: `test-contracts.mjs` discovers the interpreters of executable fixtures and requires that the `toolchains` of each contract equal the discovered set exactly. A declared field for fixture runtimes and a check for `repo-plan-cli` alone are rejected."
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "id": "code-123-r4-e146",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 123,
+  "round": 4,
+  "cycle": 1,
+  "base": "d4dc5d501bede196c57ef1d29ad9aac60b03645f",
+  "delta_base": "91655703d877b40ce5ed84e7f5e3996de6c60cd2",
+  "head": "5d342538f6c1c09cfd20435f070f125189dd8f4c",
+  "plan": "code-123-r4-e146-plan.md",
+  "previous_review": "code-123-r4-e146-previous-review.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABcJW4X88AAAABHWBwGA",
+  "review_comment": 6609235706,
+  "known": [
+    {
+      "id": "F123-1",
+      "title": "The scheduled guard's Blacksmith CLI install has no time bound, so a stalled download blocks the fallback",
+      "locator": "plugins/docks/skills/engineering/ci-speed/references/runner-fallback.md:95-96; plugins/docks/skills/engineering/ci-speed/references/runner-fallback.md:91",
+      "severity": "MEDIUM",
+      "category": "shipped-skill-text",
+      "source": "missed-by-round",
+      "comment": 6609501263,
+      "summary": "The Pattern 3 guard installs the Blacksmith CLI with `curl -fsSL https://get.blacksmith.sh | sh` in a `continue-on-error` step (runner-fallback.md:95-96) that has no step `timeout-minutes` and no curl `--max-time`. `continue-on-error` only covers an installer that exits. A stalled installer response or download can use the whole 15-minute job limit (line 91), so the decide step never runs, the cost is never counted as unknown, and the variables never switch to the GitHub-hosted fallback. The install must be bounded well below the job limit so that expiry reaches the unknown-cost fallback.",
+      "fix": "code-123-r4-e146.F123-1.fix.patch"
+    },
+    {
+      "id": "F123-2",
+      "title": "The checkout notes say that `git log -- <path>` in a blobless clone fetches file contents",
+      "locator": "plugins/docks/skills/engineering/ci-speed/references/github-actions.md:92",
+      "severity": "LOW",
+      "category": "shipped-skill-text",
+      "source": "missed-by-round",
+      "comment": 6609501263,
+      "summary": "github-actions.md:92 says that in a blobless clone `git log -- <path>` and `git blame` fetch file contents over the network. The partial-clone article that the line links says that path history runs from the local commits and trees; only `git blame` and patch output (`git log -p`) need blobs. The skill so teaches a wrong cost of path-history commands in `filter: blob:none` checkouts.",
+      "fix": "code-123-r4-e146.F123-2.fix.patch"
+    },
+    {
+      "id": "F123-3",
+      "title": "The Effect diagnostics annotation step is skipped when the type check fails",
+      "locator": "plugins/docks/skills/engineering/effect-ts/references/lint-setup.md:105-106; plugins/docks/skills/engineering/effect-ts/references/lint-setup.md:101",
+      "severity": "LOW",
+      "category": "shipped-skill-text",
+      "source": "missed-by-round",
+      "comment": 6609501263,
+      "summary": "The GitHub Actions recipe runs `bun run typecheck` (lint-setup.md:105) and then the `effect-tsgo diagnostics --format github-actions --strict` step (line 106) with no `if:`. A floating Effect fails the type check, and the default `success()` condition then skips the annotation step, so the recipe gives no pull-request annotations exactly for the blocking findings that line 101 says it annotates. The annotation step needs `if: ${{ !cancelled() }}` while the type check stays the gate.",
+      "fix": "code-123-r4-e146.F123-3.fix.patch"
+    }
+  ]
+}

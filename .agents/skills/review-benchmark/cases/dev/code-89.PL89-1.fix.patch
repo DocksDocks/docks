@@ -1,0 +1,22 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+index 485db0d9..4ce0b191 100755
+--- a/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
++++ b/plugins/plan-lifecycle/skills/productivity/plan-manager/scripts/plan.mjs
+@@ -112,7 +112,7 @@ function connectionNodes(initial, name, nextPage, limit = Infinity) {
+     )
+       fail(`gh api graphql returned malformed ${name}`);
+     nodes.push(...connection.nodes);
+-    if (!connection.pageInfo.hasNextPage || nodes.length > limit) return nodes;
++    if (!connection.pageInfo.hasNextPage || nodes.length >= limit) return nodes;
+     const cursor = connection.pageInfo.endCursor;
+     if (typeof cursor !== 'string' || !cursor || seen.has(cursor))
+       fail(`gh api graphql returned malformed ${name} cursor`);
+@@ -990,7 +990,7 @@ function listPlans(args) {
+     )
+   )
+     fail('gh api graphql returned malformed plan issues');
+-  const issues = nodes.map((issue) => ({ ...issue, labels: issue.labels.nodes }));
++  const issues = nodes.slice(0, PLAN_LIST_LIMIT).map((issue) => ({ ...issue, labels: issue.labels.nodes }));
+   issues.sort(
+     (a, b) =>
+       Number(a.state.toUpperCase() === 'CLOSED') - Number(b.state.toUpperCase() === 'CLOSED') || a.number - b.number,

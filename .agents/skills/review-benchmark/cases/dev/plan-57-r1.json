@@ -1,0 +1,52 @@
+{
+  "id": "plan-57-r1",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 57,
+  "round": 1,
+  "repo_ref": "82f253ee55e243829948d954b4aef82f29d4026e",
+  "plan": "plan-57-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABTAoQv8705ozH",
+  "known": [
+    {
+      "id": "P57-1",
+      "section": "Research, Repository facts (line 23); Steps, row 3 routing (line 51); Do not touch (line 73)",
+      "category": "research_gap",
+      "source": "round",
+      "summary": "the plan says type-safety-discipline covers only magic strings and keeps it out of the cutover, but its SKILL.md (lines 33, 44, 129) also triggers on repeated numbers and prescribes a shared numeric config object, leaving a second owner of the new skill's constant-mapping rules",
+      "comment": 5817353796
+    },
+    {
+      "id": "P57-2",
+      "section": "Research, Official sources (line 35); Steps, row 2 lang_refs (line 50)",
+      "category": "research_gap",
+      "source": "round",
+      "summary": "the plan calls [lints.clippy] in Cargo.toml the project-wide location, but Cargo applies it to the current package only; a workspace needs [workspace.lints.clippy] plus [lints] workspace = true in each member, so the Rust reference would miss crates",
+      "comment": 5817353796
+    },
+    {
+      "id": "P57-3",
+      "section": "Steps, row 5 behavior (line 53); Acceptance, A4-A5 (lines 63-64)",
+      "category": "goal_fit",
+      "source": "round",
+      "summary": "the Goal requires asking before installing an absent tool, but step 5 and A4-A5 run `bunx oxlint` and `uv tool run ruff`, which download absent tools, while package.json declares neither",
+      "comment": 5817353796
+    },
+    {
+      "id": "P57-4",
+      "section": "Research, Repository facts (line 23); Steps, row 3 routing (line 51)",
+      "category": "research_gap",
+      "source": "missed-by-round",
+      "summary": "type-safety-discipline's Decision Tree item 3 (same string literal in 2+ places: extract to a type, enum, or Literal) is another repeated-value instruction that the cutover leaves in place",
+      "comment": 5817450434
+    },
+    {
+      "id": "P57-5",
+      "section": "Research, ShellCheck bullet (line 36); Steps, row 5 behavior (line 53); Acceptance, A3 (line 62)",
+      "category": "research_gap",
+      "source": "missed-by-round",
+      "summary": "the installed ShellCheck is 0.9.0, but A3 runs `shellcheck --rcfile`, an option added in ShellCheck 0.10.0, so the required smoke check cannot run as written",
+      "comment": 5817450434
+    }
+  ]
+}

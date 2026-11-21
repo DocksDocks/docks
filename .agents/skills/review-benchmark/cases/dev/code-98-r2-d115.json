@@ -1,0 +1,25 @@
+{
+  "id": "code-98-r2-d115",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 98,
+  "round": 2,
+  "base": "e09d273fa2d020352337e5d97d8d47edbb4b7c80",
+  "delta_base": "845872a1f6190e35077b35a4e91ce9101f7b3dc6",
+  "head": "2b4cd0cf11f18c50a8b78968f15f9ba3c6512f1c",
+  "plan": "code-98-r2-d115-plan.md",
+  "previous_review": "code-98-r2-d115-previous-review.md",
+  "show_benchmark": true,
+  "known": [
+    {
+      "id": "U98-1",
+      "title": "The report drops an unknown pair answer for a known defect that the run found",
+      "locator": ".agents/skills/review-benchmark/scripts/score.mjs:360-395; .agents/skills/review-benchmark/scripts/score.mjs:427-439; .agents/skills/review-benchmark/scripts/score.mjs:449-484; .agents/skills/review-benchmark/SKILL.md:116",
+      "severity": "MEDIUM",
+      "category": "code",
+      "source": "review-round",
+      "summary": "scoreRun keeps an `unknown` pair answer only as an unresolved known defect, and only when the run did not find that defect (score.mjs:367 and 395). Example: finding F1 matches D1, and finding F2 has an `unknown` answer for D1 and the rating `valid`. The run then shows one valid extra and zero unresolved, and no field of the run, the summary, or the report tables (score.mjs:427-439, 449-484) shows the unknown answer. So the reader cannot see that the valid extra can be only a repeat of D1. Plan decision 6 says that the report gives the unresolved judgments.",
+      "fix": "code-98-r2-d115.U98-1.fix.patch"
+    }
+  ]
+}

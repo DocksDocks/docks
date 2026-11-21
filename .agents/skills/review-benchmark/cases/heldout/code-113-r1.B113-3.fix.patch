@@ -1,0 +1,18 @@
+diff --git a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+index 2c985150..88dceec5 100644
+--- a/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
++++ b/plugins/plan-lifecycle/skills/productivity/plan-reviewer/references/checklist.md
+@@ -69,8 +69,11 @@ the kind that fits the defect.
+   rule text, search the repository for each reader of the old form: scripts,
+   tests, fixtures, stored records and queue files that a reader reads again,
+   text that states the rule again, and the tools or agents that load that
+-  text. A reader on a supported path that no step updates is a finding. Cite
+-  the reader as `path:line`. (`goal_fit`)
++  text. A reader on a supported path that no step updates is a finding only
++  when evidence shows that the reader misreads the new form or that a
++  supported outcome breaks. Cite the reader as `path:line` and the line that
++  misreads the new form. A reader that handles the new form, for example one
++  that lists entries generically, is not a finding. (`goal_fit`)
+ - The plan keeps the invariants of the plan contract, which is
+   `plan-manager/references/plan-contract.md` in this plugin. Read the contract
+   when a step touches one of these areas. (`security_risk` or `goal_fit`)

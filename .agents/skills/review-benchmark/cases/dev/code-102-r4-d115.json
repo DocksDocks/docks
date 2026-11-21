@@ -1,0 +1,35 @@
+{
+  "id": "code-102-r4-d115",
+  "kind": "code-delta",
+  "split": "dev",
+  "issue": 102,
+  "round": 4,
+  "base": "163acb53e4ce6c01ea7595a62971a494a81b81b7",
+  "delta_base": "ad9068d4e97f1fed8b1b8e52148e7bdb10c658dd",
+  "head": "848a28637ceb99932cb83fb005395c79660c1536",
+  "patch": "code-102-r4-d115.patch",
+  "plan": "code-102-r4-d115-plan.md",
+  "previous_review": "code-102-r4-d115-previous-review.md",
+  "known": [
+    {
+      "id": "S102-1",
+      "title": "The `--` branch of the shebang parser returns the full interpreter path, not its name",
+      "locator": "scripts/tests/test-contracts.mjs:467; scripts/tests/test-contracts.mjs:604-610",
+      "severity": "LOW",
+      "category": "code",
+      "source": "seeded",
+      "summary": "The repair rewrote the `--` branch of shebangInterpreter (test-contracts.mjs:467) and removed `path.posix.basename`. So `#!/usr/bin/env -- /opt/bun/bin/bun` gives `/opt/bun/bin/bun`, but every other branch gives the base name (line 493), and the parser test expects `bun` for that path (author-tooling.mjs:331). The registry check looks up each runner in toolchainByRunner (lines 604-610), so a fixture with this valid line fails the gate with no known toolchain token. Decision 1 maps `bun` to `bun-1`. No test row has `--` before a path, so the tests still pass.",
+      "fix": "code-102-r4-d115.S102-1.fix.patch"
+    },
+    {
+      "id": "S102-2",
+      "title": "The aliased-timeline test selects the issue `createdAt` but reads the issue `updatedAt`",
+      "locator": "scripts/tests/plan-cli/gh-stub.test.mjs:92-96",
+      "severity": "LOW",
+      "category": "test",
+      "source": "seeded",
+      "summary": "The round-3 finding said that the test reads `issue.updatedAt` (gh-stub.test.mjs:96) but the query does not select it. The repair adds `createdAt` to the issue selection at line 92, not `updatedAt`. The test still passes only because the fake gh returns every issue scalar, also an unselected one (fixtures/gh-stub/gh:752-760). So the test still depends on an unselected field, which decision 2 forbids, and the round-3 finding stays open.",
+      "fix": "code-102-r4-d115.S102-2.fix.patch"
+    }
+  ]
+}

@@ -9,6 +9,29 @@ import { TEST_TIMEOUT_MS } from "./cli/test/lib/spawnTimeout";
  */
 const BACKSTOP_TEST = "cli/test/unit/ompTriggerBackstop.test.ts";
 
+/**
+ * The review-benchmark maintainer suite runs its scripts with `sh`, `ps`, `gpg`,
+ * GNU tar (`keys.mjs` needs `--sort=name` and `--to-command`, which the BSD tar
+ * of macOS does not have), and the util-linux `script` command, so it runs on
+ * Linux only (DocksDocks/docks-kit#192). Most of its cases start many git and
+ * Bun children. Under the full `bun run check`, two loop cases took 15.5 s and
+ * 20.4 s on a developer machine, past the 15 s default, so the project has a
+ * higher ceiling; a hung child still fails the run.
+ */
+const REVIEW_BENCHMARK_TIMEOUT_MS = 60_000;
+const REVIEW_BENCHMARK_PROJECTS =
+  process.platform !== "linux"
+    ? []
+    : [
+        {
+          test: {
+            name: "review-benchmark",
+            include: [".agents/skills/review-benchmark/tests/**/*.test.mjs"],
+            testTimeout: REVIEW_BENCHMARK_TIMEOUT_MS,
+          },
+        },
+      ];
+
 export default defineConfig({
   test: {
     // The root global setups run once per run; the projects do not inherit them.
@@ -30,6 +53,7 @@ export default defineConfig({
           sequence: { groupOrder: 1 },
         },
       },
+      ...REVIEW_BENCHMARK_PROJECTS,
     ],
   },
 });

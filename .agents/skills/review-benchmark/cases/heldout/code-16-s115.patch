@@ -1,0 +1,45 @@
+diff --git a/scripts/lib/plugin-release.mjs b/scripts/lib/plugin-release.mjs
+index 1efe5372..8774526a 100644
+--- a/scripts/lib/plugin-release.mjs
++++ b/scripts/lib/plugin-release.mjs
+@@ -490,11 +490,12 @@ export function createGenericPluginReleaseIo({ repo, plugins }) {
+       // costs nothing.
+       const remote = spawnSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], {
+         cwd: repo,
+-        encoding: 'utf8',
++        stdio: 'ignore',
+       });
++      if (remote.status === 2) return false;
+       if ((remote.status ?? 1) !== 0)
+         throw new Error(`cannot reach origin to check whether ${tag} is already released — refusing to guess`);
+-      return (remote.stdout ?? '').trim() !== '';
++      return true;
+     },
+     // `headBranch` carries the pushed ref's short name, so for a tag push it is the tag
+     // itself (verified against `gh run list --json headBranch` on this repository: every
+diff --git a/scripts/tests/ci-plugin-targeting.mjs b/scripts/tests/ci-plugin-targeting.mjs
+index 6d489092..73b1fee5 100755
+--- a/scripts/tests/ci-plugin-targeting.mjs
++++ b/scripts/tests/ci-plugin-targeting.mjs
+@@ -1001,8 +1001,7 @@ async function testGenericReleaseModuleContract(
+         plugins: PLUGINS,
+         io: publishedRecut.io,
+       }),
+-    new RegExp(`already released: ${recutPlugin.name} v${recutVersion}`),
+-    'a published tag must refuse the re-cut instead of previewing it',
++    `already released: ${recutPlugin.name} v${recutVersion}`,
+   );
+   assert.equal(
+     publishedRecut.calls.some(({ tool }) => ['writeJson', 'commit', 'push', 'createTag'].includes(tool)),
+@@ -2584,10 +2583,7 @@ async function testReleaseAdapterGitContracts(createReleaseIo) {
+   try {
+     await runReleaseAdapterGitContracts(createReleaseIo);
+   } finally {
+-    for (const [key, value] of Object.entries(inherited)) {
+-      if (value === undefined) delete process.env[key];
+-      else process.env[key] = value;
+-    }
++    Object.assign(process.env, inherited);
+   }
+ }
+ 

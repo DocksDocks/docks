@@ -1,0 +1,20 @@
+{
+  "id": "plan-23-r1",
+  "kind": "plan",
+  "split": "dev",
+  "issue": 23,
+  "round": 1,
+  "repo_ref": "145ed6c485710a19683d9b0819977d202e7620cc",
+  "plan": "plan-23-r1-body.md",
+  "body_revision": "UCE_lAHODGt7ls8AAAABODuRis7heC4-",
+  "known": [
+    {
+      "id": "P23-1",
+      "section": "Steps, row 4 path_detector (line 27); Research, machinePathCitations bullet (line 14)",
+      "category": "goal_fit",
+      "source": "round",
+      "summary": "step 4 widens machine-path detection to a fixed list of ten Unix roots, so absolute machine paths under other roots (for example /usr/local/x or /workspace/x) still pass, which misses the Goal and the contract's ban on any absolute machine path; detection must treat every POSIX absolute path as a machine path",
+      "comment": 5401303626
+    }
+  ]
+}
