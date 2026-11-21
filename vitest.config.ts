@@ -12,8 +12,12 @@ const BACKSTOP_TEST = "cli/test/unit/ompTriggerBackstop.test.ts";
 /**
  * The review-benchmark maintainer suite runs its scripts with `sh`, `ps`, `gpg`,
  * and the util-linux `script` command, so it runs on Linux and macOS only
- * (DocksDocks/docks-kit#192).
+ * (DocksDocks/docks-kit#192). Most of its cases start many git and Bun
+ * children. Under the full `bun run check`, two loop cases took 15.5 s and
+ * 20.4 s on a developer machine, past the 15 s default, so the project has a
+ * higher ceiling; a hung child still fails the run.
  */
+const REVIEW_BENCHMARK_TIMEOUT_MS = 60_000;
 const REVIEW_BENCHMARK_PROJECTS =
   process.platform === "win32"
     ? []
@@ -22,6 +26,7 @@ const REVIEW_BENCHMARK_PROJECTS =
           test: {
             name: "review-benchmark",
             include: [".agents/skills/review-benchmark/tests/**/*.test.mjs"],
+            testTimeout: REVIEW_BENCHMARK_TIMEOUT_MS,
           },
         },
       ];
