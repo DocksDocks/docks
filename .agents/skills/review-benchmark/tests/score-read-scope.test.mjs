@@ -282,6 +282,69 @@ test('readScope refuses every skill:// read of the benchmark skill and every rea
     outside: liveReads.map((call) => call.path),
   });
 });
+test('readScope refuses a read through a symbolic link of an allowed folder that points into the live benchmark folder', () => {
+  const root = scratch();
+  const caseDir = path.join(root, 'ws', 'code-7');
+  const snapshot = path.join(caseDir, 'snapshot');
+  put(snapshot, 'src/sync.mjs', 'export const lock = 1;\n');
+  const heldout = path.join(SKILL_DIR, 'cases', 'heldout');
+  const heldoutFile = path.join(heldout, fs.readdirSync(heldout).sort()[0]);
+  const link = (name, target) => fs.symlinkSync(target, path.join(snapshot, name));
+  // A folder link and a file link into the benchmark folder, a dangling link into it, and a link that stays inside
+  // the snapshot.
+  link('keys', heldout);
+  link('key.md', heldoutFile);
+  link('gone.key.json', path.join(heldout, 'none.key.json'));
+  link('alias.mjs', path.join(snapshot, 'src', 'sync.mjs'));
+  const scope = { runDir: path.join(caseDir, 'C3-low', 'run-1'), cwd: snapshot, pluginRoots: [], heldSkills: [] };
+  const outside = [
+    // An absolute path and a relative path of the file link.
+    ...reads(path.join(snapshot, 'key.md'), 'key.md'),
+    // A file of the linked folder, and a missing file under it.
+    ...reads(path.join(snapshot, 'keys', path.basename(heldoutFile)), path.join(snapshot, 'keys', 'missing.key.json')),
+    // A glob and a grep whose folder is the linked folder.
+    { name: 'glob', path: path.join(snapshot, 'keys', '*.patch') },
+    { name: 'grep', path: path.join(snapshot, 'keys') },
+    // A dangling link whose target would be in the benchmark folder.
+    ...reads(path.join(snapshot, 'gone.key.json')),
+  ];
+  const inside = reads(path.join(snapshot, 'alias.mjs'), 'alias.mjs', path.join(snapshot, 'src', 'sync.mjs'));
+  assert.deepEqual(score.readScope([...outside, ...inside], scope), { outside: outside.map((call) => call.path) });
+});
+test('readScope refuses a glob or a search of a folder that holds a symbolic link into the benchmark folder at any depth', () => {
+  const root = scratch();
+  const snapshotOf = (caseId) => path.join(root, 'ws', caseId, 'snapshot');
+  const scopeOf = (caseId) => ({
+    runDir: path.join(root, 'ws', caseId, 'C3-low', 'run-1'),
+    cwd: snapshotOf(caseId),
+    pluginRoots: [],
+    heldSkills: [],
+  });
+  const searchesOf = (snapshot) => [
+    { name: 'glob', path: path.join(snapshot, '**', 'x.json') },
+    { name: 'grep', path: snapshot },
+    { name: 'find', path: snapshot },
+    { name: 'glob', path: '**/*.mjs' },
+  ];
+  // A nested link `deep/k` to the held-out folder: a glob or a search of the snapshot can follow it.
+  const linked = snapshotOf('code-7');
+  put(linked, 'src/sync.mjs', 'export const lock = 1;\n');
+  fs.mkdirSync(path.join(linked, 'deep'));
+  fs.symlinkSync(path.join(SKILL_DIR, 'cases', 'heldout'), path.join(linked, 'deep', 'k'));
+  const linkedSearches = searchesOf(linked);
+  // readScope lists each outside target once, so the grep and the find of the snapshot give one entry.
+  assert.deepEqual(score.readScope(linkedSearches, scopeOf('code-7')), {
+    outside: [...new Set(linkedSearches.map((call) => call.path))],
+  });
+  // A read of a file of the same snapshot is no search, so the link under it does not matter.
+  assert.deepEqual(score.readScope(reads(path.join(linked, 'src', 'sync.mjs')), scopeOf('code-7')), { outside: [] });
+  // The same searches of a snapshot without such a link, also with a link that stays inside the snapshot.
+  const plain = snapshotOf('code-8');
+  put(plain, 'src/sync.mjs', 'export const lock = 1;\n');
+  fs.mkdirSync(path.join(plain, 'deep'));
+  fs.symlinkSync(path.join(plain, 'src'), path.join(plain, 'deep', 'k'));
+  assert.deepEqual(score.readScope(searchesOf(plain), scopeOf('code-8')), { outside: [] });
+});
 test('readScope of a loop round allows the tree copies of its run up to that round and nothing fixed after it', () => {
   const run = `${SCOPE_CASE}/B0-low/run-1`;
   const tree = (runRound) => `${SCOPE_WS}/trees/${score.runLabel('code-7', 'B0-low', runRound)}/src/sync.mjs`;

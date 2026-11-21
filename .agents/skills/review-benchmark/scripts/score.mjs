@@ -2999,6 +2999,8 @@ function scopeRules(runDir, round, { pluginRoots, agentFiles, skillRoots, heldSk
     skillRoots: agentFiles.length > 0 ? skillRoots : [],
     measuredSkills: new Set([...REVIEWER_SKILLS, ...heldSkills]),
     changed: distinct(changedFiles.flatMap(changedPathKeys)),
+    // The link walk of each searched folder in this call (see linksIntoBenchmark).
+    linkWalks: new Map(),
   };
 }
 
@@ -3168,16 +3170,79 @@ function normalizeLocal(target) {
   return [normalized.replace(/\/$/, ''), ...rest.filter((segment) => segment !== '' && segment !== '.')].join('/');
 }
 
+// The path that `target` (an absolute path) reaches when the file system follows its symbolic links: the real path of
+// the target, or, for a target that does not exist (a missing file, or the folder before the first glob segment of
+// a glob), the real path of its longest existing ancestor with the rest of the path. A dangling link on the way
+// resolves through its link text. After MAX_LINKS links the path stays as it is, as the system gives ELOOP there.
+const MAX_LINKS = 40;
+function linkedPath(target, links = 0) {
+  if (links > MAX_LINKS) return target;
+  const rest = [];
+  for (let existing = target; ; ) {
+    try {
+      return path.join(fs.realpathSync(existing), ...rest);
+    } catch {
+      // The path does not exist, or it is a dangling or cyclic link.
+    }
+    let text;
+    try {
+      text = fs.readlinkSync(existing);
+    } catch {
+      text = null;
+    }
+    if (text !== null) return linkedPath(path.join(path.resolve(path.dirname(existing), text), ...rest), links + 1);
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    rest.unshift(path.basename(existing));
+    existing = parent;
+  }
+  return target;
+}
+
+// A path inside the live benchmark folder, also through a symbolic link of an allowed folder that points into it
+// (see linkedPath). The file system decides where a read of a link lands, so the lexical path alone is not enough.
+function insideBenchmark(target) {
+  if (BENCHMARK_DIRS.some((dir) => isUnder(dir, target))) return true;
+  const linked = linkedPath(target);
+  return BENCHMARK_DIRS.some((dir) => isUnder(dir, linked));
+}
+
+// True when a symbolic link at any depth under the folder `dir` resolves into the live benchmark folder (see
+// linkedPath and insideBenchmark). A glob and a search walk the folder that they search, and a walk can follow such a
+// link, so the read can reach the answer keys although its own path is outside the benchmark folder. The walk lists
+// each folder once with `withFileTypes`, so it does not follow a link into a folder: each link is one entry that it
+// resolves. `walks` caches the result of each folder for one readScope call. A folder that the walk cannot list, or a
+// path that is no folder, holds no link.
+function linksIntoBenchmark(dir, walks) {
+  if (walks.has(dir)) return walks.get(dir);
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true, recursive: false });
+  } catch {
+    // No folder, or a folder that the walk cannot list: no search reads under it.
+  }
+  walks.set(dir, false);
+  const found = entries.some((entry) => {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) return insideBenchmark(entryPath);
+    return entry.isDirectory() && linksIntoBenchmark(entryPath, walks);
+  });
+  walks.set(dir, found);
+  return found;
+}
+
 // A relative path resolves against the working directory, so without one it is outside. A path inside the live
-// benchmark folder (BENCHMARK_DIRS), which holds the answer keys, is outside, whatever else allows it. A glob is
-// allowed when the folder before its first glob segment is allowed and no later segment can leave that folder with
-// `..`. The checks read the path after normalizeLocal.
-function localPathAllowed(written, cwd, rules) {
+// benchmark folder (see insideBenchmark), which holds the answer keys, is outside, whatever else allows it, and so is a
+// glob, or the folder of a search tool (`searches`, see omp.mjs SEARCH_TOOLS), whose searched folder holds a symbolic
+// link into that folder (see linksIntoBenchmark). A glob is allowed when the folder before its first glob segment is
+// allowed and no later segment can leave that folder with `..`. The checks read the path after normalizeLocal.
+function localPathAllowed(written, cwd, rules, searches = false) {
   if (!path.isAbsolute(written) && typeof cwd !== 'string') return false;
   const target = normalizeLocal(written);
   const { base, rest } = globParts(target);
-  const reached = path.resolve(cwd ?? path.sep, base);
-  if (BENCHMARK_DIRS.some((dir) => isUnder(dir, reached))) return false;
+  const searched = path.resolve(cwd ?? path.sep, base);
+  if (insideBenchmark(searched)) return false;
+  if ((rest.length > 0 || searches) && linksIntoBenchmark(searched, rules.linkWalks)) return false;
   if (rest.length === 0) {
     const resolved = path.resolve(cwd ?? path.sep, target);
     if (folderAllowed(resolved, rules) || fileAllowed(resolved, rules)) return true;
@@ -3220,9 +3285,10 @@ function webPageAllowed(target) {
 
 const uriScheme = (target) => URI_SCHEME.exec(target)?.[1].toLowerCase();
 
-function targetAllowed(target, cwd, rules) {
+// `searches` tells whether the tool of the target searches a folder (see localPathAllowed).
+function targetAllowed(target, cwd, rules, searches = false) {
   const scheme = uriScheme(target);
-  if (scheme === undefined) return localPathAllowed(target, cwd, rules);
+  if (scheme === undefined) return localPathAllowed(target, cwd, rules, searches);
   if (SPILL_SCHEMES.has(scheme)) return true;
   if (scheme === SKILL_SCHEME) return skillReadAllowed(skillUriKey(target), rules);
   return WEB_SCHEMES.has(scheme) && webPageAllowed(target);
@@ -3546,8 +3612,8 @@ function diffCoverage(tools, file, cwd) {
 // or undefined for a run without round folders; `cwd` is the working directory of the session (null when unknown);
 // `pluginRoots` are the plugin roots that the agent text names; `agentFiles` are the agent files that the agent text
 // names as its own (the self-review agent has no plugin root); `heldSkills` are the skills that the measured plugin
-// copies hold (transcriptsCommand gives them, see pluginSkills). The function reads no file. A target is allowed when it
-// is:
+// copies hold (transcriptsCommand gives them, see pluginSkills). The function reads no file; it only follows the
+// symbolic links of a local target for the benchmark rule below (see linkedPath). A target is allowed when it is:
 // - under an input of the run: `snapshot/`, `prompts/`, a `*.diff` file, `plan.md`, `previous-review.md`, or
 //   `rejection.md` in the case folder, and in the run folder or in each round folder up to `round`;
 // - the copy `plan-contract.md` of the plan contract in the run folder, which the prompt of a run of a variant with a
@@ -3569,8 +3635,10 @@ function diffCoverage(tools, file, cwd) {
 //   is no reviewer skill, for example an always-apply skill such as `unslop` (see skillReadAllowed);
 // - an `artifact://` or `local://` URI (the spilled output of the reviewer, see omp.mjs SPILL_SCHEMES);
 // - an http or https URL that cannot show the benchmark repository (see webPageAllowed).
-// Every target inside the live benchmark folder and every `skill://` URI of the benchmark skill itself is outside,
-// whatever rule above would allow it: the folder holds the answer keys (see BENCHMARK_DIRS and BENCHMARK_SKILL).
+// Every target inside the live benchmark folder, also through a symbolic link (see insideBenchmark), every glob and
+// every folder of a search tool whose searched folder holds a symbolic link into that folder at any depth (see
+// linksIntoBenchmark), and every `skill://` URI of the benchmark skill itself is outside, whatever rule above would
+// allow it: the folder holds the answer keys (see BENCHMARK_DIRS and BENCHMARK_SKILL).
 // Every other target is outside, also the other skills of the repository that holds a plugin root: the reviewed
 // repository has its own copy of them under `snapshot/`. A `skill://` URI or an installed plugin copy of the
 // code-reviewer or plan-reviewer skill, or of another skill that a measured plugin copy holds, is outside for every
@@ -3636,15 +3704,16 @@ export function readScope(
     }
     const refuse = (target, refused) =>
       (error && refused.every((part) => pathMissing(part, cwd)) ? missing : outside).add(target);
+    const searches = SEARCH_TOOLS.has(name);
     for (const target of pathTargets(name, value)) {
       const parts = lists.get(target);
       if (parts !== undefined) {
-        const refused = parts.filter((part) => !targetAllowed(part, cwd, rules));
+        const refused = parts.filter((part) => !targetAllowed(part, cwd, rules, searches));
         if (refused.length) refuse(target, refused);
         continue;
       }
       const read = withoutSelector(target);
-      if (!targetAllowed(read, cwd, rules)) refuse(read, [read]);
+      if (!targetAllowed(read, cwd, rules, searches)) refuse(read, [read]);
     }
   }
   const scope = { outside: [...outside] };
