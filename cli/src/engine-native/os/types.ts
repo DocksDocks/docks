@@ -35,6 +35,21 @@ export interface HostOs {
   readonly invoke: (executablePath: string, args: ReadonlyArray<string>) => Invocation;
   /** Bun executable filename inside `<bunRoot>/bin`. */
   readonly bunExecutableName: string;
+  /**
+   * The folders where the launchers and installers of this host look for Bun after PATH, in their
+   * order. The Bun probe searches the same list; `cli/test/unit/bunSearch.test.ts` holds the
+   * scripts to it.
+   */
+  readonly bunSearch: ReadonlyArray<BunSearchEntry>;
   /** Download-then-run installer for a pinned Bun version placed in `directory`. */
   readonly bunInstaller: (pin: string, directory: string) => BunInstaller;
+}
+
+/**
+ * One place to look for Bun: `rest` under the Bun root (`BUN_INSTALL` when set, else
+ * `<home>/.bun`) or under the home folder.
+ */
+export interface BunSearchEntry {
+  readonly base: "bunRoot" | "home";
+  readonly rest: ReadonlyArray<string>;
 }

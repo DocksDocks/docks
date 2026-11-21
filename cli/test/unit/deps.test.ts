@@ -193,6 +193,31 @@ describe("DependencyManager registry", () => {
     }
   });
 
+  it("finds a POSIX Bun that only the installer link in <home>/.local/bin holds", async () => {
+    // install.sh links the Bun it used into ~/.local/bin, and the launchers search there.
+    vi.stubEnv("HOME", "/fixture-home");
+    vi.stubEnv("USERPROFILE", "/fixture-home");
+    vi.stubEnv("BUN_INSTALL", "");
+    try {
+      const linked = "/fixture-home/.local/bin/bun";
+      const calls: Array<string> = [];
+      const manager = makeDependencyManager(makePlatform("linux"), {
+        commandExists: () => false,
+        capture: async (cmd) => {
+          calls.push(cmd);
+          return "1.4.5";
+        },
+        which: (name) => (name === linked ? name : ""),
+      });
+
+      expect(manager.probe("bun")).toEqual({ state: "present", path: linked });
+      await expect(manager.version("bun")).resolves.toBe("1.4.5");
+      expect(calls).toEqual([linked]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("rejects relative POSIX bun paths from PATH and BUN_INSTALL fallbacks", () => {
     const previousHome = process.env["HOME"];
     const previousUserProfile = process.env["USERPROFILE"];

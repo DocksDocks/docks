@@ -19,6 +19,12 @@ export function posixHost(inputs: PosixHostInputs): HostOs {
     executableSuffixes: [""],
     invoke: (executablePath, args) => ({ command: executablePath, args }),
     bunExecutableName: "bun",
+    // install.sh links the Bun that it used into ~/.local/bin, a folder on non-interactive PATHs.
+    bunSearch: [
+      { base: "bunRoot", rest: ["bin", "bun"] },
+      { base: "home", rest: [".bun", "bin", "bun"] },
+      { base: "home", rest: [".local", "bin", "bun"] },
+    ],
     bunInstaller: (pin, directory) => {
       const scriptPath = `${directory}/install.sh`;
       return {

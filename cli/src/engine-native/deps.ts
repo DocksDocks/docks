@@ -12,7 +12,7 @@ import { isAbsolute } from "node:path";
 import { capture, captureWithin, commandExists, p, which, type CaptureOutcome } from "./exec";
 import { engineHome } from "./ompSession";
 import { hostOs, platformName, rawPlatform } from "./os";
-import type { Invocation } from "./os/types";
+import type { HostOs, Invocation } from "./os/types";
 import { field } from "./toolchain";
 
 export type ToolId = "git" | "jq" | "curl" | "npm" | "omp" | "bun";
@@ -113,28 +113,31 @@ const pathProbe =
   };
 
 /**
- * Callers run the resolved path outside the sync working directory, so a
- * relative `which` hit (relative PATH entry, relative BUN_INSTALL) would
- * break there.
+ * Bun on PATH, else the first folder of the host's Bun search (`HostOs.bunSearch`), the list that
+ * the launchers and installers search. Callers run the resolved path outside the sync working
+ * directory, so a relative `which` hit (relative PATH entry, relative BUN_INSTALL) would break
+ * there.
  */
-const findBun = (exec: ProbeExecutor): { command: string; path: string } | undefined => {
+const findBun = (
+  exec: ProbeExecutor,
+  host: HostOs = hostOs(),
+): { command: string; path: string } | undefined => {
   const onPath = exec.which("bun");
   if (onPath !== "" && isAbsolute(onPath)) {
     return { command: "bun", path: onPath };
   }
-  const root =
-    process.env["BUN_INSTALL"] !== undefined && process.env["BUN_INSTALL"] !== ""
-      ? process.env["BUN_INSTALL"]!
-      : p(engineHome(), ".bun");
-  for (const candidate of [p(root, "bin", "bun"), p(engineHome(), ".bun", "bin", "bun")]) {
-    const found = exec.which(candidate);
+  const home = engineHome();
+  const bunInstall = process.env["BUN_INSTALL"];
+  const bunRoot = bunInstall !== undefined && bunInstall !== "" ? bunInstall : p(home, ".bun");
+  for (const entry of host.bunSearch) {
+    const found = exec.which(p(entry.base === "bunRoot" ? bunRoot : home, ...entry.rest));
     if (found !== "" && isAbsolute(found)) return { command: found, path: found };
   }
   return undefined;
 };
 
-const resolveBun = (exec: ProbeExecutor): ProbeResult => {
-  const bun = findBun(exec);
+const resolveBun = (exec: ProbeExecutor, platform: NodeJS.Platform): ProbeResult => {
+  const bun = findBun(exec, hostOs(platformName(platform)));
   return bun === undefined ? { state: "missing" } : { state: "present", path: bun.path };
 };
 
