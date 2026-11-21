@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased - docks-kit 0.27.1: Bun detection and update fixes
+## 2026-11-21 - docks-kit 0.27.1: Bun detection and update fixes
 
 ### Fixed
 
