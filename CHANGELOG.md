@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased - docks-kit 0.27.0: Bun-only; no compiled binaries
+## 2026-11-21 - docks-kit 0.27.0: Bun-only; no compiled binaries
 
 docks-kit now runs only through Bun: the npm package runs the Bun bundle
 `cli/dist/docks-kit.js`, and a checkout runs its source through the launchers.
