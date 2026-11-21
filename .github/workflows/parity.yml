@@ -118,7 +118,7 @@ jobs:
           BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
         # The check job already runs the Linux-only review-benchmark project
         # on the same Ubuntu image, so this job runs the portable projects.
-        run: bun run test:unit --project unit --project backstop
+        run: bun run test:unit:portable
 
       - name: Clean-room package install smoke
         env:
