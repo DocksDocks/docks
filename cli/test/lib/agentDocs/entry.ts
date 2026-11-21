@@ -55,8 +55,9 @@ export function runHelper(
 
 /**
  * The stderr that the runtime writes before any helper code runs in `options.cwd`: what `bun -e 0` writes there, such
- * as Bun's parse error for an invalid `package.json` in that folder or a parent folder. A compiled binary writes no
- * such text. (`bun -e ''` prints Bun's help instead of running a program, so the probe runs the expression `0`.)
+ * as Bun's parse error for an invalid `package.json` in that folder or a parent folder. It is empty when the runtime
+ * writes no text of its own. (`bun -e ''` prints Bun's help instead of running a program, so the probe runs the
+ * expression `0`.)
  */
 export function runtimeStderr(options: {
   readonly cwd: string;

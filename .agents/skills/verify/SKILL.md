@@ -9,7 +9,7 @@ metadata:
 
 docks-kit is a CLI that a user runs from the checkout (`./docks-kit`) or from the global install. Flows V1 to V4 run it from the repository root and read its exit code and output. V5 runs the real omp on the kit trigger rules. V6 links the kit plugin into the real omp in an isolated state. No flow writes to the home folder outside a docks-kit scratch folder: `sync --dry-run` plans the deploy only, the golden suite runs each case in its own temporary home, `omp ttsr test --rule` tests one rule file without loading other rules, and V6 writes only to its scratch folder and removes it at the end.
 
-Hosts: the commands below are POSIX shell for Linux and macOS. On Windows, run `.\docks-kit.ps1` in place of `./docks-kit` for V1 and V4 and read the exit code from `$LASTEXITCODE`; for V2, read the omp row of `.\docks-kit.ps1 toolchain check`. V3 does not run on Windows: `cli/test/golden-dryrun.ts` exits 2 on a host whose executables need a suffix, because the snapshots are Linux-canonical. On Windows, run `bun run typecheck`, `bun run test:unit`, and `bun run smoke:native` instead. V6 does not run on Windows: omp reads the home folder from `HOME` only on Linux and macOS, so `omp-smoke.ts` prints `FAIL omp-smoke.ts runs on Linux and macOS only` and exits 2.
+Hosts: the commands below are POSIX shell for Linux and macOS. On Windows, run `.\docks-kit.ps1` in place of `./docks-kit` for V1 and V4 and read the exit code from `$LASTEXITCODE`; for V2, read the omp row of `.\docks-kit.ps1 toolchain check`. V3 does not run on Windows: `cli/test/golden-dryrun.ts` exits 2 on a host whose executables need a suffix, because the snapshots are Linux-canonical. On Windows, run `bun run typecheck`, `bun run test:unit`, and `bun run smoke:package` instead. V6 does not run on Windows: omp reads the home folder from `HOME` only on Linux and macOS, so `omp-smoke.ts` prints `FAIL omp-smoke.ts runs on Linux and macOS only` and exits 2.
 
 ## Prerequisites
 
@@ -81,7 +81,6 @@ A `FAIL <reason>` line in the load mode, or a `FAIL <name>: <reason>` line in th
 
 | Sign | Meaning | Next step |
 |---|---|---|
-| `ignoring stale cli/dist/docks-kit-...; running from source` | The launcher found an old binary and runs the source instead | No action for a flow; run `bun run build:binaries` only when you test the binary |
 | `=== GOLDEN MISMATCH` in V3 | The CLI output changed | Read the diff; when the change is intended, run `bun cli/test/golden-dryrun.ts --update-goldens`, then `bun run format` |
 | omp row status `below-floor` or `above-verified` in V2 | The installed omp differs from `SoT/toolchain.json` | Check the omp release against the kit before you move the pin |
 | V5 prints `No rules triggered.` for `big-reset`, or takes seconds | A condition scans the buffer in more than linear time, or hits the JavaScriptCore match limit | Run `bunx vitest run cli/test/unit/ompTriggerRules.test.ts cli/test/unit/ompTriggerBackstop.test.ts` and fix the condition that the shape guard or the Bun backstop names (`cli/docs/command-guards.md`, omp trigger rules) |

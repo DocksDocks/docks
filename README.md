@@ -19,26 +19,18 @@ cd ~/projects/docks-kit
 ```
 
 POSIX hosts use the `./docks-kit` launcher on Linux x64 and arm64 and on macOS
-arm64. Windows uses `.\docks-kit.ps1` on x64. Each launcher prefers the matching compiled
-binary in `cli/dist/` only when its version matches the checkout. Otherwise it
-runs from source via Bun and auto-installs Bun plus dependencies when needed.
-Hosts outside this matrix fail immediately and never fall back to Bun source.
-Stale ignored build artifacts cannot mask newer checkout code.
+arm64. Windows uses `.\docks-kit.ps1` on x64. Each launcher runs the checkout
+source with Bun and auto-installs Bun plus dependencies when needed. Hosts
+outside this matrix fail immediately and never reach the Bun source.
 
 Other install paths include global `bun add -g docks-kit`, the POSIX curl
 installer, and the Windows PowerShell installer. See `./docks-kit docs install`.
 
-**No-Bun recovery path**:
-
-Download the platform release binary from GitHub Releases and run it directly.
-The executable carries the generated sync payload; no checkout or adjacent
-`SoT/` directory is required.
-
-Source and global installs require Bun. An npm-global install needs npm.
+Every install requires Bun. An npm-global install needs npm.
 `jq` is optional doctor/test tooling. `curl` is needed only to download Bun's
 upstream installer when Bun is absent: by the POSIX launcher and installer, and
-by sync's Bun bootstrap, which a release binary can also run. The Windows
-launcher and installer use Invoke-WebRequest.
+by sync's Bun bootstrap. The Windows launcher and installer use
+Invoke-WebRequest.
 
 ### Move a checkout of DocksDocks/public
 
@@ -53,9 +45,10 @@ git remote set-url origin https://github.com/DocksDocks/docks-kit.git
 .\docks-kit.ps1 sync      # Windows
 ```
 
-The update pulls from DocksDocks/docks-kit. The sync then deploys the skills
-with their new report target: a launcher that runs a fresh compiled binary
-skips the sync that the update chains. A global npm install needs nothing.
+The update pulls from DocksDocks/docks-kit and chains a sync that deploys the
+skills with their new report target. The explicit sync covers an older
+checkout whose launcher still runs a binary from `cli/dist/`, because that
+binary does not chain the sync. A global npm install needs nothing.
 
 ## CLI
 
@@ -151,17 +144,17 @@ Report a problem with a skill, an agent, or the kit in
 | `SoT/.omp/` | omp SoT (AGENTS.md, config.yml, models.yml, mcp.json, intercom.json, and the `plugin/` source of `docks-kit-omp`) |
 | `SoT/toolchain.json` | Verified-version floors |
 | `cli/src/engine-native/` | EngineNative sync/toolchain implementation |
-| `cli/src/generated/sotPayload.ts` | Generated in-memory payload used by standalone and npm installs |
+| `cli/src/generated/sotPayload.ts` | Generated in-memory payload used by npm installs |
 | `cli/` | docks-kit CLI (Effect 4 on Bun) + bundled docs topics |
-| `docks-kit` / `docks-kit.ps1` | POSIX and Windows launchers (binary → Bun-from-source) |
+| `docks-kit` / `docks-kit.ps1` | POSIX and Windows launchers (Bun-from-source) |
 | `install.sh` / `install.ps1` | POSIX and Windows global installers |
 | `docs/PLAN.md` | Plan pointer and project plan rules; plans are GitHub issues |
 | `AGENTS.md` | Agent-facing engineering rules |
 
 ## Platform support
 
-| Platform | Architecture | docks-kit binary | Sync engine |
-|----------|--------------|------------------|-------------|
+| Platform | Architecture | docks-kit CLI | Sync engine |
+|----------|--------------|---------------|-------------|
 | Linux | x64 | ✅ | ✅ native |
 | Linux | arm64 | ✅ | ✅ native |
 | macOS | arm64 | ✅ | ✅ native |
@@ -171,12 +164,9 @@ Details: `docks-kit docs platforms`.
 
 ## Releases
 
-Tagging `cli-v*` builds four standalone binaries: `docks-kit-linux-x64`,
-`docks-kit-linux-arm64`, `docks-kit-darwin-arm64`, and
-`docks-kit-windows-x64.exe`. The workflow attaches them plus `SHA256SUMS` and the
-bundle's source map `docks-kit.js.map` to the GitHub release. npm publishes the
-exact package tarball through trusted publishing with OIDC provenance.
-Published binaries, checksums, and release notes are available on
+Tagging `cli-v*` attaches the bundle's source map `docks-kit.js.map` to the
+GitHub release. npm publishes the exact package tarball through trusted
+publishing with OIDC provenance. Source maps and release notes are available on
 [GitHub Releases](https://github.com/DocksDocks/docks-kit/releases).
 Each `docks-kit` npm release runs one minified JavaScript bundle of the CLI and
 its generated payload (`cli/dist/docks-kit.js`), so releases are versioned config

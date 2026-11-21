@@ -6,9 +6,9 @@ metadata:
   pattern: tool-wrapper
   source_files:
     - path: docks-kit
-      lines: "1-131"
+      lines: "1-100"
     - path: cli/src/main.ts
-      lines: "1-89"
+      lines: "1-88"
     - path: cli/src/argv.ts
       lines: "1-59"
     - path: cli/src/argvValidate.ts
@@ -16,9 +16,9 @@ metadata:
     - path: cli/src/argvSurface.ts
       lines: "1-410"
     - path: cli/src/engine.ts
-      lines: "1-59"
+      lines: "1-53"
     - path: cli/src/kitHome.ts
-      lines: "1-102"
+      lines: "1-99"
     - path: cli/src/payload.ts
       lines: "1-19"
     - path: cli/src/commands/sync.ts
@@ -26,7 +26,7 @@ metadata:
     - path: cli/src/engine-native/exec.ts
       lines: "1-346"
     - path: cli/src/commands/update.ts
-      lines: "1-317"
+      lines: "1-282"
     - path: cli/src/engine-native/index.ts
       lines: "1-66"
     - path: cli/src/engine-native/engineCtx.ts
@@ -130,7 +130,7 @@ For the doctor report and Bun managed install, use
 
 | Invocation | Path | Notes |
 |-----------|------|-------|
-| `./docks-kit <args>` | Compiled binary in `cli/dist/` when its version matches and it is current, otherwise Bun-from-source | The launcher compares binary `--version` with `package.json`, and it also rejects the binary when a file under `cli/src` or `cli/docs` is newer than the binary, so stale ignored builds cannot mask newer source. |
+| `./docks-kit <args>` | Host check, then Bun-from-source | The launcher rejects a host outside the support matrix, finds or installs Bun, runs `bun install --frozen-lockfile` when `node_modules/effect` is absent, and then runs `cli/src/main.ts`. It never runs a file in `cli/dist/`, so a leftover binary cannot mask newer source. |
 | `cli/src/main.ts` | Raw-channel branch, then `prepareArgv`, then the Effect CLI root command | `DOCKS_KIT_ENGINE=native-raw` skips `prepareArgv` and Effect and calls `runEngineNative` directly with `{ envGlobals: true }`. Otherwise mutating commands run through `engine(args)`. The root command registers `argv.ts COMMANDS`, the one subcommand list that the argv surfaces also use. A new subcommand needs an entry there and a `Console.log` line in the hand-written root overview in `main.ts`. A new engine mode also needs a `case` arm in `index.ts runEngineNative`. |
 | `cli/src/argv.ts` | `prepareArgv` | Validates and normalizes argv before Effect parses it. See § Public Argv Layer. |
 | `cli/src/engine.ts` | `engine` | Exits 2 on an unsupported host or `DOCKS_KIT_ENGINE=bash`, then runs EngineNative in-process with `{ envGlobals: false }`. `native-raw` is the harness-private golden channel. |

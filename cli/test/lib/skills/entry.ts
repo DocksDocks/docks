@@ -50,8 +50,8 @@ export function runSkill(
 
 /**
  * The stderr that the runtime writes in `options.cwd` on its own, at a point that its event loop picks: what `bun -e 0`
- * writes there, such as Bun's parse error for an invalid `package.json` in that folder or a parent folder. A compiled
- * binary writes no such text.
+ * writes there, such as Bun's parse error for an invalid `package.json` in that folder or a parent folder. It is empty
+ * when the runtime writes no text of its own.
  */
 export function runtimeStderr(options: RunOptions): string {
   const result = spawnSync(BUN_RUNTIME, ["-e", "0"], { cwd: options.cwd, env: options.env });

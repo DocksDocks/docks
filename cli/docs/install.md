@@ -1,7 +1,7 @@
 # Installing docks-kit
 
 Supported hosts are Linux x64/arm64, macOS arm64, and Windows x64.
-Hosts outside this matrix fail before a launcher can fall back to Bun source.
+Hosts outside this matrix fail before a launcher runs the Bun source.
 
 ## 1. Repo checkout (development / current users)
 
@@ -12,10 +12,8 @@ cd ~/projects/docks-kit
 ```
 
 POSIX hosts use `./docks-kit`. Windows uses `.\docks-kit.ps1`. Each
-launcher prefers a compiled binary in `cli/dist/` only when its reported
-version matches `package.json`. It then falls back to Bun-from-source and
-auto-installs Bun plus `node_modules` when needed. Each launcher reports and
-bypasses an ignored stale build.
+launcher runs the checkout source with Bun and auto-installs Bun plus
+`node_modules` when needed. A launcher never runs a file in `cli/dist/`.
 
 ### Move a checkout of DocksDocks/public
 
@@ -30,9 +28,10 @@ git remote set-url origin https://github.com/DocksDocks/docks-kit.git
 .\docks-kit.ps1 sync      # Windows
 ```
 
-The update pulls from DocksDocks/docks-kit. The sync then deploys the skills
-with their new report target: a launcher that runs a fresh compiled binary
-skips the sync that the update chains. A global npm install needs nothing.
+The update pulls from DocksDocks/docks-kit and chains a sync that deploys the
+skills with their new report target. The explicit sync covers an older
+checkout whose launcher still runs a binary from `cli/dist/`, because that
+binary does not chain the sync. A global npm install needs nothing.
 
 ## 2. Global via Bun
 
@@ -74,7 +73,7 @@ tmp="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/DocksDocks/docks
 
 Download-then-run, never `curl | bash` — stream truncation has bitten this
 kit before. The installer bootstraps Bun when absent, runs
-`bun add -g docks-kit@latest`, and links the binary into `~/.local/bin`.
+`bun add -g docks-kit@latest`, and links the CLI and Bun into `~/.local/bin`.
 This installer serves the two POSIX platforms. Windows uses the PowerShell
 installer below.
 
@@ -111,14 +110,11 @@ docks-kit update --no-sync  # update only
    directory whose `package.json` has the name `docks-kit`. An invalid value
    causes an error instead of a fallback.
 2. The CLI uses the nearest kit root at or above its own module directory.
-3. Next, the CLI uses the nearest kit root at or above the directory that holds
-   the executable. A standalone binary inside `<checkout>/cli/dist` therefore
-   resolves to the checkout.
-4. Next, the CLI uses the nearest kit root at or above the current working
+3. Next, the CLI uses the nearest kit root at or above the current working
    directory, but only as a fallback.
-5. Otherwise, the CLI uses the directory that holds the executable.
+4. Otherwise, the CLI uses the directory that holds the executable.
 
-Sources 2 and 3 identify the installation that is running. A globally installed
+Source 2 identifies the installation that is running. A globally installed
 `docks-kit` updates the global package even when you run it from inside a
 docks-kit checkout. `DOCKS_KIT_HOME` lets you target a specific checkout on
 purpose.
@@ -132,8 +128,6 @@ plain flag-less `docks-kit sync`. It also refreshes plugins, even when the kit
 is already current: it moves `pi-intercom` to its pinned version. Pass
 `--no-sync`, then run `docks-kit sync --skip-plugin-refresh` to keep a present
 `pi-intercom` at its installed version.
-A compiled binary inside a checkout updates the checkout; on the next invocation
-the launcher bypasses that now-stale binary and uses updated source until rebuilt.
 Every `docks-kit sync` except `--dry-run` also does a best-effort behind-upstream
 check and nudges when the checkout is stale (silent offline / detached / no git).
 
@@ -171,20 +165,14 @@ npm install -g docks-kit@latest
 
 Verified on Bun 1.4.2 and npm 11, each in a clean HOME.
 
-## No-Bun recovery
-
-No Bun or constrained sandbox: download the platform release binary from GitHub
-Releases and run it directly. No checkout or `DOCKS_KIT_HOME` is required for
-sync/config reads.
-
 ## Prerequisites
 
-- Bun for source/global installs; release binaries embed the runtime
+- Bun for every install: the checkout launchers and the npm package both run on Bun
 - npm for an npm-installed kit
 - jq is optional doctor/test tooling; sync has no jq runtime dependency
 - curl is needed only to download Bun's upstream installer when Bun is absent:
   by the POSIX `docks-kit` launcher, by the POSIX `install.sh`, and by sync's
-  Bun bootstrap on every host, release binaries included
+  Bun bootstrap on every host
   (`docks-kit toolchain ensure bun` too). `docks-kit.ps1` and `install.ps1`
   download Bun's installer with Invoke-WebRequest. An already-present Bun needs
   no curl.

@@ -24,7 +24,7 @@
  * entry. Use the same variable to read a real stack trace, because the bundle
  * carries no source map. `payload.test.ts` boots the source entry on every
  * run. `smoke:package` runs the published bundle `cli/dist/docks-kit.js` out
- * of an installed tarball, and `smoke:native` runs the compiled binary.
+ * of an installed tarball.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";

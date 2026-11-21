@@ -11,10 +11,10 @@ AI-assisted dev environment on every machine.
 |-------|------|
 | `SoT/.omp/` | omp config deployed to `~/.omp/agent/` (AGENTS.md, config.yml, models.yml, mcp.json) plus `intercom.json` for pi intercom, plus the `plugin/` tree, deployed to `~/.docks-kit/omp-plugin` and linked as the `docks-kit-omp` omp plugin |
 | `SoT/toolchain.json` | Verified-version floors for external tools (see `docks-kit docs toolchain`) |
-| `cli/src/generated/sotPayload.ts` | Deterministic generated payload embedded in standalone/npm execution |
+| `cli/src/generated/sotPayload.ts` | Deterministic generated payload embedded in the npm bundle |
 | `cli/src/engine-native/` | EngineNative mutation logic for sync/toolchain and the `docks-kit omp` session overlay |
 | `cli/` | This CLI (Effect 4 on Bun) plus bundled docs |
-| `docks-kit` / `docks-kit.ps1` | POSIX and Windows launchers: version-matching compiled binary → Bun-from-source, with Bun auto-install |
+| `docks-kit` / `docks-kit.ps1` | POSIX and Windows launchers: host check → Bun-from-source, with Bun auto-install |
 
 ## Design rules
 
@@ -24,7 +24,7 @@ AI-assisted dev environment on every machine.
   summary; `--verbose` / `-v` also prints the no-op confirmations.
 - **Additive by default**: user-only keys and plugins survive a plain sync.
 - **Engine/CLI split**: the CLI adds UX (typed flags, pickers, docs, JSON);
-  EngineNative owns mutation. No-Bun recovery is a platform release binary.
+  EngineNative owns mutation. Every install runs on Bun.
 - **Authoring/runtime split**: changes begin in `SoT/`; build/prepack freshness
   checks keep the generated in-memory payload byte-identical for every runtime.
 

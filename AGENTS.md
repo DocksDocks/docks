@@ -10,7 +10,7 @@ Portable configuration kit for AI coding agents. The kit manages one coding harn
 
 omp uses this `AGENTS.md` file plus the omp SoT under `SoT/.omp/`.
 
-docks-kit runtime and standalone binary support covers Linux x64/arm64, macOS arm64, and Windows x64. Hosts outside this matrix fail before either launcher can fall back to Bun source.
+docks-kit host support covers Linux x64/arm64, macOS arm64, and Windows x64. Hosts outside this matrix fail before either launcher runs the Bun source.
 
 ## Context tree
 
@@ -26,19 +26,19 @@ Per-folder conventions live in nested `AGENTS.md` nodes. An agent can load only 
 
 | Path | Purpose |
 |------|---------|
-| `docks-kit` / `docks-kit.ps1` | POSIX and Windows CLI launchers. On supported hosts, each runs the matching binary in `cli/dist/` only when its `--version` matches `package.json` and no file under `cli/src/` or `cli/docs/` is newer than the binary. Otherwise it runs Bun-from-source and auto-installs Bun plus `node_modules`, and the mismatch or newer-source warning names the rebuild remedy. A launcher never deletes a binary: on a host without Bun it is the only remaining recovery path. Hosts outside the support matrix fail before source fallback. The standalone platform release binary provides no-Bun recovery. |
+| `docks-kit` / `docks-kit.ps1` | POSIX and Windows CLI launchers. Each rejects a host outside the support matrix, then runs the checkout source with Bun and auto-installs Bun plus `node_modules` when they are missing. A launcher never runs a file in `cli/dist/`. |
 | `.oxlintrc.json` / `bunfig.toml` | Mechanical lint (correctness, suspicious, eqeqeq, no-var, prefer-const, no-unused) and the `bun fmt` code format settings (`[fmt]`) |
 | `cli/` | Effect 4 CLI + bundled docs topics |
 | `SoT/toolchain.json` | Toolchain floors manifest (verified pins consumed by EngineNative; optional `upstream` source read by `docks-kit toolchain outdated`) |
 | `SoT/.omp/` | Kit-owned omp SoT: `AGENTS.md`, `config.yml`, `models.yml`, `mcp.json`, `intercom.json`, and the kit plugin source `plugin/` |
 | `install.sh` / `install.ps1` | POSIX and Windows global installers. Each installer stops on a host outside the support matrix before it downloads anything. |
-| `.github/workflows/release-cli.yml` | `cli-v*` release: four binaries (Linux x64 and arm64, macOS arm64, Windows x64), plus `SHA256SUMS`, the bundle's source map `docks-kit.js.map`, and npm publish |
+| `.github/workflows/release-cli.yml` | `cli-v*` release: attaches the bundle's source map `docks-kit.js.map` to the GitHub release and publishes the npm package with provenance |
 | `README.md` | Front door |
 | `package.json` / `bun.lock` | npm package: `bin` = `cli/dist/docks-kit.js`, a minified bundle of the CLI and the generated in-memory SoT payload that `prepack` builds (`bun run build:bundle`); `cli/src` ships too, for the checkout launchers |
 | `docs/PLAN.md` | Plan pointer and project plan rules. The plan record is a GitHub issue; no plan markdown is tracked. `docs/AGENTS.md` routes to it. |
 | `AGENTS.md` | This file — tool-agnostic instructions |
 
-Module map for `cli/` (engine axes, commands, kit store, test fixtures, and the release-binary build `bun run build:binaries`): `cli/AGENTS.md`.
+Module map for `cli/` (engine axes, commands, kit store, test fixtures, and the build scripts): `cli/AGENTS.md`.
 
 SoT notes (the shared prompt authorization, the omp deploy targets, the config and model merges, the retired inventories, the role map, the kit plugin sync, and the cleanup scope): `cli/AGENTS.md` (`### SoT notes`).
 
@@ -67,7 +67,7 @@ SoT notes (the shared prompt authorization, the omp deploy targets, the config a
 - **Exemption: the kit's own package.** `install.sh` and `install.ps1` end with `bun add -g docks-kit@latest`, because a global installer that pinned itself would install a fixed old kit forever, and pinning it to `package.json` would request an unpublished version between the release-prep commit and the npm publish. The `@latest` exemption covers `docks-kit` alone. Both installers still pin the Bun installer they download to the manifest's verified version. `cli/test/unit/hostTargets.test.ts` asserts that pin in all four launcher and installer scripts, and `cli/test/unit/install.test.ts` proves `install.sh` passes it to the Bun installer. Any new install surface, a new marketplace or plugin source included, needs a manifest pin first.
 ## Testing
 
-Run `bun run check` before and after each change: oxlint, `lint:effect` (Effect rules through `effect-tsgo diagnostics --strict`), `bun fmt --check`, `bun check`, the generated-payload check (`check:generated`), unit tests, and both golden suites. Scripts: `lint`, `lint:effect`, `format:check`, `typecheck`, `check:generated`, `test:unit`, `test:integration` (goldens), `test`, `format`; CI runs `check` on pushes to `main` and on pull requests with Bun 1.4.4. Prove-red modes must exit non-zero after detecting planted mismatches. The golden writer emits two-space JSON that `bun fmt` re-serializes, so run `bun run format` after `--update-goldens` or `format:check` fails. For Effect diagnostics in the editor, set the TypeScript language server command to `node_modules/.bin/effect-tsgo tsc --lsp --stdio`. Keep the `@effect/language-service` plugin entry in `cli/tsconfig.json`: without it, `lint:effect` checks no file and passes. Also verify user-facing changes via `./docks-kit sync --dry-run` and `bun run smoke:native`.
+Run `bun run check` before and after each change: oxlint, `lint:effect` (Effect rules through `effect-tsgo diagnostics --strict`), `bun fmt --check`, `bun check`, the generated-payload check (`check:generated`), unit tests, and both golden suites. Scripts: `lint`, `lint:effect`, `format:check`, `typecheck`, `check:generated`, `test:unit`, `test:integration` (goldens), `test`, `format`; CI runs `check` on pushes to `main` and on pull requests with Bun 1.4.4. Prove-red modes must exit non-zero after detecting planted mismatches. The golden writer emits two-space JSON that `bun fmt` re-serializes, so run `bun run format` after `--update-goldens` or `format:check` fails. For Effect diagnostics in the editor, set the TypeScript language server command to `node_modules/.bin/effect-tsgo tsc --lsp --stdio`. Keep the `@effect/language-service` plugin entry in `cli/tsconfig.json`: without it, `lint:effect` checks no file and passes. Also verify user-facing changes via `./docks-kit sync --dry-run` and `bun run smoke:package`.
 
 Use direct acceptance and focused regressions while iterating, then run the full unit/golden gate once at the pre-commit or release boundary. Reuse still-matching evidence; a later relevant edit invalidates only the affected rung and final gate, not every prior check.
 

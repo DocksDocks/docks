@@ -8,7 +8,7 @@ metadata:
     - path: cli/src/engine-native/index.ts
       lines: "1-66"
     - path: cli/src/engine.ts
-      lines: "1-59"
+      lines: "1-53"
     - path: cli/src/main.ts
       lines: "1-89"
     - path: cli/src/engine-native/exec.ts
@@ -18,7 +18,7 @@ metadata:
     - path: cli/src/engine-native/parseHelp.ts
       lines: "1-26"
     - path: cli/src/engine-native/os/targets.ts
-      lines: "1-77"
+      lines: "1-64"
     - path: cli/test/unit/engine.test.ts
       lines: "1-112"
     - path: cli/test/golden-dryrun.ts
