@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # BEGIN GENERATED BUN PIN
-BUN_PIN="1.4.4"
+BUN_PIN="1.4.5"
 # END GENERATED BUN PIN
 
 log()  { printf '\033[1;32m[ok]\033[0m %s\n'   "$1" >&2; }

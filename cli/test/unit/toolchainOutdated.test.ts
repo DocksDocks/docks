@@ -83,9 +83,15 @@ describe("toolchain outdated", () => {
   });
 
   it("distinguishes a newer release from a release matching the verified pin", async () => {
+    // The bun upstream answers with the next patch release after the verified pin, so the row stays newer after
+    // each pin move.
+    const bunPin = verifiedVersion("bun");
+    const [major, minor, patch] = bunPin.split(".").map(Number);
+    const bunNewer = `${major}.${minor}.${Number(patch) + 1}`;
     const fetchImpl = async (url: string | URL | Request): Promise<Response> => {
       const address = String(url);
-      if (address.includes("/repos/oven-sh/bun/")) return jsonResponse({ tag_name: "bun-v1.4.5" });
+      if (address.includes("/repos/oven-sh/bun/"))
+        return jsonResponse({ tag_name: `bun-v${bunNewer}` });
       if (address.includes("/repos/can1357/oh-my-pi/"))
         return jsonResponse({ tag_name: `v${verifiedVersion("omp")}` });
       if (address === "https://registry.npmjs.org/typescript")
@@ -96,7 +102,8 @@ describe("toolchain outdated", () => {
 
     expect(await outdatedReport(makeCtx(stdout), { refresh: false, fetchImpl })).toBe(0);
     const output = stdout.join("");
-    expect(output).toMatch(/^bun\s+managed\s+1\.4\.4\s+1\.4\.5\s+newer\s+github oven-sh\/bun$/m);
+    const bunRow = `^bun\\s+managed\\s+${bunPin.replaceAll(".", "\\.")}\\s+${bunNewer.replaceAll(".", "\\.")}`;
+    expect(output).toMatch(new RegExp(`${bunRow}\\s+newer\\s+github oven-sh/bun$`, "m"));
     const ompPin = verifiedVersion("omp").replaceAll(".", "\\.");
     expect(output).toMatch(
       new RegExp(
