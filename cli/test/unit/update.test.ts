@@ -342,7 +342,10 @@ describe("chained sync entry", () => {
     ]);
     const calls: Array<RecordedSpawn> = [];
     await runPackageUpdate(installed, calls);
-    expect(calls[0]).toEqual({ command: "bun", args: ["add", "-g", "docks-kit@latest"] });
+    expect(calls[0]).toEqual({
+      command: "bun",
+      args: ["add", "-g", "--no-cache", "docks-kit@latest"],
+    });
     expect(calls.at(-1)).toEqual({
       command: process.execPath,
       args: [join(installed.home, "cli", "dist", "docks-kit.js"), "sync"],

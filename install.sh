@@ -60,7 +60,7 @@ if ! BUN="$(find_bun)"; then
 fi
 
 log "Installing docks-kit via bun..."
-"$BUN" add -g docks-kit@latest
+"$BUN" add -g --no-cache docks-kit@latest
 
 if ! gbin="$("$BUN" pm -g bin 2>/dev/null)"; then
   err "Bun could not report its global binary directory."

@@ -116,7 +116,7 @@ if ($null -eq $Bun) {
 }
 
 Write-Ok 'Installing docks-kit via bun...'
-& $Bun add -g docks-kit@latest
+& $Bun add -g --no-cache docks-kit@latest
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }

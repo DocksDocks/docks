@@ -44,7 +44,7 @@ const UNRELATED_FOLDER_COMMANDS: ReadonlyArray<ReadonlyArray<string>> = [
   ["--help"],
   ["sync", "--dry-run"],
 ];
-const RECOVERY_COMMAND = "bun rm -g docks-kit && bun add -g docks-kit@latest";
+const RECOVERY_COMMAND = "bun rm -g docks-kit && bun add -g --no-cache docks-kit@latest";
 const IGNORED_NODE_MODULES_ENTRIES: Record<string, true> = { ".bin": true, ".cache": true };
 const TRUTHY_FLAG_VALUES: Record<string, true> = { "1": true, true: true, yes: true };
 const KEEP_WORK_DIR =
