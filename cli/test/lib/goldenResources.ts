@@ -210,7 +210,7 @@ const STUB_BODIES: Record<string, string> = {
   console.log('{"npm":[],"marketplace":[]}')
 }`,
   npm: `if (args[0] === "view") console.log("0.0.1")`,
-  bun: `if (args[0] === "--version") console.log("1.4.4")`,
+  bun: `if (args[0] === "--version") console.log("1.4.5")`,
   curl: ``,
   // Windows user-environment persistence. A real `setx` writes HKCU and then
   // broadcasts WM_SETTINGCHANGE, which blocks for seconds on a headless runner

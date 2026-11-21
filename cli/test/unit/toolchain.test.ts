@@ -9,6 +9,7 @@ import { report } from "../../src/engine-native/toolchain";
 import { runPublicCli } from "../lib/goldenExecution";
 import { cleanupTemporaryDirs, makeStubDir, temporaryDir } from "../lib/goldenResources";
 import { SPAWN_TIMEOUT_MS } from "../lib/spawnTimeout";
+import { floorVersion, verifiedVersion } from "../lib/toolchainManifest";
 
 afterAll(cleanupTemporaryDirs);
 
@@ -130,7 +131,9 @@ describe("public toolchain ensure", () => {
 
       try {
         expect(run.exitCode).toBe(0);
-        expect(run.stdout).toContain("[dry-run] install Bun 1.4.4 (kit-verified)");
+        expect(run.stdout).toContain(
+          `[dry-run] install Bun ${verifiedVersion("bun")} (kit-verified)`,
+        );
         const argvLog = readFileSync(join(run.home, ".golden-argv.log"), "utf8");
         expect(argvLog.split("\n").filter((line) => line.startsWith("curl\t"))).toEqual([]);
       } finally {
@@ -142,7 +145,7 @@ describe("public toolchain ensure", () => {
   );
 
   it.each([
-    ["1.4.4", "1.4.4"],
+    [verifiedVersion("bun"), verifiedVersion("bun")],
     ["", "version unknown"],
   ])(
     "reports a present Bun with %j version without installing it",
@@ -191,7 +194,7 @@ describe("public toolchain ensure", () => {
 
     expect(await modeToolchain(ctx, ["ensure", "bun"])).toBe(0);
     expect(stderr.map(stripVTControlCharacters)).toEqual([
-      "[warn] bun 1.4.0 is below the kit floor 1.4.4; run bun upgrade\n",
+      `[warn] bun 1.4.0 is below the kit floor ${floorVersion("bun")}; run bun upgrade\n`,
     ]);
   });
 });
