@@ -3244,13 +3244,24 @@ function installedRealRoot(target) {
 // True when `reached`, a path after the file system followed its links (see linkedPath), lands inside the allowed
 // inputs: under an allowed folder, the code-reviewer or plan-reviewer skill folder of a plugin root, or an allowed
 // skill folder of a self-review root; an input file, the copy of the plan contract, an agent file, or a reviewer agent
-// file; the plan contract of a plugin root; or a path under `installedRoot`, the reached `skills/` folder of the
-// installed plugin copy of the read (null for another read). The roots are real too (see realRoots).
+// file; the plan contract of a plugin root, when the case does not change it (see instructionAllowed); or a skill path
+// under `installedRoot`, the reached `skills/` folder of the installed plugin copy of the read (null for another
+// read), that the skill read rules allow (see installedLandingAllowed). The roots are real too (see realRoots).
 function landsInScope(reached, rules, installedRoot) {
   const real = realRoots(rules);
   if (folderAllowed(reached, real) || fileAllowed(reached, real)) return true;
-  if (contractKey(reached, real.pluginRoots) !== undefined) return true;
-  return installedRoot !== null && isUnder(installedRoot, reached);
+  if (instructionAllowed(contractKey(reached, real.pluginRoots), rules)) return true;
+  return installedRoot !== null && installedLandingAllowed(reached, rules, installedRoot);
+}
+
+// True when `reached` is a path under the reached installed `skills/` folder `installedRoot` whose skill key, its path
+// relative to that folder (`<skill>/<rest>`), passes the same skill read rules as a lexical read of that key (see
+// skillReadAllowed): the measured-skill rule, the reviewer-skill rule, the self-review rules, and the case-change rule.
+// So a link of an allowed installed skill to a measured skill or to a skill that the case changes lands outside, and a
+// link between two allowed skills stays inside. The `skills/` folder itself names no skill.
+function installedLandingAllowed(reached, rules, installedRoot) {
+  if (!isUnder(installedRoot, reached) || reached === installedRoot) return false;
+  return skillReadAllowed(path.relative(installedRoot, reached).split(path.sep).join('/'), rules);
 }
 
 // True when a search of the folder `root` can read outside the allowed inputs, so the search is outside the read

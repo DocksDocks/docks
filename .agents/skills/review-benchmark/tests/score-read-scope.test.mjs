@@ -462,6 +462,40 @@ test('readScope allows the reads under an allowed root that is itself a symbolic
   const search = { name: 'grep', path: path.join(modules, 'docks-kit-omp', 'skills', 'code-review') };
   assert.deepEqual(score.readScope([search], { ...scope, pluginRoots: [linkedRoot] }), { outside: [search.path] });
 });
+test('readScope applies the skill read rules to where a link of an installed skill leads', () => {
+  const root = scratch();
+  // An installed kit plugin with an unmeasured skill (unslop), a measured skill (plan-manager, which the measured
+  // plugin copy holds), and the two allowed skills code-review and code-clarity.
+  const skills = path.join(root, 'home', '.omp', 'plugins', 'node_modules', 'docks-kit-omp', 'skills');
+  for (const skill of ['unslop', 'plan-manager', 'code-review', 'code-clarity']) {
+    put(skills, `${skill}/SKILL.md`, `# ${skill}\n`);
+  }
+  fs.symlinkSync(path.join(skills, 'plan-manager'), path.join(skills, 'unslop', 'alias'));
+  fs.symlinkSync(path.join(skills, 'code-clarity'), path.join(skills, 'code-review', 'peer'));
+  fs.symlinkSync(path.join(skills, 'code-review'), path.join(skills, 'unslop', 'review'));
+  const { scope } = snapshotScope(root, 'code-7');
+  const measured = { ...scope, heldSkills: ['plan-manager'] };
+  // Through the link to the measured skill: the lexical key `unslop/alias/...` passes, the destination does not.
+  const intoMeasured = [
+    ...reads(path.join(skills, 'unslop', 'alias', 'SKILL.md')),
+    { name: 'grep', path: path.join(skills, 'unslop') },
+  ];
+  assert.deepEqual(score.readScope(intoMeasured, measured), { outside: intoMeasured.map((call) => call.path) });
+  // A link between the two allowed skills stays in scope, for a read and for a search.
+  const betweenAllowed = [
+    ...reads(path.join(skills, 'code-review', 'peer', 'SKILL.md')),
+    { name: 'grep', path: path.join(skills, 'code-review') },
+  ];
+  assert.deepEqual(score.readScope(betweenAllowed, measured), { outside: [] });
+  // The case-change rule holds at the destination too: when the case changes code-review, a read through the unslop
+  // link to it is outside, and the same read without the change stays inside.
+  const intoChanged = reads(path.join(skills, 'unslop', 'review', 'SKILL.md'));
+  assert.deepEqual(score.readScope(intoChanged, scope), { outside: [] });
+  assert.deepEqual(
+    score.readScope(intoChanged, { ...scope, changedFiles: ['SoT/.omp/plugin/skills/code-review/SKILL.md'] }),
+    { outside: [intoChanged[0].path] },
+  );
+});
 test('readScope refuses a search of / or of another folder outside the inputs by its allow rules, before it lists any folder', () => {
   const root = scratch();
   const { snapshot, scope } = snapshotScope(root, 'code-7');
